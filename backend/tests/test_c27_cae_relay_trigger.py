@@ -479,6 +479,109 @@ class TestCrossAccountBatch:
         assert result["processed"] == 1
 
     @pytest.mark.asyncio
+    async def test_comprobante_anulado_en_el_medio_no_se_loguea_como_fallo(self, caplog):
+        """venta-editable-sin-cae (red team 2026-09-22, m2).
+
+        Desde este change, anular el comprobante pendiente de una venta que se
+        edita o se borra es un camino NORMAL del producto. Si eso pasa entre el
+        `claim_pending` (que vio `pending_cae`) y la marca previa al envío,
+        `rpc_fiscal_document_mark_submit_started` levanta P0437 — que es
+        exactamente lo que tiene que pasar: el FECAESolicitar NO sale. Pero el
+        tick lo trataba como una excepción no manejada y escribía un
+        `logger.exception` con stack trace en Render para un caso esperado:
+        ruido en el camino de dinero, que es donde menos se puede gastar la
+        atención de quien mira los logs.
+
+        Lo que NO cambia: el batch sigue sin abortarse (M-1 de
+        fiscal-emision-segura) y cualquier OTRO P0437 —una marca viva, un
+        documento inexistente— sigue siendo un `logger.exception`, porque ahí sí
+        hay algo que mirar. Lo distingue el estado REAL del documento, no el
+        texto del mensaje.
+        """
+        import logging
+
+        from backend.services.fiscal.fiscal_profile_service import process_all_pending_documents
+
+        doc = make_pending_doc(doc_id=DOC_ID, account_id=ACCOUNT_ID)
+
+        class _Anulado(Exception):
+            sqlstate = "P0437"
+
+        mock_repo = MagicMock()
+        mock_repo.list_pending_all = AsyncMock(return_value=[doc])
+        mock_repo.claim_pending = AsyncMock(return_value=dict(doc))
+        mock_repo.mark_submit_started = AsyncMock(side_effect=_Anulado("mark_submit_started: P0437"))
+        mock_repo.clear_submit_mark = AsyncMock(return_value=True)
+        mock_repo.update_authorized = AsyncMock()
+        # El estado REAL al momento del fallo: la edición ya lo anuló.
+        mock_repo.get_by_id = AsyncMock(return_value={**doc, "status": "voided"})
+
+        mock_adapter = MagicMock()
+
+        async def _request_cae(req):
+            await req.on_submit_start(req.number)   # el hook levanta P0437
+            raise AssertionError("no se debe llegar al FECAESolicitar de un anulado")
+
+        mock_adapter.request_cae = AsyncMock(side_effect=_request_cae)
+
+        with caplog.at_level(logging.INFO, logger="backend.services.fiscal.fiscal_profile_service"):
+            result = await process_all_pending_documents(mock_repo, mock_adapter)
+
+        errores = [r for r in caplog.records if r.levelno >= logging.ERROR]
+        assert not errores, (
+            "un comprobante ANULADO mientras el relay lo procesaba no es un fallo del "
+            f"relay: no debe salir en nivel ERROR. Salió: {[r.message for r in errores]}"
+        )
+        assert any(
+            r.levelno == logging.INFO and "anul" in r.message.lower()
+            for r in caplog.records
+        ), (
+            "el tick sí debe DEJAR RASTRO en INFO de que salteó un comprobante anulado "
+            f"(records: {[(r.levelname, r.message) for r in caplog.records]})"
+        )
+        assert result["processed"] == 0, "un documento anulado no cuenta como procesado"
+
+    @pytest.mark.asyncio
+    async def test_otro_p0437_sigue_siendo_un_fallo_ruidoso(self, caplog):
+        """Triangulación del test de arriba: MISMO P0437, documento que sigue
+        `pending_cae` (p. ej. una marca viva de un tick anterior que no se
+        limpió). Eso NO es un camino normal y tiene que seguir gritando — si el
+        guard nuevo clasificara por el ERRCODE a secas, este caso se perdería.
+        """
+        import logging
+
+        from backend.services.fiscal.fiscal_profile_service import process_all_pending_documents
+
+        doc = make_pending_doc(doc_id=DOC_ID, account_id=ACCOUNT_ID)
+
+        class _MarcaViva(Exception):
+            sqlstate = "P0437"
+
+        mock_repo = MagicMock()
+        mock_repo.list_pending_all = AsyncMock(return_value=[doc])
+        mock_repo.claim_pending = AsyncMock(return_value=dict(doc))
+        mock_repo.mark_submit_started = AsyncMock(side_effect=_MarcaViva("marca viva"))
+        mock_repo.clear_submit_mark = AsyncMock(return_value=True)
+        mock_repo.update_authorized = AsyncMock()
+        mock_repo.get_by_id = AsyncMock(return_value=dict(doc))   # sigue pending_cae
+
+        mock_adapter = MagicMock()
+
+        async def _request_cae(req):
+            await req.on_submit_start(req.number)
+            raise AssertionError("no se debe llegar al FECAESolicitar")
+
+        mock_adapter.request_cae = AsyncMock(side_effect=_request_cae)
+
+        with caplog.at_level(logging.INFO, logger="backend.services.fiscal.fiscal_profile_service"):
+            await process_all_pending_documents(mock_repo, mock_adapter)
+
+        assert any(r.levelno >= logging.ERROR for r in caplog.records), (
+            "un P0437 sobre un documento que sigue pending_cae NO es un camino normal: "
+            "tiene que quedar en nivel ERROR con su stack trace"
+        )
+
+    @pytest.mark.asyncio
     async def test_process_all_returns_summary_with_counters(self):
         """RED: Return dict has 'processed', 'authorized', 'retried', 'rejected' keys."""
         from backend.services.fiscal.fiscal_profile_service import process_all_pending_documents

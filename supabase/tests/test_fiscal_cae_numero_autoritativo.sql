@@ -249,6 +249,15 @@ BEGIN
     v_missing := v_missing || format('claim_pending EXCLUYE a los marcados (cae_submit_started_at IS NULL en el WHERE): quedarían inalcanzables para siempre');
   END IF;
 
+  -- venta-editable-sin-cae (20261060000001) DEPENDE de esta cláusula: es lo
+  -- único que impide que el relay emita un comprobante ANULADO (voided) —
+  -- anular es un UPDATE de status, no un borrado, así que la fila sigue ahí
+  -- con su punto de venta, su número y su total VIEJO. Estaba implícita en el
+  -- cuerpo y no anclada por ningún gate; se ancla acá, junto a sus hermanas.
+  IF position('fd.status = ''pending_cae''' in v_claim) = 0 THEN
+    v_missing := v_missing || format('claim_pending dejó de filtrar por status = ''pending_cae'': un comprobante ANULADO (voided) volvería a ser reclamable y el relay lo facturaría con los importes viejos (venta-editable-sin-cae)');
+  END IF;
+
   SELECT pg_get_functiondef(to_regprocedure('public.rpc_fiscal_document_mark_submit_started(uuid, bigint)'))
   INTO   v_mark;
   SELECT pg_get_functiondef(to_regprocedure('public.rpc_fiscal_document_clear_submit_mark(uuid, text)'))
@@ -256,10 +265,20 @@ BEGIN
 
   IF v_mark IS NULL THEN
     v_missing := v_missing || format('rpc_fiscal_document_mark_submit_started NO EXISTE');
-  ELSIF position('cae_submit_started_at IS NULL' in v_mark) = 0 THEN
-    -- Sin este guard, marcar dos veces pisaría el número de un envío que puede
-    -- estar en vuelo y la reconciliación consultaría en ARCA el número equivocado.
-    v_missing := v_missing || format('mark_submit_started sin el guard de marca viva (cae_submit_started_at IS NULL)');
+  ELSE
+    IF position('cae_submit_started_at IS NULL' in v_mark) = 0 THEN
+      -- Sin este guard, marcar dos veces pisaría el número de un envío que puede
+      -- estar en vuelo y la reconciliación consultaría en ARCA el número equivocado.
+      v_missing := v_missing || format('mark_submit_started sin el guard de marca viva (cae_submit_started_at IS NULL)');
+    END IF;
+    -- venta-editable-sin-cae DEPENDE de este segundo filtro: es el punto de
+    -- paso obligado que hace que la carrera "la edición anula mientras el relay
+    -- ya reclamó" termine SIEMPRE en P0437 y no en un FECAESolicitar con
+    -- importes viejos. El RAISE (en vez de devolver false) es parte del
+    -- contrato: fiscal_document_repository.mark_submit_started no lo traga.
+    IF position('status = ''pending_cae''' in v_mark) = 0 THEN
+      v_missing := v_missing || format('mark_submit_started dejó de exigir status = ''pending_cae'': podría enviarse a ARCA un comprobante ANULADO (venta-editable-sin-cae)');
+    END IF;
   END IF;
 
   IF v_clear IS NULL THEN

@@ -3,9 +3,15 @@
 /**
  * C-27 v21-fiscal-profile — FiscalDocumentBadge.
  *
- * Badge con estado de un comprobante fiscal (`pending_cae | authorized | rejected`).
+ * Badge con estado de un comprobante fiscal
+ * (`pending_cae | authorized | rejected | voided`).
  * Se suscribe a cambios Realtime en `fiscal_documents` para el documento dado
  * y actualiza el badge automáticamente cuando el relay cambia `pending_cae → authorized`.
+ *
+ * venta-editable-sin-cae: `voided` es el 4o estado terminal — el comprobante se
+ * anuló al editar o borrar su venta, antes de que el pedido saliera hacia ARCA.
+ * El `useEffect` de Realtime sólo abre canal mientras `status === "pending_cae"`,
+ * así que un anulado no se suscribe a nada (correcto, sin cambios).
  *
  * Design ref: D5 (async CAE machine), D6 (relay idempotente), DEC-16 (Realtime en Supabase).
  *
@@ -16,11 +22,15 @@
 import { useEffect, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { Badge } from "@/components/ui/badge"
-import { AlertTriangle, Loader2 } from "lucide-react"
+import { AlertTriangle, Ban, Loader2 } from "lucide-react"
+import type { FiscalDocumentStatus } from "@/lib/types"
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-export type FiscalDocumentStatus = "pending_cae" | "authorized" | "rejected"
+// venta-editable-sin-cae: el tipo vive ahora en la capa canónica (lib/types.ts)
+// porque `Sale.fiscal` lo necesita y `lib/` no debe importar de `components/`.
+// Se re-exporta acá para no tocar a sus otros importadores.
+export type { FiscalDocumentStatus } from "@/lib/types"
 
 interface FiscalDocumentBadgeProps {
   documentId: string
@@ -59,6 +69,18 @@ const STATUS_CONFIG: Record<
     label:        "Rechazado",
     labelVerbose: "Rechazado por AFIP",
     className:    "bg-red-500/10 text-red-500 border-red-500/30",
+  },
+  // venta-editable-sin-cae (D1): 4o estado terminal. Un anulado es INERTE, no
+  // un error — nunca llegó a ARCA. De ahí el gris de superficie neutra y no el
+  // rojo de `rejected`.
+  // Tokens semánticos (regla dura del proyecto). Las 3 entradas de arriba usan
+  // colores literales y NO se reescriben acá (fuera de alcance, mismo criterio
+  // con el que CustomerAccountBalance quedó como candidato); la entrada nueva
+  // sí nace con tokens, así que su contraste lo cubre el gate token-contrast-aa.
+  voided: {
+    label:        "Anulado",
+    labelVerbose: "Anulado (no se envió a ARCA)",
+    className:    "bg-muted text-muted-foreground border-border",
   },
 }
 
@@ -138,13 +160,23 @@ export function FiscalDocumentBadge({
     )
   }
 
-  const config = STATUS_CONFIG[status]
+  // Fallback fail-closed: sin esto, un status que el cliente no conoce (el
+  // CHECK de fiscal_documents puede ganar un valor nuevo antes que este bundle)
+  // daba `undefined` y el badge rompía el render de la fila ENTERA con un
+  // TypeError. Mostrar "Estado desconocido" es peor que mostrar el estado, pero
+  // es muchísimo mejor que no mostrar la venta.
+  const config = STATUS_CONFIG[status] ?? {
+    label:        "Estado desconocido",
+    labelVerbose: `Estado desconocido (${String(status)})`,
+    className:    "bg-muted text-muted-foreground border-border",
+  }
 
   return (
     <Badge variant="outline" className={`inline-flex items-center gap-1 text-xs ${config.className}`}>
       {status === "pending_cae" && (
         <Loader2 className="h-3 w-3 animate-spin" />
       )}
+      {status === "voided" && <Ban className="h-3 w-3" />}
       {verbose ? config.labelVerbose : config.label}
     </Badge>
   )

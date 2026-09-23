@@ -4,7 +4,9 @@ import { useState, useCallback, useMemo } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { pythonClient } from "@/lib/api/python-client"
 import { queryKeys } from "@/lib/query-keys"
+import { isFiscalDocumentStatus } from "@/lib/types"
 import type { Sale } from "@/lib/types"
+import { formatComprobante } from "@/lib/fiscal-comprobante"
 import type { SaleCartItem } from "@/lib/cart-utils"
 import {
   buildPaginationMeta,
@@ -37,9 +39,19 @@ interface SaleApiRow {
   branch_id?: string | null
   canal?: string | null
   unit_id?: string | null
-  // edicion-preserva-contexto (F2): derivado de lectura — true si tiene
-  // comprobante fiscal pending_cae/authorized.
-  is_invoiced?: boolean
+  // venta-editable-sin-cae (D11): derivado de lectura — true si el comprobante
+  // YA SALIÓ hacia ARCA (authorized, o pending_cae marcado/congelado).
+  // Reemplaza is_invoiced.
+  is_fiscally_locked?: boolean
+  // venta-editable-sin-cae: evidencia cruda del comprobante, para que la UI
+  // nombre la causa real, muestre el badge y avise qué se va a anular.
+  fiscal_document_id?: string | null
+  fiscal_document_status?: string | null
+  fiscal_punto_de_venta?: number | null
+  fiscal_number?: number | null
+  fiscal_submitted_to_arca?: boolean
+  fiscal_frozen?: boolean
+  fiscal_pending_voidable?: boolean
   // pagos-cableados-restantes (D6): derivado de lectura — true si tiene
   // cargo de cuenta corriente o movimiento de caja posteado.
   is_payment_locked?: boolean
@@ -65,6 +77,25 @@ interface SaleOperationResult {
   operation_kind?: string | null
 }
 
+/**
+ * venta-editable-sin-cae: respuesta de PUT /sales/operation.
+ * `voided_fiscal_document` es null cuando la venta no tenía comprobante, o el
+ * que tenía ya era terminal-inocuo (rejected/voided).
+ */
+export interface VoidedFiscalDocument {
+  fiscal_document_id: string
+  punto_de_venta: number
+  number: number
+  /** "0003-00000005" — formateado por el servidor. */
+  label: string
+}
+
+export interface SaleOperationUpdateResponse {
+  ok: boolean
+  operation_id: string
+  voided_fiscal_document: VoidedFiscalDocument | null
+}
+
 function mapSale(s: SaleApiRow): Sale {
   return {
     id:          s.id,
@@ -86,7 +117,30 @@ function mapSale(s: SaleApiRow): Sale {
     branchId: s.branch_id ?? null,
     canal:    s.canal ?? null,
     unitId:   s.unit_id ?? undefined,
-    isInvoiced: s.is_invoiced ?? false,
+    isFiscallyLocked: s.is_fiscally_locked ?? false,
+    // venta-editable-sin-cae: `fiscal` es null cuando la venta no tiene
+    // comprobante. El label sale de `formatComprobante` (lib/fiscal-comprobante),
+    // el MISMO helper que ya usa la pantalla de emisión — presentación, no una
+    // segunda fuente de verdad: el label del comprobante ANULADO lo manda el
+    // servidor en la respuesta del PUT.
+    fiscal: s.fiscal_document_id
+      ? {
+          documentId:      s.fiscal_document_id,
+          // Validado, no casteado: un status que el cliente no conoce no se
+          // hace pasar por uno que sí. Las decisiones reales (¿editable?, ¿se
+          // anula?) no dependen de esto —vienen derivadas del servidor en
+          // `is_fiscally_locked` / `fiscal_pending_voidable`, y el guard SQL es
+          // fail-closed ante un status desconocido—, así que acá alcanza con
+          // caer en el estado que no ofrece ninguna acción destructiva.
+          status:          isFiscalDocumentStatus(s.fiscal_document_status)
+                             ? s.fiscal_document_status
+                             : "pending_cae",
+          label:           formatComprobante(s.fiscal_punto_de_venta, s.fiscal_number),
+          submittedToArca: s.fiscal_submitted_to_arca ?? false,
+          frozen:          s.fiscal_frozen ?? false,
+          voidable:        s.fiscal_pending_voidable ?? false,
+        }
+      : null,
     isPaymentLocked: s.is_payment_locked ?? false,
     hasAccountCharge: s.has_account_charge ?? false,
     hasCashMovement:  s.has_cash_movement  ?? false,
@@ -342,7 +396,10 @@ export function useSales() {
       if ("canal" in opMeta) {
         payload.canal = opMeta.canal ?? null
       }
-      return pythonClient.put<void>("/sales/operation", payload)
+      // venta-editable-sin-cae: la respuesta trae `voided_fiscal_document`
+      // cuando la edición anuló el comprobante pendiente. El toast del form se
+      // arma con ESTO, nunca con lo que el cliente creía antes de guardar.
+      return pythonClient.put<SaleOperationUpdateResponse>("/sales/operation", payload)
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.sales.all() })

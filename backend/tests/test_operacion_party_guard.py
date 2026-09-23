@@ -45,8 +45,9 @@ el guard en sí), con MOLDE en backend/tests/test_cuenta_corriente_party_guard.p
      backend]. `sales_service.update_sale_operation` NO tiene try/except
      propio (verificado en backend/services/sales.py) — mismo molde que
      "purchase": sube al handler global RFC 7807. `SalesRepository.
-     update_operation` llama `conn.execute(...)` (no `fetchrow`), a
-     diferencia de purchase — el mock se monta sobre `conn.execute`.
+     update_operation` llama `conn.fetchval(...)` (no `fetchrow`) desde
+     venta-editable-sin-cae, a diferencia de purchase — el mock se monta
+     sobre `conn.fetchval`.
 
   5. "accept quote" (rpc_accept_quote, vía POST /quotes/{id}/accept) — NUEVO
      [RONDA 1, MAJOR: el guard nuevo de esta ronda]. `quotes_service.
@@ -291,10 +292,13 @@ class TestUpdateSaleOperationPartyGuardHttp:
         self, async_client, mock_pool
     ):
         """Editar una venta propia reasignándole un client_id de otro tenant →
-        404 con cuerpo 7807 completo. SalesRepository.update_operation llama
-        conn.execute (no fetchrow) — a diferencia del molde de purchase."""
+        404 con cuerpo 7807 completo. venta-editable-sin-cae migró
+        SalesRepository.update_operation de conn.execute a conn.fetchval (la RPC
+        pasó a devolver jsonb con el comprobante anulado): el mock se monta
+        sobre fetchval, o dejaría de interceptar y el test pasaría por la
+        razón equivocada."""
         pool, conn = mock_pool
-        conn.execute = AsyncMock(side_effect=_pg_error("P0404", CLIENT_NOT_FOUND_MSG))
+        conn.fetchval = AsyncMock(side_effect=_pg_error("P0404", CLIENT_NOT_FOUND_MSG))
 
         with patch("backend.core.database.pool", pool):
             headers = {"Authorization": f"Bearer {make_token({'role': 'user'})}"}
@@ -318,7 +322,7 @@ class TestUpdateSaleOperationPartyGuardHttp:
         que 7.4 en el archivo molde: sin esto, un `except` demasiado ancho
         haría pasar el test de arriba por accidente."""
         pool, conn = mock_pool
-        conn.execute = AsyncMock(
+        conn.fetchval = AsyncMock(
             side_effect=_pg_error("P0999", "detalle interno que no debe filtrarse")
         )
 

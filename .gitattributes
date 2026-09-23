@@ -1,0 +1,8 @@
+# venta-editable-sin-cae (2026-09-22): el repo se edita desde Windows y está
+# en CRLF (core.autocrlf=true lo normaliza a LF en el índice), pero un script de
+# shell con CRLF es un error DURO en Linux: bash lee el \r como parte del
+# comando y el paso de CI muere con "bad interpreter" o "command not found".
+# supabase/tests/test_venta_editable_sin_cae_race.sh es el primer .sh del repo
+# y corre en ubuntu-latest, así que se ancla explícitamente en LF en vez de
+# depender de la configuración local de quien commitee.
+*.sh text eol=lf

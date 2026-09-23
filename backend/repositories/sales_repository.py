@@ -92,7 +92,43 @@ class SalesRepository(BaseRepository):
                    -- (D5: segunda fuente de verdad = fuente de bugs
                    -- silenciosos). sale_operation_id tiene índice único
                    -- parcial → sin fan-out.
-                   COALESCE(fd.status IN ('pending_cae', 'authorized'), false) AS is_invoiced,
+                   -- venta-editable-sin-cae (D2/D11): MISMO predicado que el
+                   -- helper _fiscal_void_pending_for_sale_edit. El nombre
+                   -- cambió (is_invoiced → is_fiscally_locked) porque con la
+                   -- regla nueva "facturada" e "inmutable" dejaron de ser lo
+                   -- mismo: una venta con comprobante pendiente NO enviado
+                   -- está facturada y SÍ es editable. `is_invoiced=false` para
+                   -- ese caso habría sido una mentira, y `true` otra.
+                   COALESCE(
+                     fd.status = 'authorized'
+                     OR (fd.status = 'pending_cae'
+                         AND (fd.cae_submit_started_at IS NOT NULL
+                           OR fd.cae_submit_unconfirmed_at IS NOT NULL)),
+                     false
+                   )                                        AS is_fiscally_locked,
+                   -- Evidencia CRUDA del comprobante, para que la UI pueda
+                   -- nombrar la causa real y mostrar el badge: el motivo del
+                   -- lápiz deshabilitado ("ya se envió a ARCA" vs. "autorizado
+                   -- por ARCA" vs. "congelado") y el label 0003-00000005 del
+                   -- aviso de anulación salen de acá, no de una adivinanza.
+                   fd.id                                    AS fiscal_document_id,
+                   fd.status                                AS fiscal_document_status,
+                   fd.punto_de_venta                        AS fiscal_punto_de_venta,
+                   fd.number                                AS fiscal_number,
+                   (fd.cae_submit_started_at IS NOT NULL)   AS fiscal_submitted_to_arca,
+                   -- `fiscal_frozen` replica EXACTAMENTE la condición de
+                   -- backend/routers/fiscal.py (`is_frozen`: la marca Y
+                   -- status='pending_cae'), por el mismo motivo que explica su
+                   -- comentario: un congelado resuelto a mano deja de estar
+                   -- congelado aunque la marca no se limpie nunca.
+                   (fd.cae_submit_unconfirmed_at IS NOT NULL
+                      AND fd.status = 'pending_cae')        AS fiscal_frozen,
+                   -- "si edito o borro esta venta, su comprobante se ANULA":
+                   -- pendiente sin marca alguna. Lo consume la confirmación
+                   -- explícita de la UI.
+                   (fd.id IS NOT NULL AND fd.status = 'pending_cae'
+                      AND fd.cae_submit_started_at IS NULL
+                      AND fd.cae_submit_unconfirmed_at IS NULL) AS fiscal_pending_voidable,
                    -- pagos-cableados-restantes (D6): MISMO predicado que el
                    -- guard P0423 de rpc_atomic_update_sale_operation — cubre
                    -- las DOS convenciones de reference_id que la migración
@@ -100,8 +136,10 @@ class SalesRepository(BaseRepository):
                    -- helper _pay_register_party_charge / opt-in de caja) y
                    -- sales_orders.id (POS, _c29_confirm_order_core). Derivado
                    -- de lectura, reusando el `so` ya montado para
-                   -- payment_method/is_invoiced — nunca una columna
-                   -- denormalizada (misma regla D5 de arriba).
+                   -- payment_method/is_fiscally_locked — nunca una columna
+                   -- denormalizada (misma regla D5 de arriba). El nombre
+                   -- is_invoiced que menciona este comentario pasó a
+                   -- is_fiscally_locked en venta-editable-sin-cae.
                    -- pos-banco-movimientos (D8): tercer término — bank_movements,
                    -- mismo predicado que el tercer EXISTS de
                    -- rpc_atomic_update_sale_operation (source_doc_type='sale').
@@ -206,7 +244,7 @@ class SalesRepository(BaseRepository):
         branch_provided: bool = False,
         canal: str | None = None,
         canal_provided: bool = False,
-    ) -> None:
+    ) -> dict[str, object]:
         # rpc_atomic_update_sale_operation hace REVERSE de los ítems viejos +
         # APPLY de los nuevos en una sola transacción (stock sobre branch_stock,
         # C-21 hotfix). RLS/auth.uid() scope vía JWT-passthrough de la conexión.
@@ -216,12 +254,21 @@ class SalesRepository(BaseRepository):
         # como ya se hace con p_canal en la creación.
         # edicion-preserva-contexto (F1 §D3): branch_provided/canal_provided
         # son el MISMO contrato tri-estado, parámetros nombrados nuevos.
+        # venta-editable-sin-cae: pasa de `execute` (que DESCARTABA el
+        # resultado) a `fetchval`. La RPC devuelve jsonb con `operation_id`,
+        # `items` y —lo nuevo— `voided_fiscal_document`: el descriptor del
+        # comprobante que la edición anuló, o null. Sin esto el toast de éxito
+        # tendría que adivinar si hubo anulación, y una carrera perdida
+        # mostraría un "anulado" falso.
+        # asyncpg entrega jsonb como `str` (el pool no configura set_type_codec)
+        # — mismo patrón de decodificación que `promote_to_order`, más abajo en
+        # este mismo archivo.
         def _default(obj):
             if isinstance(obj, Decimal):
                 return str(obj)
             raise TypeError(f"Not serializable: {type(obj)}")
 
-        await self._conn.execute(
+        result = await self._conn.fetchval(
             """
             SELECT rpc_atomic_update_sale_operation(
                 $1::text[]::uuid[], $2::text::uuid, $3::date, $4::text, $5::jsonb,
@@ -242,6 +289,12 @@ class SalesRepository(BaseRepository):
             canal,
             canal_provided,
         )
+        if result is None:
+            # La RPC siempre devuelve jsonb; un NULL acá es un contrato roto,
+            # no un caso de negocio. Mismo criterio que promote_to_order.
+            raise ValueError("rpc_atomic_update_sale_operation devolvió NULL inesperado")
+        decoded = json.loads(result) if isinstance(result, str) else result
+        return dict(decoded)
 
     async def promote_to_order(self, operation_id: str) -> dict:
         """

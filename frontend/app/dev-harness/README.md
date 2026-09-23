@@ -25,6 +25,19 @@ layout ni scroll ante `wheel`/`touchmove` (RED de `tasks.md` 1.1/2.1).
   `/expenses/import` (catálogos sintéticos + heurística mínima para ejercitar
   ok/aviso/error del paso 2), para la pasada visual de los tres pasos sin
   sesión ni backend real.
+- `/dev-harness/venta-editable?theme=light|dark&view=list|form` —
+  venta-editable-sin-cae: el listado REAL (`SaleOperationsList`) con las cinco
+  clases de venta que el change distingue (sin comprobante / pendiente
+  anulable / enviado a ARCA / autorizado / anulado) y, con `view=form`, el
+  formulario de edición con el comprobante pendiente anulable —para capturar el
+  banner de aviso y el `AlertDialog` de "Guardar y anular"—. Las pantallas
+  reales (`/ventas`) exigen sesión y backend; acá no hace falta ninguno de los
+  dos: el estado fiscal viaja por props y `window.fetch` hacia el backend se
+  intercepta devolviendo vacío. Gotcha aprendido en su spec: el listado
+  renderiza la MISMA fila dos veces (bloque `sm:hidden` de móvil + bloque
+  `hidden sm:grid` de desktop), así que todo texto/control de la fila resuelve
+  a DOS elementos y `.first()` toma el de móvil —invisible en desktop—; hay que
+  filtrar por visibilidad (`filter({ visible: true })`), no por posición.
 - `/dev-harness/emitir-suscripcion?theme=light|dark` — fiscal-emision-segura
   (G5/H3): `EmitirSuscripcionDialog` real con props sintéticas, para la pasada
   visual de las 4 combinaciones (1366 / 375 × claro / oscuro) y para fijar que

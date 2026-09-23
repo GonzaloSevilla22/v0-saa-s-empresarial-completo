@@ -15,6 +15,7 @@ from backend.schemas.sales import (
     SaleOperationIn,
     SaleOperationOut,
     SaleOperationUpdateIn,
+    SaleOperationUpdateOut,
     SalesPageOut,
     SalesReceiptPdfIn,
 )
@@ -100,14 +101,21 @@ async def create_sale(
     return await sales_service.create_sale_operation(repo, auth, str(account_id), payload)
 
 
-@router.put("/operation")
+@router.put("/operation", response_model=SaleOperationUpdateOut)
 async def update_sale_operation(
     payload: SaleOperationUpdateIn,
     auth: dict = Depends(get_current_user),
     repo: SalesRepository = Depends(get_repo),
 ):
     """Edita una operación de venta: reemplaza sus ítems vía
-    rpc_atomic_update_sale_operation (REVERSE + APPLY de stock, atómico)."""
+    rpc_atomic_update_sale_operation (REVERSE + APPLY de stock, atómico).
+
+    venta-editable-sin-cae: si la venta tenía un comprobante fiscal pendiente
+    que TODAVÍA NO salió hacia ARCA, la RPC lo ANULA en la misma transacción y
+    devuelve su descriptor en `voided_fiscal_document`. Si el comprobante ya
+    salió (o está autorizado, o el relay tiene la fila tomada), la RPC levanta
+    P0423 y el handler global lo traduce a 409 problem+json — el token del
+    mensaje distingue la causa."""
     # metodos-pago-operaciones (D5): ver el comentario espejo en routers/purchases.py.
     payment_method_provided = "payment_method_id" in payload.model_fields_set
     # edicion-preserva-contexto (F1 §D3): mismo contrato tri-estado por
@@ -116,10 +124,10 @@ async def update_sale_operation(
     # desimputar. Nunca `payload.branch_id is None`.
     branch_provided = "branch_id" in payload.model_fields_set
     canal_provided = "canal" in payload.model_fields_set
-    await sales_service.update_sale_operation(
+    result = await sales_service.update_sale_operation(
         repo, auth, payload, payment_method_provided, branch_provided, canal_provided
     )
-    return {"ok": True}
+    return {"ok": True, **result}
 
 
 @router.delete("", status_code=204)

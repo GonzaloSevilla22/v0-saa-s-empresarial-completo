@@ -188,7 +188,19 @@ DECLARE
     -- impedir. Candado de firma en el bloque (3) de
     -- supabase/tests/test_fiscal_cae_numero_autoritativo.sql.
     'public.rpc_fiscal_document_mark_submit_started(uuid, bigint)',
-    'public.rpc_fiscal_document_clear_submit_mark(uuid, text)'
+    'public.rpc_fiscal_document_clear_submit_mark(uuid, text)',
+    -- venta-editable-sin-cae (20261060000001): el helper que ANULA (voided) el
+    -- comprobante pendiente de una sales_order cuando el pedido no salió hacia
+    -- ARCA. SECURITY DEFINER, recibe el account_id POR PARÁMETRO y no valida
+    -- tenencia (la validan sus dos únicos llamadores,
+    -- rpc_atomic_update_sale_operation y rpc_delete_sale_operation, antes de
+    -- invocarlo). Expuesto a `authenticated` sería la primitiva para anular
+    -- por PostgREST el comprobante pendiente de CUALQUIER cuenta con sólo
+    -- conocer el uuid de la orden — y como el borrado de la venta es el caso
+    -- de uso, también para dejar la orden ajena facturable de nuevo. NUNCA
+    -- otorgar. Candado de comportamiento: el bloque de introspección de la
+    -- propia migración y supabase/tests/test_venta_editable_sin_cae.sql.
+    'public._fiscal_void_pending_for_sale_edit(uuid, uuid, uuid, text)'
   ];
   -- Allowlist del chequeo (4) — helpers internos que HOY siguen expuestos a
   -- `authenticated`. Cada entrada necesita su justificación.

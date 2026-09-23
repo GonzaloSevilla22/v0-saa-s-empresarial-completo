@@ -4,8 +4,12 @@
 -- transición sobre document_status_transitions/record_status_transition.
 --
 --   (1) allowed_role es text[] (D13) y el reparto es EXACTAMENTE 14
---       pobladas / 5 NULL sobre las 19 filas — las 5 son las 3 de
+--       pobladas / 6 NULL sobre las 20 filas — las 6 son las 4 de
 --       fiscal_document y las 2 quote→expired (11.1).
+--       venta-editable-sin-cae (20261060000001) sumó la 4a de
+--       fiscal_document (pending_cae→voided, allowed_role NULL por D7):
+--       19/5 pasó a 20/6. Este bloque es de conteo EXACTO, así que una fila
+--       nueva sin actualizarlo acá rompe el pipeline — a propósito.
 --   (2) segregación de funciones (11.2, RN-A4): un cashier CONFIRMA una
 --       venta (sales_order draft→confirmed) pero NO la ANULA
 --       (confirmed→canceled, requiere admin/owner); un stock completa una
@@ -36,7 +40,7 @@
 --       en abstracto (ver el punto ciego documentado en (5b): un llamador
 --       YA conocido que cambie el PAR que produce sigue sin gate).
 --   (5b) Ronda 2 adversarial: el conjunto de funciones que invocan
---       record_status_transition sigue siendo EXACTAMENTE el de los 12
+--       record_status_transition sigue siendo EXACTAMENTE el de los 13
 --       llamadores conocidos -- ver el bloque de abajo para el detalle y
 --       el punto ciego declarado (trg_quote_record_creation, candidato en
 --       CHANGES.md).
@@ -64,8 +68,8 @@ BEGIN
   SELECT count(*), count(allowed_role) INTO v_total, v_populated
   FROM public.document_status_transitions;
 
-  IF v_total <> 19 OR v_populated <> 14 THEN
-    RAISE EXCEPTION 'GATE FAILED (1): se esperaban 19 filas / 14 pobladas, hay % / %', v_total, v_populated;
+  IF v_total <> 20 OR v_populated <> 14 THEN
+    RAISE EXCEPTION 'GATE FAILED (1): se esperaban 20 filas / 14 pobladas, hay % / %', v_total, v_populated;
   END IF;
 
   SELECT array_agg(document_type || ':' || COALESCE(from_status, 'NULL') || '->' || to_status ORDER BY document_type, from_status NULLS FIRST, to_status)
@@ -76,13 +80,17 @@ BEGIN
     'fiscal_document:NULL->pending_cae',
     'fiscal_document:pending_cae->authorized',
     'fiscal_document:pending_cae->rejected',
+    -- venta-editable-sin-cae: la anulación del comprobante pendiente NO
+    -- enviado. allowed_role NULL (D7) como las otras 3 de fiscal_document —
+    -- quien puede editar la venta ya pasó require_role en el service.
+    'fiscal_document:pending_cae->voided',
     'quote:draft->expired',
     'quote:sent->expired'
   ] THEN
-    RAISE EXCEPTION 'GATE FAILED (1): el conjunto EXACTO de las 5 filas NULL no coincide: %', v_null_set;
+    RAISE EXCEPTION 'GATE FAILED (1): el conjunto EXACTO de las 6 filas NULL no coincide: %', v_null_set;
   END IF;
 
-  RAISE NOTICE 'PASS (1): allowed_role es text[], 14/19 pobladas, las 5 NULL son exactamente fiscal_document(x3) + quote->expired(x2).';
+  RAISE NOTICE 'PASS (1): allowed_role es text[], 14/20 pobladas, las 6 NULL son exactamente fiscal_document(x4) + quote->expired(x2).';
 END $$;
 
 
@@ -285,6 +293,13 @@ DECLARE
     'fiscal_document:NULL->pending_cae', -- rpc_emit_pending_cae
     'fiscal_document:pending_cae->authorized', -- rpc_record_fiscal_transition
     'fiscal_document:pending_cae->rejected',   -- rpc_record_fiscal_transition
+    -- venta-editable-sin-cae (20261060000001): 4o estado terminal del
+    -- comprobante. Lo produce _fiscal_void_pending_for_sale_edit, el 13o
+    -- llamador (ver v_expected_callers del bloque 5b), cuando se edita o se
+    -- borra una venta cuyo comprobante pendiente TODAVÍA NO salió hacia ARCA.
+    -- Es la única fila de fiscal_document con requires_reason=true: el motivo
+    -- ("anulado por edición de la venta X") queda en document_status_history.
+    'fiscal_document:pending_cae->voided',     -- _fiscal_void_pending_for_sale_edit
     'stock_transfer:NULL->completed'     -- rpc_transfer_stock
   ];
   v_existing_triples text[];
@@ -303,24 +318,24 @@ BEGIN
   END LOOP;
 
   IF array_length(v_missing, 1) > 0 THEN
-    RAISE EXCEPTION 'GATE FAILED (5): % de los pares (document_type,from,to) que producen los 12 llamadores vivos de record_status_transition NO están catalogados en document_status_transitions: % -- una creación no catalogada hoy pasa SIN chequeo de rol (D17/11.7, exención conservadora), así que un caller nuevo/modificado que produzca uno de estos pares debe agregarlo a la matriz.',
+    RAISE EXCEPTION 'GATE FAILED (5): % de los pares (document_type,from,to) que producen los 13 llamadores vivos de record_status_transition NO están catalogados en document_status_transitions: % -- una creación no catalogada hoy pasa SIN chequeo de rol (D17/11.7, exención conservadora), así que un caller nuevo/modificado que produzca uno de estos pares debe agregarlo a la matriz.',
       array_length(v_missing, 1), v_missing;
   END IF;
 
-  RAISE NOTICE 'PASS (5): las % triples (document_type,from,to) que producen los 12 llamadores vivos de record_status_transition están TODAS catalogadas en document_status_transitions.', array_length(v_expected_triples, 1);
+  RAISE NOTICE 'PASS (5): las % triples (document_type,from,to) que producen los 13 llamadores vivos de record_status_transition están TODAS catalogadas en document_status_transitions.', array_length(v_expected_triples, 1);
 END $$;
 
 
 -- ── (5b) Ronda 2 adversarial (minor): el conjunto de FUNCIONES que ────────
--- invocan record_status_transition sigue siendo EXACTAMENTE el de los 12
+-- invocan record_status_transition sigue siendo EXACTAMENTE el de los 13
 -- llamadores conocidos. El bloque (5) de arriba sólo mira hacia ATRÁS (que
--- los 14 pares catalogados existan en document_status_transitions); éste
+-- los 15 pares catalogados existan en document_status_transitions); éste
 -- mira hacia ADELANTE -- si aparece un caller NUEVO (o desaparece uno
 -- viejo), este bloque falla y obliga a revisar v_expected_triples de (5).
 -- Sin este bloque, un caller nuevo que empiece a producir una transición
 -- SIN catalogar es invisible: record_status_transition exime la
 -- verificación de rol cuando no hay fila (D17/11.7), y (5) sólo audita los
--- 14 pares que YA conoce -- nunca detecta un llamador que ni siquiera
+-- 15 pares que YA conoce -- nunca detecta un llamador que ni siquiera
 -- estaba en la lista.
 --
 -- Lo que este bloque NO cierra (punto ciego real, deliberado): un llamador
@@ -334,6 +349,11 @@ END $$;
 DO $$
 DECLARE
   v_expected_callers text[] := ARRAY[
+    -- venta-editable-sin-cae (20261060000001): 13er llamador. Anula (voided) el
+    -- comprobante pendiente de una sales_order cuando el pedido NO salió hacia
+    -- ARCA, dentro de la transacción de la edición/borrado de la venta. Produce
+    -- exactamente un par: fiscal_document:pending_cae->voided (bloque 5).
+    '_fiscal_void_pending_for_sale_edit',
     '_c29_confirm_order_core',
     'rpc_accept_quote',
     'rpc_close_cash_session',
@@ -399,5 +419,5 @@ BEGIN
       array_length(v_new_callers, 1), v_new_callers;
   END IF;
 
-  RAISE NOTICE 'PASS (5b): el conjunto de % funciones que invocan record_status_transition sigue siendo EXACTAMENTE el de los 12 llamadores conocidos -- sin altas ni bajas sin revisar.', array_length(v_expected_callers, 1);
+  RAISE NOTICE 'PASS (5b): el conjunto de % funciones que invocan record_status_transition sigue siendo EXACTAMENTE el de los 13 llamadores conocidos -- sin altas ni bajas sin revisar.', array_length(v_expected_callers, 1);
 END $$;

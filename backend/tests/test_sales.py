@@ -226,6 +226,25 @@ UPDATE_PAYLOAD = {
     "items": [{"product_id": "prod-uuid-1", "quantity": "1.0", "amount": "100.00"}],
 }
 
+# venta-editable-sin-cae: rpc_atomic_update_sale_operation devuelve jsonb y el
+# repo pasó de `conn.execute` (que descartaba el resultado) a `conn.fetchval`.
+# asyncpg entrega jsonb como `str` porque el pool no tiene set_type_codec —
+# el mock replica ESE transporte, no un dict ya decodificado (lección
+# registrada: "los mocks replican el transporte real"; si el mock devolviera un
+# dict, el `_json.loads` del repo quedaría sin ejercitar).
+_UPDATE_RPC_RESULT = (
+    '{"operation_id": "66666666-6666-6666-6666-666666666666", "items": [],'
+    ' "voided_fiscal_document": null}'
+)
+
+# La misma respuesta, pero con un comprobante anulado (el caso que estrena este
+# change): label ya formateado por el servidor.
+_UPDATE_RPC_RESULT_VOIDED = (
+    '{"operation_id": "66666666-6666-6666-6666-666666666666", "items": [],'
+    ' "voided_fiscal_document": {"fiscal_document_id": "22222222-2222-2222-2222-222222222222",'
+    ' "punto_de_venta": 3, "number": 5, "label": "0003-00000005"}}'
+)
+
 
 async def test_delete_sale_ok(async_client, mock_pool):
     """DELETE /sales/{id} → 204. delete-guard-ledgers: caller fino de una
@@ -358,11 +377,11 @@ async def test_update_sale_operation_ok(async_client, mock_pool):
     owner_token = make_token({"role": "user"})
     captured: dict = {}
 
-    async def execute_side_effect(query, *args):
+    async def fetchval_side_effect(query, *args):
         captured["query"] = query
-        return "SELECT 1"
+        return _UPDATE_RPC_RESULT
 
-    conn.execute = AsyncMock(side_effect=execute_side_effect)
+    conn.fetchval = AsyncMock(side_effect=fetchval_side_effect)
     with patch("backend.core.database.pool", pool):
         resp = await async_client.put(
             "/sales/operation",
@@ -407,12 +426,12 @@ async def test_update_sale_operation_without_field_preserves(async_client, mock_
     owner_token = make_token({"role": "user"})
     captured: dict = {}
 
-    async def execute_side_effect(query, *args):
+    async def fetchval_side_effect(query, *args):
         captured["query"] = query
         captured["args"] = args
-        return "SELECT 1"
+        return _UPDATE_RPC_RESULT
 
-    conn.execute = AsyncMock(side_effect=execute_side_effect)
+    conn.fetchval = AsyncMock(side_effect=fetchval_side_effect)
     with patch("backend.core.database.pool", pool):
         resp = await async_client.put(
             "/sales/operation",
@@ -430,11 +449,11 @@ async def test_update_sale_operation_with_payment_method_reimputes(async_client,
     owner_token = make_token({"role": "user"})
     captured: dict = {}
 
-    async def execute_side_effect(query, *args):
+    async def fetchval_side_effect(query, *args):
         captured["args"] = args
-        return "SELECT 1"
+        return _UPDATE_RPC_RESULT
 
-    conn.execute = AsyncMock(side_effect=execute_side_effect)
+    conn.fetchval = AsyncMock(side_effect=fetchval_side_effect)
     with patch("backend.core.database.pool", pool):
         resp = await async_client.put(
             "/sales/operation",
@@ -453,11 +472,11 @@ async def test_update_sale_operation_with_explicit_null_clears(async_client, moc
     owner_token = make_token({"role": "user"})
     captured: dict = {}
 
-    async def execute_side_effect(query, *args):
+    async def fetchval_side_effect(query, *args):
         captured["args"] = args
-        return "SELECT 1"
+        return _UPDATE_RPC_RESULT
 
-    conn.execute = AsyncMock(side_effect=execute_side_effect)
+    conn.fetchval = AsyncMock(side_effect=fetchval_side_effect)
     with patch("backend.core.database.pool", pool):
         resp = await async_client.put(
             "/sales/operation",
@@ -484,11 +503,11 @@ async def test_update_sale_operation_without_branch_canal_preserves(async_client
     owner_token = make_token({"role": "user"})
     captured: dict = {}
 
-    async def execute_side_effect(query, *args):
+    async def fetchval_side_effect(query, *args):
         captured["args"] = args
-        return "SELECT 1"
+        return _UPDATE_RPC_RESULT
 
-    conn.execute = AsyncMock(side_effect=execute_side_effect)
+    conn.fetchval = AsyncMock(side_effect=fetchval_side_effect)
     with patch("backend.core.database.pool", pool):
         resp = await async_client.put(
             "/sales/operation",
@@ -508,11 +527,11 @@ async def test_update_sale_operation_with_branch_id_reimputes(async_client, mock
     owner_token = make_token({"role": "user"})
     captured: dict = {}
 
-    async def execute_side_effect(query, *args):
+    async def fetchval_side_effect(query, *args):
         captured["args"] = args
-        return "SELECT 1"
+        return _UPDATE_RPC_RESULT
 
-    conn.execute = AsyncMock(side_effect=execute_side_effect)
+    conn.fetchval = AsyncMock(side_effect=fetchval_side_effect)
     with patch("backend.core.database.pool", pool):
         resp = await async_client.put(
             "/sales/operation",
@@ -530,11 +549,11 @@ async def test_update_sale_operation_with_canal_reimputes(async_client, mock_poo
     owner_token = make_token({"role": "user"})
     captured: dict = {}
 
-    async def execute_side_effect(query, *args):
+    async def fetchval_side_effect(query, *args):
         captured["args"] = args
-        return "SELECT 1"
+        return _UPDATE_RPC_RESULT
 
-    conn.execute = AsyncMock(side_effect=execute_side_effect)
+    conn.fetchval = AsyncMock(side_effect=fetchval_side_effect)
     with patch("backend.core.database.pool", pool):
         resp = await async_client.put(
             "/sales/operation",
@@ -553,11 +572,11 @@ async def test_update_sale_operation_with_explicit_null_branch_clears(async_clie
     owner_token = make_token({"role": "user"})
     captured: dict = {}
 
-    async def execute_side_effect(query, *args):
+    async def fetchval_side_effect(query, *args):
         captured["args"] = args
-        return "SELECT 1"
+        return _UPDATE_RPC_RESULT
 
-    conn.execute = AsyncMock(side_effect=execute_side_effect)
+    conn.fetchval = AsyncMock(side_effect=fetchval_side_effect)
     with patch("backend.core.database.pool", pool):
         resp = await async_client.put(
             "/sales/operation",
@@ -583,13 +602,13 @@ async def test_update_sale_operation_propagates_invoiced_immutable_as_409(async_
             super().__init__(message)
             self.sqlstate = sqlstate
 
-    async def execute_side_effect(query, *args):
+    async def fetchval_side_effect(query, *args):
         raise _FakePgError(
             "invoiced_operation_immutable: emití una nota de crédito y registrá una venta nueva",
             "P0423",
         )
 
-    conn.execute = AsyncMock(side_effect=execute_side_effect)
+    conn.fetchval = AsyncMock(side_effect=fetchval_side_effect)
     with patch("backend.core.database.pool", pool):
         resp = await async_client.put(
             "/sales/operation",
@@ -601,6 +620,140 @@ async def test_update_sale_operation_propagates_invoiced_immutable_as_409(async_
     body = resp.json()
     assert body["code"] == "P0423"
     assert "nota de crédito" in body["detail"]
+    # venta-editable-sin-cae: con TRES causas compartiendo P0423, el código dejó
+    # de alcanzar para saber cuál disparó. El token del mensaje es lo que el
+    # frontend lee para elegir el texto y la acción.
+    assert "invoiced_operation_immutable" in body["detail"]
+
+
+# ── venta-editable-sin-cae: la respuesta del PUT y los dos tokens nuevos ─────
+
+
+async def test_update_sale_operation_returns_voided_fiscal_document(async_client, mock_pool):
+    """Cuando la edición ANULA el comprobante pendiente, el descriptor viaja en
+    el 200 — el toast dice "se anuló el comprobante 0003-00000005" con lo que
+    dice el SERVIDOR, nunca con lo que el cliente creía (si la carrera hizo que
+    el server bloqueara, llega el 409 y nunca se muestra un 'anulado' falso)."""
+    pool, conn = mock_pool
+    owner_token = make_token({"role": "user"})
+    conn.fetchval = AsyncMock(return_value=_UPDATE_RPC_RESULT_VOIDED)
+
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.put(
+            "/sales/operation",
+            json=UPDATE_PAYLOAD,
+            headers={"Authorization": f"Bearer {owner_token}"},
+        )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["ok"] is True
+    assert body["operation_id"] == OPERATION_ID
+    assert body["voided_fiscal_document"]["label"] == "0003-00000005"
+    assert body["voided_fiscal_document"]["punto_de_venta"] == 3
+    assert body["voided_fiscal_document"]["number"] == 5
+    assert (
+        body["voided_fiscal_document"]["fiscal_document_id"]
+        == "22222222-2222-2222-2222-222222222222"
+    )
+
+
+async def test_update_sale_operation_without_void_returns_null_descriptor(
+    async_client, mock_pool
+):
+    """TRIANGULATE: una venta sin comprobante (o con uno rejected/voided) se
+    edita igual y `voided_fiscal_document` viaja en null — el frontend no debe
+    anunciar una anulación que no ocurrió."""
+    pool, conn = mock_pool
+    owner_token = make_token({"role": "user"})
+    conn.fetchval = AsyncMock(return_value=_UPDATE_RPC_RESULT)
+
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.put(
+            "/sales/operation",
+            json=UPDATE_PAYLOAD,
+            headers={"Authorization": f"Bearer {owner_token}"},
+        )
+    assert resp.status_code == 200
+    assert resp.json()["voided_fiscal_document"] is None
+
+
+async def test_update_sale_operation_repo_decodes_jsonb_string(async_client, mock_pool):
+    """El repo usa `fetchval` (no `execute`) y decodifica el jsonb que asyncpg
+    entrega como `str`. Candado del cambio de transporte: con `execute` el
+    resultado se descartaba y la respuesta no podía traer el descriptor."""
+    pool, conn = mock_pool
+    owner_token = make_token({"role": "user"})
+    captured: dict = {}
+
+    async def fetchval_side_effect(query, *args):
+        captured["query"] = query
+        return _UPDATE_RPC_RESULT_VOIDED
+
+    conn.fetchval = AsyncMock(side_effect=fetchval_side_effect)
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.put(
+            "/sales/operation",
+            json=UPDATE_PAYLOAD,
+            headers={"Authorization": f"Bearer {owner_token}"},
+        )
+    assert resp.status_code == 200
+    assert "rpc_atomic_update_sale_operation" in captured["query"]
+    # El resultado NO se descarta: la RPC se invoca por fetchval, NUNCA por
+    # execute. (conn.execute sí se usa, pero sólo para el alcance transaccional
+    # del pool — set_config de los claims y SET LOCAL ROLE; de ahí que no sirva
+    # un assert_not_awaited a secas.)
+    assert not any(
+        "rpc_atomic_update_sale_operation" in str(call.args[0])
+        for call in conn.execute.await_args_list
+        if call.args
+    )
+
+
+@pytest.mark.parametrize(
+    "token,fragmento",
+    [
+        (
+            "fiscal_document_sent_immutable",
+            "ya se envió a ARCA",
+        ),
+        (
+            "fiscal_document_claim_in_flight",
+            "probá de nuevo en unos minutos",
+        ),
+    ],
+)
+async def test_update_sale_operation_propagates_new_fiscal_tokens_as_409(
+    async_client, mock_pool, token, fragmento
+):
+    """Los DOS tokens nuevos de P0423 llegan como 409 problem+json con el token
+    en `detail`, para que el frontend distinga "esperá al relay" (terminal por
+    ahora) de "reintentá en unos minutos" (transitorio). Mismo código, acciones
+    distintas."""
+    import asyncpg
+
+    pool, conn = mock_pool
+    owner_token = make_token({"role": "user"})
+
+    class _FakePgError(asyncpg.PostgresError):
+        def __init__(self, message, sqlstate):
+            super().__init__(message)
+            self.sqlstate = sqlstate
+
+    conn.fetchval = AsyncMock(
+        side_effect=_FakePgError(f"{token}: {fragmento}", "P0423")
+    )
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.put(
+            "/sales/operation",
+            json=UPDATE_PAYLOAD,
+            headers={"Authorization": f"Bearer {owner_token}"},
+        )
+    assert resp.status_code == 409
+    assert resp.headers["content-type"].startswith("application/problem+json")
+    body = resp.json()
+    assert body["code"] == "P0423"
+    assert token in body["detail"]
+    assert fragmento in body["detail"]
 
 
 async def test_list_sales_ok(async_client, valid_token, mock_pool):
@@ -720,27 +873,111 @@ async def test_list_sales_exposes_branch_canal_unit_for_edit_prefill(async_clien
     assert "unit_id" in rows_query
 
 
-async def test_list_sales_row_exposes_is_invoiced_flag(async_client, valid_token, mock_pool):
-    """edicion-preserva-contexto (F2/D11): is_invoiced viaja en la fila para
-    que el form se abra en solo lectura antes de que el usuario intente
-    editar una operación facturada."""
-    pool, conn = mock_pool
+def _sale_row(**extra):
+    """Fila mínima del read model de ventas, para los tests de derivados."""
     row = {
         "id": SALE_ID, "date": "2026-01-15", "client_id": None, "operation_id": OPERATION_ID,
         "currency": "ARS", "product_id": None, "quantity": "1", "amount": "100.00",
         "total": "100.00", "product_name": None, "client_name": None,
         "branch_id": None, "canal": None, "unit_id": None,
         "payment_method_id": None, "payment_method_name": None, "payment_method_kind": None,
-        "is_invoiced": True,
     }
-    conn.fetch = AsyncMock(return_value=[row])
+    row.update(extra)
+    return row
+
+
+async def test_list_sales_row_exposes_is_fiscally_locked_flag(async_client, valid_token, mock_pool):
+    """venta-editable-sin-cae (D11): el derivado se llama `is_fiscally_locked`,
+    NO `is_invoiced`. Con la regla nueva, "facturada" e "inmutable" dejaron de
+    ser lo mismo: una venta con comprobante pendiente NO enviado está facturada
+    y SÍ es editable. Un nombre que miente es el mecanismo de bug que este
+    proyecto documenta media docena de veces."""
+    pool, conn = mock_pool
+    conn.fetch = AsyncMock(return_value=[_sale_row(is_fiscally_locked=True)])
     conn.fetchval = AsyncMock(return_value=1)
     with patch("backend.core.database.pool", pool):
         resp = await async_client.get(
             "/sales", headers={"Authorization": f"Bearer {valid_token}"}
         )
     assert resp.status_code == 200
-    assert resp.json()["items"][0]["is_invoiced"] is True
+    item = resp.json()["items"][0]
+    assert item["is_fiscally_locked"] is True
+    assert "is_invoiced" not in item
+
+
+async def test_list_sales_row_exposes_fiscal_state(async_client, valid_token, mock_pool):
+    """venta-editable-sin-cae: los 6 campos de evidencia CRUDA del comprobante
+    viajan en la fila — el listado necesita el id y el label para el badge
+    "Anulado", y `fiscal_pending_voidable` para avisar en la confirmación que
+    se va a anular el comprobante 0003-00000005."""
+    pool, conn = mock_pool
+    conn.fetch = AsyncMock(return_value=[_sale_row(
+        is_fiscally_locked=False,
+        fiscal_document_id="22222222-2222-2222-2222-222222222222",
+        fiscal_document_status="pending_cae",
+        fiscal_punto_de_venta=3,
+        fiscal_number=5,
+        fiscal_submitted_to_arca=False,
+        fiscal_frozen=False,
+        fiscal_pending_voidable=True,
+    )])
+    conn.fetchval = AsyncMock(return_value=1)
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.get(
+            "/sales", headers={"Authorization": f"Bearer {valid_token}"}
+        )
+    assert resp.status_code == 200
+    item = resp.json()["items"][0]
+    assert item["fiscal_document_id"] == "22222222-2222-2222-2222-222222222222"
+    assert item["fiscal_document_status"] == "pending_cae"
+    assert item["fiscal_punto_de_venta"] == 3
+    assert item["fiscal_number"] == 5
+    assert item["fiscal_submitted_to_arca"] is False
+    assert item["fiscal_frozen"] is False
+    assert item["fiscal_pending_voidable"] is True
+
+
+async def test_list_sales_row_fiscal_state_defaults_when_absent(async_client, valid_token, mock_pool):
+    """TRIANGULATE: una venta SIN comprobante trae los derivados en su default
+    (ids en null, booleanos en false) — la autoridad sigue siendo el servidor al
+    editar, pero el listado no debe inventar un estado fiscal."""
+    pool, conn = mock_pool
+    conn.fetch = AsyncMock(return_value=[_sale_row()])
+    conn.fetchval = AsyncMock(return_value=1)
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.get(
+            "/sales", headers={"Authorization": f"Bearer {valid_token}"}
+        )
+    assert resp.status_code == 200
+    item = resp.json()["items"][0]
+    assert item["is_fiscally_locked"] is False
+    assert item["fiscal_document_id"] is None
+    assert item["fiscal_document_status"] is None
+    assert item["fiscal_pending_voidable"] is False
+    assert item["fiscal_submitted_to_arca"] is False
+    assert item["fiscal_frozen"] is False
+
+
+async def test_list_sales_fiscal_predicate_uses_submit_marks(async_client, valid_token, mock_pool):
+    """El predicado de `is_fiscally_locked` es el MISMO que el del helper
+    _fiscal_void_pending_for_sale_edit: authorized, o pending_cae con
+    cae_submit_started_at o cae_submit_unconfirmed_at. Derivado de lectura,
+    nunca una columna denormalizada. Candado del predicado, no del valor: un
+    read model que vuelva a "hay comprobante" mentiría igual que antes."""
+    pool, conn = mock_pool
+    captured = _capture_sales_queries(conn)
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.get(
+            "/sales", headers={"Authorization": f"Bearer {valid_token}"}
+        )
+    assert resp.status_code == 200
+    rows_query, _ = captured["rows"]
+    assert "is_fiscally_locked" in rows_query
+    assert "cae_submit_started_at" in rows_query
+    assert "cae_submit_unconfirmed_at" in rows_query
+    assert "fiscal_pending_voidable" in rows_query
+    # El nombre viejo no puede sobrevivir en el read model.
+    assert "AS is_invoiced" not in rows_query
 
 
 async def test_list_sales_row_exposes_is_payment_locked_flag(async_client, valid_token, mock_pool):
@@ -756,7 +993,7 @@ async def test_list_sales_row_exposes_is_payment_locked_flag(async_client, valid
         "total": "100.00", "product_name": None, "client_name": None,
         "branch_id": None, "canal": None, "unit_id": None,
         "payment_method_id": None, "payment_method_name": None, "payment_method_kind": None,
-        "is_invoiced": False, "is_payment_locked": True,
+        "is_fiscally_locked": False, "is_payment_locked": True,
     }
     conn.fetch = AsyncMock(return_value=[row])
     conn.fetchval = AsyncMock(return_value=1)

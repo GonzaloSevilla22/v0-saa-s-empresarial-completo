@@ -78,6 +78,15 @@ const JOURNAL_ENTRY_ORIGINAL_NOT_FOUND_ERROR = /journal_entry_original_not_found
 const CLIENT_NOT_FOUND_ERROR = /client_not_found/
 const SUPPLIER_NOT_FOUND_ERROR = /supplier_not_found/
 
+// venta-editable-sin-cae: los DOS tokens nuevos de P0423. El SQLSTATE es el
+// mismo que `invoiced_operation_immutable` (y que los tres guards de dinero),
+// así que lo único que distingue la causa —y la acción que le queda al
+// usuario— es el token del mensaje. `invoiced_operation_immutable` NO se
+// agrega: su RAISE ya es legible tal cual y agregarlo ensancharía el diff sin
+// ganancia (mismo criterio con el que hoy tampoco está).
+const FISCAL_SENT_ERROR = /fiscal_document_sent_immutable/
+const FISCAL_CLAIM_IN_FLIGHT_ERROR = /fiscal_document_claim_in_flight/
+
 const fmtMoney = (n: number) =>
   n.toLocaleString("es-AR", { style: "currency", currency: "ARS" })
 
@@ -159,6 +168,23 @@ export function humanizeOperationError(
     return {
       message:
         "La anulación se registró, pero el asiento contable todavía no está listo para revertirse. Se completará solo en unos minutos.",
+    }
+  }
+
+  // venta-editable-sin-cae: el transitorio va PRIMERO — su texto es el único
+  // que invita a reintentar, y confundirlo con el terminal dejaría al usuario
+  // esperando algo que no va a pasar.
+  if (FISCAL_CLAIM_IN_FLIGHT_ERROR.test(message)) {
+    return {
+      message:
+        "Justo ahora se está emitiendo el comprobante de esta venta. Esperá unos minutos y volvé a intentar: no se guardó ningún cambio.",
+    }
+  }
+
+  if (FISCAL_SENT_ERROR.test(message)) {
+    return {
+      message:
+        "El comprobante de esta venta ya se envió a ARCA y todavía no hay respuesta. No se puede editar ni borrar hasta que se resuelva — no se guardó ningún cambio.",
     }
   }
 

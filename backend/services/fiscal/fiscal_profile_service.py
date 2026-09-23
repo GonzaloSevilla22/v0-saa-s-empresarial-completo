@@ -324,6 +324,35 @@ async def emit_subscription_payment_cae(
     return dict(result)
 
 
+async def _anulado_mientras_se_procesaba(
+    doc_repo: FiscalDocumentRepository,
+    doc: dict,
+    exc: BaseException,
+) -> bool:
+    """¿El comprobante se ANULÓ mientras el relay lo procesaba? — venta-editable-sin-cae.
+
+    Desde ese change, editar o borrar una venta cuyo comprobante pendiente
+    todavía no salió hacia ARCA lo anula (status 'voided') en la misma
+    transacción. Si eso pasa entre el `claim_pending` de este tick (que vio
+    'pending_cae') y la marca previa al envío,
+    `rpc_fiscal_document_mark_submit_started` levanta P0437 y el
+    FECAESolicitar NO sale — que es justamente el comportamiento que se quiere.
+
+    Clasifica por el ESTADO REAL del documento, no por el texto del mensaje ni
+    por el ERRCODE a secas: P0437 también cubre casos que NO son normales (una
+    marca viva de un tick anterior, un documento inexistente), y ésos tienen que
+    seguir saliendo en ERROR con su stack trace. Si no se puede releer el
+    estado, devuelve False: ante la duda, ruidoso.
+    """
+    if getattr(exc, "sqlstate", None) != "P0437":
+        return False
+    try:
+        fresh = await doc_repo.get_by_id(doc["id"], doc["account_id"])
+    except Exception:          # noqa: BLE001 — la relectura es best-effort
+        return False
+    return bool(fresh) and fresh.get("status") == "voided"
+
+
 async def process_all_pending_documents(
     doc_repo: FiscalDocumentRepository,
     adapter: FiscalDocumentPort | None = None,
@@ -386,7 +415,22 @@ async def process_all_pending_documents(
         processor = CAERelayProcessor(adapter=adapter, repo=doc_repo)
         try:
             await processor.process_document(claimed)
-        except Exception:
+        except Exception as exc:
+            # venta-editable-sin-cae (red team 2026-09-22, m2): que el
+            # comprobante se haya ANULADO mientras el relay lo procesaba es un
+            # camino NORMAL del producto (el usuario editó o borró la venta
+            # antes de que el pedido saliera hacia ARCA), y el candado hizo
+            # exactamente su trabajo: no se pidió CAE. Deja rastro en INFO, no
+            # un stack trace en el camino de dinero.
+            if await _anulado_mientras_se_procesaba(doc_repo, claimed, exc):
+                logger.info(
+                    "[process_all_pending_documents] doc %s: se ANULÓ (voided) mientras "
+                    "este tick lo procesaba — la venta se editó o se borró antes de que "
+                    "el pedido saliera hacia ARCA. No se pidió CAE y no hay nada que "
+                    "reintentar; si el usuario vuelve a facturar, nace un comprobante nuevo.",
+                    doc_id,
+                )
+                continue
             # fiscal-emision-segura (M-1, red team 2026-09-22): sin este guard,
             # UNA excepción no manejada en un solo documento (fila corrupta,
             # bug nuevo, lo que sea) abortaba el batch COMPLETO — el resto de

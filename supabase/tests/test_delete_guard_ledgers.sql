@@ -76,6 +76,21 @@ DECLARE
   v_fd2_id            uuid;
   v_rejected          boolean;
 
+  -- venta-editable-sin-cae: el borrado sigue el MISMO predicado que la
+  -- edición — un pendiente NO enviado se anula y la venta se borra; un
+  -- pendiente MARCADO bloquea igual que authorized.
+  v_op2b              uuid := gen_random_uuid();   -- pendiente SIN marca → se anula
+  v_sale2b_id         uuid;
+  v_so2b_id           uuid;
+  v_fd2b_id           uuid;
+  v_ca2b_id           uuid;
+  v_op2c              uuid := gen_random_uuid();   -- pendiente MARCADO → P0423
+  v_sale2c_id         uuid;
+  v_so2c_id           uuid;
+  v_fd2c_id           uuid;
+  v_status_text       text;
+  v_msg               text;
+
   -- P0425
   v_op3               uuid := gen_random_uuid();
   v_sale3_id          uuid;
@@ -149,6 +164,25 @@ BEGIN
   INSERT INTO public.bank_accounts (account_id, name, currency, opening_balance)
   VALUES (v_account_id, '__gate_dgl_bank__', 'ARS', 0)
   RETURNING id INTO v_bank_account_id;
+
+  -- venta-editable-sin-cae (HALLAZGO, no previsto por el plan): el bloque
+  -- fiscal de este gate arrancaba con
+  -- `SELECT id INTO v_fiscal_profile_id FROM fiscal_profiles WHERE account_id = ...`
+  -- y el anchor sintético NUNCA tuvo perfil fiscal ni punto de venta, así que
+  -- contra un `supabase db reset` limpio (que es exactamente cómo corre en CI)
+  -- el gate imprimía "se omite el caso P0423" y el ÚNICO test del guard fiscal
+  -- del BORRADO no se ejecutaba nunca. Se siembran acá para que el bloque
+  -- corra de verdad. CUIT propio (20777777775): fn_guard_pos_cuit_cross_account
+  -- (G9 de fiscal-emision-segura) rechaza con P0435 el mismo CUIT + mismo
+  -- número de punto de venta activo en otra cuenta, y los demás gates fiscales
+  -- ya usan 201111111xx / 205555555xx / 20666666663 / 27888888884.
+  INSERT INTO public.fiscal_profiles (account_id, cuit, iva_condition, ambiente, delegacion_autorizada)
+  VALUES (v_account_id, '20777777775', 'monotributista', 'homologacion', true)
+  RETURNING id INTO v_fiscal_profile_id;
+
+  INSERT INTO public.points_of_sale (fiscal_profile_id, account_id, numero, is_active)
+  VALUES (v_fiscal_profile_id, v_account_id, 1, true)
+  RETURNING id INTO v_pos_id;
 
   -- ── Sesión sintética (request.jwt.claims) — SECURITY DEFINER usa auth.uid() ──
   PERFORM set_config('request.jwt.claims',
@@ -353,6 +387,111 @@ BEGIN
       RAISE EXCEPTION 'GATE DGL FAILED (P0423-intacto): la venta bloqueada no debería haberse borrado.';
     END IF;
     RAISE NOTICE 'PASS (P0423): venta con comprobante fiscal emitido no se puede borrar — venta, comprobante y orden intactos.';
+
+    -- ══════ venta-editable-sin-cae: pendiente NO enviado → se BORRA y el ══════
+    -- comprobante se ANULA en la misma transacción, además de compensar la
+    -- cuenta corriente. El comprobante NACE pending_cae limpio (camino
+    -- legítimo, sin eludir trg_guard_fiscal_document_insert_interno) — así el
+    -- control positivo del trigger de INSERT sigue vivo en este archivo.
+    INSERT INTO public.sales (user_id, account_id, client_id, product_id, amount, quantity, total, currency, date, operation_id, branch_id)
+    VALUES (v_user_id, v_account_id, v_client_id, v_product_id, 400, 1, 400, 'ARS', CURRENT_DATE, v_op2b, v_branch_id)
+    RETURNING id INTO v_sale2b_id;
+
+    INSERT INTO public.fiscal_documents
+      (account_id, fiscal_profile_id, point_of_sale_id, comprobante_type, punto_de_venta, number, client_id, total, status)
+    VALUES (v_account_id, v_fiscal_profile_id, v_pos_id, 'factura_b', 1, 99002, v_client_id, 400, 'pending_cae')
+    RETURNING id INTO v_fd2b_id;
+
+    INSERT INTO public.sales_orders (account_id, branch_id, client_id, status, total, sale_operation_id, fiscal_document_id, created_by)
+    VALUES (v_account_id, v_branch_id, v_client_id, 'confirmed', 400, v_op2b, v_fd2b_id, v_user_id)
+    RETURNING id INTO v_so2b_id;
+
+    v_ca2b_id := public.c30_get_or_create_customer_account(v_account_id, v_client_id);
+    PERFORM public.c30_register_customer_account_movement(v_ca2b_id, 400, 'sale', v_op2b);
+    SELECT balance INTO v_balance FROM public.customer_accounts WHERE id = v_ca2b_id;
+
+    v_result := public.rpc_delete_sale_operation(p_operation_id => v_op2b, p_reason => 'borrado con comprobante pendiente');
+
+    IF NOT v_result THEN
+      RAISE EXCEPTION 'GATE DGL FAILED (voided-borrado): rpc_delete_sale_operation devolvió false para una venta con comprobante pendiente NO enviado.';
+    END IF;
+    IF EXISTS (SELECT 1 FROM public.sales WHERE id = v_sale2b_id) THEN
+      RAISE EXCEPTION 'GATE DGL FAILED (voided-borrado): la venta debería haberse borrado.';
+    END IF;
+    SELECT status INTO v_status_text FROM public.fiscal_documents WHERE id = v_fd2b_id;
+    IF v_status_text IS DISTINCT FROM 'voided' THEN
+      RAISE EXCEPTION 'GATE DGL FAILED (voided-borrado): el comprobante pendiente debería quedar voided, quedó %.', COALESCE(v_status_text, '<inexistente>');
+    END IF;
+    SELECT COUNT(*) INTO v_count
+    FROM   public.document_status_history
+    WHERE  document_type = 'fiscal_document' AND document_id = v_fd2b_id
+      AND  from_status = 'pending_cae' AND to_status = 'voided'
+      AND  reason IS NOT NULL AND trim(reason) <> '';
+    IF v_count <> 1 THEN
+      RAISE EXCEPTION 'GATE DGL FAILED (voided-borrado-historial): esperaba 1 transición pending_cae→voided con motivo, hay %.', v_count;
+    END IF;
+    -- La compensación de los libros sigue corriendo (el guard fiscal no aborta).
+    SELECT balance INTO v_cash_before FROM public.customer_accounts WHERE id = v_ca2b_id;
+    IF v_cash_before <> v_balance - 400 THEN
+      RAISE EXCEPTION 'GATE DGL FAILED (voided-borrado-cta-cte): el cargo debía compensarse (% → %), quedó %.', v_balance, v_balance - 400, v_cash_before;
+    END IF;
+    -- D8: la orden se cancela y conserva el vínculo al comprobante anulado.
+    SELECT status INTO v_status_text FROM public.sales_orders WHERE id = v_so2b_id;
+    IF v_status_text IS DISTINCT FROM 'canceled' THEN
+      RAISE EXCEPTION 'GATE DGL FAILED (voided-borrado-orden): la orden debería quedar canceled, quedó %.', COALESCE(v_status_text, '<inexistente>');
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM public.sales_orders WHERE id = v_so2b_id AND fiscal_document_id = v_fd2b_id) THEN
+      RAISE EXCEPTION 'GATE DGL FAILED (voided-borrado-vinculo): la orden debe conservar fiscal_document_id apuntando al comprobante anulado (D5).';
+    END IF;
+    RAISE NOTICE 'PASS (voided-borrado): borrar una venta con comprobante pendiente NO enviado lo anula (voided + historial con motivo), compensa la cuenta corriente y cancela la orden conservando el vínculo.';
+
+    -- ══════ venta-editable-sin-cae: pendiente MARCADO → P0423, nada se toca ══════
+    INSERT INTO public.sales (user_id, account_id, client_id, product_id, amount, quantity, total, currency, date, operation_id, branch_id)
+    VALUES (v_user_id, v_account_id, v_client_id, v_product_id, 600, 1, 600, 'ARS', CURRENT_DATE, v_op2c, v_branch_id)
+    RETURNING id INTO v_sale2c_id;
+
+    INSERT INTO public.fiscal_documents
+      (account_id, fiscal_profile_id, point_of_sale_id, comprobante_type, punto_de_venta, number, client_id, total, status)
+    VALUES (v_account_id, v_fiscal_profile_id, v_pos_id, 'factura_b', 1, 99003, v_client_id, 600, 'pending_cae')
+    RETURNING id INTO v_fd2c_id;
+    -- La marca se pone por UPDATE (el INSERT con marca lo rechaza P0436) —
+    -- exactamente lo que hace el relay antes del FECAESolicitar.
+    UPDATE public.fiscal_documents
+    SET    cae_submit_started_at = now(), arca_requested_number = 99003
+    WHERE  id = v_fd2c_id;
+
+    INSERT INTO public.sales_orders (account_id, branch_id, client_id, status, total, sale_operation_id, fiscal_document_id, created_by)
+    VALUES (v_account_id, v_branch_id, v_client_id, 'confirmed', 600, v_op2c, v_fd2c_id, v_user_id)
+    RETURNING id INTO v_so2c_id;
+
+    v_rejected := false;
+    v_msg := NULL;
+    BEGIN
+      PERFORM public.rpc_delete_sale_operation(p_operation_id => v_op2c);
+    EXCEPTION
+      WHEN OTHERS THEN
+        v_msg := SQLERRM;
+        IF SQLSTATE = 'P0423' THEN v_rejected := true; ELSE RAISE; END IF;
+    END;
+
+    IF NOT v_rejected THEN
+      RAISE EXCEPTION 'GATE DGL FAILED (P0423-marcado): borrar una venta cuyo comprobante YA salió hacia ARCA debería fallar con P0423.';
+    END IF;
+    IF position('fiscal_document_sent_immutable' in COALESCE(v_msg, '')) = 0 THEN
+      RAISE EXCEPTION 'GATE DGL FAILED (P0423-marcado-token): esperaba el token fiscal_document_sent_immutable, obtuvo: %', COALESCE(v_msg, '<sin mensaje>');
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM public.sales WHERE id = v_sale2c_id) THEN
+      RAISE EXCEPTION 'GATE DGL FAILED (P0423-marcado-intacto): la venta bloqueada no debería haberse borrado.';
+    END IF;
+    SELECT status INTO v_status_text FROM public.fiscal_documents WHERE id = v_fd2c_id;
+    IF v_status_text IS DISTINCT FROM 'pending_cae' THEN
+      RAISE EXCEPTION 'GATE DGL FAILED (P0423-marcado-comprobante): un comprobante MARCADO jamás debe anularse, quedó %.', COALESCE(v_status_text, '<inexistente>');
+    END IF;
+    SELECT status INTO v_status_text FROM public.sales_orders WHERE id = v_so2c_id;
+    IF v_status_text IS DISTINCT FROM 'confirmed' THEN
+      RAISE EXCEPTION 'GATE DGL FAILED (P0423-marcado-orden): la orden no debería haberse cancelado, quedó %.', COALESCE(v_status_text, '<inexistente>');
+    END IF;
+    RAISE NOTICE 'PASS (P0423-marcado): borrar una venta cuyo comprobante ya se envió a ARCA falla con P0423/fiscal_document_sent_immutable — venta, comprobante y orden intactos.';
   ELSE
     RAISE NOTICE 'GATE DGL: sin fiscal_profile/point_of_sale sembrados para el anchor — se omite el caso P0423.';
   END IF;

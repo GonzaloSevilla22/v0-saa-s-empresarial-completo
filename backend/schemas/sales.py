@@ -88,6 +88,35 @@ class SaleOperationUpdateIn(BaseModel):
     canal: str | None = Field(default=None, max_length=40)
 
 
+class VoidedFiscalDocumentOut(BaseModel):
+    """venta-editable-sin-cae: comprobante que la edición ANULÓ (voided) porque
+    su pedido todavía no había salido hacia ARCA. Lo devuelve
+    rpc_atomic_update_sale_operation dentro de su jsonb."""
+    model_config = ConfigDict(from_attributes=True)
+
+    fiscal_document_id: uuid.UUID
+    punto_de_venta: int
+    number: int
+    #: Etiqueta ya formateada por el servidor, p. ej. "0003-00000005".
+    label: str
+
+
+class SaleOperationUpdateOut(BaseModel):
+    """Respuesta de PUT /sales/operation.
+
+    venta-editable-sin-cae: `voided_fiscal_document` es None cuando la venta no
+    tenía comprobante, o el que tenía ya era terminal-inocuo (rejected/voided).
+    El toast del frontend se arma con ESTO, nunca con lo que el cliente creía
+    antes de guardar: si la carrera contra el relay hizo que el servidor
+    bloqueara, llega un 409 y nunca se muestra un "anulado" falso.
+    """
+    model_config = ConfigDict(from_attributes=True)
+
+    ok: bool = True
+    operation_id: uuid.UUID
+    voided_fiscal_document: VoidedFiscalDocumentOut | None = None
+
+
 class SaleItemOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -114,10 +143,29 @@ class SaleItemOut(BaseModel):
     branch_id: uuid.UUID | None = None
     canal: str | None = None
     unit_id: uuid.UUID | None = None
-    # edicion-preserva-contexto (F2/D11): derivado de lectura (mismo
-    # predicado que el guard P0423), para que el form se abra en solo-lectura
-    # ANTES de que el usuario llegue al error del backend.
-    is_invoiced: bool = False
+    # edicion-preserva-contexto (F2/D11) + venta-editable-sin-cae (D11):
+    # derivado de lectura (mismo predicado que el helper de anulación), para
+    # que el form se abra en solo-lectura ANTES de que el usuario llegue al
+    # error del backend. El nombre pasó de `is_invoiced` a
+    # `is_fiscally_locked`: con la regla nueva una venta FACTURADA (comprobante
+    # pendiente no enviado) SÍ es editable, así que el nombre viejo mentía en
+    # los dos sentidos.
+    is_fiscally_locked: bool = False
+    # venta-editable-sin-cae: evidencia CRUDA del comprobante, para que la UI
+    # nombre la causa real del bloqueo, muestre el badge (incluido "Anulado")
+    # y avise, ANTES de confirmar, qué comprobante se va a anular.
+    # Defaults conservadores: fila sin derivados = "sin comprobante"; la
+    # autoridad al editar/borrar sigue siendo el servidor.
+    fiscal_document_id: uuid.UUID | None = None
+    fiscal_document_status: str | None = None
+    fiscal_punto_de_venta: int | None = None
+    fiscal_number: int | None = None
+    #: El pedido salió hacia ARCA (cae_submit_started_at).
+    fiscal_submitted_to_arca: bool = False
+    #: Salió y su resultado nunca se confirmó — requiere revisión manual.
+    fiscal_frozen: bool = False
+    #: Pendiente SIN marca: editar o borrar la venta lo ANULA.
+    fiscal_pending_voidable: bool = False
     # pagos-cableados-restantes (D6): derivado de lectura (mismo predicado
     # que el guard P0423 de rpc_atomic_update_sale_operation), para que la
     # lista deshabilite "Editar" con motivo visible ANTES de que el usuario

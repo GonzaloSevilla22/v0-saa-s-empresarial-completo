@@ -9,10 +9,34 @@ import type { Sale } from "@/lib/types"
 //      null ignorándolo — el payload de edición ni siquiera los incluía),
 //   2) los reenvía siempre en el payload de edición (mismo criterio que
 //      paymentMethodId — D3/D11),
-//   3) se abre en solo lectura con un banner cuando editingOperation.isInvoiced
+//   3) se abre en solo lectura con un banner cuando editingOperation.isFiscallyLocked
 //      es true (F2), sin llegar a intentar el submit bloqueado por el backend.
 
-const updateSaleOperationMock = vi.fn().mockResolvedValue(undefined)
+const updateSaleOperationMock = vi.fn().mockResolvedValue({
+  ok: true,
+  operation_id: "op-1",
+  voided_fiscal_document: null,
+})
+
+// venta-editable-sin-cae: los dos estados fiscales que importan en el form.
+// `isFiscallyLocked` y `fiscal` los deriva el MISMO predicado del servidor, así
+// que un fixture con uno y sin el otro no existe en producción.
+const AUTHORIZED_FISCAL = {
+  documentId: "fd-authorized",
+  status: "authorized" as const,
+  label: "0003-00000004",
+  submittedToArca: true,
+  frozen: false,
+  voidable: false,
+}
+const PENDING_VOIDABLE_FISCAL = {
+  documentId: "fd-pending",
+  status: "pending_cae" as const,
+  label: "0003-00000005",
+  submittedToArca: false,
+  frozen: false,
+  voidable: true,
+}
 
 // sucursal-guard-vaciado-auditoria (G3, task 7.5): SaleForm ahora usa
 // useRouter() de next/navigation para el botón "Transferir stock" del toast
@@ -96,7 +120,7 @@ function makeSale(overrides: Partial<Sale> = {}): Sale {
     branchId: "branch-b",
     canal: "instagram",
     paymentMethodId: null,
-    isInvoiced: false,
+    isFiscallyLocked: false,
     ...overrides,
   }
 }
@@ -117,7 +141,8 @@ function makeOperation(overrides: Partial<SaleOperation> = {}): SaleOperation {
     branchId: "branch-b",
     canal: "instagram",
     unitId: "unit-kg",
-    isInvoiced: false,
+    isFiscallyLocked: false,
+    fiscal: null,
     isPaymentLocked: false,
     hasAccountCharge: false,
     hasCashMovement: false,
@@ -157,21 +182,27 @@ describe("SaleForm — edición preserva contexto (branch/canal/unit + bloqueo f
     expect(call.newItems[0].unitId).toBe("unit-kg")
   })
 
-  it("sin isInvoiced, el form NO muestra el banner de bloqueo fiscal y el fieldset queda habilitado", () => {
+  it("sin isFiscallyLocked, el form NO muestra el banner de bloqueo fiscal y el fieldset queda habilitado", () => {
     const { container } = render(
-      <SaleForm onSuccess={() => {}} editingOperation={makeOperation({ isInvoiced: false })} />,
+      <SaleForm onSuccess={() => {}} editingOperation={makeOperation({ isFiscallyLocked: false })} />,
     )
     expect(screen.queryByRole("status")).toBeNull()
     const fieldset = container.querySelector("fieldset")
     expect(fieldset?.disabled).toBe(false)
   })
 
-  it("F2: con isInvoiced=true, el form muestra el banner de bloqueo y deshabilita el fieldset y el submit", () => {
+  it("F2: con isFiscallyLocked=true, el form muestra el banner de bloqueo y deshabilita el fieldset y el submit", () => {
     const { container } = render(
-      <SaleForm onSuccess={() => {}} editingOperation={makeOperation({ isInvoiced: true })} />,
+      <SaleForm
+        onSuccess={() => {}}
+        editingOperation={makeOperation({ isFiscallyLocked: true, fiscal: AUTHORIZED_FISCAL })}
+      />,
     )
     const banner = screen.getByRole("status")
-    expect(banner.textContent).toMatch(/comprobante fiscal emitido/i)
+    // venta-editable-sin-cae: el banner nombra la CAUSA REAL. Con un
+    // comprobante AUTORIZADO la salida es la nota de crédito; "comprobante
+    // emitido" dejó de ser un motivo válido (emitido y enviado no son lo mismo).
+    expect(banner.textContent).toMatch(/autorizado por ARCA/i)
     expect(banner.textContent).toMatch(/nota de crédito/i)
 
     const fieldset = container.querySelector("fieldset")
@@ -184,11 +215,108 @@ describe("SaleForm — edición preserva contexto (branch/canal/unit + bloqueo f
 
   it("F2: un submit programático sobre una operación facturada no llama a updateSaleOperation (defensa en profundidad)", async () => {
     const { container } = render(
-      <SaleForm onSuccess={() => {}} editingOperation={makeOperation({ isInvoiced: true })} />,
+      <SaleForm
+        onSuccess={() => {}}
+        editingOperation={makeOperation({ isFiscallyLocked: true, fiscal: AUTHORIZED_FISCAL })}
+      />,
     )
     const form = container.querySelector("form") as HTMLFormElement
     fireEvent.submit(form)
     await new Promise((r) => setTimeout(r, 0))
     expect(updateSaleOperationMock).not.toHaveBeenCalled()
+  })
+
+  // ── venta-editable-sin-cae: comprobante pendiente NO enviado ───────────────
+
+  it("con un comprobante pendiente ANULABLE el form NO se bloquea: avisa y deja editar", () => {
+    const { container } = render(
+      <SaleForm
+        onSuccess={() => {}}
+        editingOperation={makeOperation({ isFiscallyLocked: false, fiscal: PENDING_VOIDABLE_FISCAL })}
+      />,
+    )
+    const banner = screen.getByRole("status")
+    expect(banner.textContent).toMatch(/comprobante pendiente/i)
+    expect(banner.textContent).toContain("0003-00000005")
+    expect(banner.textContent).toMatch(/volver a emitirlo/i)
+
+    // El pedido del PO es justamente que se pueda editar.
+    expect(container.querySelector("fieldset")?.disabled).toBe(false)
+    expect(screen.queryByRole("button", { name: /No editable/i })).toBeNull()
+  })
+
+  it("el submit con comprobante anulable pide CONFIRMACIÓN explícita y NO muta todavía", async () => {
+    const { container } = render(
+      <SaleForm
+        onSuccess={() => {}}
+        editingOperation={makeOperation({ isFiscallyLocked: false, fiscal: PENDING_VOIDABLE_FISCAL })}
+      />,
+    )
+    fireEvent.submit(container.querySelector("form") as HTMLFormElement)
+    await new Promise((r) => setTimeout(r, 0))
+
+    expect(updateSaleOperationMock).not.toHaveBeenCalled()
+    const dialog = screen.getByRole("alertdialog")
+    expect(dialog.textContent).toMatch(/¿Guardar los cambios y anular el comprobante\?/i)
+    expect(dialog.textContent).toContain("0003-00000005")
+    expect(screen.getByRole("button", { name: /Guardar y anular/i })).toBeInTheDocument()
+  })
+
+  it("cancelar la confirmación NO dispara la mutación", async () => {
+    const { container } = render(
+      <SaleForm
+        onSuccess={() => {}}
+        editingOperation={makeOperation({ isFiscallyLocked: false, fiscal: PENDING_VOIDABLE_FISCAL })}
+      />,
+    )
+    fireEvent.submit(container.querySelector("form") as HTMLFormElement)
+    await new Promise((r) => setTimeout(r, 0))
+    fireEvent.click(screen.getByRole("button", { name: /^Cancelar$/i }))
+    await new Promise((r) => setTimeout(r, 0))
+    expect(updateSaleOperationMock).not.toHaveBeenCalled()
+  })
+
+  it("confirmar con 'Guardar y anular' SÍ dispara la mutación", async () => {
+    const { container } = render(
+      <SaleForm
+        onSuccess={() => {}}
+        editingOperation={makeOperation({ isFiscallyLocked: false, fiscal: PENDING_VOIDABLE_FISCAL })}
+      />,
+    )
+    fireEvent.submit(container.querySelector("form") as HTMLFormElement)
+    await new Promise((r) => setTimeout(r, 0))
+    fireEvent.click(screen.getByRole("button", { name: /Guardar y anular/i }))
+    await new Promise((r) => setTimeout(r, 0))
+    expect(updateSaleOperationMock).toHaveBeenCalledTimes(1)
+  })
+
+  // Hallazgo de la verificación visual (2026-09-22): el diálogo se abre por
+  // ESTADO, no con un AlertDialogTrigger, así que Radix no tiene trigger al que
+  // devolver el foco y al cancelar lo dejaba en el <body>. Quien navega con
+  // teclado volvía al principio del formulario, con todo el carrito por
+  // recorrer de nuevo para llegar al botón que acababa de usar.
+  it("al cancelar la confirmación el foco vuelve al botón que la abrió, no al body", async () => {
+    const { container } = render(
+      <SaleForm
+        onSuccess={() => {}}
+        editingOperation={makeOperation({ isFiscallyLocked: false, fiscal: PENDING_VOIDABLE_FISCAL })}
+      />,
+    )
+    const submit = container.querySelector('button[type="submit"]') as HTMLButtonElement
+    fireEvent.submit(container.querySelector("form") as HTMLFormElement)
+    await new Promise((r) => setTimeout(r, 0))
+    fireEvent.click(screen.getByRole("button", { name: /^Cancelar$/i }))
+    await new Promise((r) => setTimeout(r, 50))
+    expect(document.activeElement).toBe(submit)
+  })
+
+  it("sin comprobante, el submit NO pide confirmación (no hay nada que anular)", async () => {
+    const { container } = render(
+      <SaleForm onSuccess={() => {}} editingOperation={makeOperation({ fiscal: null })} />,
+    )
+    fireEvent.submit(container.querySelector("form") as HTMLFormElement)
+    await new Promise((r) => setTimeout(r, 0))
+    expect(screen.queryByRole("alertdialog")).toBeNull()
+    expect(updateSaleOperationMock).toHaveBeenCalledTimes(1)
   })
 })

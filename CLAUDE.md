@@ -66,7 +66,7 @@
 | Capa | Tecnología | Notas |
 |------|------------|-------|
 | **BaaS** | Supabase (Auth, DB, Edge Functions, Storage, Realtime) | Proyecto real: `gxdhpxvdjjkmxhdkkwyb` |
-| **DB** | PostgreSQL vía Supabase, con RLS org-based | 307 migraciones en prod; última `20261060000001_venta_editable_sin_cae` (verificada en prod 2026-09-24: `max(version)=20261060000001`, 307 filas — el PR #582 ya mergeó). La `20261061000001_venta_editable_vs_promocion_legacy` la aporta el PR de `venta-editable-vs-promocion-legacy` (rama `fix/facturar-venta-manual`, sin mergear); verificar en prod tras el merge (308 filas) |
+| **DB** | PostgreSQL vía Supabase, con RLS org-based | 309 migraciones en prod tras el merge del PR #584; última `20261062000001_ventas_unidades_conversion` (rama `claude/nice-noether-rrkgyh`, sin mergear; verificar en prod tras el merge: `max(version)=20261062000001`, 309 filas). La anterior, `20261061000001_venta_editable_vs_promocion_legacy`, es la del PR #585, ya mergeado (verificada en prod 2026-09-25: `max(version)=20261061000001`, 308 filas) |
 | **Extensiones PG** | `pg_cron` (grace period, relay outbox) · `pg_net` / DB webhooks (email, outbox, relay CAE) | — |
 | **Edge Functions** | Deno (Supabase) — 12 funciones | `ai-insights`, `ai-resumen`, `ai-precio`, `ai-rentabilidad`, `ai-comparativo`, `ai-prediccion`, `ai-simulador`, `ai-estadisticas`, `fair-advisor`, `invoice-ocr`, `generate-export`, `send-email` |
 | **IA** | OpenAI API | `gpt-4o-mini` en las 9 funciones de IA; **`gpt-4o`** (visión) en `invoice-ocr` |

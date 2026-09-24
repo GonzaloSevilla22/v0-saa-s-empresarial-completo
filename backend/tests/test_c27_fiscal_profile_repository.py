@@ -132,6 +132,62 @@ class TestFiscalProfileRepository:
         assert "account_id" in query
 
 
+    @pytest.mark.asyncio
+    async def test_upsert_persists_delegacion_autorizada(self, fiscal_profile_repo):
+        """La atestación de delegación en ARCA (v22) tiene que llegar a la fila.
+
+        Bug real: el checkbox "Ya autoricé a Aliadata… como representante" de
+        Configuración → Datos fiscales nunca persistía porque el INSERT /
+        ON CONFLICT del repositorio no incluía la columna, aunque el service
+        sí la mandaba en ``data``.
+        """
+        repo, conn = fiscal_profile_repo
+        conn.fetchrow = AsyncMock(return_value=FISCAL_PROFILE_ROW)
+
+        await repo.upsert(
+            ACCOUNT_ID,
+            {
+                "cuit": "20123456789",
+                "iva_condition": "responsable_inscripto",
+                "ambiente": "homologacion",
+                "delegacion_autorizada": True,
+            },
+        )
+
+        args = conn.fetchrow.call_args[0]
+        query = " ".join(args[0].lower().split())
+        insert_columns = query.split("values")[0]
+        assert "delegacion_autorizada" in insert_columns, "la columna falta en la lista del INSERT"
+        assert (
+            "delegacion_autorizada = coalesce($7::boolean, fiscal_profiles.delegacion_autorizada)"
+            in query
+        ), "el ON CONFLICT no actualiza la atestación"
+        assert args[7] is True
+
+    @pytest.mark.asyncio
+    async def test_upsert_preserves_delegacion_autorizada_when_absent(self, fiscal_profile_repo):
+        """Guardar CUIT/IVA sin tocar el checkbox no resetea la atestación.
+
+        El service sólo agrega ``delegacion_autorizada`` a ``data`` cuando vino
+        en el payload (semántica PATCH de v22); el repo tiene que respetarlo
+        pasando NULL para que el COALESCE conserve el valor vivo.
+        """
+        repo, conn = fiscal_profile_repo
+        conn.fetchrow = AsyncMock(return_value=FISCAL_PROFILE_ROW)
+
+        await repo.upsert(
+            ACCOUNT_ID,
+            {
+                "cuit": "20123456789",
+                "iva_condition": "responsable_inscripto",
+                "ambiente": "homologacion",
+            },
+        )
+
+        args = conn.fetchrow.call_args[0]
+        assert args[7] is None
+
+
 # ── Endpoint tests ────────────────────────────────────────────────────────────
 
 class TestFiscalProfileEndpoints:

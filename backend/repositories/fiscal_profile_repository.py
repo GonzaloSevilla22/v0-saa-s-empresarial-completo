@@ -34,14 +34,18 @@ class FiscalProfileRepository(BaseRepository):
         row = await self.fetchrow(
             """
             INSERT INTO public.fiscal_profiles
-              (account_id, cuit, iva_condition, iibb_condition, ambiente, certificado_afip_path)
-            VALUES ($1, $2, $3, $4, $5, $6)
+              (account_id, cuit, iva_condition, iibb_condition, ambiente, certificado_afip_path,
+               delegacion_autorizada)
+            VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7::boolean, false))
             ON CONFLICT (account_id) DO UPDATE
               SET cuit                  = EXCLUDED.cuit,
                   iva_condition         = EXCLUDED.iva_condition,
                   iibb_condition        = EXCLUDED.iibb_condition,
                   ambiente              = EXCLUDED.ambiente,
-                  certificado_afip_path = COALESCE(EXCLUDED.certificado_afip_path, fiscal_profiles.certificado_afip_path)
+                  certificado_afip_path = COALESCE(EXCLUDED.certificado_afip_path, fiscal_profiles.certificado_afip_path),
+                  -- v22: la atestación sólo viaja cuando el payload la trae (semántica PATCH);
+                  -- NULL conserva el valor vivo en vez de resetearlo a false.
+                  delegacion_autorizada = COALESCE($7::boolean, fiscal_profiles.delegacion_autorizada)
             RETURNING *
             """,
             account_id,
@@ -50,5 +54,6 @@ class FiscalProfileRepository(BaseRepository):
             data.get("iibb_condition"),
             data.get("ambiente", "homologacion"),
             data.get("certificado_afip_path"),
+            data.get("delegacion_autorizada"),
         )
         return dict(row) if row else None

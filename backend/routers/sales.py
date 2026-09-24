@@ -142,7 +142,7 @@ async def delete_sales_by_operation(
 
 @router.post("/{operation_id}/promote-to-order", response_model=PromoteToOrderOut)
 async def promote_to_order(
-    operation_id: str,
+    operation_id: uuid.UUID,
     auth: dict = Depends(get_current_user),
     repo: SalesRepository = Depends(get_repo),
 ):
@@ -155,8 +155,11 @@ async def promote_to_order(
     Idempotente: doble llamada devuelve la orden existente con replayed=true.
 
     Governance: FISCAL = CRÍTICO.
+
+    venta-editable-vs-promocion-legacy: `operation_id` se valida como uuid en
+    el borde (422) — antes un texto cualquiera llegaba a asyncpg y salía 500.
     """
-    return await sales_service.promote_to_order(repo, auth, operation_id)
+    return await sales_service.promote_to_order(repo, auth, str(operation_id))
 
 
 @router.delete("/{sale_id}", status_code=204)

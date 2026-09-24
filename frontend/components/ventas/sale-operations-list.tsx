@@ -225,6 +225,18 @@ export function SaleOperationsList({
     setExpandedKey((prev) => (prev === key ? null : key))
   }, [])
 
+  // venta-editable-vs-promocion-legacy: si la emisión falla, la fila vuelve a
+  // "Facturar" — el próximo clic re-prepara la venta, y eso re-sincroniza una
+  // orden que quedó desactualizada (sales_order_out_of_sync).
+  const clearPromoted = useCallback((key: string) => {
+    setPromotedMap((prev) => {
+      if (!prev.has(key)) return prev
+      const next = new Map(prev)
+      next.delete(key)
+      return next
+    })
+  }, [])
+
   // facturar-venta-manual (D7): promote legacy sale → SalesOrder, then show EmitInvoiceButton
   async function handleFacturar(e: React.MouseEvent, op: SaleOperation) {
     e.stopPropagation()
@@ -242,9 +254,9 @@ export function SaleOperationsList({
         return next
       })
       if (result.replayed) {
-        toast.info("Venta ya preparada para facturar — elegí el comprobante.")
+        toast.info("Esta venta ya estaba preparada. Tocá «Emitir comprobante» para mandarla a ARCA.")
       } else {
-        toast.success("Venta lista para facturar. Completá la emisión a AFIP.")
+        toast.success("Venta lista para facturar. Tocá «Emitir comprobante» para mandarla a ARCA.")
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Error al preparar la facturación"
@@ -408,6 +420,13 @@ export function SaleOperationsList({
           const editBlockedReason =
             fiscalReason ?? (op.isPaymentLocked ? PAYMENT_LOCKED_REASON : null)
           const voidHint = voidableEditHint(op.fiscal)
+          // venta-editable-vs-promocion-legacy: "Emitir comprobante" sólo
+          // mientras la venta está preparada y todavía SIN comprobante vivo.
+          // Cuando la fila refrescada ya trae uno (pending_cae/authorized),
+          // manda el badge del read model — nunca los dos a la vez.
+          const promoted = promotedMap.get(op.key)
+          const hasLiveDoc =
+            op.fiscal?.status === "pending_cae" || op.fiscal?.status === "authorized"
           const deleteInfo = getDeleteCompensation(
             {
               ...op,
@@ -575,6 +594,10 @@ export function SaleOperationsList({
                             initialStatus={op.fiscal.status}
                             initialFrozen={op.fiscal.frozen}
                             verbose
+                            // venta-editable-vs-promocion-legacy: cuando el
+                            // relay autoriza, la fila se refresca sola (el
+                            // texto lateral pasa a "Comprobante enviado a ARCA").
+                            onStatusChange={() => onRefetch()}
                           />
                           {op.fiscal.label && (
                             <span className="text-xs text-muted-foreground tabular-nums">
@@ -583,14 +606,17 @@ export function SaleOperationsList({
                           )}
                         </span>
                       )}
-                      {promotedMap.has(op.key) ? (
-                        // Ya promovida en esta sesión: renderizar EmitInvoiceButton
+                      {promoted && !hasLiveDoc ? (
+                        // Preparada en esta sesión y todavía sin comprobante
+                        // vivo: el segundo paso, "Emitir comprobante".
                         <EmitInvoiceButton
-                          salesOrderId={promotedMap.get(op.key)!.salesOrderId}
+                          salesOrderId={promoted.salesOrderId}
                           salesOrderStatus="confirmed"
                           fiscalDocumentId={null}
                           ivaConditionEmisor={fiscalProfile?.ivaCondition ?? null}
                           pointOfSaleId={defaultPointOfSaleId}
+                          label="Emitir comprobante"
+                          onEmitFailed={() => clearPromoted(op.key)}
                         />
                       ) : op.isFiscallyLocked || op.fiscal?.voidable ? (
                         // venta-editable-sin-cae: no hay nada que facturar.

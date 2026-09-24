@@ -46,3 +46,11 @@ layout ni scroll ante `wheel`/`touchmove` (RED de `tasks.md` 1.1/2.1).
   ninguno de los dos. Gotcha aprendido en su spec: con el diálogo abierto,
   Radix marca `aria-hidden` el resto de la página, así que el `<h1>` del arnés
   NO existe para el árbol de accesibilidad — esperar el diálogo, no el heading.
+- `/dev-harness/facturar-venta?theme=light|dark&error=out_of_sync|inconsistent` —
+  venta-editable-vs-promocion-legacy: el listado REAL con una venta cargada a
+  mano sin comprobante y `window.fetch` interceptado hacia el backend, para la
+  pasada visual de los dos rechazos de "Facturar" que el e2e real
+  (`e2e/facturar-venta-manual.spec.ts`, stack local + relay con el stub) no
+  puede provocar a demanda: la emisión rechazada por `sales_order_out_of_sync`
+  (la fila tiene que volver a "Facturar") y la preparación rechazada por
+  `operation_inconsistent`. Los toasts los pinta el `<Toaster>` del layout raíz.

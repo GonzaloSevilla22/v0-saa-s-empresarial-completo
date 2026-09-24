@@ -200,7 +200,20 @@ DECLARE
     -- de uso, también para dejar la orden ajena facturable de nuevo. NUNCA
     -- otorgar. Candado de comportamiento: el bloque de introspección de la
     -- propia migración y supabase/tests/test_venta_editable_sin_cae.sql.
-    'public._fiscal_void_pending_for_sale_edit(uuid, uuid, uuid, text)'
+    'public._fiscal_void_pending_for_sale_edit(uuid, uuid, uuid, text)',
+    -- venta-editable-vs-promocion-legacy (20261061000001): el helper que
+    -- RECALCULA total, cliente, sucursal y líneas de una sales_order desde las
+    -- filas de su venta. Es SECURITY INVOKER (sólo corre dentro de la
+    -- promoción y la edición, que son DEFINER) y recibe la orden, la operación
+    -- y la cuenta POR PARÁMETRO. Llamado directo por `authenticated` hoy lo
+    -- frena la RLS de sales_orders (sin política de escritura) — defensa de
+    -- segundo orden: una política o un GRANT futuros lo convertirían en la
+    -- primitiva para reescribir por PostgREST el total y las líneas de una
+    -- orden, y con eso el importe que después se factura. NUNCA otorgar.
+    -- Meta-candado de que la firma RESUELVE
+    -- (este chequeo es drift-tolerante) en el bloque (0) de
+    -- supabase/tests/test_facturar_venta_manual.sql.
+    'public._sales_order_sync_from_operation(uuid, uuid, uuid)'
   ];
   -- Allowlist del chequeo (4) — helpers internos que HOY siguen expuestos a
   -- `authenticated`. Cada entrada necesita su justificación.

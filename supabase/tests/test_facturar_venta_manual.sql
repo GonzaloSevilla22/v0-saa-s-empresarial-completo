@@ -998,3 +998,136 @@ BEGIN
   PERFORM pg_temp.fvm_cleanup(v_user, v_account);
   RAISE NOTICE 'PASS (8)/(11): la emisión rechaza con P0409 sales_order_out_of_sync una orden con otro importe, otro receptor o sin venta vinculada (sin crear comprobante), y emite una sana; "Facturar" de nuevo re-sincroniza y emite por Σ sales.total a 2 decimales (1000.01); con comprobante vivo el replay no toca la orden y el helper rechaza (P0409 pending/authorized, P0404 cuenta ajena).';
 END $$;
+
+-- ═════════════════════════════════════════════════════════════════════════════
+-- (12) Tenencia del REPLAY (red team 2026-09-24, D3b). El índice único de
+-- sales_orders.sale_operation_id es GLOBAL, y la RLS sales_writer_insert deja
+-- que la cuenta B inserte una fila SUYA con el operation_id de A (hace falta
+-- conocer el uuid). Desde ahí, la promoción de B:
+--   (12a) con la orden de A facturada (pending_cae vivo) devolvía
+--         replayed=true con el sales_order_id DE A — el SELECT de idempotencia
+--         no filtraba por cuenta y esa rama no revisaba tenencia;
+--   (12b) con la orden de A sin comprobante la resincronizaba "como B" y el
+--         helper respondía P0404 nombrando el id de la orden de A.
+-- Contrato: una orden de OTRA cuenta para esa operación es P0404
+-- operation_not_found, sin nombrar nada de la otra cuenta y sin tocar su
+-- orden. La fila inyectada se inserta como postgres para no depender de esa
+-- RLS (candidato aparte: sacar las escrituras directas sobre sales).
+-- ═════════════════════════════════════════════════════════════════════════════
+DO $$
+DECLARE
+  v_failures text[] := '{}';
+  v_fa       jsonb;
+  v_fb       jsonb;
+  v_user_a   uuid; v_account_a uuid; v_branch_a uuid;
+  v_user_b   uuid; v_account_b uuid; v_branch_b uuid;
+  v_product  uuid;
+  v_pv       uuid;
+  v_res      jsonb;
+  v_op       uuid;
+  v_op2      uuid;
+  v_so       uuid;
+  v_so2      uuid;
+  v_before   record;
+  v_after    record;
+  v_try      record;
+BEGIN
+  v_fa := pg_temp.fvm_anchor('facturar-venta-manual-12a@test.local');
+  v_user_a := (v_fa->>'user')::uuid; v_account_a := (v_fa->>'account')::uuid; v_branch_a := (v_fa->>'branch')::uuid;
+  v_fb := pg_temp.fvm_anchor('facturar-venta-manual-12b@test.local');
+  v_user_b := (v_fb->>'user')::uuid; v_account_b := (v_fb->>'account')::uuid; v_branch_b := (v_fb->>'branch')::uuid;
+
+  INSERT INTO public.products (user_id, account_id, name, sku, cost, price)
+  VALUES (v_user_a, v_account_a, '__gate_fvm_product_12__', 'FVM-12', 300, 500) RETURNING id INTO v_product;
+  PERFORM public.c21_apply_branch_stock_delta(v_account_a, v_product, v_branch_a, 500);
+  v_pv := pg_temp.fvm_fiscal(v_account_a);
+
+  -- A: una venta facturada (pending_cae vivo) y otra promovida sin facturar.
+  PERFORM pg_temp.fvm_login(v_user_a);
+  v_res := public.rpc_create_sale_operation(
+    'fvm-12a-' || gen_random_uuid()::text, NULL, CURRENT_DATE, 'ARS',
+    jsonb_build_array(jsonb_build_object('product_id', v_product, 'amount', 500.00, 'quantity', 2, 'unit_id', NULL)),
+    v_branch_a, NULL, NULL);
+  v_op := (v_res->>'operation_id')::uuid;
+  v_so := (public.rpc_promote_legacy_sale_to_order(v_op)->>'sales_order_id')::uuid;
+  PERFORM public.rpc_emit_sale_invoice(v_so, v_pv);
+
+  v_res := public.rpc_create_sale_operation(
+    'fvm-12b-' || gen_random_uuid()::text, NULL, CURRENT_DATE, 'ARS',
+    jsonb_build_array(jsonb_build_object('product_id', v_product, 'amount', 250.00, 'quantity', 1, 'unit_id', NULL)),
+    v_branch_a, NULL, NULL);
+  v_op2 := (v_res->>'operation_id')::uuid;
+  v_so2 := (public.rpc_promote_legacy_sale_to_order(v_op2)->>'sales_order_id')::uuid;
+
+  -- B inyecta una fila SUYA en cada operación de A.
+  INSERT INTO public.sales (user_id, account_id, client_id, amount, quantity, total, currency, date, operation_id, branch_id)
+  VALUES (v_user_b, v_account_b, NULL, 1, 1, 1, 'ARS', now(), v_op,  v_branch_b),
+         (v_user_b, v_account_b, NULL, 1, 1, 1, 'ARS', now(), v_op2, v_branch_b);
+
+  -- ── (12a) orden de A con comprobante VIVO.
+  SELECT so.total, so.fiscal_document_id, so.sale_operation_id, so.client_id,
+         (SELECT count(*) FROM public.sales_order_items WHERE sales_order_id = so.id) AS n_items
+  INTO   v_before FROM public.sales_orders so WHERE so.id = v_so;
+  PERFORM pg_temp.fvm_login(v_user_b);
+  SELECT * INTO v_try FROM pg_temp.fvm_try(format('SELECT public.rpc_promote_legacy_sale_to_order(%L::uuid)', v_op));
+  IF v_try.o_state IS DISTINCT FROM 'P0404' OR position('operation_not_found' in COALESCE(v_try.o_msg, '')) = 0 THEN
+    v_failures := v_failures || format('(12a) la promoción de B sobre una operación con la orden FACTURADA de A debía dar P0404 operation_not_found, dio %s %s — devolvía el sales_order_id de A',
+      COALESCE(v_try.o_state, 'ningún error'), COALESCE(v_try.o_msg, ''));
+  END IF;
+  IF position(v_so::text in COALESCE(v_try.o_msg, '')) > 0 THEN
+    v_failures := v_failures || format('(12a) el error de B nombra la orden de A (%s)', v_so);
+  END IF;
+  SELECT so.total, so.fiscal_document_id, so.sale_operation_id, so.client_id,
+         (SELECT count(*) FROM public.sales_order_items WHERE sales_order_id = so.id) AS n_items
+  INTO   v_after FROM public.sales_orders so WHERE so.id = v_so;
+  IF v_after IS DISTINCT FROM v_before THEN
+    v_failures := v_failures || format('(12a) la promoción de B tocó la orden de A: %s → %s', v_before, v_after);
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.sales_orders WHERE account_id = v_account_b) THEN
+    v_failures := v_failures || format('(12a) quedó una orden de B');
+  END IF;
+
+  -- ── (12b) TRIANGULATE: orden de A SIN comprobante (la rama que resincroniza).
+  SELECT so.total, so.fiscal_document_id, so.sale_operation_id, so.client_id,
+         (SELECT count(*) FROM public.sales_order_items WHERE sales_order_id = so.id) AS n_items
+  INTO   v_before FROM public.sales_orders so WHERE so.id = v_so2;
+  SELECT * INTO v_try FROM pg_temp.fvm_try(format('SELECT public.rpc_promote_legacy_sale_to_order(%L::uuid)', v_op2));
+  IF v_try.o_state IS DISTINCT FROM 'P0404' OR position('operation_not_found' in COALESCE(v_try.o_msg, '')) = 0 THEN
+    v_failures := v_failures || format('(12b) la promoción de B sobre una operación con la orden SIN facturar de A debía dar P0404 operation_not_found, dio %s %s',
+      COALESCE(v_try.o_state, 'ningún error'), COALESCE(v_try.o_msg, ''));
+  END IF;
+  IF position(v_so2::text in COALESCE(v_try.o_msg, '')) > 0 THEN
+    v_failures := v_failures || format('(12b) el error de B nombra la orden de A (%s)', v_so2);
+  END IF;
+  SELECT so.total, so.fiscal_document_id, so.sale_operation_id, so.client_id,
+         (SELECT count(*) FROM public.sales_order_items WHERE sales_order_id = so.id) AS n_items
+  INTO   v_after FROM public.sales_orders so WHERE so.id = v_so2;
+  IF v_after IS DISTINCT FROM v_before THEN
+    v_failures := v_failures || format('(12b) la promoción de B tocó la orden de A: %s → %s', v_before, v_after);
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.sales_orders WHERE account_id = v_account_b) THEN
+    v_failures := v_failures || format('(12b) quedó una orden de B');
+  END IF;
+
+  -- ── (12c) control positivo: el replay de A sobre SU orden facturada sigue
+  -- devolviéndola (replayed=true) sin tocarla.
+  PERFORM pg_temp.fvm_login(v_user_a);
+  SELECT * INTO v_try FROM pg_temp.fvm_try(format('SELECT public.rpc_promote_legacy_sale_to_order(%L::uuid)', v_op));
+  IF v_try.o_state IS NOT NULL THEN
+    v_failures := v_failures || format('(12c) el replay de A sobre su propia orden facturada debía funcionar, dio %s %s', v_try.o_state, COALESCE(v_try.o_msg, ''));
+  ELSE
+    v_res := public.rpc_promote_legacy_sale_to_order(v_op);
+    IF (v_res->>'sales_order_id')::uuid IS DISTINCT FROM v_so OR (v_res->>'replayed')::boolean IS DISTINCT FROM true THEN
+      v_failures := v_failures || format('(12c) el replay de A debía devolver SU orden con replayed=true, devolvió %s', v_res);
+    END IF;
+  END IF;
+
+  IF array_length(v_failures, 1) > 0 THEN
+    RAISE EXCEPTION E'GATE FACTURAR-VENTA-MANUAL (12) FAILED:\n  %', array_to_string(v_failures, E'\n  ');
+  END IF;
+
+  DELETE FROM public.sales WHERE account_id = v_account_b;
+  PERFORM pg_temp.fvm_cleanup(v_user_b, v_account_b);
+  PERFORM pg_temp.fvm_cleanup(v_user_a, v_account_a);
+  RAISE NOTICE 'PASS (12): con una fila de otra cuenta inyectada en la operación, la promoción de esa cuenta da P0404 operation_not_found sin devolver ni nombrar la orden ajena (facturada o no) y sin tocarla; el replay del dueño sigue devolviendo su orden.';
+END $$;

@@ -219,6 +219,11 @@ COMMENT ON FUNCTION public._sales_order_sync_from_operation(uuid, uuid, uuid) IS
 --   · (3) idempotencia bajo el lock; en el replay, resync si la orden no tiene
 --     comprobante vivo (allow-list: sin comprobante, rejected, voided) — es la
 --     salida del usuario ante sales_order_out_of_sync.
+--   · (3) la orden del replay es SÓLO la de la cuenta del caller: el índice
+--     único de sale_operation_id es global, y con una fila propia inyectada
+--     en la operación de otra cuenta el replay devolvía el sales_order_id
+--     ajeno (red team 2026-09-24, D3b). Una orden de otra cuenta → P0404,
+--     también en el handler de unique_violation.
 --   · total, cliente, sucursal, homogeneidad y líneas: el helper único.
 -- Intacto: firma, SECURITY DEFINER, search_path, retorno, P0401/P0422
 -- no_branch_found, payment_method_id NULL, side-effect-free (D1), ACLs,
@@ -298,10 +303,14 @@ BEGIN
   -- ── (3) Idempotencia (D2), ahora bajo el lock de las filas: una promoción
   -- concurrente de la MISMA operación espera arriba y, al pasar, ve acá la
   -- orden commiteada. Replay con resync si la orden no tiene comprobante vivo.
+  -- Sólo la orden de ESTA cuenta (D3b): el índice único de sale_operation_id
+  -- es global; una orden de otra cuenta para esta operación no se devuelve ni
+  -- se toca — el INSERT de abajo choca con ella y el handler responde P0404.
   SELECT so.id, so.fiscal_document_id
   INTO   v_existing_id, v_existing_fd
   FROM   public.sales_orders so
   WHERE  so.sale_operation_id = p_operation_id
+    AND  so.account_id        = v_account_id
   FOR UPDATE;
 
   IF v_existing_id IS NOT NULL THEN
@@ -335,9 +344,11 @@ BEGIN
   -- limpiezas-pagos-admin (D7): nace sin forma de pago imputada
   -- (payment_method_id NULL): la de una venta cargada a mano es desconocida.
   -- total provisorio 0: lo fija el helper, con las líneas, en esta misma
-  -- transacción. El handler de unique_violation queda como red: con el lock de
-  -- (1) es inalcanzable, pero si un camino futuro insertara sin el ancla sigue
-  -- devolviendo la orden existente en vez de un 500.
+  -- transacción. El handler de unique_violation: con el lock de (1) una
+  -- promoción concurrente de la MISMA cuenta nunca llega acá, pero si un
+  -- camino futuro insertara sin el ancla sigue devolviendo la orden existente
+  -- en vez de un 500. Lo que SÍ llega acá es la orden de OTRA cuenta para
+  -- esta operación (índice único global, D3b): P0404, sin nombrarla.
   BEGIN
     INSERT INTO public.sales_orders
       (account_id, branch_id, client_id, status,
@@ -349,7 +360,13 @@ BEGIN
   EXCEPTION WHEN unique_violation THEN
     SELECT id INTO v_existing_id
     FROM public.sales_orders
-    WHERE sale_operation_id = p_operation_id;
+    WHERE sale_operation_id = p_operation_id
+      AND account_id        = v_account_id;
+
+    IF v_existing_id IS NULL THEN
+      RAISE EXCEPTION 'operation_not_found: operación % no encontrada o ajena', p_operation_id
+        USING ERRCODE = 'P0404';
+    END IF;
 
     RETURN jsonb_build_object(
       'sales_order_id',    v_existing_id,

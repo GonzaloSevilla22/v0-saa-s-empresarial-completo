@@ -42,9 +42,11 @@ export interface SaleCartItem {
   unitId?: string
   /** Symbol shown in cart and on receipt (e.g. "kg", "doc"). */
   unitSymbol?: string
-  /** Conversion factor to base unit — used for server-side stock accounting. */
-  unitFactor?: number
-  /** Visual qty × unitFactor — pre-normalized for local stock validation. */
+  /**
+   * Visual qty converted to the PRODUCT's base unit (ventas-unidades-conversion
+   * D1/D5) — pre-normalized for local stock validation only; the server
+   * normalizes again with the single SQL definition and is the one that decides.
+   */
   quantityBase?: number
   // ── Input constraints (driven by unit type) ────────────────────────────────
   /** HTML input step: 1 for unitarios, 0.001 for medibles. */
@@ -93,9 +95,7 @@ export interface PurchaseCartItem {
   unitId?: string
   /** Symbol shown in cart (e.g. "kg", "doc"). */
   unitSymbol?: string
-  /** Conversion factor to base unit. */
-  unitFactor?: number
-  /** Visual qty × unitFactor — pre-normalized for local validation. */
+  /** Visual qty converted to the PRODUCT's base unit — local validation only. */
   quantityBase?: number
   // ── Input constraints (driven by unit type) ────────────────────────────────
   /** HTML input step: 1 for unitarios, 0.001 for medibles. */

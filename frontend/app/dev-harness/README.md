@@ -54,3 +54,12 @@ layout ni scroll ante `wheel`/`touchmove` (RED de `tasks.md` 1.1/2.1).
   puede provocar a demanda: la emisión rechazada por `sales_order_out_of_sync`
   (la fila tiene que volver a "Facturar") y la preparación rechazada por
   `operation_inconsistent`. Los toasts los pinta el `<Toaster>` del layout raíz.
+- `/dev-harness/unidades?theme=light|dark&view=stock|form` —
+  ventas-unidades-conversion (task 6.4): las columnas REALES de `/stock`
+  (`buildColumns` + `DataTable` + el mismo `mobileCard`) y filas REALES del
+  historial (`MovementRow`) sobre productos en kilos, litros y por unidades
+  ("0.550 kg", "12 uds", "-0.450 kg"); y el formulario de venta REAL con un
+  catálogo sintético servido por intercept de `window.fetch` (`/products` del
+  backend y `/rest/v1/units_of_measure` de Supabase), para capturar el selector
+  de unidad compatible (un producto en kg ofrece kg/g/tn, uno sin unidad base
+  sólo unidades base).

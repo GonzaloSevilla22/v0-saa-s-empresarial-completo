@@ -39,6 +39,13 @@ import type { StockMovement, MovementType } from "@/lib/types"
 import { cn } from "@/lib/utils"
 import { format, parseISO, subDays } from "date-fns"
 import { es } from "date-fns/locale"
+// ventas-unidades-conversion (D8): la unidad base del producto para mostrar
+// "-0.450 kg" y "1 kg → 0.550 kg" — resuelta con los mapas ya cacheados de
+// productos y unidades, sin consulta nueva.
+import { useProducts } from "@/hooks/data/use-products"
+import { useUnitsOfMeasure } from "@/hooks/use-units-of-measure"
+import { resolveUnit } from "@/lib/unit-utils"
+import { formatQuantity } from "@/lib/format-unit"
 
 // ── Movement metadata ────────────────────────────────────────────────────────
 
@@ -102,7 +109,8 @@ function mapMovement(row: any): StockMovement {
 
 // ── Single row ────────────────────────────────────────────────────────────────
 
-const MovementRow = memo(function MovementRow({ m }: { m: StockMovement }) {
+// Exportada para el test de fila (ventas-unidades-conversion 6.2).
+export const MovementRow = memo(function MovementRow({ m, unitSymbol }: { m: StockMovement; unitSymbol?: string }) {
   const meta  = MOVEMENT_META[m.type] ?? MOVEMENT_META.adjustment
   const delta = m.quantityDelta
   const isPos = delta > 0
@@ -143,18 +151,18 @@ const MovementRow = memo(function MovementRow({ m }: { m: StockMovement }) {
       {/* Before → After */}
       {m.quantityBefore != null && m.quantityAfter != null && (
         <div className="hidden sm:flex items-center gap-1 shrink-0 text-xs text-muted-foreground tabular-nums pt-0.5">
-          <span>{m.quantityBefore}</span>
+          <span>{formatQuantity(m.quantityBefore, unitSymbol)}</span>
           <span className="text-muted-foreground/40">→</span>
-          <span>{m.quantityAfter}</span>
+          <span>{formatQuantity(m.quantityAfter, unitSymbol)}</span>
         </div>
       )}
 
-      {/* Delta */}
+      {/* Delta — ventas-unidades-conversion (D8): con la unidad base del producto */}
       <div className={cn(
-        "shrink-0 text-sm font-semibold tabular-nums pt-0.5 w-16 text-right",
+        "shrink-0 text-sm font-semibold tabular-nums pt-0.5 min-w-16 text-right",
         isPos ? "text-emerald-400" : "text-red-400",
       )}>
-        {isPos ? "+" : ""}{delta}
+        {isPos ? "+" : ""}{formatQuantity(delta, unitSymbol)}
       </div>
     </div>
   )
@@ -199,6 +207,15 @@ interface StockMovementsPanelProps {
 
 export function StockMovementsPanel({ productId }: StockMovementsPanelProps) {
   const supabase = createClient()
+
+  // ventas-unidades-conversion (D8): símbolo de la unidad base por producto.
+  const { products } = useProducts()
+  const { unitsById } = useUnitsOfMeasure()
+  const unitSymbolByProduct = useMemo(() => {
+    const map = new Map<string, string | undefined>()
+    for (const p of products) map.set(p.id, resolveUnit(p.baseUnitId, unitsById)?.symbol)
+    return map
+  }, [products, unitsById])
 
   const [open,      setOpen]      = useState(false)
   const [movements, setMovements] = useState<StockMovement[]>([])
@@ -436,7 +453,9 @@ export function StockMovementsPanel({ productId }: StockMovementsPanelProps) {
                   </p>
                 </div>
               ) : (
-                filtered.map((m) => <MovementRow key={m.id} m={m} />)
+                filtered.map((m) => (
+                  <MovementRow key={m.id} m={m} unitSymbol={unitSymbolByProduct.get(m.productId)} />
+                ))
               )}
             </div>
           </ScrollArea>

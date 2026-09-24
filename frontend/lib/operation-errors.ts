@@ -78,6 +78,18 @@ const JOURNAL_ENTRY_ORIGINAL_NOT_FOUND_ERROR = /journal_entry_original_not_found
 const CLIENT_NOT_FOUND_ERROR = /client_not_found/
 const SUPPLIER_NOT_FOUND_ERROR = /supplier_not_found/
 
+// ventas-unidades-conversion (D1/D3): los tres tokens P0400 que emite
+// _uom_normalize_quantity, la ÚNICA definición de "cantidad de una línea en la
+// unidad en que se lleva el stock del producto", consumida por los cinco
+// caminos (formulario, POS, edición de venta, alta y edición de compra). El
+// selector ya sólo ofrece unidades compatibles (lib/unit-utils compatibleUnits),
+// así que esto lo ve un cliente viejo o una llamada directa — pero el texto
+// tiene que explicar la salida igual. El uuid del producto viaja al final del
+// mensaje en los tres casos.
+const UNIT_TYPE_MISMATCH_ERROR = /unit_type_mismatch:.*?del producto\s+([0-9a-f-]{36})/i
+const UNIT_REQUIRES_BASE_UNIT_ERROR = /unit_requires_base_unit:.*?el producto\s+([0-9a-f-]{36})/i
+const QUANTITY_BELOW_PRECISION_ERROR = /quantity_below_precision:.*?del producto\s+([0-9a-f-]{36})/i
+
 // venta-editable-sin-cae: los DOS tokens nuevos de P0423. El SQLSTATE es el
 // mismo que `invoiced_operation_immutable` (y que los tres guards de dinero),
 // así que lo único que distingue la causa —y la acción que le queda al
@@ -199,6 +211,44 @@ export function humanizeOperationError(
     return {
       message:
         "El proveedor seleccionado no existe o no pertenece a esta cuenta. Elegí un proveedor del listado o dejá el campo vacío.",
+    }
+  }
+
+  const unitTypeMatch = message.match(UNIT_TYPE_MISMATCH_ERROR)
+  if (unitTypeMatch) {
+    const name = lookupProductName?.(unitTypeMatch[1])
+    const producto = name ? `«${name}»` : "este producto"
+    return {
+      message:
+        `La unidad elegida no es del mismo tipo que la unidad base de ${producto} ` +
+        `(peso, volumen, longitud o unidades no se convierten entre sí). Elegí una unidad compatible: no se guardó nada.`,
+    }
+  }
+
+  const unitRequiresBaseMatch = message.match(UNIT_REQUIRES_BASE_UNIT_ERROR)
+  if (unitRequiresBaseMatch) {
+    const productId = unitRequiresBaseMatch[1]
+    const name = lookupProductName?.(productId)
+    const producto = name ? `«${name}»` : "Este producto"
+    return {
+      message:
+        `${producto} no tiene unidad base, así que sólo se puede cargar en una unidad base (unidad, kilogramo, litro o metro). ` +
+        `Para usar gramos, docenas u otra unidad derivada, asignale una unidad base en el catálogo: no se guardó nada.`,
+      action: {
+        label: "Editar producto",
+        href: `/productos?q=${productId}`,
+      },
+    }
+  }
+
+  const belowPrecisionMatch = message.match(QUANTITY_BELOW_PRECISION_ERROR)
+  if (belowPrecisionMatch) {
+    const name = lookupProductName?.(belowPrecisionMatch[1])
+    const producto = name ? `«${name}»` : "este producto"
+    return {
+      message:
+        `La cantidad es demasiado chica para la unidad base de ${producto}: equivale a 0 al redondear a 4 decimales. ` +
+        `Cargá una cantidad mayor o usá una unidad más chica.`,
     }
   }
 

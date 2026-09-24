@@ -28,6 +28,9 @@ interface ProductApiRow {
   stock_control_type: string | null
   created_at: string
   parent_id?: string | null
+  // ventas-unidades-conversion (D10): unidad en que se lleva el stock; ausente
+  // en una base sin la migración → undefined.
+  base_unit_id?: string | null
 }
 
 function mapProduct(p: ProductApiRow): Product {
@@ -52,6 +55,10 @@ function mapProduct(p: ProductApiRow): Product {
     parentId:         p.parent_id ?? undefined,
     isVariant:        p.is_variant ?? false,
     stockControlType: (p.stock_control_type ?? "tracked") as Product["stockControlType"],
+    // ventas-unidades-conversion (D10): hasta este change el hook no mapeaba
+    // la unidad base, así que el catálogo mostraba "uds" para todo y el
+    // selector de unidad de los formularios nunca conocía la del producto.
+    baseUnitId:       p.base_unit_id ?? undefined,
   }
 }
 
@@ -225,6 +232,9 @@ export function useProducts() {
         parent_id:          product.parentId    ?? null,
         is_variant:         product.isVariant,
         stock_control_type: product.stockControlType ?? "tracked",
+        // ventas-unidades-conversion (D10): el formulario ya la mandaba y se
+        // perdía acá. null = sin unidad base.
+        base_unit_id:       product.baseUnitId ?? null,
       })
     },
     onSuccess: () => {
@@ -255,6 +265,9 @@ export function useProducts() {
         barcode:            product.barcode     ?? null,
         sku:                product.sku         ?? null,
         stock_control_type: product.stockControlType ?? "tracked",
+        // ventas-unidades-conversion (D10): el formulario manda siempre el
+        // estado vigente del campo — null desasigna (misma semántica que sku).
+        base_unit_id:       product.baseUnitId ?? null,
       })
     },
     onSuccess: () => {

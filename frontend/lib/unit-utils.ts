@@ -58,23 +58,78 @@ export function unitInputMin(unit?: UnitOfMeasure | null): number {
 // ─── Quantity normalization ───────────────────────────────────────────────────
 
 /**
- * Converts a display quantity (entered in the selected unit) to the normalized
- * base quantity that the DB stores in branch_stock (C-21: migrated from products.stock).
+ * Converts a display quantity (entered in the selected unit) to the quantity
+ * in which the product's stock is kept: the product's BASE unit (ventas-unidades-
+ * conversion D1). Mirror of the single SQL definition `_uom_normalize_quantity`
+ * that every stock-writing path uses server-side — this helper only lets the
+ * frontend validate stock locally before hitting the network; the server
+ * decides.
  *
- * The RPC does the same conversion server-side; this helper lets the frontend
- * validate stock locally before hitting the network.
+ *   normalized = displayQty × factor(unit) ÷ factor(product base unit)
+ *
+ * Rounded to 4 decimals (NUMERIC(15,4)) so `450 × 0.001` compares cleanly.
  *
  * @example
- * // product.stock stored in grams, kg.factor = 1000
- * toBaseQuantity(2.5, kgUnit)      → 2500
- * // no unit → factor = 1
- * toBaseQuantity(3, undefined)     → 3
+ * // product kept in kg (factor 1), line entered in g (factor 0.001)
+ * toBaseQuantity(450, gUnit, kgUnit)   → 0.45
+ * // product kept in g, line entered in kg
+ * toBaseQuantity(0.5, kgUnit, gUnit)   → 500
+ * // no unit → factor = 1 (quantity already in the product's base unit)
+ * toBaseQuantity(3, undefined)         → 3
  */
 export function toBaseQuantity(
   displayQty: number,
   unit?: UnitOfMeasure | null,
+  productBaseUnit?: UnitOfMeasure | null,
 ): number {
-  return displayQty * (unit?.factor ?? 1)
+  const factor = (unit?.factor ?? 1) / (productBaseUnit?.factor ?? 1)
+  return Math.round(displayQty * factor * 10_000) / 10_000
+}
+
+// ─── Unit compatibility (selector) ─────────────────────────────────────────
+
+/**
+ * Returns true when a unit is a BASE unit of its type (factor 1, no parent).
+ * Kilogramo, Litro, Metro and Unidad are base units; Gramo, Docena, mL are not.
+ */
+export function isBaseUnit(unit: Pick<UnitOfMeasure, "factor" | "baseUnitId">): boolean {
+  return unit.factor === 1 && !unit.baseUnitId
+}
+
+/**
+ * The units a line may use for a product — the ONLY definition, shared by the
+ * POS, the sale form and the purchase form (ventas-unidades-conversion D3/D5),
+ * and the exact mirror of what `_uom_normalize_quantity` accepts server-side:
+ *
+ * - product WITH a base unit  → every unit of the same `type` (the base included);
+ *   converting across types (kg ↔ L) is never defined, so those are not offered.
+ * - product WITHOUT base unit → only base units (factor 1): there is no
+ *   reference against which to convert a derived unit (this is how 0,381 "mL"
+ *   became a -0.0004 stock movement on 2026-09-22).
+ *
+ * @example
+ * compatibleUnits(units, kgUnit)    → [kg, g, tn]
+ * compatibleUnits(units, undefined) → [u, kg, L, m]
+ */
+export function compatibleUnits(
+  units: UnitOfMeasure[],
+  productBaseUnit?: UnitOfMeasure | null,
+): UnitOfMeasure[] {
+  if (productBaseUnit) return units.filter((u) => u.type === productBaseUnit.type)
+  return units.filter(isBaseUnit)
+}
+
+/**
+ * Whether a previously chosen unit is still valid for a product — used to
+ * fall back to the product's base unit (or "no unit") when the product changes.
+ */
+export function isUnitCompatible(
+  unit: UnitOfMeasure | null | undefined,
+  productBaseUnit?: UnitOfMeasure | null,
+): boolean {
+  if (!unit) return true
+  if (productBaseUnit) return unit.type === productBaseUnit.type
+  return isBaseUnit(unit)
 }
 
 // ─── Lookup helpers ───────────────────────────────────────────────────────────

@@ -113,6 +113,17 @@ La pata de reversa de `rpc_atomic_update_*` lee el último `stock_movements` de 
 
 `supabase/tests/test_ventas_unidades_conversion.sql`, cableado en `KPI_Validation.yml`: fixtures propias (cuenta, sucursal, unidades kg/g/L, tres productos: base kg, base g, sin base) con cleanup bajo `session_replication_role = replica` como el resto de los gates; matriz de comportamiento (los cinco caminos × base kg + línea g; base g + línea kg; sin base + mL rechazado; tipo cruzado rechazado en cada camino con verificación de cero rastro; edición en gramos con las dos patas; reversa por borrado; `min_stock = 0.5` dispara alerta; propagación del mínimo fraccionario) y bloque de introspección (los cinco cuerpos vivos contienen `_uom_normalize_quantity(` y ninguno contiene `* v_unit_factor`; ACLs del helper cerradas; firma única de `rpc_set_product_min_stock`).
 
+### D10 — `base_unit_id` de punta a punta (hallazgo del apply, 2026-09-24)
+
+Al cablear el selector se encontró que **la unidad base nunca llegaba al frontend por la API de FastAPI**: `v_products_with_stock` no exponía `products.base_unit_id`, `ProductOut`/`ProductCreate`/`ProductUpdate` no la tenían, y el hook `use-products` no la mapeaba en la lectura ni la enviaba en el alta/edición — el formulario de producto ya ofrecía el selector y **el backend descartaba el valor en silencio**. Es lo que explica que en prod haya un solo producto con unidad base (asignado en la era supabase-js) y que el catálogo muestre "uds" para todo. Sin esto D1/D3/D5 no son alcanzables desde la UI, así que entra en alcance:
+
+- la vista gana `p.base_unit_id` como última columna (aditiva, mismo criterio que `category_id`), dentro de la misma recreación que ya hacía la migración;
+- `ProductOut.base_unit_id` (default `None` para filas sin la columna), `ProductCreate.base_unit_id` y `ProductUpdate.base_unit_id` con **tri-estado por ausencia** (`base_unit_provided` desde `model_fields_set`, mismo molde que `cost`); el repository la incluye en `_NULLABLE_ON_UPDATE` y en el `INSERT`;
+- **guard de tenencia**: el FK a `units_of_measure` no está scopeado por tenant, así que el service verifica que la unidad sea del sistema o de la cuenta (`unit_visible_to_account`) y responde `422 base_unit_not_found` — nunca se asigna un uuid ajeno;
+- el hook mapea `base_unit_id → baseUnitId` y lo envía en `POST`/`PUT` (`null` = sin unidad base, el formulario manda siempre el estado vigente, como con `sku`).
+
+Fuera de alcance sigue el importador CSV (`rpc_bulk_upsert_products` no lee unidad) y el backfill de los 37 productos sin unidad que se venden en kg (OQ-1).
+
 ## Risks / Trade-offs
 
 - [Un gate existente fija literalmente el texto reemplazado (p. ej. la multiplicación inline)] → se corren los cinco gates que introspectan estas funciones antes de abrir el PR; el que falle se actualiza en el mismo PR con la justificación en el comentario del gate, nunca relajando la aserción que protegía.

@@ -65,6 +65,7 @@ import {
   unitInputMin,
   toBaseQuantity,
   resolveUnit,
+  compatibleUnits,
 } from "@/lib/unit-utils"
 import { getCanonicalLabel } from "@/lib/product-labels"
 import { humanizeOperationError } from "@/lib/operation-errors"
@@ -254,6 +255,18 @@ export default function PosPage() {
     [unitId, unitsById],
   )
 
+  // ventas-unidades-conversion (D1/D5): la unidad en que se lleva el stock del
+  // producto. La normalización local y el selector se derivan de ella con la
+  // misma función que usan el formulario de venta y el de compra.
+  const productBaseUnit = useMemo(
+    () => resolveUnit(selectedProduct?.baseUnitId, unitsById),
+    [selectedProduct, unitsById],
+  )
+  const unitOptions = useMemo(
+    () => compatibleUnits(units, productBaseUnit),
+    [units, productBaseUnit],
+  )
+
   const stagedStep = useMemo(() => unitInputStep(selectedUnit), [selectedUnit])
   const stagedMin  = useMemo(() => unitInputMin(selectedUnit),  [selectedUnit])
 
@@ -263,8 +276,8 @@ export default function PosPage() {
   )
 
   const stagedQuantityNormalized = useMemo(
-    () => toBaseQuantity(quantity, selectedUnit),
-    [quantity, selectedUnit],
+    () => toBaseQuantity(quantity, selectedUnit, productBaseUnit),
+    [quantity, selectedUnit, productBaseUnit],
   )
 
   const cartTotal = useMemo(() => calcCartTotal(cartItems), [cartItems])
@@ -328,9 +341,14 @@ export default function PosPage() {
 
   function handleProductChange(id: string) {
     setProductId(id)
-    setQuantity(1)
-    setUnitId("")
     const p = products.find((x) => x.id === id)
+    // ventas-unidades-conversion (D5): preseleccionar la unidad base del
+    // producto (o "sin unidad") y arrancar en el mínimo de esa unidad, igual
+    // que el formulario de venta — una unidad del producto anterior nunca
+    // queda seleccionada de forma invisible.
+    const nextUnitId = p?.baseUnitId ?? ""
+    setUnitId(nextUnitId)
+    setQuantity(unitInputMin(resolveUnit(nextUnitId, unitsById)))
     setUnitPrice(p?.price ?? 0)
   }
 
@@ -346,7 +364,7 @@ export default function PosPage() {
 
     if (existing) {
       const newQty        = existing.quantity + quantity
-      const newNormalized = toBaseQuantity(newQty, selectedUnit)
+      const newNormalized = toBaseQuantity(newQty, selectedUnit, productBaseUnit)
       if (newNormalized > selectedProduct.stock) {
         toast.error(`Stock insuficiente (disponible: ${selectedProduct.stock})`)
         return
@@ -384,7 +402,6 @@ export default function PosPage() {
           subtotal:     stagedSubtotal,
           unitId:       unitId || undefined,
           unitSymbol:   selectedUnit?.symbol,
-          unitFactor:   selectedUnit?.factor,
           quantityBase: stagedQuantityNormalized,
           step:         stagedStep,
           minQty:       stagedMin,
@@ -412,7 +429,11 @@ export default function PosPage() {
         return {
           ...item,
           quantity:     newQty,
-          quantityBase: toBaseQuantity(newQty, resolveUnit(item.unitId, unitsById)),
+          quantityBase: toBaseQuantity(
+            newQty,
+            resolveUnit(item.unitId, unitsById),
+            resolveUnit(productById.get(item.productId)?.baseUnitId, unitsById),
+          ),
           subtotal:     calcSaleSubtotal(item.unitPrice, newQty, 0),
         }
       }),
@@ -898,8 +919,13 @@ export default function PosPage() {
                         <SelectValue placeholder="Base (×1)" />
                       </SelectTrigger>
                       <SelectContent className="bg-popover border-border">
-                        <SelectItem value="__none__">Sin unidad (base)</SelectItem>
-                        {units.map((u) => (
+                        {/* ventas-unidades-conversion (D5): sólo unidades que el
+                            servidor aceptaría — con unidad base, las de su tipo;
+                            sin unidad base, las unidades base. */}
+                        {!productBaseUnit && (
+                          <SelectItem value="__none__">Sin unidad (base)</SelectItem>
+                        )}
+                        {unitOptions.map((u) => (
                           <SelectItem key={u.id} value={u.id}>
                             {u.symbol} — {u.name}
                           </SelectItem>

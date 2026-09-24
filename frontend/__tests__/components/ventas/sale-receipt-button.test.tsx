@@ -19,6 +19,12 @@ import { SaleReceiptButton } from "@/components/ventas/sale-receipt-button"
 import type { SaleOperation } from "@/lib/group-operations"
 import type { Sale } from "@/lib/types"
 
+// ventas-unidades-conversion (6.3): el botón resuelve el símbolo de la unidad
+// de cada línea con useUnitsOfMeasure — sin mock, el hook real crea el
+// cliente de Supabase (sin NEXT_PUBLIC_SUPABASE_URL en el entorno de test).
+vi.mock("@/hooks/use-units-of-measure", () => ({
+  useUnitsOfMeasure: () => ({ units: [], unitsById: new Map(), loading: false, error: null }),
+}))
 vi.mock("sonner", () => ({
   toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() },
 }))

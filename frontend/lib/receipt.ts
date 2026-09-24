@@ -16,6 +16,7 @@
  */
 
 import { formatMoney } from "@/lib/format"
+import { formatQuantity } from "@/lib/format-unit"
 import type { SaleOperation } from "@/lib/group-operations"
 import type { Currency } from "@/lib/format"
 
@@ -25,6 +26,13 @@ export interface ReceiptOptions {
   businessEmail?: string
   /** Avatar URL — used as logo when available */
   logoUrl?: string
+  /**
+   * ventas-unidades-conversion (D8): símbolo de la unidad de la LÍNEA (la que
+   * eligió el usuario al vender: "450 g", "0.450 kg"), resuelto por el caller
+   * con el mapa de unidades. Sin resolver, la cantidad sale sin símbolo — el
+   * ticket nunca inventa una unidad.
+   */
+  unitSymbolFor?: (unitId?: string) => string | undefined
   /**
    * fix/comprobante-print-csp-nonce. Nonce de la CSP del documento que abre
    * este HTML (típicamente en una pestaña `blob:`, que hereda esa política).
@@ -411,7 +419,7 @@ export function generateReceiptHTML(
       (item) => `
       <tr>
         <td class="product-name">${esc(item.productName)}</td>
-        <td class="center">${item.quantity}</td>
+        <td class="center">${esc(formatQuantity(item.quantity, opts.unitSymbolFor?.(item.unitId)))}</td>
         <td class="right">${esc(formatMoney(item.unitPrice, op.currency as Currency))}</td>
         <td class="right subtotal">${esc(formatMoney(item.total, op.currency as Currency))}</td>
       </tr>`,
@@ -581,7 +589,8 @@ export function generateReceiptText(
   lines.push("*Detalle de la compra:*")
   for (const item of op.items) {
     const sub = formatMoney(item.total, op.currency as Currency)
-    lines.push(`  • ${item.productName} x${item.quantity} → ${sub}`)
+    const qty = formatQuantity(item.quantity, opts.unitSymbolFor?.(item.unitId))
+    lines.push(`  • ${item.productName} x${qty} → ${sub}`)
   }
 
   // ── Total ─────────────────────────────────────────────────────────────────
@@ -652,7 +661,9 @@ export function buildSalesReceiptPdfPayload(
     date_label:     capitalise(longDate(op.date)),
     items: op.items.map((i) => ({
       name:       i.productName,
-      quantity:   String(i.quantity),
+      // El backend imprime este string tal cual (build_sales_receipt_pdf,
+      // str(item.quantity)) — viaja ya formateado con su unidad.
+      quantity:   formatQuantity(i.quantity, opts.unitSymbolFor?.(i.unitId)),
       unit_price: String(i.unitPrice),
       subtotal:   String(i.total),
     })),

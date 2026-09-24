@@ -25,6 +25,7 @@ import {
   unitInputMin,
   toBaseQuantity,
   resolveUnit,
+  compatibleUnits,
 } from "@/lib/unit-utils"
 import { ProductCategorySelect } from "@/components/product-categories/ProductCategorySelect"
 import {
@@ -310,6 +311,16 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
     [unitId, unitsById],
   )
 
+  // ventas-unidades-conversion (D1/D5): misma derivación que POS y venta.
+  const productBaseUnit = useMemo(
+    () => resolveUnit(selectedProduct?.baseUnitId, unitsById),
+    [selectedProduct, unitsById],
+  )
+  const unitOptions = useMemo(
+    () => compatibleUnits(units, productBaseUnit),
+    [units, productBaseUnit],
+  )
+
   // Input constraints for the staged quantity — driven by selected unit type
   const stagedStep = useMemo(() => unitInputStep(selectedUnit), [selectedUnit])
   const stagedMin  = useMemo(() => unitInputMin(selectedUnit),  [selectedUnit])
@@ -405,8 +416,7 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
             subtotal:     calcPurchaseSubtotal(product.cost ?? 0, qty),
             unitId:       product.baseUnitId || undefined,
             unitSymbol:   baseUnit?.symbol,
-            unitFactor:   baseUnit?.factor,
-            quantityBase: toBaseQuantity(qty, baseUnit),
+            quantityBase: toBaseQuantity(qty, baseUnit, baseUnit),
             step,
             minQty:       qty,
           },
@@ -449,7 +459,7 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
             ? {
                 ...item,
                 quantity:     newQty,
-                quantityBase: toBaseQuantity(newQty, selectedUnit),
+                quantityBase: toBaseQuantity(newQty, selectedUnit, productBaseUnit),
                 unitCost,
                 subtotal:     calcPurchaseSubtotal(unitCost, newQty),
               }
@@ -469,8 +479,7 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
           subtotal:     stagedSubtotal,
           unitId:       unitId || undefined,
           unitSymbol:   selectedUnit?.symbol,
-          unitFactor:   selectedUnit?.factor,
-          quantityBase: toBaseQuantity(quantity, selectedUnit),
+          quantityBase: toBaseQuantity(quantity, selectedUnit, productBaseUnit),
           step:         stagedStep,
           minQty:       stagedMin,
         },
@@ -497,7 +506,11 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
         return {
           ...item,
           quantity:     newQty,
-          quantityBase: toBaseQuantity(newQty, resolveUnit(item.unitId, unitsById)),
+          quantityBase: toBaseQuantity(
+            newQty,
+            resolveUnit(item.unitId, unitsById),
+            resolveUnit(productById.get(item.productId)?.baseUnitId, unitsById),
+          ),
           subtotal:     calcPurchaseSubtotal(item.unitCost, newQty),
         }
       }),
@@ -1074,8 +1087,12 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
                       <SelectValue placeholder="Base (×1)" />
                     </SelectTrigger>
                     <SelectContent className="bg-popover border-border">
-                      <SelectItem value="__none__">Sin unidad (base)</SelectItem>
-                      {units.map((u) => (
+                      {/* ventas-unidades-conversion (D5): sólo unidades compatibles
+                          con la unidad base del producto (misma regla que el POS). */}
+                      {!productBaseUnit && (
+                        <SelectItem value="__none__">Sin unidad (base)</SelectItem>
+                      )}
+                      {unitOptions.map((u) => (
                         <SelectItem key={u.id} value={u.id}>
                           {u.symbol} — {u.name}
                         </SelectItem>

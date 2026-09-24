@@ -2165,6 +2165,24 @@ jobs:
       - name: Run venta editable sin CAE gate
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_venta_editable_sin_cae.sql
 
+      # ventas-unidades-conversion (2026-09-24): 20261061000001 ya se aplico al
+      # levantar el stack; este paso solo corre el gate. 5 bloques: (A) la
+      # definicion unica _uom_normalize_quantity caso por caso (relativa a la
+      # unidad base del PRODUCTO, tipo cruzado P0400 unit_type_mismatch, sin
+      # unidad base solo unidades base P0400 unit_requires_base_unit); (B) los
+      # CINCO caminos que escriben stock (formulario, POS, edicion de venta,
+      # alta y edicion de compra) descuentan lo mismo para 450 g sobre un
+      # producto en kg -- antes el POS y las dos ediciones movian la cantidad
+      # CRUDA (450 kg); (C) tipo cruzado rechazado en cada camino SIN rastro
+      # parcial, borrado que revierte lo normalizado e invariante
+      # SUM(quantity_delta) = branch_stock con unidades mixtas; (D)
+      # branch_stock.min_stock numeric(15,4): umbral de 0,5 kg propagado y con
+      # alerta; (E) introspeccion de cuerpos vivos, ACLs y firmas (espejo del
+      # gate embebido, para que una migracion POSTERIOR que redefina una de las
+      # funciones no le pase por al lado).
+      - name: Run ventas unidades conversion gate
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_ventas_unidades_conversion.sql
+
       # venta-editable-sin-cae, caso (c) de la prueba de exclusion: el relay
       # tiene la fila de fiscal_documents TOMADA y la edicion entra en el medio.
       # Paso APARTE porque necesita DOS conexiones reales -- una sesion nunca

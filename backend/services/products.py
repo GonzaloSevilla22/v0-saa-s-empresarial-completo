@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncpg
+import uuid
 from fastapi import HTTPException
 
 from backend.core.guards import require_role
@@ -74,6 +75,25 @@ async def get_product(repo: ProductRepository, account_id: str, product_id: str)
     return dict(record)
 
 
+async def _resolve_base_unit_for_account(
+    repo: ProductRepository,
+    base_unit_id: uuid.UUID | None,
+    account_id: str,
+) -> str | None:
+    """ventas-unidades-conversion (D10): `None` se conserva (sin unidad base);
+    un uuid tiene que ser una unidad del sistema o de la cuenta — el FK a
+    units_of_measure no está scopeado por tenant, así que sin este guard un
+    uuid ajeno se asignaría igual. 422 con token propio, nunca 500."""
+    if base_unit_id is None:
+        return None
+    if not await repo.unit_visible_to_account(str(base_unit_id), account_id):
+        raise HTTPException(
+            status_code=422,
+            detail="base_unit_not_found: la unidad base no existe o no pertenece a esta cuenta",
+        )
+    return str(base_unit_id)
+
+
 async def create_product(
     repo: ProductRepository,
     auth: dict,
@@ -95,6 +115,9 @@ async def create_product(
 
     data = payload.model_dump()
     data["sku"] = normalize_sku(payload.sku)
+    # ventas-unidades-conversion (D10): la unidad base viaja como str y tiene
+    # que ser visible para la cuenta (del sistema o propia).
+    data["base_unit_id"] = await _resolve_base_unit_for_account(repo, payload.base_unit_id, account_id)
 
     parent_id = data.get("parent_id")
     if parent_id:
@@ -135,6 +158,7 @@ async def update_product(
     sku_provided: bool = False,
     category_provided: bool = False,
     cost_provided: bool = False,
+    base_unit_provided: bool = False,
     category_repo: ProductCategoryRepository | None = None,
 ) -> dict:
     """productos-categorias-sku (D12): tri-estado por AUSENCIA para `sku` y
@@ -143,15 +167,19 @@ async def update_product(
     conserva el costo que el producto tenía, informado en `null` lo
     desasigna (queda sin costo cargado) — nunca por `is None`, porque `None`
     es indistinguible de "no lo mandé" sin `model_fields_set`.
+    ventas-unidades-conversion (D10) extiende el molde a `base_unit_id`.
     El resto de los campos conserva `exclude_none` (task 9.4)."""
     require_role(auth, ["user", "admin"])
-    data = payload.model_dump(exclude_none=True, exclude={"sku", "category_id", "cost"})
+    data = payload.model_dump(exclude_none=True, exclude={"sku", "category_id", "cost", "base_unit_id"})
 
     if sku_provided:
         data["sku"] = normalize_sku(payload.sku)
 
     if cost_provided:
         data["cost"] = payload.cost
+
+    if base_unit_provided:
+        data["base_unit_id"] = await _resolve_base_unit_for_account(repo, payload.base_unit_id, account_id)
 
     if category_provided:
         existing = await repo.get_by_id(product_id, account_id)

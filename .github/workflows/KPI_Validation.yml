@@ -2178,3 +2178,35 @@ jobs:
       # funcione una vez liberado el lock -- el rechazo es TRANSITORIO.
       - name: Run venta editable sin CAE race gate (dos conexiones)
         run: DB_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres bash supabase/tests/test_venta_editable_sin_cae_race.sh
+
+      # venta-editable-vs-promocion-legacy (2026-09-23, governance CRITICO --
+      # dominio fiscal). `supabase start` ya aplico 20261061000001 al levantar
+      # el stack; este paso solo corre el gate. Es el PRIMER gate que EJECUTA
+      # rpc_promote_legacy_sale_to_order: la RPC aborto con 42883 ("function
+      # min(uuid) does not exist") en CADA llamada desde el PR #242 y nadie lo
+      # vio en tres meses porque ningun gate la llamaba (el test de backend
+      # mockea asyncpg). Bloques: (0) helper de sincronizacion INVOKER y cerrado
+      # a anon/authenticated con firma que resuelve, una sola definicion viva,
+      # COMMENT vivos intactos; (1) la promocion corre y es side-effect-free;
+      # (2)-(6) idempotencia, P0404 a cuenta ajena/inexistente/NULL, P0401 a un
+      # viewer, P0422 operation_inconsistent ante filas mezcladas, P0404 ante
+      # una fila de otra cuenta, total por cabecera con sale_items duplicados;
+      # (7)/(9)/(10) la edicion recalcula la orden que re-apunta (N3) y lo
+      # re-emitido sale por el importe NUEVO; (8)/(11) la emision rechaza una
+      # orden desincronizada (P0409 sales_order_out_of_sync) y el replay la
+      # re-sincroniza sin tocar una con comprobante vivo.
+      - name: Run facturar venta manual gate
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_facturar_venta_manual.sql
+
+      # venta-editable-vs-promocion-legacy, N1: exclusion de la PROMOCION contra
+      # la EDICION y el BORRADO con conexiones reales (una sesion nunca bloquea
+      # contra su propio lock; dblink no sirve: `postgres` no es superusuario).
+      # 6 interleavings x 20 iteraciones (R1 promocion frenada -> edicion, R1b
+      # emision abierta -> edicion, R2 promocion frenada -> borrado, R3 edicion
+      # frenada -> promocion, R4 borrado frenado -> promocion, R5 dos
+      # promociones) + R0 (una promocion ajena no bloquea filas). En cada
+      # iteracion se VE a la victima esperando sobre la tabla correcta y
+      # bloqueada por la sesion correcta (pg_blocking_pids); falla ante
+      # cualquier 40P01/timeout y ante un pending_cae vivo con importes viejos.
+      - name: Run facturar venta manual race gate (dos conexiones)
+        run: ITER=20 DB_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres bash supabase/tests/test_facturar_venta_manual_race.sh

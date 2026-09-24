@@ -75,7 +75,10 @@
 --     ciegas (el MIN(uuid) de la promoción, además de no existir, elegía un
 --     cliente arbitrario de una operación mezclada).
 --   · Importe canónico = la CABECERA: total = round(Σ sales.total, 2), una línea
---     por fila de sales. De sale_items sólo producto/unidad/snapshots, de UNA
+--     por fila de sales, cada una a 2 decimales, y el residuo del redondeo
+--     (filas legacy con más decimales: 3 × 0,335 → 1,01 contra 1,02 línea a
+--     línea) en la ÚLTIMA fila por id, así Σ subtotales = total SIEMPRE (D2).
+--     De sale_items sólo producto/unidad/snapshots, de UNA
 --     fila — la del producto de la fila si existe (hay 23 filas legacy con un
 --     sale_item del producto y otro sin producto ni snapshots).
 --   · SECURITY INVOKER: sólo corre dentro de RPCs SECURITY DEFINER (rol dueño);
@@ -175,13 +178,23 @@ BEGIN
          COALESCE(si.unit_id, s.unit_id),
          s.quantity,
          s.amount,
-         COALESCE(s.total, s.amount * s.quantity),
+         -- D2: Σ subtotales = total SIEMPRE. Cada línea a 2 decimales; el
+         -- residuo del redondeo (±, sólo con filas de más de 2 decimales) va a
+         -- la última fila por id.
+         s.line_total + CASE WHEN s.rn_desc = 1 THEN v_hdr.total - s.lines_sum ELSE 0 END,
          si.name_snapshot,
          si.sku_snapshot,
          si.unit_cost_snapshot,
          si.iva_rate_snapshot,
          COALESCE(si.snapshot_backfilled, false)
-  FROM   public.sales s
+  FROM (
+    SELECT x.*,
+           round(COALESCE(x.total, x.amount * x.quantity), 2)               AS line_total,
+           sum(round(COALESCE(x.total, x.amount * x.quantity), 2)) OVER ()  AS lines_sum,
+           row_number() OVER (ORDER BY x.id DESC)                           AS rn_desc
+    FROM   public.sales x
+    WHERE  x.operation_id = p_operation_id
+  ) s
   LEFT JOIN LATERAL (
     SELECT x.product_id, x.unit_id, x.name_snapshot, x.sku_snapshot,
            x.unit_cost_snapshot, x.iva_rate_snapshot, x.snapshot_backfilled
@@ -195,7 +208,6 @@ BEGIN
               x.id
     LIMIT  1
   ) si ON true
-  WHERE  s.operation_id = p_operation_id
   ORDER  BY s.id;
 
   RETURN v_hdr.total;
@@ -206,7 +218,7 @@ REVOKE ALL     ON FUNCTION public._sales_order_sync_from_operation(uuid, uuid, u
 GRANT  EXECUTE ON FUNCTION public._sales_order_sync_from_operation(uuid, uuid, uuid) TO postgres, service_role;
 
 COMMENT ON FUNCTION public._sales_order_sync_from_operation(uuid, uuid, uuid) IS
-  'venta-editable-vs-promocion-legacy: recalcula total (round(Σ sales.total, 2)), cliente, sucursal y líneas de una sales_order desde las filas de sales de su operación. Exige que el caller ya tenga esas filas FOR UPDATE (orden sales → sales_orders → fiscal_documents). Fail-closed: P0404 tenencia, P0409 si la orden tiene comprobante vivo, P0422 si las filas no son homogéneas. Helper interno SECURITY INVOKER: nunca expuesto a anon/authenticated.';
+  'venta-editable-vs-promocion-legacy: recalcula total (round(Σ sales.total, 2)), cliente, sucursal y líneas (a 2 decimales, residuo del redondeo en la última: Σ líneas = total) de una sales_order desde las filas de sales de su operación. Exige que el caller ya tenga esas filas FOR UPDATE (orden sales → sales_orders → fiscal_documents). Fail-closed: P0404 tenencia, P0409 si la orden tiene comprobante vivo, P0422 si las filas no son homogéneas. Helper interno SECURITY INVOKER: nunca expuesto a anon/authenticated.';
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- (2) rpc_promote_legacy_sale_to_order — N2 + N1

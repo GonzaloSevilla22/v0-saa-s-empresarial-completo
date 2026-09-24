@@ -341,6 +341,8 @@ DECLARE
   v_count     int;
   v_order     record;
   v_line      record;
+  v_case      record;
+  v_subs      numeric[];
 BEGIN
   v_fa := pg_temp.fvm_anchor('facturar-venta-manual-2a@test.local');
   v_user_a := (v_fa->>'user')::uuid; v_account_a := (v_fa->>'account')::uuid; v_branch_a := (v_fa->>'branch')::uuid;
@@ -517,6 +519,36 @@ BEGIN
       v_product, v_line.product_id, v_line.subtotal, COALESCE(v_line.name_snapshot, '<null>'), v_line.unit_cost_snapshot, v_line.iva_rate_snapshot);
   END IF;
 
+  -- ── (6c) D2 "Σ subtotales = total" SIEMPRE, también con filas de sales de
+  -- más de 2 decimales (hay en prod; red team 2026-09-24): con 3 × 0,335 el
+  -- total es round(1,005, 2) = 1,01 pero las líneas redondeadas una a una
+  -- sumaban 1,02. Cada línea va a 2 decimales y el residuo del redondeo a la
+  -- ÚLTIMA fila (id mayor). Triangulado con residuo negativo (0,335 × 3,
+  -- 0,125 × 2) y positivo (0,334 × 3).
+  FOR v_case IN
+    SELECT * FROM (VALUES
+      (0.335::numeric, 3, 1.01::numeric, ARRAY[0.33, 0.34, 0.34]::numeric[]),
+      (0.125::numeric, 2, 0.25::numeric, ARRAY[0.12, 0.13]::numeric[]),
+      (0.334::numeric, 3, 1.00::numeric, ARRAY[0.33, 0.33, 0.34]::numeric[])
+    ) AS t(row_total, n_rows, exp_total, exp_subs)
+  LOOP
+    v_op := gen_random_uuid();
+    INSERT INTO public.sales (user_id, account_id, client_id, amount, quantity, total, currency, date, operation_id, branch_id)
+    SELECT v_user_a, v_account_a, v_client_a, v_case.row_total, 1, v_case.row_total, 'ARS', now(), v_op, v_branch_a
+    FROM   generate_series(1, v_case.n_rows);
+    v_so2 := (public.rpc_promote_legacy_sale_to_order(v_op)->>'sales_order_id')::uuid;
+    SELECT array_agg(subtotal ORDER BY subtotal) INTO v_subs
+    FROM   public.sales_order_items WHERE sales_order_id = v_so2;
+    IF (SELECT total FROM public.sales_orders WHERE id = v_so2) IS DISTINCT FROM v_case.exp_total
+       OR (SELECT sum(subtotal) FROM public.sales_order_items WHERE sales_order_id = v_so2) IS DISTINCT FROM v_case.exp_total
+       OR v_subs IS DISTINCT FROM v_case.exp_subs THEN
+      v_failures := v_failures || format('(6c) %s × %s: esperaba total %s = Σ líneas con líneas %s; quedó total %s, Σ líneas %s, líneas %s',
+        v_case.n_rows, v_case.row_total, v_case.exp_total, v_case.exp_subs,
+        (SELECT total FROM public.sales_orders WHERE id = v_so2),
+        (SELECT sum(subtotal) FROM public.sales_order_items WHERE sales_order_id = v_so2), v_subs);
+    END IF;
+  END LOOP;
+
   IF array_length(v_failures, 1) > 0 THEN
     RAISE EXCEPTION E'GATE FACTURAR-VENTA-MANUAL (2)-(6) FAILED:\n  %', array_to_string(v_failures, E'\n  ');
   END IF;
@@ -525,7 +557,7 @@ BEGIN
   PERFORM pg_temp.fvm_cleanup(v_user_c, v_account_c);
   PERFORM pg_temp.fvm_cleanup(v_user_b, v_account_b);
   PERFORM pg_temp.fvm_cleanup(v_user_a, v_account_a);
-  RAISE NOTICE 'PASS (2)-(6): idempotente (3 llamadas → 1 orden, líneas sin duplicar, snapshots de sale_items conservados); cuenta ajena, operación inexistente y NULL → P0404; viewer → P0401; clientes/sucursales mezclados → P0422 operation_inconsistent; fila de otra cuenta → P0404; sale_items duplicados → total por cabecera (1000, no 2000) y la línea con los snapshots del sale_item del producto.';
+  RAISE NOTICE 'PASS (2)-(6): idempotente (3 llamadas → 1 orden, líneas sin duplicar, snapshots de sale_items conservados); cuenta ajena, operación inexistente y NULL → P0404; viewer → P0401; clientes/sucursales mezclados → P0422 operation_inconsistent; fila de otra cuenta → P0404; sale_items duplicados → total por cabecera (1000, no 2000) y la línea con los snapshots del sale_item del producto; Σ líneas = total también con filas de más de 2 decimales (residuo del redondeo en la última línea, ±).';
 END $$;
 
 

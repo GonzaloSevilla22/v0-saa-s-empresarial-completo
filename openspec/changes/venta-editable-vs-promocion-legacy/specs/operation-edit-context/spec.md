@@ -40,6 +40,12 @@ Cuando la edición de una venta regenere el identificador de operación, toda `s
 - **WHEN** la primera commitea
 - **THEN** la segunda falla con `P0404` antes de revertir stock o escribir en cualquier libro, sin duplicar la operación
 
+#### Scenario: un borrado que pierde contra una edición no borra nada
+
+- **GIVEN** una edición en curso que ya tomó las filas de la operación
+- **WHEN** se borra la venta por su `operation_id`
+- **THEN** el borrado espera y, cuando la edición commitea, el recuento bajo el lock queda vacío: devuelve `false`, no encola `SaleOperationDeleted` para la operación vieja, no toca la venta editada ni mueve stock
+
 #### Scenario: el borrado espera a una promoción en curso
 
 - **GIVEN** una promoción en curso sobre la operación

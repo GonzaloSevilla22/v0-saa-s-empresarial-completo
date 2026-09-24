@@ -50,9 +50,19 @@
 - [x] 8.4 pytest completo con cobertura (≥ 87 %), vitest completo, `tsc --noEmit` sin errores nuevos
 - [x] 8.5 Specs (`sales-order`, `operation-edit-context`, `afip-fiscal-document`), `CHANGES.md` y `CLAUDE.md`/`AGENTS.md` en sincronía
 
-## 9. Post-merge (prod, sólo lectura) — pendiente
+## 9. Cierre del red team (2026-09-24)
 
-- [ ] 9.1 `max(version) = 20261061000001`, 308 migraciones; md5 de los 5 cuerpos = los del PR; helper INVOKER con ACL `{postgres, service_role}`; COMMENT de las 4 RPCs y del helper #582 intactos; promote sin `min(`
-- [ ] 9.2 Invariante: 0 órdenes confirmadas desincronizadas de su venta
-- [ ] 9.3 Logs de Render: 0 respuestas 500 en `POST /sales/*/promote-to-order` y 0 `sqlstate no mapeado` desde el deploy (un cero sólo vale si hubo tráfico)
-- [ ] 9.4 Humo del PO: venta a mano de prueba → Facturar → Emitir comprobante → Autorizado; y editar una venta preparada antes de emitir
+- [x] 9.0 Rebase sobre `origin/main` (`f5740fe0`, #583 — `delegacion_autorizada`), sin conflictos; `test_c27_fiscal_profile_repository.py` en verde
+- [x] 9.1 M1 — (0L) en `test_facturar_venta_manual.sql`: orden global de locks sobre el cuerpo vivo en cada PR (el DO de la migración corre una vez). RED: el gate de HEAD dejaba vivos n6/n7/n8/n9/n10/n13; GREEN: los seis muertos (más n1/n2/n17)
+- [x] 9.2 M1 — arnés de carrera: R7 (edición frenada → borrado: `false`, sin `SaleOperationDeleted`) y R8 (orden frenada → promoción en replay → edición: sin `40P01`). RED: n10 muere sólo en R7 y n6 sólo en R8 (`EDIT_ERR 40P01`); GREEN 20/20
+- [x] 9.3 MINOR D3b — el replay de la promoción filtra por la cuenta del caller y una orden ajena es `P0404` también en el handler de `unique_violation`. RED bloque (12): B recibía el `sales_order_id` de A (facturada) o un P0404 que lo nombraba (sin facturar); GREEN
+- [x] 9.4 NIT D2 — Σ líneas = total también con filas de más de 2 decimales (residuo en la última). RED (6c) 0,335 × 3 → 1,02; GREEN (±)
+- [x] 9.5 NIT — `services/sales_orders.py` re-lanza el sqlstate sin mapear (500 problem+json `internal_error`, sin texto del motor). Verificado que ningún token del POS viaja por ese fallback (todos con P0400/P0401/P0404/P0409/P0422, mapeados antes)
+- [x] 9.6 Regresión completa sobre `supabase db reset` limpio (sin mutantes de otra sesión instalados) — ver `CHANGES.md`
+
+## 10. Post-merge (prod, sólo lectura) — pendiente
+
+- [ ] 10.1 `max(version) = 20261061000001`, 308 migraciones; md5 de los 5 cuerpos = los del PR; helper INVOKER con ACL `{postgres, service_role}`; COMMENT de las 4 RPCs y del helper #582 intactos; promote sin `min(`
+- [ ] 10.2 Invariante: 0 órdenes confirmadas desincronizadas de su venta
+- [ ] 10.3 Logs de Render: 0 respuestas 500 en `POST /sales/*/promote-to-order` y 0 `sqlstate no mapeado` desde el deploy (un cero sólo vale si hubo tráfico)
+- [ ] 10.4 Humo del PO: venta a mano de prueba → Facturar → Emitir comprobante → Autorizado; y editar una venta preparada antes de emitir

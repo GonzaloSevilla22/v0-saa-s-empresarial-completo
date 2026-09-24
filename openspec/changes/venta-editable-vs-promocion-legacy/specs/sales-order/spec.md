@@ -79,7 +79,7 @@ para que no se pierda el razonamiento:
 
 ### Requirement: Idempotencia de la promoción legacy
 
-El sistema SHALL garantizar la unicidad de la `SalesOrder` materializada por operación legacy mediante un índice único parcial `CREATE UNIQUE INDEX ... ON public.sales_orders (sale_operation_id) WHERE sale_operation_id IS NOT NULL`. La RPC `rpc_promote_legacy_sale_to_order` SHALL, **bajo el lock de las filas de `sales` de la operación**, buscar una `sales_orders` existente con ese `sale_operation_id` (tomándola `FOR UPDATE`) y, si existe, devolverla con `replayed = true` sin crear una nueva. En ese *replay* SHALL **re-sincronizar** la orden (total, cliente, sucursal y líneas, con el mismo helper que la creación) sólo si NO tiene comprobante vivo: ALLOW-LIST cerrada — sin comprobante, o comprobante `rejected` o `voided`; cualquier otro estado (incluido uno desconocido o una FK colgada) SHALL dejar la orden intacta. El índice parcial SHALL además impedir que el hot path POS (que también persiste `sale_operation_id`) y la promoción colisionen sobre la misma operación legacy; el manejo de `unique_violation` SHALL conservarse como red y devolver la orden existente.
+El sistema SHALL garantizar la unicidad de la `SalesOrder` materializada por operación legacy mediante un índice único parcial `CREATE UNIQUE INDEX ... ON public.sales_orders (sale_operation_id) WHERE sale_operation_id IS NOT NULL`. La RPC `rpc_promote_legacy_sale_to_order` SHALL, **bajo el lock de las filas de `sales` de la operación**, buscar una `sales_orders` existente con ese `sale_operation_id` **y de la cuenta del caller** (tomándola `FOR UPDATE`) y, si existe, devolverla con `replayed = true` sin crear una nueva. Una orden de OTRA cuenta para esa operación (el índice único es global) SHALL responderse con `P0404 operation_not_found`, sin devolver, nombrar ni tocar esa orden. En ese *replay* SHALL **re-sincronizar** la orden (total, cliente, sucursal y líneas, con el mismo helper que la creación) sólo si NO tiene comprobante vivo: ALLOW-LIST cerrada — sin comprobante, o comprobante `rejected` o `voided`; cualquier otro estado (incluido uno desconocido o una FK colgada) SHALL dejar la orden intacta. El índice parcial SHALL además impedir que el hot path POS (que también persiste `sale_operation_id`) y la promoción colisionen sobre la misma operación legacy; el manejo de `unique_violation` SHALL conservarse como red y devolver la orden existente **de la cuenta del caller** (si la que choca es de otra cuenta, `P0404`).
 
 #### Scenario: tres promociones de la misma operación devuelven la misma orden
 
@@ -97,6 +97,18 @@ El sistema SHALL garantizar la unicidad de la `SalesOrder` materializada por ope
 - **GIVEN** una orden cuyo comprobante está `pending_cae` o `authorized`
 - **WHEN** se promueve otra vez la operación
 - **THEN** la RPC devuelve la orden con `replayed = true` y su total, líneas y `fiscal_document_id` quedan sin cambios
+
+#### Scenario: el replay no devuelve ni nombra la orden de otra cuenta
+
+- **GIVEN** una operación de la cuenta A con su orden (facturada o no) y una fila de la cuenta B con el mismo `operation_id`
+- **WHEN** un usuario de B promueve esa operación
+- **THEN** la RPC falla con `P0404 operation_not_found`, el mensaje no contiene el id de la orden de A, la orden de A queda intacta y no se crea ninguna orden de B
+
+#### Scenario: las líneas suman el total también con filas de más de 2 decimales
+
+- **GIVEN** una operación con tres filas de `sales.total = 0,335`
+- **WHEN** se promueve
+- **THEN** la orden queda con `total = 1,01` y sus líneas en 0,34 + 0,34 + 0,33 (cada una a 2 decimales, el residuo del redondeo en la última fila por `id`), de modo que `Σ subtotales = total`
 
 #### Scenario: el índice único parcial impide dos órdenes para la misma operación
 
@@ -133,6 +145,17 @@ El sistema SHALL excluir entre sí la promoción de una venta legacy, su edició
 - **GIVEN** una edición o un borrado que ya tomó las filas de la operación
 - **WHEN** se promueve la operación
 - **THEN** la promoción espera y, al commitear el otro, no encuentra filas y falla con `P0404`, sin crear ninguna orden ni comprobante
+
+#### Scenario: una promoción en replay frenada en la orden no se cruza con la edición
+
+- **GIVEN** una orden promovida que una emisión en curso tiene tomada
+- **WHEN** se vuelve a promover la operación y, a la vez, se edita la venta
+- **THEN** la promoción toma primero las filas de `sales` y espera la orden, la edición espera las filas, ninguna termina en `40P01`, y al final la orden queda re-apuntada y recalculada por la edición
+
+#### Scenario: el orden de locks está candado en cada PR
+
+- **WHEN** una migración futura reescribe la promoción, la edición, el borrado o la emisión
+- **THEN** el gate SQL de CI (no sólo el chequeo embebido en la migración, que corre una vez) verifica sobre el cuerpo vivo que las tres rutas toman las filas de `sales` antes de mencionar `sales_orders`/`fiscal_documents`, que la edición y el borrado recuentan bajo el lock, y que la emisión y el helper nunca toman `sales`
 
 #### Scenario: una promoción de otra cuenta no bloquea filas ajenas
 

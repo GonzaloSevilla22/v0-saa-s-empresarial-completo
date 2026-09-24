@@ -266,6 +266,7 @@ BEGIN
      AND   am.user_id    = v_uid
     WHERE  s.operation_id = p_operation_id
     ORDER  BY s.id
+    FOR UPDATE OF s
   ) l;
 
   IF v_locked = 0 THEN
@@ -300,7 +301,8 @@ BEGIN
   SELECT so.id, so.fiscal_document_id
   INTO   v_existing_id, v_existing_fd
   FROM   public.sales_orders so
-  WHERE  so.sale_operation_id = p_operation_id;
+  WHERE  so.sale_operation_id = p_operation_id
+  FOR UPDATE;
 
   IF v_existing_id IS NOT NULL THEN
     IF v_existing_fd IS NOT NULL THEN
@@ -463,6 +465,31 @@ BEGIN
   IF (SELECT COUNT(*) FROM public.sales WHERE id = ANY(p_sale_ids))
       != array_length(p_sale_ids, 1)
   THEN
+    RAISE EXCEPTION 'One or more sale IDs not found' USING ERRCODE = 'P0404';
+  END IF;
+
+  -- venta-editable-vs-promocion-legacy (N1): EXCLUSIÓN contra la promoción.
+  -- Las filas de sales de la operación son lo único que existe ANTES que la
+  -- orden, así que son el ancla común: la promoción, la edición y el borrado
+  -- las toman PRIMERO, con FOR UPDATE y en orden ascendente de id. Orden
+  -- global de locks: sales → sales_orders → fiscal_documents → resto.
+  -- Sin este lock, el enumerador de órdenes de más abajo leía SIN lock, no
+  -- veía la orden que una promoción concurrente estaba creando, y la venta
+  -- quedaba editada con un comprobante pendiente VIVO por importes viejos.
+  -- Recuento bajo el lock: si otra edición o un borrado ganó y se llevó
+  -- alguna fila mientras se esperaba, se aborta acá, antes de revertir stock
+  -- o de tocar cualquier libro (doble "Guardar" incluido).
+  SELECT count(*) INTO v_locked
+  FROM (
+    SELECT s.id
+    FROM   public.sales s
+    WHERE  s.id = ANY(p_sale_ids)
+      AND  s.user_id = v_uid
+    ORDER  BY s.id
+    FOR UPDATE
+  ) l;
+
+  IF v_locked <> array_length(p_sale_ids, 1) THEN
     RAISE EXCEPTION 'One or more sale IDs not found' USING ERRCODE = 'P0404';
   END IF;
 
@@ -1013,6 +1040,234 @@ REVOKE ALL     ON FUNCTION public.rpc_atomic_update_sale_operation(uuid[], uuid,
 GRANT  EXECUTE ON FUNCTION public.rpc_atomic_update_sale_operation(uuid[], uuid, date, text, jsonb, uuid, boolean, uuid, boolean, text, boolean) TO postgres, authenticated, service_role;
 
 -- ─────────────────────────────────────────────────────────────────────────────
+-- (4) rpc_delete_sale_operation — lock temprano (N1)
+--
+-- Cuerpo VIVO de 20261060000001 (md5 c287c1b4…) con UN hunk: D1, el lock
+-- ordenado de las filas (que además recalcula el conjunto bajo el lock)
+-- ANTES de resolver la sales_order. Firma y retorno boolean IDÉNTICOS.
+-- ─────────────────────────────────────────────────────────────────────────────
+CREATE OR REPLACE FUNCTION public.rpc_delete_sale_operation(
+  p_sale_id      uuid DEFAULT NULL,
+  p_operation_id uuid DEFAULT NULL,
+  p_reason       text DEFAULT NULL
+) RETURNS boolean
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_uid                  uuid;
+  v_account_id           uuid;
+  v_operation_key        uuid;
+  v_sale_ids             uuid[];
+  v_sales_order_id       uuid;
+  v_so_status             text;
+  v_reference_ids        uuid[];
+  v_row                  RECORD;
+  v_customer_account_id  uuid;
+  v_charge_amount        numeric(15,2);
+  v_cash_session_id      uuid;
+  v_cash_amount          numeric(12,2);
+  v_cashbox_id           uuid;
+  v_open_session_id      uuid;
+  v_bank_row             RECORD;
+  v_reversed_type        text;
+  v_voided_doc           jsonb;   -- venta-editable-sin-cae
+BEGIN
+  v_uid := (SELECT auth.uid());
+  IF v_uid IS NULL THEN
+    RAISE EXCEPTION 'Not authenticated' USING ERRCODE = 'insufficient_privilege';
+  END IF;
+
+  SELECT cai INTO v_account_id FROM public.current_account_ids() AS cai LIMIT 1;
+  IF v_account_id IS NULL THEN
+    RAISE EXCEPTION 'Usuario sin cuenta activa' USING ERRCODE = 'P0403';
+  END IF;
+
+  IF p_sale_id IS NULL AND p_operation_id IS NULL THEN
+    RAISE EXCEPTION 'rpc_delete_sale_operation: se requiere p_sale_id o p_operation_id'
+      USING ERRCODE = 'P0400';
+  END IF;
+
+  -- ── Resolver el conjunto de filas + la clave de operación (D2) ───────────
+  IF p_operation_id IS NOT NULL THEN
+    v_operation_key := p_operation_id;
+    SELECT array_agg(id) INTO v_sale_ids
+    FROM public.sales
+    WHERE operation_id = p_operation_id AND account_id = v_account_id;
+  ELSE
+    SELECT operation_id INTO v_operation_key
+    FROM public.sales
+    WHERE id = p_sale_id AND account_id = v_account_id;
+
+    IF NOT FOUND THEN
+      RETURN false;
+    END IF;
+
+    IF v_operation_key IS NOT NULL THEN
+      SELECT array_agg(id) INTO v_sale_ids
+      FROM public.sales
+      WHERE operation_id = v_operation_key AND account_id = v_account_id;
+    ELSE
+      -- Legacy: sin operation_id — la fila es su propia operación.
+      v_operation_key := p_sale_id;
+      v_sale_ids := ARRAY[p_sale_id];
+    END IF;
+  END IF;
+
+  IF v_sale_ids IS NULL OR array_length(v_sale_ids, 1) IS NULL THEN
+    RETURN false;
+  END IF;
+
+  -- venta-editable-vs-promocion-legacy (N1): EXCLUSIÓN contra la promoción,
+  -- mismo ancla y mismo orden que la edición (sales → sales_orders →
+  -- fiscal_documents). Las filas se toman ANTES de resolver la orden: si una
+  -- promoción las tiene, se espera a que commitee y la orden que creó se ve
+  -- (y se cancela) más abajo; si otra edición o borrado ganó, el conjunto
+  -- se recalcula bajo el lock y, vacío, no hay nada que borrar.
+  SELECT array_agg(l.id ORDER BY l.id) INTO v_sale_ids
+  FROM (
+    SELECT s.id
+    FROM   public.sales s
+    WHERE  s.id = ANY(v_sale_ids)
+      AND  s.account_id = v_account_id
+    ORDER  BY s.id
+    FOR UPDATE
+  ) l;
+
+  IF v_sale_ids IS NULL OR array_length(v_sale_ids, 1) IS NULL THEN
+    RETURN false;
+  END IF;
+
+  -- sales_order asociada (camino POS) — misma convención que el guard P0423.
+  SELECT id, status INTO v_sales_order_id, v_so_status
+  FROM public.sales_orders
+  WHERE sale_operation_id = v_operation_key;
+
+  v_reference_ids := ARRAY[v_operation_key];
+  IF v_sales_order_id IS NOT NULL THEN
+    v_reference_ids := v_reference_ids || v_sales_order_id;
+  END IF;
+
+  -- ── Guard fiscal (P0423) — MISMO helper que rpc_atomic_update_sale_operation ──
+  -- venta-editable-sin-cae (D2): un comprobante pendiente que NO salió hacia
+  -- ARCA se ANULA acá mismo (misma transacción que el borrado), para que el
+  -- relay no lo facture después. authorized, marcado y congelado siguen
+  -- bloqueando con P0423. Sigue siendo el PRIMER guard, antes de compensar
+  -- cuenta corriente (P0425), caja (P0426), banco y de revertir stock — si
+  -- levanta, no se tocó ningún libro.
+  -- Una sola definición de la regla, compartida con la edición: dos copias
+  -- divergirían y una de las dos terminaría anulando un comprobante enviado.
+  v_voided_doc := public._fiscal_void_pending_for_sale_edit(
+    v_sales_order_id, v_account_id, v_uid,
+    format('Anulado por borrado de la venta (operación %s)', v_operation_key)
+  );
+
+  -- ── Cuenta corriente de cliente: reversión del cargo (credit_note, P0425 si negativo) ──
+  SELECT customer_account_id, SUM(amount)
+  INTO v_customer_account_id, v_charge_amount
+  FROM public.customer_account_movements
+  WHERE reference_id = ANY(v_reference_ids) AND movement_type = 'sale'
+  GROUP BY customer_account_id;
+
+  IF v_customer_account_id IS NOT NULL AND v_charge_amount > 0 THEN
+    PERFORM public._pay_reverse_party_charge(
+      v_account_id, 'customer', v_customer_account_id, v_charge_amount,
+      v_operation_key, v_operation_key
+    );
+  END IF;
+
+  -- ── Caja: contra-movimiento en la sesión abierta actual (P0426 si no hay) ─
+  SELECT cs.cashbox_id, v_sum.total
+  INTO v_cashbox_id, v_cash_amount
+  FROM (
+    SELECT session_id, SUM(amount) AS total
+    FROM public.cash_movements
+    WHERE reference_id = ANY(v_reference_ids) AND movement_type = 'sale'
+    GROUP BY session_id
+  ) v_sum
+  JOIN public.cash_sessions cs ON cs.id = v_sum.session_id;
+
+  IF v_cashbox_id IS NOT NULL AND v_cash_amount > 0 THEN
+    SELECT id INTO v_open_session_id
+    FROM public.cash_sessions
+    WHERE cashbox_id = v_cashbox_id AND status = 'open'
+    ORDER BY opened_at DESC
+    LIMIT 1;
+
+    IF v_open_session_id IS NULL THEN
+      RAISE EXCEPTION 'no_open_session_for_reversal: abrí la caja para poder anular esta venta'
+        USING ERRCODE = 'P0426';
+    END IF;
+
+    PERFORM public.c28_register_cash_movement(
+      v_open_session_id, -v_cash_amount, 'sale_reversal', v_operation_key
+    );
+  END IF;
+
+  -- ── Banco: espejo con dirección invertida, siempre unreconciled (D6) ─────
+  FOR v_bank_row IN
+    SELECT id, bank_account_id, amount, movement_type, branch_id
+    FROM public.bank_movements
+    WHERE source_doc_type = 'sale' AND source_doc_ref = ANY(v_reference_ids)
+  LOOP
+    v_reversed_type := CASE v_bank_row.movement_type
+      WHEN 'transfer_in'  THEN 'transfer_out'
+      WHEN 'transfer_out' THEN 'transfer_in'
+      ELSE v_bank_row.movement_type
+    END;
+
+    PERFORM public._register_bank_movement(
+      v_bank_row.bank_account_id, -v_bank_row.amount, v_reversed_type,
+      'sale', v_operation_key, CURRENT_DATE, v_bank_row.branch_id,
+      'Reversión por borrado de operación'
+    );
+  END LOOP;
+
+  -- ── Reversa de stock (rpc_reverse_stock_movement, sin cambios — #417) ─────
+  FOR v_row IN SELECT unnest(v_sale_ids) AS id LOOP
+    PERFORM public.rpc_reverse_stock_movement(v_row.id, 'sale', COALESCE(p_reason, 'Venta eliminada'));
+  END LOOP;
+
+  -- ── Contable: emitir SaleOperationDeleted (async, vía outbox) ────────────
+  INSERT INTO public.events
+    (account_id, event_type, aggregate_type, aggregate_id, payload, occurred_at)
+  VALUES (
+    v_account_id, 'SaleOperationDeleted', 'SaleOperation', v_operation_key,
+    jsonb_build_object(
+      'account_id',     v_account_id,
+      'operation_id',   v_operation_key,
+      'sales_order_id', v_sales_order_id,
+      'occurred_at',    now()
+    ),
+    now()
+  );
+
+  -- ── POS: cancelar la sales_order en la misma transacción (D8) ────────────
+  IF v_sales_order_id IS NOT NULL AND v_so_status = 'confirmed' THEN
+    UPDATE public.sales_orders
+    SET status = 'canceled', sale_operation_id = NULL
+    WHERE id = v_sales_order_id;
+
+    PERFORM public.record_status_transition(
+      v_account_id, 'sales_order', v_sales_order_id, 'confirmed', 'canceled',
+      v_uid, COALESCE(p_reason, 'Venta eliminada')
+    );
+  END IF;
+
+  -- ── DELETE + limpieza de idempotencia ─────────────────────────────────────
+  DELETE FROM public.sales WHERE id = ANY(v_sale_ids);
+
+  DELETE FROM public.operation_idempotency WHERE operation_id = v_operation_key;
+
+  RETURN true;
+END;
+$function$;
+
+REVOKE ALL     ON FUNCTION public.rpc_delete_sale_operation(uuid, uuid, text) FROM PUBLIC, anon;
+GRANT  EXECUTE ON FUNCTION public.rpc_delete_sale_operation(uuid, uuid, text) TO postgres, authenticated, service_role;
+
+-- ─────────────────────────────────────────────────────────────────────────────
 -- (5) rpc_emit_sale_invoice — guard fail-closed D6
 --
 -- Cuerpo VIVO de 20261060000001 (md5 01862c30…) con TRES hunks: M1 tres
@@ -1213,3 +1468,136 @@ $function$;
 
 REVOKE ALL     ON FUNCTION public.rpc_emit_sale_invoice(uuid, uuid) FROM PUBLIC, anon;
 GRANT  EXECUTE ON FUNCTION public.rpc_emit_sale_invoice(uuid, uuid) TO postgres, authenticated, service_role;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- (6) Gate de introspección embebido — asserta lo que esta migración PROMETE.
+-- El gate de comportamiento vive en supabase/tests/test_facturar_venta_manual.sql
+-- (una conexión) y test_facturar_venta_manual_race.sh (dos conexiones). Sólo
+-- lee el catálogo: no asserta datos (un drift de datos no debe romper un push).
+-- Se compara sobre el cuerpo SIN comentarios y con espacios colapsados.
+-- ─────────────────────────────────────────────────────────────────────────────
+DO $$
+DECLARE
+  v_missing text[] := '{}';
+  v_fn      text;
+  v_def     text;
+  v_count   int;
+  v_pos_a   int;
+  v_pos_b   int;
+BEGIN
+  -- (a) Helper nuevo: existe, INVOKER, cerrado a anon/authenticated.
+  IF to_regprocedure('public._sales_order_sync_from_operation(uuid, uuid, uuid)') IS NULL THEN
+    v_missing := v_missing || format('falta public._sales_order_sync_from_operation(uuid, uuid, uuid)');
+  ELSE
+    IF (SELECT prosecdef FROM pg_proc
+        WHERE oid = to_regprocedure('public._sales_order_sync_from_operation(uuid, uuid, uuid)')) THEN
+      v_missing := v_missing || format('_sales_order_sync_from_operation tiene que ser SECURITY INVOKER (sólo corre dentro de RPCs SECURITY DEFINER)');
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon')
+       AND (   has_function_privilege('anon',          to_regprocedure('public._sales_order_sync_from_operation(uuid, uuid, uuid)'), 'EXECUTE')
+            OR has_function_privilege('authenticated', to_regprocedure('public._sales_order_sync_from_operation(uuid, uuid, uuid)'), 'EXECUTE')) THEN
+      v_missing := v_missing || format('_sales_order_sync_from_operation es ejecutable por anon/authenticated: sería la primitiva para reescribir por PostgREST el total de una orden ajena');
+    END IF;
+  END IF;
+
+  -- (b) Una sola definición viva de cada función tocada (gotcha 42725).
+  FOREACH v_fn IN ARRAY ARRAY['rpc_promote_legacy_sale_to_order', 'rpc_atomic_update_sale_operation',
+                              'rpc_delete_sale_operation', 'rpc_emit_sale_invoice',
+                              '_sales_order_sync_from_operation', '_fiscal_void_pending_for_sale_edit']
+  LOOP
+    SELECT count(*) INTO v_count
+    FROM   pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE  n.nspname = 'public' AND p.proname = v_fn;
+    IF v_count <> 1 THEN
+      v_missing := v_missing || format('%s: %s definiciones vivas (esperaba 1)', v_fn, v_count);
+    END IF;
+  END LOOP;
+
+  -- (c) Promoción: sin MIN(, con el lock ANTES de crear la orden, con el
+  -- helper, y side-effect-free (D1).
+  SELECT lower(regexp_replace(regexp_replace(prosrc, '--[^' || chr(10) || ']*', '', 'g'), '\s+', ' ', 'g'))
+  INTO   v_def
+  FROM   pg_proc WHERE oid = to_regprocedure('public.rpc_promote_legacy_sale_to_order(uuid)');
+  IF v_def IS NULL THEN
+    v_missing := v_missing || format('no se pudo leer rpc_promote_legacy_sale_to_order(uuid)');
+  ELSE
+    IF v_def ~ '\mmin\s*\(' THEN
+      v_missing := v_missing || format('la promoción sigue agregando con MIN(): min(uuid) no existe y aborta con 42883 (N2)');
+    END IF;
+    v_pos_a := position('for update of s' in v_def);
+    v_pos_b := position('insert into public.sales_orders' in v_def);
+    IF v_pos_a = 0 OR v_pos_b = 0 OR v_pos_a > v_pos_b THEN
+      v_missing := v_missing || format('la promoción no toma las filas de sales FOR UPDATE antes de crear la orden (N1)');
+    END IF;
+    IF position('_sales_order_sync_from_operation(' in v_def) = 0 THEN
+      v_missing := v_missing || format('la promoción no usa el helper único de sincronización');
+    END IF;
+    IF v_def ~ '(branch_stock|cash_movement|_c29_confirm_order_core|insert into public\.events)' THEN
+      v_missing := v_missing || format('la promoción dejó de ser side-effect-free (D1)');
+    END IF;
+  END IF;
+
+  -- (d) Edición: el lock de las filas va ANTES del helper de anulación (N1) y
+  -- la orden re-apuntada se recalcula (N3).
+  SELECT lower(regexp_replace(regexp_replace(prosrc, '--[^' || chr(10) || ']*', '', 'g'), '\s+', ' ', 'g'))
+  INTO   v_def
+  FROM   pg_proc WHERE oid = to_regprocedure('public.rpc_atomic_update_sale_operation(uuid[], uuid, date, text, jsonb, uuid, boolean, uuid, boolean, text, boolean)');
+  v_pos_a := position('where s.id = any(p_sale_ids) and s.user_id = v_uid order by s.id for update' in COALESCE(v_def, ''));
+  v_pos_b := position('_fiscal_void_pending_for_sale_edit(' in COALESCE(v_def, ''));
+  IF v_pos_a = 0 OR v_pos_b = 0 OR v_pos_a > v_pos_b THEN
+    v_missing := v_missing || format('la edición no toma las filas de la operación FOR UPDATE ANTES de resolver su orden (N1)');
+  END IF;
+  IF position('_sales_order_sync_from_operation(' in COALESCE(v_def, '')) = 0 THEN
+    v_missing := v_missing || format('la edición re-apunta la orden sin recalcularla: se volvería a facturar el importe viejo (N3)');
+  END IF;
+
+  -- (e) Borrado: el lock de las filas va ANTES del helper de anulación (N1).
+  SELECT lower(regexp_replace(regexp_replace(prosrc, '--[^' || chr(10) || ']*', '', 'g'), '\s+', ' ', 'g'))
+  INTO   v_def
+  FROM   pg_proc WHERE oid = to_regprocedure('public.rpc_delete_sale_operation(uuid, uuid, text)');
+  v_pos_a := position('where s.id = any(v_sale_ids) and s.account_id = v_account_id order by s.id for update' in COALESCE(v_def, ''));
+  v_pos_b := position('_fiscal_void_pending_for_sale_edit(' in COALESCE(v_def, ''));
+  IF v_pos_a = 0 OR v_pos_b = 0 OR v_pos_a > v_pos_b THEN
+    v_missing := v_missing || format('el borrado no toma las filas de la operación FOR UPDATE ANTES de resolver su orden (N1)');
+  END IF;
+
+  -- (f) Emisión: guard D6 antes de emitir, allow-list intacta, y NUNCA un
+  -- lock sobre sales (invertiría el orden global → deadlock con la edición).
+  SELECT lower(regexp_replace(regexp_replace(prosrc, '--[^' || chr(10) || ']*', '', 'g'), '\s+', ' ', 'g'))
+  INTO   v_def
+  FROM   pg_proc WHERE oid = to_regprocedure('public.rpc_emit_sale_invoice(uuid, uuid)');
+  v_pos_a := position('sales_order_out_of_sync' in COALESCE(v_def, ''));
+  v_pos_b := position('rpc_emit_pending_cae(' in COALESCE(v_def, ''));
+  IF v_pos_a = 0 OR v_pos_b = 0 OR v_pos_a > v_pos_b THEN
+    v_missing := v_missing || format('la emisión no verifica que la orden coincida con su venta ANTES de emitir (D6)');
+  END IF;
+  IF position('not in (''rejected'', ''voided'')' in COALESCE(v_def, '')) = 0 THEN
+    v_missing := v_missing || format('la emisión perdió la ALLOW-LIST de re-emisión de venta-editable-sin-cae');
+  END IF;
+  IF COALESCE(v_def, '') ~ 'from public\.sales s [^;]*for (update|share)' THEN
+    v_missing := v_missing || format('la emisión toma locks sobre sales: invierte el orden global de locks y abre un deadlock contra la edición');
+  END IF;
+
+  -- (g) ACLs de las 4 RPCs: authenticated SÍ, anon NO, SECURITY DEFINER.
+  FOREACH v_fn IN ARRAY ARRAY['public.rpc_promote_legacy_sale_to_order(uuid)',
+                              'public.rpc_emit_sale_invoice(uuid, uuid)',
+                              'public.rpc_delete_sale_operation(uuid, uuid, text)',
+                              'public.rpc_atomic_update_sale_operation(uuid[], uuid, date, text, jsonb, uuid, boolean, uuid, boolean, text, boolean)']
+  LOOP
+    IF to_regprocedure(v_fn) IS NULL THEN
+      v_missing := v_missing || format('%s no resuelve (¿cambió la firma? un CREATE OR REPLACE con otra firma deja un overload)', v_fn);
+    ELSIF NOT (SELECT prosecdef FROM pg_proc WHERE oid = to_regprocedure(v_fn)) THEN
+      v_missing := v_missing || format('%s dejó de ser SECURITY DEFINER', v_fn);
+    ELSIF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon')
+          AND (   has_function_privilege('anon', to_regprocedure(v_fn), 'EXECUTE')
+               OR NOT has_function_privilege('authenticated', to_regprocedure(v_fn), 'EXECUTE')) THEN
+      v_missing := v_missing || format('%s: ACL distinta de la viva (anon sin EXECUTE, authenticated con EXECUTE)', v_fn);
+    END IF;
+  END LOOP;
+
+  IF array_length(v_missing, 1) > 0 THEN
+    RAISE EXCEPTION E'GATE VENTA-EDITABLE-VS-PROMOCION-LEGACY FAILED:\n  %', array_to_string(v_missing, E'\n  ');
+  END IF;
+
+  RAISE NOTICE 'venta-editable-vs-promocion-legacy OK: helper de sincronización cerrado e INVOKER, promoción sin MIN() con lock previo y side-effect-free, edición y borrado toman las filas antes de resolver la orden, la edición recalcula la orden re-apuntada, la emisión rechaza una orden desincronizada sin tomar sales, una sola definición viva y ACLs intactas.';
+END $$;

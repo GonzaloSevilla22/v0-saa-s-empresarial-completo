@@ -143,6 +143,11 @@ export function translateEmitInvoiceError(message: string): string {
     return "La cuenta tiene varios puntos de venta activos. Seleccioná cuál usar."
   if (message.includes("RECEPTOR_REQUIRED") || message.includes("receptor_required"))
     return "La venta supera el umbral de identificación obligatoria. Asigná un cliente con CUIT."
+  // venta-editable-vs-promocion-legacy: un sqlstate sin mapear del endpoint de
+  // emisión llega como "Error de base de datos: <texto del motor>" (o el 500
+  // genérico "Error interno de base de datos."). Ese texto nunca va al toast.
+  if (message.startsWith("Error de base de datos") || message.startsWith("Error interno"))
+    return "No pudimos emitir el comprobante. Probá de nuevo en unos minutos."
   return message || "Error al emitir el comprobante."
 }
 

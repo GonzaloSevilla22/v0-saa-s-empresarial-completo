@@ -40,6 +40,27 @@ describe("translateEmitInvoiceError", () => {
     expect(translateEmitInvoiceError("Conflicto: already_invoiced: la orden ya tiene un comprobante fiscal asociado"))
       .toBe("Esta venta ya tiene un comprobante emitido.")
   })
+
+  // El 500 de un sqlstate sin mapear del endpoint de emisión trae el texto del
+  // motor ("Error de base de datos: …", services/sales_orders.py): igual que en
+  // la preparación, ese texto NUNCA llega al toast.
+  it("el texto crudo de Postgres NUNCA llega al usuario al emitir (500 sin mapear)", () => {
+    const msg = translateEmitInvoiceError(
+      "Error de base de datos: deadlock detected DETAIL: Process 123 waits for ShareLock on transaction 456",
+    )
+    expect(msg).toBe("No pudimos emitir el comprobante. Probá de nuevo en unos minutos.")
+    expect(msg).not.toMatch(/deadlock|ShareLock|base de datos/)
+  })
+
+  it("el 500 genérico del backend (problem+json internal_error) también cae en el texto genérico", () => {
+    expect(translateEmitInvoiceError("Error interno de base de datos."))
+      .toBe("No pudimos emitir el comprobante. Probá de nuevo en unos minutos.")
+  })
+
+  it("un texto propio que no es del motor se respeta (p.ej. el aviso de sesión vencida)", () => {
+    expect(translateEmitInvoiceError("Tu sesión venció. Te llevamos al inicio de sesión."))
+      .toBe("Tu sesión venció. Te llevamos al inicio de sesión.")
+  })
 })
 
 describe("useEmitInvoice — refresco del listado de ventas", () => {

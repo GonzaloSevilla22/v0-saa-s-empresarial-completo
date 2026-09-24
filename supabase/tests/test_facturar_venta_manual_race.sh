@@ -28,6 +28,12 @@
 #   R4  borrado frenado → promoción: ESPERA y → P0404.
 #   R5  dos promociones de la misma operación: la segunda ESPERA y devuelve
 #       la MISMA orden (replayed=true).
+#   R6  doble "Guardar": dos ediciones de la misma operación. La segunda
+#       ESPERA a la primera sobre las filas de sales y, cuando la primera
+#       commitea, falla con P0404 ANTES de revertir stock: una sola operación
+#       nueva y el stock movido una sola vez (sin el lock temprano, la
+#       segunda revertía stock sobre filas ya borradas e insertaba una
+#       operación duplicada).
 # Además, una vez: R0 una promoción de OTRA cuenta sobre la operación no
 # bloquea ninguna fila ajena (el JOIN de tenencia filtra antes del FOR UPDATE).
 #
@@ -426,7 +432,7 @@ damage_count() {
 }
 
 declare -A PASS
-for c in R1 R1b R2 R3 R4 R5; do PASS[$c]=0; done
+for c in R1 R1b R2 R3 R4 R5 R6; do PASS[$c]=0; done
 DAMAGE_TOTAL=0
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -654,12 +660,39 @@ SQL
   D=$(( $(damage_count) - D0 )); [ "$D" = "0" ] || { echo "  R5#$i: DAÑO — $D"; ok=0; DAMAGE_TOTAL=$((DAMAGE_TOTAL + D)); }
   [ $ok -eq 1 ] && PASS[R5]=$((PASS[R5] + 1))
 
-  echo "iter $i: R1=${PASS[R1]} R1b=${PASS[R1b]} R2=${PASS[R2]} R3=${PASS[R3]} R4=${PASS[R4]} R5=${PASS[R5]}"
+  # ── R6: doble "Guardar" — dos ediciones de la misma operación ───────────
+  ok=1
+  new_sale
+  D0=$(damage_count)
+  STK0=$(q "SELECT quantity FROM public.branch_stock WHERE product_id = '$F_product' AND branch_id = '$F_branch';")
+  T0=$(q "SELECT clock_timestamp();")
+  brake_bg stock
+  edit_bg "fvm_r6_edit1_$i" "$SALE" "$TMP/a.txt"; A_BG=$LAST_BG
+  seen_blocked_by "fvm_r6_edit1_$i" brake public.branch_stock || { echo "  R6#$i INCONCLUSO: la primera edición no quedó frenada en branch_stock"; ok=0; }
+  edit_bg "fvm_r6_edit2_$i" "$SALE" "$TMP/b.txt"; B_BG=$LAST_BG
+  if ! seen_blocked_by "fvm_r6_edit2_$i" "fvm_r6_edit1_$i" public.sales; then
+    echo "  R6#$i FAIL: la segunda edición NO esperó a la primera sobre las filas de sales"; ok=0
+  fi
+  release_brake
+  wait "$A_BG" 2>/dev/null; wait "$B_BG" 2>/dev/null
+  no_deadlock "R6#$i E1" "$TMP/a.txt" || ok=0; no_deadlock "R6#$i E2" "$TMP/b.txt" || ok=0
+  grep -q 'EDIT_OK' "$TMP/a.txt" || { echo "  R6#$i: la primera edición debía terminar bien — $(tr '\n' ' ' < "$TMP/a.txt")"; ok=0; }
+  grep -q 'EDIT_ERR sqlstate=P0404' "$TMP/b.txt" || { echo "  R6#$i: la segunda edición debía dar P0404 (las filas ya no existen) — $(tr '\n' ' ' < "$TMP/b.txt")"; ok=0; }
+  N=$(q "SELECT count(*) FROM public.sales WHERE account_id = '$ACCOUNT_ID' AND created_at >= '$T0'::timestamptz;")
+  [ "$N" = "1" ] || { echo "  R6#$i: DUPLICADO — $N filas de venta nuevas después de dos ediciones de la misma operación, esperaba 1"; ok=0; }
+  N=$(q "SELECT count(*) FROM public.sales WHERE operation_id = '$OP';")
+  [ "$N" = "0" ] || { echo "  R6#$i: la operación vieja conserva $N filas"; ok=0; }
+  STK=$(q "SELECT (quantity = $STK0 + 1)::text || '|' || quantity FROM public.branch_stock WHERE product_id = '$F_product' AND branch_id = '$F_branch';")
+  [ "${STK%%|*}" = "true" ] || { echo "  R6#$i: el stock quedó en ${STK##*|}, esperaba $STK0 + 1 (500 × 2 → 111 × 1, movido UNA vez)"; ok=0; }
+  D=$(( $(damage_count) - D0 )); [ "$D" = "0" ] || { echo "  R6#$i: DAÑO — $D"; ok=0; DAMAGE_TOTAL=$((DAMAGE_TOTAL + D)); }
+  [ $ok -eq 1 ] && PASS[R6]=$((PASS[R6] + 1))
+
+  echo "iter $i: R1=${PASS[R1]} R1b=${PASS[R1b]} R2=${PASS[R2]} R3=${PASS[R3]} R4=${PASS[R4]} R5=${PASS[R5]} R6=${PASS[R6]}"
 done
 
-SUMMARY="R1 PASS=${PASS[R1]}/$ITER  R1b PASS=${PASS[R1b]}/$ITER  R2 PASS=${PASS[R2]}/$ITER  R3 PASS=${PASS[R3]}/$ITER  R4 PASS=${PASS[R4]}/$ITER  R5 PASS=${PASS[R5]}/$ITER  (comprobantes dañados observados: $DAMAGE_TOTAL)"
+SUMMARY="R1 PASS=${PASS[R1]}/$ITER  R1b PASS=${PASS[R1b]}/$ITER  R2 PASS=${PASS[R2]}/$ITER  R3 PASS=${PASS[R3]}/$ITER  R4 PASS=${PASS[R4]}/$ITER  R5 PASS=${PASS[R5]}/$ITER  R6 PASS=${PASS[R6]}/$ITER  (comprobantes dañados observados: $DAMAGE_TOTAL)"
 echo "$SUMMARY"
-for c in R1 R1b R2 R3 R4 R5; do
+for c in R1 R1b R2 R3 R4 R5 R6; do
   [ "${PASS[$c]}" -eq "$ITER" ] || fail "$SUMMARY"
 done
 
@@ -669,4 +702,4 @@ LEFT=$(q "SELECT count(*) FROM auth.users WHERE email IN ('facturar-venta-race@t
 LEFTA=$(q "SELECT count(*) FROM public.accounts WHERE id IN ('$ACCOUNT_ID', '$ACCOUNT_B');")
 [ "$LEFTA" = "0" ] || { echo "GATE FACTURAR-VENTA-MANUAL-RACE FAILED: la limpieza dejó las cuentas del fixture" >&2; exit 1; }
 
-echo "GATE FACTURAR-VENTA-MANUAL-RACE PASSED: $SUMMARY — la promoción, la edición y el borrado se excluyen por las filas de la venta (sales → sales_orders → fiscal_documents), sin deadlocks, sin comprobantes vivos con importes viejos, y la promoción ajena no bloquea filas. Fixtures limpios."
+echo "GATE FACTURAR-VENTA-MANUAL-RACE PASSED: $SUMMARY — la promoción, la edición y el borrado se excluyen por las filas de la venta (sales → sales_orders → fiscal_documents), sin deadlocks, sin comprobantes vivos con importes viejos, un doble «Guardar» no duplica la operación, y la promoción ajena no bloquea filas. Fixtures limpios."

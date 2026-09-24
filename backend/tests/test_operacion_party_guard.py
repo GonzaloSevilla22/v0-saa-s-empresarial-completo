@@ -177,7 +177,13 @@ class TestConfirmOrderPartyGuardHttp:
     @pytest.mark.asyncio
     async def test_unmapped_sqlstate_still_500(self):
         """CONTROL NEGATIVO: un sqlstate sin mapear sigue dando 500 — si esto
-        diera 404, el test de arriba pasaría por un `except` demasiado ancho."""
+        diera 404, el test de arriba pasaría por un `except` demasiado ancho.
+
+        venta-editable-vs-promocion-legacy: el service ya no lo envuelve en un
+        HTTPException 500 con el texto del motor; lo RE-LANZA intacto y el 500
+        lo arma asyncpg_error_handler (problem+json genérico, code
+        internal_error). El control sigue siendo el mismo: NO es un 404."""
+        from backend.core.errors import _BUSINESS_ERRCODE_STATUS
         from backend.services import sales_orders as svc
         from backend.schemas.sales_orders import QuickSaleIn, SalesOrderItemIn
 
@@ -190,10 +196,13 @@ class TestConfirmOrderPartyGuardHttp:
             items=[SalesOrderItemIn(product_id=uuid.UUID(PRODUCT_ID), quantity=1, price=1000)],
         )
 
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(asyncpg.PostgresError) as exc_info:
             await svc.quick_sale(mock_repo, _auth(), payload, str(TEST_ACCOUNT_ID))
 
-        assert exc_info.value.status_code == 500
+        assert not isinstance(exc_info.value, HTTPException)
+        assert exc_info.value.sqlstate == "P0999"
+        # El handler global responde 500 a todo sqlstate fuera del mapa.
+        assert "P0999" not in _BUSINESS_ERRCODE_STATUS
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

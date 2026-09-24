@@ -178,4 +178,10 @@ def _map_postgres_error(exc: asyncpg.PostgresError) -> None:
     if sqlstate in ("P0409", "P0422", "P0423", "P0424"):
         raise HTTPException(status_code=409, detail=f"Conflicto: {message}")
 
-    raise HTTPException(status_code=500, detail=f"Error de base de datos: {message}")
+    # venta-editable-vs-promocion-legacy (espejo de services/sales.py): un
+    # sqlstate SIN mapear ya no viaja crudo en el detail ("Error de base de
+    # datos: <texto del motor>", que sólo tapaba el frontend): se re-lanza y
+    # lo toma asyncpg_error_handler, que lo loguea con su sqlstate y responde
+    # el 500 genérico problem+json (code=internal_error). Vale para la
+    # emisión, el confirm y el quick-sale del POS, que comparten este mapeo.
+    raise exc

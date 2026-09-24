@@ -446,3 +446,52 @@ class TestEmitInvoiceOutOfSync:
 
         assert resp.status_code == 409
         assert "sales_order_out_of_sync" in resp.json()["detail"]
+
+
+class TestEmitInvoiceUnmappedSqlstate:
+    """venta-editable-vs-promocion-legacy (NIT del red team 2026-09-24): el
+    fallback de _map_postgres_error en services/sales_orders.py armaba
+    "Error de base de datos: <texto del motor>" en el detail del 500 — el
+    mismo defecto que ya se corrigió en services/sales.py para la promoción.
+    Sólo lo tapaba el frontend. Un sqlstate SIN mapear se re-lanza y lo toma
+    asyncpg_error_handler: 500 problem+json genérico, code=internal_error, y
+    el texto crudo del motor nunca sale del backend."""
+
+    async def test_emit_unmapped_sqlstate_does_not_leak_postgres_text(self, async_client, mock_pool):
+        pool, conn = mock_pool
+        owner_token = make_token({"role": "user"})
+        err = asyncpg.exceptions.UndefinedColumnError('column so.secret_internal does not exist')
+        err.sqlstate = "42703"
+        conn.fetchrow = AsyncMock(side_effect=err)
+
+        with patch("backend.core.database.pool", pool):
+            resp = await async_client.post(
+                f"/sales-orders/{SALES_ORDER_ID}/emit-invoice",
+                headers={"Authorization": f"Bearer {owner_token}"},
+            )
+
+        assert resp.status_code == 500
+        assert "secret_internal" not in resp.text
+        assert "does not exist" not in resp.text
+        assert "Error de base de datos" not in resp.text
+        assert resp.json()["code"] == "internal_error"
+
+    def test_map_postgres_error_reraises_unmapped_sqlstate(self):
+        """TRIANGULATE: el mapeo del service (compartido por emisión, confirm y
+        quick-sale del POS) re-lanza el error original en vez de envolverlo en
+        un HTTPException con el texto del motor; los mapeados siguen igual."""
+        from fastapi import HTTPException
+
+        from backend.services.sales_orders import _map_postgres_error
+
+        err = asyncpg.exceptions.DeadlockDetectedError("deadlock detected: Process 123 waits for ShareLock")
+        err.sqlstate = "40P01"
+        with pytest.raises(asyncpg.exceptions.DeadlockDetectedError):
+            _map_postgres_error(err)
+
+        mapped = asyncpg.exceptions.RaiseError("sales_order_out_of_sync: la orden no coincide")
+        mapped.sqlstate = "P0409"
+        with pytest.raises(HTTPException) as info:
+            _map_postgres_error(mapped)
+        assert info.value.status_code == 409
+        assert "sales_order_out_of_sync" in info.value.detail

@@ -393,7 +393,7 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
             ? {
                 ...item,
                 quantity:     newQty,
-                quantityBase: toBaseQuantity(newQty, baseUnit),
+                quantityBase: toBaseQuantity(newQty, baseUnit, baseUnit),
                 unitCost:     item.unitCost,
                 subtotal:     calcPurchaseSubtotal(item.unitCost, newQty),
               }

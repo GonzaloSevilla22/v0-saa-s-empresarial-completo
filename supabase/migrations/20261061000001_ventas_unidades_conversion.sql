@@ -20,13 +20,17 @@
 --      obligatorio (P0400 unit_type_mismatch), sin unidad base sólo unidades
 --      base (P0400 unit_requires_base_unit). SECURITY INVOKER, sin EXECUTE
 --      para anon/authenticated.
---   2-6. Cinco funciones reescritas desde su cuerpo VIVO (md5 abajo), con la
+--   2-7. Seis cuerpos reescritos desde su cuerpo VIVO (md5 abajo), con la
 --      conversión inline retirada y el helper en su lugar; en las dos
 --      ediciones la pata REVERSE devuelve el quantity_delta guardado (D6).
---   7. branch_stock.min_stock → numeric(15,4) (vista v_products_with_stock
+--      El sexto (auditoría post-apply) es la rama legacy del kill-switch
+--      sale_items_rpc_v2=false de rpc_create_sale_operation, que conservaba
+--      la conversión inline. Una variante hereda la base del padre; la unidad
+--      de la línea tiene que ser del sistema o de la cuenta (P0404).
+--   8. branch_stock.min_stock → numeric(15,4) (vista v_products_with_stock
 --      recreada, get_dashboard_critical_stock_items y
 --      rpc_set_product_min_stock con DROP + CREATE).
---   8. Gate embebido de introspección.
+--   9. Gate embebido de introspección.
 --
 -- CUERPOS DE PARTIDA (md5 de prosrc CR-stripped, verificados contra prod
 -- gxdhpxvdjjkmxhdkkwyb el 2026-09-24 y contra el último CREATE OR REPLACE de
@@ -36,8 +40,9 @@
 --   rpc_create_purchase_operation        f465b93f8eaedeba46bca08a4fc41033  (20261022000001_cobranzas_vencimientos.sql)
 --   rpc_atomic_update_sale_operation     a657c54b18ffadf82687487789d71d7f  (20261060000001_venta_editable_sin_cae.sql)
 --   rpc_atomic_update_purchase_operation fd5052c8e3fa146512600aa9987e2beb  (20261018000001_caja_compras_cobranzas.sql)
+--   rpc_create_sale_operation            343e0f1f938a918daaba41434c8a494b  (20261022000001_cobranzas_vencimientos.sql)
 --
--- Firmas intactas en las cinco (CREATE OR REPLACE); ACLs intactas (el REPLACE
+-- Firmas intactas en las seis (CREATE OR REPLACE); ACLs intactas (el REPLACE
 -- conserva proacl). Gates: supabase/tests/test_ventas_unidades_conversion.sql
 -- (matriz de los cinco caminos + min_stock) cableado en KPI_Validation.yml.
 -- =============================================================================
@@ -46,7 +51,7 @@
 -- Cada cuerpo se reescribe desde su pg_get_functiondef VIVO, verificado el
 -- 2026-09-24 contra prod (gxdhpxvdjjkmxhdkkwyb, sólo SELECT) y contra el
 -- último CREATE OR REPLACE del directorio de migraciones: md5(prosrc)
--- CR-stripped IDÉNTICO en los cinco. Si el cuerpo vivo del stack que aplica
+-- CR-stripped IDÉNTICO en los seis. Si el cuerpo vivo del stack que aplica
 -- esta migración difiere (una migración intermedia que nadie reconcilió), se
 -- ABORTA en vez de reescribir a ciegas — regla de integridad de función
 -- (20261060000001).
@@ -57,7 +62,21 @@ DECLARE
     'rpc_create_sale_operation_v2',         '3f68a783995da7bdf333751a8e347b18',
     'rpc_create_purchase_operation',        'f465b93f8eaedeba46bca08a4fc41033',
     'rpc_atomic_update_sale_operation',     'a657c54b18ffadf82687487789d71d7f',
-    'rpc_atomic_update_purchase_operation', 'fd5052c8e3fa146512600aa9987e2beb'
+    'rpc_atomic_update_purchase_operation', 'fd5052c8e3fa146512600aa9987e2beb',
+    'rpc_create_sale_operation',            '343e0f1f938a918daaba41434c8a494b'
+  );
+  -- Cuerpo que ESTA migración deja (reaplicación: KPI_Validation "idempotente
+  -- on reapply" / db reset con la migración ya vigente). Auditoría post-apply:
+  -- antes se toleraba cualquier cuerpo que contuviera la llamada al helper, lo
+  -- que dejaba pasar en silencio una redefinición posterior — ahora sólo el
+  -- md5 exacto.
+  v_rewritten jsonb := jsonb_build_object(
+    '_c29_confirm_order_core',              'd69e1ea6daac7c4deec0a1603ae4ceae',
+    'rpc_create_sale_operation_v2',         'b51c6d7eae41edf95bcffec6eebc1df8',
+    'rpc_create_purchase_operation',        '35ae3c793efec9c3a6a06138dcea90ee',
+    'rpc_atomic_update_sale_operation',     'a2313489d229dc7c7beb24cfd37c24cc',
+    'rpc_atomic_update_purchase_operation', '23558c073cf71d08ea4a0dfb15079555',
+    'rpc_create_sale_operation',            '76654116ca260f683e0d4082b6c77db0'
   );
   v_fn  text;
   v_md5 text;
@@ -67,26 +86,20 @@ BEGIN
     SELECT md5(replace(p.prosrc, E'\r', '')) INTO v_md5
     FROM   pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
     WHERE  n.nspname = 'public' AND p.proname = v_fn;
-    IF v_md5 IS DISTINCT FROM (v_expected ->> v_fn) THEN
-      -- Reaplicación (KPI_Validation "idempotente on reapply" / db reset con la
-      -- migración ya vigente): el cuerpo vivo ya es el reescrito por esta
-      -- migración, no un tercero desconocido.
-      IF EXISTS (
-        SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-        WHERE  n.nspname = 'public' AND p.proname = v_fn
-          AND  position('public._uom_normalize_quantity(' IN p.prosrc) > 0
-      ) THEN
-        RAISE NOTICE 'ventas-unidades-conversion: % ya invoca el helper (reaplicación) — se reescribe desde esta migración', v_fn;
-      ELSE
-        v_bad := v_bad || format('%s: esperado %s, vivo %s', v_fn, v_expected ->> v_fn, COALESCE(v_md5, '(no existe)'));
-      END IF;
+    IF v_md5 = (v_expected ->> v_fn) THEN
+      CONTINUE;
+    ELSIF v_md5 = (v_rewritten ->> v_fn) THEN
+      RAISE NOTICE 'ventas-unidades-conversion: % ya es el cuerpo de esta migración (reaplicación)', v_fn;
+    ELSE
+      v_bad := v_bad || format('%s: esperado %s (partida) o %s (reaplicación), vivo %s',
+        v_fn, v_expected ->> v_fn, v_rewritten ->> v_fn, COALESCE(v_md5, '(no existe)'));
     END IF;
   END LOOP;
   IF array_length(v_bad, 1) > 0 THEN
     RAISE EXCEPTION 'ventas-unidades-conversion: el cuerpo vivo de partida difiere del verificado contra prod el 2026-09-24 — reconciliar antes de reescribir: %',
       array_to_string(v_bad, '; ');
   END IF;
-  RAISE NOTICE 'ventas-unidades-conversion: cinco cuerpos de partida verificados por md5';
+  RAISE NOTICE 'ventas-unidades-conversion: seis cuerpos de partida verificados por md5';
 END $$;
 
 -- ─── 0b. Reparación de un gap de historial de migraciones ───────────────────
@@ -129,6 +142,7 @@ DECLARE
   v_unit     RECORD;
   v_base     RECORD;
   v_base_id  uuid;
+  v_account  uuid;
   v_result   numeric(15,4);
 BEGIN
   IF p_quantity IS NULL THEN
@@ -140,7 +154,7 @@ BEGIN
     RETURN p_quantity::numeric(15,4);
   END IF;
 
-  SELECT id, type, factor, base_unit_id INTO v_unit
+  SELECT id, type, factor, base_unit_id, COALESCE(is_system, false) AS is_system, account_id INTO v_unit
   FROM   public.units_of_measure
   WHERE  id = p_unit_id;
   IF NOT FOUND THEN
@@ -153,11 +167,27 @@ BEGIN
     RETURN p_quantity::numeric(15,4);
   END IF;
 
-  SELECT base_unit_id INTO v_base_id
-  FROM   public.products
-  WHERE  id = p_product_id;
+  -- Auditoría post-apply: una VARIANTE hereda la unidad base de su padre.
+  -- Nada en el sistema asigna base_unit_id a una variante (el formulario no
+  -- la manda y el backend sólo hereda category_id), y un padre con variantes
+  -- sólo se vende a través de ellas: sin la herencia, 163 variantes de padres
+  -- en kg (prod, 2026-09-24) quedaban "sin unidad base". Misma regla que
+  -- expone v_products_with_stock.base_unit_id.
+  SELECT COALESCE(p.base_unit_id, pp.base_unit_id), p.account_id
+  INTO   v_base_id, v_account
+  FROM   public.products p
+  LEFT JOIN public.products pp ON pp.id = p.parent_id
+  WHERE  p.id = p_product_id;
   IF NOT FOUND THEN
     RAISE EXCEPTION 'Product not found: %', p_product_id USING ERRCODE = 'P0404';
+  END IF;
+
+  -- Auditoría post-apply (tenencia): la unidad de la línea es del sistema o
+  -- de la cuenta del producto. El FK a units_of_measure no está scopeado por
+  -- tenant y la conversión inline anterior tampoco lo verificaba. Mismo P0404
+  -- que el guard del backend (no revela si existe en otra cuenta).
+  IF NOT v_unit.is_system AND v_unit.account_id IS DISTINCT FROM v_account THEN
+    RAISE EXCEPTION 'Unit of measure not found: %', p_unit_id USING ERRCODE = 'P0404';
   END IF;
 
   -- D3: sin unidad base no existe referencia contra la cual convertir; sólo se
@@ -209,7 +239,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION public._uom_normalize_quantity(uuid, uuid, numeric) IS
-  'ventas-unidades-conversion (D1/D2/D3): ÚNICA definición de "cantidad de una línea en la unidad en que se lleva el stock del producto" (unidad base del producto). La consumen los cinco caminos que escriben stock desde una operación: alta de venta (rpc_create_sale_operation_v2), POS (_c29_confirm_order_core), edición de venta (rpc_atomic_update_sale_operation), alta y edición de compra. Mismo type obligatorio (P0400 unit_type_mismatch); producto sin unidad base sólo admite unidades base (P0400 unit_requires_base_unit). Helper intra-transacción: sin EXECUTE para anon/authenticated.';
+  'ventas-unidades-conversion (D1/D2/D3): ÚNICA definición de "cantidad de una línea en la unidad en que se lleva el stock del producto" (unidad base del producto). La consumen los seis cuerpos que escriben stock desde una operación: alta de venta (rpc_create_sale_operation_v2 y la rama legacy del kill-switch en rpc_create_sale_operation), POS (_c29_confirm_order_core), edición de venta (rpc_atomic_update_sale_operation), alta y edición de compra. Una variante hereda la unidad base de su padre. La unidad de la línea tiene que ser del sistema o de la cuenta del producto (P0404). Mismo type obligatorio (P0400 unit_type_mismatch); producto sin unidad base sólo admite unidades base (P0400 unit_requires_base_unit). Helper intra-transacción: sin EXECUTE para anon/authenticated.';
 
 -- GOTCHA prod ≠ local (#432): prod concede EXECUTE directo a anon/authenticated,
 -- no vía PUBLIC — el REVOKE nombra la lista completa.
@@ -2430,7 +2460,328 @@ BEGIN
 END;
 $function$;
 
--- ─── 7. Umbral de stock mínimo fraccionario (D7) ───────────────────────────
+-- ─── 7. rpc_create_sale_operation — rama legacy del kill-switch por la definición única (auditoría post-apply) ───
+CREATE OR REPLACE FUNCTION public.rpc_create_sale_operation(
+  p_idempotency_key   text,
+  p_client_id         uuid,
+  p_date              date,
+  p_currency          text,
+  p_items             jsonb,
+  p_branch_id         uuid DEFAULT NULL::uuid,
+  p_canal             text DEFAULT NULL::text,
+  p_payment_method_id uuid DEFAULT NULL::uuid,
+  p_cash_session_id   uuid DEFAULT NULL::uuid,
+  p_bank_account_id   uuid DEFAULT NULL::uuid,
+  p_due_date          date DEFAULT NULL::date
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_account_id uuid;
+  v_flag_on    boolean := false;
+  v_uid        uuid;
+BEGIN
+  v_uid := (SELECT auth.uid());
+  IF v_uid IS NULL THEN
+    RAISE EXCEPTION 'Not authenticated' USING ERRCODE = 'insufficient_privilege';
+  END IF;
+
+  SELECT cai INTO v_account_id
+  FROM   current_account_ids() AS cai
+  LIMIT  1;
+
+  -- deudas-menores-agosto (G1/D1): ausencia de fila = v2 (antes: legacy). El
+  -- COALESCE va DESPUÉS del SELECT — SELECT ... INTO sin fila deja v_flag_on
+  -- en NULL, y el COALESCE de acá lo resuelve a true. Ponerlo DENTRO del
+  -- SELECT (como antes) no ejecuta nada cuando no hay fila y v_flag_on queda
+  -- NULL (≈ false en el IF), que es exactamente el bug que se corrige.
+  SELECT enabled INTO v_flag_on
+  FROM   public.account_feature_flags
+  WHERE  account_id = v_account_id
+    AND  flag_key   = 'sale_items_rpc_v2'
+  LIMIT  1;
+  v_flag_on := COALESCE(v_flag_on, true);
+
+  IF v_flag_on THEN
+    -- pagos-cableados-restantes: propaga p_cash_session_id a la v2.
+    -- pos-banco-movimientos: propaga p_bank_account_id a la v2 (D6).
+    -- cobranzas-vencimientos: propaga p_due_date a la v2 (el camino vivo).
+    RETURN public.rpc_create_sale_operation_v2(
+      p_idempotency_key, p_client_id, p_date, p_currency, p_items,
+      p_branch_id, p_canal, p_payment_method_id, p_cash_session_id, p_bank_account_id,
+      p_due_date
+    );
+  ELSE
+    DECLARE
+      v_new_op_id    uuid;
+      v_existing_op  uuid;
+      v_item         RECORD;
+      v_product      RECORD;
+      v_branch       RECORD;
+      v_gate_branch  uuid;
+      v_new_sale_id  uuid;
+      v_result_items jsonb := '[]'::jsonb;
+      v_qty_before   numeric;
+      v_qty_after    numeric;
+      v_qty_norm     numeric(15,4);
+      v_branch_qty   numeric(15,4);
+      v_inserted     integer;
+      v_canal        text;
+      -- pagos-cableados-restantes (task 5.3): mismo trío que la rama v2.
+      v_kind                  text;
+      v_total_sum             numeric(15,2) := 0;
+      v_cash_session_status   text;
+      v_cash_session_branch   uuid;
+    BEGIN
+      IF v_account_id IS NULL THEN
+        RAISE EXCEPTION 'Usuario sin cuenta activa — no se puede crear la operación'
+          USING ERRCODE = 'P0403';
+      END IF;
+
+      IF p_idempotency_key IS NULL OR length(trim(p_idempotency_key)) = 0 THEN
+        RAISE EXCEPTION 'idempotency_key is required' USING ERRCODE = 'P0400';
+      END IF;
+
+      IF p_items IS NULL OR jsonb_typeof(p_items) <> 'array' OR jsonb_array_length(p_items) = 0 THEN
+        RAISE EXCEPTION 'p_items must be a non-empty array' USING ERRCODE = 'P0400';
+      END IF;
+
+      IF jsonb_array_length(p_items) > 500 THEN
+        RAISE EXCEPTION 'Too many items in a single operation (max 500)' USING ERRCODE = 'P0400';
+      END IF;
+
+      v_canal := NULLIF(trim(COALESCE(p_canal, '')), '');
+      IF v_canal IS NOT NULL AND length(v_canal) > 40 THEN
+        RAISE EXCEPTION 'canal too long (max 40 chars)' USING ERRCODE = 'P0400';
+      END IF;
+
+      -- pagos-cableados-restantes: mismo patrón de derivación de kind que la v2.
+      -- metodos-pago-operaciones: validar pertenencia opcional (mirror de p_canal/branch_id)
+      IF p_payment_method_id IS NOT NULL THEN
+        SELECT kind INTO v_kind
+        FROM public.payment_methods
+        WHERE id = p_payment_method_id AND account_id = v_account_id
+          AND is_active = TRUE AND deleted_at IS NULL;
+
+        IF NOT FOUND THEN
+          RAISE EXCEPTION 'payment_method_not_found or not active for this account'
+            USING ERRCODE = 'P0404';
+        END IF;
+      END IF;
+
+      IF v_kind = 'credit' AND p_client_id IS NULL THEN
+        RAISE EXCEPTION 'credit_requires_client: una venta a crédito exige client_id'
+          USING ERRCODE = 'P0400';
+      END IF;
+
+      -- C-26: la branch explícita debe existir, estar activa Y operativa
+      IF p_branch_id IS NOT NULL THEN
+        SELECT id, status INTO v_branch
+        FROM public.branches
+        WHERE id = p_branch_id AND account_id = v_account_id AND is_active = TRUE;
+        IF NOT FOUND THEN
+          RAISE EXCEPTION 'branch_not_found or not active for this account'
+            USING ERRCODE = 'P0404';
+        END IF;
+        IF v_branch.status = 'closed' THEN
+          RAISE EXCEPTION 'branch_closed: la sucursal está cerrada' USING ERRCODE = 'P0422';
+        END IF;
+      END IF;
+
+      -- C-26: branch del gate y del descuento (explícita o default operativa)
+      v_gate_branch := COALESCE(p_branch_id, public.c26_default_branch(v_account_id));
+
+      v_new_op_id := gen_random_uuid();
+
+      INSERT INTO public.operation_idempotency (user_id, idempotency_key, operation_kind, operation_id)
+      VALUES (v_uid, p_idempotency_key, 'sale', v_new_op_id)
+      ON CONFLICT (user_id, operation_kind, idempotency_key) DO NOTHING;
+
+      GET DIAGNOSTICS v_inserted = ROW_COUNT;
+
+      IF v_inserted = 0 THEN
+        SELECT operation_id INTO v_existing_op
+        FROM   public.operation_idempotency
+        WHERE  user_id = v_uid
+          AND  operation_kind = 'sale'
+          AND  idempotency_key = p_idempotency_key;
+
+        SELECT COALESCE(
+                 jsonb_agg(jsonb_build_object('id', s.id, 'product_id', s.product_id) ORDER BY s.id),
+                 '[]'::jsonb
+               )
+        INTO   v_result_items
+        FROM   public.sales s
+        WHERE  s.user_id = v_uid AND s.operation_id = v_existing_op;
+
+        RETURN jsonb_build_object(
+          'operation_id', v_existing_op,
+          'items',        v_result_items,
+          'replayed',     true
+        );
+      END IF;
+
+      FOR v_item IN
+        SELECT *
+        FROM   jsonb_to_recordset(p_items)
+                 AS x(product_id uuid, amount numeric, quantity numeric, unit_id uuid)
+        ORDER BY product_id
+      LOOP
+        IF v_item.quantity IS NULL OR v_item.quantity <= 0 THEN
+          RAISE EXCEPTION 'Quantity must be greater than zero' USING ERRCODE = 'P0400';
+        END IF;
+        IF v_item.amount IS NULL OR v_item.amount <= 0 THEN
+          RAISE EXCEPTION 'Amount must be greater than zero' USING ERRCODE = 'P0400';
+        END IF;
+
+        -- pagos-cableados-restantes: acumular total (mismo patrón que la v2).
+        v_total_sum := v_total_sum + (v_item.amount * v_item.quantity);
+
+        -- ventas-unidades-conversion (auditoría post-apply): la rama legacy del
+        -- kill-switch sale_items_rpc_v2=false conservaba la conversión inline
+        -- (relativa a la base del TIPO). Misma definición única que la v2.
+        v_qty_norm := public._uom_normalize_quantity(v_item.product_id, v_item.unit_id, v_item.quantity);
+
+        IF v_item.product_id IS NOT NULL THEN
+          SELECT id, user_id, is_variant, name, sku, cost INTO v_product
+          FROM   public.products
+          WHERE  id = v_item.product_id
+          FOR UPDATE;
+
+          IF NOT FOUND THEN
+            RAISE EXCEPTION 'Product not found: %', v_item.product_id USING ERRCODE = 'P0404';
+          END IF;
+
+          IF v_product.user_id <> v_uid THEN
+            RAISE EXCEPTION 'Permission denied to product: %', v_item.product_id USING ERRCODE = 'P0403';
+          END IF;
+
+          IF NOT v_product.is_variant THEN
+            IF EXISTS (SELECT 1 FROM public.products WHERE parent_id = v_item.product_id LIMIT 1) THEN
+              RAISE EXCEPTION
+                'Este producto tiene variantes. Seleccioná una variante específica para registrar la venta.'
+                USING ERRCODE = 'P0422';
+            END IF;
+          END IF;
+
+          -- C-26 (OQ-A): gate per-branch — el stock debe estar EN la branch
+          -- de la operación (explícita o default operativa)
+          SELECT COALESCE(quantity, 0) INTO v_branch_qty
+          FROM   public.branch_stock
+          WHERE  product_id = v_item.product_id AND branch_id = v_gate_branch;
+          v_branch_qty := COALESCE(v_branch_qty, 0);
+
+          IF v_branch_qty < v_qty_norm THEN
+            IF p_branch_id IS NOT NULL THEN
+              RAISE EXCEPTION 'insufficient_branch_stock for product %', v_item.product_id USING ERRCODE = 'P0409';
+            ELSE
+              RAISE EXCEPTION 'Insufficient stock for product %', v_item.product_id USING ERRCODE = 'P0409';
+            END IF;
+          END IF;
+
+          INSERT INTO public.sales
+            (user_id, account_id, client_id, product_id, amount, quantity, unit_id,
+             total, currency, date, operation_id, branch_id, canal, payment_method_id)
+          VALUES
+            (v_uid, v_account_id, p_client_id, v_item.product_id,
+             v_item.amount, v_item.quantity, v_item.unit_id,
+             v_item.amount * v_item.quantity, p_currency, p_date, v_new_op_id,
+             p_branch_id, v_canal, p_payment_method_id)
+          RETURNING id INTO v_new_sale_id;
+
+          v_qty_before := v_branch_qty;
+          v_qty_after  := v_branch_qty - v_qty_norm;
+
+          PERFORM public.c21_apply_branch_stock_delta(
+            v_account_id, v_item.product_id, v_gate_branch, -v_qty_norm);
+
+          -- v3-snapshot-pattern: costo congelado en el movimiento de stock.
+          INSERT INTO public.stock_movements (
+            user_id, account_id, product_id, product_name, type,
+            quantity_delta, quantity_before, quantity_after,
+            reference_id, reference_type, performed_by,
+            operation_group_id, branch_id, unit_cost_snapshot
+          ) VALUES (
+            v_uid, v_account_id, v_item.product_id, v_product.name, 'sale',
+            -v_qty_norm, v_qty_before, v_qty_after,
+            v_new_sale_id, 'sale', v_uid,
+            v_new_op_id, p_branch_id, v_product.cost
+          );
+
+        ELSE
+          INSERT INTO public.sales
+            (user_id, account_id, client_id, product_id, amount, quantity, unit_id,
+             total, currency, date, operation_id, branch_id, canal, payment_method_id)
+          VALUES
+            (v_uid, v_account_id, p_client_id, NULL,
+             v_item.amount, v_item.quantity, v_item.unit_id,
+             v_item.amount * v_item.quantity, p_currency, p_date, v_new_op_id,
+             p_branch_id, v_canal, p_payment_method_id)
+          RETURNING id INTO v_new_sale_id;
+        END IF;
+
+        v_result_items := v_result_items
+          || jsonb_build_object('id', v_new_sale_id, 'product_id', v_item.product_id);
+      END LOOP;
+
+      -- pagos-cableados-restantes (task 5.3/6.2): mismo trío opt-in de caja
+      -- + cargo de crédito que la rama v2 — la rama legacy queda consistente.
+      IF p_cash_session_id IS NOT NULL THEN
+        IF v_kind IS DISTINCT FROM 'cash' THEN
+          RAISE EXCEPTION 'cash_optin_requires_cash_kind: p_cash_session_id sólo aplica si el kind derivado es cash (recibido: %)', COALESCE(v_kind, 'NULL')
+            USING ERRCODE = 'P0422';
+        END IF;
+
+        SELECT cs.status, cb.branch_id INTO v_cash_session_status, v_cash_session_branch
+        FROM public.cash_sessions cs
+        JOIN public.cashboxes cb ON cb.id = cs.cashbox_id
+        WHERE cs.id = p_cash_session_id;
+
+        IF v_cash_session_status IS DISTINCT FROM 'open' OR v_cash_session_branch IS DISTINCT FROM v_gate_branch THEN
+          RAISE EXCEPTION 'cash_optin_requires_open_session: la sesión de caja debe estar abierta y pertenecer a la sucursal efectiva de la venta'
+            USING ERRCODE = 'P0422';
+        END IF;
+
+        IF p_date <> public.reporting_local_today() THEN
+          RAISE EXCEPTION 'cash_optin_requires_today: sólo se puede registrar en caja una venta fechada hoy (%)', public.reporting_local_today()
+            USING ERRCODE = 'P0422';
+        END IF;
+
+        PERFORM public.c28_register_cash_movement(p_cash_session_id, v_total_sum, 'sale', v_new_op_id);
+      END IF;
+
+      -- cobranzas-vencimientos (D3): la rama legacy transporta la fecha de
+      -- negocio y el override al helper — la MISMA llamada que la v2.
+      IF v_kind = 'credit' THEN
+        PERFORM public._pay_register_party_charge(
+          v_account_id, 'customer', p_client_id, v_total_sum, v_new_op_id, v_new_op_id,
+          p_date, p_due_date
+        );
+      END IF;
+
+      -- pos-banco-movimientos (D5, task 5.1): rama legacy — mismo helper y
+      -- mismo punto que la v2, para que ambas ramas del strangler queden
+      -- consistentes (regla dura del proyecto: no duplicar la regla).
+      PERFORM public._pay_register_operation_bank_movement(
+        v_account_id, v_kind, p_payment_method_id, p_bank_account_id,
+        v_total_sum, 'in', 'sale', v_new_op_id,
+        p_date, v_gate_branch, NULL
+      );
+
+      RETURN jsonb_build_object(
+        'operation_id', v_new_op_id,
+        'items',        v_result_items,
+        'replayed',     false
+      );
+    END;
+  END IF;
+END;
+$function$;
+
+-- ─── 8. Umbral de stock mínimo fraccionario (D7) ───────────────────────────
 -- branch_stock.min_stock era integer: imposible "avisar cuando queden 0,5 kg".
 -- Pasa a numeric(15,4), misma precisión que quantity. La vista
 -- v_products_with_stock depende de la columna (Postgres rechaza el ALTER con
@@ -2484,9 +2835,10 @@ WITH (security_invoker=true) AS
            FROM public.branch_stock bs
           WHERE bs.product_id = p.id), 0::numeric) AS stock,
     p.category_id,
-    p.base_unit_id
+    COALESCE(p.base_unit_id, pp.base_unit_id) AS base_unit_id
    FROM public.products p
-   LEFT JOIN public.product_categories pc ON pc.id = p.category_id;
+   LEFT JOIN public.product_categories pc ON pc.id = p.category_id
+   LEFT JOIN public.products pp ON pp.id = p.parent_id;
 
 -- ventas-unidades-conversion (D10, hallazgo del apply): products.base_unit_id
 -- NO viajaba por la API — la vista no la exponía, ProductOut/ProductCreate/
@@ -2494,9 +2846,11 @@ WITH (security_invoker=true) AS
 -- enviaba. Sin esto la "unidad en que se lleva el stock" nunca llega al
 -- selector ni a la normalización local, y el formulario de producto la
 -- descartaba en silencio. Columna aditiva al FINAL (mismo criterio que
--- category_id en 20261023000001: ningún lector cambia de posición).
+-- category_id en 20261023000001: ningún lector cambia de posición). Auditoría
+-- post-apply: la columna es la base EFECTIVA — una variante hereda la del padre
+-- (COALESCE con el self-join), igual que el helper.
 COMMENT ON COLUMN public.v_products_with_stock.base_unit_id IS
-    'ventas-unidades-conversion (D10): unidad en que se lleva el stock del producto (FK units_of_measure). NULL = producto sin unidad base (sólo admite unidades base al vender/comprar).';
+    'ventas-unidades-conversion (D10): unidad EFECTIVA en que se lleva el stock del producto (FK units_of_measure): la propia o, para una variante, la de su padre (auditoría post-apply — misma regla que _uom_normalize_quantity). NULL = sin unidad base (sólo admite unidades base al vender/comprar).';
 
 COMMENT ON COLUMN public.v_products_with_stock.category IS
     'productos-categoria-text-retiro: derivada de product_categories.name vía category_id (LEFT JOIN). Ya NO es una columna física de products — se conserva el nombre para que ningún lector cambie (D1/OQ-1). NULL si el producto no tiene category_id.';
@@ -2626,7 +2980,7 @@ $function$;
 REVOKE ALL     ON FUNCTION public.rpc_set_product_min_stock(uuid, numeric) FROM PUBLIC, anon;
 GRANT  EXECUTE ON FUNCTION public.rpc_set_product_min_stock(uuid, numeric) TO authenticated, service_role;
 
--- ─── 8. Gate embebido de introspección (falla el deploy si falta una pieza) ──
+-- ─── 9. Gate embebido de introspección (falla el deploy si falta una pieza) ──
 DO $$
 DECLARE
   v_fn      text;
@@ -2639,7 +2993,8 @@ DECLARE
 BEGIN
   FOREACH v_fn IN ARRAY ARRAY[
     '_c29_confirm_order_core', 'rpc_create_sale_operation_v2', 'rpc_create_purchase_operation',
-    'rpc_atomic_update_sale_operation', 'rpc_atomic_update_purchase_operation'
+    'rpc_atomic_update_sale_operation', 'rpc_atomic_update_purchase_operation',
+    'rpc_create_sale_operation'
   ] LOOP
     SELECT replace(p.prosrc, E'\r', '') INTO v_src
     FROM   pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
@@ -2738,6 +3093,15 @@ BEGIN
     WHERE table_schema = 'public' AND table_name = 'v_products_with_stock' AND column_name = 'base_unit_id'
   ) THEN
     v_bad := v_bad || 'v_products_with_stock: no expone base_unit_id (D10)';
+  END IF;
+  -- Auditoría post-apply: la base de una variante es la del padre, en la vista y en el helper.
+  IF pg_get_viewdef('public.v_products_with_stock'::regclass) !~ 'pp\.base_unit_id' THEN
+    v_bad := v_bad || 'v_products_with_stock: base_unit_id no hereda del padre (COALESCE con pp.base_unit_id)';
+  END IF;
+  SELECT replace(p.prosrc, E'\r', '') INTO v_src FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+  WHERE n.nspname = 'public' AND p.proname = '_uom_normalize_quantity';
+  IF position('LEFT JOIN public.products pp' IN v_src) = 0 OR position('v_unit.is_system' IN v_src) = 0 THEN
+    v_bad := v_bad || '_uom_normalize_quantity: perdió la herencia del padre o el guard de tenencia';
   END IF;
 
   IF array_length(v_bad, 1) > 0 THEN

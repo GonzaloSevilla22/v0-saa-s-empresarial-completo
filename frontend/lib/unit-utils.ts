@@ -115,8 +115,9 @@ export function compatibleUnits(
   units: UnitOfMeasure[],
   productBaseUnit?: UnitOfMeasure | null,
 ): UnitOfMeasure[] {
-  if (productBaseUnit) return units.filter((u) => u.type === productBaseUnit.type)
-  return units.filter(isBaseUnit)
+  // Auditoría post-apply: un solo predicado (isUnitCompatible); antes había
+  // una segunda copia acá.
+  return units.filter((u) => isUnitCompatible(u, productBaseUnit))
 }
 
 /**

@@ -96,6 +96,8 @@ class ProductOut(BaseModel):
     # ventas-unidades-conversion (D10): expuesta por v_products_with_stock
     # desde 20261061000001 (columna aditiva al final). Default None para que
     # una fila de una base sin la migración siga deserializando.
+    # ventas-unidades-conversion (auditoría post-apply): unidad base EFECTIVA —
+    # la vista devuelve la propia o, para una variante, la de su padre.
     base_unit_id: uuid.UUID | None = None
 
 

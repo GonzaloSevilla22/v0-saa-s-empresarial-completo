@@ -267,7 +267,12 @@ export function useProducts() {
         stock_control_type: product.stockControlType ?? "tracked",
         // ventas-unidades-conversion (D10): el formulario manda siempre el
         // estado vigente del campo — null desasigna (misma semántica que sku).
-        base_unit_id:       product.baseUnitId ?? null,
+        // ventas-unidades-conversion (auditoría post-apply): tri-estado por
+        // ausencia de punta a punta — el campo se OMITE cuando el formulario no
+        // lo determina (variante, padre variant_only, producto no rastreado) y
+        // el backend conserva el valor; un uuid asigna. Antes `undefined` se
+        // mandaba como `null` y desasignaba la unidad base al editar el nombre.
+        ...(product.baseUnitId !== undefined ? { base_unit_id: product.baseUnitId } : {}),
       })
     },
     onSuccess: () => {

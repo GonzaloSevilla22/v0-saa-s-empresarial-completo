@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, patch
 
-from backend.tests.conftest import make_token
+from backend.tests.conftest import TEST_ACCOUNT_ID, make_token
 
 UNIT_KG = "0a0a0a0a-0a0a-4a0a-8a0a-0a0a0a0a0a0a"
 
@@ -67,6 +67,7 @@ async def test_create_product_persists_base_unit_id(async_client, mock_pool):
     pool, conn = mock_pool
     owner_token = make_token({"role": "user"})
     inserts: list[tuple] = []
+    unit_checks: list[tuple] = []
 
     async def fetchrow_side_effect(query, *args):
         if "plan_limits" in query:
@@ -74,6 +75,7 @@ async def test_create_product_persists_base_unit_id(async_client, mock_pool):
         if "COUNT" in query:
             return {"total": 5}
         if "FROM units_of_measure" in query:
+            unit_checks.append(args)
             return {"?column?": 1}
         if "INSERT INTO products" in query:
             inserts.append(args)
@@ -91,6 +93,11 @@ async def test_create_product_persists_base_unit_id(async_client, mock_pool):
     assert len(inserts) == 1
     assert "base_unit_id" in inserts[0] or UNIT_KG in inserts[0]
     assert inserts[0][-1] == UNIT_KG  # último placeholder ($13) del INSERT
+    # Auditoría post-apply: el guard de tenencia se consulta UNA vez y scopeado a
+    # la cuenta del request (sistema O cuenta) — no basta con que exista.
+    assert len(unit_checks) == 1
+    assert unit_checks[0][0] == UNIT_KG
+    assert str(unit_checks[0][1]) == str(TEST_ACCOUNT_ID)
 
 
 async def test_create_product_rejects_unit_not_visible_to_account(async_client, mock_pool):

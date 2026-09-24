@@ -76,7 +76,7 @@ describe("useProducts — base_unit_id", () => {
     expect(vi.mocked(pythonClient.post).mock.calls[1][1]).toMatchObject({ base_unit_id: null })
   })
 
-  it("la edición manda siempre el estado vigente: uuid asigna, ausencia desasigna", async () => {
+  it("la edición es tri-estado por ausencia: uuid asigna, ausencia omite el campo (el backend conserva)", async () => {
     vi.mocked(pythonClient.get).mockResolvedValue([])
     vi.mocked(pythonClient.put).mockResolvedValue(ROW)
     const { result } = renderHook(() => useProducts(), { wrapper: makeWrapper() })
@@ -96,6 +96,9 @@ describe("useProducts — base_unit_id", () => {
         stock: 1, minStock: 0.5, isVariant: false, stockControlType: "tracked",
       })
     })
-    expect(vi.mocked(pythonClient.put).mock.calls[1][1]).toMatchObject({ base_unit_id: null })
+    // Auditoría post-apply: editar el nombre de un padre variant_only o de un
+    // producto no rastreado (el selector no se muestra) NO puede desasignar la
+    // unidad base — el campo no viaja.
+    expect(vi.mocked(pythonClient.put).mock.calls[1][1]).not.toHaveProperty("base_unit_id")
   })
 })

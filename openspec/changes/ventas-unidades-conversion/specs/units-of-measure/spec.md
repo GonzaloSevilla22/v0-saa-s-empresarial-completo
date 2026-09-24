@@ -34,7 +34,9 @@ La conversión vigente SHALL ser relativa a la **unidad base del producto** cuyo
 
 ### Requirement: Una sola definición de normalización de cantidad para todo camino que escriba stock
 
-El sistema SHALL exponer una única definición, en la capa de base de datos, de "cantidad de una línea expresada en la unidad en que se lleva el stock del producto". Todo camino que descuente o reponga stock a partir de una línea de operación —alta de venta desde el formulario, confirmación de orden desde el POS, edición de venta, alta de compra y edición de compra— SHALL obtener el delta de stock de esa definición y NO SHALL reimplementar la conversión en su propio cuerpo.
+El sistema SHALL exponer una única definición, en la capa de base de datos, de "cantidad de una línea expresada en la unidad en que se lleva el stock del producto". Todo camino que descuente o reponga stock a partir de una línea de operación —alta de venta desde el formulario (en sus dos ramas: la vigente y la legacy del kill-switch `sale_items_rpc_v2`), confirmación de orden desde el POS, edición de venta, alta de compra y edición de compra— SHALL obtener el delta de stock de esa definición y NO SHALL reimplementar la conversión en su propio cuerpo.
+
+La unidad base contra la cual se convierte SHALL ser la **efectiva** del producto: la propia o, para una variante que no declara una, la de su padre. La unidad de la línea SHALL ser del sistema o de la cuenta del producto; una unidad ajena SHALL rechazarse como inexistente (`P0404`), sin revelar si existe en otra cuenta.
 
 La definición SHALL resolver los cuatro casos de entrada de la misma manera en todos los caminos:
 
@@ -70,6 +72,20 @@ La definición NO SHALL ser invocable directamente por los roles de aplicación 
 - **GIVEN** un producto con unidad base Kilogramo
 - **WHEN** se intenta registrar una línea con unidad Litro por cualquiera de los cinco caminos
 - **THEN** cada camino rechaza con `P0400` y token `unit_type_mismatch` y la transacción no deja ningún rastro parcial
+
+#### Scenario: Una variante hereda la unidad base de su padre
+
+- **GIVEN** un producto padre con unidad base Kilogramo y una variante que no declara unidad base
+- **WHEN** se registra una línea de `450` con unidad Gramo sobre la variante
+- **THEN** el delta de stock de la variante es `0.45` (la base efectiva es la del padre)
+- **AND** una línea con unidad Litro sobre la misma variante se rechaza con `P0400` y token `unit_type_mismatch`
+- **AND** `v_products_with_stock.base_unit_id` expone para la variante la unidad base del padre
+
+#### Scenario: Una unidad de otra cuenta se rechaza como inexistente
+
+- **GIVEN** una unidad que no es del sistema ni pertenece a la cuenta del producto
+- **WHEN** se intenta normalizar una línea con esa unidad
+- **THEN** el sistema rechaza con `P0404` sin escribir la línea ni mover stock
 
 #### Scenario: Las funciones que escriben stock no conservan una conversión propia
 

@@ -160,7 +160,7 @@ export const MovementRow = memo(function MovementRow({ m, unitSymbol }: { m: Sto
       {/* Delta — ventas-unidades-conversion (D8): con la unidad base del producto */}
       <div className={cn(
         "shrink-0 text-sm font-semibold tabular-nums pt-0.5 min-w-16 text-right",
-        isPos ? "text-emerald-400" : "text-red-400",
+        isPos ? "text-success" : "text-destructive",
       )}>
         {isPos ? "+" : ""}{formatQuantity(delta, unitSymbol)}
       </div>

@@ -136,10 +136,12 @@ export function ProductForm({ onSuccess, initialData, defaultParentId }: Product
       stockControlType: isVariant
         ? "tracked"       // variants always tracked individually
         : stockControlType,
-      baseUnitId:
-        !isVariant && stockControlType === "tracked" && baseUnitId
-          ? baseUnitId
-          : undefined,
+      // ventas-unidades-conversion (auditoría post-apply): una variante hereda
+      // la base del padre (nunca declara la propia); para un padre variant_only
+      // o un producto no rastreado el selector no se muestra, así que se manda
+      // `undefined` = "sin cambios" (el hook omite el campo y el backend
+      // conserva el valor). Antes `undefined` viajaba como `null` y desasignaba.
+      baseUnitId: isVariant ? undefined : (baseUnitId || undefined),
     }
 
     try {

@@ -10,6 +10,9 @@
 --       unit_type_mismatch), producto sin unidad base sólo admite unidades base
 --       (P0400 unit_requires_base_unit, D3), línea sin unidad = factor 1.
 --   (B) Los CINCO caminos que escriben stock desde una operación la consumen y
+--       (auditoría post-apply) también la rama legacy del kill-switch
+--       sale_items_rpc_v2=false de rpc_create_sale_operation, y una variante
+--       hereda la unidad base de su padre; la consumen y
 --       descuentan/suman lo mismo para la misma línea: alta de venta
 --       (formulario), POS (quickSale → _c29_confirm_order_core), edición de
 --       venta (REVERSE por quantity_delta guardado + APPLY normalizada, D6),
@@ -63,6 +66,9 @@ DECLARE
   v_p_g             uuid;   -- base g (unidad base DERIVADA: la conversión es relativa al producto, D1)
   v_p_none          uuid;   -- sin unidad base
   v_p_u             uuid;   -- base u (entero, control de no-regresión)
+  v_p_parent        uuid;   -- padre variant_only en kg (auditoría post-apply)
+  v_p_var           uuid;   -- variante SIN base propia: hereda kg del padre
+  v_u_alien         uuid;   -- unidad ni del sistema ni de la cuenta (guard de tenencia)
 
   v_result          jsonb;
   v_op              uuid;
@@ -129,6 +135,15 @@ BEGIN
   VALUES (v_user_a, v_account_a, 'Papa VUC (sin unidad)', 'VUC-NONE', 100.00, 200.00) RETURNING id INTO v_p_none;
   INSERT INTO public.products (user_id, account_id, name, sku, cost, price, base_unit_id)
   VALUES (v_user_a, v_account_a, 'Huevo VUC (u)', 'VUC-U', 50.00, 100.00, v_u_u) RETURNING id INTO v_p_u;
+  -- Auditoría post-apply: padre en kg con una variante que no declara unidad
+  -- base (hereda la del padre), y una unidad "ajena" (account_id NULL, no
+  -- del sistema) para el guard de tenencia del helper.
+  INSERT INTO public.products (user_id, account_id, name, sku, cost, price, base_unit_id, stock_control_type)
+  VALUES (v_user_a, v_account_a, 'Queso VUC (padre kg)', 'VUC-PARENT', 800.00, 1500.00, v_u_kg, 'variant_only') RETURNING id INTO v_p_parent;
+  INSERT INTO public.products (user_id, account_id, name, sku, cost, price, parent_id, is_variant)
+  VALUES (v_user_a, v_account_a, 'Queso VUC — horma chica', 'VUC-VAR', 800.00, 1500.00, v_p_parent, true) RETURNING id INTO v_p_var;
+  INSERT INTO public.units_of_measure (account_id, name, symbol, type, factor, base_unit_id, is_system)
+  VALUES (NULL, 'Gramo ajeno VUC', 'g', 'weight', 0.001, v_u_kg, false) RETURNING id INTO v_u_alien;
 
   -- Sesión sintética del anchor (owner por handle_new_user).
   PERFORM set_config('request.jwt.claims', json_build_object('sub', v_user_a::text)::text, true);
@@ -140,6 +155,7 @@ BEGIN
   PERFORM public.rpc_adjust_branch_stock(v_p_g,    v_branch_a, 1000,  'seed gate VUC');
   PERFORM public.rpc_adjust_branch_stock(v_p_none, v_branch_a, 10,    'seed gate VUC');
   PERFORM public.rpc_adjust_branch_stock(v_p_u,    v_branch_a, 30,    'seed gate VUC');
+  PERFORM public.rpc_adjust_branch_stock(v_p_var,  v_branch_a, 5,     'seed gate VUC');
 
   -- ═══════════════════════════════════════════════════════════════════════
   -- (A) La definición única, caso por caso
@@ -206,7 +222,30 @@ BEGIN
     END IF;
   END;
 
-  IF COALESCE(array_length(v_failures, 1), 0) = v_fail_before THEN RAISE NOTICE 'PASS (A) definición única: 12/12'; END IF;
+  -- Auditoría post-apply: la variante hereda la base (kg) de su padre.
+  v_val := public._uom_normalize_quantity(v_p_var, v_u_g, 450);
+  IF v_val <> 0.45 THEN v_failures := v_failures || format('A.13 variante de padre en kg + 450 g: esperaba 0.45 (hereda la base), obtuvo %s', v_val); END IF;
+
+  BEGIN
+    v_val := public._uom_normalize_quantity(v_p_var, v_u_l, 1);
+    v_failures := v_failures || 'A.14 variante de padre en kg + L: no rechazó (sin herencia aceptaría cualquier unidad base)';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLSTATE <> 'P0400' OR position('unit_type_mismatch' IN SQLERRM) = 0 THEN
+      v_failures := v_failures || format('A.14 variante tipo cruzado: esperaba P0400 unit_type_mismatch, obtuvo %s %s', SQLSTATE, SQLERRM);
+    END IF;
+  END;
+
+  -- Auditoría post-apply: unidad ni del sistema ni de la cuenta → P0404 (no revela).
+  BEGIN
+    v_val := public._uom_normalize_quantity(v_p_kg, v_u_alien, 450);
+    v_failures := v_failures || 'A.15 unidad ajena a la cuenta: no rechazó';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLSTATE <> 'P0404' THEN
+      v_failures := v_failures || format('A.15 unidad ajena: esperaba P0404, obtuvo %s %s', SQLSTATE, SQLERRM);
+    END IF;
+  END;
+
+  IF COALESCE(array_length(v_failures, 1), 0) = v_fail_before THEN RAISE NOTICE 'PASS (A) definición única: 15/15'; END IF;
 
   -- ═══════════════════════════════════════════════════════════════════════
   -- (B) Los cinco caminos, misma línea (450 g sobre un producto en kg)
@@ -347,7 +386,39 @@ BEGIN
   SELECT count(*) INTO v_cnt2 FROM public.stock_movements WHERE product_id = v_p_none;
   IF v_cnt2 <> v_cnt THEN v_failures := v_failures || 'B.7 sin base + mL: dejó movimiento de stock pese al rechazo'; END IF;
 
-  IF COALESCE(array_length(v_failures, 1), 0) = v_fail_before THEN RAISE NOTICE 'PASS (B) cinco caminos: 7/7'; END IF;
+  -- B.6 (auditoría post-apply) variante de un padre en kg vendida en gramos por
+  -- el formulario: hereda la base del padre → -0.45 (sin herencia: P0400
+  -- unit_requires_base_unit, y la venta fallaba).
+  SELECT quantity INTO v_before FROM public.branch_stock WHERE product_id = v_p_var AND branch_id = v_branch_a;
+  v_result := public.rpc_create_sale_operation(
+    'vuc-b6-' || gen_random_uuid()::text, v_client_a, CURRENT_DATE, 'ARS',
+    jsonb_build_array(jsonb_build_object('product_id', v_p_var, 'amount', 1.00, 'quantity', 450, 'unit_id', v_u_g)),
+    v_branch_a, NULL
+  );
+  SELECT quantity INTO v_after FROM public.branch_stock WHERE product_id = v_p_var AND branch_id = v_branch_a;
+  IF v_before - v_after <> 0.45 THEN
+    v_failures := v_failures || format('B.6 variante (formulario): stock bajó %s, esperaba 0.45', v_before - v_after);
+  END IF;
+
+  -- B.7 (auditoría post-apply) sexto cuerpo: la rama legacy del kill-switch
+  -- sale_items_rpc_v2=false de rpc_create_sale_operation conservaba la
+  -- conversión inline (base del TIPO). Con el flag apagado para la cuenta,
+  -- 450 g sobre el producto en kg descuentan 0.45 igual que la rama vigente.
+  INSERT INTO public.account_feature_flags (account_id, flag_key, enabled)
+  VALUES (v_account_a, 'sale_items_rpc_v2', false);
+  SELECT quantity INTO v_before FROM public.branch_stock WHERE product_id = v_p_kg AND branch_id = v_branch_a;
+  v_result := public.rpc_create_sale_operation(
+    'vuc-b7-' || gen_random_uuid()::text, v_client_a, CURRENT_DATE, 'ARS',
+    jsonb_build_array(jsonb_build_object('product_id', v_p_kg, 'amount', 1.00, 'quantity', 450, 'unit_id', v_u_g)),
+    v_branch_a, NULL
+  );
+  SELECT quantity INTO v_after FROM public.branch_stock WHERE product_id = v_p_kg AND branch_id = v_branch_a;
+  IF v_before - v_after <> 0.45 THEN
+    v_failures := v_failures || format('B.7 rama legacy (kill-switch): stock bajó %s, esperaba 0.45 (antes del fix: 450, base del tipo)', v_before - v_after);
+  END IF;
+  DELETE FROM public.account_feature_flags WHERE account_id = v_account_a AND flag_key = 'sale_items_rpc_v2';
+
+  IF COALESCE(array_length(v_failures, 1), 0) = v_fail_before THEN RAISE NOTICE 'PASS (B) seis caminos: 9/9'; END IF;
 
   -- ═══════════════════════════════════════════════════════════════════════
   -- (C) Tipo cruzado sin rastro en cada camino · borrado · invariante
@@ -513,7 +584,8 @@ BEGIN
 
   FOREACH v_fn IN ARRAY ARRAY[
     '_c29_confirm_order_core', 'rpc_create_sale_operation_v2', 'rpc_create_purchase_operation',
-    'rpc_atomic_update_sale_operation', 'rpc_atomic_update_purchase_operation'
+    'rpc_atomic_update_sale_operation', 'rpc_atomic_update_purchase_operation',
+    'rpc_create_sale_operation'
   ] LOOP
     SELECT replace(p.prosrc, E'\r', '') INTO v_src
     FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
@@ -572,6 +644,16 @@ BEGIN
     v_failures := v_failures || 'E v_products_with_stock: falta o sin security_invoker';
   END IF;
 
+  -- Auditoría post-apply: herencia de la base del padre en la vista y en el helper.
+  IF pg_get_viewdef('public.v_products_with_stock'::regclass) !~ 'pp\.base_unit_id' THEN
+    v_failures := v_failures || 'E v_products_with_stock: base_unit_id no hereda del padre';
+  END IF;
+  SELECT replace(p.prosrc, E'\r', '') INTO v_src FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+  WHERE n.nspname = 'public' AND p.proname = '_uom_normalize_quantity';
+  IF position('LEFT JOIN public.products pp' IN v_src) = 0 OR position('v_unit.is_system' IN v_src) = 0 THEN
+    v_failures := v_failures || 'E _uom_normalize_quantity: perdió la herencia del padre o el guard de tenencia';
+  END IF;
+
   IF COALESCE(array_length(v_failures, 1), 0) = v_fail_before THEN RAISE NOTICE 'PASS (E) introspección'; END IF;
 
   -- ═══════════════════════════════════════════════════════════════════════
@@ -581,6 +663,7 @@ BEGIN
   DELETE FROM public.events                WHERE account_id = v_account_a;
   DELETE FROM public.email_logs            WHERE user_id = v_user_a OR metadata::text LIKE '%' || v_account_a::text || '%';
   DELETE FROM public.operation_idempotency WHERE user_id = v_user_a;
+  DELETE FROM public.units_of_measure      WHERE id = v_u_alien;
   SET session_replication_role = replica;
   -- sales_orders.created_by → auth.users sin cascade: las órdenes del POS
   -- (incluida la cancelada por el borrado de C.6) hay que retirarlas antes
@@ -589,12 +672,22 @@ BEGIN
   DELETE FROM public.sales_order_items     WHERE account_id = v_account_a;
   DELETE FROM public.sales_orders          WHERE account_id = v_account_a;
   DELETE FROM public.branches              WHERE account_id = v_account_a;
+  -- Bajo replica la RI está apagada: nada cascadea desde accounts. Lo que no
+  -- cuelga de auth.users por user_id se retira explícito (auditoría post-apply:
+  -- dejaba 7 unidades, 7 formas de pago, 7 categorías y 3 audit_logs por corrida).
+  DELETE FROM public.units_of_measure      WHERE account_id = v_account_a;
+  DELETE FROM public.payment_methods       WHERE account_id = v_account_a;
+  DELETE FROM public.product_categories    WHERE account_id = v_account_a;
+  DELETE FROM public.audit_logs            WHERE account_id = v_account_a;
   DELETE FROM public.accounts              WHERE id = v_account_a;
   SET session_replication_role = DEFAULT;
   DELETE FROM public.account_feature_flags WHERE account_id = v_account_a;
   DELETE FROM public.account_members       WHERE user_id = v_user_a;
   DELETE FROM public.profiles              WHERE id = v_user_a;
   DELETE FROM auth.users                   WHERE id = v_user_a;
+  -- El cascade desde auth.users (fuera de replica) dispara los triggers de
+  -- auditoría de lo que borra: el rastro llega DESPUÉS del delete de arriba.
+  DELETE FROM public.audit_logs            WHERE account_id = v_account_a;
 
   IF array_length(v_failures, 1) > 0 THEN
     RAISE EXCEPTION E'GATE ventas-unidades-conversion FAILED (% fallos):\n  %',
@@ -607,17 +700,23 @@ EXCEPTION WHEN OTHERS THEN
     DELETE FROM public.events                WHERE account_id = v_account_a;
     DELETE FROM public.email_logs            WHERE user_id = v_user_a OR metadata::text LIKE '%' || v_account_a::text || '%';
     DELETE FROM public.operation_idempotency WHERE user_id = v_user_a;
+    DELETE FROM public.units_of_measure      WHERE id = v_u_alien;
     SET session_replication_role = replica;
     DELETE FROM public.document_status_history WHERE account_id = v_account_a;
     DELETE FROM public.sales_order_items     WHERE account_id = v_account_a;
     DELETE FROM public.sales_orders          WHERE account_id = v_account_a;
     DELETE FROM public.branches              WHERE account_id = v_account_a;
+    DELETE FROM public.units_of_measure      WHERE account_id = v_account_a;
+    DELETE FROM public.payment_methods       WHERE account_id = v_account_a;
+    DELETE FROM public.product_categories    WHERE account_id = v_account_a;
+    DELETE FROM public.audit_logs            WHERE account_id = v_account_a;
     DELETE FROM public.accounts              WHERE id = v_account_a;
     SET session_replication_role = DEFAULT;
     DELETE FROM public.account_feature_flags WHERE account_id = v_account_a;
     DELETE FROM public.account_members       WHERE user_id = v_user_a;
     DELETE FROM public.profiles              WHERE id = v_user_a;
     DELETE FROM auth.users                   WHERE id = v_user_a;
+    DELETE FROM public.audit_logs            WHERE account_id = v_account_a;
   EXCEPTION WHEN OTHERS THEN NULL;
   END;
   RAISE;

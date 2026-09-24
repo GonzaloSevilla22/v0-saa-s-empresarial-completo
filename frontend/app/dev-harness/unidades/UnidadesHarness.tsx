@@ -19,13 +19,10 @@
 
 import { useEffect, useMemo, useState } from "react"
 
-import { buildColumns } from "@/app/(dashboard)/stock/page"
+import { buildColumns, buildMobileCard } from "@/app/(dashboard)/stock/page"
 import { DataTable } from "@/components/data-table/data-table"
 import { MovementRow } from "@/components/stock/stock-movements-panel"
-import { StockSemaphore } from "@/components/stock/stock-semaphore"
 import { SaleForm } from "@/components/forms/sale-form"
-import { formatQuantity, formatStock } from "@/lib/format-unit"
-import { isBelowThreshold } from "@/lib/product-stock"
 import type { Product, StockMovement } from "@/lib/types"
 
 const U = {
@@ -118,25 +115,7 @@ function StockView() {
         searchPlaceholder="Buscar productos..."
         searchKey={(row) => `${row.name} ${row.category}`}
         getId={(row) => row.id}
-        mobileCard={(row) => {
-          const toOrder = isBelowThreshold(row.stock, row.minStock) ? row.minStock * 2 - row.stock : 0
-          const sym = unitSymbolFor(row)
-          return (
-            <div className="flex items-center justify-between gap-3">
-              <div className="min-w-0 flex flex-col gap-0.5">
-                <span className="font-medium text-sm text-foreground truncate">{row.name}</span>
-                <span className="text-xs text-muted-foreground">{row.category}</span>
-                {toOrder > 0 && (
-                  <span className="text-xs text-primary font-medium">Reponer: {formatStock(toOrder, sym)}</span>
-                )}
-              </div>
-              <div className="flex flex-col items-end gap-1 shrink-0">
-                <StockSemaphore stock={row.stock} minStock={row.minStock} size="sm" />
-                <span className="text-xs text-muted-foreground tabular-nums">{formatQuantity(row.stock)} / {formatStock(row.minStock, sym)}</span>
-              </div>
-            </div>
-          )
-        }}
+        mobileCard={buildMobileCard(unitSymbolFor)}
       />
       <section className="rounded-lg border border-border bg-card p-3" data-testid="harness-movements">
         <h2 className="mb-2 text-sm font-semibold text-foreground">Historial de movimientos</h2>

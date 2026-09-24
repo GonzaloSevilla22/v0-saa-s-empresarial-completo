@@ -364,7 +364,7 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
             ? {
                 ...item,
                 quantity:     newQty,
-                quantityBase: toBaseQuantity(newQty, baseUnit),
+                quantityBase: toBaseQuantity(newQty, baseUnit, baseUnit),
                 subtotal:     calcSaleSubtotal(product.price, newQty, item.discount),
               }
             : item,

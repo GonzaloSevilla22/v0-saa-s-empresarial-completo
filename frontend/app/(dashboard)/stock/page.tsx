@@ -138,6 +138,34 @@ function AdjustButton({ product }: { product: Product }) {
   )
 }
 
+/**
+ * Tarjeta móvil de /stock (misma unidad que la columna). Exportada para que
+ * el arnés visual monte la tarjeta REAL en vez de una copia (auditoría
+ * post-apply: la copia divergía sin que ningún test lo viera).
+ */
+export function buildMobileCard(unitSymbolFor: UnitSymbolFor) {
+  return (row: Product) => {
+      const toOrder = isBelowThreshold(row.stock, row.minStock) ? row.minStock * 2 - row.stock : 0
+      const sym = unitSymbolFor(row)
+      return (
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0 flex flex-col gap-0.5">
+            <span className="font-medium text-sm text-foreground truncate">{row.name}</span>
+            <span className="text-xs text-muted-foreground">{row.category}</span>
+            {toOrder > 0 && (
+              <span className="text-xs text-primary font-medium">Reponer: {formatStock(toOrder, sym)}</span>
+            )}
+          </div>
+          <div className="flex flex-col items-end gap-1 shrink-0">
+            <StockSemaphore stock={row.stock} minStock={row.minStock} size="sm" />
+            {/* ventas-unidades-conversion (D8): "0.550 / 0.500 kg", nunca "uds" fijo */}
+            <span className="text-xs text-muted-foreground tabular-nums">{formatQuantity(row.stock)} / {formatStock(row.minStock, sym)}</span>
+          </div>
+        </div>
+      )
+  }
+}
+
 export default function StockPage() {
   const { products } = useProducts()
   // The stock/reposition views operate over real inventory items only —
@@ -251,26 +279,7 @@ export default function StockPage() {
         renderExpanded={(row) => <ProductBranchBreakdown productId={row.id} />}
         expandLabel={(row) => row.name}
         expandContentLabel="desglose por sucursal"
-        mobileCard={(row) => {
-          const toOrder = isBelowThreshold(row.stock, row.minStock) ? row.minStock * 2 - row.stock : 0
-          const sym = unitSymbolFor(row)
-          return (
-            <div className="flex items-center justify-between gap-3">
-              <div className="min-w-0 flex flex-col gap-0.5">
-                <span className="font-medium text-sm text-foreground truncate">{row.name}</span>
-                <span className="text-xs text-muted-foreground">{row.category}</span>
-                {toOrder > 0 && (
-                  <span className="text-xs text-primary font-medium">Reponer: {formatStock(toOrder, sym)}</span>
-                )}
-              </div>
-              <div className="flex flex-col items-end gap-1 shrink-0">
-                <StockSemaphore stock={row.stock} minStock={row.minStock} size="sm" />
-                {/* ventas-unidades-conversion (D8): "0.550 / 0.500 kg", nunca "uds" fijo */}
-                <span className="text-xs text-muted-foreground tabular-nums">{formatQuantity(row.stock)} / {formatStock(row.minStock, sym)}</span>
-              </div>
-            </div>
-          )
-        }}
+        mobileCard={buildMobileCard(unitSymbolFor)}
         exportColumns={[
           { key: "name",     header: "Producto"      },
           { key: "category", header: "Categoría"     },

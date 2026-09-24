@@ -50,3 +50,14 @@
 - [x] 7.2 `CHANGES.md` (entrada del change con el apply, D10, el movimiento dañado `cf4550c0-…` y los candidatos que quedan), `knowledge-base/05_reglas_de_negocio.md` (RN-24 reescrita: unidad base del producto, mismo tipo, sin base sólo factor 1, reversa por delta guardado; RN-23 con el umbral fraccionario), `CLAUDE.md` ítem 26 + `python scripts/ci/check_docs_sync.py --fix` (AGENTS.md regenerado). Verificación: `check_docs_sync.py` OK.
 - [ ] 7.3 Verificación post-merge en prod (sólo `SELECT`): `MAX(version)`, tipo de `branch_stock.min_stock`, firma única de `rpc_set_product_min_stock`, ACLs del helper, los cinco cuerpos vivos con la llamada, `v_products_with_stock.base_unit_id`. Pendiente hasta el merge y el deploy.
 - [ ] 7.4 Humo real del PO en prod: producto en kg con stock 1, venta de 450 g desde el POS y desde el formulario, edición a 300 g, borrado, `/stock` en `0.550 kg`, mínimo `0.5` con alerta; decisión del PO sobre el ajuste manual del movimiento dañado y sobre OQ-1. Pendiente hasta el deploy.
+
+## 8. Auditoría post-apply (2026-09-24, PR #584)
+
+- [x] 8.1 Variantes heredan la unidad base del padre en el helper y en `v_products_with_stock` (163 variantes afectadas en prod). Verificación: gate A.13 (450 g sobre la variante → 0.45), A.14 (tipo cruzado rechazado), B.6 (venta por el formulario), E (introspección de vista y helper).
+- [x] 8.2 Sexto cuerpo: la rama legacy del kill-switch `sale_items_rpc_v2=false` de `rpc_create_sale_operation` pasa por el helper (md5 de partida verificado contra prod). Verificación: gate B.7 con el flag apagado para la cuenta; lista de introspección de los dos gates con seis nombres.
+- [x] 8.3 Guard de tenencia de la unidad de la línea en el helper (`P0404`). Verificación: gate A.15 (unidad con `account_id NULL` y no del sistema).
+- [x] 8.4 Preflight de reaplicación por md5 exacto del cuerpo nuevo (seis). Verificación: `db reset` desde cero + reaplicación del archivo sobre la base migrada.
+- [x] 8.5 Cleanup del gate sin residuos (`units_of_measure`, `payment_methods`, `product_categories`, `audit_logs`). Verificación: conteo de filas huérfanas por `account_id` inexistente = 0 tras dos corridas.
+- [x] 8.6 `PUT /products` tri-estado por ausencia en el hook y `undefined` desde el formulario para variante / padre `variant_only` / no rastreado. Verificación: `__tests__/hooks/use-products-base-unit.test.ts`.
+- [x] 8.7 El catálogo matchea `/productos?q=<uuid>` (acción "Editar producto"). Verificación: `tsc`; `operation-errors-units.test.ts` sigue fijando el href.
+- [x] 8.8 Acumulación por escaneo con la base del producto; `compatibleUnits` delega en `isUnitCompatible`; tokens semánticos en el delta del historial; `buildMobileCard` exportada y montada por el arnés; test del guard de tenencia del backend fija `(unit_id, account_id)`. Verificación: `vitest` + `pytest` + pasada visual 9/9.

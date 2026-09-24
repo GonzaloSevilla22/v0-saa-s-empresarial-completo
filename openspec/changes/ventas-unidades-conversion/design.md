@@ -56,9 +56,11 @@ Las dos conversiones existentes multiplican por `unit.factor` **a secas**, o sea
 
 *Por qué no guardar la cantidad normalizada en la línea*: la línea debe conservar lo que el usuario ingresó (450 g) para el ticket, la edición y la reimpresión; el ledger es el que se expresa en base. Ya es así hoy en el formulario.
 
+*Variantes (auditoría post-apply, 2026-09-24)*: una variante nunca declara `base_unit_id` propia (el formulario manda `undefined` y el backend sólo hereda `category_id` del padre), y un padre con variantes sólo se vende a través de ellas (`P0422`). Sin herencia, el helper trataba a toda variante como "producto sin unidad base" — medido en prod: **163 variantes de padres con unidad base** habrían perdido las unidades derivadas (450 g rechazado con `unit_requires_base_unit`) y aceptado cualquier unidad base de cualquier tipo. La base efectiva de una variante es `COALESCE(propia, la del padre)`, en el helper y en `v_products_with_stock.base_unit_id` (que es lo que el frontend lee: el selector, `/stock` y el ticket la heredan sin código propio).
+
 ### D2 — Un helper SQL puro, `_uom_normalize_quantity`, es la definición única
 
-`_uom_normalize_quantity(p_product_id uuid, p_unit_id uuid, p_quantity numeric) RETURNS numeric`, `LANGUAGE plpgsql`, `STABLE`, `SECURITY INVOKER`, `SET search_path = public`. Lee `products.base_unit_id` y las dos filas de `units_of_measure`. Errores: `P0404` unidad inexistente (token existente), `P0400 unit_type_mismatch`, `P0400 unit_requires_base_unit`.
+`_uom_normalize_quantity(p_product_id uuid, p_unit_id uuid, p_quantity numeric) RETURNS numeric`, `LANGUAGE plpgsql`, `STABLE`, `SECURITY INVOKER`, `SET search_path = public`. Lee `products.base_unit_id` (con `LEFT JOIN` al padre, D1) y las dos filas de `units_of_measure`. Errores: `P0404` unidad inexistente (token existente), `P0400 unit_type_mismatch`, `P0400 unit_requires_base_unit`. *Guard de tenencia (auditoría post-apply)*: la unidad de la línea tiene que ser del sistema o de la cuenta del producto — el FK a `units_of_measure` no está scopeado por tenant y la conversión inline anterior tampoco lo verificaba; se responde el mismo `P0404` (no revela si existe en otra cuenta), como el guard del backend en D10. Hoy prod sólo tiene las 10 unidades del sistema (0 personalizadas), así que no hay dato vigente afectado.
 
 *Por qué en SQL y no en Python*: el POS lee sus líneas desde `sales_order_items` dentro de `_c29_confirm_order_core`, sin pasar por el backend en ese punto; las RPCs son la unidad de trabajo (DEC-24) y el punto de paso obligado de los cinco caminos. Una definición en Python dejaría al POS fuera otra vez.
 
@@ -72,13 +74,14 @@ Sin `base_unit_id` no existe referencia contra la cual convertir; aplicar `× fa
 
 *Alternativas*: (a) status quo, que deja el accidente abierto; (b) inferir el tipo desde la unidad elegida y convertir a la base del tipo, que es exactamente el status quo con otro nombre; (c) asignar `base_unit_id` automáticamente en la primera venta, que muta el producto por un efecto lateral de una venta. Se elige el rechazo explícito con token propio, y el selector (D5) hace que el usuario nunca lo vea salvo por un cliente viejo o una llamada directa.
 
-### D4 — Reescritura de las cinco funciones desde el cuerpo vivo, con la conversión inline retirada
+### D4 — Reescritura de las seis funciones desde el cuerpo vivo, con la conversión inline retirada
 
 - `rpc_create_sale_operation_v2` y `rpc_create_purchase_operation`: se retira el bloque `v_unit_factor` y `v_qty_norm := _uom_normalize_quantity(product_id, unit_id, quantity)`. El `P0404` por unidad inexistente se conserva (lo emite el helper).
 - `_c29_confirm_order_core`: `v_qty_norm := _uom_normalize_quantity(...)` en lugar de `:= v_item.quantity`. Nada más cambia: el gate de sucursal, el `P0409` y el movimiento usan `v_qty_norm` como hoy.
 - `rpc_atomic_update_sale_operation` / `rpc_atomic_update_purchase_operation`: la pata de **aplicación** pasa `−normalizada` / `+normalizada` a `op_stock_movement`; la pata de **reversa** ver D6.
-- Firmas intactas en las cinco (`CREATE OR REPLACE`), ACLs verificadas iguales antes y después en el gate embebido.
-- La migración registra el md5 CR-stripped de cada cuerpo de partida y aborta si el cuerpo vivo del stack difiere del esperado (mismo patrón que `20261060000001`), para no reescribir sobre una base desconocida.
+- `rpc_create_sale_operation` (auditoría post-apply): es el wrapper que el backend invoca; su rama legacy `sale_items_rpc_v2 = false` — el kill-switch documentado en `20260924000001` — conservaba la conversión inline relativa a la base del tipo, y ni el gate embebido ni el (E) la miraban. Pasa por el helper (sexto cuerpo, md5 verificado contra prod: `343e0f1f…`). Hoy 0 de 35 cuentas tienen el flag apagado, así que es un camino latente, no vivo — pero "una sola definición" no admite excepciones latentes. `rpc_create_purchase_operation_v2` también conserva la fórmula vieja, pero está revocada de `authenticated` y no tiene caller: se deja.
+- Firmas intactas en las seis (`CREATE OR REPLACE`), ACLs verificadas iguales antes y después en el gate embebido.
+- La migración registra el md5 CR-stripped de cada cuerpo de partida y aborta si el cuerpo vivo del stack difiere del esperado (mismo patrón que `20261060000001`), para no reescribir sobre una base desconocida. *Auditoría post-apply*: la reaplicación se reconoce por el md5 **exacto** del cuerpo que esta migración deja (calculado por el generador), no por "contiene la llamada al helper" — ese predicado laxo habría dejado pasar en silencio una redefinición posterior de cualquiera de las seis.
 
 ### D5 — Compatibilidad de unidades en `lib/unit-utils.ts`, espejo exacto de D1/D3
 
@@ -120,9 +123,25 @@ Al cablear el selector se encontró que **la unidad base nunca llegaba al fronte
 - la vista gana `p.base_unit_id` como última columna (aditiva, mismo criterio que `category_id`), dentro de la misma recreación que ya hacía la migración;
 - `ProductOut.base_unit_id` (default `None` para filas sin la columna), `ProductCreate.base_unit_id` y `ProductUpdate.base_unit_id` con **tri-estado por ausencia** (`base_unit_provided` desde `model_fields_set`, mismo molde que `cost`); el repository la incluye en `_NULLABLE_ON_UPDATE` y en el `INSERT`;
 - **guard de tenencia**: el FK a `units_of_measure` no está scopeado por tenant, así que el service verifica que la unidad sea del sistema o de la cuenta (`unit_visible_to_account`) y responde `422 base_unit_not_found` — nunca se asigna un uuid ajeno;
-- el hook mapea `base_unit_id → baseUnitId` y lo envía en `POST`/`PUT` (`null` = sin unidad base, el formulario manda siempre el estado vigente, como con `sku`).
+- el hook mapea `base_unit_id → baseUnitId`; el `POST` lo envía siempre (`null` = sin unidad base) y el `PUT` es **tri-estado por ausencia de punta a punta** (auditoría post-apply): el campo se omite cuando el formulario no lo determina (variante, padre `variant_only`, producto no rastreado — el selector no se muestra) y el backend conserva el valor. La primera versión mandaba `undefined` como `null`, y editar sólo el nombre de un padre `variant_only` desasignaba su unidad base. Desasignar queda como operación de API (`null` explícito), sin superficie de UI hoy.
 
 Fuera de alcance sigue el importador CSV (`rpc_bulk_upsert_products` no lee unidad) y el backfill de los 37 productos sin unidad que se venden en kg (OQ-1).
+
+### Auditoría post-apply (2026-09-24, PR #584)
+
+Auditoría del diff contra las reglas duras de `CLAUDE.md` y contra D1–D10 (dos agentes: corrección de la migración y del frontend; el resto a mano). Lo corregido en el mismo PR:
+
+1. **Variantes sin unidad base** (D1): herencia `COALESCE(propia, padre)` en el helper y en la vista; gate A.13/A.14/B.6.
+2. **Sexto cuerpo con conversión inline** (D4): la rama legacy del kill-switch de `rpc_create_sale_operation`; gate B.7 con el flag apagado para la cuenta.
+3. **Guard de tenencia de la unidad de la línea** (D2): `P0404`; gate A.15.
+4. **Preflight de reaplicación laxo** (D4): md5 exacto del cuerpo nuevo.
+5. **Cleanup del gate** dejaba 24 filas huérfanas por corrida (unidades, formas de pago, categorías, `audit_logs`): bajo `replica` nada cascadea desde `accounts`; se borran explícito.
+6. **`PUT /products` desasignaba la unidad base** al editar un padre `variant_only` o un producto no rastreado (D10): tri-estado por ausencia en el hook y el formulario.
+7. **"Editar producto" enlazaba `/productos?q=<uuid>`** y el catálogo no buscaba por id: el filtro del catálogo también matchea el id.
+8. **Acumulación por escaneo** en venta y compra normalizaba con la base del tipo (2º argumento sin la base del producto): `quantityBase` no tiene lector hoy, pero contradecía D5.
+9. `compatibleUnits` tenía una segunda copia del predicado de `isUnitCompatible`; el delta del historial usaba `text-emerald-400`/`text-red-400` en vez de tokens; el arnés visual copiaba la tarjeta móvil de `/stock` en vez de montar la real (`buildMobileCard` exportada); el test del guard de tenencia del backend no fijaba el `account_id`.
+
+Señalado y **no** corregido (fuera de alcance, sin regresión): las líneas cargadas en la edición de venta/compra no traen `minQty`/símbolo (preexistente; una línea de 0,45 kg no se puede bajar de 1 en la edición); el bloque de selector (`productBaseUnit`/`unitOptions`/preselección) está copiado en las tres pantallas — mismo patrón preexistente de `selectedUnit`/`stagedMin`, candidato a hook compartido; `toBaseQuantity` redondea inline en vez de importar `_round4` (D5 lo admitía explícitamente); `ProductImportRowIn.min_stock` sigue `int | None` (el importador es Non-Goal de D7 y `rpc_bulk_upsert_products` castea a `integer`).
 
 ## Risks / Trade-offs
 

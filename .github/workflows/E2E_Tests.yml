@@ -36,6 +36,13 @@ jobs:
       # El backend no corre en CI; el env-guard solo exige que la URL sea local.
       NEXT_PUBLIC_BACKEND_URL_LOCAL: http://localhost:8000
       PLAYWRIGHT_BASE_URL: http://localhost:3000
+      # venta-editable-vs-promocion-legacy: secreto del relay del CAE
+      # (POST /fiscal/documents/process-pending-cron) para el e2e de "Facturar"
+      # (e2e/facturar-venta-manual.spec.ts). Valor DESCARTABLE del stack
+      # efimero del runner, mismo criterio que los usuarios QA. El backend de CI
+      # corre sin AFIP_PLATFORM_* -> el relay usa WSFEStubAdapter (el perfil
+      # fiscal del e2e es de homologacion y el stub se niega con produccion).
+      RELAY_SECRET: e2e-relay-local-only
 
     steps:
       - uses: actions/checkout@v4

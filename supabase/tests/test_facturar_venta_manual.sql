@@ -694,9 +694,26 @@ END $$;
 -- (0) Estructura: el helper de sincronización es INVOKER y está cerrado a
 -- anon/authenticated; su firma RESUELVE (meta-candado: el chequeo (3) de
 -- test_function_acl_gate.sql es drift-tolerante y una firma vieja lo apaga EN
--- SILENCIO); una sola definición viva de cada función tocada (42725); y los
+-- SILENCIO); una sola definición viva de cada función tocada (42725); los
 -- COMMENT vivos de las 4 RPCs reescritas se conservan (CREATE OR REPLACE
--- mantiene el oid y su comentario — md5 medido en prod el 2026-09-23).
+-- mantiene el oid y su comentario — md5 medido en prod el 2026-09-23); y
+-- (0L) el ORDEN GLOBAL DE LOCKS (sales id asc → sales_orders →
+-- fiscal_documents) en las cuatro RPCs y el helper.
+--
+-- Por qué (0L) vive ACÁ y no sólo en el DO de la migración: el DO corre UNA
+-- vez, al aplicar 20261061000001; una migración futura que reescriba estas
+-- RPCs (la edición ya se reescribió más de 6 veces) no lo vuelve a correr y
+-- quedaría verde en CI. El red team del 2026-09-24 lo midió con mutantes que
+-- ESTE gate dejaba vivos y que hacen daño real:
+--   n7  la edición toma sales DESPUÉS del enumerador de órdenes → N1 exacto
+--       (pending_cae por 1000 vivo sobre una operación sin filas, venta en 111);
+--   n6  la promoción toma la orden antes que sales → 40P01 contra la edición;
+--   n10 el borrado sin recuento bajo el lock → "borra" (true) una venta que la
+--       edición ya movió y encola un SaleOperationDeleted espurio.
+-- Se compara sobre el cuerpo SIN comentarios y con espacios colapsados. El
+-- comportamiento en dos conexiones lo cubre test_facturar_venta_manual_race.sh
+-- (R7 mata n10, R8 mata n6); esto es el candado de estructura, barato y
+-- determinístico, que corre en cada PR.
 -- ═════════════════════════════════════════════════════════════════════════════
 DO $$
 DECLARE
@@ -705,6 +722,9 @@ DECLARE
   v_count    int;
   v_md5      text;
   r          record;
+  v_def      text;
+  v_lock     int;
+  v_first    int;
 BEGIN
   IF to_regprocedure('public._sales_order_sync_from_operation(uuid, uuid, uuid)') IS NULL THEN
     v_failures := v_failures || format('(0) public._sales_order_sync_from_operation(uuid, uuid, uuid) NO RESUELVE: la entrada de v_internal_only_fns en test_function_acl_gate.sql quedaría apagada en silencio');
@@ -745,10 +765,98 @@ BEGIN
     END IF;
   END LOOP;
 
+  -- ── (0L) Orden global de locks ─────────────────────────────────────────────
+  -- Convención: v_lock = posición del lock de las filas de sales; v_first =
+  -- primera mención de sales_orders o fiscal_documents (lectura O lock: leer
+  -- la orden antes de tomar las filas es exactamente la ventana de N1).
+
+  -- (0L-a) Promoción: sales (id asc, sólo filas del caller) FOR UPDATE ANTES de
+  -- tocar sales_orders — ni leerla, ni lockearla, ni insertarla (mata n6, que
+  -- tomaba la orden primero y abría un 40P01 contra la edición).
+  SELECT lower(regexp_replace(regexp_replace(prosrc, '--[^' || chr(10) || ']*', '', 'g'), '\s+', ' ', 'g'))
+  INTO   v_def
+  FROM   pg_proc WHERE oid = to_regprocedure('public.rpc_promote_legacy_sale_to_order(uuid)');
+  v_def   := COALESCE(v_def, '');
+  v_lock  := position('where s.operation_id = p_operation_id order by s.id for update of s' in v_def);
+  v_first := LEAST(NULLIF(position('sales_orders' in v_def), 0), NULLIF(position('fiscal_documents' in v_def), 0));
+  IF v_lock = 0 THEN
+    v_failures := v_failures || format('(0L-a) la promoción no toma las filas de sales de la operación FOR UPDATE en orden de id (ancla de exclusión de N1)');
+  ELSIF v_first IS NULL OR v_first < v_lock THEN
+    v_failures := v_failures || format('(0L-a) la promoción menciona sales_orders/fiscal_documents (pos %s) ANTES de tomar las filas de sales (pos %s): invierte el orden global de locks → 40P01 contra la edición (mutante n6)', v_first, v_lock);
+  END IF;
+  IF v_def ~ '\mmin\s*\(' THEN
+    v_failures := v_failures || format('(0L-a) la promoción agrega con MIN(): min(uuid) no existe y aborta con 42883 (N2)');
+  END IF;
+
+  -- (0L-b) Edición: sales FOR UPDATE, SEGUIDO del recuento que aborta con
+  -- P0404 si otra edición/borrado se llevó alguna fila, y todo ANTES de la
+  -- primera mención de sales_orders/fiscal_documents y del helper de anulación
+  -- (mata n7 — N1 exacto — y n9 — doble «Guardar» que duplica la operación).
+  SELECT lower(regexp_replace(regexp_replace(prosrc, '--[^' || chr(10) || ']*', '', 'g'), '\s+', ' ', 'g'))
+  INTO   v_def
+  FROM   pg_proc WHERE oid = to_regprocedure('public.rpc_atomic_update_sale_operation(uuid[], uuid, date, text, jsonb, uuid, boolean, uuid, boolean, text, boolean)');
+  v_def   := COALESCE(v_def, '');
+  v_lock  := position('where s.id = any(p_sale_ids) and s.user_id = v_uid order by s.id for update ) l; if v_locked <> array_length(p_sale_ids, 1) then raise exception' in v_def);
+  v_first := LEAST(NULLIF(position('sales_orders' in v_def), 0), NULLIF(position('fiscal_documents' in v_def), 0),
+                   NULLIF(position('_fiscal_void_pending_for_sale_edit(' in v_def), 0));
+  IF v_lock = 0 THEN
+    v_failures := v_failures || format('(0L-b) la edición no toma las filas de sales FOR UPDATE en orden de id seguido del recuento bajo el lock (P0404 si otra edición o un borrado se llevó alguna)');
+  ELSIF v_first IS NULL OR v_first < v_lock THEN
+    v_failures := v_failures || format('(0L-b) la edición resuelve la orden (pos %s) ANTES de tomar las filas de sales (pos %s): no ve la orden que una promoción concurrente está creando y deja un pending_cae VIVO por los importes viejos (N1, mutante n7)', v_first, v_lock);
+  END IF;
+  IF position('_sales_order_sync_from_operation(' in v_def) = 0 THEN
+    v_failures := v_failures || format('(0L-b) la edición re-apunta la orden sin recalcularla con el helper único (N3)');
+  END IF;
+
+  -- (0L-c) Borrado: sales FOR UPDATE, SEGUIDO del recuento (vacío → RETURN
+  -- false), y todo ANTES de resolver la orden (mata n10 y n8).
+  SELECT lower(regexp_replace(regexp_replace(prosrc, '--[^' || chr(10) || ']*', '', 'g'), '\s+', ' ', 'g'))
+  INTO   v_def
+  FROM   pg_proc WHERE oid = to_regprocedure('public.rpc_delete_sale_operation(uuid, uuid, text)');
+  v_def   := COALESCE(v_def, '');
+  v_lock  := position('where s.id = any(v_sale_ids) and s.account_id = v_account_id order by s.id for update ) l; if v_sale_ids is null or array_length(v_sale_ids, 1) is null then return false; end if;' in v_def);
+  v_first := LEAST(NULLIF(position('sales_orders' in v_def), 0), NULLIF(position('fiscal_documents' in v_def), 0),
+                   NULLIF(position('_fiscal_void_pending_for_sale_edit(' in v_def), 0));
+  IF v_lock = 0 THEN
+    v_failures := v_failures || format('(0L-c) el borrado no toma las filas de sales FOR UPDATE en orden de id seguido del recuento bajo el lock (vacío → false): si una edición ganó, "borraría" una venta que ya no existe y encolaría un SaleOperationDeleted espurio (mutante n10)');
+  ELSIF v_first IS NULL OR v_first < v_lock THEN
+    v_failures := v_failures || format('(0L-c) el borrado resuelve la orden (pos %s) ANTES de tomar las filas de sales (pos %s): N1 (mutante n8)', v_first, v_lock);
+  END IF;
+
+  -- (0L-d) Emisión: NUNCA toma sales (sólo la lee): con la orden tomada, un
+  -- lock sobre sales invertiría el orden global → deadlock con la edición
+  -- (mutante n13). Y el guard D6 va ANTES de emitir, con la allow-list de
+  -- re-emisión de venta-editable-sin-cae intacta.
+  SELECT lower(regexp_replace(regexp_replace(prosrc, '--[^' || chr(10) || ']*', '', 'g'), '\s+', ' ', 'g'))
+  INTO   v_def
+  FROM   pg_proc WHERE oid = to_regprocedure('public.rpc_emit_sale_invoice(uuid, uuid)');
+  v_def := COALESCE(v_def, '');
+  IF v_def ~ '(from|join) (public\.)?sales\M[^;]*for (update|share|no key update|key share)' THEN
+    v_failures := v_failures || format('(0L-d) la emisión toma locks sobre sales: invierte el orden global de locks y abre un deadlock contra la edición (mutante n13)');
+  END IF;
+  IF position('sales_order_out_of_sync' in v_def) = 0
+     OR position('rpc_emit_pending_cae(' in v_def) = 0
+     OR position('sales_order_out_of_sync' in v_def) > position('rpc_emit_pending_cae(' in v_def) THEN
+    v_failures := v_failures || format('(0L-d) la emisión no verifica que la orden coincida con su venta ANTES de emitir (D6)');
+  END IF;
+  IF position('not in (''rejected'', ''voided'')' in v_def) = 0 THEN
+    v_failures := v_failures || format('(0L-d) la emisión perdió la ALLOW-LIST de re-emisión de venta-editable-sin-cae');
+  END IF;
+
+  -- (0L-e) El helper de sincronización toma la orden, nunca sales (el caller
+  -- ya las tiene): un lock sobre sales desde acá sería un segundo punto de
+  -- entrada al orden global.
+  SELECT lower(regexp_replace(regexp_replace(prosrc, '--[^' || chr(10) || ']*', '', 'g'), '\s+', ' ', 'g'))
+  INTO   v_def
+  FROM   pg_proc WHERE oid = to_regprocedure('public._sales_order_sync_from_operation(uuid, uuid, uuid)');
+  IF COALESCE(v_def, '') ~ '(from|join) (public\.)?sales\M[^;]*for (update|share|no key update|key share)' THEN
+    v_failures := v_failures || format('(0L-e) el helper de sincronización toma locks sobre sales: el caller ya las tiene y el orden global es sales → sales_orders');
+  END IF;
+
   IF array_length(v_failures, 1) > 0 THEN
     RAISE EXCEPTION E'GATE FACTURAR-VENTA-MANUAL (0) FAILED:\n  %', array_to_string(v_failures, E'\n  ');
   END IF;
-  RAISE NOTICE 'PASS (0): helper de sincronización INVOKER, cerrado a anon/authenticated y con firma que resuelve; una sola definición viva de las 5 funciones; COMMENT vivos de las 4 RPCs intactos.';
+  RAISE NOTICE 'PASS (0): helper de sincronización INVOKER, cerrado a anon/authenticated y con firma que resuelve; una sola definición viva de las 5 funciones; COMMENT vivos de las 4 RPCs intactos; (0L) orden global de locks sales → sales_orders → fiscal_documents en promoción, edición y borrado, con recuento bajo el lock en edición y borrado, y la emisión y el helper sin tomar sales.';
 END $$;
 
 

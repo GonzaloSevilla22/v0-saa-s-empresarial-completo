@@ -2187,7 +2187,11 @@ jobs:
       # vio en tres meses porque ningun gate la llamaba (el test de backend
       # mockea asyncpg). Bloques: (0) helper de sincronizacion INVOKER y cerrado
       # a anon/authenticated con firma que resuelve, una sola definicion viva,
-      # COMMENT vivos intactos; (1) la promocion corre y es side-effect-free;
+      # COMMENT vivos intactos, y (0L) el orden global de locks sales ->
+      # sales_orders -> fiscal_documents con recuento bajo el lock en edicion y
+      # borrado (el DO de la migracion corre UNA vez; este candado corre en cada
+      # PR y mata los mutantes n6/n7/n8/n9/n10/n13 del red team 2026-09-24);
+      # (1) la promocion corre y es side-effect-free;
       # (2)-(6) idempotencia, P0404 a cuenta ajena/inexistente/NULL, P0401 a un
       # viewer, P0422 operation_inconsistent ante filas mezcladas, P0404 ante
       # una fila de otra cuenta, total por cabecera con sale_items duplicados;
@@ -2201,11 +2205,13 @@ jobs:
       # venta-editable-vs-promocion-legacy, N1: exclusion de la PROMOCION contra
       # la EDICION y el BORRADO con conexiones reales (una sesion nunca bloquea
       # contra su propio lock; dblink no sirve: `postgres` no es superusuario).
-      # 7 interleavings x 20 iteraciones (R1 promocion frenada -> edicion, R1b
+      # 9 interleavings x 20 iteraciones (R1 promocion frenada -> edicion, R1b
       # emision abierta -> edicion, R2 promocion frenada -> borrado, R3 edicion
       # frenada -> promocion, R4 borrado frenado -> promocion, R5 dos
       # promociones, R6 doble "Guardar": la segunda edicion espera y da P0404
-      # sin duplicar la operacion ni mover stock dos veces) + R0 (una
+      # sin duplicar la operacion ni mover stock dos veces, R7 edicion frenada
+      # -> borrado: false sin SaleOperationDeleted espurio, R8 orden frenada ->
+      # promocion en replay -> edicion detras: sin 40P01) + R0 (una
       # promocion ajena no bloquea filas). En cada
       # iteracion se VE a la victima esperando sobre la tabla correcta y
       # bloqueada por la sesion correcta (pg_blocking_pids); falla ante

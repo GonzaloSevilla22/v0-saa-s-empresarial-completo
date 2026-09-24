@@ -34,6 +34,18 @@
 #       nueva y el stock movido una sola vez (sin el lock temprano, la
 #       segunda revertía stock sobre filas ya borradas e insertaba una
 #       operación duplicada).
+#   R7  edición frenada (filas tomadas) → borrado de la MISMA operación: el
+#       borrado ESPERA sobre las filas de sales y, cuando la edición commitea,
+#       el recuento bajo el lock da vacío → devuelve false, sin encolar
+#       SaleOperationDeleted para la operación vieja y sin tocar la venta
+#       editada (mutante n10 del red team 2026-09-24: sin recuento "borraba"
+#       con true una venta que ya no existía y encolaba el evento espurio).
+#   R8  orden frenada (una emisión la tiene tomada) → promoción en replay →
+#       edición detrás: la promoción toma las filas de sales PRIMERO y espera
+#       la orden; la edición espera las filas. Sin 40P01: la promoción
+#       commitea el replay y la edición re-apunta y recalcula la orden
+#       (mutante n6: la promoción tomaba la orden antes que sales y abría un
+#       deadlock real contra la edición).
 # Además, una vez: R0 una promoción de OTRA cuenta sobre la operación no
 # bloquea ninguna fila ajena (el JOIN de tenencia filtra antes del FOR UPDATE).
 #
@@ -53,6 +65,10 @@
 #   K_stock: la fila de branch_stock del producto FOR UPDATE → la edición y el
 #            borrado quedan frenados con las filas de sales tomadas y ANTES de
 #            escribir sales (revierten stock primero).
+#   K_order: la fila de la sales_order FOR UPDATE → lo que hace una emisión
+#            abierta (rpc_emit_sale_invoice toma la orden y la retiene hasta
+#            commitear); la promoción en replay queda frenada con las filas de
+#            sales ya tomadas.
 #
 # ESTO NO SE PUEDE PROBAR EN UN SOLO ARCHIVO .sql (una sesión nunca bloquea
 # contra su propio lock; dblink no sirve: `postgres` no es superusuario en
@@ -299,10 +315,13 @@ SQL
 
 # Freno K en background: toma su lock y DESPUÉS el advisory (visible en
 # pg_locks → cuando aparece, el lock ya está tomado).
-brake_bg() {  # $1 = items | stock
+brake_bg() {  # $1 = items | stock | order ($2 = sales_order id)
   local take
   if [ "$1" = "items" ]; then
     take="LOCK TABLE public.sales_order_items IN EXCLUSIVE MODE;"
+  elif [ "$1" = "order" ]; then
+    [ -n "${2:-}" ] || fail "freno order sin sales_order id"
+    take="SELECT 1 FROM public.sales_orders WHERE id = '$2' FOR UPDATE;"
   else
     take="SELECT 1 FROM public.branch_stock WHERE product_id = '$F_product' AND branch_id = '$F_branch' FOR UPDATE;"
   fi
@@ -432,7 +451,7 @@ damage_count() {
 }
 
 declare -A PASS
-for c in R1 R1b R2 R3 R4 R5 R6; do PASS[$c]=0; done
+for c in R1 R1b R2 R3 R4 R5 R6 R7 R8; do PASS[$c]=0; done
 DAMAGE_TOTAL=0
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -687,12 +706,70 @@ SQL
   D=$(( $(damage_count) - D0 )); [ "$D" = "0" ] || { echo "  R6#$i: DAÑO — $D"; ok=0; DAMAGE_TOTAL=$((DAMAGE_TOTAL + D)); }
   [ $ok -eq 1 ] && PASS[R6]=$((PASS[R6] + 1))
 
-  echo "iter $i: R1=${PASS[R1]} R1b=${PASS[R1b]} R2=${PASS[R2]} R3=${PASS[R3]} R4=${PASS[R4]} R5=${PASS[R5]} R6=${PASS[R6]}"
+  # ── R7: edición frenada (filas tomadas) → borrado de la misma operación ─
+  ok=1
+  new_sale
+  D0=$(damage_count)
+  OLDOP=$OP
+  STK0=$(q "SELECT quantity FROM public.branch_stock WHERE product_id = '$F_product' AND branch_id = '$F_branch';")
+  brake_bg stock
+  edit_bg "fvm_r7_edit_$i" "$SALE" "$TMP/a.txt"; A_BG=$LAST_BG
+  seen_blocked_by "fvm_r7_edit_$i" brake public.branch_stock || { echo "  R7#$i INCONCLUSO: la edición no quedó frenada en branch_stock"; ok=0; }
+  delete_bg "fvm_r7_delete_$i" "$OP" "$TMP/b.txt"; B_BG=$LAST_BG
+  if ! seen_blocked_by "fvm_r7_delete_$i" "fvm_r7_edit_$i" public.sales; then
+    echo "  R7#$i FAIL: el borrado NO esperó a la edición sobre las filas de sales"; ok=0
+  fi
+  release_brake
+  wait "$A_BG" 2>/dev/null; wait "$B_BG" 2>/dev/null
+  no_deadlock "R7#$i E" "$TMP/a.txt" || ok=0; no_deadlock "R7#$i D" "$TMP/b.txt" || ok=0
+  NEWOP=$(grep -o 'EDIT_OK op=[0-9a-f-]*' "$TMP/a.txt" | cut -d= -f2)
+  [ -n "$NEWOP" ] || { echo "  R7#$i: la edición debía terminar bien — $(tr '\n' ' ' < "$TMP/a.txt")"; ok=0; }
+  grep -q 'DELETE_OK found=f' "$TMP/b.txt" || { echo "  R7#$i: el borrado de una operación que la edición ya se llevó debía devolver false (recuento bajo el lock) — $(tr '\n' ' ' < "$TMP/b.txt")"; ok=0; }
+  N=$(q "SELECT count(*) FROM public.events WHERE account_id = '$ACCOUNT_ID' AND event_type = 'SaleOperationDeleted' AND aggregate_id = '$OLDOP';")
+  [ "$N" = "0" ] || { echo "  R7#$i: el borrado encoló $N SaleOperationDeleted espurio(s) para la operación que la edición ya había movido"; ok=0; }
+  if [ -n "$NEWOP" ]; then
+    N=$(q "SELECT count(*) FROM public.sales WHERE operation_id = '$NEWOP';")
+    [ "$N" = "1" ] || { echo "  R7#$i: la venta editada tenía que seguir viva (1 fila), hay $N"; ok=0; }
+  fi
+  STK=$(q "SELECT (quantity = $STK0 + 1)::text || '|' || quantity FROM public.branch_stock WHERE product_id = '$F_product' AND branch_id = '$F_branch';")
+  [ "${STK%%|*}" = "true" ] || { echo "  R7#$i: el stock quedó en ${STK##*|}, esperaba $STK0 + 1 (sólo la edición mueve stock; el borrado no encontró filas)"; ok=0; }
+  D=$(( $(damage_count) - D0 )); [ "$D" = "0" ] || { echo "  R7#$i: DAÑO — $D"; ok=0; DAMAGE_TOTAL=$((DAMAGE_TOTAL + D)); }
+  [ $ok -eq 1 ] && PASS[R7]=$((PASS[R7] + 1))
+
+  # ── R8: orden frenada → promoción en replay → edición detrás ─────────────
+  ok=1
+  new_sale
+  D0=$(damage_count)
+  promote_bg "fvm_r8_promote0_$i" "$OP" "$TMP/a.txt"; wait "$LAST_BG" 2>/dev/null
+  SO=$(grep -o 'PROMOTE_OK so=[0-9a-f-]*' "$TMP/a.txt" | cut -d= -f2)
+  if [ -z "$SO" ]; then
+    echo "  R8#$i: la promoción inicial no creó la orden — $(tr '\n' ' ' < "$TMP/a.txt")"; ok=0
+  else
+    brake_bg order "$SO"
+    promote_bg "fvm_r8_promote_$i" "$OP" "$TMP/a.txt"; A_BG=$LAST_BG
+    seen_blocked_by "fvm_r8_promote_$i" brake public.sales_orders || { echo "  R8#$i INCONCLUSO: la promoción en replay no quedó frenada en la orden"; ok=0; }
+    edit_bg "fvm_r8_edit_$i" "$SALE" "$TMP/b.txt"; B_BG=$LAST_BG
+    if ! seen_blocked_by "fvm_r8_edit_$i" "fvm_r8_promote_$i" public.sales; then
+      echo "  R8#$i FAIL: la edición NO esperó a la promoción sobre las filas de sales (la promoción tomó la orden antes que sales: orden global invertido)"; ok=0
+    fi
+    release_brake
+    wait "$A_BG" 2>/dev/null; wait "$B_BG" 2>/dev/null
+    no_deadlock "R8#$i P" "$TMP/a.txt" || ok=0; no_deadlock "R8#$i E" "$TMP/b.txt" || ok=0
+    grep -q "PROMOTE_OK so=$SO replayed=true" "$TMP/a.txt" || { echo "  R8#$i: la promoción en replay debía devolver la misma orden con replayed=true — $(tr '\n' ' ' < "$TMP/a.txt")"; ok=0; }
+    NEWOP=$(grep -o 'EDIT_OK op=[0-9a-f-]*' "$TMP/b.txt" | cut -d= -f2)
+    [ -n "$NEWOP" ] || { echo "  R8#$i: la edición debía terminar bien — $(tr '\n' ' ' < "$TMP/b.txt")"; ok=0; }
+    ROW=$(q "SELECT sale_operation_id || '|' || total FROM public.sales_orders WHERE id = '$SO';")
+    [ "$ROW" = "$NEWOP|111.00" ] || { echo "  R8#$i: la orden quedó '$ROW', esperaba '$NEWOP|111.00' (re-apuntada y recalculada por la edición)"; ok=0; }
+  fi
+  D=$(( $(damage_count) - D0 )); [ "$D" = "0" ] || { echo "  R8#$i: DAÑO — $D"; ok=0; DAMAGE_TOTAL=$((DAMAGE_TOTAL + D)); }
+  [ $ok -eq 1 ] && PASS[R8]=$((PASS[R8] + 1))
+
+  echo "iter $i: R1=${PASS[R1]} R1b=${PASS[R1b]} R2=${PASS[R2]} R3=${PASS[R3]} R4=${PASS[R4]} R5=${PASS[R5]} R6=${PASS[R6]} R7=${PASS[R7]} R8=${PASS[R8]}"
 done
 
-SUMMARY="R1 PASS=${PASS[R1]}/$ITER  R1b PASS=${PASS[R1b]}/$ITER  R2 PASS=${PASS[R2]}/$ITER  R3 PASS=${PASS[R3]}/$ITER  R4 PASS=${PASS[R4]}/$ITER  R5 PASS=${PASS[R5]}/$ITER  R6 PASS=${PASS[R6]}/$ITER  (comprobantes dañados observados: $DAMAGE_TOTAL)"
+SUMMARY="R1 PASS=${PASS[R1]}/$ITER  R1b PASS=${PASS[R1b]}/$ITER  R2 PASS=${PASS[R2]}/$ITER  R3 PASS=${PASS[R3]}/$ITER  R4 PASS=${PASS[R4]}/$ITER  R5 PASS=${PASS[R5]}/$ITER  R6 PASS=${PASS[R6]}/$ITER  R7 PASS=${PASS[R7]}/$ITER  R8 PASS=${PASS[R8]}/$ITER  (comprobantes dañados observados: $DAMAGE_TOTAL)"
 echo "$SUMMARY"
-for c in R1 R1b R2 R3 R4 R5 R6; do
+for c in R1 R1b R2 R3 R4 R5 R6 R7 R8; do
   [ "${PASS[$c]}" -eq "$ITER" ] || fail "$SUMMARY"
 done
 
@@ -702,4 +779,4 @@ LEFT=$(q "SELECT count(*) FROM auth.users WHERE email IN ('facturar-venta-race@t
 LEFTA=$(q "SELECT count(*) FROM public.accounts WHERE id IN ('$ACCOUNT_ID', '$ACCOUNT_B');")
 [ "$LEFTA" = "0" ] || { echo "GATE FACTURAR-VENTA-MANUAL-RACE FAILED: la limpieza dejó las cuentas del fixture" >&2; exit 1; }
 
-echo "GATE FACTURAR-VENTA-MANUAL-RACE PASSED: $SUMMARY — la promoción, la edición y el borrado se excluyen por las filas de la venta (sales → sales_orders → fiscal_documents), sin deadlocks, sin comprobantes vivos con importes viejos, un doble «Guardar» no duplica la operación, y la promoción ajena no bloquea filas. Fixtures limpios."
+echo "GATE FACTURAR-VENTA-MANUAL-RACE PASSED: $SUMMARY — la promoción, la edición y el borrado se excluyen por las filas de la venta (sales → sales_orders → fiscal_documents), sin deadlocks, sin comprobantes vivos con importes viejos, un doble «Guardar» no duplica la operación, un borrado que pierde contra la edición devuelve false sin evento espurio, una promoción en replay frenada en la orden no se cruza con la edición, y la promoción ajena no bloquea filas. Fixtures limpios."

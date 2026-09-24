@@ -66,7 +66,7 @@
 | Capa | Tecnología | Notas |
 |------|------------|-------|
 | **BaaS** | Supabase (Auth, DB, Edge Functions, Storage, Realtime) | Proyecto real: `gxdhpxvdjjkmxhdkkwyb` |
-| **DB** | PostgreSQL vía Supabase, con RLS org-based | 306 migraciones; última `20261059000001_fiscal_marca_previa_e_insert_interno` (verificada en prod 2026-09-22: `max(version)=20261059000001`, 306 filas — el PR #580 ya mergeó). La `20261060000001_venta_editable_sin_cae` la aporta el PR de edición de ventas sin CAE (rama `feat/venta-editable-sin-cae`, sin mergear); verificar en prod tras el merge |
+| **DB** | PostgreSQL vía Supabase, con RLS org-based | 307 migraciones en prod; última `20261060000001_venta_editable_sin_cae` (verificada en prod 2026-09-24: `max(version)=20261060000001`, 307 filas — el PR #582 ya mergeó). La `20261061000001_venta_editable_vs_promocion_legacy` la aporta el PR de `venta-editable-vs-promocion-legacy` (rama `fix/facturar-venta-manual`, sin mergear); verificar en prod tras el merge (308 filas) |
 | **Extensiones PG** | `pg_cron` (grace period, relay outbox) · `pg_net` / DB webhooks (email, outbox, relay CAE) | — |
 | **Edge Functions** | Deno (Supabase) — 12 funciones | `ai-insights`, `ai-resumen`, `ai-precio`, `ai-rentabilidad`, `ai-comparativo`, `ai-prediccion`, `ai-simulador`, `ai-estadisticas`, `fair-advisor`, `invoice-ocr`, `generate-export`, `send-email` |
 | **IA** | OpenAI API | `gpt-4o-mini` en las 9 funciones de IA; **`gpt-4o`** (visión) en `invoice-ocr` |

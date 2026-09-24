@@ -33,7 +33,9 @@ jobs:
       QA_TEST_USER_PASSWORD: qa-e2e-ci-password-1
       QA_LOGOUT_USER_EMAIL: qa.logout@local.test
       QA_LOGOUT_USER_PASSWORD: qa-logout-ci-password-1
-      # El backend no corre en CI; el env-guard solo exige que la URL sea local.
+      # El backend FastAPI corre en el runner (uvicorn en :8000, pasos de abajo:
+      # lo usan backend.spec.ts y el e2e de "Facturar"); el env-guard solo
+      # exige que la URL sea local.
       NEXT_PUBLIC_BACKEND_URL_LOCAL: http://localhost:8000
       PLAYWRIGHT_BASE_URL: http://localhost:3000
       # venta-editable-vs-promocion-legacy: secreto del relay del CAE

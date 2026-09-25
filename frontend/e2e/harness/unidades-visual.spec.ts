@@ -9,13 +9,15 @@
  * la corrección del PR #584 (task 6.4: el proposal prometía la pasada del POS
  * y sólo se había hecho la del formulario de venta).
  *
- * Además de capturar, fija dos contratos que jsdom no puede ver en un
+ * Además de capturar, fija tres contratos que jsdom no puede ver en un
  * navegador real:
  *   - el listado de stock no desborda horizontalmente con "0.550 kg" en la
  *     columna y en la tarjeta móvil;
  *   - el selector de unidad de un producto en kilos ofrece SOLO kg/g/tn (nunca
  *     mL, L, m, u), y el de un producto sin unidad base sólo unidades base —
- *     en los TRES caminos que escriben stock (venta, POS, compra).
+ *     en los TRES caminos que escriben stock (venta, POS, compra);
+ *   - (segunda revisión) el importe de la línea: 100 g a $1.800/kg cobran
+ *     $180 en venta y POS, y a $900/kg de costo cuestan $90 en la compra.
  */
 import { test, expect, type Page } from '@playwright/test'
 import { mkdirSync } from 'node:fs'
@@ -48,8 +50,8 @@ async function abrirFormulario(page: Page, theme: string) {
 
 /** Mostrador (POS) o formulario de compra: mismo catálogo, misma regla. */
 const OTROS_CAMINOS = [
-  { view: 'pos', testId: 'harness-pos', slug: 'pos' },
-  { view: 'purchase', testId: 'harness-purchase', slug: 'compra' },
+  { view: 'pos', testId: 'harness-pos', slug: 'pos', importe100g: 180 },
+  { view: 'purchase', testId: 'harness-purchase', slug: 'compra', importe100g: 90 },
 ] as const
 
 async function abrirVista(page: Page, theme: string, view: string, testId: string) {
@@ -77,6 +79,19 @@ async function elegirProducto(page: Page, nombre: string) {
   await expect(search).toBeVisible()
   await search.fill(nombre)
   await page.getByRole('option', { name: new RegExp(nombre, 'i') }).first().click()
+}
+
+/**
+ * Contrato D-F (segunda revisión del PR #584): el precio de la línea es POR
+ * UNIDAD DE LA LÍNEA. 100 g de un producto a $1.800/kg ($900/kg de costo en
+ * la compra) → subtotal $180 ($90), nunca $180.000. Se lee el valor del input
+ * de Subtotal, que es lo que viaja al servidor.
+ */
+async function verificarImporte100g(page: Page, esperado: number) {
+  const cantidad = page.locator('label', { hasText: /^Cantidad \(g\)/ }).first().locator('xpath=..').locator('input')
+  await cantidad.fill('100')
+  const subtotal = page.locator('label', { hasText: /^Subtotal/ }).first().locator('xpath=..').locator('input')
+  await expect.poll(async () => Number(await subtotal.inputValue())).toBe(esperado)
 }
 
 for (const vp of VIEWPORTS) {
@@ -112,6 +127,7 @@ for (const vp of VIEWPORTS) {
       // Vender 450 g: la cantidad muestra la unidad elegida.
       await listbox.getByRole('option', { name: /Gramo/ }).click()
       await expect(page.getByText(/Cantidad \(g\)/)).toBeVisible()
+      await verificarImporte100g(page, 180)
       await page.screenshot({ path: `${SHOT_DIR}/linea-gramos-${vp.name}-${theme}.png` })
     })
 
@@ -126,6 +142,7 @@ for (const vp of VIEWPORTS) {
 
         await listbox.getByRole('option', { name: /Gramo/ }).click()
         await expect(page.getByText(/Cantidad \(g\)/)).toBeVisible()
+        await verificarImporte100g(page, camino.importe100g)
         await page.screenshot({ path: `${SHOT_DIR}/linea-gramos-${camino.slug}-${vp.name}-${theme}.png`, fullPage: true })
 
         const overflow = await page.evaluate(

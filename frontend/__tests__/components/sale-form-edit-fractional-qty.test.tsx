@@ -21,6 +21,7 @@ import type { Sale, UnitOfMeasure } from "@/lib/types"
 
 
 const KG: UnitOfMeasure = { id: "unit-kg", name: "Kilogramo", symbol: "kg", type: "weight", factor: 1, isSystem: true }
+const G: UnitOfMeasure = { id: "unit-g", name: "Gramo", symbol: "g", type: "weight", factor: 0.001, baseUnitId: "unit-kg", isSystem: true }
 const updateSaleOperationMock = vi.fn().mockResolvedValue({
   ok: true,
   operation_id: "op-1",
@@ -61,7 +62,7 @@ vi.mock("@/hooks/data/use-sales", () => ({
 vi.mock("@tanstack/react-query", () => ({ useQueryClient: () => ({ invalidateQueries: vi.fn() }) }))
 vi.mock("@/contexts/auth-context", () => ({ useAuth: () => ({ user: { id: "u1", accountId: "acc-1" } }) }))
 vi.mock("@/hooks/use-units-of-measure", () => ({
-  useUnitsOfMeasure: () => ({ units: [KG], unitsById: new Map([[KG.id, KG]]) }),
+  useUnitsOfMeasure: () => ({ units: [KG, G], unitsById: new Map([[KG.id, KG], [G.id, G]]) }),
 }))
 vi.mock("@/components/branches/BranchSelect", () => ({
   // Mock mínimo que expone el `value` recibido para poder aserirlo — el
@@ -201,6 +202,25 @@ describe("SaleForm — editar una línea fraccionaria respeta la unidad", () => 
     await vi.waitFor(() => expect(updateSaleOperationMock).toHaveBeenCalledTimes(1))
     expect(updateSaleOperationMock.mock.calls[0][0].newItems[0].quantity).toBe(0.4)
   })
+  // Tercera revisión (D-F′): la edición rehidrata unitPrice = Number(sales.amount)
+  // (use-sales.ts). Con sales_order_items.price en numeric(15,2) el POS grababa
+  // 4,58 y la edición re-preciaba; con la columna sin tope el precio llega
+  // exacto y el formulario lo reenvía tal cual — este caso fija que el cliente
+  // tampoco lo redondea en el camino.
+  it("D-F′: una línea a $1,23456/g (450 g) se rehidrata y se reenvía sin redondear", async () => {
+    const op = makeOperation({
+      unitId: "unit-g",
+      items: [makeSale({ unitId: "unit-g", quantity: 450, unitPrice: Number("1.23456"), total: 555.55 })],
+    })
+    render(<SaleForm onSuccess={() => {}} editingOperation={op} />)
+    fireEvent.click(screen.getByRole("button", { name: /Guardar cambios/i }))
+    await vi.waitFor(() => expect(updateSaleOperationMock).toHaveBeenCalledTimes(1))
+    const line = updateSaleOperationMock.mock.calls[0][0].newItems[0]
+    expect(line.unitPrice).toBe(1.23456)
+    expect(line.quantity).toBe(450)
+    expect(line.subtotal).toBe(555.552)
+  })
+
   it("triangulación: una línea sin unidad (discreta) sigue sin bajar de 1", () => {
     const op = makeOperation({ unitId: undefined, items: [makeSale({ unitId: undefined, quantity: 3 })] })
     render(<SaleForm onSuccess={() => {}} editingOperation={op} />)

@@ -10,6 +10,7 @@
  * - Behavior driven by the UnitOfMeasure object — never by the calling module
  */
 
+import { roundUnitPrice } from "@/lib/cart-utils"
 import type { UnitOfMeasure } from "@/lib/types"
 
 // ─── Semantic predicates ──────────────────────────────────────────────────────
@@ -100,9 +101,16 @@ export function toBaseQuantity(
  *
  * "No unit" means the product's base unit (same reading as `toBaseQuantity`).
  *
+ * The result keeps its full precision (D-F′, third review of PR #584): only the
+ * binary noise is stripped (`roundUnitPrice`, 15 significant digits). It used
+ * to be rounded to 4 decimals like a stock quantity, and a catalogue price with
+ * cents per kg needs 5 per gram — 450 g at $1.234,56/kg charged $555,57, not
+ * $555,552, and kg → g → kg came back as $1.234,60.
+ *
  * @example
- * convertUnitPrice(1800, kg, g, kg)  → 1.8    ($/g from $/kg)
- * convertUnitPrice(100, u, doc, u)   → 1200   ($/docena from $/u)
+ * convertUnitPrice(1800, kg, g, kg)     → 1.8      ($/g from $/kg)
+ * convertUnitPrice(1234.56, kg, g, kg)  → 1.23456  (not 1.2346)
+ * convertUnitPrice(100, u, doc, u)      → 1200     ($/docena from $/u)
  */
 export function convertUnitPrice(
   price: number,
@@ -114,7 +122,7 @@ export function convertUnitPrice(
   const fromFactor = fromUnit?.factor ?? baseFactor
   const toFactor   = toUnit?.factor ?? baseFactor
   if (fromFactor === toFactor) return price
-  return roundToNumeric4((price * toFactor) / fromFactor)
+  return roundUnitPrice((price * toFactor) / fromFactor)
 }
 
 /** Same precision as NUMERIC(15,4), the column type of every stock quantity. */

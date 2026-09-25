@@ -27,10 +27,15 @@ const HUEVO: Product = {
   id: "p-u", name: "Huevo", category: "Almacén", categoryId: "c1", cost: 50, price: 100, margin: 50,
   stock: 100, minStock: 0, isVariant: false, stockControlType: "tracked", baseUnitId: "u-u",
 }
+// Tercera revisión (D-F′): un precio de catálogo con centavos por kg.
+const SALAME: Product = {
+  id: "p-salame", name: "Salame", category: "Fiambres", categoryId: "c1", cost: 800, price: 1234.56, margin: 35,
+  stock: 10, minStock: 0, isVariant: false, stockControlType: "tracked", baseUnitId: "u-kg",
+}
 
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }))
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }))
-vi.mock("@/hooks/data/use-products", () => ({ useProducts: () => ({ products: [QUESO, HUEVO], addProduct: vi.fn() }) }))
+vi.mock("@/hooks/data/use-products", () => ({ useProducts: () => ({ products: [QUESO, HUEVO, SALAME], addProduct: vi.fn() }) }))
 vi.mock("@/hooks/data/use-clients", () => ({ useClients: () => ({ clients: [], addClient: vi.fn() }) }))
 vi.mock("@/hooks/data/use-sales", () => ({ useSales: () => ({ addSaleOperation, updateSaleOperation: vi.fn() }) }))
 vi.mock("@tanstack/react-query", () => ({ useQueryClient: () => ({ invalidateQueries: vi.fn() }) }))
@@ -56,6 +61,7 @@ vi.mock("@/components/shared/product-picker", () => ({
     <>
       <button type="button" onClick={() => onValueChange("p-kg")}>elegir Queso</button>
       <button type="button" onClick={() => onValueChange("p-u")}>elegir Huevo</button>
+      <button type="button" onClick={() => onValueChange("p-salame")}>elegir Salame</button>
     </>
   ),
 }))
@@ -101,6 +107,17 @@ describe("SaleForm — el precio es por unidad de la LÍNEA (D-F)", () => {
     await pickUnit(/^doc — Docena$/)
     fireEvent.change(inputUnder(/^Cantidad/), { target: { value: "1" } })
     expect(Number(inputUnder(/^Subtotal/).value)).toBe(1200)
+  })
+
+  // Tercera revisión (MAJOR, D-F′): el precio por gramo no se redondea a 4
+  // decimales — con 1,2346, 450 g cobraban $555,57 en vez de $555,552.
+  it("450 g de un producto a $1.234,56/kg: precio $1,23456 y subtotal $555,552", async () => {
+    render(<SaleForm onSuccess={() => {}} />)
+    fireEvent.click(screen.getByRole("button", { name: "elegir Salame" }))
+    await pickUnit(/^g — Gramo$/)
+    fireEvent.change(inputUnder(/^Cantidad/), { target: { value: "450" } })
+    expect(Number(inputUnder(/^Precio unit/).value)).toBe(1.23456)
+    expect(Number(inputUnder(/^Subtotal/).value)).toBe(555.552)
   })
 
   it("volver de gramo a kg restituye el precio del catálogo", async () => {

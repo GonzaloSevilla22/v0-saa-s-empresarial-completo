@@ -12,6 +12,7 @@
  */
 import { describe, expect, it } from "vitest"
 
+import { calcSaleSubtotal } from "@/lib/cart-utils"
 import { convertUnitPrice, toBaseQuantity } from "@/lib/unit-utils"
 import type { UnitOfMeasure } from "@/lib/types"
 
@@ -54,5 +55,47 @@ describe("convertUnitPrice — el precio se re-expresa en la unidad de la línea
     const priceBase = 1800
     const priceLine = convertUnitPrice(priceBase, kg, g, kg)
     expect(priceLine * qtyLine).toBeCloseTo(priceBase * toBaseQuantity(qtyLine, g, kg), 4)
+  })
+})
+
+/**
+ * Tercera revisión del PR #584 (MAJOR "precisión del precio", contrato D-F′,
+ * provisorio hasta el sign-off del PO): re-expresado a una unidad chica, un
+ * precio de catálogo con centavos necesita MÁS de 4 decimales — $1.234,56/kg
+ * son $1,23456/g. Redondeado a 4 (1,2346), 450 g cobraban $555,57 en vez de
+ * $555,552 → $555,55: el error crece con la cantidad (en mg, 1000×). El
+ * precio de la línea conserva su precisión; sólo se limpia el ruido binario.
+ */
+const mg: UnitOfMeasure = { id: "mg", name: "Miligramo", symbol: "mg", type: "weight", factor: 0.000001, baseUnitId: "kg", isSystem: false }
+
+describe("convertUnitPrice — D-F′: el precio de la línea no se redondea", () => {
+  it("$1.234,56/kg → gramo: $1,23456 (no 1,2346)", () => {
+    expect(convertUnitPrice(1234.56, kg, g, kg)).toBe(1.23456)
+  })
+
+  it("$4.575/kg → gramo: $4,575, y 100 g cobran exactamente $457,50", () => {
+    const perGram = convertUnitPrice(4575, kg, g, kg)
+    expect(perGram).toBe(4.575)
+    expect(calcSaleSubtotal(perGram, 100, 0)).toBe(457.5)
+  })
+
+  it("450 g a $1.234,56/kg: el subtotal es $555,552, el mismo que 0,45 kg × $1.234,56 (antes 555,57)", () => {
+    const perGram = convertUnitPrice(1234.56, kg, g, kg)
+    expect(calcSaleSubtotal(perGram, 450, 0)).toBe(calcSaleSubtotal(1234.56, 0.45, 0))
+    expect(calcSaleSubtotal(perGram, 450, 0)).toBe(555.552)
+  })
+
+  it("miligramo: $1.234,56/kg → $0,00123456/mg (con 4 decimales era $0,0012 — 450.000 mg cobraban $540)", () => {
+    const perMg = convertUnitPrice(1234.56, kg, mg, kg)
+    expect(perMg).toBe(0.00123456)
+    expect(calcSaleSubtotal(perMg, 450_000, 0)).toBe(555.552)
+  })
+
+  it("ida y vuelta kg → g → kg restituye el precio con centavos exacto", () => {
+    expect(convertUnitPrice(convertUnitPrice(1234.56, kg, g, kg), g, kg, kg)).toBe(1234.56)
+  })
+
+  it("limpia el ruido binario: $1,10/kg → $0,0011/g (1.1 × 0.001 = 0.0011000000000000001 en coma flotante)", () => {
+    expect(convertUnitPrice(1.1, kg, g, kg)).toBe(0.0011)
   })
 })

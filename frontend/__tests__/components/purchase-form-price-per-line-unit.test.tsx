@@ -28,6 +28,11 @@ const HUEVO: Product = {
   id: "p-u", name: "Huevo", category: "Almacén", categoryId: "c1", cost: 50, price: 100, margin: 50,
   stock: 100, minStock: 0, isVariant: false, stockControlType: "tracked", baseUnitId: "u-u",
 }
+// Tercera revisión (D-F′): un costo de catálogo con centavos por kg.
+const SALAME: Product = {
+  id: "p-salame", name: "Salame", category: "Fiambres", categoryId: "c1", cost: 1234.56, price: 2000, margin: 38,
+  stock: 10, minStock: 0, isVariant: false, stockControlType: "tracked", baseUnitId: "u-kg",
+}
 
 // productos-categorias-sku: purchase-form monta ProductCategorySelect en el alta
 // inline de producto → use-product-categories → python-client (explota sin
@@ -36,7 +41,7 @@ vi.mock("@/hooks/data/use-product-categories", () => ({
   useProductCategories: () => ({ productCategories: [], isLoading: false, createProductCategory: vi.fn(), createProductCategoryMutation: { isPending: false } }),
 }))
 vi.mock("@/hooks/useOrgRole", () => ({ useOrgRole: () => ({ isWriter: true, role: "owner", isLoading: false }) }))
-vi.mock("@/hooks/data/use-products", () => ({ useProducts: () => ({ products: [QUESO, HUEVO], addProduct: vi.fn() }) }))
+vi.mock("@/hooks/data/use-products", () => ({ useProducts: () => ({ products: [QUESO, HUEVO, SALAME], addProduct: vi.fn() }) }))
 vi.mock("@/hooks/data/use-purchases", () => ({
   usePurchases: () => ({ addPurchaseOperation: vi.fn(), updatePurchaseOperation: updatePurchaseOperationMock }),
 }))
@@ -106,6 +111,7 @@ vi.mock("@/components/shared/product-picker", () => ({
     <>
       <button type="button" onClick={() => onValueChange("p-kg")}>elegir Queso</button>
       <button type="button" onClick={() => onValueChange("p-u")}>elegir Huevo</button>
+      <button type="button" onClick={() => onValueChange("p-salame")}>elegir Salame</button>
     </>
   ),
 }))
@@ -145,6 +151,17 @@ async function pickUnit(current: RegExp, name: RegExp) {
 
 describe("PurchaseForm — el costo es por unidad de la LÍNEA (D-F)", () => {
   afterEach(() => vi.clearAllMocks())
+
+  // Tercera revisión (MAJOR, D-F′): el costo por gramo no se redondea a 4
+  // decimales — con 1,2346, 500 g costaban $617,30 en vez de $617,28.
+  it("500 g de un producto a $1.234,56/kg de costo: costo $1,23456 y subtotal $617,28", async () => {
+    render(<PurchaseForm onSuccess={() => {}} />)
+    fireEvent.click(screen.getByRole("button", { name: "elegir Salame" }))
+    await pickUnit(/kilogramo/i, /^g — Gramo$/)
+    fireEvent.change(inputUnder(/^Cantidad/), { target: { value: "500" } })
+    expect(Number(inputUnder(/^Costo unitario/).value)).toBe(1.23456)
+    expect(Number(inputUnder(/^Subtotal/).value)).toBe(617.28)
+  })
 
   it("500 g de un producto a $900/kg de costo: costo $0,90 y subtotal $450", async () => {
     render(<PurchaseForm onSuccess={() => {}} />)

@@ -29,12 +29,17 @@ const BOLSA: Product = {
   id: "p-uds", name: "Huevo", category: "Almacén", categoryId: "c1", cost: 50, price: 100, margin: 50,
   stock: 100, minStock: 0, isVariant: false, stockControlType: "tracked", baseUnitId: "u-u",
 }
+// Tercera revisión (D-F′): un precio de catálogo con centavos por kg.
+const SALAME: Product = {
+  id: "p-salame", name: "Salame", category: "Fiambres", categoryId: "c1", cost: 800, price: 1234.56, margin: 35,
+  stock: 10, minStock: 0, isVariant: false, stockControlType: "tracked", baseUnitId: "u-kg",
+}
 
 vi.mock("sonner", () => ({ toast: { error: (...a: unknown[]) => toastError(...a), success: vi.fn() } }))
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }))
 
 vi.mock("@/hooks/useOrgRole", () => ({ useOrgRole: () => ({ isWriter: true }) }))
-vi.mock("@/hooks/data/use-products", () => ({ useProducts: () => ({ products: [TOMATE, BOLSA] }) }))
+vi.mock("@/hooks/data/use-products", () => ({ useProducts: () => ({ products: [TOMATE, BOLSA, SALAME] }) }))
 vi.mock("@/hooks/data/use-clients", () => ({
   useClients: () => ({ clients: [{ id: "client-1", name: "Cliente Uno" }] }),
 }))
@@ -76,6 +81,7 @@ vi.mock("@/components/shared/product-picker", () => ({
     <>
       <button type="button" onClick={() => onValueChange("p-kg")}>elegir Tomate</button>
       <button type="button" onClick={() => onValueChange("p-uds")}>elegir Bolsa</button>
+      <button type="button" onClick={() => onValueChange("p-salame")}>elegir Salame</button>
     </>
   ),
 }))
@@ -130,5 +136,16 @@ describe("PosPage — el precio es por unidad de la LÍNEA (D-F)", () => {
     await pickUnit(/unidad/i, /^doc — Docena$/)
     fireEvent.change(inputUnder(/^Cantidad/), { target: { value: "1" } })
     expect(Number(inputUnder(/^Subtotal/).value)).toBe(1200)
+  })
+
+  // Tercera revisión (MAJOR, D-F′): el precio por gramo no se redondea a 4
+  // decimales — con 1,2346 el POS mandaba $555,57 por 450 g.
+  it("450 g de un producto a $1.234,56/kg: precio $1,23456 y subtotal $555,552 (= 0,45 kg × $1.234,56)", async () => {
+    render(<PosPage />)
+    fireEvent.click(screen.getByRole("button", { name: "elegir Salame" }))
+    await pickUnit(/kilogramo/i, /^g — Gramo$/)
+    fireEvent.change(inputUnder(/^Cantidad/), { target: { value: "450" } })
+    expect(Number(inputUnder(/^Precio unit/).value)).toBe(1.23456)
+    expect(Number(inputUnder(/^Subtotal/).value)).toBe(555.552)
   })
 })

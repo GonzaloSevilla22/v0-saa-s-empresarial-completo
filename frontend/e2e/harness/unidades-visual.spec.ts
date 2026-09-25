@@ -4,14 +4,18 @@
  *
  * Corre en el proyecto `harness` (sin sesión ni seeds) contra
  * /dev-harness/unidades, que monta las columnas reales de /stock, filas reales
- * del historial y el formulario de venta real con un catálogo sintético.
+ * del historial, y el formulario de venta, el mostrador (POS) y el formulario
+ * de compra reales con un catálogo sintético. El POS y la compra se sumaron en
+ * la corrección del PR #584 (task 6.4: el proposal prometía la pasada del POS
+ * y sólo se había hecho la del formulario de venta).
  *
  * Además de capturar, fija dos contratos que jsdom no puede ver en un
  * navegador real:
  *   - el listado de stock no desborda horizontalmente con "0.550 kg" en la
  *     columna y en la tarjeta móvil;
  *   - el selector de unidad de un producto en kilos ofrece SOLO kg/g/tn (nunca
- *     mL, L, m, u), y el de un producto sin unidad base sólo unidades base.
+ *     mL, L, m, u), y el de un producto sin unidad base sólo unidades base —
+ *     en los TRES caminos que escriben stock (venta, POS, compra).
  */
 import { test, expect, type Page } from '@playwright/test'
 import { mkdirSync } from 'node:fs'
@@ -40,6 +44,30 @@ async function abrirStock(page: Page, theme: string, mobile: boolean) {
 async function abrirFormulario(page: Page, theme: string) {
   await page.goto(`/dev-harness/unidades?theme=${theme}&view=form`)
   await expect(page.getByTestId('harness-form')).toBeVisible({ timeout: 150_000 })
+}
+
+/** Mostrador (POS) o formulario de compra: mismo catálogo, misma regla. */
+const OTROS_CAMINOS = [
+  { view: 'pos', testId: 'harness-pos', slug: 'pos' },
+  { view: 'purchase', testId: 'harness-purchase', slug: 'compra' },
+] as const
+
+async function abrirVista(page: Page, theme: string, view: string, testId: string) {
+  await page.goto(`/dev-harness/unidades?theme=${theme}&view=${view}`)
+  await expect(page.getByTestId(testId)).toBeVisible({ timeout: 150_000 })
+}
+
+/** El selector de un producto en kilos: sólo peso, nunca volumen/longitud/unidades. */
+async function verificarSelectorKg(page: Page) {
+  const trigger = page.getByRole('combobox').filter({ hasText: /Kilogramo/ }).first()
+  await expect(trigger).toBeVisible()
+  await trigger.click()
+  const listbox = page.getByRole('listbox')
+  await expect(listbox).toBeVisible()
+  await expect(listbox.getByRole('option', { name: /Gramo/ })).toBeVisible()
+  await expect(listbox.getByRole('option', { name: /Tonelada/ })).toBeVisible()
+  await expect(listbox.getByRole('option', { name: /Mililitro|Litro|Metro|Docena|Sin unidad/ })).toHaveCount(0)
+  return listbox
 }
 
 async function elegirProducto(page: Page, nombre: string) {
@@ -77,14 +105,7 @@ for (const vp of VIEWPORTS) {
       // Producto en kilos: la unidad base queda preseleccionada y el selector
       // ofrece sólo las de peso.
       await elegirProducto(page, 'Tomate redondo')
-      const trigger = page.getByRole('combobox').filter({ hasText: /Kilogramo/ }).first()
-      await expect(trigger).toBeVisible()
-      await trigger.click()
-      const listbox = page.getByRole('listbox')
-      await expect(listbox).toBeVisible()
-      await expect(listbox.getByRole('option', { name: /Gramo/ })).toBeVisible()
-      await expect(listbox.getByRole('option', { name: /Tonelada/ })).toBeVisible()
-      await expect(listbox.getByRole('option', { name: /Mililitro|Litro|Metro|Docena|Sin unidad/ })).toHaveCount(0)
+      const listbox = await verificarSelectorKg(page)
 
       await page.screenshot({ path: `${SHOT_DIR}/selector-kg-${vp.name}-${theme}.png` })
 
@@ -93,6 +114,26 @@ for (const vp of VIEWPORTS) {
       await expect(page.getByText(/Cantidad \(g\)/)).toBeVisible()
       await page.screenshot({ path: `${SHOT_DIR}/linea-gramos-${vp.name}-${theme}.png` })
     })
+
+    for (const camino of OTROS_CAMINOS) {
+      test(`selector de unidad compatible (${camino.slug}) — ${vp.name} ${theme}`, async ({ page }) => {
+        await page.setViewportSize({ width: vp.width, height: vp.height })
+        await abrirVista(page, theme, camino.view, camino.testId)
+
+        await elegirProducto(page, 'Tomate redondo')
+        const listbox = await verificarSelectorKg(page)
+        await page.screenshot({ path: `${SHOT_DIR}/selector-kg-${camino.slug}-${vp.name}-${theme}.png` })
+
+        await listbox.getByRole('option', { name: /Gramo/ }).click()
+        await expect(page.getByText(/Cantidad \(g\)/)).toBeVisible()
+        await page.screenshot({ path: `${SHOT_DIR}/linea-gramos-${camino.slug}-${vp.name}-${theme}.png`, fullPage: true })
+
+        const overflow = await page.evaluate(
+          () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        )
+        expect(overflow, 'el documento no debe desbordar horizontalmente').toBeLessThanOrEqual(1)
+      })
+    }
   }
 }
 

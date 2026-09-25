@@ -54,7 +54,7 @@ layout ni scroll ante `wheel`/`touchmove` (RED de `tasks.md` 1.1/2.1).
   puede provocar a demanda: la emisión rechazada por `sales_order_out_of_sync`
   (la fila tiene que volver a "Facturar") y la preparación rechazada por
   `operation_inconsistent`. Los toasts los pinta el `<Toaster>` del layout raíz.
-- `/dev-harness/unidades?theme=light|dark&view=stock|form` —
+- `/dev-harness/unidades?theme=light|dark&view=stock|form|pos|purchase` —
   ventas-unidades-conversion (task 6.4): las columnas REALES de `/stock`
   (`buildColumns` + `DataTable` + el mismo `mobileCard`) y filas REALES del
   historial (`MovementRow`) sobre productos en kilos, litros y por unidades
@@ -62,4 +62,12 @@ layout ni scroll ante `wheel`/`touchmove` (RED de `tasks.md` 1.1/2.1).
   catálogo sintético servido por intercept de `window.fetch` (`/products` del
   backend y `/rest/v1/units_of_measure` de Supabase), para capturar el selector
   de unidad compatible (un producto en kg ofrece kg/g/tn, uno sin unidad base
-  sólo unidades base).
+  sólo unidades base). `view=pos` monta el mostrador REAL (`/ventas/pos`, la
+  página entera) y `view=purchase` el formulario de compra REAL
+  (`PurchaseForm`), con el mismo catálogo: el selector de unidad y la etiqueta
+  "Cantidad (g)" de los tres caminos que escriben stock. Sin sesión, el POS
+  muestra el aviso de sin permiso de escritura y "Agregar al carrito"
+  deshabilitado — esperado; la pasada es del selector. Las filas de
+  `/products` traen `stock`/`min_stock` como string decimal ("0.5000"), como
+  las serializa FastAPI: con números el arnés escondía el crash de `/stock`
+  (corrección del PR #584).

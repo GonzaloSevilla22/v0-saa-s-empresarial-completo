@@ -8,11 +8,20 @@
  * historial (`MovementRow`) sobre productos en kilos y por unidades: la
  * cantidad tiene que salir como "0.550 kg" / "12 uds", nunca "uds" fijo.
  *
- * `?view=form` monta el formulario de venta REAL (`SaleForm`) con un catálogo
- * sintético servido por intercept de `window.fetch`: `/products` (backend) y
+ * `?view=form` monta el formulario de venta REAL (`SaleForm`), `?view=pos` el
+ * mostrador REAL (`/ventas/pos`, la página entera) y `?view=purchase` el
+ * formulario de compra REAL (`PurchaseForm`), todos con un catálogo sintético
+ * servido por intercept de `window.fetch`: `/products` (backend) y
  * `/rest/v1/units_of_measure` (Supabase REST, que `useUnitsOfMeasure` consulta
- * con supabase-js). Así el selector de unidad se deriva de `compatibleUnits`
- * con datos reales de la unidad base del producto, sin sesión ni backend.
+ * con supabase-js). Así el selector de unidad de los tres se deriva de
+ * `compatibleUnits` con datos reales de la unidad base del producto, sin
+ * sesión ni backend. Sin sesión, el POS muestra el aviso de "sin permiso de
+ * escritura" y el botón "Agregar al carrito" deshabilitado: es lo esperado,
+ * la pasada visual es del selector de unidad y de la cantidad.
+ *
+ * Las filas de `/products` llevan `stock` y `min_stock` como STRING decimal
+ * ("0.5000"), igual que las serializa FastAPI (Decimal → str): con números el
+ * arnés escondía el crash de /stock que corrigió el PR #584.
  *
  * El toggle de tema escribe la clase `dark` en `<html>` igual que next-themes.
  */
@@ -23,6 +32,8 @@ import { buildColumns, buildMobileCard } from "@/app/(dashboard)/stock/page"
 import { DataTable } from "@/components/data-table/data-table"
 import { MovementRow } from "@/components/stock/stock-movements-panel"
 import { SaleForm } from "@/components/forms/sale-form"
+import { PurchaseForm } from "@/components/forms/purchase-form"
+import PosPage from "@/app/(dashboard)/ventas/pos/page"
 import type { Product, StockMovement } from "@/lib/types"
 
 const U = {
@@ -56,10 +67,10 @@ const SYMBOL_BY_ID = new Map(UNIT_ROWS.map((u) => [u.id, u.symbol]))
 
 /** Catálogo sintético tal como lo devuelve GET /products (fila de la vista). */
 const PRODUCT_ROWS = [
-  { id: "p-tomate",  user_id: "u1", account_id: "a1", name: "Tomate redondo", category: "Verdulería", price: "1800", cost: "900",  stock: "0.55",   min_stock: 0.5, barcode: null, sku: "TOM-01", is_variant: false, stock_control_type: "tracked", created_at: "2026-09-24T00:00:00Z", base_unit_id: U.kg },
-  { id: "p-zapallo", user_id: "u1", account_id: "a1", name: "Zapallo anco",   category: "Verdulería", price: "1200", cost: "500",  stock: "12.375", min_stock: 2,   barcode: null, sku: "ZAP-01", is_variant: false, stock_control_type: "tracked", created_at: "2026-09-24T00:00:00Z", base_unit_id: U.kg },
-  { id: "p-aceite",  user_id: "u1", account_id: "a1", name: "Aceite suelto",  category: "Almacén",    price: "3500", cost: "2000", stock: "8.25",   min_stock: 1,   barcode: null, sku: "ACE-01", is_variant: false, stock_control_type: "tracked", created_at: "2026-09-24T00:00:00Z", base_unit_id: U.L },
-  { id: "p-huevo",   user_id: "u1", account_id: "a1", name: "Huevo (unidad)", category: "Almacén",    price: "250",  cost: "150",  stock: "12",     min_stock: 30,  barcode: null, sku: "HUE-01", is_variant: false, stock_control_type: "tracked", created_at: "2026-09-24T00:00:00Z", base_unit_id: null },
+  { id: "p-tomate",  user_id: "u1", account_id: "a1", name: "Tomate redondo", category: "Verdulería", price: "1800", cost: "900",  stock: "0.5500", min_stock: "0.5000", barcode: null, sku: "TOM-01", is_variant: false, stock_control_type: "tracked", created_at: "2026-09-24T00:00:00Z", base_unit_id: U.kg },
+  { id: "p-zapallo", user_id: "u1", account_id: "a1", name: "Zapallo anco",   category: "Verdulería", price: "1200", cost: "500",  stock: "12.3750", min_stock: "2.0000", barcode: null, sku: "ZAP-01", is_variant: false, stock_control_type: "tracked", created_at: "2026-09-24T00:00:00Z", base_unit_id: U.kg },
+  { id: "p-aceite",  user_id: "u1", account_id: "a1", name: "Aceite suelto",  category: "Almacén",    price: "3500", cost: "2000", stock: "8.2500", min_stock: "1.0000", barcode: null, sku: "ACE-01", is_variant: false, stock_control_type: "tracked", created_at: "2026-09-24T00:00:00Z", base_unit_id: U.L },
+  { id: "p-huevo",   user_id: "u1", account_id: "a1", name: "Huevo (unidad)", category: "Almacén",    price: "250",  cost: "150",  stock: "12.0000", min_stock: "30.0000", barcode: null, sku: "HUE-01", is_variant: false, stock_control_type: "tracked", created_at: "2026-09-24T00:00:00Z", base_unit_id: null },
 ]
 
 const PRODUCTS: Product[] = PRODUCT_ROWS.map((p) => ({
@@ -71,7 +82,7 @@ const PRODUCTS: Product[] = PRODUCT_ROWS.map((p) => ({
   price: Number(p.price),
   margin: 50,
   stock: Number(p.stock),
-  minStock: p.min_stock,
+  minStock: Number(p.min_stock),
   sku: p.sku,
   isVariant: false,
   stockControlType: "tracked",
@@ -96,6 +107,7 @@ function installFetchIntercept() {
     if (url.startsWith(backend) || url.startsWith("/api/")) {
       if (url.includes("/products")) return json(PRODUCT_ROWS)
       if (url.includes("/sales")) return json({ items: [], total: 0, page: 0, pages: 0 })
+      if (url.includes("/purchases")) return json({ items: [], total: 0, page: 0, pages: 0 })
       return json([])
     }
     return original(input, init)
@@ -127,8 +139,21 @@ function StockView() {
   )
 }
 
+type HarnessView = "stock" | "form" | "pos" | "purchase"
+
+const VIEW_TITLES: Record<HarnessView, string> = {
+  stock: "stock e historial",
+  form: "formulario de venta",
+  pos: "mostrador (POS)",
+  purchase: "formulario de compra",
+}
+
+function parseView(raw: string | null): HarnessView {
+  return raw === "form" || raw === "pos" || raw === "purchase" ? raw : "stock"
+}
+
 export function UnidadesHarness() {
-  const [view, setView] = useState<"stock" | "form">("stock")
+  const [view, setView] = useState<HarnessView>("stock")
   const [ready, setReady] = useState(false)
 
   useEffect(() => {
@@ -137,7 +162,7 @@ export function UnidadesHarness() {
     const theme = params.get("theme")
     document.documentElement.classList.toggle("dark", theme === "dark")
     document.documentElement.dataset.theme = theme === "dark" ? "dark" : "light"
-    setView(params.get("view") === "form" ? "form" : "stock")
+    setView(parseView(params.get("view")))
     setReady(true)
     return uninstall
   }, [])
@@ -147,13 +172,22 @@ export function UnidadesHarness() {
   return (
     <main className="min-h-screen bg-background p-4">
       <h1 className="mb-4 text-lg font-semibold text-foreground" data-testid="harness-title">
-        Arnés — Unidades de medida ({view === "form" ? "formulario de venta" : "stock e historial"})
+        Arnés — Unidades de medida ({VIEW_TITLES[view]})
       </h1>
-      {view === "stock" ? (
-        <StockView />
-      ) : (
+      {view === "stock" && <StockView />}
+      {view === "form" && (
         <div data-testid="harness-form" className="max-w-3xl">
           <SaleForm onSuccess={() => {}} />
+        </div>
+      )}
+      {view === "pos" && (
+        <div data-testid="harness-pos">
+          <PosPage />
+        </div>
+      )}
+      {view === "purchase" && (
+        <div data-testid="harness-purchase" className="max-w-3xl">
+          <PurchaseForm onSuccess={() => {}} />
         </div>
       )}
     </main>

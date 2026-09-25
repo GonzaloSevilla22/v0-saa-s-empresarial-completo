@@ -752,7 +752,7 @@ BEGIN
 
   -- Segunda revisión: reporting en unidad base, guard de unidad base en la tabla.
   FOREACH v_fn IN ARRAY ARRAY['reporting_sales_lines_in_window', 'rpc_dashboard_kpi_summary', 'rpc_dashboard_channel_margin'] LOOP
-    SELECT replace(p.prosrc, E'', '') INTO v_src FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+    SELECT replace(p.prosrc, E'\r', '') INTO v_src FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
     WHERE n.nspname = 'public' AND p.proname = v_fn;
     IF v_src IS NULL OR position('public._uom_quantity_for_reporting(' IN v_src) = 0 THEN
       v_failures := v_failures || ('E ' || v_fn || ': no cuenta en unidad base');

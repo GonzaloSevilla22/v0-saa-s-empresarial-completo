@@ -3713,7 +3713,7 @@ BEGIN
 
   -- Segunda revisión (§10): el reporting cuenta y costea en unidad base.
   FOREACH v_fn IN ARRAY ARRAY['reporting_sales_lines_in_window', 'rpc_dashboard_kpi_summary', 'rpc_dashboard_channel_margin'] LOOP
-    SELECT replace(p.prosrc, E'', '') INTO v_src
+    SELECT replace(p.prosrc, E'\r', '') INTO v_src
     FROM   pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
     WHERE  n.nspname = 'public' AND p.proname = v_fn;
     IF v_src IS NULL OR position('public._uom_quantity_for_reporting(' IN v_src) = 0 THEN
@@ -3733,7 +3733,7 @@ BEGIN
     v_bad := v_bad || 'fn_product_base_unit_guard: ejecutable por authenticated'::text;
   END IF;
   -- Helper: un factor <= 0 de la unidad de la línea se rechaza.
-  SELECT replace(p.prosrc, E'', '') INTO v_src FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+  SELECT replace(p.prosrc, E'\r', '') INTO v_src FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
   WHERE n.nspname = 'public' AND p.proname = '_uom_normalize_quantity';
   IF position('v_unit.factor <= 0' IN v_src) = 0 THEN
     v_bad := v_bad || '_uom_normalize_quantity: no rechaza un factor <= 0 de la unidad de la línea'::text;

@@ -115,6 +115,11 @@ def _unit_str(value: object) -> str | None:
     return None if value is None else str(value)
 
 
+# Segunda revisión del PR #584: este chequeo es el camino rápido con el 409
+# tipado (code/field). La regla la hace cumplir la base —
+# trg_product_base_unit_guard (P0409 base_unit_locked) evalúa con la fila
+# bloqueada, cierra la carrera entre este SELECT y el UPDATE y cubre PostgREST;
+# si la gana otro escritor, el asyncpg handler traduce el P0409 a 409.
 async def _guard_base_unit_change(
     repo: ProductRepository,
     existing: asyncpg.Record,

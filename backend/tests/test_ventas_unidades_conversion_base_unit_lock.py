@@ -261,3 +261,54 @@ async def test_repo_queries_are_tenant_scoped_and_cover_the_variant_group():
     # "Stock ≠ 0 en ALGUNA sucursal", no la suma (+5 / −5 también cuenta).
     assert "bs.quantity <> 0" in stock_sql
     assert "SUM(" not in stock_sql.upper()
+
+
+# ── Segunda revisión del PR #584 ────────────────────────────────────────────
+# (g) VARIANTE: su unidad "actual" es la heredada del padre (v_products_with_stock
+#     expone COALESCE(p.base_unit_id, pp.base_unit_id)). Cambiarla con stock en
+#     el grupo también es un cambio → 409. Ninguna fixture tenía una variante.
+async def test_variant_with_inherited_base_unit_and_stock_is_rejected_409(async_client, mock_pool):
+    pool, conn = mock_pool
+    stock_checks, movement_checks, updates = _wire(conn, current_base=UNIT_KG, has_stock=True, has_movements=False)
+    variant_row = {**_product_row(UNIT_KG), "parent_id": "33333333-3333-3333-3333-333333333333", "is_variant": True}
+
+    async def fetchrow_variant(query, *args):
+        if "FROM units_of_measure" in query:
+            return {"?column?": 1}
+        return variant_row
+
+    conn.fetchrow = AsyncMock(side_effect=fetchrow_variant)
+
+    resp = await _put(async_client, pool, {"base_unit_id": UNIT_UN})
+
+    _assert_locked(resp)
+    assert updates == []
+    assert len(stock_checks) == 1
+
+
+# (h) El guard de la BASE (trg_product_base_unit_guard, P0409) es el que decide
+#     cuando la carrera la gana otro escritor entre el chequeo y el UPDATE
+#     (TOCTOU) o el cambio llega por otro camino: el backend lo traduce a 409
+#     RFC 7807 con el mensaje del RAISE, nunca a un 500.
+async def test_db_trigger_base_unit_locked_maps_to_409_problem(async_client, mock_pool):
+    import asyncpg
+
+    pool, conn = mock_pool
+    _wire(conn, current_base=UNIT_KG, has_stock=False, has_movements=False)
+    err = asyncpg.exceptions.RaiseError(
+        "base_unit_locked: el producto ya tiene stock o movimientos en su unidad base actual"
+    )
+    err.sqlstate = "P0409"
+
+    async def execute_raises(query, *args):
+        if query.lstrip().startswith("UPDATE products"):
+            raise err
+        return "SET"
+
+    conn.execute = AsyncMock(side_effect=execute_raises)
+
+    resp = await _put(async_client, pool, {"base_unit_id": UNIT_UN})
+
+    assert resp.status_code == 409, resp.text
+    assert resp.headers["content-type"].startswith("application/problem+json")
+    assert "base_unit_locked" in resp.json()["detail"]

@@ -1,8 +1,11 @@
 -- =============================================================================
 -- MIGRATION: 20261062000001_ventas_unidades_conversion.sql
 -- CHANGE: ventas-unidades-conversion (2026-09-24) — governance MEDIA con un
---         tramo de severidad ALTA (reescribe cinco RPCs SECURITY DEFINER que
+--         tramo de severidad ALTA (reescribe seis RPCs SECURITY DEFINER que
 --         escriben stock; no toca dinero, caja, cuentas corrientes ni fiscal).
+--         Renumerada de 20261061000001 a 20261062000001 el 2026-09-25: la
+--         20261061000001 la tomó el PR #585 (venta-editable-vs-promocion-legacy),
+--         ya mergeado y vivo en prod.
 --
 -- PROBLEMA (medido en prod el 2026-09-24): la conversión por unidad de medida
 -- vivía en dos de los cuatro caminos que mueven stock (alta de venta y alta de
@@ -32,24 +35,30 @@
 --      rpc_set_product_min_stock con DROP + CREATE).
 --   9. Gate embebido de introspección.
 --
--- CUERPOS DE PARTIDA (md5 de prosrc CR-stripped, verificados contra prod
--- gxdhpxvdjjkmxhdkkwyb el 2026-09-24 y contra el último CREATE OR REPLACE de
--- este directorio — idénticos):
+-- CUERPOS DE PARTIDA (md5 de prosrc CR-stripped, re-medidos contra prod
+-- gxdhpxvdjjkmxhdkkwyb el 2026-09-25 — después del deploy de #585, 308
+-- migraciones, max(version)=20261061000001 — y contra el último CREATE OR
+-- REPLACE de este directorio — idénticos):
 --   _c29_confirm_order_core              7489bd12fca16ec4fbb5e12fc4b1e852  (20261045000001_operacion_party_guard.sql)
 --   rpc_create_sale_operation_v2         3f68a783995da7bdf333751a8e347b18  (20261045000001_operacion_party_guard.sql)
 --   rpc_create_purchase_operation        f465b93f8eaedeba46bca08a4fc41033  (20261022000001_cobranzas_vencimientos.sql)
---   rpc_atomic_update_sale_operation     a657c54b18ffadf82687487789d71d7f  (20261060000001_venta_editable_sin_cae.sql)
+--   rpc_atomic_update_sale_operation     7c8c1b765ca669ad736e8fc181d471bb  (20261061000001_venta_editable_vs_promocion_legacy.sql, PR #585)
 --   rpc_atomic_update_purchase_operation fd5052c8e3fa146512600aa9987e2beb  (20261018000001_caja_compras_cobranzas.sql)
 --   rpc_create_sale_operation            343e0f1f938a918daaba41434c8a494b  (20261022000001_cobranzas_vencimientos.sql)
 --
+-- rpc_atomic_update_sale_operation parte AHORA del cuerpo de #585 (lock
+-- temprano N1 + recálculo N3), no del de 20261060000001 (a657c54b…) que
+-- usaba la versión original de este PR: su cuerpo es la fusión en 3 vías
+-- base 20261060000001 / ours #585 / theirs unidades (0 conflictos, §5).
+--
 -- Firmas intactas en las seis (CREATE OR REPLACE); ACLs intactas (el REPLACE
 -- conserva proacl). Gates: supabase/tests/test_ventas_unidades_conversion.sql
--- (matriz de los cinco caminos + min_stock) cableado en KPI_Validation.yml.
+-- (matriz de los seis caminos + min_stock) cableado en KPI_Validation.yml.
 -- =============================================================================
 
 -- ─── 0. Punto de partida verificado ────────────────────────────────────────
 -- Cada cuerpo se reescribe desde su pg_get_functiondef VIVO, verificado el
--- 2026-09-24 contra prod (gxdhpxvdjjkmxhdkkwyb, sólo SELECT) y contra el
+-- 2026-09-25 contra prod (gxdhpxvdjjkmxhdkkwyb, sólo SELECT) y contra el
 -- último CREATE OR REPLACE del directorio de migraciones: md5(prosrc)
 -- CR-stripped IDÉNTICO en los seis. Si el cuerpo vivo del stack que aplica
 -- esta migración difiere (una migración intermedia que nadie reconcilió), se
@@ -61,7 +70,7 @@ DECLARE
     '_c29_confirm_order_core',              '7489bd12fca16ec4fbb5e12fc4b1e852',
     'rpc_create_sale_operation_v2',         '3f68a783995da7bdf333751a8e347b18',
     'rpc_create_purchase_operation',        'f465b93f8eaedeba46bca08a4fc41033',
-    'rpc_atomic_update_sale_operation',     'a657c54b18ffadf82687487789d71d7f',
+    'rpc_atomic_update_sale_operation',     '7c8c1b765ca669ad736e8fc181d471bb',
     'rpc_atomic_update_purchase_operation', 'fd5052c8e3fa146512600aa9987e2beb',
     'rpc_create_sale_operation',            '343e0f1f938a918daaba41434c8a494b'
   );
@@ -69,12 +78,14 @@ DECLARE
   -- on reapply" / db reset con la migración ya vigente). Auditoría post-apply:
   -- antes se toleraba cualquier cuerpo que contuviera la llamada al helper, lo
   -- que dejaba pasar en silencio una redefinición posterior — ahora sólo el
-  -- md5 exacto.
+  -- md5 exacto. Medidos de pg_proc en el stack local después de aplicar ESTE
+  -- archivo (db reset, 309 migraciones, 2026-09-25); el de
+  -- rpc_atomic_update_sale_operation es el de la fusión con #585.
   v_rewritten jsonb := jsonb_build_object(
     '_c29_confirm_order_core',              'd69e1ea6daac7c4deec0a1603ae4ceae',
     'rpc_create_sale_operation_v2',         'b51c6d7eae41edf95bcffec6eebc1df8',
     'rpc_create_purchase_operation',        '35ae3c793efec9c3a6a06138dcea90ee',
-    'rpc_atomic_update_sale_operation',     'a2313489d229dc7c7beb24cfd37c24cc',
+    'rpc_atomic_update_sale_operation',     '66c49a34b4e9de40ddbe90a1e33d0f83',
     'rpc_atomic_update_purchase_operation', '23558c073cf71d08ea4a0dfb15079555',
     'rpc_create_sale_operation',            '76654116ca260f683e0d4082b6c77db0'
   );
@@ -96,7 +107,7 @@ BEGIN
     END IF;
   END LOOP;
   IF array_length(v_bad, 1) > 0 THEN
-    RAISE EXCEPTION 'ventas-unidades-conversion: el cuerpo vivo de partida difiere del verificado contra prod el 2026-09-24 — reconciliar antes de reescribir: %',
+    RAISE EXCEPTION 'ventas-unidades-conversion: el cuerpo vivo de partida difiere del verificado contra prod el 2026-09-25 — reconciliar antes de reescribir: %',
       array_to_string(v_bad, '; ');
   END IF;
   RAISE NOTICE 'ventas-unidades-conversion: seis cuerpos de partida verificados por md5';
@@ -1476,6 +1487,14 @@ END;
 $function$;
 
 -- ─── 5. rpc_atomic_update_sale_operation — REVERSE por delta guardado, APPLY normalizada ───
+-- Fusión en 3 vías (2026-09-25, corrección del PR #584): base = cuerpo de
+-- 20261060000001 (md5 a657c54b…), ours = cuerpo VIVO de prod dejado por
+-- 20261061000001_venta_editable_vs_promocion_legacy (PR #585, md5 7c8c1b76…:
+-- lock temprano FOR UPDATE de las filas sales en orden de id (N1) + recálculo
+-- de la orden re-apuntada vía _sales_order_sync_from_operation (N3)), theirs =
+-- los hunks de unidades de este change (v_apply_qty_norm vía el helper y
+-- reversa por quantity_delta, D6). Hunks disjuntos, 0 conflictos; se conserva
+-- también la anulación de venta-editable-sin-cae (#582) y sus guards P0423.
 CREATE OR REPLACE FUNCTION public.rpc_atomic_update_sale_operation(p_sale_ids uuid[], p_client_id uuid, p_date date, p_currency text, p_items jsonb, p_payment_method_id uuid DEFAULT NULL::uuid, p_payment_method_provided boolean DEFAULT false, p_branch_id uuid DEFAULT NULL::uuid, p_branch_provided boolean DEFAULT false, p_canal text DEFAULT NULL::text, p_canal_provided boolean DEFAULT false)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -1521,6 +1540,9 @@ DECLARE
   -- venta-editable-sin-cae: la anulación del comprobante pendiente NO enviado.
   v_void_rec            RECORD;   -- (sales_order_id, operation_id) a anular
   v_voided_doc          jsonb;    -- descriptor del último comprobante anulado
+  -- venta-editable-vs-promocion-legacy (20261061000001):
+  v_locked              integer;  -- filas de la operación tomadas con FOR UPDATE
+  v_resync_id           uuid;     -- orden re-apuntada que se recalcula (N3)
 BEGIN
   -- Identity always comes from the JWT — never from caller input
   v_uid := (SELECT auth.uid());
@@ -1552,6 +1574,31 @@ BEGIN
   IF (SELECT COUNT(*) FROM public.sales WHERE id = ANY(p_sale_ids))
       != array_length(p_sale_ids, 1)
   THEN
+    RAISE EXCEPTION 'One or more sale IDs not found' USING ERRCODE = 'P0404';
+  END IF;
+
+  -- venta-editable-vs-promocion-legacy (N1): EXCLUSIÓN contra la promoción.
+  -- Las filas de sales de la operación son lo único que existe ANTES que la
+  -- orden, así que son el ancla común: la promoción, la edición y el borrado
+  -- las toman PRIMERO, con FOR UPDATE y en orden ascendente de id. Orden
+  -- global de locks: sales → sales_orders → fiscal_documents → resto.
+  -- Sin este lock, el enumerador de órdenes de más abajo leía SIN lock, no
+  -- veía la orden que una promoción concurrente estaba creando, y la venta
+  -- quedaba editada con un comprobante pendiente VIVO por importes viejos.
+  -- Recuento bajo el lock: si otra edición o un borrado ganó y se llevó
+  -- alguna fila mientras se esperaba, se aborta acá, antes de revertir stock
+  -- o de tocar cualquier libro (doble "Guardar" incluido).
+  SELECT count(*) INTO v_locked
+  FROM (
+    SELECT s.id
+    FROM   public.sales s
+    WHERE  s.id = ANY(p_sale_ids)
+      AND  s.user_id = v_uid
+    ORDER  BY s.id
+    FOR UPDATE
+  ) l;
+
+  IF v_locked <> array_length(p_sale_ids, 1) THEN
     RAISE EXCEPTION 'One or more sale IDs not found' USING ERRCODE = 'P0404';
   END IF;
 
@@ -2003,6 +2050,16 @@ BEGIN
   -- `WHERE fiscal_document_id IS NULL` a secas la deja huérfana (gate 2.8,
   -- descubierto en RED contra esta migración: no era redundante con F2, F2
   -- ya deja pasar exactamente este caso).
+  --
+  -- venta-editable-vs-promocion-legacy (N3): la orden re-apuntada SIGUE a la
+  -- operación también en importes. Re-apuntar sólo sale_operation_id dejaba
+  -- total, cliente y líneas VIEJOS: la re-facturación después de anular (D5
+  -- de venta-editable-sin-cae) y el "Facturar" de una venta del POS editada
+  -- emitían por el importe anterior. El recálculo vive en UN solo lugar,
+  -- compartido con la promoción: _sales_order_sync_from_operation. El
+  -- predicado del re-apuntado no cambia; el helper de anulación ya corrió
+  -- arriba, así que acá sólo llegan órdenes sin comprobante o con uno
+  -- rechazado/anulado (a lo sumo una: índice único parcial).
   UPDATE public.sales_orders so
   SET    sale_operation_id = v_new_op_id
   WHERE  so.sale_operation_id = v_old_operation_id
@@ -2010,7 +2067,12 @@ BEGIN
       SELECT 1 FROM public.fiscal_documents fd
       WHERE fd.id = so.fiscal_document_id
         AND fd.status IN ('pending_cae', 'authorized')
-    );
+    )
+  RETURNING so.id INTO v_resync_id;
+
+  IF v_resync_id IS NOT NULL THEN
+    PERFORM public._sales_order_sync_from_operation(v_resync_id, v_new_op_id, v_account_id);
+  END IF;
 
   -- asiento-venta-formulario (D7, override del PO): ajustar el rastro
   -- contable AHORA que v_new_op_id/v_total_sum/v_final_payment_method_id
@@ -2918,6 +2980,12 @@ $function$;
 REVOKE ALL     ON FUNCTION public.get_dashboard_critical_stock_items(uuid, integer) FROM PUBLIC, anon;
 GRANT  EXECUTE ON FUNCTION public.get_dashboard_critical_stock_items(uuid, integer) TO authenticated, service_role;
 
+-- DROP + CREATE borra el COMMENT vivo: se re-emite el de prod (leído con
+-- obj_description el 2026-09-25) más una línea sobre el tipo nuevo. El gate
+-- embebido y el bloque E del gate SQL exigen que no quede NULL.
+COMMENT ON FUNCTION public.get_dashboard_critical_stock_items(uuid, integer) IS
+  'kpi-canonicalization (candidato S5): detalle canónico de productos críticos por sucursal — hermana de get_dashboard_critical_stock(uuid) con el MISMO predicado (branch_stock.min_stock > 0 AND quantity <= min_stock, tracked/untracked/variant_only, deleted_at, tenencia vía current_account_ids()), pero devolviendo las filas (una por producto+sucursal, sin deduplicar) en vez del conteo. Consumido por el Copiloto (buildBusinessSnapshot.ts) y ai-insights/index.ts para poder nombrar los productos críticos, no sólo contarlos. Nunca reconstruir este predicado desde v_products_with_stock. ventas-unidades-conversion: min_stock del resultado pasa a numeric(15,4) (unidad base del producto, admite 0,5 kg) — mismo predicado, sólo cambia el tipo.';
+
 -- rpc_set_product_min_stock(uuid, int) → (uuid, numeric). Firma distinta =
 -- DROP + CREATE, nunca CREATE OR REPLACE con la firma nueva (dejaría dos
 -- overloads vivos: gotcha 42725). Cuerpo vivo de prod, sólo cambia el tipo.
@@ -2980,7 +3048,14 @@ $function$;
 REVOKE ALL     ON FUNCTION public.rpc_set_product_min_stock(uuid, numeric) FROM PUBLIC, anon;
 GRANT  EXECUTE ON FUNCTION public.rpc_set_product_min_stock(uuid, numeric) TO authenticated, service_role;
 
+-- DROP + CREATE borra el COMMENT vivo: se re-emite el de prod (leído con
+-- obj_description el 2026-09-25) más una línea sobre la firma nueva.
+COMMENT ON FUNCTION public.rpc_set_product_min_stock(uuid, numeric) IS
+  'branch-min-stock-realign (1.2): propaga min_stock del producto a TODAS las filas branch_stock existentes de ese producto (semántica "aplica a todas las sucursales", decisión PO 2026-07-04). SECURITY DEFINER + guard is_account_writer — mismo patrón que rpc_adjust_branch_stock. Filas branch_stock lazy futuras (creadas por otros deltas) nacen en min_stock=0 hasta la próxima edición que re-propague; comportamiento aceptado y documentado (ver design.md Decisión (a)). ventas-unidades-conversion: p_min_stock pasa de integer a numeric y se guarda como numeric(15,4) (unidad base del producto, admite 0,5 kg); la firma (uuid, integer) se retiró con DROP + CREATE, sin overload.';
+
 -- ─── 9. Gate embebido de introspección (falla el deploy si falta una pieza) ──
+-- Cada literal que se agrega a v_bad lleva ::text: text[] || 'literal' la
+-- resolvería como ARRAY ("malformed array literal") y taparía el motivo real.
 DO $$
 DECLARE
   v_fn      text;
@@ -3017,12 +3092,12 @@ BEGIN
   SELECT replace(p.prosrc, E'\r', '') INTO v_src FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
   WHERE n.nspname = 'public' AND p.proname = 'rpc_atomic_update_sale_operation';
   IF v_src ~ '-v_item\.quantity,\s*''sale''' OR v_src ~ 'v_old_sale\.quantity,\s*''sale_return''' THEN
-    v_bad := v_bad || 'rpc_atomic_update_sale_operation: alguna pata sigue usando la cantidad cruda';
+    v_bad := v_bad || 'rpc_atomic_update_sale_operation: alguna pata sigue usando la cantidad cruda'::text;
   END IF;
   SELECT replace(p.prosrc, E'\r', '') INTO v_src FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
   WHERE n.nspname = 'public' AND p.proname = 'rpc_atomic_update_purchase_operation';
   IF v_src ~ 'v_item\.quantity,\s*''purchase''' OR v_src ~ '-v_old_purchase\.quantity,\s*''purchase_return''' THEN
-    v_bad := v_bad || 'rpc_atomic_update_purchase_operation: alguna pata sigue usando la cantidad cruda';
+    v_bad := v_bad || 'rpc_atomic_update_purchase_operation: alguna pata sigue usando la cantidad cruda'::text;
   END IF;
 
   -- Helper: una sola definición, SECURITY INVOKER, sin EXECUTE para los roles de aplicación.
@@ -3031,13 +3106,13 @@ BEGIN
   IF v_cnt <> 1 THEN v_bad := v_bad || format('_uom_normalize_quantity: %s definiciones (esperaba 1)', v_cnt); END IF;
   IF EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
              WHERE n.nspname = 'public' AND p.proname = '_uom_normalize_quantity' AND p.prosecdef) THEN
-    v_bad := v_bad || '_uom_normalize_quantity: es SECURITY DEFINER (debe ser INVOKER)';
+    v_bad := v_bad || '_uom_normalize_quantity: es SECURITY DEFINER (debe ser INVOKER)'::text;
   END IF;
   IF has_function_privilege('anon', 'public._uom_normalize_quantity(uuid, uuid, numeric)', 'EXECUTE') THEN
-    v_bad := v_bad || '_uom_normalize_quantity: anon puede ejecutarla';
+    v_bad := v_bad || '_uom_normalize_quantity: anon puede ejecutarla'::text;
   END IF;
   IF has_function_privilege('authenticated', 'public._uom_normalize_quantity(uuid, uuid, numeric)', 'EXECUTE') THEN
-    v_bad := v_bad || '_uom_normalize_quantity: authenticated puede ejecutarla';
+    v_bad := v_bad || '_uom_normalize_quantity: authenticated puede ejecutarla'::text;
   END IF;
 
   -- min_stock numeric(15,4) en branch_stock y en products.
@@ -3060,10 +3135,10 @@ BEGIN
     v_bad := v_bad || format('rpc_set_product_min_stock: %s firmas, última "%s"', v_cnt, v_res);
   END IF;
   IF has_function_privilege('anon', 'public.rpc_set_product_min_stock(uuid, numeric)', 'EXECUTE') THEN
-    v_bad := v_bad || 'rpc_set_product_min_stock: anon puede ejecutarla';
+    v_bad := v_bad || 'rpc_set_product_min_stock: anon puede ejecutarla'::text;
   END IF;
   IF NOT has_function_privilege('authenticated', 'public.rpc_set_product_min_stock(uuid, numeric)', 'EXECUTE') THEN
-    v_bad := v_bad || 'rpc_set_product_min_stock: authenticated perdió EXECUTE';
+    v_bad := v_bad || 'rpc_set_product_min_stock: authenticated perdió EXECUTE'::text;
   END IF;
 
   -- get_dashboard_critical_stock_items: una firma, min_stock numeric en el resultado, ACLs.
@@ -3074,7 +3149,15 @@ BEGIN
     v_bad := v_bad || format('get_dashboard_critical_stock_items: %s firmas, resultado "%s"', v_cnt, v_res);
   END IF;
   IF has_function_privilege('anon', 'public.get_dashboard_critical_stock_items(uuid, integer)', 'EXECUTE') THEN
-    v_bad := v_bad || 'get_dashboard_critical_stock_items: anon puede ejecutarla';
+    v_bad := v_bad || 'get_dashboard_critical_stock_items: anon puede ejecutarla'::text;
+  END IF;
+
+  -- DROP + CREATE no puede dejar las dos funciones sin su COMMENT vivo.
+  IF obj_description('public.get_dashboard_critical_stock_items(uuid, integer)'::regprocedure, 'pg_proc') IS NULL THEN
+    v_bad := v_bad || 'get_dashboard_critical_stock_items: perdió su COMMENT ON FUNCTION'::text;
+  END IF;
+  IF obj_description('public.rpc_set_product_min_stock(uuid, numeric)'::regprocedure, 'pg_proc') IS NULL THEN
+    v_bad := v_bad || 'rpc_set_product_min_stock: perdió su COMMENT ON FUNCTION'::text;
   END IF;
 
   -- Vista recreada con security_invoker y visible para los roles de aplicación.
@@ -3083,25 +3166,25 @@ BEGIN
     WHERE n.nspname = 'public' AND c.relname = 'v_products_with_stock' AND c.relkind = 'v'
       AND c.reloptions::text LIKE '%security_invoker=true%'
   ) THEN
-    v_bad := v_bad || 'v_products_with_stock: no existe o perdió security_invoker';
+    v_bad := v_bad || 'v_products_with_stock: no existe o perdió security_invoker'::text;
   END IF;
   IF NOT has_table_privilege('authenticated', 'public.v_products_with_stock', 'SELECT') THEN
-    v_bad := v_bad || 'v_products_with_stock: authenticated perdió SELECT';
+    v_bad := v_bad || 'v_products_with_stock: authenticated perdió SELECT'::text;
   END IF;
   IF NOT EXISTS (
     SELECT 1 FROM information_schema.columns
     WHERE table_schema = 'public' AND table_name = 'v_products_with_stock' AND column_name = 'base_unit_id'
   ) THEN
-    v_bad := v_bad || 'v_products_with_stock: no expone base_unit_id (D10)';
+    v_bad := v_bad || 'v_products_with_stock: no expone base_unit_id (D10)'::text;
   END IF;
   -- Auditoría post-apply: la base de una variante es la del padre, en la vista y en el helper.
   IF pg_get_viewdef('public.v_products_with_stock'::regclass) !~ 'pp\.base_unit_id' THEN
-    v_bad := v_bad || 'v_products_with_stock: base_unit_id no hereda del padre (COALESCE con pp.base_unit_id)';
+    v_bad := v_bad || 'v_products_with_stock: base_unit_id no hereda del padre (COALESCE con pp.base_unit_id)'::text;
   END IF;
   SELECT replace(p.prosrc, E'\r', '') INTO v_src FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
   WHERE n.nspname = 'public' AND p.proname = '_uom_normalize_quantity';
   IF position('LEFT JOIN public.products pp' IN v_src) = 0 OR position('v_unit.is_system' IN v_src) = 0 THEN
-    v_bad := v_bad || '_uom_normalize_quantity: perdió la herencia del padre o el guard de tenencia';
+    v_bad := v_bad || '_uom_normalize_quantity: perdió la herencia del padre o el guard de tenencia'::text;
   END IF;
 
   IF array_length(v_bad, 1) > 0 THEN

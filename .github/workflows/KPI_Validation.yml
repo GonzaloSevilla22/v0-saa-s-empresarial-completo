@@ -992,9 +992,10 @@ jobs:
           # Sobre el estado reconvergido (= la historia real completa, con
           # 20261062000001 ya aplicada por el reset), los seis cuerpos son
           # exactamente `v_rewritten`: esto ejercita la rama de reaplicación
-          # del preflight (9 NOTICE "ya es el cuerpo de esta migración": los seis
-          # que escriben stock + los tres de reporting de la segunda revisión) y el
-          # gate embebido (sección 12), y prueba que DROP VIEW + ALTER TYPE +
+          # del preflight (10 NOTICE "ya es el cuerpo de esta migración": los seis
+          # que escriben stock + los tres de reporting de la segunda revisión +
+          # check_low_margin de la tercera) y el gate embebido (sección 14), y
+          # prueba que DROP VIEW + ALTER TYPE +
           # DROP/CREATE de las dos funciones de min_stock son re-ejecutables.
           # SIN tolerancia (ON_ERROR_STOP=1 + `set -e`: cualquier error →
           # rojo), y el schema tiene que quedar IDÉNTICO al de antes del paso:
@@ -1003,8 +1004,8 @@ jobs:
           UOM_OUT=$(psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261062000001_ventas_unidades_conversion.sql 2>&1) || { echo "$UOM_OUT"; echo "ERROR: el reapply de 20261062000001 falló (sin tolerancia)."; exit 1; }
           echo "$UOM_OUT"
           UOM_REAPPLIED=$(echo "$UOM_OUT" | grep -cF 'ya es el cuerpo de esta migraci' || true)
-          if [ "$UOM_REAPPLIED" != "9" ]; then
-            echo "ERROR: el reapply de 20261062000001 no tomó la rama de reaplicación del preflight en las 9 funciones (tomó $UOM_REAPPLIED/9): alguna quedó reescrita desde su cuerpo de partida, o sea que el estado reconvergido no es el que la migración deja."
+          if [ "$UOM_REAPPLIED" != "10" ]; then
+            echo "ERROR: el reapply de 20261062000001 no tomó la rama de reaplicación del preflight en las 10 funciones (tomó $UOM_REAPPLIED/10): alguna quedó reescrita desde su cuerpo de partida, o sea que el estado reconvergido no es el que la migración deja."
             exit 1
           fi
           if ! echo "$UOM_OUT" | grep -qF 'GATE ventas-unidades-conversion (embebido): PASS'; then
@@ -1017,7 +1018,7 @@ jobs:
             cat /tmp/schema_diff_uom.txt
             exit 1
           fi
-          echo "20261062000001 idempotente: rama de reaplicación 9/9, gate embebido PASS y schema IDÉNTICO al previo a este paso."
+          echo "20261062000001 idempotente: rama de reaplicación 10/10, gate embebido PASS y schema IDÉNTICO al previo a este paso."
 
       # -v ON_ERROR_STOP=1 is required: without it psql prints RAISE EXCEPTION
       # errors but still exits 0, so failing assertions show green in CI.
@@ -2266,7 +2267,7 @@ jobs:
 
       # ventas-unidades-conversion (2026-09-25, corregido post-revision PR #584):
       # 20261062000001 ya se aplico al levantar el stack; este paso solo corre
-      # el gate. 8 bloques (A-H): (A) la definicion unica
+      # el gate. 14 bloques (A-N): (A) la definicion unica
       # _uom_normalize_quantity caso por caso (relativa a la unidad base del
       # PRODUCTO, tipo cruzado P0400 unit_type_mismatch, sin unidad base solo
       # unidades base P0400 unit_requires_base_unit); (B) los SEIS caminos que
@@ -2284,9 +2285,37 @@ jobs:
       # SISTEMA (kg/g, sembradas por el propio gate si el stack no las tiene);
       # (G) tenencia: la unidad de OTRA cuenta da P0404 sin dejar rastro; (H)
       # residuo cero de la fixture (incluye la segunda cuenta y las unidades de
-      # sistema sembradas por el gate).
+      # sistema sembradas por el gate). Segunda revision: (I) contrato de precio
+      # D-F (el precio es por unidad de la LINEA: 100 g a $1,80/g = $180) y
+      # reporting en unidad BASE (ranking 0,1 kg / COGS 60, margen por canal,
+      # costo por venta del Tablero); (J) la reversa de la edicion usa el
+      # quantity_delta GUARDADO (D6); (K) 4 decimales, base propia de una
+      # variante, factor <= 0 rechazado; (L) trg_product_base_unit_guard:
+      # P0409 base_unit_locked tambien por PostgREST y, desde la tercera
+      # revision, al re-parentar o desenganchar una variante que hereda. Tercera
+      # revision: (M) D-F' el precio por unidad de la linea se guarda sin
+      # redondear (sales_order_items.price era numeric(15,2): el POS grababa
+      # 4,58 por 4,575 y editar sin cambios re-preciaba 2.058,75 -> 2.061) y el
+      # total es exacto en POS, formulario, compra y edicion; (N) la alerta de
+      # margen por email (check_low_margin) costea la cantidad en unidad base.
+      # (E) suma la introspeccion de la normalizacion DESPUES del FOR UPDATE en
+      # los seis caminos.
       - name: Run ventas unidades conversion gate
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_ventas_unidades_conversion.sql
+
+      # ventas-unidades-conversion, tercera revision (2026-09-25): carrera
+      # CAMBIO DE UNIDAD BASE vs COMPRA con DOS conexiones reales (una sesion
+      # nunca bloquea contra su propio lock). El trigger de la unidad base se
+      # evalua al hacer el UPDATE, antes del commit; si la compra normalizaba la
+      # cantidad ANTES de tomar el producto FOR UPDATE, leia la unidad
+      # commiteada (kg), esperaba la fila y escribia 2 kg que se leian 2 u
+      # (reproducido por la revision). Tres casos: (a) cambio abierto vs compra
+      # -> P0400 sin stock ni movimiento; (b) compra abierta vs cambio -> P0409;
+      # (c) cambio de la unidad del PADRE abierto vs compra de la variante que
+      # hereda -> P0400. Control negativo ejecutado: con la normalizacion antes
+      # del FOR UPDATE, (a) termina en PURCHASE_OK con stock 2 en 'u'.
+      - name: Run ventas unidades conversion race gate (dos conexiones)
+        run: DB_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres bash supabase/tests/test_ventas_unidades_conversion_race.sh
 
       # venta-editable-sin-cae, caso (c) de la prueba de exclusion: el relay
       # tiene la fila de fiscal_documents TOMADA y la edicion entra en el medio.

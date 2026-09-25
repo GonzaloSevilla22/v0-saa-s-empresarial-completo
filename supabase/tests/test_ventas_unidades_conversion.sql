@@ -44,7 +44,23 @@
 --       variante gana sobre la del padre, factor <= 0 rechazado.
 --   (L) (segunda revisión) trg_product_base_unit_guard: P0409 base_unit_locked
 --       con stock/movimientos (también por PostgREST y por el grupo del padre),
---       asignar a quien no tenía se permite, P0404 con una unidad ajena.
+--       asignar a quien no tenía se permite, P0404 con una unidad ajena;
+--       (tercera revisión) también al re-parentar o desenganchar una variante
+--       que hereda (L.8-L.10), y no al re-parentar sin cambio efectivo
+--       (L.11-L.12).
+--   (M) (tercera revisión) D-F′: el precio por unidad de la línea se guarda
+--       sin redondear ($4.575/kg = $4,575/g; $1,23456/g) y el total es exacto
+--       en POS, formulario, compra y edición (antes el POS grababa 4,58 y
+--       editar sin cambios re-preciaba 2.058,75 → 2.061); docenas.
+--   (N) (tercera revisión) check_low_margin: la alerta de margen por email
+--       compara el importe de la línea contra el costo de la cantidad en
+--       unidad base (antes 100 g a $1.800/kg con costo $1.200/kg daba
+--       −6.666.567 % y 3 u a $100 con costo $50, −50 %).
+--   (E) suma: la cantidad se normaliza DESPUÉS del FOR UPDATE del producto en
+--       los seis caminos (TOCTOU; la carrera de punta a punta la fija
+--       test_ventas_unidades_conversion_race.sh con dos conexiones), las seis
+--       columnas de precio de línea sin escala, check_low_margin en unidad base
+--       y el trigger observando parent_id.
 --   (H) Residuo cero: después del cleanup, count(*) = 0 por cuenta/usuario del
 --       fixture en products, branch_stock, stock_movements, sales, purchases,
 --       sale_items, sales_order_items, units_of_measure y payment_methods.
@@ -137,6 +153,22 @@ DECLARE
   v_u_zero          uuid;   -- unidad de la cuenta con factor 0
   v_mv_id           uuid;
   v_jsonb           jsonb;
+
+  -- (M), (N) y L.8-L.12: tercera revisión del PR #584 (fix-round 2, 2026-09-25).
+  v_p_prec          uuid;   -- base kg, $4.575/kg: el precio por gramo tiene 3 decimales
+  v_p_prec5         uuid;   -- base kg, $1.234,56/kg: el precio por gramo tiene 5 decimales
+  v_p_doc           uuid;   -- base u, costo 50 / precio 100: docenas y base con cantidad > 1
+  v_p_margin        uuid;   -- base kg, costo $1.200/kg: alerta de margen en unidad base
+  v_p_nocost        uuid;   -- sin costo cargado: la alerta de margen no aplica
+  v_p_rp_k          uuid;   -- padre en kg (re-parent)
+  v_p_rp_k2         uuid;   -- otro padre en kg (misma unidad efectiva)
+  v_p_rp_u          uuid;   -- padre en u
+  v_p_rp_v          uuid;   -- variante que HEREDA kg, con stock
+  v_amount          numeric;
+  v_total           numeric;
+  v_qty             numeric;
+  v_pos1            integer;
+  v_pos2            integer;
 BEGIN
   -- ═══════════════════════════════════════════════════════════════════════
   -- Setup
@@ -766,6 +798,55 @@ BEGIN
     v_failures := v_failures || 'E products: falta trg_product_base_unit_guard'::text;
   END IF;
 
+  -- Tercera revisión (fix-round 2):
+  -- (a) TOCTOU: en los seis caminos la cantidad se normaliza DESPUÉS de tomar
+  --     la fila del producto FOR UPDATE — normalizar antes leía la unidad base
+  --     commiteada mientras un cambio de unidad base seguía abierto, y la
+  --     compra escribía 2 kg que se leían 2 u (reproducido con dos conexiones;
+  --     el arnés de carrera lo fija de punta a punta).
+  FOREACH v_fn IN ARRAY ARRAY[
+    '_c29_confirm_order_core', 'rpc_create_sale_operation_v2', 'rpc_create_purchase_operation',
+    'rpc_atomic_update_sale_operation', 'rpc_atomic_update_purchase_operation',
+    'rpc_create_sale_operation'
+  ] LOOP
+    SELECT replace(p.prosrc, E'\r', '') INTO v_src FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public' AND p.proname = v_fn;
+    v_pos1 := strpos(v_src, COALESCE(substring(v_src FROM 'FROM\s+public\.products\s+WHERE\s+id\s*=\s*v_item\.product_id\s+FOR UPDATE'), E'\x01'));
+    v_pos2 := strpos(v_src, '_uom_normalize_quantity(v_item.product_id');
+    IF v_pos1 = 0 OR v_pos2 = 0 OR v_pos2 < v_pos1 THEN
+      v_failures := v_failures || format('E %s: normaliza la cantidad antes de tomar el producto FOR UPDATE (lock en %s, helper en %s)', v_fn, v_pos1, v_pos2);
+    END IF;
+  END LOOP;
+  -- (b) D-F′: el precio por unidad de la línea no se redondea en ninguna
+  --     columna de precio de línea (las otras cuatro ya eran numeric sin tope).
+  FOR v_txt, v_val IN
+    SELECT c.table_name || '.' || c.column_name, c.numeric_scale
+    FROM information_schema.columns c
+    WHERE c.table_schema = 'public'
+      AND (c.table_name::text, c.column_name::text) IN (('sales_order_items', 'price'), ('quote_items', 'price'),
+                                            ('sales', 'amount'), ('sale_items', 'price'),
+                                            ('purchases', 'amount'), ('purchase_items', 'price'))
+  LOOP
+    IF v_val IS NOT NULL THEN
+      v_failures := v_failures || format('E %s: numeric con escala %s — redondea el precio por unidad de la línea (D-F′)', v_txt, v_val);
+    END IF;
+  END LOOP;
+  -- (c) la alerta de margen costea la cantidad en unidad base.
+  SELECT replace(p.prosrc, E'\r', '') INTO v_src FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+  WHERE n.nspname = 'public' AND p.proname = 'check_low_margin';
+  IF v_src IS NULL OR position('public._uom_quantity_for_reporting(' IN v_src) = 0 THEN
+    v_failures := v_failures || 'E check_low_margin: no costea la cantidad en unidad base'::text;
+  END IF;
+  -- (d) el guard de unidad base también mira parent_id (re-parent de una variante).
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_trigger t
+    JOIN pg_attribute a ON a.attrelid = t.tgrelid AND a.attname = 'parent_id'
+    WHERE t.tgrelid = 'public.products'::regclass AND t.tgname = 'trg_product_base_unit_guard'
+      AND a.attnum = ANY (t.tgattr::int2[])
+  ) THEN
+    v_failures := v_failures || 'E trg_product_base_unit_guard: no observa parent_id'::text;
+  END IF;
+
   IF COALESCE(array_length(v_failures, 1), 0) = v_fail_before THEN RAISE NOTICE 'PASS (E) introspección'; END IF;
 
   -- ═══════════════════════════════════════════════════════════════════════
@@ -1135,7 +1216,278 @@ BEGIN
   SELECT base_unit_id::text INTO v_txt FROM public.products WHERE id = v_p_kg;
   IF v_txt IS DISTINCT FROM v_u_kg::text THEN v_failures := v_failures || format('L la base de v_p_kg quedó en %s', v_txt); END IF;
 
-  IF COALESCE(array_length(v_failures, 1), 0) = v_fail_before THEN RAISE NOTICE 'PASS (L) unidad base bloqueada debajo del stock: 7/7'; END IF;
+  -- L.8-L.12 (tercera revisión): la unidad base EFECTIVA de una variante que
+  -- hereda también cambia si se la RE-PARENTA. `authenticated` tiene UPDATE
+  -- sobre products.parent_id: re-parentar 5 kg a un padre en 'u' los dejaba
+  -- leyéndose 5 u (reproducido por PostgREST). El trigger mira parent_id.
+  INSERT INTO public.products (user_id, account_id, name, sku, cost, price, base_unit_id, stock_control_type)
+  VALUES (v_user_a, v_account_a, 'Queso VUC RP (padre kg)', 'VUC-RP-K', 1.00, 2.00, v_u_kg, 'variant_only') RETURNING id INTO v_p_rp_k;
+  INSERT INTO public.products (user_id, account_id, name, sku, cost, price, base_unit_id, stock_control_type)
+  VALUES (v_user_a, v_account_a, 'Queso VUC RP (otro padre kg)', 'VUC-RP-K2', 1.00, 2.00, v_u_kg, 'variant_only') RETURNING id INTO v_p_rp_k2;
+  INSERT INTO public.products (user_id, account_id, name, sku, cost, price, base_unit_id, stock_control_type)
+  VALUES (v_user_a, v_account_a, 'Huevo VUC RP (padre u)', 'VUC-RP-U', 1.00, 2.00, v_u_u, 'variant_only') RETURNING id INTO v_p_rp_u;
+  INSERT INTO public.products (user_id, account_id, name, sku, cost, price, parent_id, is_variant)
+  VALUES (v_user_a, v_account_a, 'Queso VUC RP — horma', 'VUC-RP-V', 1.00, 2.00, v_p_rp_k, true) RETURNING id INTO v_p_rp_v;
+  PERFORM public.rpc_adjust_branch_stock(v_p_rp_v, v_branch_a, 5, 'seed gate VUC L.8');
+
+  -- L.8 re-parentar la variante (hereda kg, 5 de stock) a un padre en 'u' → P0409.
+  BEGIN
+    UPDATE public.products SET parent_id = v_p_rp_u WHERE id = v_p_rp_v;
+    v_failures := v_failures || 'L.8 re-parentar una variante con stock a un padre en otra unidad: no rechazó (5 kg pasan a leerse 5 u)'::text;
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLSTATE <> 'P0409' OR position('base_unit_locked' IN SQLERRM) = 0 THEN
+      v_failures := v_failures || format('L.8 esperaba P0409 base_unit_locked, obtuvo %s %s', SQLSTATE, SQLERRM);
+    END IF;
+  END;
+  -- L.9 lo mismo por PostgREST (authenticated + products_writer_update).
+  BEGIN
+    SET LOCAL ROLE authenticated;
+    UPDATE public.products SET parent_id = v_p_rp_u WHERE id = v_p_rp_v;
+    RESET ROLE;
+    v_failures := v_failures || 'L.9 re-parent por PostgREST (authenticated): aceptado'::text;
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLSTATE <> 'P0409' THEN v_failures := v_failures || format('L.9 PostgREST: esperaba P0409, obtuvo %s %s', SQLSTATE, SQLERRM); END IF;
+  END;
+  RESET ROLE;
+  -- L.10 desenganchar la variante (parent_id NULL) le QUITA la unidad efectiva → P0409.
+  BEGIN
+    UPDATE public.products SET parent_id = NULL WHERE id = v_p_rp_v;
+    v_failures := v_failures || 'L.10 desenganchar una variante con stock (kg → sin unidad): no rechazó'::text;
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLSTATE <> 'P0409' THEN v_failures := v_failures || format('L.10 esperaba P0409, obtuvo %s %s', SQLSTATE, SQLERRM); END IF;
+  END;
+  -- L.11 re-parentar a OTRO padre con la MISMA unidad efectiva (kg → kg): se permite.
+  BEGIN
+    UPDATE public.products SET parent_id = v_p_rp_k2 WHERE id = v_p_rp_v;
+  EXCEPTION WHEN OTHERS THEN
+    v_failures := v_failures || format('L.11 re-parent a un padre con la misma unidad: rechazó (%s %s)', SQLSTATE, SQLERRM);
+  END;
+  SELECT parent_id::text INTO v_txt FROM public.products WHERE id = v_p_rp_v;
+  IF v_txt IS DISTINCT FROM v_p_rp_k2::text THEN v_failures := v_failures || format('L.11 la variante quedó con padre %s', v_txt); END IF;
+  -- L.12 una variante con base PROPIA (u) y stock no cambia de unidad efectiva al re-parentar: se permite.
+  PERFORM public.rpc_adjust_branch_stock(v_p_var_u, v_branch_a, 3, 'seed gate VUC L.12');
+  BEGIN
+    UPDATE public.products SET parent_id = v_p_rp_u WHERE id = v_p_var_u;
+  EXCEPTION WHEN OTHERS THEN
+    v_failures := v_failures || format('L.12 re-parent de una variante con base propia: rechazó (%s %s)', SQLSTATE, SQLERRM);
+  END;
+
+  IF COALESCE(array_length(v_failures, 1), 0) = v_fail_before THEN RAISE NOTICE 'PASS (L) unidad base bloqueada debajo del stock: 12/12'; END IF;
+
+  -- ═══════════════════════════════════════════════════════════════════════
+  -- (M) D-F′ — el precio por unidad de la LÍNEA se guarda sin redondear y el
+  --     total es exacto en todos los caminos (tercera revisión, fix-round 2).
+  --     $4.575/kg re-expresado a gramos es $4,575/g: sales_order_items.price
+  --     era numeric(15,2), así que el POS grababa 4,58 en sales.amount y en
+  --     sale_items.price (amount × quantity ≠ total) y editar la venta SIN
+  --     tocar nada la re-preciaba (2.058,75 → 2.061). Reproducido por la
+  --     revisión (redteam-2/10-pos-price-precision).
+  -- ═══════════════════════════════════════════════════════════════════════
+  v_fail_before := COALESCE(array_length(v_failures, 1), 0);
+
+  INSERT INTO public.products (user_id, account_id, name, sku, cost, price, base_unit_id)
+  VALUES (v_user_a, v_account_a, 'Jamón VUC (kg)', 'VUC-PREC', 3000.00, 4575.00, v_u_kg) RETURNING id INTO v_p_prec;
+  INSERT INTO public.products (user_id, account_id, name, sku, cost, price, base_unit_id)
+  VALUES (v_user_a, v_account_a, 'Salame VUC (kg)', 'VUC-PREC5', 800.00, 1234.56, v_u_kg) RETURNING id INTO v_p_prec5;
+  INSERT INTO public.products (user_id, account_id, name, sku, cost, price, base_unit_id)
+  VALUES (v_user_a, v_account_a, 'Factura VUC (u)', 'VUC-DOC', 50.00, 100.00, v_u_u) RETURNING id INTO v_p_doc;
+  PERFORM public.rpc_adjust_branch_stock(v_p_prec,  v_branch_a, 50,  'seed gate VUC M');
+  PERFORM public.rpc_adjust_branch_stock(v_p_prec5, v_branch_a, 50,  'seed gate VUC M');
+  PERFORM public.rpc_adjust_branch_stock(v_p_doc,   v_branch_a, 200, 'seed gate VUC M');
+
+  -- M.1 POS 100 g a $4,575/g → $457,50 exacto; el precio viaja sin redondear a las tres tablas.
+  v_result := public.rpc_quick_sale(
+    p_idempotency_key => 'vuc-m1-' || gen_random_uuid()::text,
+    p_client_id       => NULL,
+    p_items           => jsonb_build_array(jsonb_build_object('product_id', v_p_prec, 'quantity', 100, 'price', 4.575, 'subtotal', 457.50, 'unit_id', v_u_g)),
+    p_payment_method  => 'other',
+    p_branch_id       => v_branch_a
+  );
+  SELECT s.id, s.amount, s.total, s.quantity INTO v_sale_id, v_amount, v_total, v_qty
+  FROM public.sales s WHERE s.operation_id = (v_result->>'operation_id')::uuid;
+  IF v_amount IS DISTINCT FROM 4.575 OR v_total IS DISTINCT FROM 457.5 OR v_amount * v_qty IS DISTINCT FROM v_total THEN
+    v_failures := v_failures || format('M.1 POS 100 g a $4,575/g: amount=%s total=%s amount×quantity=%s, esperaba 4.575 / 457.5 / 457.5', v_amount, v_total, v_amount * v_qty);
+  END IF;
+  SELECT price INTO v_val FROM public.sale_items WHERE sale_id = v_sale_id;
+  IF v_val IS DISTINCT FROM 4.575 THEN v_failures := v_failures || format('M.1 sale_items.price = %s, esperaba 4.575', v_val); END IF;
+  SELECT price INTO v_val FROM public.sales_order_items WHERE sales_order_id = (v_result->>'sales_order_id')::uuid;
+  IF v_val IS DISTINCT FROM 4.575 THEN v_failures := v_failures || format('M.1 sales_order_items.price = %s, esperaba 4.575 (numeric(15,2) lo redondeaba a 4.58)', v_val); END IF;
+
+  -- M.2 POS 450 g a $4,575/g → $2.058,75, y editar SIN tocar nada no re-precia (antes 2.061).
+  v_result := public.rpc_quick_sale(
+    p_idempotency_key => 'vuc-m2-' || gen_random_uuid()::text,
+    p_client_id       => NULL,
+    p_items           => jsonb_build_array(jsonb_build_object('product_id', v_p_prec, 'quantity', 450, 'price', 4.575, 'subtotal', 2058.75, 'unit_id', v_u_g)),
+    p_payment_method  => 'other',
+    p_branch_id       => v_branch_a
+  );
+  v_so_id := (v_result->>'sales_order_id')::uuid;
+  SELECT s.id, s.amount, s.total, s.quantity INTO v_sale_id, v_amount, v_total, v_qty
+  FROM public.sales s WHERE s.operation_id = (v_result->>'operation_id')::uuid;
+  IF v_total IS DISTINCT FROM 2058.75 OR v_amount * v_qty IS DISTINCT FROM v_total THEN
+    v_failures := v_failures || format('M.2 POS 450 g: total=%s amount×quantity=%s, esperaba 2058.75 las dos', v_total, v_amount * v_qty);
+  END IF;
+  -- La edición manda lo que el formulario rehidrata (use-sales.ts: unitPrice = Number(s.amount)).
+  v_result := public.rpc_atomic_update_sale_operation(
+    ARRAY[v_sale_id], NULL, CURRENT_DATE, 'ARS',
+    jsonb_build_array(jsonb_build_object('product_id', v_p_prec, 'amount', v_amount, 'quantity', v_qty, 'unit_id', v_u_g))
+  );
+  SELECT s.amount, s.total INTO v_amount, v_total FROM public.sales s WHERE s.operation_id = (v_result->>'operation_id')::uuid;
+  IF v_total IS DISTINCT FROM 2058.75 THEN
+    v_failures := v_failures || format('M.2 editar la venta del POS sin cambios: total %s, esperaba 2058.75 (se re-precia con el precio redondeado)', v_total);
+  END IF;
+  SELECT soi.price, soi.subtotal INTO v_val, v_after FROM public.sales_order_items soi WHERE soi.sales_order_id = v_so_id;
+  IF v_val IS DISTINCT FROM 4.575 OR v_after IS DISTINCT FROM 2058.75 THEN
+    v_failures := v_failures || format('M.2 la orden re-sincronizada tras la edición: price=%s subtotal=%s, esperaba 4.575 / 2058.75', v_val, v_after);
+  END IF;
+
+  -- M.3 precio con 5 decimales ($1.234,56/kg → $1,23456/g): se guarda sin redondear; el total que
+  --     se cobra es el subtotal al centavo (555,552 → 555,55) — la diferencia es menor a medio centavo.
+  v_result := public.rpc_quick_sale(
+    p_idempotency_key => 'vuc-m3-' || gen_random_uuid()::text,
+    p_client_id       => NULL,
+    p_items           => jsonb_build_array(jsonb_build_object('product_id', v_p_prec5, 'quantity', 450, 'price', 1.23456, 'subtotal', 555.552, 'unit_id', v_u_g)),
+    p_payment_method  => 'other',
+    p_branch_id       => v_branch_a
+  );
+  SELECT s.amount, s.total, s.quantity INTO v_amount, v_total, v_qty
+  FROM public.sales s WHERE s.operation_id = (v_result->>'operation_id')::uuid;
+  IF v_amount IS DISTINCT FROM 1.23456 OR v_total IS DISTINCT FROM 555.55 OR abs(v_amount * v_qty - v_total) >= 0.005 THEN
+    v_failures := v_failures || format('M.3 POS 450 g a $1,23456/g: amount=%s total=%s, esperaba 1.23456 / 555.55 (|amount×quantity − total| < 0,005)', v_amount, v_total);
+  END IF;
+
+  -- M.4 formulario de venta 100 g a $4,575/g → $457,50; la edición sin cambios lo conserva.
+  v_result := public.rpc_create_sale_operation(
+    'vuc-m4-' || gen_random_uuid()::text, v_client_a, CURRENT_DATE, 'ARS',
+    jsonb_build_array(jsonb_build_object('product_id', v_p_prec, 'amount', 4.575, 'quantity', 100, 'unit_id', v_u_g)),
+    v_branch_a, NULL
+  );
+  SELECT s.id, s.amount, s.total, s.quantity INTO v_sale_id, v_amount, v_total, v_qty
+  FROM public.sales s WHERE s.operation_id = (v_result->>'operation_id')::uuid;
+  IF v_total IS DISTINCT FROM 457.5 THEN v_failures := v_failures || format('M.4 formulario 100 g a $4,575/g: total %s, esperaba 457.5', v_total); END IF;
+  v_result := public.rpc_atomic_update_sale_operation(
+    ARRAY[v_sale_id], v_client_a, CURRENT_DATE, 'ARS',
+    jsonb_build_array(jsonb_build_object('product_id', v_p_prec, 'amount', v_amount, 'quantity', v_qty, 'unit_id', v_u_g))
+  );
+  SELECT s.total INTO v_total FROM public.sales s WHERE s.operation_id = (v_result->>'operation_id')::uuid;
+  IF v_total IS DISTINCT FROM 457.5 THEN v_failures := v_failures || format('M.4 edición del formulario sin cambios: total %s, esperaba 457.5', v_total); END IF;
+
+  -- M.5 compra 100 g a $4,575/g → $457,50; la edición sin cambios lo conserva.
+  v_result := public.rpc_create_purchase_operation(
+    'vuc-m5-' || gen_random_uuid()::text, CURRENT_DATE, 'Compra gate VUC M.5',
+    jsonb_build_array(jsonb_build_object('product_id', v_p_prec, 'amount', 4.575, 'quantity', 100, 'unit_id', v_u_g)),
+    v_branch_a
+  );
+  SELECT p.id, p.amount, p.total, p.quantity INTO v_purch_id, v_amount, v_total, v_qty
+  FROM public.purchases p WHERE p.operation_id = (v_result->>'operation_id')::uuid;
+  IF v_total IS DISTINCT FROM 457.5 OR v_amount IS DISTINCT FROM 4.575 THEN
+    v_failures := v_failures || format('M.5 compra 100 g a $4,575/g: amount=%s total=%s, esperaba 4.575 / 457.5', v_amount, v_total);
+  END IF;
+  v_result := public.rpc_atomic_update_purchase_operation(
+    ARRAY[v_purch_id], CURRENT_DATE, 'Compra gate VUC M.5 editada',
+    jsonb_build_array(jsonb_build_object('product_id', v_p_prec, 'amount', v_amount, 'quantity', v_qty, 'unit_id', v_u_g))
+  );
+  SELECT p.total INTO v_total FROM public.purchases p WHERE p.operation_id = (v_result->>'operation_id')::uuid;
+  IF v_total IS DISTINCT FROM 457.5 THEN v_failures := v_failures || format('M.5 edición de la compra sin cambios: total %s, esperaba 457.5', v_total); END IF;
+
+  -- M.6 docena: formulario 2 docenas a $1.200 → $2.400 y −24 u; compra 1 docena a $600 → $600 y +12 u.
+  SELECT quantity INTO v_before FROM public.branch_stock WHERE product_id = v_p_doc AND branch_id = v_branch_a;
+  v_result := public.rpc_create_sale_operation(
+    'vuc-m6-' || gen_random_uuid()::text, v_client_a, CURRENT_DATE, 'ARS',
+    jsonb_build_array(jsonb_build_object('product_id', v_p_doc, 'amount', 1200.00, 'quantity', 2, 'unit_id', v_u_doc)),
+    v_branch_a, NULL
+  );
+  SELECT s.total INTO v_total FROM public.sales s WHERE s.operation_id = (v_result->>'operation_id')::uuid;
+  v_result := public.rpc_create_purchase_operation(
+    'vuc-m6b-' || gen_random_uuid()::text, CURRENT_DATE, 'Compra gate VUC M.6',
+    jsonb_build_array(jsonb_build_object('product_id', v_p_doc, 'amount', 600.00, 'quantity', 1, 'unit_id', v_u_doc)),
+    v_branch_a
+  );
+  SELECT p.total INTO v_val FROM public.purchases p WHERE p.operation_id = (v_result->>'operation_id')::uuid;
+  SELECT quantity INTO v_after FROM public.branch_stock WHERE product_id = v_p_doc AND branch_id = v_branch_a;
+  IF v_total IS DISTINCT FROM 2400 OR v_val IS DISTINCT FROM 600 OR v_after - v_before <> -12 THEN
+    v_failures := v_failures || format('M.6 docenas: venta %s (esperaba 2400), compra %s (esperaba 600), stock %s (esperaba -24 + 12 = -12)', v_total, v_val, v_after - v_before);
+  END IF;
+
+  IF COALESCE(array_length(v_failures, 1), 0) = v_fail_before THEN RAISE NOTICE 'PASS (M) precio por unidad de la línea sin redondear y total exacto: 6/6'; END IF;
+
+  -- ═══════════════════════════════════════════════════════════════════════
+  -- (N) check_low_margin (trigger on_sale_insert_margin_check → email
+  --     "Alerta de margen crítico" al usuario) costea la cantidad en unidad
+  --     BASE y compara contra el importe de la LÍNEA. Antes comparaba el
+  --     precio UNITARIO contra costo × cantidad cruda: 100 g a $1,80/g con
+  --     costo $1.200/kg daba margen −29.475.882 % (email absurdo), y 3 u a
+  --     $100 con costo $50 daba −50 % (falso positivo preexistente).
+  -- ═══════════════════════════════════════════════════════════════════════
+  v_fail_before := COALESCE(array_length(v_failures, 1), 0);
+
+  INSERT INTO public.products (user_id, account_id, name, sku, cost, price, base_unit_id)
+  VALUES (v_user_a, v_account_a, 'Queso VUC margen (kg)', 'VUC-MARGEN', 1200.00, 1800.00, v_u_kg) RETURNING id INTO v_p_margin;
+  INSERT INTO public.products (user_id, account_id, name, sku, cost, price, base_unit_id)
+  VALUES (v_user_a, v_account_a, 'Servicio VUC sin costo (u)', 'VUC-NOCOST', NULL, 100.00, v_u_u) RETURNING id INTO v_p_nocost;
+  PERFORM public.rpc_adjust_branch_stock(v_p_margin, v_branch_a, 10, 'seed gate VUC N');
+  PERFORM public.rpc_adjust_branch_stock(v_p_nocost, v_branch_a, 10, 'seed gate VUC N');
+
+  -- N.1 100 g a $1,80/g ($1.800/kg), costo $1.200/kg: margen 33,3 % → sin alerta.
+  v_result := public.rpc_create_sale_operation(
+    'vuc-n1-' || gen_random_uuid()::text, v_client_a, CURRENT_DATE, 'ARS',
+    jsonb_build_array(jsonb_build_object('product_id', v_p_margin, 'amount', 1.80, 'quantity', 100, 'unit_id', v_u_g)),
+    v_branch_a, NULL
+  );
+  SELECT s.id INTO v_sale_id FROM public.sales s WHERE s.operation_id = (v_result->>'operation_id')::uuid;
+  SELECT count(*) INTO v_cnt FROM public.email_logs WHERE event_type = 'low_margin_alert' AND metadata->>'sale_id' = v_sale_id::text;
+  IF v_cnt <> 0 THEN
+    SELECT metadata->>'margin_percentage' INTO v_txt FROM public.email_logs WHERE event_type = 'low_margin_alert' AND metadata->>'sale_id' = v_sale_id::text LIMIT 1;
+    v_failures := v_failures || format('N.1 100 g a $1.800/kg con costo $1.200/kg: disparó la alerta de margen (margen %s %%)', v_txt);
+  END IF;
+
+  -- N.2 100 g a $1,00/g ($1.000/kg): margen −20 % → alerta con importe 100, costo 120, margen −20.
+  v_result := public.rpc_create_sale_operation(
+    'vuc-n2-' || gen_random_uuid()::text, v_client_a, CURRENT_DATE, 'ARS',
+    jsonb_build_array(jsonb_build_object('product_id', v_p_margin, 'amount', 1.00, 'quantity', 100, 'unit_id', v_u_g)),
+    v_branch_a, NULL
+  );
+  SELECT s.id INTO v_sale_id FROM public.sales s WHERE s.operation_id = (v_result->>'operation_id')::uuid;
+  SELECT count(*), max(metadata->>'margin_percentage'), max(metadata->>'cost_basis'), max(metadata->>'amount')
+  INTO v_cnt, v_txt, v_src, v_fn
+  FROM public.email_logs WHERE event_type = 'low_margin_alert' AND metadata->>'sale_id' = v_sale_id::text;
+  IF v_cnt <> 1 OR v_txt::numeric IS DISTINCT FROM -20 OR v_src::numeric IS DISTINCT FROM 120 OR v_fn::numeric IS DISTINCT FROM 100 THEN
+    v_failures := v_failures || format('N.2 100 g a $1.000/kg: %s alertas, margen %s, costo %s, importe %s — esperaba 1 / -20 / 120 / 100', v_cnt, v_txt, v_src, v_fn);
+  END IF;
+
+  -- N.3 unidad base con cantidad > 1: 3 u a $100 con costo $50 → margen 50 % → sin alerta.
+  v_result := public.rpc_create_sale_operation(
+    'vuc-n3-' || gen_random_uuid()::text, v_client_a, CURRENT_DATE, 'ARS',
+    jsonb_build_array(jsonb_build_object('product_id', v_p_doc, 'amount', 100.00, 'quantity', 3, 'unit_id', v_u_u)),
+    v_branch_a, NULL
+  );
+  SELECT s.id INTO v_sale_id FROM public.sales s WHERE s.operation_id = (v_result->>'operation_id')::uuid;
+  SELECT count(*) INTO v_cnt FROM public.email_logs WHERE event_type = 'low_margin_alert' AND metadata->>'sale_id' = v_sale_id::text;
+  IF v_cnt <> 0 THEN v_failures := v_failures || 'N.3 3 u a $100 con costo $50 (margen 50 %): disparó la alerta de margen'::text; END IF;
+
+  -- N.4 POS 100 g a $1,80/g: el trigger es de la tabla, vale para cualquier camino → sin alerta.
+  v_result := public.rpc_quick_sale(
+    p_idempotency_key => 'vuc-n4-' || gen_random_uuid()::text,
+    p_client_id       => NULL,
+    p_items           => jsonb_build_array(jsonb_build_object('product_id', v_p_margin, 'quantity', 100, 'price', 1.80, 'subtotal', 180.00, 'unit_id', v_u_g)),
+    p_payment_method  => 'other',
+    p_branch_id       => v_branch_a
+  );
+  SELECT s.id INTO v_sale_id FROM public.sales s WHERE s.operation_id = (v_result->>'operation_id')::uuid;
+  SELECT count(*) INTO v_cnt FROM public.email_logs WHERE event_type = 'low_margin_alert' AND metadata->>'sale_id' = v_sale_id::text;
+  IF v_cnt <> 0 THEN v_failures := v_failures || 'N.4 POS 100 g a $1.800/kg con costo $1.200/kg: disparó la alerta de margen'::text; END IF;
+
+  -- N.5 producto sin costo cargado: la alerta no aplica (no hay contra qué comparar).
+  v_result := public.rpc_create_sale_operation(
+    'vuc-n5-' || gen_random_uuid()::text, v_client_a, CURRENT_DATE, 'ARS',
+    jsonb_build_array(jsonb_build_object('product_id', v_p_nocost, 'amount', 1.00, 'quantity', 1, 'unit_id', v_u_u)),
+    v_branch_a, NULL
+  );
+  SELECT s.id INTO v_sale_id FROM public.sales s WHERE s.operation_id = (v_result->>'operation_id')::uuid;
+  SELECT count(*) INTO v_cnt FROM public.email_logs WHERE event_type = 'low_margin_alert' AND metadata->>'sale_id' = v_sale_id::text;
+  IF v_cnt <> 0 THEN v_failures := v_failures || 'N.5 producto sin costo: disparó la alerta de margen'::text; END IF;
+
+  IF COALESCE(array_length(v_failures, 1), 0) = v_fail_before THEN RAISE NOTICE 'PASS (N) alerta de margen en unidad base: 5/5'; END IF;
 
   -- ═══════════════════════════════════════════════════════════════════════
   -- Cleanup (DELETE FROM accounts cascadea; branches/accounts con guard →

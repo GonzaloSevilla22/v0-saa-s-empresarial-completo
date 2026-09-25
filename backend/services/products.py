@@ -118,8 +118,13 @@ def _unit_str(value: object) -> str | None:
 # Segunda revisión del PR #584: este chequeo es el camino rápido con el 409
 # tipado (code/field). La regla la hace cumplir la base —
 # trg_product_base_unit_guard (P0409 base_unit_locked) evalúa con la fila
-# bloqueada, cierra la carrera entre este SELECT y el UPDATE y cubre PostgREST;
-# si la gana otro escritor, el asyncpg handler traduce el P0409 a 409.
+# bloqueada y cubre PostgREST y el re-parent de una variante; si la gana otro
+# escritor, el asyncpg handler traduce el P0409 a 409. La carrera contra una
+# compra concurrente la cierran los DOS lados: el trigger y las RPCs de
+# venta/compra, que desde la tercera revisión normalizan la cantidad DESPUÉS
+# de tomar el producto FOR UPDATE (antes, en tres de los seis caminos, una
+# compra podía escribir kg sobre una base ya cambiada a 'u' —
+# supabase/tests/test_ventas_unidades_conversion_race.sh).
 async def _guard_base_unit_change(
     repo: ProductRepository,
     existing: asyncpg.Record,

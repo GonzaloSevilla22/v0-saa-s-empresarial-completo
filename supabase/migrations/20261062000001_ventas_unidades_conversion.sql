@@ -42,8 +42,20 @@
 --      _uom_quantity_for_reporting); el precio sigue por unidad de la línea (D-F).
 --  11. (segunda revisión) trg_product_base_unit_guard: la unidad base no cambia
 --      debajo del stock (P0409 base_unit_locked, D-C) y es del sistema o de la
---      cuenta (P0404) — para FastAPI, PostgREST y cualquier escritor.
---  12. Gate embebido de introspección.
+--      cuenta (P0404) — para FastAPI, PostgREST y cualquier escritor; desde la
+--      tercera revisión también observa parent_id (re-parentar una variante
+--      que hereda le cambia la unidad efectiva).
+--  12. (tercera revisión) D-F′: sales_order_items.price y quote_items.price de
+--      numeric(15,2) a numeric (como sales.amount / sale_items.price): el
+--      precio por unidad de la línea no se redondea y el total es exacto.
+--  13. (tercera revisión) check_low_margin (alerta de margen por email)
+--      compara el importe de la línea contra el costo de la cantidad en unidad
+--      base — décimo cuerpo del preflight.
+--  14. Gate embebido de introspección.
+--  Tercera revisión, además: en rpc_create_sale_operation_v2,
+--  rpc_create_purchase_operation y la rama legacy de rpc_create_sale_operation
+--  la cantidad se normaliza DESPUÉS de tomar el producto FOR UPDATE (TOCTOU
+--  contra un cambio de unidad base abierto; los otros tres ya lo hacían).
 --
 -- CUERPOS DE PARTIDA (md5 de prosrc CR-stripped, re-medidos contra prod
 -- gxdhpxvdjjkmxhdkkwyb el 2026-09-25 — después del deploy de #585, 308
@@ -58,6 +70,7 @@
 --   reporting_sales_lines_in_window      4bba3c6c619212bb4bfa59a814a8a040  (20261042000001_products_cost_nullable.sql) — §10, segunda revisión
 --   rpc_dashboard_kpi_summary            41c86badb97f3980a786a7b158fa7fd6  (20261042000001_products_cost_nullable.sql) — §10
 --   rpc_dashboard_channel_margin         47023d57067c03bd8bdd2cef362c0843  (20261042000001_products_cost_nullable.sql) — §10
+--   check_low_margin                     a03b312675753c26372046613391c17b  (20260517000002_fix_function_search_path.sql) — §13, tercera revisión
 --
 -- rpc_atomic_update_sale_operation parte AHORA del cuerpo de #585 (lock
 -- temprano N1 + recálculo N3), no del de 20261060000001 (a657c54b…) que
@@ -90,7 +103,10 @@ DECLARE
     -- 2026-09-25 (SELECT sobre gxdhpxvdjjkmxhdkkwyb) = stack local.
     'reporting_sales_lines_in_window',      '4bba3c6c619212bb4bfa59a814a8a040',
     'rpc_dashboard_kpi_summary',            '41c86badb97f3980a786a7b158fa7fd6',
-    'rpc_dashboard_channel_margin',         '47023d57067c03bd8bdd2cef362c0843'
+    'rpc_dashboard_channel_margin',         '47023d57067c03bd8bdd2cef362c0843',
+    -- Tercera revisión (§13, alerta de margen en unidad base): vivo en prod el
+    -- 2026-09-25 (SELECT sobre gxdhpxvdjjkmxhdkkwyb) = stack local.
+    'check_low_margin',                     'a03b312675753c26372046613391c17b'
   );
   -- Cuerpo que ESTA migración deja (reaplicación: KPI_Validation "idempotente
   -- on reapply" / db reset con la migración ya vigente). Auditoría post-apply:
@@ -98,17 +114,23 @@ DECLARE
   -- que dejaba pasar en silencio una redefinición posterior — ahora sólo el
   -- md5 exacto. Medidos de pg_proc en el stack local después de aplicar ESTE
   -- archivo (db reset, 309 migraciones, 2026-09-25); el de
-  -- rpc_atomic_update_sale_operation es el de la fusión con #585.
+  -- rpc_atomic_update_sale_operation es el de la fusión con #585. Tercera
+  -- revisión: re-medidos los de rpc_create_sale_operation_v2,
+  -- rpc_create_purchase_operation y rpc_create_sale_operation (normalización
+  -- después del FOR UPDATE) y el nuevo de check_low_margin; el archivo pasó a
+  -- LF sin CR literales y los nueve anteriores no cambiaron (se miden
+  -- CR-stripped).
   v_rewritten jsonb := jsonb_build_object(
     '_c29_confirm_order_core',              'd69e1ea6daac7c4deec0a1603ae4ceae',
-    'rpc_create_sale_operation_v2',         'b51c6d7eae41edf95bcffec6eebc1df8',
-    'rpc_create_purchase_operation',        '35ae3c793efec9c3a6a06138dcea90ee',
+    'rpc_create_sale_operation_v2',         'cd9faffb6aacd735565575ac5c28a1ef',
+    'rpc_create_purchase_operation',        '485339208790c80cf96e38e539ec4c03',
     'rpc_atomic_update_sale_operation',     '66c49a34b4e9de40ddbe90a1e33d0f83',
     'rpc_atomic_update_purchase_operation', '23558c073cf71d08ea4a0dfb15079555',
-    'rpc_create_sale_operation',            '76654116ca260f683e0d4082b6c77db0',
+    'rpc_create_sale_operation',            '5685625cd216fc192cf992f120b71b2f',
     'reporting_sales_lines_in_window',      '32500045f7934cb1e86b6051c21b515b',
     'rpc_dashboard_kpi_summary',            'bba246e4a9e507b19a56e1cc01ec8bcd',
-    'rpc_dashboard_channel_margin',         '881b3390fb0d2c9fd6dbc34f9aa15120'
+    'rpc_dashboard_channel_margin',         '881b3390fb0d2c9fd6dbc34f9aa15120',
+    'check_low_margin',                     'b95295a770a181aa61d2ebd5e0df27af'
   );
   v_fn  text;
   v_md5 text;
@@ -457,11 +479,6 @@ BEGIN
     -- el movimiento de caja opt-in (mismo patrón que rpc_create_purchase_operation).
     v_total_sum := v_total_sum + (v_item.amount * v_item.quantity);
 
-    -- ventas-unidades-conversion (D1/D2): la conversión por unidad vive en UNA
-    -- sola definición, relativa a la unidad base del PRODUCTO (P0404 unidad
-    -- inexistente, P0400 unit_type_mismatch / unit_requires_base_unit).
-    v_qty_norm := public._uom_normalize_quantity(v_item.product_id, v_item.unit_id, v_item.quantity);
-
     IF v_item.product_id IS NOT NULL THEN
       -- v3-snapshot-pattern: se agrega sku, cost a la lectura ya existente
       -- (name, is_variant) para congelar name/sku/cost sin un SELECT extra.
@@ -485,6 +502,14 @@ BEGIN
             USING ERRCODE = 'P0422';
         END IF;
       END IF;
+
+      -- ventas-unidades-conversion (D1/D2): la conversión por unidad vive en UNA
+      -- sola definición, relativa a la unidad base del PRODUCTO (P0404 unidad
+      -- inexistente, P0400 unit_type_mismatch / unit_requires_base_unit).
+      -- Tercera revisión (TOCTOU): DESPUÉS del FOR UPDATE — con la fila tomada
+      -- la unidad base ya no cambia (trg_product_base_unit_guard espera esta
+      -- fila) y un cambio que commiteó mientras esperábamos se lee acá.
+      v_qty_norm := public._uom_normalize_quantity(v_item.product_id, v_item.unit_id, v_item.quantity);
 
       -- C-26 (OQ-A): gate per-branch
       SELECT COALESCE(quantity, 0) INTO v_branch_qty
@@ -547,6 +572,9 @@ BEGIN
       -- unit_id); queda NULL como hoy. La línea de servicio con
       -- name_snapshot desde payload se resuelve en _c29_confirm_order_core
       -- (sales_order_items ya trae el nombre desde el frontend — ver 2.4/2.6).
+      -- ventas-unidades-conversion: sin producto no hay stock que mover, pero
+      -- la unidad de la línea se sigue validando (P0404) como antes.
+      PERFORM public._uom_normalize_quantity(NULL, v_item.unit_id, v_item.quantity);
       INSERT INTO public.sales
         (user_id, account_id, client_id, product_id, amount, quantity, unit_id,
          total, currency, date, operation_id, branch_id, canal, payment_method_id)
@@ -865,9 +893,6 @@ BEGIN
             RAISE EXCEPTION 'Amount must be greater than zero' USING ERRCODE = 'P0400';
         END IF;
 
-        -- ventas-unidades-conversion (D1/D2): misma definición única que la venta.
-        v_qty_norm := public._uom_normalize_quantity(v_item.product_id, v_item.unit_id, v_item.quantity);
-
         -- journal-entry-outbox: acumular total para el payload del evento
         -- (y ahora también para el egreso de caja).
         v_total_sum := v_total_sum + (v_item.amount * v_item.quantity);
@@ -893,6 +918,13 @@ BEGIN
                         USING ERRCODE = 'P0422';
                 END IF;
             END IF;
+
+            -- ventas-unidades-conversion (D1/D2): misma definición única que la venta.
+            -- Tercera revisión (TOCTOU, reproducido con dos conexiones): DESPUÉS
+            -- del FOR UPDATE. Normalizar antes leía la unidad base COMMITEADA
+            -- mientras un cambio kg → u seguía abierto: la compra esperaba la
+            -- fila y escribía 2 (kg) que se leían 2 u.
+            v_qty_norm := public._uom_normalize_quantity(v_item.product_id, v_item.unit_id, v_item.quantity);
 
             INSERT INTO public.purchases
                 (user_id, account_id, product_id, amount, quantity, unit_id,
@@ -944,6 +976,8 @@ BEGIN
             );
 
         ELSE
+            -- Línea sin producto: no mueve stock; la unidad se sigue validando (P0404).
+            PERFORM public._uom_normalize_quantity(NULL, v_item.unit_id, v_item.quantity);
             INSERT INTO public.purchases
                 (user_id, account_id, product_id, amount, quantity, unit_id,
                  total, description, date, operation_id, branch_id, cost_center_id, payment_method_id,
@@ -2733,11 +2767,6 @@ BEGIN
         -- pagos-cableados-restantes: acumular total (mismo patrón que la v2).
         v_total_sum := v_total_sum + (v_item.amount * v_item.quantity);
 
-        -- ventas-unidades-conversion (auditoría post-apply): la rama legacy del
-        -- kill-switch sale_items_rpc_v2=false conservaba la conversión inline
-        -- (relativa a la base del TIPO). Misma definición única que la v2.
-        v_qty_norm := public._uom_normalize_quantity(v_item.product_id, v_item.unit_id, v_item.quantity);
-
         IF v_item.product_id IS NOT NULL THEN
           SELECT id, user_id, is_variant, name, sku, cost INTO v_product
           FROM   public.products
@@ -2759,6 +2788,12 @@ BEGIN
                 USING ERRCODE = 'P0422';
             END IF;
           END IF;
+
+          -- ventas-unidades-conversion (auditoría post-apply): la rama legacy del
+          -- kill-switch sale_items_rpc_v2=false conservaba la conversión inline
+          -- (relativa a la base del TIPO). Misma definición única que la v2.
+          -- Tercera revisión (TOCTOU): DESPUÉS del FOR UPDATE, como en la v2.
+          v_qty_norm := public._uom_normalize_quantity(v_item.product_id, v_item.unit_id, v_item.quantity);
 
           -- C-26 (OQ-A): gate per-branch — el stock debe estar EN la branch
           -- de la operación (explícita o default operativa)
@@ -2805,6 +2840,8 @@ BEGIN
           );
 
         ELSE
+          -- Línea sin producto: no mueve stock; la unidad se sigue validando (P0404).
+          PERFORM public._uom_normalize_quantity(NULL, v_item.unit_id, v_item.quantity);
           INSERT INTO public.sales
             (user_id, account_id, client_id, product_id, amount, quantity, unit_id,
              total, currency, date, operation_id, branch_id, canal, payment_method_id)
@@ -3490,10 +3527,15 @@ $function$;
 -- compra concurrente). El trigger es el único punto de paso para cualquier
 -- escritor, presente o futuro — mismo patrón que trg_guard_branch_decommission
 -- y trg_product_category_tenancy_guard —, y evalúa con la fila bloqueada y las
--- variantes tomadas FOR UPDATE (las RPCs de venta y compra toman FOR UPDATE la
--- fila del producto de cada línea, así que el chequeo y la escritura quedan
--- serializados). Además replica en la base el guard de tenencia del backend
--- (base_unit_not_found → 404): la unidad base es del sistema o de la cuenta.
+-- variantes tomadas FOR UPDATE. La serialización con una venta o compra
+-- concurrente es de DOS lados: las seis RPCs toman FOR UPDATE la fila del
+-- producto de cada línea y, desde la tercera revisión, recién DESPUÉS
+-- normalizan la cantidad (antes, en tres de los seis caminos, normalizaban con
+-- la unidad commiteada y la carrera seguía abierta: una compra escribía 2 kg
+-- que se leían 2 u — reproducido con dos conexiones y fijado por
+-- supabase/tests/test_ventas_unidades_conversion_race.sh). Además replica en
+-- la base el guard de tenencia del backend (base_unit_not_found → 404): la
+-- unidad base es del sistema o de la cuenta.
 CREATE OR REPLACE FUNCTION public.fn_product_base_unit_guard()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -3504,8 +3546,11 @@ DECLARE
   v_unit_system  boolean;
   v_unit_account uuid;
   v_parent_base  uuid;
+  v_old_parent_base  uuid;
   v_old_eff      uuid;
   v_new_eff      uuid;
+  v_self_changed     boolean;
+  v_children_changed boolean;
 BEGIN
   -- Tenencia: sólo cuando la unidad base (o la cuenta) efectivamente cambia.
   IF NEW.base_unit_id IS NOT NULL AND (
@@ -3522,42 +3567,62 @@ BEGIN
     END IF;
   END IF;
 
-  IF TG_OP = 'INSERT' OR NEW.base_unit_id IS NOT DISTINCT FROM OLD.base_unit_id THEN
+  -- Tercera revisión: la unidad base EFECTIVA de una variante que hereda
+  -- también cambia si se la RE-PARENTA (o se la desengancha): `authenticated`
+  -- tiene UPDATE sobre products.parent_id, y re-parentar 5 kg a un padre en
+  -- 'u' los dejaba leyéndose 5 u (reproducido por PostgREST).
+  IF TG_OP = 'INSERT'
+     OR (NEW.base_unit_id IS NOT DISTINCT FROM OLD.base_unit_id
+         AND NEW.parent_id IS NOT DISTINCT FROM OLD.parent_id) THEN
     RETURN NEW;
   END IF;
 
-  -- Unidad base EFECTIVA: la propia o la heredada del padre (misma regla que
-  -- _uom_normalize_quantity y v_products_with_stock).
+  -- Unidad base EFECTIVA antes y después: la propia o la heredada del padre
+  -- (misma regla que _uom_normalize_quantity y v_products_with_stock) — el
+  -- padre de OLD para la de antes y el de NEW para la de después.
+  IF OLD.parent_id IS NOT NULL THEN
+    SELECT p.base_unit_id INTO v_old_parent_base FROM public.products p WHERE p.id = OLD.parent_id;
+  END IF;
   IF NEW.parent_id IS NOT NULL THEN
     SELECT p.base_unit_id INTO v_parent_base FROM public.products p WHERE p.id = NEW.parent_id;
   END IF;
-  v_old_eff := COALESCE(OLD.base_unit_id, v_parent_base);
+  v_old_eff := COALESCE(OLD.base_unit_id, v_old_parent_base);
   v_new_eff := COALESCE(NEW.base_unit_id, v_parent_base);
 
   -- D-C: asignar a quien no tenía unidad efectiva se permite; sin cambio
-  -- efectivo no hay nada que proteger.
-  IF v_old_eff IS NULL OR v_old_eff IS NOT DISTINCT FROM v_new_eff THEN
+  -- efectivo no hay nada que proteger. Dos grupos, cada uno con su condición:
+  --   · el producto mismo, si SU unidad efectiva cambia (base propia o padre);
+  --   · las variantes que HEREDAN su base propia, si la base PROPIA cambia
+  --     desde un valor no nulo (re-parentar al producto no las toca: heredan
+  --     NEW.base_unit_id, no la unidad efectiva de NEW).
+  v_self_changed     := v_old_eff IS NOT NULL AND v_old_eff IS DISTINCT FROM v_new_eff;
+  v_children_changed := OLD.base_unit_id IS NOT NULL AND NEW.base_unit_id IS DISTINCT FROM OLD.base_unit_id;
+  IF NOT v_self_changed AND NOT v_children_changed THEN
     RETURN NEW;
   END IF;
 
-  -- Grupo: el producto y las variantes que HEREDAN su unidad (sin base propia).
-  -- Se toman FOR UPDATE (orden de id) para serializar con las ventas/compras.
-  PERFORM 1 FROM public.products v
-   WHERE v.parent_id = NEW.id AND v.base_unit_id IS NULL
-   ORDER BY v.id
-   FOR UPDATE;
+  -- Las variantes que heredan se toman FOR UPDATE (orden de id) para
+  -- serializar con las ventas/compras, que toman la fila de su producto.
+  IF v_children_changed THEN
+    PERFORM 1 FROM public.products v
+     WHERE v.parent_id = NEW.id AND v.base_unit_id IS NULL
+     ORDER BY v.id
+     FOR UPDATE;
+  END IF;
 
   IF EXISTS (
        SELECT 1 FROM public.branch_stock bs
         WHERE bs.quantity <> 0
-          AND (bs.product_id = NEW.id
-               OR bs.product_id IN (SELECT v.id FROM public.products v
-                                     WHERE v.parent_id = NEW.id AND v.base_unit_id IS NULL)))
+          AND ((v_self_changed AND bs.product_id = NEW.id)
+               OR (v_children_changed
+                   AND bs.product_id IN (SELECT v.id FROM public.products v
+                                          WHERE v.parent_id = NEW.id AND v.base_unit_id IS NULL))))
      OR EXISTS (
        SELECT 1 FROM public.stock_movements sm
-        WHERE sm.product_id = NEW.id
-           OR sm.product_id IN (SELECT v.id FROM public.products v
-                                 WHERE v.parent_id = NEW.id AND v.base_unit_id IS NULL)) THEN
+        WHERE (v_self_changed AND sm.product_id = NEW.id)
+           OR (v_children_changed
+               AND sm.product_id IN (SELECT v.id FROM public.products v
+                                      WHERE v.parent_id = NEW.id AND v.base_unit_id IS NULL))) THEN
     RAISE EXCEPTION 'base_unit_locked: el producto % ya tiene stock o movimientos en su unidad base actual; cambiarla haría que las cantidades se lean en otra unidad. Creá un producto nuevo con la unidad correcta y pasale el stock con un ajuste.', NEW.id
       USING ERRCODE = 'P0409';
   END IF;
@@ -3567,17 +3632,124 @@ END;
 $$;
 
 COMMENT ON FUNCTION public.fn_product_base_unit_guard() IS
-  'ventas-unidades-conversion (D-C, segunda revisión; provisorio hasta el sign-off del PO): la unidad base EFECTIVA de un producto (propia o heredada del padre) no cambia ni se quita si el grupo tiene stock <> 0 o movimientos (P0409 base_unit_locked); asignarla a un producto que no tenía se permite. Tenencia: la unidad base es del sistema o de la cuenta (P0404 base_unit_not_found). Único punto de paso para FastAPI, PostgREST y cualquier escritor futuro.';
+  'ventas-unidades-conversion (D-C, segunda y tercera revisión; provisorio hasta el sign-off del PO): la unidad base EFECTIVA de un producto (propia o heredada del padre) no cambia ni se quita si el grupo tiene stock <> 0 o movimientos (P0409 base_unit_locked) — ni cambiando base_unit_id ni re-parentando o desenganchando una variante que hereda (parent_id); asignarla a un producto que no tenía se permite. Tenencia: la unidad base es del sistema o de la cuenta (P0404 base_unit_not_found). Único punto de paso para FastAPI, PostgREST y cualquier escritor futuro.';
 
 REVOKE ALL ON FUNCTION public.fn_product_base_unit_guard() FROM PUBLIC, anon, authenticated;
 
 DROP TRIGGER IF EXISTS trg_product_base_unit_guard ON public.products;
 CREATE TRIGGER trg_product_base_unit_guard
-  BEFORE INSERT OR UPDATE OF base_unit_id, account_id ON public.products
+  BEFORE INSERT OR UPDATE OF base_unit_id, account_id, parent_id ON public.products
   FOR EACH ROW
   EXECUTE FUNCTION public.fn_product_base_unit_guard();
 
--- ─── 12. Gate embebido de introspección (falla el deploy si falta una pieza) ──
+-- ─── 12. D-F′: el precio por unidad de la LÍNEA no se redondea (tercera revisión) ──
+-- Contrato D-F (D12): `amount`/`price` es por unidad de la línea. Re-expresado
+-- a una unidad chica, un precio de catálogo con centavos necesita más de dos
+-- decimales ($4.575/kg = $4,575/g; $1.234,56/kg = $1,23456/g). sales.amount,
+-- sale_items.price, purchases.amount y purchase_items.price ya son numeric
+-- sin tope; sales_order_items.price y quote_items.price eran numeric(15,2):
+-- el POS grababa 4,58 en sales.amount (amount × quantity ≠ total) y editar
+-- la venta sin tocar nada la re-preciaba (2.058,75 → 2.061, medido por la
+-- revisión). Se llevan al mismo tipo que las otras cuatro: una sola precisión
+-- para el precio unitario de una línea. Los totales de dinero (subtotal,
+-- sales_orders.total, caja, banco, cuenta corriente) siguen al centavo.
+--
+-- Costo: numeric(15,2) → numeric sin tope es binario-compatible, sin
+-- reescritura de tabla (el CHECK price >= 0 se re-valida: 237 filas en prod
+-- el 2026-09-25, 104 kB; quote_items 48 kB); lock ACCESS EXCLUSIVE de
+-- milisegundos. Sin vistas, índices ni policies sobre la columna (medido en
+-- prod). Guardado: la reaplicación no toca una columna ya ampliada.
+DO $$
+DECLARE
+  v_t text;
+BEGIN
+  FOR v_t IN
+    SELECT c.table_name::text
+    FROM   information_schema.columns c
+    WHERE  c.table_schema = 'public'
+      AND  c.table_name IN ('sales_order_items', 'quote_items')
+      AND  c.column_name = 'price'
+      AND  c.numeric_scale IS NOT NULL
+    ORDER BY 1
+  LOOP
+    EXECUTE format('ALTER TABLE public.%I ALTER COLUMN price TYPE numeric', v_t);
+    RAISE NOTICE 'ventas-unidades-conversion: %.price numeric(15,2) → numeric (D-F′)', v_t;
+  END LOOP;
+END $$;
+
+-- ─── 13. check_low_margin costea en unidad BASE (tercera revisión) ───────────
+-- Trigger on_sale_insert_margin_check (AFTER INSERT ON sales) → email
+-- "Alerta de margen crítico". Comparaba el precio UNITARIO (NEW.amount)
+-- contra costo × cantidad CRUDA: con D-F cada venta en una unidad menor a la
+-- base (g, mL) mandaba un email con un margen absurdo (100 g a $1,80/g con
+-- costo $1.200/kg: −6.666.567 %), y ya antes cualquier venta con cantidad > 1
+-- daba un falso positivo (3 u a $100 con costo $50: −50 %) — prod registró
+-- 71 alertas en 30 días, 66 de ellas con cantidad > 1 que con el cálculo nuevo
+-- no se disparan (medido el 2026-09-25). Ahora: importe de la LÍNEA
+-- (COALESCE(total, amount ×
+-- quantity), la misma regla RN-D del reporting) contra costo por unidad base ×
+-- cantidad en unidad base (_uom_quantity_for_reporting, el envoltorio de
+-- lectura de la definición única — nunca aborta un INSERT por una línea
+-- histórica inconvertible). El email muestra ese importe y ese costo.
+--
+-- Cuerpo de partida: el VIVO de prod (md5 a03b312675753c26372046613391c17b,
+-- medido el 2026-09-25 = 20260517000002_fix_function_search_path.sql:42, en
+-- el preflight). CREATE OR REPLACE conserva firma, SECURITY DEFINER,
+-- search_path y ACL (postgres, service_role); no tenía COMMENT.
+CREATE OR REPLACE FUNCTION public.check_low_margin()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  prod_cost    numeric;
+  prod_name    text;
+  sale_margin  numeric;
+  user_email   text;
+  -- ventas-unidades-conversion (tercera revisión)
+  v_qty_base   numeric;
+  v_revenue    numeric;
+  v_cost_basis numeric;
+BEGIN
+  IF NEW.product_id IS NOT NULL AND NEW.amount > 0 THEN
+    SELECT cost, name INTO prod_cost, prod_name
+    FROM public.products WHERE id = NEW.product_id;
+
+    IF prod_cost IS NOT NULL THEN
+      v_qty_base   := public._uom_quantity_for_reporting(NEW.product_id, NEW.unit_id, NEW.quantity);
+      v_revenue    := COALESCE(NEW.total, NEW.amount * NEW.quantity);
+      v_cost_basis := prod_cost * v_qty_base;
+      sale_margin  := ((v_revenue - v_cost_basis) / NULLIF(v_revenue, 0)) * 100;
+
+      IF sale_margin < 15 THEN
+        SELECT email INTO user_email FROM auth.users WHERE id = NEW.user_id;
+
+        INSERT INTO public.email_logs (user_id, event_type, recipient, subject, metadata)
+        VALUES (
+          NEW.user_id,
+          'low_margin_alert',
+          user_email,
+          'Alerta de Margen Bajo: ' || prod_name,
+          jsonb_build_object(
+            'sale_id',            NEW.id,
+            'product_name',       prod_name,
+            'margin_percentage',  round(sale_margin, 2),
+            'amount',             round(v_revenue, 2),
+            'cost_basis',         round(v_cost_basis, 2)
+          )
+        );
+      END IF;
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$function$;
+
+COMMENT ON FUNCTION public.check_low_margin() IS
+  'Trigger on_sale_insert_margin_check (AFTER INSERT ON sales): si el margen de la línea es menor al 15 %, registra un email low_margin_alert. ventas-unidades-conversion (tercera revisión): margen = (importe de la línea − costo por unidad base × cantidad en unidad base) / importe de la línea; importe = COALESCE(total, amount × quantity) y cantidad vía _uom_quantity_for_reporting. Antes comparaba el precio unitario contra costo × cantidad cruda (falso positivo con cantidad > 1, margen absurdo en g/mL).';
+
+-- ─── 14. Gate embebido de introspección (falla el deploy si falta una pieza) ──
 -- Cada literal que se agrega a v_bad lleva ::text: text[] || 'literal' la
 -- resolvería como ARRAY ("malformed array literal") y taparía el motivo real.
 DO $$
@@ -3589,6 +3761,8 @@ DECLARE
   v_type    text;
   v_scale   integer;
   v_res     text;
+  v_pos1    integer;
+  v_pos2    integer;
 BEGIN
   FOREACH v_fn IN ARRAY ARRAY[
     '_c29_confirm_order_core', 'rpc_create_sale_operation_v2', 'rpc_create_purchase_operation',
@@ -3737,6 +3911,51 @@ BEGIN
   WHERE n.nspname = 'public' AND p.proname = '_uom_normalize_quantity';
   IF position('v_unit.factor <= 0' IN v_src) = 0 THEN
     v_bad := v_bad || '_uom_normalize_quantity: no rechaza un factor <= 0 de la unidad de la línea'::text;
+  END IF;
+
+  -- Tercera revisión: (a) en los seis caminos la cantidad se normaliza
+  -- DESPUÉS de tomar la fila del producto FOR UPDATE (TOCTOU contra un cambio
+  -- de unidad base abierto).
+  FOREACH v_fn IN ARRAY ARRAY[
+    '_c29_confirm_order_core', 'rpc_create_sale_operation_v2', 'rpc_create_purchase_operation',
+    'rpc_atomic_update_sale_operation', 'rpc_atomic_update_purchase_operation',
+    'rpc_create_sale_operation'
+  ] LOOP
+    SELECT replace(p.prosrc, E'\r', '') INTO v_src FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public' AND p.proname = v_fn;
+    v_pos1 := strpos(v_src, COALESCE(substring(v_src FROM 'FROM\s+public\.products\s+WHERE\s+id\s*=\s*v_item\.product_id\s+FOR UPDATE'), E'\x01'));
+    v_pos2 := strpos(v_src, '_uom_normalize_quantity(v_item.product_id');
+    IF v_pos1 = 0 OR v_pos2 = 0 OR v_pos2 < v_pos1 THEN
+      v_bad := v_bad || format('%s: normaliza la cantidad antes de tomar el producto FOR UPDATE', v_fn);
+    END IF;
+  END LOOP;
+  -- (b) D-F′: ninguna columna de precio de línea redondea el precio unitario.
+  FOR v_res, v_scale IN
+    SELECT c.table_name::text || '.' || c.column_name::text, c.numeric_scale
+    FROM information_schema.columns c
+    WHERE c.table_schema = 'public'
+      AND (c.table_name::text, c.column_name::text) IN (('sales_order_items', 'price'), ('quote_items', 'price'),
+                                                        ('sales', 'amount'), ('sale_items', 'price'),
+                                                        ('purchases', 'amount'), ('purchase_items', 'price'))
+  LOOP
+    IF v_scale IS NOT NULL THEN
+      v_bad := v_bad || format('%s: numeric con escala %s (D-F′: el precio por unidad de la línea no se redondea)', v_res, v_scale);
+    END IF;
+  END LOOP;
+  -- (c) la alerta de margen costea la cantidad en unidad base.
+  SELECT replace(p.prosrc, E'\r', '') INTO v_src FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+  WHERE n.nspname = 'public' AND p.proname = 'check_low_margin';
+  IF v_src IS NULL OR position('public._uom_quantity_for_reporting(' IN v_src) = 0 THEN
+    v_bad := v_bad || 'check_low_margin: no costea la cantidad en unidad base'::text;
+  END IF;
+  -- (d) el guard de unidad base observa también parent_id (re-parent).
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_trigger t
+    JOIN pg_attribute a ON a.attrelid = t.tgrelid AND a.attname = 'parent_id'
+    WHERE t.tgrelid = 'public.products'::regclass AND t.tgname = 'trg_product_base_unit_guard'
+      AND a.attnum = ANY (t.tgattr::int2[])
+  ) THEN
+    v_bad := v_bad || 'trg_product_base_unit_guard: no observa parent_id'::text;
   END IF;
 
   IF array_length(v_bad, 1) > 0 THEN

@@ -46,6 +46,38 @@ _UNIT_VISIBLE_SQL = (
     "WHERE id = $1::uuid AND (is_system = true OR account_id = $2::uuid)"
 )
 
+# ventas-unidades-conversion (revisión del PR #584, BE-1 / D-C): guard de
+# cambio de unidad base. Las cantidades de branch_stock y stock_movements se
+# guardan en la unidad base del producto; cambiarla con stock o historial las
+# reinterpreta en silencio ("12 u" pasa a leerse "12 kg"). Las variantes
+# heredan la unidad del padre, así que el alcance es el GRUPO (el producto y
+# sus variantes). `account_id = $2` en las dos tablas Y en products es el
+# guard de tenencia (regla dura: todo repository filtra explícito por
+# account_id; la RLS es red). "Stock ≠ 0 en alguna sucursal", no la suma:
+# +5 en una y −5 en otra también son cantidades en la unidad vieja.
+_GROUP_HAS_STOCK_SQL = """
+SELECT EXISTS (
+    SELECT 1
+      FROM branch_stock bs
+      JOIN products p ON p.id = bs.product_id
+     WHERE bs.account_id = $2
+       AND p.account_id = $2
+       AND (p.id = $1::uuid OR p.parent_id = $1::uuid)
+       AND bs.quantity <> 0
+)
+"""
+
+_GROUP_HAS_MOVEMENTS_SQL = """
+SELECT EXISTS (
+    SELECT 1
+      FROM stock_movements sm
+      JOIN products p ON p.id = sm.product_id
+     WHERE sm.account_id = $2
+       AND p.account_id = $2
+       AND (p.id = $1::uuid OR p.parent_id = $1::uuid)
+)
+"""
+
 # productos-categorias-sku (D14): recategorización en lote como UN SOLO UPDATE.
 # `AND p.account_id = $2` ES el guard de tenencia (regla dura: todo repository
 # filtra explícito por account_id; la RLS es red). Los ids ajenos no matchean
@@ -87,6 +119,15 @@ class ProductRepository(BaseRepository):
         FK (que sigue garantizando existencia)."""
         row = await self.fetchrow(_UNIT_VISIBLE_SQL, unit_id, account_id)
         return row is not None
+
+    async def has_stock_or_movements(self, product_id: str, account_id: str) -> bool:
+        """ventas-unidades-conversion (D-C): True si el producto (o alguna de sus
+        variantes) tiene stock ≠ 0 en alguna sucursal o algún movimiento de
+        stock. Dos consultas en orden, la segunda sólo si la primera no alcanza
+        — el stock es el caso común y el más barato de responder."""
+        if await self._conn.fetchval(_GROUP_HAS_STOCK_SQL, product_id, account_id):
+            return True
+        return bool(await self._conn.fetchval(_GROUP_HAS_MOVEMENTS_SQL, product_id, account_id))
 
     async def list_by_org(self, account_id: str) -> list[dict]:
         # C-21: lee de v_products_with_stock para que el campo `stock` refleje

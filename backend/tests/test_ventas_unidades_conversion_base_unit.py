@@ -140,7 +140,11 @@ async def test_update_product_base_unit_tristate(async_client, mock_pool):
 
     conn.fetchrow = AsyncMock(side_effect=fetchrow_side_effect)
     conn.execute = AsyncMock(side_effect=execute_side_effect)
-    conn.fetchval = AsyncMock(return_value=None)
+    # PRODUCT_ROW ya tiene UNIT_KG: el caso (c) desasigna, que ES un cambio de
+    # unidad — pasa el guard D-C sólo porque el producto no tiene stock ni
+    # movimientos (el bloqueo con stock lo cubre
+    # test_ventas_unidades_conversion_base_unit_lock.py).
+    conn.fetchval = AsyncMock(return_value=False)
     headers = {"Authorization": f"Bearer {owner_token}"}
     pid = PRODUCT_ROW["id"]
 

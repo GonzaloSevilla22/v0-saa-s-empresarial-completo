@@ -4,6 +4,7 @@ import asyncpg
 import uuid
 from fastapi import HTTPException
 
+from backend.core.errors import ProblemHTTPException
 from backend.core.guards import require_role
 from backend.repositories.plan_limits_repository import PlanLimitsRepository
 from backend.repositories.product_category_repository import ProductCategoryRepository
@@ -94,6 +95,45 @@ async def _resolve_base_unit_for_account(
     return str(base_unit_id)
 
 
+# ventas-unidades-conversion — revisión del PR #584, hallazgo BE-1, decisión
+# provisoria D-C (opción (a) de la decisión 6 del PO, pendiente de sign-off):
+# las cantidades de branch_stock/stock_movements están en la unidad base del
+# producto, así que CAMBIARLA (o desasignarla) con stock o historial las
+# reinterpretaría en silencio. Asignar a un producto sin unidad y mandar la
+# misma que ya tiene no son cambios.
+BASE_UNIT_LOCKED_CODE = "base_unit_locked"
+_BASE_UNIT_LOCKED_DETAIL = (
+    "No se puede cambiar la unidad base de este producto: ya tiene stock o "
+    "movimientos registrados en la unidad actual, y cambiarla haría que esas "
+    "cantidades se lean en la unidad nueva (12 u pasarían a ser 12 kg). "
+    "Dejá la unidad actual, o creá un producto nuevo con la unidad correcta "
+    "y pasale el stock con un ajuste."
+)
+
+
+def _unit_str(value: object) -> str | None:
+    return None if value is None else str(value)
+
+
+async def _guard_base_unit_change(
+    repo: ProductRepository,
+    existing: asyncpg.Record,
+    new_base_unit_id: str | None,
+    product_id: str,
+    account_id: str,
+) -> None:
+    current = _unit_str(existing["base_unit_id"] if "base_unit_id" in existing.keys() else None)
+    if current is None or current == new_base_unit_id:
+        return
+    if await repo.has_stock_or_movements(product_id, account_id):
+        raise ProblemHTTPException(
+            status_code=409,
+            detail=_BASE_UNIT_LOCKED_DETAIL,
+            code=BASE_UNIT_LOCKED_CODE,
+            field="base_unit_id",
+        )
+
+
 async def create_product(
     repo: ProductRepository,
     auth: dict,
@@ -167,10 +207,19 @@ async def update_product(
     conserva el costo que el producto tenía, informado en `null` lo
     desasigna (queda sin costo cargado) — nunca por `is None`, porque `None`
     es indistinguible de "no lo mandé" sin `model_fields_set`.
-    ventas-unidades-conversion (D10) extiende el molde a `base_unit_id`.
+    ventas-unidades-conversion (D10) extiende el molde a `base_unit_id`, con
+    el guard de cambio de unidad (D-C, `_guard_base_unit_change`).
     El resto de los campos conserva `exclude_none` (task 9.4)."""
     require_role(auth, ["user", "admin"])
     data = payload.model_dump(exclude_none=True, exclude={"sku", "category_id", "cost", "base_unit_id"})
+
+    # La fila actual sólo hace falta para los campos que dependen del estado
+    # vivo (herencia de categoría, guard de unidad base): una sola lectura.
+    existing: asyncpg.Record | None = None
+    if category_provided or base_unit_provided:
+        existing = await repo.get_by_id(product_id, account_id)
+        if existing is None:
+            raise HTTPException(status_code=404, detail="Producto no encontrado")
 
     if sku_provided:
         data["sku"] = normalize_sku(payload.sku)
@@ -178,13 +227,12 @@ async def update_product(
     if cost_provided:
         data["cost"] = payload.cost
 
-    if base_unit_provided:
-        data["base_unit_id"] = await _resolve_base_unit_for_account(repo, payload.base_unit_id, account_id)
+    if base_unit_provided and existing is not None:
+        new_base_unit = await _resolve_base_unit_for_account(repo, payload.base_unit_id, account_id)
+        await _guard_base_unit_change(repo, existing, new_base_unit, product_id, account_id)
+        data["base_unit_id"] = new_base_unit
 
-    if category_provided:
-        existing = await repo.get_by_id(product_id, account_id)
-        if existing is None:
-            raise HTTPException(status_code=404, detail="Producto no encontrado")
+    if category_provided and existing is not None:
         # D11/9.7: una variante hereda del padre — el cliente no puede
         # contradecirlo; se ignora sin validar ni escribir.
         if existing["parent_id"] is None:

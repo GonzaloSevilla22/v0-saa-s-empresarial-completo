@@ -2165,7 +2165,7 @@ jobs:
       - name: Run venta editable sin CAE gate
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_venta_editable_sin_cae.sql
 
-      # ventas-unidades-conversion (2026-09-24): 20261061000001 ya se aplico al
+      # ventas-unidades-conversion (2026-09-24): 20261062000001 ya se aplico al
       # levantar el stack; este paso solo corre el gate. 5 bloques: (A) la
       # definicion unica _uom_normalize_quantity caso por caso (relativa a la
       # unidad base del PRODUCTO, tipo cruzado P0400 unit_type_mismatch, sin

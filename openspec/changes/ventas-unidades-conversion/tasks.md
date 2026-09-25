@@ -2,7 +2,7 @@
 
 > Apply 2026-09-24 (misma sesión que el propose). Verificación local sobre un stack Supabase reconstruido desde cero con `db reset` (Docker en el contenedor de la sesión), backend `pytest` con el umbral de CI y frontend `vitest` + `tsc`. Lo que queda abierto está marcado `[ ]` con el motivo.
 
-## 1. Base de datos — migración `20261061000001_ventas_unidades_conversion.sql`
+## 1. Base de datos — migración `20261062000001_ventas_unidades_conversion.sql`
 
 - [x] 1.1 Verificar los cuerpos VIVOS de `_c29_confirm_order_core`, `rpc_create_sale_operation_v2`, `rpc_create_purchase_operation`, `rpc_atomic_update_sale_operation` y `rpc_atomic_update_purchase_operation` contra prod (sólo `SELECT pg_get_functiondef`) y contra el stack local; registrar el md5 CR-stripped de cada uno y la firma vigente de `rpc_set_product_min_stock` en la cabecera de la migración. Verificación: los cinco md5 de `prosrc` coinciden byte a byte entre prod y el último `CREATE OR REPLACE` del directorio de migraciones; la migración los registra y ABORTA si el cuerpo vivo de partida difiere (tolerando la reaplicación cuando el cuerpo ya invoca el helper).
 - [x] 1.2 Helper `_uom_normalize_quantity(uuid, uuid, numeric) RETURNS numeric` (`STABLE`, `SECURITY INVOKER`, `SET search_path`) con los cuatro casos de D1/D3 y los tokens `P0404` / `P0400 unit_type_mismatch` / `P0400 unit_requires_base_unit` / `P0400 quantity_below_precision`; `REVOKE EXECUTE ... FROM PUBLIC, anon, authenticated`. Verificación: bloque (A) del gate, 12/12 casos; `has_function_privilege` en `false` para `anon`/`authenticated`.

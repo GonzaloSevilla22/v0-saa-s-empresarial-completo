@@ -1,6 +1,6 @@
 """ventas-unidades-conversion (D7) — el umbral de stock mínimo es fraccionario.
 
-branch_stock.min_stock pasa a numeric(15,4) (20261061000001) y
+branch_stock.min_stock pasa a numeric(15,4) (20261062000001) y
 rpc_set_product_min_stock a (uuid, numeric). El backend deja de tipar el
 umbral como `int`: un "avisar cuando queden 0,5 kg" viajaba como 0 (int(0.5))
 o era rechazado con 422 antes de llegar a la RPC.

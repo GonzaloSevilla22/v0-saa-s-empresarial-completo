@@ -2,7 +2,7 @@
 -- test_ventas_unidades_conversion.sql — Gate de comportamiento e introspección:
 -- ventas-unidades-conversion (2026-09-24).
 --
--- Verifica 20261061000001_ventas_unidades_conversion.sql:
+-- Verifica 20261062000001_ventas_unidades_conversion.sql:
 --
 --   (A) _uom_normalize_quantity es la ÚNICA definición de "cantidad de una línea
 --       en la unidad en que se lleva el stock del producto": relativa a la

@@ -1,5 +1,5 @@
 -- =============================================================================
--- MIGRATION: 20261061000001_ventas_unidades_conversion.sql
+-- MIGRATION: 20261062000001_ventas_unidades_conversion.sql
 -- CHANGE: ventas-unidades-conversion (2026-09-24) — governance MEDIA con un
 --         tramo de severidad ALTA (reescribe cinco RPCs SECURITY DEFINER que
 --         escriben stock; no toca dinero, caja, cuentas corrientes ni fiscal).

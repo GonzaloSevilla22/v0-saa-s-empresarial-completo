@@ -29,7 +29,7 @@ class ProductCreate(BaseModel):
     stock: Decimal = Decimal("0")
     # ventas-unidades-conversion (D7): el umbral de alerta se expresa en la
     # UNIDAD BASE del producto y admite fracciones ("avisar cuando queden
-    # 0,5 kg") — branch_stock.min_stock es numeric(15,4) desde 20261061000001.
+    # 0,5 kg") — branch_stock.min_stock es numeric(15,4) desde 20261062000001.
     # Nunca negativo: 422 acá, GREATEST(…, 0) en la RPC como red.
     min_stock: Decimal = Field(default=Decimal("0"), ge=0)
     barcode: str | None = None
@@ -94,7 +94,7 @@ class ProductOut(BaseModel):
     stock_control_type: str | None
     created_at: datetime.datetime
     # ventas-unidades-conversion (D10): expuesta por v_products_with_stock
-    # desde 20261061000001 (columna aditiva al final). Default None para que
+    # desde 20261062000001 (columna aditiva al final). Default None para que
     # una fila de una base sin la migración siga deserializando.
     # ventas-unidades-conversion (auditoría post-apply): unidad base EFECTIVA —
     # la vista devuelve la propia o, para una variante, la de su padre.

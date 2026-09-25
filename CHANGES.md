@@ -3609,3 +3609,13 @@ El resto de la tabla del segundo red team (marcado/congelado/autorizado inmutabl
 - **`ventas-escritura-directa-postgrest`** (red team 2026-09-24, A1/A2/D3d — preexistente, fuera de este diff): las RLS `sales_writer_insert/update/delete` dejan escribir `sales` directo por PostgREST. Medido en local: cambiar el total de una venta de 1000 a 1 y borrarla, las dos con un `pending_cae` vivo — se saltea la inmutabilidad de #582, el guard D6, y la compensación de stock y libros; y una fila propia con el `operation_id` de otra cuenta deja el "Facturar" de esa cuenta en `P0404` hasta que edite la venta (hace falta conocer el uuid). Mismo remedio que #580 con `fiscal_documents`: sacar las escrituras directas sobre `sales`/`sale_items` y dejar sólo las RPCs (auditar antes los callers de PostgREST del frontend).
 - Textos fiscales inconsistentes (preexistente): el toast "Comprobante enviado a ARCA — en trámite" sale al ENCOLAR (el relay envía después), la fila dice "pendiente de emisión" y el badge "Autorizado por AFIP".
 - Tiempo del arnés de carrera en CI: 9 interleavings × 20 (en este host, con psql vía `docker exec`, ~25 min; en el runner con psql nativo debería ser bastante menos) — si pesa, bajar `ITER` sólo en PRs que no toquen estas RPCs.
+
+---
+
+### `punto-venta-seleccion` — PROPUESTO 2026-09-25 (governance MEDIA; PR de propose sin mergear, apply a la espera del sign-off del PO)
+
+Pedido del PO: *"quiero que en la venta se pueda elegir el punto de venta o al facturar, por si tienen más de 1"*. Artefactos en `openspec/changes/punto-venta-seleccion/`.
+
+**Medido en prod (2026-09-25, sólo lectura):** 2 de 2 cuentas con puntos de venta tienen **dos activos** (3 y 9999). Hoy `/ventas/ordenes` (donde se facturan las ventas del POS) manda `point_of_sale_id = null` con varios PV activos → `P0422 ambiguous_point_of_sale`: **ninguna venta del POS se puede facturar en esas cuentas**. `/ventas` factura por `pointsOfSale[0]` (el de menor número, y la lista incluye inactivos). `EmitirComprobanteDialog` (selector de PV) es código muerto desde v22.
+
+**Propuesta:** el PV se elige **al facturar** (no en la venta, D1): `EmitInvoiceButton` resuelve el PV solo — 1 activo emite directo, ≥2 abre el diálogo revivido con preselección (última elección de la sesión > predeterminado > único); `points_of_sale.is_default` (uno por cuenta, sólo activo) editable en Configuración → Datos fiscales; `rpc_emit_pending_cae` usa el predeterminado cuando no viene PV (sin predeterminado sigue `P0422`); `rpc_emit_subscription_payment_cae` no se toca (gate por `md5`); selector único `PointOfSaleSelect` compartido con `/admin/pagos`. Migración prevista `20261062000001`. OQ-1..OQ-5 en el design, todas con recomendación.

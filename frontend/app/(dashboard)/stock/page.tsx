@@ -183,7 +183,10 @@ export default function StockPage() {
   const showTransfer = !!limits?.hasBranchesModule && branches.length > 1
 
   // ventas-unidades-conversion (D8): la unidad base del producto se resuelve
-  // con el mismo mapa cacheado que usan los formularios (sin consulta nueva).
+  // con el mismo hook que usan los formularios. OJO: useUnitsOfMeasure no está
+  // cacheado (useState + useEffect), así que esta página hace su propia
+  // consulta a units_of_measure al montar — un catálogo chico, pero no
+  // "sin consulta nueva". Migrarlo a useQuery = candidato aparte.
   const { unitsById } = useUnitsOfMeasure()
   const unitSymbolFor = useMemo<UnitSymbolFor>(
     () => (row) => resolveUnit(row.baseUnitId, unitsById)?.symbol,

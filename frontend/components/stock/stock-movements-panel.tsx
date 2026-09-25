@@ -40,8 +40,10 @@ import { cn } from "@/lib/utils"
 import { format, parseISO, subDays } from "date-fns"
 import { es } from "date-fns/locale"
 // ventas-unidades-conversion (D8): la unidad base del producto para mostrar
-// "-0.450 kg" y "1 kg → 0.550 kg" — resuelta con los mapas ya cacheados de
-// productos y unidades, sin consulta nueva.
+// "-0.450 kg" y "1 kg → 0.550 kg". Los productos salen de la caché de React
+// Query (useProducts). Las unidades NO están cacheadas: useUnitsOfMeasure es
+// useState + useEffect, así que montar el panel dispara su propia consulta a
+// units_of_measure (una por montaje). Migrarlo a useQuery = candidato aparte.
 import { useProducts } from "@/hooks/data/use-products"
 import { useUnitsOfMeasure } from "@/hooks/use-units-of-measure"
 import { resolveUnit } from "@/lib/unit-utils"

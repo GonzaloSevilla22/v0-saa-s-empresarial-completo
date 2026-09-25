@@ -26,6 +26,7 @@ import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { ShoppingCart, PackagePlus, Plus, AlertCircle, CheckCircle2, Landmark, ChevronRight } from "lucide-react"
 import { toast } from "sonner"
+import { formatStock } from "@/lib/format-unit"
 
 import { Celebration3D } from "@/components/three/Celebration3D"
 import { Button } from "@/components/ui/button"
@@ -362,11 +363,14 @@ export default function PosPage() {
       (item) => item.productId === productId && (item.unitId ?? "") === unitId,
     )
 
+    // El disponible está en la unidad BASE del producto: se informa con su
+    // símbolo ("0.550 kg", "3 uds"), no pelado ni con el de la línea
+    // (corrección del PR #584; mismo mensaje que el formulario de venta).
     if (existing) {
       const newQty        = existing.quantity + quantity
       const newNormalized = toBaseQuantity(newQty, selectedUnit, productBaseUnit)
       if (newNormalized > selectedProduct.stock) {
-        toast.error(`Stock insuficiente (disponible: ${selectedProduct.stock})`)
+        toast.error(`Stock insuficiente (disponible: ${formatStock(selectedProduct.stock, productBaseUnit?.symbol)})`)
         return
       }
       setCartItems((prev) =>
@@ -384,7 +388,7 @@ export default function PosPage() {
       toast.success(`Cantidad actualizada: ${selectedProduct.name}`)
     } else {
       if (stagedQuantityNormalized > selectedProduct.stock) {
-        toast.error(`Stock insuficiente (disponible: ${selectedProduct.stock})`)
+        toast.error(`Stock insuficiente (disponible: ${formatStock(selectedProduct.stock, productBaseUnit?.symbol)})`)
         return
       }
       const parent = selectedProduct.parentId

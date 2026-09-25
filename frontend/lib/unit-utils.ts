@@ -74,16 +74,23 @@ export function unitInputMin(unit?: UnitOfMeasure | null): number {
  * toBaseQuantity(450, gUnit, kgUnit)   → 0.45
  * // product kept in g, line entered in kg
  * toBaseQuantity(0.5, kgUnit, gUnit)   → 500
- * // no unit → factor = 1 (quantity already in the product's base unit)
- * toBaseQuantity(3, undefined)         → 3
+ * // line without unit → the quantity as-is, whatever the product's base unit
+ * // (the SQL returns `p_quantity::numeric(15,4)` without looking at the base)
+ * toBaseQuantity(3, undefined, gUnit)  → 3
  */
 export function toBaseQuantity(
   displayQty: number,
   unit?: UnitOfMeasure | null,
   productBaseUnit?: UnitOfMeasure | null,
 ): number {
-  const factor = (unit?.factor ?? 1) / (productBaseUnit?.factor ?? 1)
-  return Math.round(displayQty * factor * 10_000) / 10_000
+  if (!unit) return roundToNumeric4(displayQty)
+  const factor = unit.factor / (productBaseUnit?.factor ?? 1)
+  return roundToNumeric4(displayQty * factor)
+}
+
+/** Same precision as NUMERIC(15,4), the column type of every stock quantity. */
+function roundToNumeric4(qty: number): number {
+  return Math.round(qty * 10_000) / 10_000
 }
 
 // ─── Unit compatibility (selector) ─────────────────────────────────────────

@@ -417,11 +417,14 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
       (item) => item.productId === productId && (item.unitId ?? "") === unitId,
     )
 
+    // El stock del producto se lleva en su unidad BASE: el disponible se
+    // informa con el símbolo de la base, nunca con el de la línea (con la
+    // línea en gramos decía "0.550 g" sobre 0,55 kg — corrección del PR #584).
     if (existing) {
       const newQty           = existing.quantity + quantity
       const newNormalized    = toBaseQuantity(newQty, selectedUnit, productBaseUnit)
       if (newNormalized > selectedProduct.stock) {
-        toast.error(`Stock insuficiente (disponible: ${formatStock(selectedProduct.stock, selectedUnit?.symbol)})`)
+        toast.error(`Stock insuficiente (disponible: ${formatStock(selectedProduct.stock, productBaseUnit?.symbol)})`)
         return
       }
       setCartItems((prev) =>
@@ -440,7 +443,7 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
     } else {
       // New cart entry (different product or different unit)
       if (stagedQuantityNormalized > selectedProduct.stock) {
-        toast.error(`Stock insuficiente (disponible: ${formatStock(selectedProduct.stock, selectedUnit?.symbol)})`)
+        toast.error(`Stock insuficiente (disponible: ${formatStock(selectedProduct.stock, productBaseUnit?.symbol)})`)
         return
       }
       setCartItems((prev) => [

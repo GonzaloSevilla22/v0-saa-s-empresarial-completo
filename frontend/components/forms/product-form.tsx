@@ -139,9 +139,14 @@ export function ProductForm({ onSuccess, initialData, defaultParentId }: Product
       // ventas-unidades-conversion (auditoría post-apply): una variante hereda
       // la base del padre (nunca declara la propia); para un padre variant_only
       // o un producto no rastreado el selector no se muestra, así que se manda
-      // `undefined` = "sin cambios" (el hook omite el campo y el backend
-      // conserva el valor). Antes `undefined` viajaba como `null` y desasignaba.
-      baseUnitId: isVariant ? undefined : (baseUnitId || undefined),
+      // `undefined` = "sin cambios" (el hook omite el campo en la edición y el
+      // backend conserva el valor; en el alta viaja null). Sin la condición
+      // "tracked", elegir kg y pasar a Servicio / Digital guardaba una unidad
+      // que el usuario ya no ve (corrección del PR #584).
+      baseUnitId:
+        !isVariant && stockControlType === "tracked" && baseUnitId
+          ? baseUnitId
+          : undefined,
     }
 
     try {
@@ -342,11 +347,14 @@ export function ProductForm({ onSuccess, initialData, defaultParentId }: Product
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div className="flex flex-col gap-2">
             <Label className="text-foreground">Stock inicial</Label>
-            <NumericInput min={0} value={stock} onValueChange={setStock} className="bg-background border-border text-foreground" />
+            {/* step="any": sin él el input es step=1 y el navegador bloquea el
+                submit con 0,55 kg (stepMismatch). El servidor valida >= 0. */}
+            <NumericInput min={0} step="any" value={stock} onValueChange={setStock} className="bg-background border-border text-foreground" />
           </div>
           <div className="flex flex-col gap-2">
             <Label className="text-foreground">Stock mínimo</Label>
-            <NumericInput min={0} value={minStock} onValueChange={setMinStock} className="bg-background border-border text-foreground" />
+            {/* Stock mínimo decimal (numeric(15,4), 0,5 kg): mismo motivo. */}
+            <NumericInput min={0} step="any" value={minStock} onValueChange={setMinStock} className="bg-background border-border text-foreground" />
           </div>
         </div>
       )}

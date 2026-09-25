@@ -183,10 +183,14 @@ function validateRow(raw: RawImportRow, canonicalByKey: Map<string, string>): Va
   }
 
   // ── Min stock ──────────────────────────────────────────────────────────────
-  // products.min_stock / branch_stock.min_stock son integer en DB — la RPC
-  // castea el TEXTO del JSON con `::integer`, así que un valor no entero no
-  // se redondea en silencio: lanza 22P02 y aborta el lote completo. Por eso
+  // Las columnas ya admiten decimales (branch_stock.min_stock y la deprecada
+  // products.min_stock son numeric(15,4) desde ventas-unidades-conversion),
+  // pero el importador NO: `rpc_bulk_upsert_products` (20261044000001, no la
+  // toca ese change) castea el TEXTO del JSON con `::integer` y el esquema de
+  // fila del backend declara `min_stock: int`. Un valor no entero no se
+  // redondearía en silencio: lanza 22P02 y aborta el lote completo. Por eso
   // acá SIEMPRE se entrega un entero (helper canónico, `integer: true`).
+  // Mínimo decimal por CSV = candidato aparte (Non-Goal del change).
   let minStock = 0
   if (raw.stock_minimo.trim()) {
     const { value, warnings: minStockWarnings } = parseQuantity(raw.stock_minimo, {

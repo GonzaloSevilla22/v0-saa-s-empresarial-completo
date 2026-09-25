@@ -24,6 +24,7 @@ import {
   unitInputStep,
   unitInputMin,
   toBaseQuantity,
+  convertUnitPrice,
   resolveUnit,
   compatibleUnits,
 } from "@/lib/unit-utils"
@@ -353,6 +354,17 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
     [products],
   )
 
+  // Corrección del PR #584 (edición): una línea rehidratada no trae
+  // step/minQty — se derivan de su unidad (o de la unidad base del producto)
+  // con las mismas funciones que el alta. Sin esto, bajar 0,45 kg a 0,40 kg
+  // en el carrito de edición lo subía en silencio a 1 (`?? 1`).
+  const lineUnitOf = useCallback(
+    (item: { unitId?: string; productId: string }) =>
+      resolveUnit(item.unitId, unitsById) ??
+      resolveUnit(productById.get(item.productId)?.baseUnitId, unitsById),
+    [unitsById, productById],
+  )
+
   // ── Handlers ────────────────────────────────────────────────────────────────
 
   /**
@@ -502,7 +514,7 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
       prev.map((item) => {
         if (item.id !== id) return item
         // Use the item's own minQty — not a global 1 — so medibles can go below 1
-        const newQty = Math.max(item.minQty ?? 1, qty)
+        const newQty = Math.max(item.minQty ?? unitInputMin(lineUnitOf(item)), qty)
         return {
           ...item,
           quantity:     newQty,
@@ -711,9 +723,9 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
               quantity:    item.quantity,
               unitValue:   item.unitCost,
               subtotal:    item.subtotal,
-              step:        item.step,
-              minQty:      item.minQty,
-              badge:       item.unitSymbol ?? undefined,
+              step:        item.step ?? unitInputStep(lineUnitOf(item)),
+              minQty:      item.minQty ?? unitInputMin(lineUnitOf(item)),
+              badge:       item.unitSymbol ?? lineUnitOf(item)?.symbol,
             }))}
             onRemove={handleRemoveItem}
             onUpdateQty={handleUpdateQty}
@@ -1081,6 +1093,10 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
                       setUnitId(next)
                       const nextUnit = next ? unitsById.get(next) : undefined
                       setQuantity(unitInputMin(nextUnit))
+                      // Contrato D-F (precio por unidad de la LÍNEA): el precio
+                      // se re-expresa con el mismo factor que la cantidad —
+                      // 100 g a $1.800/kg cobran $180, no $180.000.
+                      setUnitCost((prev) => convertUnitPrice(prev, selectedUnit, nextUnit, productBaseUnit))
                     }}
                   >
                     <SelectTrigger className="bg-background border-border text-foreground h-10 text-sm">

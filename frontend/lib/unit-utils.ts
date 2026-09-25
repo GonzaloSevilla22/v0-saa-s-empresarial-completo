@@ -88,6 +88,35 @@ export function toBaseQuantity(
   return roundToNumeric4(displayQty * factor)
 }
 
+/**
+ * Re-expresses a unit PRICE (or cost) from one unit of a line to another —
+ * the price contract of ventas-unidades-conversion (D-F, provisional until the
+ * PO signs off): the `amount`/`price` of a line is per unit of THE LINE, so
+ * `amount × quantity` stays the line total the server recomputes
+ * (`rpc_create_sale_operation`) or takes from the client (`subtotal` of the
+ * POS), as in every historical sale. The catalogue price is per BASE unit of
+ * the product; choosing another unit rescales it with the SAME factor that
+ * `toBaseQuantity` uses, so price(line) × qty(line) = price(base) × qty(base).
+ *
+ * "No unit" means the product's base unit (same reading as `toBaseQuantity`).
+ *
+ * @example
+ * convertUnitPrice(1800, kg, g, kg)  → 1.8    ($/g from $/kg)
+ * convertUnitPrice(100, u, doc, u)   → 1200   ($/docena from $/u)
+ */
+export function convertUnitPrice(
+  price: number,
+  fromUnit?: UnitOfMeasure | null,
+  toUnit?: UnitOfMeasure | null,
+  productBaseUnit?: UnitOfMeasure | null,
+): number {
+  const baseFactor = productBaseUnit?.factor ?? 1
+  const fromFactor = fromUnit?.factor ?? baseFactor
+  const toFactor   = toUnit?.factor ?? baseFactor
+  if (fromFactor === toFactor) return price
+  return roundToNumeric4((price * toFactor) / fromFactor)
+}
+
 /** Same precision as NUMERIC(15,4), the column type of every stock quantity. */
 function roundToNumeric4(qty: number): number {
   return Math.round(qty * 10_000) / 10_000

@@ -65,6 +65,7 @@ import {
   unitInputStep,
   unitInputMin,
   toBaseQuantity,
+  convertUnitPrice,
   resolveUnit,
   compatibleUnits,
 } from "@/lib/unit-utils"
@@ -917,6 +918,10 @@ export default function PosPage() {
                         setUnitId(next)
                         const nextUnit = next ? unitsById.get(next) : undefined
                         setQuantity(unitInputMin(nextUnit))
+                        // Contrato D-F (precio por unidad de la LÍNEA): el precio
+                        // se re-expresa con el mismo factor que la cantidad —
+                        // 100 g a $1.800/kg cobran $180, no $180.000.
+                        setUnitPrice((prev) => convertUnitPrice(prev, selectedUnit, nextUnit, productBaseUnit))
                       }}
                     >
                       <SelectTrigger className="bg-background border-border text-foreground h-10 text-sm">

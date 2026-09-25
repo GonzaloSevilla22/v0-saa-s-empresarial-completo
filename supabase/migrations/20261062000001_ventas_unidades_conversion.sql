@@ -2,7 +2,10 @@
 -- MIGRATION: 20261062000001_ventas_unidades_conversion.sql
 -- CHANGE: ventas-unidades-conversion (2026-09-24) — governance MEDIA con un
 --         tramo de severidad ALTA (reescribe seis RPCs SECURITY DEFINER que
---         escriben stock; no toca dinero, caja, cuentas corrientes ni fiscal).
+--         escriben stock y, desde la segunda revisión, las tres lecturas de
+--         reporting que cuentan/costean cantidades; no escribe dinero, caja,
+--         cuentas corrientes ni fiscal — pero el contrato de PRECIO por unidad
+--         de la línea, D-F, sí es de dinero y queda pendiente del sign-off).
 --         Renumerada de 20261061000001 a 20261062000001 el 2026-09-25: la
 --         20261061000001 la tomó el PR #585 (venta-editable-vs-promocion-legacy),
 --         ya mergeado y vivo en prod.
@@ -33,7 +36,14 @@
 --   8. branch_stock.min_stock → numeric(15,4) (vista v_products_with_stock
 --      recreada, get_dashboard_critical_stock_items y
 --      rpc_set_product_min_stock con DROP + CREATE).
---   9. Gate embebido de introspección.
+--  10. (segunda revisión) Reporting en unidad BASE: reporting_sales_lines_in_window,
+--      rpc_dashboard_kpi_summary y rpc_dashboard_channel_margin cuentan y
+--      costean la cantidad normalizada (envoltorio de lectura
+--      _uom_quantity_for_reporting); el precio sigue por unidad de la línea (D-F).
+--  11. (segunda revisión) trg_product_base_unit_guard: la unidad base no cambia
+--      debajo del stock (P0409 base_unit_locked, D-C) y es del sistema o de la
+--      cuenta (P0404) — para FastAPI, PostgREST y cualquier escritor.
+--  12. Gate embebido de introspección.
 --
 -- CUERPOS DE PARTIDA (md5 de prosrc CR-stripped, re-medidos contra prod
 -- gxdhpxvdjjkmxhdkkwyb el 2026-09-25 — después del deploy de #585, 308
@@ -45,6 +55,9 @@
 --   rpc_atomic_update_sale_operation     7c8c1b765ca669ad736e8fc181d471bb  (20261061000001_venta_editable_vs_promocion_legacy.sql, PR #585)
 --   rpc_atomic_update_purchase_operation fd5052c8e3fa146512600aa9987e2beb  (20261018000001_caja_compras_cobranzas.sql)
 --   rpc_create_sale_operation            343e0f1f938a918daaba41434c8a494b  (20261022000001_cobranzas_vencimientos.sql)
+--   reporting_sales_lines_in_window      4bba3c6c619212bb4bfa59a814a8a040  (20261042000001_products_cost_nullable.sql) — §10, segunda revisión
+--   rpc_dashboard_kpi_summary            41c86badb97f3980a786a7b158fa7fd6  (20261042000001_products_cost_nullable.sql) — §10
+--   rpc_dashboard_channel_margin         47023d57067c03bd8bdd2cef362c0843  (20261042000001_products_cost_nullable.sql) — §10
 --
 -- rpc_atomic_update_sale_operation parte AHORA del cuerpo de #585 (lock
 -- temprano N1 + recálculo N3), no del de 20261060000001 (a657c54b…) que
@@ -72,7 +85,12 @@ DECLARE
     'rpc_create_purchase_operation',        'f465b93f8eaedeba46bca08a4fc41033',
     'rpc_atomic_update_sale_operation',     '7c8c1b765ca669ad736e8fc181d471bb',
     'rpc_atomic_update_purchase_operation', 'fd5052c8e3fa146512600aa9987e2beb',
-    'rpc_create_sale_operation',            '343e0f1f938a918daaba41434c8a494b'
+    'rpc_create_sale_operation',            '343e0f1f938a918daaba41434c8a494b',
+    -- Segunda revisión (§10, reporting en unidad base): vivos en prod el
+    -- 2026-09-25 (SELECT sobre gxdhpxvdjjkmxhdkkwyb) = stack local.
+    'reporting_sales_lines_in_window',      '4bba3c6c619212bb4bfa59a814a8a040',
+    'rpc_dashboard_kpi_summary',            '41c86badb97f3980a786a7b158fa7fd6',
+    'rpc_dashboard_channel_margin',         '47023d57067c03bd8bdd2cef362c0843'
   );
   -- Cuerpo que ESTA migración deja (reaplicación: KPI_Validation "idempotente
   -- on reapply" / db reset con la migración ya vigente). Auditoría post-apply:
@@ -87,19 +105,25 @@ DECLARE
     'rpc_create_purchase_operation',        '35ae3c793efec9c3a6a06138dcea90ee',
     'rpc_atomic_update_sale_operation',     '66c49a34b4e9de40ddbe90a1e33d0f83',
     'rpc_atomic_update_purchase_operation', '23558c073cf71d08ea4a0dfb15079555',
-    'rpc_create_sale_operation',            '76654116ca260f683e0d4082b6c77db0'
+    'rpc_create_sale_operation',            '76654116ca260f683e0d4082b6c77db0',
+    'reporting_sales_lines_in_window',      '32500045f7934cb1e86b6051c21b515b',
+    'rpc_dashboard_kpi_summary',            'bba246e4a9e507b19a56e1cc01ec8bcd',
+    'rpc_dashboard_channel_margin',         '881b3390fb0d2c9fd6dbc34f9aa15120'
   );
   v_fn  text;
   v_md5 text;
   v_bad text[] := '{}';
+  v_n_partida      integer := 0;
+  v_n_reaplicacion integer := 0;
 BEGIN
   FOR v_fn IN SELECT jsonb_object_keys(v_expected) LOOP
     SELECT md5(replace(p.prosrc, E'\r', '')) INTO v_md5
     FROM   pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
     WHERE  n.nspname = 'public' AND p.proname = v_fn;
     IF v_md5 = (v_expected ->> v_fn) THEN
-      CONTINUE;
+      v_n_partida := v_n_partida + 1;
     ELSIF v_md5 = (v_rewritten ->> v_fn) THEN
+      v_n_reaplicacion := v_n_reaplicacion + 1;
       RAISE NOTICE 'ventas-unidades-conversion: % ya es el cuerpo de esta migración (reaplicación)', v_fn;
     ELSE
       v_bad := v_bad || format('%s: esperado %s (partida) o %s (reaplicación), vivo %s',
@@ -110,7 +134,10 @@ BEGIN
     RAISE EXCEPTION 'ventas-unidades-conversion: el cuerpo vivo de partida difiere del verificado contra prod el 2026-09-25 — reconciliar antes de reescribir: %',
       array_to_string(v_bad, '; ');
   END IF;
-  RAISE NOTICE 'ventas-unidades-conversion: seis cuerpos de partida verificados por md5';
+  -- Segunda revisión: el mensaje dice lo que pasó (antes anunciaba "seis
+  -- cuerpos de partida verificados" aunque los seis fueran reaplicación).
+  RAISE NOTICE 'ventas-unidades-conversion: % cuerpos reescritos desde el cuerpo de partida verificado por md5, % ya reaplicados',
+    v_n_partida, v_n_reaplicacion;
 END $$;
 
 -- ─── 0b. Reparación de un gap de historial de migraciones ───────────────────
@@ -231,8 +258,12 @@ BEGIN
       USING ERRCODE = 'P0400';
   END IF;
 
-  IF v_base.factor IS NULL OR v_base.factor = 0 OR v_unit.factor IS NULL THEN
-    RAISE EXCEPTION 'unit_factor_invalid: factor nulo o cero en % / %', p_unit_id, v_base_id
+  -- Segunda revisión: también un factor <= 0 de la unidad de la LÍNEA.
+  -- units_of_measure no tiene CHECK (factor > 0) y la policy
+  -- uom_account_insert deja crear unidades por PostgREST: con factor -1,
+  -- VENDER sumaba stock (medido, 40-probe-d6-y-factor.out.txt).
+  IF v_base.factor IS NULL OR v_base.factor <= 0 OR v_unit.factor IS NULL OR v_unit.factor <= 0 THEN
+    RAISE EXCEPTION 'unit_factor_invalid: factor nulo, cero o negativo en % / %', p_unit_id, v_base_id
       USING ERRCODE = 'P0400';
   END IF;
 
@@ -3053,7 +3084,500 @@ GRANT  EXECUTE ON FUNCTION public.rpc_set_product_min_stock(uuid, numeric) TO au
 COMMENT ON FUNCTION public.rpc_set_product_min_stock(uuid, numeric) IS
   'branch-min-stock-realign (1.2): propaga min_stock del producto a TODAS las filas branch_stock existentes de ese producto (semántica "aplica a todas las sucursales", decisión PO 2026-07-04). SECURITY DEFINER + guard is_account_writer — mismo patrón que rpc_adjust_branch_stock. Filas branch_stock lazy futuras (creadas por otros deltas) nacen en min_stock=0 hasta la próxima edición que re-propague; comportamiento aceptado y documentado (ver design.md Decisión (a)). ventas-unidades-conversion: p_min_stock pasa de integer a numeric y se guarda como numeric(15,4) (unidad base del producto, admite 0,5 kg); la firma (uuid, integer) se retiró con DROP + CREATE, sin overload.';
 
--- ─── 9. Gate embebido de introspección (falla el deploy si falta una pieza) ──
+-- ─── 10. Reporting en unidad BASE (segunda revisión del PR #584) ────────────
+-- Con este change el POS y los formularios venden en unidades no base (g,
+-- docenas). Todo el reporting multiplicaba la cantidad CRUDA de la línea por
+-- un costo POR UNIDAD BASE (unit_cost_snapshot / products.cost) y sumaba las
+-- unidades crudas: 100 g de un producto a 600/kg costaban 60.000 y contaban
+-- "100" unidades en el Tablero, /estadisticas y rentabilidad (medido en el
+-- stack local, 30-consumidores-cantidad-cruda.out.txt). En prod hoy: 0 filas
+-- afectadas (las 1.030 líneas con unidad están en su unidad base); este
+-- change es lo que las vuelve alcanzables.
+--
+-- El precio NO cambia de semántica (contrato D-F, provisorio hasta el sign-off
+-- del PO): `amount`/`price` es por unidad de LA LÍNEA y el importe de línea
+-- sigue siendo COALESCE(total, amount) — sólo la CANTIDAD que se cuenta y se
+-- costea pasa a la unidad base.
+--
+-- Envoltorio de LECTURA de la definición única: el helper rechaza (P0400) una
+-- línea histórica que la regla de escritura de hoy no admitiría — la venta
+-- real del 2026-09-22 en mL sobre un producto sin unidad base —, y un reporte
+-- no puede abortar por eso: se reporta tal como se grabó. No hay una segunda
+-- aritmética: convierte SÓLO _uom_normalize_quantity.
+CREATE OR REPLACE FUNCTION public._uom_quantity_for_reporting(
+  p_product_id uuid,
+  p_unit_id    uuid,
+  p_quantity   numeric
+)
+RETURNS numeric
+LANGUAGE plpgsql
+STABLE
+SECURITY INVOKER
+SET search_path TO 'public'
+AS $$
+BEGIN
+  -- Camino rápido sin subtransacción: línea sin unidad o sin producto.
+  IF p_unit_id IS NULL OR p_product_id IS NULL OR p_quantity IS NULL THEN
+    RETURN p_quantity;
+  END IF;
+  BEGIN
+    RETURN public._uom_normalize_quantity(p_product_id, p_unit_id, p_quantity);
+  EXCEPTION WHEN SQLSTATE 'P0400' OR SQLSTATE 'P0404' THEN
+    RETURN p_quantity;
+  END;
+END;
+$$;
+
+COMMENT ON FUNCTION public._uom_quantity_for_reporting(uuid, uuid, numeric) IS
+  'ventas-unidades-conversion (segunda revisión): cantidad de una línea de venta en la unidad BASE del producto para REPORTING (la unidad en que están unit_cost_snapshot y products.cost). Envoltorio de lectura de _uom_normalize_quantity, la única definición: una línea histórica que la regla de escritura de hoy rechazaría (P0400/P0404) se reporta con la cantidad tal como se grabó, en vez de abortar el reporte. La consumen reporting_sales_lines_in_window (y por ella ranking, evolución, desgloses, top clientes y rentabilidad), rpc_dashboard_kpi_summary y rpc_dashboard_channel_margin. Sin EXECUTE para anon/authenticated.';
+
+REVOKE ALL ON FUNCTION public._uom_quantity_for_reporting(uuid, uuid, numeric) FROM PUBLIC, anon, authenticated;
+
+-- Los tres cuerpos parten de su pg_get_functiondef VIVO (md5 en el preflight,
+-- §0) y sólo cambian la cantidad; CREATE OR REPLACE conserva firma, ACLs y
+-- COMMENT. reporting_sales_lines_in_window sigue siendo SQL sin SET
+-- search_path (inlineable, estadisticas-ventas E1).
+
+CREATE OR REPLACE FUNCTION public.reporting_sales_lines_in_window(p_account_id uuid, p_start date, p_end date, p_branch_id uuid DEFAULT NULL::uuid, p_canal text DEFAULT NULL::text)
+ RETURNS TABLE(sale_id uuid, operation_key uuid, product_id uuid, client_id uuid, branch_id uuid, canal text, business_date date, created_at timestamp with time zone, quantity numeric, line_revenue numeric, unit_cost numeric, has_cost boolean)
+ LANGUAGE sql
+ STABLE
+AS $function$
+  SELECT
+    s.id,
+    COALESCE(s.operation_id, s.id),
+    s.product_id,
+    s.client_id,
+    s.branch_id,
+    s.canal,
+    -- reporting-invariants (fecha de negocio vs instante): sales.date guarda el
+    -- día calendario declarado a 00:00 UTC. Casteo DIRECTO — aplicarle
+    -- AT TIME ZONE corre cada venta un día hacia atrás (218/218 medido).
+    s.date::date,
+    s.created_at,
+    -- ventas-unidades-conversion (segunda revisión, 2026-09-25): cantidad en
+    -- la unidad BASE del producto — la misma en que están unit_cost_snapshot
+    -- y products.cost. Antes 100 g sobre un producto a 600/kg sumaban "100"
+    -- unidades y costaban 60.000. Única conversión: _uom_normalize_quantity,
+    -- vía el envoltorio de lectura (nunca aborta por una línea histórica).
+    public._uom_quantity_for_reporting(s.product_id, s.unit_id, s.quantity),
+    -- RN-D (revenue de línea consistente): COALESCE(total, amount), nunca
+    -- amount solo (precio unitario).
+    COALESCE(s.total, s.amount),
+    -- RN-D2 cascada canónica: snapshot congelado de la línea; products.cost
+    -- actual sólo cuando la línea no tiene snapshot. products-costo-nullable:
+    -- la nulabilidad se propaga sola — el costo del catálogo es opcional.
+    COALESCE(si.unit_cost_snapshot, pr.cost),
+    -- productos-costo-nullable (D3): has_cost_snapshot -> has_cost. La
+    -- pregunta que la spec product-ranking hace es "¿tiene costo?", no
+    -- "¿tiene snapshot?" — una línea sin snapshot pero con costo de catálogo
+    -- real tiene su margen perfectamente medido y debe contar como cubierta.
+    (COALESCE(si.unit_cost_snapshot, pr.cost) IS NOT NULL)
+  FROM public.sales s
+  LEFT JOIN public.products   pr ON pr.id = s.product_id
+  LEFT JOIN public.sale_items si ON si.sale_id = s.id AND si.product_id = s.product_id
+  WHERE s.account_id = p_account_id
+    -- RN-D5: bordes >= inicio y < fin + 1 día (ambos a medianoche UTC, como
+    -- las filas). p_end NULL = sin borde superior (rpc_product_profitability).
+    AND s.date >= p_start::timestamptz
+    AND (p_end IS NULL OR s.date < (p_end + 1)::timestamptz)
+    AND (p_branch_id IS NULL OR s.branch_id = p_branch_id)
+    AND (p_canal     IS NULL OR s.canal     = p_canal);
+$function$;
+
+CREATE OR REPLACE FUNCTION public.rpc_dashboard_kpi_summary(p_from timestamp with time zone, p_to timestamp with time zone, p_prev_from timestamp with time zone, p_prev_to timestamp with time zone, p_branch_id uuid DEFAULT NULL::uuid)
+ RETURNS TABLE(net_profit numeric, prev_net_profit numeric, avg_ticket numeric, prev_avg_ticket numeric, cost_per_sale numeric, prev_cost_per_sale numeric, stagnant_stock_value numeric, stagnant_stock_count integer, stagnant_stock_without_cost_count integer, prev_stagnant_stock_value numeric, prev_stagnant_stock_count integer, sales_count integer, prev_sales_count integer, invoiced_revenue numeric, prev_invoiced_revenue numeric, collected_revenue numeric, prev_collected_revenue numeric)
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_account_id uuid;
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'Not authenticated' USING ERRCODE = 'insufficient_privilege';
+  END IF;
+
+  SELECT cai INTO v_account_id
+  FROM   current_account_ids() AS cai
+  LIMIT  1;
+
+  IF v_account_id IS NULL THEN
+    RAISE EXCEPTION 'Usuario sin cuenta activa' USING ERRCODE = 'P0403';
+  END IF;
+
+  IF p_from > p_to OR p_prev_from > p_prev_to THEN
+    RAISE EXCEPTION 'Invalid date range' USING ERRCODE = 'P0400';
+  END IF;
+
+  RETURN QUERY
+  WITH sales_agg AS (
+    SELECT
+      COALESCE(SUM(COALESCE(s.total, s.amount)) FILTER (WHERE s.date BETWEEN p_from      AND p_to),      0) AS revenue,
+      COALESCE(SUM(COALESCE(s.total, s.amount)) FILTER (WHERE s.date BETWEEN p_prev_from AND p_prev_to), 0) AS prev_revenue,
+      COUNT(DISTINCT COALESCE(s.operation_id, s.id)) FILTER (WHERE s.date BETWEEN p_from      AND p_to)     AS ops,
+      COUNT(DISTINCT COALESCE(s.operation_id, s.id)) FILTER (WHERE s.date BETWEEN p_prev_from AND p_prev_to) AS prev_ops,
+      -- v3-snapshot-pattern (D6): COGS = snapshot congelado (via sale_items),
+      -- fallback a pr.cost actual solo si la línea no tiene snapshot.
+      -- productos-costo-nullable: pr.cost puede ser NULL — el COALESCE final
+      -- a 0 es el KPI de rentabilidad agregada de la cuenta (no un ranking
+      -- por producto), donde un costo ausente sigue sin poder inventarse
+      -- pero tampoco puede dejar el KPI entero en NULL.
+      -- ventas-unidades-conversion (segunda revisión): el costo es por unidad
+      -- BASE, así que la cantidad también — vía el envoltorio de lectura.
+      COALESCE(SUM(COALESCE(si.unit_cost_snapshot, pr.cost, 0) * public._uom_quantity_for_reporting(s.product_id, s.unit_id, s.quantity)) FILTER (WHERE s.date BETWEEN p_from      AND p_to),      0) AS cogs,
+      COALESCE(SUM(COALESCE(si.unit_cost_snapshot, pr.cost, 0) * public._uom_quantity_for_reporting(s.product_id, s.unit_id, s.quantity)) FILTER (WHERE s.date BETWEEN p_prev_from AND p_prev_to), 0) AS prev_cogs
+    FROM public.sales s
+    LEFT JOIN public.products pr ON pr.id = s.product_id
+    LEFT JOIN public.sale_items si
+          ON  si.sale_id = s.id
+          AND si.product_id = s.product_id
+    WHERE s.account_id = v_account_id
+      AND s.date BETWEEN LEAST(p_prev_from, p_from) AND GREATEST(p_prev_to, p_to)
+      AND (p_branch_id IS NULL OR s.branch_id = p_branch_id)
+  ),
+  -- kpi-branch-consistency (D1, grupo 6): la regla de NC —incluida la
+  -- atribución de sucursal— vive en el helper único (D5) consumido también
+  -- por get_dashboard_financials. p_branch_id ahora SÍ filtra (helper
+  -- reescrito en esta migración).
+  nc_agg AS (
+    SELECT
+      public.reporting_credit_notes_in_window(v_account_id, p_from,      p_to,      p_branch_id) AS nc,
+      public.reporting_credit_notes_in_window(v_account_id, p_prev_from, p_prev_to, p_branch_id) AS prev_nc
+  ),
+  -- v3-reporting-invariants (RN-D3) / kpi-branch-consistency (D2, grupo 6):
+  -- cargos a cuenta corriente del período. SIGUEN sin filtrar por sucursal
+  -- (nivel cuenta) — no son la causa de collected_revenue = NULL bajo
+  -- filtro, pero tampoco se filtran: ver el CASE del SELECT final.
+  charges_agg AS (
+    SELECT
+      COALESCE(SUM(cam.amount) FILTER (WHERE cam.amount > 0 AND cam.created_at BETWEEN p_from      AND p_to),      0) AS charges,
+      COALESCE(SUM(cam.amount) FILTER (WHERE cam.amount > 0 AND cam.created_at BETWEEN p_prev_from AND p_prev_to), 0) AS prev_charges
+    FROM public.customer_account_movements cam
+    WHERE cam.account_id = v_account_id
+      AND cam.movement_type = 'sale'
+      AND cam.created_at BETWEEN LEAST(p_prev_from, p_from) AND GREATEST(p_prev_to, p_to)
+  ),
+  -- v3-reporting-invariants (RN-D3) / kpi-branch-consistency (D2, grupo 6):
+  -- cobros del período. payments_received no tiene sucursal atribuible
+  -- (reference_sale_id opcional y en la práctica NULL) — no filtrable.
+  payments_agg AS (
+    SELECT
+      COALESCE(SUM(pr_.amount) FILTER (WHERE pr_.created_at BETWEEN p_from      AND p_to),      0) AS payments,
+      COALESCE(SUM(pr_.amount) FILTER (WHERE pr_.created_at BETWEEN p_prev_from AND p_prev_to), 0) AS prev_payments
+    FROM public.payments_received pr_
+    WHERE pr_.account_id = v_account_id
+      AND pr_.created_at BETWEEN LEAST(p_prev_from, p_from) AND GREATEST(p_prev_to, p_to)
+  ),
+  expenses_agg AS (
+    SELECT
+      COALESCE(SUM(e.amount) FILTER (WHERE e.date BETWEEN p_from      AND p_to),      0) AS expenses,
+      COALESCE(SUM(e.amount) FILTER (WHERE e.date BETWEEN p_prev_from AND p_prev_to), 0) AS prev_expenses
+    FROM public.expenses e
+    WHERE e.account_id = v_account_id
+      AND e.date BETWEEN LEAST(p_prev_from, p_from) AND GREATEST(p_prev_to, p_to)
+      AND (p_branch_id IS NULL OR e.branch_id = p_branch_id)
+  ),
+  purchases_agg AS (
+    SELECT
+      COALESCE(SUM(COALESCE(pu.total, pu.amount)) FILTER (WHERE pu.date BETWEEN p_from      AND p_to),      0) AS purchases,
+      COALESCE(SUM(COALESCE(pu.total, pu.amount)) FILTER (WHERE pu.date BETWEEN p_prev_from AND p_prev_to), 0) AS prev_purchases
+    FROM public.purchases pu
+    WHERE pu.account_id = v_account_id
+      AND pu.date BETWEEN LEAST(p_prev_from, p_from) AND GREATEST(p_prev_to, p_to)
+      AND (p_branch_id IS NULL OR pu.branch_id = p_branch_id)
+  ),
+  -- kpi-branch-consistency (D3, grupo 5): stock sin rotación por sucursal
+  -- sobre branch_stock. productos-costo-nullable (OQ-2=a, D13): la
+  -- aritmética NO cambia — un producto sin costo sigue aportando 0 al total
+  -- (idéntico a un cost=0 de hoy) — lo que se agrega es CUÁNTOS de los
+  -- productos sin rotación no tienen costo, para que el total sea auditable.
+  stagnant_curr AS (
+    SELECT
+      COALESCE(SUM(bs.quantity * COALESCE(p.cost, 0)), 0)                    AS value,
+      COUNT(DISTINCT bs.product_id)::integer                                 AS cnt,
+      COUNT(DISTINCT bs.product_id) FILTER (WHERE p.cost IS NULL)::integer   AS without_cost_cnt
+    FROM public.branch_stock bs
+    JOIN public.products p ON p.id = bs.product_id
+    WHERE bs.account_id = v_account_id
+      AND bs.quantity > 0
+      AND (p_branch_id IS NULL OR bs.branch_id = p_branch_id)
+      AND p.deleted_at IS NULL
+      AND COALESCE(p.stock_control_type, 'tracked') NOT IN ('untracked', 'variant_only')
+      AND NOT EXISTS (
+        SELECT 1 FROM public.sales sx
+        WHERE sx.account_id = v_account_id
+          AND sx.product_id = bs.product_id
+          AND sx.date BETWEEN p_from AND p_to
+          -- kpi-branch-consistency (D4): fail-open sobre ventas legacy sin
+          -- sucursal. 75% de las filas de `sales` en producción tienen
+          -- branch_id NULL (medido 2026-08-11) — una venta legacy es
+          -- evidencia REAL de rotación y no se puede duplicar (EXISTS, no
+          -- SUM); fail-closed marcaría como "sin rotación" a casi todo el
+          -- catálogo apenas se selecciona una sucursal.
+          AND (p_branch_id IS NULL OR sx.branch_id = p_branch_id OR sx.branch_id IS NULL)
+      )
+  ),
+  stagnant_prev AS (
+    SELECT
+      COALESCE(SUM(bs.quantity * COALESCE(p.cost, 0)), 0) AS value,
+      COUNT(DISTINCT bs.product_id)::integer               AS cnt
+    FROM public.branch_stock bs
+    JOIN public.products p ON p.id = bs.product_id
+    WHERE bs.account_id = v_account_id
+      AND bs.quantity > 0
+      AND (p_branch_id IS NULL OR bs.branch_id = p_branch_id)
+      AND p.deleted_at IS NULL
+      AND COALESCE(p.stock_control_type, 'tracked') NOT IN ('untracked', 'variant_only')
+      AND NOT EXISTS (
+        SELECT 1 FROM public.sales sx
+        WHERE sx.account_id = v_account_id
+          AND sx.product_id = bs.product_id
+          AND sx.date BETWEEN p_prev_from AND p_prev_to
+          AND (p_branch_id IS NULL OR sx.branch_id = p_branch_id OR sx.branch_id IS NULL)
+      )
+  )
+  SELECT
+    (sa.revenue - na.nc)      - (ea.expenses      + pa.purchases)       AS net_profit,
+    (sa.prev_revenue - na.prev_nc) - (ea.prev_expenses + pa.prev_purchases)  AS prev_net_profit,
+    ROUND(sa.revenue      / NULLIF(sa.ops, 0), 2)             AS avg_ticket,
+    ROUND(sa.prev_revenue / NULLIF(sa.prev_ops, 0), 2)        AS prev_avg_ticket,
+    ROUND(sa.cogs         / NULLIF(sa.ops, 0), 2)             AS cost_per_sale,
+    ROUND(sa.prev_cogs    / NULLIF(sa.prev_ops, 0), 2)        AS prev_cost_per_sale,
+    sc.value                                                  AS stagnant_stock_value,
+    sc.cnt                                                    AS stagnant_stock_count,
+    sc.without_cost_cnt                                       AS stagnant_stock_without_cost_count,
+    sp.value                                                  AS prev_stagnant_stock_value,
+    sp.cnt                                                    AS prev_stagnant_stock_count,
+    sa.ops::integer                                           AS sales_count,
+    sa.prev_ops::integer                                      AS prev_sales_count,
+    -- v3-reporting-invariants (RN-D3): devengado neto de NC, filtrado por
+    -- sucursal (el helper ya atribuye — D1, grupo 6).
+    (sa.revenue - na.nc)                                      AS invoiced_revenue,
+    (sa.prev_revenue - na.prev_nc)                            AS prev_invoiced_revenue,
+    -- kpi-branch-consistency (D2, grupo 6): collected_revenue no es
+    -- computable por sucursal — payments_received no tiene branch_id
+    -- atribuible (reference_sale_id opcional y en la práctica NULL), y
+    -- percibido = devengado - cargos + cobros es una identidad cuyos tres
+    -- términos deben vivir en el mismo universo. Bajo filtro de sucursal se
+    -- declara NULL (requirement de filtro uniforme, reporting-invariants)
+    -- en vez de mezclar un devengado filtrado con cargos/cobros de toda la
+    -- cuenta. Sin filtro, comportamiento sin cambios.
+    CASE WHEN p_branch_id IS NOT NULL THEN NULL
+         ELSE (sa.revenue - na.nc) - ca.charges + pay.payments
+    END                                                        AS collected_revenue,
+    CASE WHEN p_branch_id IS NOT NULL THEN NULL
+         ELSE (sa.prev_revenue - na.prev_nc) - ca.prev_charges + pay.prev_payments
+    END                                                        AS prev_collected_revenue
+  FROM sales_agg sa
+  CROSS JOIN nc_agg        na
+  CROSS JOIN charges_agg   ca
+  CROSS JOIN payments_agg  pay
+  CROSS JOIN expenses_agg  ea
+  CROSS JOIN purchases_agg pa
+  CROSS JOIN stagnant_curr sc
+  CROSS JOIN stagnant_prev sp;
+END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.rpc_dashboard_channel_margin(p_from timestamp with time zone, p_to timestamp with time zone, p_prev_from timestamp with time zone, p_prev_to timestamp with time zone, p_branch_id uuid DEFAULT NULL::uuid)
+ RETURNS TABLE(channels jsonb, leader text, margin_pct numeric, prev_margin_pct numeric)
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_account_id uuid;
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'Not authenticated' USING ERRCODE = 'insufficient_privilege';
+  END IF;
+
+  SELECT cai INTO v_account_id
+  FROM   current_account_ids() AS cai
+  LIMIT  1;
+
+  IF v_account_id IS NULL THEN
+    RAISE EXCEPTION 'Usuario sin cuenta activa' USING ERRCODE = 'P0403';
+  END IF;
+
+  RETURN QUERY
+  WITH per_channel AS (
+    -- v3-snapshot-pattern (D6): COGS = snapshot congelado, fallback a pr.cost
+    -- actual solo si la línea no tiene snapshot (histórica no backfilleada).
+    -- ventas-unidades-conversion (segunda revisión): cantidad en unidad BASE
+    -- (la del costo), vía el envoltorio de lectura de _uom_normalize_quantity.
+    SELECT
+      COALESCE(NULLIF(trim(s.canal), ''), 'sin_canal')                                          AS canal,
+      SUM(COALESCE(s.total, s.amount))                                                           AS revenue,
+      SUM(COALESCE(si.unit_cost_snapshot, pr.cost, 0) * COALESCE(public._uom_quantity_for_reporting(si.product_id, si.unit_id, si.quantity), 0))                AS cogs
+    FROM public.sales s
+    LEFT JOIN public.sale_items si
+          ON  si.sale_id = s.id
+          AND si.product_id IS NOT NULL
+    LEFT JOIN public.products pr ON pr.id = si.product_id
+    WHERE s.account_id = v_account_id
+      AND s.date BETWEEN p_from AND p_to
+      AND (p_branch_id IS NULL OR s.branch_id = p_branch_id)
+    GROUP BY 1
+  ),
+  channel_rows AS (
+    SELECT
+      pc.canal,
+      pc.revenue,
+      ROUND((pc.revenue - pc.cogs) / NULLIF(pc.revenue, 0) * 100, 1) AS margin_pct
+    FROM per_channel pc
+    WHERE pc.revenue > 0
+  ),
+  totals_curr AS (
+    SELECT
+      ROUND(
+        (SUM(COALESCE(s.total, s.amount)) - SUM(COALESCE(si.unit_cost_snapshot, pr.cost, 0) * COALESCE(public._uom_quantity_for_reporting(si.product_id, si.unit_id, si.quantity), 0)))
+        / NULLIF(SUM(COALESCE(s.total, s.amount)), 0) * 100, 1
+      ) AS pct
+    FROM public.sales s
+    LEFT JOIN public.sale_items si
+          ON  si.sale_id = s.id
+          AND si.product_id IS NOT NULL
+    LEFT JOIN public.products pr ON pr.id = si.product_id
+    WHERE s.account_id = v_account_id
+      AND s.date BETWEEN p_from AND p_to
+      AND (p_branch_id IS NULL OR s.branch_id = p_branch_id)
+  ),
+  totals_prev AS (
+    SELECT
+      ROUND(
+        (SUM(COALESCE(s.total, s.amount)) - SUM(COALESCE(si.unit_cost_snapshot, pr.cost, 0) * COALESCE(public._uom_quantity_for_reporting(si.product_id, si.unit_id, si.quantity), 0)))
+        / NULLIF(SUM(COALESCE(s.total, s.amount)), 0) * 100, 1
+      ) AS pct
+    FROM public.sales s
+    LEFT JOIN public.sale_items si
+          ON  si.sale_id = s.id
+          AND si.product_id IS NOT NULL
+    LEFT JOIN public.products pr ON pr.id = si.product_id
+    WHERE s.account_id = v_account_id
+      AND s.date BETWEEN p_prev_from AND p_prev_to
+      AND (p_branch_id IS NULL OR s.branch_id = p_branch_id)
+  )
+  SELECT
+    COALESCE(
+      (SELECT jsonb_agg(
+                jsonb_build_object('canal', cr.canal, 'revenue', cr.revenue, 'margin_pct', cr.margin_pct)
+                ORDER BY cr.margin_pct DESC NULLS LAST, cr.revenue DESC
+              )
+       FROM channel_rows cr),
+      '[]'::jsonb
+    )                                                                AS channels,
+    (SELECT cr.canal FROM channel_rows cr
+     ORDER BY cr.margin_pct DESC NULLS LAST, cr.revenue DESC
+     LIMIT 1)                                                        AS leader,
+    tc.pct                                                           AS margin_pct,
+    tp.pct                                                           AS prev_margin_pct
+  FROM totals_curr tc
+  CROSS JOIN totals_prev tp;
+END;
+$function$;
+
+-- ─── 11. La unidad base no cambia debajo del stock (D-C, en la base) ─────────
+-- D-C (decisión provisoria hasta el sign-off del PO, decisión 6 opción (a)):
+-- se permite ASIGNAR la unidad base a un producto que no la tenía; cambiarla
+-- (o quitarla) se rechaza si el grupo (el producto y las variantes que la
+-- heredan) tiene stock distinto de 0 en alguna sucursal o movimientos de
+-- stock — "12 u" pasaría a leerse "12 kg". El guard de FastAPI
+-- (_guard_base_unit_change) quedaba solo: `authenticated` tiene UPDATE sobre
+-- products.base_unit_id (policy products_writer_update), así que un PATCH
+-- por PostgREST lo salteaba, y el chequeo leía sin bloquear (TOCTOU con una
+-- compra concurrente). El trigger es el único punto de paso para cualquier
+-- escritor, presente o futuro — mismo patrón que trg_guard_branch_decommission
+-- y trg_product_category_tenancy_guard —, y evalúa con la fila bloqueada y las
+-- variantes tomadas FOR UPDATE (las RPCs de venta y compra toman FOR UPDATE la
+-- fila del producto de cada línea, así que el chequeo y la escritura quedan
+-- serializados). Además replica en la base el guard de tenencia del backend
+-- (base_unit_not_found → 404): la unidad base es del sistema o de la cuenta.
+CREATE OR REPLACE FUNCTION public.fn_product_base_unit_guard()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+DECLARE
+  v_unit_system  boolean;
+  v_unit_account uuid;
+  v_parent_base  uuid;
+  v_old_eff      uuid;
+  v_new_eff      uuid;
+BEGIN
+  -- Tenencia: sólo cuando la unidad base (o la cuenta) efectivamente cambia.
+  IF NEW.base_unit_id IS NOT NULL AND (
+       TG_OP = 'INSERT'
+       OR NEW.base_unit_id IS DISTINCT FROM OLD.base_unit_id
+       OR NEW.account_id   IS DISTINCT FROM OLD.account_id) THEN
+    SELECT COALESCE(u.is_system, false), u.account_id
+      INTO v_unit_system, v_unit_account
+      FROM public.units_of_measure u
+     WHERE u.id = NEW.base_unit_id;
+    IF NOT FOUND OR (NOT v_unit_system AND v_unit_account IS DISTINCT FROM NEW.account_id) THEN
+      RAISE EXCEPTION 'base_unit_not_found: la unidad base no existe o no pertenece a la cuenta del producto'
+        USING ERRCODE = 'P0404';
+    END IF;
+  END IF;
+
+  IF TG_OP = 'INSERT' OR NEW.base_unit_id IS NOT DISTINCT FROM OLD.base_unit_id THEN
+    RETURN NEW;
+  END IF;
+
+  -- Unidad base EFECTIVA: la propia o la heredada del padre (misma regla que
+  -- _uom_normalize_quantity y v_products_with_stock).
+  IF NEW.parent_id IS NOT NULL THEN
+    SELECT p.base_unit_id INTO v_parent_base FROM public.products p WHERE p.id = NEW.parent_id;
+  END IF;
+  v_old_eff := COALESCE(OLD.base_unit_id, v_parent_base);
+  v_new_eff := COALESCE(NEW.base_unit_id, v_parent_base);
+
+  -- D-C: asignar a quien no tenía unidad efectiva se permite; sin cambio
+  -- efectivo no hay nada que proteger.
+  IF v_old_eff IS NULL OR v_old_eff IS NOT DISTINCT FROM v_new_eff THEN
+    RETURN NEW;
+  END IF;
+
+  -- Grupo: el producto y las variantes que HEREDAN su unidad (sin base propia).
+  -- Se toman FOR UPDATE (orden de id) para serializar con las ventas/compras.
+  PERFORM 1 FROM public.products v
+   WHERE v.parent_id = NEW.id AND v.base_unit_id IS NULL
+   ORDER BY v.id
+   FOR UPDATE;
+
+  IF EXISTS (
+       SELECT 1 FROM public.branch_stock bs
+        WHERE bs.quantity <> 0
+          AND (bs.product_id = NEW.id
+               OR bs.product_id IN (SELECT v.id FROM public.products v
+                                     WHERE v.parent_id = NEW.id AND v.base_unit_id IS NULL)))
+     OR EXISTS (
+       SELECT 1 FROM public.stock_movements sm
+        WHERE sm.product_id = NEW.id
+           OR sm.product_id IN (SELECT v.id FROM public.products v
+                                 WHERE v.parent_id = NEW.id AND v.base_unit_id IS NULL)) THEN
+    RAISE EXCEPTION 'base_unit_locked: el producto % ya tiene stock o movimientos en su unidad base actual; cambiarla haría que las cantidades se lean en otra unidad. Creá un producto nuevo con la unidad correcta y pasale el stock con un ajuste.', NEW.id
+      USING ERRCODE = 'P0409';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+COMMENT ON FUNCTION public.fn_product_base_unit_guard() IS
+  'ventas-unidades-conversion (D-C, segunda revisión; provisorio hasta el sign-off del PO): la unidad base EFECTIVA de un producto (propia o heredada del padre) no cambia ni se quita si el grupo tiene stock <> 0 o movimientos (P0409 base_unit_locked); asignarla a un producto que no tenía se permite. Tenencia: la unidad base es del sistema o de la cuenta (P0404 base_unit_not_found). Único punto de paso para FastAPI, PostgREST y cualquier escritor futuro.';
+
+REVOKE ALL ON FUNCTION public.fn_product_base_unit_guard() FROM PUBLIC, anon, authenticated;
+
+DROP TRIGGER IF EXISTS trg_product_base_unit_guard ON public.products;
+CREATE TRIGGER trg_product_base_unit_guard
+  BEFORE INSERT OR UPDATE OF base_unit_id, account_id ON public.products
+  FOR EACH ROW
+  EXECUTE FUNCTION public.fn_product_base_unit_guard();
+
+-- ─── 12. Gate embebido de introspección (falla el deploy si falta una pieza) ──
 -- Cada literal que se agrega a v_bad lleva ::text: text[] || 'literal' la
 -- resolvería como ARRAY ("malformed array literal") y taparía el motivo real.
 DO $$
@@ -3185,6 +3709,34 @@ BEGIN
   WHERE n.nspname = 'public' AND p.proname = '_uom_normalize_quantity';
   IF position('LEFT JOIN public.products pp' IN v_src) = 0 OR position('v_unit.is_system' IN v_src) = 0 THEN
     v_bad := v_bad || '_uom_normalize_quantity: perdió la herencia del padre o el guard de tenencia'::text;
+  END IF;
+
+  -- Segunda revisión (§10): el reporting cuenta y costea en unidad base.
+  FOREACH v_fn IN ARRAY ARRAY['reporting_sales_lines_in_window', 'rpc_dashboard_kpi_summary', 'rpc_dashboard_channel_margin'] LOOP
+    SELECT replace(p.prosrc, E'', '') INTO v_src
+    FROM   pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE  n.nspname = 'public' AND p.proname = v_fn;
+    IF v_src IS NULL OR position('public._uom_quantity_for_reporting(' IN v_src) = 0 THEN
+      v_bad := v_bad || (v_fn || ': no cuenta la cantidad en unidad base (_uom_quantity_for_reporting)');
+    END IF;
+  END LOOP;
+  IF has_function_privilege('anon', 'public._uom_quantity_for_reporting(uuid, uuid, numeric)', 'EXECUTE')
+     OR has_function_privilege('authenticated', 'public._uom_quantity_for_reporting(uuid, uuid, numeric)', 'EXECUTE') THEN
+    v_bad := v_bad || '_uom_quantity_for_reporting: ejecutable por anon/authenticated'::text;
+  END IF;
+  -- §11: el guard de la unidad base vive en la tabla (no sólo en FastAPI).
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger t
+                 WHERE t.tgrelid = 'public.products'::regclass AND t.tgname = 'trg_product_base_unit_guard' AND NOT t.tgisinternal) THEN
+    v_bad := v_bad || 'products: falta trg_product_base_unit_guard (D-C en la base)'::text;
+  END IF;
+  IF has_function_privilege('authenticated', 'public.fn_product_base_unit_guard()', 'EXECUTE') THEN
+    v_bad := v_bad || 'fn_product_base_unit_guard: ejecutable por authenticated'::text;
+  END IF;
+  -- Helper: un factor <= 0 de la unidad de la línea se rechaza.
+  SELECT replace(p.prosrc, E'', '') INTO v_src FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+  WHERE n.nspname = 'public' AND p.proname = '_uom_normalize_quantity';
+  IF position('v_unit.factor <= 0' IN v_src) = 0 THEN
+    v_bad := v_bad || '_uom_normalize_quantity: no rechaza un factor <= 0 de la unidad de la línea'::text;
   END IF;
 
   IF array_length(v_bad, 1) > 0 THEN

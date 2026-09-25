@@ -992,8 +992,9 @@ jobs:
           # Sobre el estado reconvergido (= la historia real completa, con
           # 20261062000001 ya aplicada por el reset), los seis cuerpos son
           # exactamente `v_rewritten`: esto ejercita la rama de reaplicación
-          # del preflight (6 NOTICE "ya es el cuerpo de esta migración") y el
-          # gate embebido (sección 9), y prueba que DROP VIEW + ALTER TYPE +
+          # del preflight (9 NOTICE "ya es el cuerpo de esta migración": los seis
+          # que escriben stock + los tres de reporting de la segunda revisión) y el
+          # gate embebido (sección 12), y prueba que DROP VIEW + ALTER TYPE +
           # DROP/CREATE de las dos funciones de min_stock son re-ejecutables.
           # SIN tolerancia (ON_ERROR_STOP=1 + `set -e`: cualquier error →
           # rojo), y el schema tiene que quedar IDÉNTICO al de antes del paso:
@@ -1002,8 +1003,8 @@ jobs:
           UOM_OUT=$(psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261062000001_ventas_unidades_conversion.sql 2>&1) || { echo "$UOM_OUT"; echo "ERROR: el reapply de 20261062000001 falló (sin tolerancia)."; exit 1; }
           echo "$UOM_OUT"
           UOM_REAPPLIED=$(echo "$UOM_OUT" | grep -cF 'ya es el cuerpo de esta migraci' || true)
-          if [ "$UOM_REAPPLIED" != "6" ]; then
-            echo "ERROR: el reapply de 20261062000001 no tomó la rama de reaplicación del preflight en las 6 funciones (tomó $UOM_REAPPLIED/6): alguna quedó reescrita desde su cuerpo de partida, o sea que el estado reconvergido no es el que la migración deja."
+          if [ "$UOM_REAPPLIED" != "9" ]; then
+            echo "ERROR: el reapply de 20261062000001 no tomó la rama de reaplicación del preflight en las 9 funciones (tomó $UOM_REAPPLIED/9): alguna quedó reescrita desde su cuerpo de partida, o sea que el estado reconvergido no es el que la migración deja."
             exit 1
           fi
           if ! echo "$UOM_OUT" | grep -qF 'GATE ventas-unidades-conversion (embebido): PASS'; then
@@ -1016,7 +1017,7 @@ jobs:
             cat /tmp/schema_diff_uom.txt
             exit 1
           fi
-          echo "20261062000001 idempotente: rama de reaplicación 6/6, gate embebido PASS y schema IDÉNTICO al previo a este paso."
+          echo "20261062000001 idempotente: rama de reaplicación 9/9, gate embebido PASS y schema IDÉNTICO al previo a este paso."
 
       # -v ON_ERROR_STOP=1 is required: without it psql prints RAISE EXCEPTION
       # errors but still exits 0, so failing assertions show green in CI.

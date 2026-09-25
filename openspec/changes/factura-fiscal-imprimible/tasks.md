@@ -3,7 +3,7 @@
 ## 0. Sign-off y verificación del estado vivo
 
 - [ ] 0.1 Registrar en `design.md` las respuestas del PO a OQ-1…OQ-9; si OQ-7 se difiere, retirar el requirement "La fecha que se pide a ARCA es la fecha de Argentina" del delta `afip-fiscal-document` y el grupo 4.4
-- [ ] 0.2 Medir en prod (sólo SELECT): `max(version)` de migraciones y elegir el número de la migración nueva (`≥ 20261062000001`, sin chocar con changes en curso); md5 vivo de `rpc_fiscal_document_authorize(uuid,text,date,bigint)` (esperado `c8bc224d6f2767c6eb8d28031488e1f7`); si difiere, partir del cuerpo nuevo y anotarlo
+- [ ] 0.2 Medir en prod (sólo SELECT): `max(version)` de migraciones y elegir el número de la migración nueva (`≥ 20261064000001`, sin chocar con changes en curso); md5 vivo de `rpc_fiscal_document_authorize(uuid,text,date,bigint)` (esperado `c8bc224d6f2767c6eb8d28031488e1f7`); si difiere, partir del cuerpo nuevo y anotarlo
 - [ ] 0.3 Confirmar que la zona horaria del proceso del backend en Render es UTC (log de `datetime.now().astimezone().tzinfo` o variable `TZ`) y anotarlo en `design.md` (D11)
 - [ ] 0.4 Safety net: correr `pytest backend/tests/test_receipts.py backend/tests/test_fiscal_emision_segura.py backend/tests/test_c27_cae_relay_trigger.py` y los tests de Vitest de `sale-receipt-button`, `FiscalDocumentBadge`, `FiscalSettings`, `sale-operations-list`, `use-sales`; anotar el conteo base
 

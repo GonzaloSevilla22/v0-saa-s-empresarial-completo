@@ -42,7 +42,9 @@ export function ProductForm({ onSuccess, initialData, defaultParentId }: Product
   const [costTouched, setCostTouched] = useState(false)
   const [price, setPrice] = useState(initialData?.price || 0)
   const [stock, setStock] = useState(initialData?.stock || 0)
-  const [minStock, setMinStock] = useState(initialData?.minStock || 10)
+  // Corrección del PR #584: `??`, no `||` — un mínimo 0 ("sin alerta", RN-23)
+  // es un valor, no un vacío; el 10 queda sólo como default de un alta nueva.
+  const [minStock, setMinStock] = useState(initialData?.minStock ?? 10)
   const [barcode, setBarcode] = useState(initialData?.barcode || "")
   // productos-categorias-sku: SKU opcional, visible por primera vez en el
   // formulario. Se recorta al enviar; vacío → undefined (NULL en la base).

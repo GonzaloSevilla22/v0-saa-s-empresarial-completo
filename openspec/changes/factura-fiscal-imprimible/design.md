@@ -226,6 +226,30 @@ Todas necesitan sign-off del PO antes del apply (governance fiscal). La recomend
 - **OQ-8 — Dominio del QR.** Recomendado: `https://www.afip.gob.ar/fe/qr/` (el del ejemplo oficial y el que ya leen todas las apps de cámara). Alternativa: `https://www.arca.gob.ar/fe/qr/` (el del texto de la especificación). Los dos funcionan hoy.
 - **OQ-9 — Backfill con `FECompConsultar` en prod (D5).** Recomendado: sí, por script con OK del PO en el momento, para los 3 documentos existentes. Alternativa: dejarlos sin imprimir.
 
+## Sign-off del PO (2026-09-26)
+
+El PO firmó el 2026-09-26, textual: *"arrancá la implementación con lo recomendado de los 2 proposes"* (este y `punto-venta-seleccion`). Cada OQ se resuelve por su opción **recomendada**:
+
+| OQ | Resolución firmada |
+|---|---|
+| OQ-1 | Razón social, domicilio comercial e inicio de actividades **obligatorios** para imprimir; Ingresos Brutos como **número o condición** (uno de los dos obligatorio); nombre de fantasía **opcional**. Sin teléfono/email/web. |
+| OQ-2 | **ORIGINAL** por defecto; opción **DUPLICADO** en el menú (`?copia=duplicado`, misma factura con la leyenda "DUPLICADO"). |
+| OQ-3 | Si hay nombre de fantasía va **grande** arriba y la razón social **siempre** debajo; si no, sólo la razón social. |
+| OQ-4 | Logo **fuera** de este change (candidato aparte). |
+| OQ-5 | Consumidor final sin identificar → **no** se imprime el nombre del cliente: la factura dice sólo lo declarado a ARCA. |
+| OQ-6 | Facturas de suscripción de `/admin/pagos` **fuera** (candidato `admin-pagos-factura-imprimible`). |
+| OQ-7 | **Sí**: el relay le pide a ARCA la fecha del día en hora argentina — `CbteFch` en `America/Argentina/Mendoza` (la misma zona que ya usa el resto del backend para "el día de negocio"), no la del reloj UTC del servidor. |
+| OQ-8 | Dominio del QR `https://www.afip.gob.ar/fe/qr/` (el del ejemplo oficial). |
+| OQ-9 | Se **implementa y documenta** el backfill (RPC interna `rpc_fiscal_document_set_fecha_comprobante` + procedimiento con `FECompConsultar`), pero **NO se ejecuta en prod** en este apply: escribe en producción y llama a ARCA real, así que requiere el OK del PO **en el momento** (task 9.2). |
+
+### Notas de implementación del apply
+
+- **Zona horaria del backend en Render (task 0.3)**: medido el 2026-09-26 por la API de Render (sólo lectura, sin imprimir valores de variables): el servicio `srv-d8ifv6mq1p3s73emb1g0` es runtime nativo `python` en Oregon y **no** define `TZ` → el proceso corre en UTC (default de Render). Confirma el hallazgo de D11.
+- **Zona `America/Argentina/Mendoza` sin dependencia nueva**: `zoneinfo` necesita la base de zonas del sistema o el paquete `tzdata`; Render (Linux) la trae, Windows (el entorno local) no. `backend/core/timezone.py` resuelve la zona con `zoneinfo` y, si el entorno no tiene base de zonas, cae a UTC−3 fijo — que es exactamente la regla vigente de Argentina (sin horario de verano desde 2009). No se suma `tzdata` por una regla de offset fijo.
+- **`CbteFch` deforme vs. ausente (D5 + task 2.3)**: si la respuesta de `FECAESolicitar` **no trae** `CbteFch` (ausente o vacía), la fecha es la que el adapter **envió** (ARCA autoriza el comprobante con esa fecha: el campo de la respuesta es un eco). Si la trae pero **no se puede leer**, la fecha queda `NULL` y se loguea: no se inventa una fecha sobre una respuesta que no entendemos, y ese comprobante cae en el backfill (OQ-9). En ningún caso un `Resultado = 'A'` se convierte en error por la fecha. En la reconciliación (`FECompConsultar`) la fecha sale **sólo** de `ResultGet.CbteFch` (el envío original pudo ser de otro día): ausente o deforme → `NULL`.
+- **Nombre de la zona en el delta**: el requirement "La fecha que se pide a ARCA es la fecha de Argentina" pasa de `America/Argentina/Buenos_Aires` a `America/Argentina/Mendoza` por el sign-off (mismo offset; la zona canónica del proyecto).
+- **OQ-2 en el delta**: se agrega al requirement de la representación impresa el parámetro `copia=duplicado` y la opción de menú "Descargar duplicado".
+
 ## Nota sobre el resto del pedido del PO (2026-09-25)
 
 - *"Verificá que todo esté bien"*: el comprobante de Sumar está `authorized` en producción con CAE de 14 dígitos, número 501 tomado de ARCA (continúa la numeración del sistema anterior), vencimiento del CAE 05/10/2026, importe igual a la línea de la orden. No hay nada que corregir en ese documento.

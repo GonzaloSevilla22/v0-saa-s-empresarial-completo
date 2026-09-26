@@ -175,7 +175,10 @@ DECLARE
     -- Candado de firma, porque este chequeo (3) es drift-tolerante y una firma
     -- vieja lo apagaría en silencio: bloque (3) de
     -- supabase/tests/test_fiscal_cae_numero_autoritativo.sql.
-    'public.rpc_fiscal_document_authorize(uuid, text, date, bigint)',
+    -- factura-fiscal-imprimible (20261064000001): authorize gana
+    -- p_fecha_comprobante (5 parámetros) — firma actualizada acá y en el
+    -- bloque (3) de test_fiscal_cae_numero_autoritativo.sql en el mismo PR.
+    'public.rpc_fiscal_document_authorize(uuid, text, date, bigint, date)',
     'public.rpc_fiscal_document_claim_pending(uuid, integer)',
     'public.rpc_fiscal_document_retry(uuid, integer, timestamp with time zone, text)',
     'public.rpc_fiscal_document_reject(uuid, text)',
@@ -189,6 +192,13 @@ DECLARE
     -- supabase/tests/test_fiscal_cae_numero_autoritativo.sql.
     'public.rpc_fiscal_document_mark_submit_started(uuid, bigint)',
     'public.rpc_fiscal_document_clear_submit_mark(uuid, text)',
+    -- factura-fiscal-imprimible (20261064000001, OQ-9): la RPC del backfill
+    -- de fecha_comprobante. SECURITY DEFINER, recibe el doc_id y escribe sin
+    -- validar tenencia: con EXECUTE para `authenticated` cualquier usuario
+    -- podría fechar el comprobante autorizado de otra cuenta (y esa fecha va
+    -- impresa y al QR). NUNCA re-otorgar. Candado de firma: bloque (3) de
+    -- supabase/tests/test_factura_fiscal_imprimible.sql.
+    'public.rpc_fiscal_document_set_fecha_comprobante(uuid, date)',
     -- venta-editable-sin-cae (20261060000001): el helper que ANULA (voided) el
     -- comprobante pendiente de una sales_order cuando el pedido no salió hacia
     -- ARCA. SECURITY DEFINER, recibe el account_id POR PARÁMETRO y no valida

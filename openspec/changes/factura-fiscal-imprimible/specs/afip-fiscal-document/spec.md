@@ -67,7 +67,7 @@ El comprobante SHALL conservar los datos del emisor vigentes al emitir suficient
 
 ### Requirement: La fecha que se pide a ARCA es la fecha de Argentina
 
-El relay SHALL enviar a ARCA como `CbteFch` la fecha del día en la zona horaria `America/Argentina/Buenos_Aires` en el momento de armar el pedido, y NOT SHALL depender de la zona horaria del servidor. (Sujeto al sign-off de OQ-7 del design; si el PO lo difiere, este requirement se retira del change antes del apply.)
+El relay SHALL enviar a ARCA como `CbteFch` la fecha del día en la zona horaria `America/Argentina/Mendoza` en el momento de armar el pedido, y NOT SHALL depender de la zona horaria del servidor. (OQ-7 firmada por el PO el 2026-09-26.)
 
 #### Scenario: Factura pedida de noche
 

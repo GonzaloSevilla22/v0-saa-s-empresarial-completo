@@ -33,7 +33,9 @@
 --        rechaza p_fecha NULL.
 --   (6)  authenticated NO puede ejecutar ninguna de las dos (intento real con
 --        SET LOCAL ROLE, además del has_function_privilege del bloque 2/3).
---   (7)  Limpieza verificada: cero filas residuales del fixture.
+--   (7)  Limpieza verificada: cero filas del fixture en TODA tabla de public
+--        con account_id/user_id, en accounts, auth.users y cajas (el borrado
+--        bajo replica no cascadea: se borra y se cuenta explícito).
 --
 -- Patrón del proyecto (test_fiscal_cae_numero_autoritativo.sql): acumular
 -- fallos en text[], un solo RAISE EXCEPTION al final, anchor sintético vía
@@ -220,6 +222,42 @@ BEGIN
 END $$;
 
 
+-- ── Limpieza del fixture (camino feliz y EXCEPTION) ────────────────────────
+-- Bajo session_replication_role = replica la RI está apagada: borrar accounts
+-- o auth.users NO cascadea (el PASS (7) viejo lo daba por hecho y dejaba por
+-- corrida 1 sucursal, 1 caja, 7 formas de pago, 7 categorías, 1 rol, 2
+-- audit_logs y 2 email_logs). Se borra explícito en TODA tabla de public con
+-- account_id o user_id del fixture, más las cajas por sucursal.
+CREATE OR REPLACE FUNCTION pg_temp.ffi_cleanup(p_account uuid, p_user uuid)
+RETURNS void LANGUAGE plpgsql AS $fn$
+DECLARE
+  v_branches uuid[];
+  v_tbl      text;
+  v_col      text;
+BEGIN
+  IF p_account IS NULL AND p_user IS NULL THEN RETURN; END IF;
+  SELECT array_agg(id) INTO v_branches FROM public.branches WHERE account_id = p_account;
+  SET LOCAL session_replication_role = replica;
+  DELETE FROM public.cashboxes WHERE branch_id = ANY (COALESCE(v_branches, '{}'));
+  FOR v_tbl, v_col IN
+    SELECT c.table_name::text, c.column_name::text
+    FROM   information_schema.columns c
+    JOIN   information_schema.tables t
+      ON   t.table_schema = c.table_schema AND t.table_name = c.table_name
+    WHERE  c.table_schema = 'public' AND t.table_type = 'BASE TABLE'
+      AND  c.column_name IN ('account_id', 'user_id')
+    ORDER  BY 1, 2
+  LOOP
+    EXECUTE format('DELETE FROM public.%I WHERE %I = $1', v_tbl, v_col)
+      USING CASE WHEN v_col = 'account_id' THEN p_account ELSE p_user END;
+  END LOOP;
+  DELETE FROM public.accounts WHERE id = p_account;
+  DELETE FROM public.profiles WHERE id = p_user;
+  DELETE FROM auth.users      WHERE id = p_user;
+  SET LOCAL session_replication_role = DEFAULT;
+END
+$fn$;
+
 -- ── (4)-(7) Comportamiento sobre datos ──────────────────────────────────────
 DO $$
 DECLARE
@@ -247,6 +285,10 @@ DECLARE
   v_frozen    timestamptz;
   v_count     integer;
   v_sqlstate  text;
+  v_residue   text[];
+  v_branches  uuid[];
+  v_tbl       text;
+  v_col       text;
 BEGIN
   -- ═══ Setup ═══
   INSERT INTO auth.users (id, aud, role, email, created_at, updated_at, raw_user_meta_data)
@@ -514,14 +556,45 @@ BEGIN
     RAISE EXCEPTION 'GATE FACTURA-IMPRIMIBLE (7) FAILED: quedaron % fiscal_profiles del fixture', v_count;
   END IF;
 
-  SET session_replication_role = replica;
-  DELETE FROM public.account_members WHERE account_id = v_account;
-  DELETE FROM public.accounts        WHERE id = v_account;
-  DELETE FROM public.profiles        WHERE id = v_user;
-  DELETE FROM auth.users             WHERE id = v_user;
-  SET session_replication_role = DEFAULT;
+  SELECT array_agg(id) INTO v_branches FROM public.branches WHERE account_id = v_account;
+  PERFORM pg_temp.ffi_cleanup(v_account, v_user);
 
-  RAISE NOTICE 'PASS (7): limpieza verificada — cero filas residuales del fixture.';
+  -- Residuo cero DE VERDAD: bajo replica nada cascadea, así que se cuenta en
+  -- TODA tabla de public con account_id o user_id (molde: bloque H de
+  -- test_ventas_unidades_conversion.sql, generalizado por catálogo para que
+  -- una tabla nueva sembrada por handle_new_user no escape al conteo).
+  v_residue := '{}';
+  FOR v_tbl, v_col IN
+    SELECT c.table_name::text, c.column_name::text
+    FROM   information_schema.columns c
+    JOIN   information_schema.tables t
+      ON   t.table_schema = c.table_schema AND t.table_name = c.table_name
+    WHERE  c.table_schema = 'public' AND t.table_type = 'BASE TABLE'
+      AND  c.column_name IN ('account_id', 'user_id')
+    ORDER  BY 1, 2
+  LOOP
+    EXECUTE format('SELECT count(*) FROM public.%I WHERE %I = $1', v_tbl, v_col)
+      INTO v_count
+      USING CASE WHEN v_col = 'account_id' THEN v_account ELSE v_user END;
+    IF v_count <> 0 THEN
+      v_residue := v_residue || format('%s.%s=%s', v_tbl, v_col, v_count);
+    END IF;
+  END LOOP;
+  SELECT count(*) INTO v_count FROM public.accounts WHERE id = v_account;
+  IF v_count <> 0 THEN v_residue := v_residue || format('accounts=%s', v_count); END IF;
+  SELECT count(*) INTO v_count FROM auth.users WHERE id = v_user;
+  IF v_count <> 0 THEN v_residue := v_residue || format('auth.users=%s', v_count); END IF;
+  SELECT count(*) INTO v_count FROM public.cashboxes WHERE branch_id = ANY (COALESCE(v_branches, '{}'));
+  IF v_count <> 0 THEN v_residue := v_residue || format('cashboxes=%s', v_count); END IF;
+
+  IF array_length(v_residue, 1) > 0 THEN
+    RAISE EXCEPTION E'GATE FACTURA-IMPRIMIBLE (7) FAILED: filas residuales del fixture:
+  %',
+      array_to_string(v_residue, E'
+  ');
+  END IF;
+
+  RAISE NOTICE 'PASS (7): limpieza verificada — cero filas del fixture en toda tabla de public con account_id/user_id, accounts y auth.users.';
 
 EXCEPTION
   WHEN OTHERS THEN
@@ -533,12 +606,7 @@ EXCEPTION
       WHERE  point_of_sale_id IN (SELECT id FROM public.points_of_sale WHERE account_id = v_account);
       DELETE FROM public.points_of_sale          WHERE account_id = v_account;
       DELETE FROM public.fiscal_profiles         WHERE account_id = v_account;
-      SET session_replication_role = replica;
-      DELETE FROM public.account_members WHERE account_id = v_account;
-      DELETE FROM public.accounts        WHERE id = v_account;
-      DELETE FROM public.profiles        WHERE id = v_user;
-      DELETE FROM auth.users             WHERE id = v_user;
-      SET session_replication_role = DEFAULT;
+      PERFORM pg_temp.ffi_cleanup(v_account, v_user);
     EXCEPTION WHEN OTHERS THEN NULL;
     END;
     RAISE;

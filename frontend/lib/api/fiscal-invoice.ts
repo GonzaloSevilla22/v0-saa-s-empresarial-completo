@@ -65,7 +65,9 @@ function toError(status: number, body: ProblemBody): FiscalInvoiceError {
   if (code === "invoice_date_unknown") {
     return new FiscalInvoiceError(
       code,
-      "Estamos confirmando con ARCA la fecha de este comprobante; todavía no se puede imprimir. Probá de nuevo más tarde.",
+      // Sin promesa de reintento: no hay un proceso automático que la confirme
+      // (el backfill lo corre el administrador con el OK del PO).
+      "Todavía no se puede imprimir: falta confirmar con ARCA la fecha de este comprobante (es anterior a la factura imprimible; la completa el administrador).",
     )
   }
   if (typeof body.code === "string" && typeof body.detail === "string" && body.detail) {

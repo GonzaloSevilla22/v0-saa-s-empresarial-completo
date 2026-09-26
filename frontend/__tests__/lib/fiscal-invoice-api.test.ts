@@ -129,13 +129,17 @@ describe("fetchFiscalInvoicePdf", () => {
     )
   })
 
-  it("sin fecha confirmada: mensaje de ARCA", async () => {
+  it("sin fecha confirmada: mensaje de ARCA sin prometer un reintento", async () => {
     fetchMock.mockResolvedValue(problem(409, { code: "invoice_date_unknown", detail: "x" }))
 
     const err = (await fetchFiscalInvoicePdf("fd-1").catch((e: unknown) => e)) as FiscalInvoiceError
 
     expect(err.code).toBe("invoice_date_unknown")
-    expect(err.message).toMatch(/confirmando con ARCA la fecha/)
+    expect(err.message).toMatch(/falta confirmar con ARCA la fecha/)
+    // No existe un proceso automático que la confirme (el backfill 9.2 lo
+    // corre el administrador con el OK del PO): no prometer un reintento.
+    expect(err.message).not.toMatch(/más tarde|estamos confirmando/i)
+    expect(err.message).toMatch(/administrador/)
   })
 
   it("otro 409 usa el detail del servidor", async () => {

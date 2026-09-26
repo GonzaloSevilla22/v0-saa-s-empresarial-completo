@@ -358,6 +358,11 @@ class TestNoSeImprimeConDatosAdivinados:
     def test_sin_fecha(self):
         exc = self._code(doc=sumar_doc(fecha_comprobante=None))
         assert exc.code == "invoice_date_unknown"
+        # No hay un proceso automático que confirme la fecha (el backfill lo corre
+        # el administrador): el texto no promete un reintento.
+        assert "falta confirmar con ARCA la fecha" in exc.detail
+        assert "administrador" in exc.detail
+        assert "Estamos confirmando" not in exc.detail
 
     def test_emisor_incompleto_lista_los_faltantes(self):
         exc = self._code(

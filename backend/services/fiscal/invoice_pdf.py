@@ -311,7 +311,10 @@ def build_invoice_view(
     if fecha is None:
         raise InvoiceNotPrintable(
             "invoice_date_unknown",
-            "Estamos confirmando con ARCA la fecha de este comprobante; todavía no se puede imprimir.",
+            (
+                "Todavía no se puede imprimir: falta confirmar con ARCA la fecha de este comprobante "
+                "(es anterior a la factura imprimible; la completa el administrador)."
+            ),
         )
 
     cae = doc.get("cae")

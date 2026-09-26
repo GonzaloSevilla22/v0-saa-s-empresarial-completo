@@ -11,7 +11,8 @@
  * factura-fiscal-imprimible (D10): con el comprobante AUTORIZADO el menú pasa a
  * "Factura" (ver/imprimir, descargar, duplicado, verificar en ARCA) y el
  * comprobante interno queda rotulado "sin validez fiscal"; WhatsApp comparte
- * la FACTURA. El PDF lo genera el backend (`GET /fiscal/documents/{id}/pdf`)
+ * la FACTURA (y, si todavía no se puede imprimir, el comprobante interno con un
+ * aviso del motivo). El PDF lo genera el backend (`GET /fiscal/documents/{id}/pdf`)
  * desde lo autorizado; el compartir/descargar es el MISMO flujo del
  * comprobante interno (helpers de abajo), no una copia.
  */
@@ -92,6 +93,22 @@ async function sharePdf(file: File, text: string, title: string): Promise<"share
     if ((err as Error)?.name === "AbortError") return "shared" // el usuario canceló
     return "unsupported" // si falló el share (ej. iOS), fallback de descarga
   }
+}
+
+function invoiceErrorMessage(err: unknown): string {
+  return err instanceof Error && err.message ? err.message : "No se pudo obtener la factura."
+}
+
+/** Con datos del emisor incompletos, el aviso lleva a completarlos. */
+function issuerDataAction(err: unknown) {
+  return err instanceof FiscalInvoiceError && err.code === "issuer_data_incomplete"
+    ? {
+        action: {
+          label: "Completar datos fiscales",
+          onClick: () => window.location.assign(FISCAL_SETTINGS_PATH),
+        },
+      }
+    : undefined
 }
 
 interface SaleReceiptButtonProps {
@@ -205,19 +222,7 @@ export function SaleReceiptButton({
 
   // ── Factura (comprobante autorizado) ─────────────────────────────────────
   const showInvoiceError = useCallback((err: unknown) => {
-    const message = err instanceof Error && err.message ? err.message : "No se pudo obtener la factura."
-    const needsIssuerData = err instanceof FiscalInvoiceError && err.code === "issuer_data_incomplete"
-    toast.error(
-      message,
-      needsIssuerData
-        ? {
-            action: {
-              label: "Completar datos fiscales",
-              onClick: () => window.location.assign(FISCAL_SETTINGS_PATH),
-            },
-          }
-        : undefined,
-    )
+    toast.error(invoiceErrorMessage(err), issuerDataAction(err))
   }, [])
 
   const handleInvoice = useCallback(
@@ -263,29 +268,6 @@ export function SaleReceiptButton({
     window.open(ARCA_CONSTATACION_URL, "_blank", "noopener,noreferrer")
   }, [])
 
-  const handleWhatsAppInvoice = useCallback(async () => {
-    if (!invoice) return
-    const shortText = generateReceiptShortText(op, {
-      ...receiptOpts,
-      documentName: `la ${invoiceDisplayName(invoice) ?? "factura"}`,
-    })
-    setLoadingWa(true)
-    try {
-      const blob = await fetchFiscalInvoicePdf(invoice.documentId, { disposition: "attachment", copy: "original" })
-      if (!blob) return
-      const fileName = invoiceFileName(invoice)
-      const file = new File([blob], fileName, { type: "application/pdf" })
-      if ((await sharePdf(file, shortText, "Factura")) === "shared") return
-      downloadBlob(blob, fileName)
-      openWhatsAppText(shortText)
-      toast.info("Descargamos la factura en PDF. Adjuntala en el chat de WhatsApp que se abrió.")
-    } catch (err: unknown) {
-      showInvoiceError(err)
-    } finally {
-      setLoadingWa(false)
-    }
-  }, [invoice, op, receiptOpts, openWhatsAppText, showInvoiceError])
-
   const handleWhatsApp = useCallback(async () => {
     const shortText = generateReceiptShortText(op, receiptOpts)
     setLoadingWa(true)
@@ -324,6 +306,39 @@ export function SaleReceiptButton({
       setLoadingWa(false)
     }
   }, [op, receiptOpts, openWhatsAppText])
+
+  // Con una factura que todavía no se puede imprimir (sin fecha confirmada,
+  // datos del emisor incompletos, …) WhatsApp NO se queda sin nada que mandar:
+  // avisa por qué y manda el comprobante interno, como antes de la factura
+  // imprimible. Una sesión vencida (null) ya navegó al login: no manda nada.
+  const handleWhatsAppInvoice = useCallback(async () => {
+    if (!invoice) return
+    const shortText = generateReceiptShortText(op, {
+      ...receiptOpts,
+      documentName: `la ${invoiceDisplayName(invoice) ?? "factura"}`,
+    })
+    setLoadingWa(true)
+    let fallbackToInternal = false
+    try {
+      const blob = await fetchFiscalInvoicePdf(invoice.documentId, { disposition: "attachment", copy: "original" })
+      if (!blob) return
+      const fileName = invoiceFileName(invoice)
+      const file = new File([blob], fileName, { type: "application/pdf" })
+      if ((await sharePdf(file, shortText, "Factura")) === "shared") return
+      downloadBlob(blob, fileName)
+      openWhatsAppText(shortText)
+      toast.info("Descargamos la factura en PDF. Adjuntala en el chat de WhatsApp que se abrió.")
+    } catch (err: unknown) {
+      fallbackToInternal = true
+      toast.info(
+        `${invoiceErrorMessage(err)} Te enviamos el comprobante interno (sin validez fiscal).`,
+        issuerDataAction(err),
+      )
+    } finally {
+      setLoadingWa(false)
+    }
+    if (fallbackToInternal) await handleWhatsApp()
+  }, [invoice, op, receiptOpts, openWhatsAppText, handleWhatsApp])
 
   return (
     <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>

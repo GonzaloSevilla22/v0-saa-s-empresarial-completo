@@ -33,6 +33,12 @@ vi.mock("sonner", () => ({ toast: toastMock }))
 vi.mock("@/contexts/auth-context", () => ({
   useAuth: () => ({ user: { businessName: "Sumar", name: "Sumar", phone: "", email: "", avatar: undefined } }),
 }))
+// El comprobante interno (fallback de WhatsApp) pide su PDF con la sesión.
+vi.mock("@/lib/api/auth-headers", () => ({
+  getAuthHeaders: vi.fn(async (extra?: Record<string, string>) => ({ ...(extra ?? {}), Authorization: "Bearer tok-1" })),
+  tokenFromHeaders: () => "tok-1",
+  redirectedOnUnauthorized: vi.fn(async () => false),
+}))
 vi.mock("@/lib/api/fiscal-invoice", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api/fiscal-invoice")>()
   return { ...actual, fetchFiscalInvoicePdf: fetchInvoiceMock }
@@ -142,7 +148,7 @@ describe("SaleReceiptButton — factura autorizada", () => {
   it("si falla, cierra la pestaña que había abierto", async () => {
     const tab = { location: { href: "" }, close: vi.fn() }
     vi.spyOn(window, "open").mockReturnValue(tab as unknown as Window)
-    fetchInvoiceMock.mockRejectedValue(new FiscalInvoiceError("invoice_date_unknown", "Estamos confirmando…"))
+    fetchInvoiceMock.mockRejectedValue(new FiscalInvoiceError("invoice_date_unknown", "Todavía no se puede imprimir: falta confirmar con ARCA la fecha…"))
     const user = await openMenu()
 
     await user.click(await screen.findByText("Ver / imprimir factura"))
@@ -195,6 +201,77 @@ describe("SaleReceiptButton — factura autorizada", () => {
     expect(fetchSpy).not.toHaveBeenCalled()
   })
 
+  describe("WhatsApp con una factura que todavía no se puede imprimir", () => {
+    // Hallazgo del red team (2026-09-26): los autorizados de prod no tienen fecha
+    // (backfill 9.2 pendiente) y a Sumar le faltan datos del emisor. Antes de
+    // este change WhatsApp mandaba el comprobante interno; ahora un 409 no puede
+    // dejar al usuario sin nada que mandar.
+    function mockInternalReceiptPdf() {
+      return vi.spyOn(globalThis, "fetch").mockResolvedValue({
+        ok: true,
+        status: 200,
+        blob: async () => new Blob(["%PDF-1.4"], { type: "application/pdf" }),
+      } as unknown as Response)
+    }
+
+    it.each([
+      ["invoice_date_unknown", "Todavía no se puede imprimir: falta confirmar con ARCA la fecha de este comprobante."],
+      ["issuer_data_incomplete", "Para imprimir la factura falta completar el domicilio comercial."],
+    ])("%s: manda el comprobante interno, como antes, y avisa por qué", async (code, message) => {
+      const share = vi.fn().mockResolvedValue(undefined)
+      Object.assign(navigator, { canShare: () => true, share })
+      const fetchSpy = mockInternalReceiptPdf()
+      fetchInvoiceMock.mockRejectedValue(new FiscalInvoiceError(code, message))
+      const user = userEvent.setup()
+      render(<SaleReceiptButton op={makeOp()} clientPhone="2615551234" clientFirstName="Ana" />)
+
+      await user.click(screen.getByRole("button", { name: /whatsapp/i }))
+
+      await waitFor(() => expect(share).toHaveBeenCalledTimes(1))
+      expect(fetchSpy.mock.calls[0][0]).toBe(`${process.env.NEXT_PUBLIC_BACKEND_URL}/sales/receipt-pdf`)
+      const data = share.mock.calls[0][0] as ShareData & { files: File[] }
+      expect(data.files[0].name).toMatch(/^comprobante-.*\.pdf$/)
+      expect(data.text).not.toContain("Factura C")
+      expect(toastMock.error).not.toHaveBeenCalled()
+      const [info] = toastMock.info.mock.calls[0] as [string]
+      expect(info).toContain(message)
+      expect(info).toContain("comprobante interno (sin validez fiscal)")
+    })
+
+    it("con los datos del emisor incompletos el aviso lleva a completarlos", async () => {
+      Object.assign(navigator, { canShare: () => true, share: vi.fn().mockResolvedValue(undefined) })
+      mockInternalReceiptPdf()
+      fetchInvoiceMock.mockRejectedValue(new FiscalInvoiceError(
+        "issuer_data_incomplete", "Para imprimir la factura falta completar el domicilio comercial.", ["domicilio_comercial"],
+      ))
+      const user = userEvent.setup()
+      render(<SaleReceiptButton op={makeOp()} clientPhone="2615551234" clientFirstName="Ana" />)
+
+      await user.click(screen.getByRole("button", { name: /whatsapp/i }))
+
+      await waitFor(() => expect(toastMock.info).toHaveBeenCalled())
+      const [, options] = toastMock.info.mock.calls[0] as [string, { action: { label: string; onClick: () => void } }]
+      expect(options.action.label).toBe("Completar datos fiscales")
+      options.action.onClick()
+      expect(assignMock).toHaveBeenCalledWith("/configuracion/fiscal")
+    })
+
+    it("si la sesión venció no manda nada más", async () => {
+      const share = vi.fn()
+      Object.assign(navigator, { canShare: () => true, share })
+      const fetchSpy = mockInternalReceiptPdf()
+      fetchInvoiceMock.mockResolvedValue(null)
+      const user = userEvent.setup()
+      render(<SaleReceiptButton op={makeOp()} clientPhone="2615551234" clientFirstName="Ana" />)
+
+      await user.click(screen.getByRole("button", { name: /whatsapp/i }))
+
+      await waitFor(() => expect(fetchInvoiceMock).toHaveBeenCalled())
+      expect(fetchSpy).not.toHaveBeenCalled()
+      expect(share).not.toHaveBeenCalled()
+    })
+  })
+
   it("datos del emisor incompletos: aviso con acción a /configuracion/fiscal", async () => {
     vi.spyOn(window, "open").mockReturnValue({ location: { href: "" }, close: vi.fn() } as unknown as Window)
     fetchInvoiceMock.mockRejectedValue(new FiscalInvoiceError(
@@ -216,14 +293,14 @@ describe("SaleReceiptButton — factura autorizada", () => {
 
   it("otro error: toast con el mensaje, sin acción", async () => {
     fetchInvoiceMock.mockRejectedValue(new FiscalInvoiceError(
-      "invoice_date_unknown", "Estamos confirmando con ARCA la fecha de este comprobante.",
+      "invoice_date_unknown", "Todavía no se puede imprimir: falta confirmar con ARCA la fecha de este comprobante.",
     ))
     const user = await openMenu()
 
     await user.click(await screen.findByText("Descargar factura (PDF)"))
 
     await waitFor(() => expect(toastMock.error).toHaveBeenCalledWith(
-      "Estamos confirmando con ARCA la fecha de este comprobante.", undefined,
+      "Todavía no se puede imprimir: falta confirmar con ARCA la fecha de este comprobante.", undefined,
     ))
   })
 })

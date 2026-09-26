@@ -108,6 +108,15 @@ class SalesOrderOut(BaseModel):
     total:              Decimal
     sale_operation_id:  Optional[uuid.UUID] = None
     fiscal_document_id: Optional[uuid.UUID] = None
+    # factura-fiscal-imprimible (D10): estado REAL del comprobante (sólo la
+    # lista los trae; el detalle los deja en su default).
+    fiscal_document_status:  Optional[str] = None
+    fiscal_punto_de_venta:   Optional[int] = None
+    fiscal_number:           Optional[int] = None
+    fiscal_cae:              Optional[str] = None
+    fiscal_cae_due_date:     Optional[datetime.date] = None
+    fiscal_comprobante_type: Optional[str] = None
+    fiscal_frozen:           bool = False
     created_by:         uuid.UUID
     created_at:         datetime.datetime
     items:              list[SalesOrderItemOut] = []

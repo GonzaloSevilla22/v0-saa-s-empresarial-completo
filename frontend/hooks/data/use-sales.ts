@@ -4,9 +4,8 @@ import { useState, useCallback, useMemo } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { pythonClient } from "@/lib/api/python-client"
 import { queryKeys } from "@/lib/query-keys"
-import { isFiscalDocumentStatus } from "@/lib/types"
 import type { Sale } from "@/lib/types"
-import { formatComprobante } from "@/lib/fiscal-comprobante"
+import { mapFiscalState, type FiscalReadModelRow } from "@/lib/fiscal-comprobante"
 import { roundUnitPrice, type SaleCartItem } from "@/lib/cart-utils"
 import {
   buildPaginationMeta,
@@ -16,7 +15,7 @@ import {
 
 // ── Types for API responses ───────────────────────────────────────────────────
 
-interface SaleApiRow {
+interface SaleApiRow extends FiscalReadModelRow {
   id: string
   date: string
   product_id: string
@@ -43,15 +42,8 @@ interface SaleApiRow {
   // YA SALIÓ hacia ARCA (authorized, o pending_cae marcado/congelado).
   // Reemplaza is_invoiced.
   is_fiscally_locked?: boolean
-  // venta-editable-sin-cae: evidencia cruda del comprobante, para que la UI
-  // nombre la causa real, muestre el badge y avise qué se va a anular.
-  fiscal_document_id?: string | null
-  fiscal_document_status?: string | null
-  fiscal_punto_de_venta?: number | null
-  fiscal_number?: number | null
-  fiscal_submitted_to_arca?: boolean
-  fiscal_frozen?: boolean
-  fiscal_pending_voidable?: boolean
+  // venta-editable-sin-cae + factura-fiscal-imprimible: la evidencia cruda
+  // del comprobante (fiscal_*) viene de FiscalReadModelRow (lib/fiscal-comprobante).
   // pagos-cableados-restantes (D6): derivado de lectura — true si tiene
   // cargo de cuenta corriente o movimiento de caja posteado.
   is_payment_locked?: boolean
@@ -123,24 +115,12 @@ function mapSale(s: SaleApiRow): Sale {
     // el MISMO helper que ya usa la pantalla de emisión — presentación, no una
     // segunda fuente de verdad: el label del comprobante ANULADO lo manda el
     // servidor en la respuesta del PUT.
-    fiscal: s.fiscal_document_id
-      ? {
-          documentId:      s.fiscal_document_id,
-          // Validado, no casteado: un status que el cliente no conoce no se
-          // hace pasar por uno que sí. Las decisiones reales (¿editable?, ¿se
-          // anula?) no dependen de esto —vienen derivadas del servidor en
-          // `is_fiscally_locked` / `fiscal_pending_voidable`, y el guard SQL es
-          // fail-closed ante un status desconocido—, así que acá alcanza con
-          // caer en el estado que no ofrece ninguna acción destructiva.
-          status:          isFiscalDocumentStatus(s.fiscal_document_status)
-                             ? s.fiscal_document_status
-                             : "pending_cae",
-          label:           formatComprobante(s.fiscal_punto_de_venta, s.fiscal_number),
-          submittedToArca: s.fiscal_submitted_to_arca ?? false,
-          frozen:          s.fiscal_frozen ?? false,
-          voidable:        s.fiscal_pending_voidable ?? false,
-        }
-      : null,
+    // factura-fiscal-imprimible: el mapeo vive en lib/fiscal-comprobante
+    // (`mapFiscalState`), compartido con /ventas/ordenes. El status se VALIDA,
+    // no se castea: uno desconocido cae en el estado que no ofrece ninguna
+    // acción destructiva — las decisiones reales vienen del servidor
+    // (`is_fiscally_locked` / `fiscal_pending_voidable`).
+    fiscal: mapFiscalState(s),
     isPaymentLocked: s.is_payment_locked ?? false,
     hasAccountCharge: s.has_account_charge ?? false,
     hasCashMovement:  s.has_cash_movement  ?? false,

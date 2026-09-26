@@ -32,6 +32,12 @@
  *   onConfirm(payload)       — callback con los datos de emisión
  *   isSubmitting             — bloquea mientras el caller procesa
  *
+ * punto-venta-seleccion (D7, OQ-3 — 2026-09-26): el selector de PV pasa a ser
+ * el compartido (`PointOfSaleSelect`) y la apertura preselecciona el
+ * PREDETERMINADO de la cuenta (o el único activo). Sólo en pantalla: la regla
+ * de habilitación (con varios activos hay que tener uno elegido) y la llamada
+ * al backend no cambian, y `rpc_emit_subscription_payment_cae` tampoco.
+ *
  * Reglas duras:
  *   - NUNCA usar `any`
  *   - NUNCA emitir automáticamente — el admin debe confirmar explícitamente
@@ -45,13 +51,6 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
-import {
   Dialog,
   DialogContent,
   DialogHeader,
@@ -61,6 +60,8 @@ import {
 } from "@/components/ui/dialog"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { isValidCuit, isValidTaxId, isCuitFormat } from "@/lib/cuit-utils"
+import { PointOfSaleSelect } from "@/components/fiscal/PointOfSaleSelect"
+import { activePointsOfSale, resolvePreselectedPointOfSale } from "@/lib/fiscal-point-of-sale"
 import type { PointOfSale } from "@/hooks/data/use-points-of-sale"
 import type { EmitSubscriptionPaymentInput, ReceptorDocTipo } from "@/hooks/data/use-emit-subscription-payment"
 
@@ -140,30 +141,31 @@ export function EmitirSuscripcionDialog({
   isSubmitting,
 }: EmitirSuscripcionDialogProps) {
   const docInputId = useId()
-  const pvSelectId = useId()
 
   const receptorModeId = useId()
 
-  const activePVs = pointsOfSale.filter((pv) => pv.isActive)
+  const activePVs = activePointsOfSale(pointsOfSale)
+  // punto-venta-seleccion: predeterminado > único activo (sin memoria de sesión
+  // acá — OQ-3 sólo pide la preselección del predeterminado).
+  const preselectedPvId = resolvePreselectedPointOfSale(pointsOfSale, { lastUsedId: null }) ?? ""
   const [docValue, setDocValue] = useState("")
   const [docError, setDocError] = useState<string | null>(null)
-  const [selectedPvId, setSelectedPvId] = useState<string>("")
+  const [selectedPvId, setSelectedPvId] = useState<string>(preselectedPvId)
   // Default "identified": preserva exactamente el comportamiento previo.
   const [receptorMode, setReceptorMode] = useState<ReceptorMode>("identified")
 
-  // Auto-select single active PV
+  // La lista de PV puede llegar después del primer render: si todavía no hay
+  // nada elegido, tomar la preselección en cuanto exista.
   useEffect(() => {
-    if (activePVs.length === 1 && !selectedPvId) {
-      setSelectedPvId(activePVs[0].id)
-    }
-  }, [activePVs, selectedPvId])
+    if (!selectedPvId && preselectedPvId) setSelectedPvId(preselectedPvId)
+  }, [preselectedPvId, selectedPvId])
 
   // Reset state on dialog open/close
   useEffect(() => {
     if (!open) {
       setDocValue("")
       setDocError(null)
-      setSelectedPvId(activePVs.length === 1 ? (activePVs[0]?.id ?? "") : "")
+      setSelectedPvId(preselectedPvId)
       setReceptorMode("identified")
     }
   }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -331,11 +333,11 @@ export function EmitirSuscripcionDialog({
 
           {/* No active PVs */}
           {activePVs.length === 0 && (
-            <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-400">
-              <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+            <div className="flex items-start gap-2 rounded-md border border-warning/25 bg-warning/10 p-3 text-sm text-foreground">
+              <AlertCircle className="h-4 w-4 mt-0.5 shrink-0 text-warning" />
               <div className="flex flex-col gap-1">
                 <span className="font-medium">Sin puntos de venta activos</span>
-                <span className="text-xs">Configurá el perfil fiscal de Aliadata.</span>
+                <span className="text-xs text-muted-foreground">Configurá el perfil fiscal de Aliadata.</span>
                 <Link
                   href="/configuracion/fiscal"
                   className="text-xs underline underline-offset-2 hover:opacity-80 flex items-center gap-1"
@@ -347,38 +349,13 @@ export function EmitirSuscripcionDialog({
             </div>
           )}
 
-          {/* PV selector */}
-          {activePVs.length > 1 && (
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor={pvSelectId}>Punto de venta</Label>
-              <Select value={selectedPvId} onValueChange={setSelectedPvId}>
-                <SelectTrigger id={pvSelectId} className="bg-background border-border text-foreground">
-                  <SelectValue placeholder="Seleccioná un PV" />
-                </SelectTrigger>
-                <SelectContent className="bg-popover border-border">
-                  {activePVs.map((pv) => (
-                    <SelectItem key={pv.id} value={pv.id}>
-                      PV {String(pv.numero).padStart(5, "0")}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          )}
-
-          {activePVs.length === 1 && (
-            <div className="rounded-md border border-border bg-muted/30 p-3 text-sm">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-muted-foreground">Punto de venta</span>
-                <span className="font-semibold text-foreground">
-                  PV {String(activePVs[0]?.numero ?? 1).padStart(5, "0")}
-                </span>
-              </div>
-              <p className="text-xs text-muted-foreground/70 mt-1">
-                Único PV activo — seleccionado automáticamente.
-              </p>
-            </div>
-          )}
+          {/* PV selector — el compartido (punto-venta-seleccion, D7) */}
+          <PointOfSaleSelect
+            pointsOfSale={pointsOfSale}
+            value={selectedPvId}
+            onValueChange={setSelectedPvId}
+            disabled={isSubmitting}
+          />
 
           {/* Receptor: identificado o consumidor final (G5/H3) */}
           <div className="flex flex-col gap-2">

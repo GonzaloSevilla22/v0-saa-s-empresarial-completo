@@ -2,34 +2,34 @@
 
 /**
  * v22-afip-delegation-billing — EmitirComprobanteDialog
+ * punto-venta-seleccion (D10, 2026-09-26) — revivido: era código muerto desde
+ * v22 (ningún consumidor). Lo abre `EmitInvoiceButton` cuando la cuenta tiene
+ * DOS o más puntos de venta activos, en los dos caminos de facturación de
+ * ventas (/ventas y /ventas/ordenes).
  *
- * Dialog de confirmación para emitir un comprobante electrónico (CAE ARCA).
- * La emisión es SIEMPRE deliberada: el usuario debe confirmar explícitamente.
+ * Diálogo de confirmación para emitir un comprobante electrónico (CAE ARCA).
+ * La emisión es SIEMPRE deliberada: el usuario confirma explícitamente, y el
+ * PV que ve marcado es el que se manda — explícito, nunca `null` (D4).
  *
- * Props:
- *   open / onOpenChange      — control del dialog
- *   operationLabel           — texto libre para identificar la operación (ej. "Venta $1.200")
- *   pointsOfSale             — lista de PVs activos de la cuenta
- *   fiscalProfile            — perfil fiscal (para mostrar condición IVA y estado delegación)
- *   onConfirm(pvId)          — callback cuando el usuario confirma; recibe el point_of_sale_id elegido
- *   isSubmitting             — bloquea el botón mientras el caller está procesando
+ * Qué cambió al revivirlo:
+ *   - el selector es `PointOfSaleSelect` (el único de la app, D7), con el
+ *     badge "Predeterminado";
+ *   - abre con la preselección que resuelve el caller
+ *     (`resolvePreselectedPointOfSale`: última elección de la sesión >
+ *     predeterminado); sin preselección, confirmar queda deshabilitado hasta
+ *     elegir;
+ *   - la delegación ARCA no autorizada pasa de BLOQUEO a AVISO (OQ-4): el
+ *     camino de un solo PV nunca lo tuvo, la RPC no lo verifica, y con el
+ *     bloqueo una cuenta de varios PV quedaba más restringida que una de uno;
+ *   - tokens semánticos de advertencia (antes `amber-*` literales).
  *
- * No realiza mutaciones directamente — delega al caller (ventas/page o pos/page).
- * Eso mantiene la lógica de negocio en el hook de datos.
+ * No realiza mutaciones — delega al caller (`onConfirm`).
  */
 
-import { useState, useEffect } from "react"
+import { useEffect, useState } from "react"
 import Link from "next/link"
 import { AlertCircle, FileText, ExternalLink } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Label } from "@/components/ui/label"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import {
   Dialog,
   DialogContent,
@@ -38,6 +38,8 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog"
+import { PointOfSaleSelect } from "@/components/fiscal/PointOfSaleSelect"
+import { activePointsOfSale } from "@/lib/fiscal-point-of-sale"
 import type { PointOfSale } from "@/hooks/data/use-points-of-sale"
 import type { FiscalProfile } from "@/hooks/data/use-fiscal-profile"
 
@@ -46,10 +48,12 @@ import type { FiscalProfile } from "@/hooks/data/use-fiscal-profile"
 interface EmitirComprobanteDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  /** Label for the operation being emitted (e.g. "Venta del 24/06") */
-  operationLabel: string
+  /** Texto que identifica la operación (ej. "Venta del 24/06"). Opcional. */
+  operationLabel?: string
   pointsOfSale: PointOfSale[]
   fiscalProfile: FiscalProfile | null
+  /** PV a marcar al abrir (o `null`: el usuario elige). */
+  preselectedPointOfSaleId: string | null
   /** Called when the user confirms — receives the selected point_of_sale_id */
   onConfirm: (pointOfSaleId: string) => void
   isSubmitting: boolean
@@ -66,6 +70,9 @@ function comprobanteLabel(ivaCondition: FiscalProfile["ivaCondition"] | undefine
   }
 }
 
+/** Superficie de advertencia (patrón superficie/texto de tokens-contraste-aa). */
+const WARNING_SURFACE = "flex items-start gap-2 rounded-md border border-warning/25 bg-warning/10 p-3 text-sm text-foreground"
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function EmitirComprobanteDialog({
@@ -74,37 +81,25 @@ export function EmitirComprobanteDialog({
   operationLabel,
   pointsOfSale,
   fiscalProfile,
+  preselectedPointOfSaleId,
   onConfirm,
   isSubmitting,
 }: EmitirComprobanteDialogProps) {
-  const activePVs = pointsOfSale.filter((pv) => pv.isActive)
+  const activePVs = activePointsOfSale(pointsOfSale)
+  const [selectedPvId, setSelectedPvId] = useState<string>(preselectedPointOfSaleId ?? "")
 
-  // Auto-select if only one active PV
-  const [selectedPvId, setSelectedPvId] = useState<string>("")
-
+  // Cada apertura arranca de la preselección vigente (no de la elección de una
+  // apertura anterior que se canceló).
   useEffect(() => {
-    if (activePVs.length === 1 && !selectedPvId) {
-      setSelectedPvId(activePVs[0].id)
-    }
-  }, [activePVs, selectedPvId])
-
-  // Reset on dialog close
-  useEffect(() => {
-    if (!open) {
-      setSelectedPvId(activePVs.length === 1 ? (activePVs[0]?.id ?? "") : "")
-    }
+    if (open) setSelectedPvId(preselectedPointOfSaleId ?? "")
   }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const delegationOk = fiscalProfile?.delegacionAutorizada ?? false
   const noProfile    = fiscalProfile === null
   const noPVs        = activePVs.length === 0
+  const delegationOk = fiscalProfile?.delegacionAutorizada ?? false
+  const selectionIsActive = activePVs.some((pv) => pv.id === selectedPvId)
 
-  const canConfirm =
-    !isSubmitting &&
-    !noProfile &&
-    !noPVs &&
-    delegationOk &&
-    selectedPvId !== ""
+  const canConfirm = !isSubmitting && !noProfile && !noPVs && selectionIsActive
 
   const comprobanteType = comprobanteLabel(fiscalProfile?.ivaCondition)
 
@@ -117,7 +112,8 @@ export function EmitirComprobanteDialog({
             Enviar al ARCA — Obtener CAE
           </DialogTitle>
           <DialogDescription className="text-muted-foreground">
-            Vas a emitir un comprobante electrónico para <strong className="text-foreground">{operationLabel}</strong>.
+            Vas a emitir un comprobante electrónico para{" "}
+            {operationLabel ? <strong className="text-foreground">{operationLabel}</strong> : "esta venta"}.
             Esta acción genera un documento fiscal real ante AFIP/ARCA.
           </DialogDescription>
         </DialogHeader>
@@ -143,11 +139,11 @@ export function EmitirComprobanteDialog({
 
           {/* No active PVs */}
           {!noProfile && noPVs && (
-            <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-400">
-              <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+            <div className={WARNING_SURFACE}>
+              <AlertCircle className="h-4 w-4 mt-0.5 shrink-0 text-warning" />
               <div className="flex flex-col gap-1">
                 <span className="font-medium">Sin puntos de venta activos</span>
-                <span className="text-xs">Creá al menos un punto de venta para poder emitir.</span>
+                <span className="text-xs text-muted-foreground">Creá al menos un punto de venta para poder emitir.</span>
                 <Link
                   href="/configuracion/fiscal"
                   className="text-xs underline underline-offset-2 hover:opacity-80 flex items-center gap-1"
@@ -159,69 +155,45 @@ export function EmitirComprobanteDialog({
             </div>
           )}
 
-          {/* Delegation not authorized */}
-          {!noProfile && !noPVs && !delegationOk && (
-            <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-400">
-              <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
-              <div className="flex flex-col gap-1">
-                <span className="font-medium">Delegación en ARCA no autorizada</span>
-                <span className="text-xs">
-                  Aliadata aún no tiene autorización para emitir en tu nombre.
-                  Autorizá la delegación en ARCA y confirmá en Datos fiscales.
-                </span>
-                <Link
-                  href="/configuracion/fiscal"
-                  className="text-xs underline underline-offset-2 hover:opacity-80 flex items-center gap-1"
-                  onClick={() => onOpenChange(false)}
-                >
-                  Configurar autorización <ExternalLink className="h-3 w-3" />
-                </Link>
-              </div>
-            </div>
-          )}
-
-          {/* Ready state — show comprobante type + PV selector */}
-          {!noProfile && !noPVs && delegationOk && (
+          {!noProfile && !noPVs && (
             <>
+              {/* Delegation not authorized — aviso, NO bloqueo (OQ-4) */}
+              {!delegationOk && (
+                <div className={WARNING_SURFACE} role="status">
+                  <AlertCircle className="h-4 w-4 mt-0.5 shrink-0 text-warning" />
+                  <div className="flex flex-col gap-1">
+                    <span className="font-medium">Delegación en ARCA no autorizada</span>
+                    <span className="text-xs text-muted-foreground">
+                      Si todavía no autorizaste a Aliadata a facturar en tu nombre, ARCA va a
+                      rechazar el comprobante. Autorizá la delegación y confirmalo en Datos fiscales.
+                    </span>
+                    <Link
+                      href="/configuracion/fiscal"
+                      className="text-xs underline underline-offset-2 hover:opacity-80 flex items-center gap-1"
+                      onClick={() => onOpenChange(false)}
+                    >
+                      Configurar autorización <ExternalLink className="h-3 w-3" />
+                    </Link>
+                  </div>
+                </div>
+              )}
+
               <div className="rounded-md border border-border bg-muted/30 p-3 text-sm">
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-muted-foreground">Tipo de comprobante</span>
                   <span className="font-semibold text-foreground">{comprobanteType}</span>
                 </div>
-                <p className="text-xs text-muted-foreground/70 mt-1">
+                <p className="text-xs text-muted-foreground mt-1">
                   Resuelto por el backend según tu condición IVA — no editable aquí.
                 </p>
               </div>
 
-              {activePVs.length > 1 ? (
-                <div className="flex flex-col gap-1.5">
-                  <Label>Punto de venta</Label>
-                  <Select value={selectedPvId} onValueChange={setSelectedPvId}>
-                    <SelectTrigger className="bg-background border-border text-foreground">
-                      <SelectValue placeholder="Seleccioná un PV" />
-                    </SelectTrigger>
-                    <SelectContent className="bg-popover border-border">
-                      {activePVs.map((pv) => (
-                        <SelectItem key={pv.id} value={pv.id}>
-                          PV {String(pv.numero).padStart(5, "0")}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              ) : (
-                <div className="rounded-md border border-border bg-muted/30 p-3 text-sm">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-muted-foreground">Punto de venta</span>
-                    <span className="font-semibold text-foreground">
-                      PV {String(activePVs[0]?.numero ?? 1).padStart(5, "0")}
-                    </span>
-                  </div>
-                  <p className="text-xs text-muted-foreground/70 mt-1">
-                    Único PV activo — seleccionado automáticamente.
-                  </p>
-                </div>
-              )}
+              <PointOfSaleSelect
+                pointsOfSale={pointsOfSale}
+                value={selectedPvId}
+                onValueChange={setSelectedPvId}
+                disabled={isSubmitting}
+              />
 
               <div className="rounded-md border border-primary/20 bg-primary/5 p-3 text-xs text-muted-foreground">
                 <strong className="text-foreground">Atención:</strong> esta acción genera un comprobante fiscal

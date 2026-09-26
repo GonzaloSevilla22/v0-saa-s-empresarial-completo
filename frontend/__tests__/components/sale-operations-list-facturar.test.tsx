@@ -2,8 +2,12 @@
  * venta-editable-vs-promocion-legacy — "Facturar" de una venta cargada a mano,
  * de punta a punta en /ventas (con el backend mockeado en el borde HTTP):
  *   Facturar → POST /sales/{op}/promote-to-order → aparece "Emitir comprobante"
- *   → POST /sales-orders/{so}/emit-invoice con el primer punto de venta →
- *   toast "en trámite" + refresco del listado (["sales"]).
+ *   → (punto-venta-seleccion) con DOS puntos de venta activos se abre el
+ *   diálogo para elegir → POST /sales-orders/{so}/emit-invoice con el PV
+ *   ELEGIDO → toast "en trámite" + refresco del listado (["sales"]).
+ *   Antes de punto-venta-seleccion emitía a ciegas por `pointsOfSale[0]` (el
+ *   de menor número, aunque estuviera inactivo): este test fijaba ese
+ *   comportamiento y cambió de expectativa con el pedido del PO.
  * Caminos de error: la emisión rechaza por sales_order_out_of_sync → mensaje
  * traducido Y la fila vuelve a "Facturar" (el próximo clic re-prepara, que es
  * la salida del usuario); la preparación da 404 → mensaje traducido.
@@ -26,17 +30,32 @@ const { postMock, toastMock } = vi.hoisted(() => ({
 vi.mock("@/lib/api/python-client", () => ({ pythonClient: { get: vi.fn(), post: postMock } }))
 vi.mock("sonner", () => ({ toast: toastMock }))
 vi.mock("@/hooks/data/use-fiscal-profile", () => ({
-  useFiscalProfile: () => ({ profile: { ivaCondition: "monotributista" } }),
+  useFiscalProfile: () => ({ profile: { ivaCondition: "monotributista", delegacionAutorizada: true } }),
 }))
-vi.mock("@/hooks/data/use-points-of-sale", () => ({
-  usePointsOfSale: () => ({ pointsOfSale: [{ id: "pv-1" }, { id: "pv-2" }] }),
-}))
+// punto-venta-seleccion: dos PV ACTIVOS (el caso real de las dos cuentas que
+// facturan en prod: 3 y 9999) + uno inactivo de menor número, que nunca se
+// ofrece ni se envía.
+vi.mock("@/hooks/data/use-points-of-sale", () => {
+  const base = { fiscalProfileId: "fp-1", accountId: "acc-1", branchId: null, isDefault: false, createdAt: "2026-09-26T00:00:00Z" }
+  return {
+    usePointsOfSale: () => ({
+      pointsOfSale: [
+        { ...base, id: "pv-1", numero: 1, isActive: false },
+        { ...base, id: "pv-3", numero: 3, isActive: true },
+        { ...base, id: "pv-9999", numero: 9999, isActive: true },
+      ],
+      isLoading: false,
+      isError: false,
+    }),
+  }
+})
 vi.mock("@/components/fiscal/FiscalDocumentBadge", () => ({
   FiscalDocumentBadge: ({ initialStatus }: { initialStatus: string }) => <span>badge:{initialStatus}</span>,
 }))
 vi.mock("@/components/payment-methods/PaymentMethodSelect", () => ({ PaymentMethodSelect: () => null }))
 vi.mock("@/components/ventas/sale-receipt-button", () => ({ SaleReceiptButton: () => null }))
 
+import userEvent from "@testing-library/user-event"
 import { SaleOperationsList } from "@/components/ventas/sale-operations-list"
 
 const meta: PaginationMeta = { page: 0, pageSize: 25, totalCount: 1, pageCount: 1, from: 1, to: 1 }
@@ -71,9 +90,14 @@ const invalidatedKeys = (spy: ReturnType<typeof vi.spyOn>) =>
   spy.mock.calls.map((c: unknown[]) => (c[0] as { queryKey?: readonly unknown[] })?.queryKey?.[0])
 
 describe("SaleOperationsList — Facturar una venta cargada a mano", () => {
-  beforeEach(() => { postMock.mockReset(); Object.values(toastMock).forEach((f) => f.mockReset()) })
+  beforeEach(() => {
+    postMock.mockReset()
+    Object.values(toastMock).forEach((f) => f.mockReset())
+    sessionStorage.clear()
+  })
 
-  it("Facturar → prepara → «Emitir comprobante» → emite con el primer punto de venta y refresca el listado", async () => {
+  it("Facturar → prepara → «Emitir comprobante» → con dos PV abre el diálogo, emite con el ELEGIDO y refresca el listado", async () => {
+    const user = userEvent.setup()
     postMock
       .mockResolvedValueOnce({ sales_order_id: "so-1", sale_operation_id: "op-1", replayed: false })
       .mockResolvedValueOnce({
@@ -92,8 +116,16 @@ describe("SaleOperationsList — Facturar una venta cargada a mano", () => {
     expect(emit).toHaveTextContent("Emitir comprobante")
     fireEvent.click(emit)
 
+    // Ya no emite a ciegas: con dos PV activos pide elegir (y el inactivo no aparece).
+    expect(await screen.findByRole("dialog")).toBeInTheDocument()
+    expect(postMock).toHaveBeenCalledTimes(1) // sólo la promoción
+    await user.click(screen.getByRole("combobox", { name: "Punto de venta" }))
+    expect(screen.queryByRole("option", { name: /PV 0001/ })).toBeNull()
+    await user.click(screen.getByRole("option", { name: /PV 9999/ }))
+    await user.click(screen.getByRole("button", { name: /Confirmar y enviar al ARCA/ }))
+
     await waitFor(() =>
-      expect(postMock).toHaveBeenLastCalledWith("/sales-orders/so-1/emit-invoice", { point_of_sale_id: "pv-1" }),
+      expect(postMock).toHaveBeenLastCalledWith("/sales-orders/so-1/emit-invoice", { point_of_sale_id: "pv-9999" }),
     )
     await waitFor(() => expect(toastMock.success).toHaveBeenCalledWith("Comprobante enviado a ARCA — en trámite"))
     expect(invalidatedKeys(invalidate)).toContain("sales")
@@ -109,6 +141,7 @@ describe("SaleOperationsList — Facturar una venta cargada a mano", () => {
   })
 
   it("la emisión rechaza (sales_order_out_of_sync): mensaje traducido y la fila VUELVE a «Facturar»", async () => {
+    const user = userEvent.setup()
     postMock
       .mockResolvedValueOnce({ sales_order_id: "so-1", sale_operation_id: "op-1", replayed: false })
       .mockRejectedValueOnce(new Error("Conflicto: sales_order_out_of_sync: la orden so-1 no coincide con su venta"))
@@ -116,6 +149,9 @@ describe("SaleOperationsList — Facturar una venta cargada a mano", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Facturar esta venta en AFIP" }))
     fireEvent.click(await screen.findByRole("button", { name: /Emitir comprobante/ }))
+    await user.click(await screen.findByRole("combobox", { name: "Punto de venta" }))
+    await user.click(screen.getByRole("option", { name: /PV 0003/ }))
+    await user.click(screen.getByRole("button", { name: /Confirmar y enviar al ARCA/ }))
 
     await waitFor(() => expect(toastMock.error).toHaveBeenCalledWith(
       "La venta cambió después de prepararla para facturar. Tocá «Facturar» de nuevo para actualizarla.",

@@ -16,7 +16,7 @@ import { useState } from "react"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
-import { Building2, Plus, Trash2, Upload } from "lucide-react"
+import { Building2, Plus, Star, StarOff, Trash2, Upload } from "lucide-react"
 
 import {
   Card,
@@ -49,7 +49,14 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Skeleton } from "@/components/ui/skeleton"
 
 import { useFiscalProfile, useUpsertFiscalProfile } from "@/hooks/data/use-fiscal-profile"
-import { usePointsOfSale, useCreatePointOfSale, useDeactivatePointOfSale } from "@/hooks/data/use-points-of-sale"
+import {
+  usePointsOfSale,
+  useCreatePointOfSale,
+  useDeactivatePointOfSale,
+  useSetDefaultPointOfSale,
+  useClearDefaultPointOfSale,
+} from "@/hooks/data/use-points-of-sale"
+import { formatPointOfSaleLabel } from "@/lib/fiscal-point-of-sale"
 import { translateFiscalConfigError } from "@/lib/fiscal-config-errors"
 import type { IvaCondition, Ambiente } from "@/hooks/data/use-fiscal-profile"
 import type { PointOfSale } from "@/hooks/data/use-points-of-sale"
@@ -532,13 +539,23 @@ function CertUploadSection() {
 
 // ── PointsOfSaleSection ───────────────────────────────────────────────────────
 
-function PointsOfSaleSection() {
+/**
+ * Lista + alta + desactivación de puntos de venta.
+ * punto-venta-seleccion (5.1/5.2): badge "Predeterminado" y acciones para
+ * marcarlo / quitarlo (el predeterminado es el que el diálogo de facturación
+ * trae marcado y el que usa la emisión si no se elige otro). Exportada para
+ * testearla sin montar el resto de la configuración fiscal.
+ */
+export function PointsOfSaleSection() {
   const { pointsOfSale, isLoading } = usePointsOfSale()
   const createPv = useCreatePointOfSale()
   const deactivatePv = useDeactivatePointOfSale()
+  const setDefaultPv = useSetDefaultPointOfSale()
+  const clearDefaultPv = useClearDefaultPointOfSale()
   const { profile } = useFiscalProfile()
   const [pvError, setPvError] = useState<string | null>(null)
   const [deactivateError, setDeactivateError] = useState<string | null>(null)
+  const [defaultError, setDefaultError] = useState<string | null>(null)
 
   const pvForm = useForm<NewPvFormValues>({
     resolver: zodResolver(newPvSchema),
@@ -566,6 +583,24 @@ function PointsOfSaleSection() {
     }
   }
 
+  async function handleSetDefault(pv: PointOfSale) {
+    setDefaultError(null)
+    try {
+      await setDefaultPv.mutateAsync(pv.id)
+    } catch (err: unknown) {
+      setDefaultError(err instanceof Error ? err.message : "No se pudo marcar el punto de venta como predeterminado.")
+    }
+  }
+
+  async function handleClearDefault() {
+    setDefaultError(null)
+    try {
+      await clearDefaultPv.mutateAsync()
+    } catch (err: unknown) {
+      setDefaultError(err instanceof Error ? err.message : "No se pudo quitar el punto de venta predeterminado.")
+    }
+  }
+
   async function handleDeactivate(pv: PointOfSale) {
     setDeactivateError(null)
     try {
@@ -586,6 +621,9 @@ function PointsOfSaleSection() {
 
   const activePvs   = pointsOfSale.filter((p) => p.isActive)
   const inactivePvs = pointsOfSale.filter((p) => !p.isActive)
+  const hasSeveral  = activePvs.length > 1
+  const hasDefault  = activePvs.some((p) => p.isDefault)
+  const defaultBusy = setDefaultPv.isPending || clearDefaultPv.isPending
 
   return (
     <div className="flex flex-col gap-4">
@@ -596,27 +634,79 @@ function PointsOfSaleSection() {
         </p>
       ) : (
         <div className="flex flex-col gap-2">
-          {activePvs.map((pv) => (
-            <div key={pv.id} className="flex items-center justify-between border border-border rounded-md px-3 py-2">
-              <div className="flex items-center gap-2">
-                <Building2 className="h-3.5 w-3.5 text-muted-foreground" />
-                <span className="text-sm font-medium">PV {String(pv.numero).padStart(4, "0")}</span>
-                {pv.branchId && (
-                  <Badge variant="outline" className="text-xs text-muted-foreground">Sucursal asignada</Badge>
-                )}
-              </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="text-destructive hover:text-destructive hover:bg-destructive/10 h-7 px-2"
-                disabled={deactivatePv.isPending}
-                onClick={() => handleDeactivate(pv)}
+          {activePvs.map((pv) => {
+            const label = formatPointOfSaleLabel(pv.numero)
+            return (
+              <div
+                key={pv.id}
+                data-testid={`pv-row-${pv.id}`}
+                className="flex flex-wrap items-center justify-between gap-2 border border-border rounded-md px-3 py-2"
               >
-                <Trash2 className="h-3.5 w-3.5" />
-              </Button>
-            </div>
-          ))}
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                  <Building2 className="h-3.5 w-3.5 text-muted-foreground" />
+                  <span className="text-sm font-medium tabular-nums">{label}</span>
+                  {pv.isDefault && (
+                    <Badge variant="secondary" className="text-xs">Predeterminado</Badge>
+                  )}
+                  {pv.branchId && (
+                    <Badge variant="outline" className="text-xs text-muted-foreground">Sucursal asignada</Badge>
+                  )}
+                </div>
+                <div className="flex items-center gap-1">
+                  {hasSeveral && (pv.isDefault ? (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 gap-1.5 px-2 text-xs"
+                      disabled={defaultBusy}
+                      onClick={handleClearDefault}
+                      aria-label={`Quitar ${label} como predeterminado`}
+                    >
+                      <StarOff className="h-3.5 w-3.5" />
+                      Quitar predeterminado
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 gap-1.5 px-2 text-xs"
+                      disabled={defaultBusy}
+                      onClick={() => handleSetDefault(pv)}
+                      aria-label={`Usar ${label} como predeterminado`}
+                    >
+                      <Star className="h-3.5 w-3.5" />
+                      Usar como predeterminado
+                    </Button>
+                  ))}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-destructive hover:text-destructive hover:bg-destructive/10 h-7 px-2"
+                    disabled={deactivatePv.isPending}
+                    onClick={() => handleDeactivate(pv)}
+                    aria-label={`Desactivar ${label}`}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              </div>
+            )
+          })}
         </div>
+      )}
+
+      {/* punto-venta-seleccion: explicar el predeterminado cuando hace falta */}
+      {hasSeveral && !hasDefault && (
+        <p className="text-xs text-muted-foreground">
+          Tenés {activePvs.length} puntos de venta activos: al facturar elegís cuál usar. Si marcás uno como
+          predeterminado, aparece elegido de entrada y es el que se usa si no elegís otro al facturar.
+        </p>
+      )}
+
+      {defaultError && (
+        <Alert variant="destructive">
+          <AlertDescription className="text-xs">{defaultError}</AlertDescription>
+        </Alert>
       )}
 
       {/* Inactivos (colapsados, solo count) */}
@@ -736,8 +826,8 @@ export function FiscalSettings() {
         <CardHeader>
           <CardTitle className="text-base">Puntos de venta</CardTitle>
           <CardDescription>
-            Cada punto de venta tiene su propia numeración (doc_sequences).
-            Si tenés más de un PV activo, deberás especificarlo al emitir.
+            Cada punto de venta tiene su propia numeración ante ARCA.
+            Si tenés más de uno activo, lo elegís al facturar; el predeterminado aparece elegido de entrada.
           </CardDescription>
         </CardHeader>
         <CardContent>

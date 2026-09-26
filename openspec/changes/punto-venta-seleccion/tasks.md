@@ -44,8 +44,8 @@
 
 ## 5. Frontend: "Predeterminado" en Configuración → Datos fiscales
 
-- [ ] 5.1 RED — test de `PointsOfSaleSection` (`FiscalSettings`): badge "Predeterminado"; acción "Usar como predeterminado" en los activos que no lo son y "Quitar predeterminado" en el que lo es (botones con nombre accesible, no sólo icono); la línea explicativa aparece con ≥ 2 activos y ningún predeterminado; formato `0003`.
-- [ ] 5.2 GREEN — implementar en `components/settings/FiscalSettings.tsx` con los hooks de 3.4 y manejo de error visible (patrón `deactivateError` existente).
+- [x] 5.1 RED — test de `PointsOfSaleSection` (`FiscalSettings`): badge "Predeterminado"; acción "Usar como predeterminado" en los activos que no lo son y "Quitar predeterminado" en el que lo es (botones con nombre accesible, no sólo icono); la línea explicativa aparece con ≥ 2 activos y ningún predeterminado; formato `0003`.
+- [x] 5.2 GREEN — implementar en `components/settings/FiscalSettings.tsx` con los hooks de 3.4 y manejo de error visible (patrón `deactivateError` existente).
 
 ## 6. Verificación
 
@@ -76,3 +76,4 @@
 | 4.3-4.4 | `frontend/__tests__/components/emit-invoice-button-point-of-sale.test.tsx` (+ `emit-invoice-button-label.test.tsx`) | Component + QueryClient | ✅ label/onEmitFailed 4/4 (fixture del GET pasa a devolver 1 PV activo) | ✅ 8 fallan (emitía con `pointOfSaleId ?? null`, sin diálogo, sin memoria) | ✅ 8/8 + 4/4 | ✅ 1 activo + 1 inactivo de menor número → emite con el activo; 2 → diálogo; elegido explícito; predeterminado en un clic; memoria entre DOS botones montados a la vez; cancelar y fallo no escriben; 0 activos → aviso + enlace | ✅ lectura/escritura puntual de sessionStorage reutilizando los helpers de `use-persistent-state` |
 | 4.5-4.6 | `sale-operations-list-facturar.test.tsx` (expectativa cambiada) + `ventas-ordenes-facturar.test.tsx` (nuevo) | Component (pantalla) | ✅ 5/5 antes del cambio | ✅ el test viejo falla 3/5 contra el botón nuevo; el de `/ventas/ordenes` falla contra el `EmitInvoiceButton` de `origin/main` (mandaba `null`) | ✅ 5/5 + 1/1 | ✅ el inactivo de menor número no aparece en el diálogo; el rechazo `sales_order_out_of_sync` sigue devolviendo la fila a «Facturar» | ✅ `grep`: ningún caller pasa `pointOfSaleId` |
 | 4.7 | `__tests__/components/EmitirSuscripcionDialog.test.tsx` | Component | ✅ 4/4 | ✅ 2 fallan (sin preselección del predeterminado) | ✅ 7/7 (+ `v22-subscription-payment-invoicing` 32/32) | ✅ el admin cambia el preseleccionado; sin predeterminado sigue exigiendo elegir | ✅ `amber-*` → tokens `warning` |
+| 5.1-5.2 | `frontend/__tests__/components/points-of-sale-default-settings.test.tsx` | Component (sección exportada) | ✅ `c27-fiscal-profile` 18/18 | ✅ 6 fallan (sección no exportada, sin badge ni acciones) | ✅ 6/6 | ✅ explicación ausente con predeterminado y con un solo activo; con un solo activo no hay acción de predeterminado; error del backend visible; la desactivación gana nombre accesible | ✅ etiqueta `PV 0003` desde `formatPointOfSaleLabel` (misma fuente que el diálogo) |

@@ -130,8 +130,12 @@ class TestEndpoint:
         assert "DUPLICADO" in text and "ORIGINAL" not in text
 
     async def test_otra_cuenta_e_inexistente_responden_igual(self, async_client, mock_pool):
-        """El repositorio filtra por account_id: un comprobante ajeno llega como
-        None, igual que uno inexistente, y la respuesta es byte a byte la misma."""
+        """Contrato HTTP: un comprobante ajeno llega del repositorio como None,
+        igual que uno inexistente, y la respuesta es byte a byte la misma. QUE
+        el repositorio devuelva None para uno ajeno lo fijan
+        TestRepositorio.test_get_by_id_filtra_por_cuenta_en_el_sql (SQL y
+        parámetros) y test_factura_fiscal_tenencia_integration.py (Postgres real
+        como postgres, sin RLS)."""
         ajeno, _ = await _get(async_client, mock_pool, document=None)
         inexistente, _ = await _get(async_client, mock_pool, document=None,
                                     path=f"/fiscal/documents/{uuid.uuid4()}/pdf")
@@ -199,6 +203,35 @@ class TestEndpoint:
 # ═══════════════════════════════════════════════════════════════════════════
 
 class TestRepositorio:
+
+    async def test_get_by_id_filtra_por_cuenta_en_el_sql(self):
+        """La única capa de tenencia explícita del endpoint (la RLS es red, no
+        guard único): el WHERE exige id Y account_id, con el account_id del
+        request como segundo parámetro. Sin esto, el 404 idéntico ajeno/
+        inexistente de TestEndpoint sería verdad sólo por el mock."""
+        from backend.repositories.fiscal_document_repository import FiscalDocumentRepository
+
+        conn = AsyncMock()
+        conn.fetchrow = AsyncMock(return_value=None)
+
+        result = await FiscalDocumentRepository(conn).get_by_id(str(DOC_ID), str(TEST_ACCOUNT_ID))
+
+        query, *args = conn.fetchrow.await_args.args
+        normalized = " ".join(query.split())
+        assert args == [str(DOC_ID), str(TEST_ACCOUNT_ID)]
+        assert "FROM public.fiscal_documents" in normalized
+        assert "WHERE id = $1 AND account_id = $2" in normalized
+        assert result is None
+
+    async def test_get_by_id_devuelve_la_fila_como_dict(self):
+        from backend.repositories.fiscal_document_repository import FiscalDocumentRepository
+
+        conn = AsyncMock()
+        conn.fetchrow = AsyncMock(return_value={"id": DOC_ID, "account_id": TEST_ACCOUNT_ID})
+
+        result = await FiscalDocumentRepository(conn).get_by_id(str(DOC_ID), str(TEST_ACCOUNT_ID))
+
+        assert result == {"id": DOC_ID, "account_id": TEST_ACCOUNT_ID}
 
     async def test_get_invoice_lines_filtra_por_cuenta_y_ordena(self):
         from backend.repositories.fiscal_document_repository import FiscalDocumentRepository

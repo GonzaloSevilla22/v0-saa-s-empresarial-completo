@@ -3723,3 +3723,5 @@ Gate: L.13-L.24, (O), (P) y la introspección (E) ampliada (también en el gate 
 - **Opción "Sin unidad" en el formulario de producto** (decisión 7 del PO): hoy desasignar sólo existe por API (`null` explícito) y queda sujeto al guard D11.
 - **Siembra de Kilogramo y ajuste manual** (decisiones 8 y 9 del PO): datos de prod, sólo con OK explícito.
 - **Mensaje de `base_unit_locked` en la UI**: el `detail` RFC 7807 llega al usuario porque el cliente de Python lanza `body.detail`, pero no hay traducción propia en `operation-errors.ts` ni pasada visual de ese error.
+
+**Sign-off del PO 2026-09-26**: aplica las recomendaciones; decisiones 7-9 diferidas a pedido (detalle completo en `openspec/changes/ventas-unidades-conversion/design.md` §"Sign-off del PO").

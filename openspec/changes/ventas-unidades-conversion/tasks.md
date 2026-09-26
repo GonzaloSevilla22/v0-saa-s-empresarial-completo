@@ -83,7 +83,7 @@
   SELECT count(*) FROM information_schema.columns
   WHERE table_schema = 'public' AND table_name = 'v_products_with_stock' AND column_name = 'base_unit_id';      -- 1
   ```
-- [ ] 7.4 Humo real del PO en prod: producto en kg con stock 1, venta de 450 g desde el POS (también con Docena) y desde el formulario, edición a 300 g, borrado, `/stock` desktop y mobile en `0.550 kg`, mínimo `0.5` con alerta, cambio de unidad base de un producto con stock rechazado (D11); decisiones 2-9 del PO (`design.md` §"Sign-off del PO"), incluidos el ajuste manual del movimiento dañado y OQ-1. Pendiente hasta el deploy.
+- [ ] 7.4 Humo real del PO en prod: producto en kg con stock 1, venta de 450 g desde el POS (también con Docena) y desde el formulario, edición a 300 g, borrado, `/stock` desktop y mobile en `0.550 kg`, mínimo `0.5` con alerta, cambio de unidad base de un producto con stock rechazado (D11). **Sign-off del PO registrado 2026-09-26** ("aplica las recomendaciones y podes mergear"): decisiones 1-6 y 10-14 firmadas (`design.md` §"Sign-off del PO"); 7, 8 y 9 (ajuste manual del movimiento dañado, OQ-1) quedan diferidas a pedido del PO, sin cambios de datos. Pendiente sólo el humo real en prod tras el deploy.
 
 ## 8. Auditoría post-apply (2026-09-24, PR #584)
 

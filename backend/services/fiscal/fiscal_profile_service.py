@@ -14,7 +14,10 @@ from fastapi import HTTPException
 
 from backend.core.guards import require_account_role, require_role, require_platform_admin
 from backend.core.rbac import CAN_CONFIGURE
-from backend.repositories.fiscal_profile_repository import FiscalProfileRepository
+from backend.repositories.fiscal_profile_repository import (
+    PROFILE_TRI_STATE_FIELDS,
+    FiscalProfileRepository,
+)
 from backend.repositories.fiscal_document_repository import FiscalDocumentRepository
 from backend.repositories.point_of_sale_repository import PointOfSaleRepository
 from backend.schemas.fiscal import (
@@ -152,6 +155,11 @@ async def upsert_fiscal_profile(
     # Caso especial: delegacion_autorizada=False es un valor válido (no None), incluirlo.
     if "delegacion_autorizada" in payload.model_fields_set:
         data["delegacion_autorizada"] = payload.delegacion_autorizada
+    # factura-fiscal-imprimible (D7): tri-estado por model_fields_set — un
+    # `null` explícito SÍ viaja (borra); un campo ausente no viaja (conserva).
+    for field in PROFILE_TRI_STATE_FIELDS:
+        if field in payload.model_fields_set:
+            data[field] = getattr(payload, field)
     result = await repo.upsert(account_id, data)
     if result is None:
         raise HTTPException(status_code=500, detail="Error al guardar el perfil fiscal")

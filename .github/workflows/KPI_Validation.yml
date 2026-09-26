@@ -1035,6 +1035,33 @@ jobs:
           fi
           echo "20261062000001 idempotente: rama de reaplicación 10/10, gate embebido PASS y schema IDÉNTICO al previo a este paso."
 
+          # punto-venta-seleccion (2026-09-26): reaplicación de 20261063000001
+          # sobre el estado reconvergido, DESPUÉS del bloque de 20261062000001
+          # (mismo criterio: el eslabón más nuevo se reaplica sobre la historia
+          # real completa). Es idempotente por construcción -- ADD COLUMN IF
+          # NOT EXISTS, CHECK guardado contra pg_constraint, índice único
+          # parcial IF NOT EXISTS, CREATE OR REPLACE de rpc_emit_pending_cae con
+          # la MISMA firma de 9 parámetros (sin 42725), COMMENT y REVOKE/GRANT
+          # re-emitidos idénticos -- y su bloque DO de introspección tiene que
+          # imprimir OK también en la segunda pasada (incluye el md5 de
+          # rpc_emit_subscription_payment_cae, que D5 deja intacta). SIN
+          # tolerancia, y el schema (constraints + firmas + ACLs) tiene que
+          # quedar IDÉNTICO al de antes del paso. No redefine ninguna de las
+          # diez funciones del bloque de 20261062000001.
+          PVS_OUT=$(psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261063000001_punto_venta_predeterminado.sql 2>&1) || { echo "$PVS_OUT"; echo "ERROR: el reapply de 20261063000001 falló (sin tolerancia)."; exit 1; }
+          echo "$PVS_OUT"
+          if ! echo "$PVS_OUT" | grep -qF 'punto-venta-seleccion (introspecci'; then
+            echo "ERROR: el reapply de 20261063000001 no imprimió el OK de su bloque de introspección."
+            exit 1
+          fi
+          schema_snapshot > /tmp/schema_after_pvs_reapply.txt
+          if ! diff -u /tmp/schema_before_reapply.txt /tmp/schema_after_pvs_reapply.txt > /tmp/schema_diff_pvs.txt; then
+            echo "NOT IDEMPOTENT: reaplicar 20261063000001 cambió el schema (constraints + firmas de función + ACLs):"
+            cat /tmp/schema_diff_pvs.txt
+            exit 1
+          fi
+          echo "20261063000001 idempotente: introspección OK y schema IDÉNTICO al previo a este paso."
+
       # -v ON_ERROR_STOP=1 is required: without it psql prints RAISE EXCEPTION
       # errors but still exits 0, so failing assertions show green in CI.
       - name: Run deterministic KPI tests
@@ -2398,3 +2425,27 @@ jobs:
       # cualquier 40P01/timeout y ante un pending_cae vivo con importes viejos.
       - name: Run facturar venta manual race gate (dos conexiones)
         run: ITER=20 DB_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres bash supabase/tests/test_facturar_venta_manual_race.sh
+
+      # punto-venta-seleccion (2026-09-26, governance MEDIA -- dominio fiscal).
+      # `supabase start` ya aplicó 20261063000001 al levantar el stack; este
+      # paso sólo corre el gate. EJECUTA rpc_emit_pending_cae como un owner
+      # real (SET LOCAL ROLE authenticated + claims): (0) introspección --
+      # points_of_sale.is_default boolean NOT NULL DEFAULT false, CHECK
+      # points_of_sale_default_is_active (sólo un PV activo puede ser
+      # predeterminado), índice único parcial por cuenta, RPC de ventas con
+      # firma única, DEFINER, ACLs exactas y COMMENT vivo (R4) conservado, y
+      # md5 de rpc_emit_subscription_payment_cae igual al vivo de prod (D5: la
+      # facturación de suscripciones no se toca); (a) un solo PV activo sin
+      # explícito -> ese; (b) dos activos sin predeterminado -> P0422 sin
+      # reservar número ni crear comprobante; (e2) el predeterminado de OTRA
+      # cuenta no resuelve la ambigüedad; (c) dos activos con predeterminado ->
+      # pending_cae por el predeterminado; (d) el explícito gana; (e) explícito
+      # inactivo -> P0404 aunque haya predeterminado; (f) un predeterminado por
+      # cuenta (23505) y en otra cuenta pasa; (g) CHECK: predeterminado
+      # inactivo o desactivar sin limpiar la marca -> 23514; (h) la RPC de
+      # suscripciones con 2 activos + predeterminado sigue dando P0422, con
+      # control positivo; (z) residuo cero en toda tabla de public con
+      # account_id. Mutantes ejecutados en local: la RPC vieja cae en (0) y
+      # (c); el predeterminado buscado sin filtrar la cuenta cae en (e2).
+      - name: Run punto de venta predeterminado gate
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_punto_venta_predeterminado.sql

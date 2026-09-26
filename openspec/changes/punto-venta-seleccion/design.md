@@ -152,3 +152,13 @@ Se conserva: título, tipo de comprobante resuelto por el backend (no editable),
 - **OQ-3 — ¿La facturación de suscripciones (`/admin/pagos`) también debería usar el predeterminado del lado del servidor?** Recomendado: **no** en este change (D5) — sólo gana la preselección en la UI.
 - **OQ-4 — Delegación no autorizada en el diálogo.** Recomendado: **aviso no bloqueante** (D10). Alternativa: bloquear, y entonces agregar el mismo bloqueo al camino de un solo PV para que sean consistentes.
 - **OQ-5 — ¿Marcar un predeterminado automáticamente para Sumar?** Recomendado: **no** — no sabemos cuál prefiere; el dueño lo marca en Configuración (el diálogo funciona sin predeterminado). Si el PO dice cuál, es un `UPDATE` de una fila con su OK, fuera de la migración.
+
+## Sign-off del PO (2026-09-26)
+
+El PO firmó el 2026-09-26: *"arrancá la implementación con lo recomendado de los 2 proposes"*. Cada OQ se resuelve por su opción **recomendada**:
+
+- **OQ-1 → al facturar** (D1). El PV no se elige en la venta ni se persiste en `sales`/`sales_orders`.
+- **OQ-2 → última elección de la sesión primero, después el predeterminado** (D6): `resolvePreselectedPointOfSale` = última de la sesión (si sigue activa) > predeterminado > único activo > ninguno.
+- **OQ-3 → no** (D5): `/admin/pagos` sólo gana la preselección en pantalla; `rpc_emit_subscription_payment_cae` no se toca (el gate fija su `md5`).
+- **OQ-4 → aviso no bloqueante** (D10): con la delegación ARCA no autorizada el diálogo muestra un aviso y deja confirmar.
+- **OQ-5 → no** se marca ningún predeterminado automáticamente para Sumar: lo marca el dueño en Configuración. La migración no hace backfill.

@@ -52,4 +52,4 @@
 
 ## 7. Pendiente de otros
 
-- [ ] 7.1 Humo real del PO en prod tras el merge (el humo local con el stub ya pasó).
+- [x] 7.1 Verificación en prod (2026-09-26, SELECT-only): `fiscal_documents_status_check` incluye el 4º estado `voided`; helper `_fiscal_void_pending_for_sale_edit` es `SECURITY DEFINER` con ACL `{postgres, service_role}` (sin `anon`/`authenticated`); `max(version)=20261062000001` (309 migraciones, ⩾ `20261060000001`). Humo real del PO NO ejercitó específicamente el camino de este change (editar/borrar una venta con un comprobante `pending_cae` sin marca de envío) — lo que sí se ejercitó: (a) el e2e local de `#585` mostró que, tras autorizarse el comprobante, los controles de editar/borrar pasan a estar bloqueados (consistente con el guard que este change endurece), y (b) la factura real del PO el 2026-09-25 (Sumar, Factura C 0003-00000501, autorizada por ARCA en 1 s) ejercitó de punta a punta el camino promover→emitir que corre sobre este change. Pendiente real, no cubierto: una edición real en prod de una venta con comprobante `pending_cae` sin marca (para ver la anulación `voided` en acción).

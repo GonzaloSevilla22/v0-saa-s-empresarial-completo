@@ -38,7 +38,7 @@ import { IssuerPrintDataSection } from "@/components/settings/FiscalSettings"
 const perfil = (overrides: Partial<FiscalProfile> = {}): FiscalProfile => ({
   id: "fp-1",
   accountId: "acc-1",
-  cuit: "27-21379033-7",
+  cuit: "20-12345678-6",
   ivaCondition: "monotributista",
   iibbCondition: null,
   certificadoAfipPath: null,
@@ -97,7 +97,7 @@ describe("IssuerPrintDataSection", () => {
 
     await waitFor(() => expect(upsertMock).toHaveBeenCalledTimes(1))
     expect(upsertMock).toHaveBeenCalledWith({
-      cuit: "27-21379033-7",
+      cuit: "20-12345678-6",
       iva_condition: "monotributista",
       ambiente: "produccion",
       domicilio_comercial: "Av. San Martín 1234, Mendoza",

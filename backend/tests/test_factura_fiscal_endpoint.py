@@ -30,7 +30,7 @@ DOC_ID = uuid.UUID("caaeccfd-1111-4111-8111-111111111111")
 CAE = "71234567890123"
 
 PROFILE = {
-    "cuit": "27213790337",
+    "cuit": "20123456786",
     "razon_social": "PEREZ MARIA LAURA",
     "nombre_fantasia": "Sumar",
     "domicilio_comercial": "Av. San Martín 1234, Mendoza",

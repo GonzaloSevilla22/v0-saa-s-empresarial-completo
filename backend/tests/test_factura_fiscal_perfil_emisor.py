@@ -36,12 +36,12 @@ _TRI_ESTADO = (
     "inicio_actividades",
 )
 
-BASE = {"cuit": "27213790337", "iva_condition": "monotributista", "ambiente": "produccion"}
+BASE = {"cuit": "20123456786", "iva_condition": "monotributista", "ambiente": "produccion"}
 
 PROFILE_ROW = {
     "id": "ffffffff-ffff-ffff-ffff-ffffffffffff",
     "account_id": ACCOUNT_ID,
-    "cuit": "27213790337",
+    "cuit": "20123456786",
     "iva_condition": "monotributista",
     "iibb_condition": None,
     "certificado_afip_path": None,

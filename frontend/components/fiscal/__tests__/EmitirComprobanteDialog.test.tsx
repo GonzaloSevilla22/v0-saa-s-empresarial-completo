@@ -24,7 +24,7 @@ const PV9999: PointOfSale = { ...base, id: "pv-9999", numero: 9999, isActive: tr
 const PROFILE = {
   id: "fp-1",
   accountId: "acc-1",
-  cuit: "27-21379033-7",
+  cuit: "20-12345678-6",
   ivaCondition: "monotributista",
   iibbCondition: null,
   ambiente: "produccion",

@@ -34,7 +34,7 @@ def _doc(doc_id: str = DOC_A, **overrides) -> dict:
         "number": 501,
         "total": 32500,
         "cae": "71234567890123",
-        "cuit": "27213790337",
+        "cuit": "20123456786",
         "ambiente": "produccion",
         "status": "authorized",
         "fecha_comprobante": None,
@@ -76,7 +76,7 @@ class TestProcedimiento:
         request, = adapter.reconcile_submitted.await_args.args
         assert adapter.reconcile_submitted.await_args.kwargs == {"requested_number": 501}
         assert (request.punto_de_venta, request.comprobante_type, request.cuit_emisor, request.ambiente) == (
-            3, "factura_c", "27213790337", "produccion")
+            3, "factura_c", "20123456786", "produccion")
         repo.set_fecha_comprobante.assert_not_awaited()
         assert report == [{"doc_id": DOC_A, "comprobante": "0003-00000501",
                            "fecha": datetime.date(2026, 9, 25), "result": "would_write"}]

@@ -57,7 +57,7 @@ def make_cae_request(**overrides):
         punto_de_venta=3,
         number=501,
         total=32500.0,
-        cuit_emisor="27213790337",
+        cuit_emisor="20123456786",
         ambiente="homologacion",
     )
     base.update(overrides)
@@ -76,7 +76,7 @@ def make_pending_doc(**overrides) -> dict:
         "total": 32500.0,
         "status": "pending_cae",
         "attempts": 0,
-        "cuit": "27213790337",
+        "cuit": "20123456786",
         "ambiente": "homologacion",
         "cae_submit_unconfirmed_at": None,
         "arca_requested_number": None,

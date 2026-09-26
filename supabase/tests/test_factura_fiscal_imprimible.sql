@@ -306,7 +306,7 @@ BEGIN
   INSERT INTO public.fiscal_profiles
     (account_id, cuit, iva_condition, iibb_condition, ambiente, delegacion_autorizada,
      razon_social, nombre_fantasia, domicilio_comercial, iibb_numero, inicio_actividades)
-  VALUES (v_account, '27213790337', 'monotributista', NULL, 'homologacion', true,
+  VALUES (v_account, '20123456786', 'monotributista', NULL, 'homologacion', true,
           'SUMAR DE PRUEBA', 'Sumar', 'Calle 1, Mendoza', '0123456-7', DATE '2015-03-01')
   RETURNING id INTO v_fp;
 
@@ -345,7 +345,7 @@ BEGIN
        OR v_snap->>'domicilio_comercial' IS DISTINCT FROM 'Calle 1, Mendoza'
        OR v_snap->>'iibb_numero' IS DISTINCT FROM '0123456-7'
        OR v_snap->>'inicio_actividades' IS DISTINCT FROM '2015-03-01'
-       OR v_snap->>'cuit' IS DISTINCT FROM '27213790337'
+       OR v_snap->>'cuit' IS DISTINCT FROM '20123456786'
        OR v_snap->>'iva_condition' IS DISTINCT FROM 'monotributista'
        OR v_snap->>'ambiente' IS DISTINCT FROM 'homologacion' THEN
       v_failures := v_failures || format('(4a) la foto no refleja el perfil del documento: %s', v_snap::text);

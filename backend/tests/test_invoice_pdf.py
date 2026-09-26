@@ -47,7 +47,7 @@ OFFICIAL_EXAMPLE_B64 = (
 CAE = "71234567890123"
 
 SNAPSHOT = {
-    "cuit": "27213790337",
+    "cuit": "20123456786",
     "razon_social": "PEREZ MARIA LAURA",
     "nombre_fantasia": "Sumar",
     "domicilio_comercial": "Av. San Martín 1234, Mendoza",
@@ -59,7 +59,7 @@ SNAPSHOT = {
 }
 
 PROFILE = {
-    "cuit": "27213790337",
+    "cuit": "20123456786",
     "razon_social": "PEREZ MARIA LAURA",
     "nombre_fantasia": "Sumar",
     "domicilio_comercial": "Av. San Martín 1234, Mendoza",
@@ -158,7 +158,7 @@ class TestQR:
         payload, raw = _qr_json(_view().qr_url)
 
         assert raw == (
-            '{"ver":1,"fecha":"2026-09-25","cuit":27213790337,"ptoVta":3,"tipoCmp":11,'
+            '{"ver":1,"fecha":"2026-09-25","cuit":20123456786,"ptoVta":3,"tipoCmp":11,'
             '"nroCmp":501,"importe":32500,"moneda":"PES","ctz":1,"tipoDocRec":99,'
             f'"nroDocRec":0,"tipoCodAut":"E","codAut":{CAE}}}'
         )
@@ -213,7 +213,7 @@ class TestVistaDeSumar:
         assert v.comprobante_number == "0003-00000501"
         assert (v.punto_de_venta, v.numero) == ("0003", "00000501")
         assert v.issue_date == "25/09/2026"
-        assert v.issuer_cuit == "27-21379033-7"
+        assert v.issuer_cuit == "20-12345678-6"
         assert v.issuer_iva_legend == "IVA RESPONSABLE MONOTRIBUTO"
         assert v.issuer_iibb == "0712345"
         assert v.issuer_start_date == "01/03/2019"
@@ -427,7 +427,7 @@ class TestRender:
         assert pages == 1
         for esperado in (
             "ORIGINAL", "FACTURA", "C", "011", "0003", "00000501", "25/09/2026",
-            "Sumar", "PEREZ MARIA LAURA", "Av. San Martín 1234, Mendoza", "27-21379033-7",
+            "Sumar", "PEREZ MARIA LAURA", "Av. San Martín 1234, Mendoza", "20-12345678-6",
             "IVA RESPONSABLE MONOTRIBUTO", "0712345", "01/03/2019",
             "Consumidor Final", "Contado",
             "Ciclista Lycra con Bolsillos Kaese Talle 2 Negro", "$ 32.500,00",

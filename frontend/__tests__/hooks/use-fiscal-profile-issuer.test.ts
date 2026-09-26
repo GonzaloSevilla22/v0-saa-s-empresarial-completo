@@ -14,7 +14,7 @@ import { mapFiscalProfileRow } from "@/hooks/data/use-fiscal-profile"
 const base = {
   id: "fp-1",
   account_id: "acc-1",
-  cuit: "27213790337",
+  cuit: "20123456786",
   iva_condition: "monotributista" as const,
   iibb_condition: null,
   certificado_afip_path: null,

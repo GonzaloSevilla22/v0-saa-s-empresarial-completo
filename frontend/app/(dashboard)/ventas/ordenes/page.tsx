@@ -15,6 +15,8 @@
  * Design ref: D1 (endpoint dedicado), D4 (async), D6 (idempotencia).
  */
 
+import { useCallback } from "react"
+import { useQueryClient } from "@tanstack/react-query"
 import { useSalesOrders } from "@/hooks/data/use-sales-orders"
 import { useFiscalProfile } from "@/hooks/data/use-fiscal-profile"
 import { EmitInvoiceButton } from "@/components/fiscal/EmitInvoiceButton"
@@ -24,6 +26,7 @@ import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { formatMoney } from "@/lib/format"
 import { mapFiscalState } from "@/lib/fiscal-comprobante"
+import { queryKeys } from "@/lib/query-keys"
 import Link from "next/link"
 import { ShoppingBag, Plus } from "lucide-react"
 
@@ -46,6 +49,15 @@ const STATUS_CLASS: Record<string, string> = {
 export default function SalesOrdersPage() {
   const { data: orders, isLoading, error } = useSalesOrders()
   const { profile: fiscalProfile } = useFiscalProfile()
+  const queryClient = useQueryClient()
+  // factura-fiscal-imprimible (red team, minor c): el CAE, su vencimiento y
+  // "Verificar en ARCA" salen del read model de /sales-orders, no del payload
+  // de Realtime. Cuando el badge ve un estado nuevo (p. ej. se autorizó), se
+  // vuelve a pedir la lista para que aparezcan sin recargar — mismo contrato
+  // que /ventas (`onStatusChange={() => onRefetch()}`).
+  const refreshOrders = useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: queryKeys.salesOrders.lists() })
+  }, [queryClient])
   // punto-venta-seleccion (D4): el PV lo resuelve EmitInvoiceButton. Antes acá
   // sólo se mandaba uno si había UN activo; con dos o más iba `null` y la
   // emisión fallaba con P0422 (100% de las cuentas que facturan, medido en
@@ -163,7 +175,7 @@ export default function SalesOrdersPage() {
                     propio renglón (basis-full) para que el CAE no desborde. */}
                 <div className="flex min-w-0 basis-full items-center sm:basis-auto sm:shrink-0">
                   {fiscal ? (
-                    <FiscalInvoiceSummary fiscal={fiscal} />
+                    <FiscalInvoiceSummary fiscal={fiscal} onStatusChange={refreshOrders} />
                   ) : (
                     <EmitInvoiceButton
                       salesOrderId={order.id}

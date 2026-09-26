@@ -25,12 +25,12 @@
 
 ## 3. Frontend: regla de preselección y selector compartido
 
-- [ ] 3.1 RED — `frontend/__tests__/lib/fiscal-point-of-sale.test.ts`: `resolvePreselectedPointOfSale` en los cinco escenarios de "Resolución del punto de venta preseleccionado al facturar" (predeterminado, última elección gana, última elección inactiva se ignora, varios sin nada → `null`, inactivo de menor número nunca aparece); `activePointsOfSale`; `formatPointOfSaleNumber(3) === "0003"`.
-- [ ] 3.2 GREEN — `frontend/lib/fiscal-point-of-sale.ts` (puro, sin `python-client`; reutiliza el padding de `lib/fiscal-comprobante.ts`).
-- [ ] 3.3 RED — `use-points-of-sale`: `mapRow` expone `isDefault`; `useSetDefaultPointOfSale` / `useClearDefaultPointOfSale` llaman a los endpoints de 2.4 e invalidan `queryKeys.pointsOfSale.all()`.
-- [ ] 3.4 GREEN — extender `frontend/hooks/data/use-points-of-sale.ts`.
-- [ ] 3.5 RED — `components/fiscal/__tests__/PointOfSaleSelect.test.tsx`: un solo activo → texto "Único PV activo", sin combobox; varios → combobox con etiqueta asociada, sólo activos, badge "Predeterminado" en el que corresponde, `onValueChange` con el id.
-- [ ] 3.6 GREEN — `frontend/components/fiscal/PointOfSaleSelect.tsx` (PascalCase, tokens semánticos, sin `any`).
+- [x] 3.1 RED — `frontend/__tests__/lib/fiscal-point-of-sale.test.ts`: `resolvePreselectedPointOfSale` en los cinco escenarios de "Resolución del punto de venta preseleccionado al facturar" (predeterminado, última elección gana, última elección inactiva se ignora, varios sin nada → `null`, inactivo de menor número nunca aparece); `activePointsOfSale`; `formatPointOfSaleNumber(3) === "0003"`.
+- [x] 3.2 GREEN — `frontend/lib/fiscal-point-of-sale.ts` (puro, sin `python-client`; reutiliza el padding de `lib/fiscal-comprobante.ts`).
+- [x] 3.3 RED — `use-points-of-sale`: `mapRow` expone `isDefault`; `useSetDefaultPointOfSale` / `useClearDefaultPointOfSale` llaman a los endpoints de 2.4 e invalidan `queryKeys.pointsOfSale.all()`.
+- [x] 3.4 GREEN — extender `frontend/hooks/data/use-points-of-sale.ts`.
+- [x] 3.5 RED — `components/fiscal/__tests__/PointOfSaleSelect.test.tsx`: un solo activo → texto "Único PV activo", sin combobox; varios → combobox con etiqueta asociada, sólo activos, badge "Predeterminado" en el que corresponde, `onValueChange` con el id.
+- [x] 3.6 GREEN — `frontend/components/fiscal/PointOfSaleSelect.tsx` (PascalCase, tokens semánticos, sin `any`).
 
 ## 4. Frontend: emitir con selección en `/ventas` y `/ventas/ordenes`
 
@@ -69,3 +69,6 @@
 | 2.1-2.2 | `backend/tests/test_c27_point_of_sale_repository.py::TestPointOfSaleDefaultRepository` | Unit (repository, conn mockeada) | ✅ 195 passed + 1 skipped | ✅ 4 fallan (`set_default`/`clear_default` inexistentes; `deactivate` sin `is_default = false`) | ✅ 14/14 | ✅ orden de las 2 sentencias + args por cuenta; PV ajeno/inactivo → None con ROLLBACK (el `__aexit__` recibe la excepción); `clear_default` y `deactivate` por cuenta | ✅ excepción interna `_PointOfSaleNotMarkable` para forzar el rollback |
 | 2.3-2.4 | `…::TestPointOfSaleDefaultEndpoints` | Integration (router + service con mock pool) | ✅ | ✅ 7 fallan (404/405 por rutas inexistentes, `KeyError is_default`) | ✅ 22/22 | ✅ owner 200, ajeno/inactivo 404, uuid inválido 422, DELETE 204 filtrado por cuenta, member 403 (POST y DELETE, sin escribir), token owner con base member → 403 (capacidad sensible), GET expone `is_default` | ✅ docstring de rutas del router |
 | 2.5 | suite completa `backend/tests -m "not integration"` | — | — | — | ✅ 2582 passed, 1 skipped; coverage 93,94 % (≥ 87 %) | — | — |
+| 3.1-3.2 | `frontend/__tests__/lib/fiscal-point-of-sale.test.ts` | Unit (función pura) | — (archivo nuevo) | ✅ falla: módulo `lib/fiscal-point-of-sale` inexistente | ✅ 15/15 | ✅ 5 escenarios del spec + última elección de otra cuenta, "predeterminado" inactivo ignorado, lista vacía, único activo con última elección vieja; `activePointsOfSale`; `formatPointOfSaleNumber(3) = "0003"` y mismo padding que `formatComprobante` | ✅ `formatPuntoDeVenta` extraído en `lib/fiscal-comprobante.ts` (una sola fuente del padding) |
+| 3.3-3.4 | `frontend/__tests__/hooks/use-points-of-sale-default.test.ts` | Unit (hook + QueryClient) | — | ✅ 5 fallan (`isDefault` undefined; hooks inexistentes) | ✅ 5/5 | ✅ fila sin `is_default` (backend previo) → false; rechazo del backend no invalida | — |
+| 3.5-3.6 | `frontend/components/fiscal/__tests__/PointOfSaleSelect.test.tsx` | Component | — | ✅ falla: componente inexistente | ✅ 5/5 | ✅ único activo como texto; combobox con etiqueta; sólo activos + badge; valor reflejado en el trigger; sin activos no renderiza | — |

@@ -14,6 +14,15 @@
  */
 
 /**
+ * Número de punto de venta con el formato de ARCA (4 dígitos: 3 → "0003").
+ * punto-venta-seleccion (D6): única fuente del padding — la usan el
+ * comprobante, el selector de PV y la configuración fiscal.
+ */
+export function formatPuntoDeVenta(puntoDeVenta: number): string {
+  return String(puntoDeVenta).padStart(4, "0")
+}
+
+/**
  * Devuelve el comprobante formateado como lo numera ARCA, o `null` si falta
  * cualquiera de los dos datos. `null` es deliberado: la pantalla no debe
  * renderizar un "—" donde va un número, porque parece un número que no existe.
@@ -23,7 +32,7 @@ export function formatComprobante(
   numero?: number | null,
 ): string | null {
   if (puntoDeVenta == null || numero == null) return null
-  return `${String(puntoDeVenta).padStart(4, "0")}-${String(numero).padStart(8, "0")}`
+  return `${formatPuntoDeVenta(puntoDeVenta)}-${String(numero).padStart(8, "0")}`
 }
 
 /** Etiqueta legible del tipo de comprobante ("factura_c" → "Factura C"). */

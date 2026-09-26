@@ -162,3 +162,12 @@ El PO firmó el 2026-09-26: *"arrancá la implementación con lo recomendado de 
 - **OQ-3 → no** (D5): `/admin/pagos` sólo gana la preselección en pantalla; `rpc_emit_subscription_payment_cae` no se toca (el gate fija su `md5`).
 - **OQ-4 → aviso no bloqueante** (D10): con la delegación ARCA no autorizada el diálogo muestra un aviso y deja confirmar.
 - **OQ-5 → no** se marca ningún predeterminado automáticamente para Sumar: lo marca el dueño en Configuración. La migración no hace backfill.
+
+## Notas del apply (2026-09-26)
+
+- **D8 — la memoria de la sesión se lee al abrir el diálogo**, no como estado de `useSessionStorage`: ese hook hidrata una sola vez al montar y en `/ventas/ordenes` hay un `EmitInvoiceButton` por fila montados a la vez, así que lo que elegía una fila no lo veía la siguiente. `hooks/persistence/use-session-storage.ts` gana `readSessionValue`/`writeSessionValue` sobre los helpers (ahora exportados) de `use-persistent-state.ts` — mismo formato JSON y mismo `try/catch`, sin duplicarlos.
+- **D4 — dos estados más en `EmitInvoiceButton`**: con la lista de PV cargando el botón queda deshabilitado, y si la lista falla muestra un aviso en vez de emitir sin saber por qué PV.
+- **D10 — `operationLabel` pasa a opcional** en `EmitirComprobanteDialog` (el botón no conoce el importe; la descripción dice "esta venta").
+- **D9 — `PointOfSaleOut.is_default` con default `False`** para que un backend desplegado antes que la migración no rompa la respuesta.
+- **Migración**: además del gate, la reaplicación de `20261063000001` se suma a la cadena de `KPI_Validation.yml` sobre el estado reconvergido (idempotencia permanente, schema idéntico).
+- El gate y el bloque `DO` comparan el `md5` de `pg_get_functiondef` **sin `\r`**: el checkout de Windows agrega CR a los cuerpos locales (mismo md5 que prod una vez quitados).

@@ -152,3 +152,33 @@ Se conserva: título, tipo de comprobante resuelto por el backend (no editable),
 - **OQ-3 — ¿La facturación de suscripciones (`/admin/pagos`) también debería usar el predeterminado del lado del servidor?** Recomendado: **no** en este change (D5) — sólo gana la preselección en la UI.
 - **OQ-4 — Delegación no autorizada en el diálogo.** Recomendado: **aviso no bloqueante** (D10). Alternativa: bloquear, y entonces agregar el mismo bloqueo al camino de un solo PV para que sean consistentes.
 - **OQ-5 — ¿Marcar un predeterminado automáticamente para Sumar?** Recomendado: **no** — no sabemos cuál prefiere; el dueño lo marca en Configuración (el diálogo funciona sin predeterminado). Si el PO dice cuál, es un `UPDATE` de una fila con su OK, fuera de la migración.
+
+## Sign-off del PO (2026-09-26)
+
+El PO firmó el 2026-09-26: *"arrancá la implementación con lo recomendado de los 2 proposes"*. Cada OQ se resuelve por su opción **recomendada**:
+
+- **OQ-1 → al facturar** (D1). El PV no se elige en la venta ni se persiste en `sales`/`sales_orders`.
+- **OQ-2 → última elección de la sesión primero, después el predeterminado** (D6): `resolvePreselectedPointOfSale` = última de la sesión (si sigue activa) > predeterminado > único activo > ninguno.
+- **OQ-3 → no** (D5): `/admin/pagos` sólo gana la preselección en pantalla; `rpc_emit_subscription_payment_cae` no se toca (el gate fija su `md5`).
+- **OQ-4 → aviso no bloqueante** (D10): con la delegación ARCA no autorizada el diálogo muestra un aviso y deja confirmar.
+- **OQ-5 → no** se marca ningún predeterminado automáticamente para Sumar: lo marca el dueño en Configuración. La migración no hace backfill.
+
+## Notas del apply (2026-09-26)
+
+- **D8 — la memoria de la sesión se lee al abrir el diálogo**, no como estado de `useSessionStorage`: ese hook hidrata una sola vez al montar y en `/ventas/ordenes` hay un `EmitInvoiceButton` por fila montados a la vez, así que lo que elegía una fila no lo veía la siguiente. `hooks/persistence/use-session-storage.ts` gana `readSessionValue`/`writeSessionValue` sobre los helpers (ahora exportados) de `use-persistent-state.ts` — mismo formato JSON y mismo `try/catch`, sin duplicarlos.
+- **D4 — dos estados más en `EmitInvoiceButton`**: con la lista de PV cargando el botón queda deshabilitado, y si la lista falla muestra un aviso en vez de emitir sin saber por qué PV.
+- **D10 — `operationLabel` pasa a opcional** en `EmitirComprobanteDialog` (el botón no conoce el importe; la descripción dice "esta venta").
+- **D9 — `PointOfSaleOut.is_default` con default `False`** para que un backend desplegado antes que la migración no rompa la respuesta.
+- **Migración**: además del gate, la reaplicación de `20261063000001` se suma a la cadena de `KPI_Validation.yml` sobre el estado reconvergido (idempotencia permanente, schema idéntico).
+- El gate y el bloque `DO` comparan el `md5` de `pg_get_functiondef` **sin `\r`**: el checkout de Windows agrega CR a los cuerpos locales (mismo md5 que prod una vez quitados).
+
+## Hallazgos de red-team corregidos antes del merge (2026-09-26)
+
+Una revisión adversarial sobre el apply encontró seis hallazgos (todos `minor`), corregidos en la misma rama antes de abrir el PR — la migración `20261063000001` no estaba aplicada en prod todavía, así que se pudo editar en el lugar:
+
+1. **`is_default` escribible por cualquiera de los 7 roles `is_writer`, no sólo owner/admin** — la RLS de `points_of_sale` habilita UPDATE a todos los roles con `is_writer=true` (`is_account_writer`, desde v3-rbac-multirole), así que un vendedor/cajero podía marcar el predeterminado directo por PostgREST, saltando el guard `CAN_CONFIGURE` del backend. Fix: trigger `trg_points_of_sale_guard_default` (`BEFORE INSERT OR UPDATE`) que rechaza con `P0401` cualquier cambio de `is_default` hecho por un actor sin rol owner/admin en la cuenta — no protege `numero`/`is_active`/`fiscal_profile_id` (deuda preexistente, no de este change). Gate nuevo: bloque `(i)` en `test_punto_venta_predeterminado.sql` (seller rechazado, owner permitido, control negativo sobre otros campos).
+2. **TOCTOU en las tres ramas de resolución de PV** — sin lock, una desactivación/cambio de predeterminado concurrente podía dejar un `pending_cae` en un PV que termina inactivo. Fix: los tres `SELECT` toman `FOR SHARE` (conflictúa con el `FOR NO KEY UPDATE` implícito de la desactivación) y la rama de un solo PV activo gana su propio `IF NOT FOUND` → `P0404` (antes reventaba más abajo, en `rpc_next_document_number`, con otro error). Verificado con dos conexiones reales: `test_punto_venta_predeterminado_race.sh` (nuevo, en CI), que confirma con `pg_blocking_pids` que la emisión REALMENTE esperó y nunca queda un comprobante en el PV que quedó inactivo.
+3. **Gate sin cobertura para un PV explícito de otra cuenta** — ningún caso ejercitaba `rpc_emit_pending_cae(..., point_of_sale_id => PV ajeno)`; el único freno real hoy es `AND account_id = v_account_id` en la rama explícita, sin ningún gate que lo proteja. Fix: caso `(e3)` nuevo en el gate estático (P0404, cero reserva de número, cero comprobante en ninguna cuenta).
+4. **`set_default` sin serializar por cuenta** — dos marcados concurrentes en PVs distintos de la misma cuenta podían chocar con un `23505` genérico (409) en vez de resolverse en orden. Fix: `pg_advisory_xact_lock(hashtextextended(account_id, 0))` antes de la limpieza, en `PointOfSaleRepository.set_default`.
+5. **El `md5` de `rpc_emit_subscription_payment_cae` fijado dentro de la MIGRACIÓN** — la migración corre de nuevo en el paso de reaplicación de `KPI_Validation.yml`; una reescritura futura A PROPÓSITO de esa RPC rompería el `DO` block para siempre (a diferencia del gate, la migración no se puede editar una vez aplicada en prod). Fix: el chequeo de `md5` se retiró del `DO` block de la migración y vive sólo en `test_punto_venta_predeterminado.sql`.
+6. **Atribución sin verificar del "1 Issue" del overlay de Next en las capturas de `/ventas`** — el hallazgo original de red-team encontró que el overlay aparecía justo al abrir `PointOfSaleSelect`, contradiciendo la nota de `CHANGES.md` que lo atribuía al Tablero sin re-chequear. Pendiente de una repasada con `console.on('pageerror')` abriendo el Select — no bloqueante, candidato anotado en `CHANGES.md`.

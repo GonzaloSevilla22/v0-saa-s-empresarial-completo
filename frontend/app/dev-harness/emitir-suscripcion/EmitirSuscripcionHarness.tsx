@@ -36,6 +36,7 @@ const PVS: PointOfSale[] = [
     branchId: null,
     numero: 3,
     isActive: true,
+    isDefault: false,
     createdAt: "2026-06-24T00:00:00Z",
   },
 ]

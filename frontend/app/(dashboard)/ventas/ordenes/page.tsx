@@ -13,7 +13,6 @@
 
 import { useSalesOrders } from "@/hooks/data/use-sales-orders"
 import { useFiscalProfile } from "@/hooks/data/use-fiscal-profile"
-import { usePointsOfSale } from "@/hooks/data/use-points-of-sale"
 import { EmitInvoiceButton } from "@/components/fiscal/EmitInvoiceButton"
 import { FiscalDocumentBadge } from "@/components/fiscal/FiscalDocumentBadge"
 import { Badge } from "@/components/ui/badge"
@@ -43,11 +42,10 @@ const STATUS_CLASS: Record<string, string> = {
 export default function SalesOrdersPage() {
   const { data: orders, isLoading, error } = useSalesOrders()
   const { profile: fiscalProfile } = useFiscalProfile()
-  const { pointsOfSale } = usePointsOfSale()
-
-  // Seleccionar el PV por defecto si solo hay uno activo
-  const activePVs = (pointsOfSale ?? []).filter((pv) => pv.isActive)
-  const defaultPvId = activePVs.length === 1 ? activePVs[0]?.id : undefined
+  // punto-venta-seleccion (D4): el PV lo resuelve EmitInvoiceButton. Antes acá
+  // sólo se mandaba uno si había UN activo; con dos o más iba `null` y la
+  // emisión fallaba con P0422 (100% de las cuentas que facturan, medido en
+  // prod el 2026-09-25) — las ventas del POS no se podían facturar.
 
   // ── Loading / error ──────────────────────────────────────────────────────
 
@@ -170,7 +168,6 @@ export default function SalesOrdersPage() {
                       salesOrderStatus={order.status}
                       fiscalDocumentId={order.fiscal_document_id}
                       ivaConditionEmisor={fiscalProfile?.ivaCondition ?? null}
-                      pointOfSaleId={defaultPvId ?? null}
                     />
                   )}
                 </div>

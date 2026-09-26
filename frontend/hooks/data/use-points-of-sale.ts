@@ -7,6 +7,9 @@
  * TanStack Query; invalida al mutar.
  *
  * Design ref: OQ-2 (multi-PV), D10 (account_id desnorm en PV para RLS)
+ *
+ * punto-venta-seleccion (D2/D9): `isDefault` + mutaciones para marcar / quitar
+ * el PV predeterminado de la cuenta (uno como mucho, sólo activo).
  */
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
@@ -22,6 +25,8 @@ export interface PointOfSale {
   branchId: string | null
   numero: number
   isActive: boolean
+  /** Predeterminado de la cuenta (punto-venta-seleccion). */
+  isDefault: boolean
   createdAt: string
 }
 
@@ -32,6 +37,8 @@ interface PointOfSaleApiRow {
   branch_id: string | null
   numero: number
   is_active: boolean
+  /** Ausente en un backend anterior a la migración 20261063000001. */
+  is_default?: boolean
   created_at: string
 }
 
@@ -48,6 +55,7 @@ function mapRow(r: PointOfSaleApiRow): PointOfSale {
     branchId:        r.branch_id,
     numero:          r.numero,
     isActive:        r.is_active,
+    isDefault:       r.is_default ?? false,
     createdAt:       r.created_at,
   }
 }
@@ -99,6 +107,42 @@ export function useDeactivatePointOfSale() {
         {},
       )
       return mapRow(row)
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.pointsOfSale.all() })
+    },
+  })
+}
+
+/**
+ * Marca un PV como predeterminado de la cuenta (punto-venta-seleccion, D9).
+ * El backend quita la marca del anterior en la misma transacción; 404 si el PV
+ * es ajeno o está inactivo, 403 si el rol no es owner/admin.
+ */
+export function useSetDefaultPointOfSale() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async (pvId: string): Promise<PointOfSale> => {
+      const row = await pythonClient.post<PointOfSaleApiRow>(
+        `/fiscal/points-of-sale/${pvId}/default`,
+        {},
+      )
+      return mapRow(row)
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.pointsOfSale.all() })
+    },
+  })
+}
+
+/** Deja la cuenta sin punto de venta predeterminado. */
+export function useClearDefaultPointOfSale() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async (): Promise<void> => {
+      await pythonClient.delete<void>("/fiscal/points-of-sale/default")
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.pointsOfSale.all() })

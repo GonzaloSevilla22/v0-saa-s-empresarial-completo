@@ -43,6 +43,7 @@ const PVS: PointOfSale[] = [
     branchId: null,
     numero: 3,
     isActive: true,
+    isDefault: false,
     createdAt: "2026-06-24T00:00:00Z",
   },
 ]
@@ -136,6 +137,59 @@ describe("EmitirSuscripcionDialog — receptor opcional (G5/H3)", () => {
 
     expect(screen.getByLabelText(/CUIT o DNI del receptor/i)).toHaveValue("")
     expect(screen.queryByText(/CUIT inválido/i)).not.toBeInTheDocument()
+    expect(confirmButton()).toBeDisabled()
+  })
+})
+
+// ── punto-venta-seleccion (task 4.7, OQ-3) ───────────────────────────────────
+// /admin/pagos gana el selector compartido (PointOfSaleSelect) y la
+// preselección del PREDETERMINADO — sólo en pantalla: la RPC de suscripciones
+// no cambia y la regla de habilitación tampoco (con varios activos hay que
+// tener un PV elegido).
+
+const TWO_PVS = (defaultId: string | null): PointOfSale[] => [
+  { ...PVS[0], id: "pv-3", numero: 3, isDefault: defaultId === "pv-3" },
+  { ...PVS[0], id: "pv-9999", numero: 9999, isDefault: defaultId === "pv-9999" },
+]
+
+function renderWithPvs(pointsOfSale: PointOfSale[]) {
+  return render(
+    <EmitirSuscripcionDialog
+      open
+      onOpenChange={() => {}}
+      receipt={RECEIPT}
+      pointsOfSale={pointsOfSale}
+      onConfirm={onConfirm}
+      isSubmitting={false}
+    />,
+  )
+}
+
+describe("EmitirSuscripcionDialog — punto de venta (punto-venta-seleccion)", () => {
+  it("con varios activos preselecciona el predeterminado y lo manda", async () => {
+    const user = userEvent.setup()
+    renderWithPvs(TWO_PVS("pv-3"))
+    expect(screen.getByRole("combobox", { name: "Punto de venta" })).toHaveTextContent("PV 0003")
+
+    await user.click(screen.getByLabelText(/Consumidor final/i))
+    await user.click(confirmButton())
+    expect(onConfirm).toHaveBeenCalledWith(expect.objectContaining({ point_of_sale_id: "pv-3" }))
+  })
+
+  it("el admin puede cambiar el preseleccionado", async () => {
+    const user = userEvent.setup()
+    renderWithPvs(TWO_PVS("pv-3"))
+    await user.click(screen.getByRole("combobox", { name: "Punto de venta" }))
+    await user.click(screen.getByRole("option", { name: /PV 9999/ }))
+    await user.click(screen.getByLabelText(/Consumidor final/i))
+    await user.click(confirmButton())
+    expect(onConfirm).toHaveBeenCalledWith(expect.objectContaining({ point_of_sale_id: "pv-9999" }))
+  })
+
+  it("TRIANGULATE: sin predeterminado sigue exigiendo elegir (regla de habilitación intacta)", async () => {
+    const user = userEvent.setup()
+    renderWithPvs(TWO_PVS(null))
+    await user.click(screen.getByLabelText(/Consumidor final/i))
     expect(confirmButton()).toBeDisabled()
   })
 })

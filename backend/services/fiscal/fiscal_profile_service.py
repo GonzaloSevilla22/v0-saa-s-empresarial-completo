@@ -12,7 +12,8 @@ import logging
 
 from fastapi import HTTPException
 
-from backend.core.guards import require_role, require_platform_admin
+from backend.core.guards import require_account_role, require_role, require_platform_admin
+from backend.core.rbac import CAN_CONFIGURE
 from backend.repositories.fiscal_profile_repository import FiscalProfileRepository
 from backend.repositories.fiscal_document_repository import FiscalDocumentRepository
 from backend.repositories.point_of_sale_repository import PointOfSaleRepository
@@ -203,6 +204,43 @@ async def deactivate_point_of_sale(
     if result is None:
         raise HTTPException(status_code=404, detail="Punto de venta no encontrado")
     return result
+
+
+async def set_default_point_of_sale(
+    repo: PointOfSaleRepository,
+    auth: dict,
+    account_id: str,
+    pv_id: str,
+    *,
+    conn,
+) -> dict:
+    """Marca el PV como predeterminado de la cuenta (punto-venta-seleccion, D9).
+
+    Guard canónico de v3-rbac-multirole: rol de TENANT owner/admin
+    (`CAN_CONFIGURE`, capacidad sensible → la base es la autoridad). Quita la
+    marca de cualquier otro PV de la cuenta en la misma transacción. PV
+    inexistente, de otra cuenta o inactivo → 404 sin tocar la marca vigente.
+    """
+    await require_account_role(conn, auth, CAN_CONFIGURE)
+    result = await repo.set_default(pv_id, account_id)
+    if result is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Punto de venta no encontrado o inactivo: sólo un punto de venta activo de la cuenta puede ser el predeterminado.",
+        )
+    return result
+
+
+async def clear_default_point_of_sale(
+    repo: PointOfSaleRepository,
+    auth: dict,
+    account_id: str,
+    *,
+    conn,
+) -> None:
+    """Deja la cuenta sin punto de venta predeterminado. Guard: CAN_CONFIGURE."""
+    await require_account_role(conn, auth, CAN_CONFIGURE)
+    await repo.clear_default(account_id)
 
 
 # ── Emisión de comprobantes (pending_cae) ─────────────────────────────────────

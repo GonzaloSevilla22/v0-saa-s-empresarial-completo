@@ -11,6 +11,8 @@ Endpoints:
   GET  /fiscal/points-of-sale   — listar PVs
   POST /fiscal/points-of-sale   — crear PV
   PATCH /fiscal/points-of-sale/{id} — desactivar PV
+  POST /fiscal/points-of-sale/{id}/default — marcar PV predeterminado (punto-venta-seleccion)
+  DELETE /fiscal/points-of-sale/default    — dejar la cuenta sin predeterminado
   POST /fiscal/documents/emit   — emitir comprobante pending_cae (OQ-3)
   POST /fiscal/documents/process-pending-cron — relay del CAE (máquina, pg_cron, Bearer secret)
 
@@ -37,7 +39,7 @@ import logging
 import uuid
 
 import asyncpg
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
 from backend.core.auth import get_current_user
 from backend.core.config import settings
@@ -217,6 +219,33 @@ async def deactivate_point_of_sale(
     repo: PointOfSaleRepository = Depends(get_pv_repo),
 ):
     return await svc.deactivate_point_of_sale(repo, auth, str(account_id), pv_id)
+
+
+# punto-venta-seleccion (D9): `/default` como sub-recurso — no choca con el
+# PATCH /{pv_id} de arriba, cuyo cuerpo vacío significa "desactivar" (contrato
+# legacy que no se toca). El guard de rol vive en el service.
+@router.post("/points-of-sale/{pv_id}/default", response_model=PointOfSaleOut)
+async def set_default_point_of_sale(
+    pv_id: uuid.UUID,
+    auth: dict = Depends(get_current_user),
+    account_id: uuid.UUID = Depends(get_account_id),
+    conn: asyncpg.Connection = Depends(get_db_conn),
+):
+    return await svc.set_default_point_of_sale(
+        PointOfSaleRepository(conn), auth, str(account_id), str(pv_id), conn=conn
+    )
+
+
+@router.delete("/points-of-sale/default", status_code=204)
+async def clear_default_point_of_sale(
+    auth: dict = Depends(get_current_user),
+    account_id: uuid.UUID = Depends(get_account_id),
+    conn: asyncpg.Connection = Depends(get_db_conn),
+) -> Response:
+    await svc.clear_default_point_of_sale(
+        PointOfSaleRepository(conn), auth, str(account_id), conn=conn
+    )
+    return Response(status_code=204)
 
 
 # ── FiscalDocument endpoints ──────────────────────────────────────────────────

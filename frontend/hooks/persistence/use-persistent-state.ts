@@ -19,7 +19,7 @@ const DEFAULT_SERIALIZER = {
   deserialize: JSON.parse,
 }
 
-function readFromStorage<T>(
+export function readFromStorage<T>(
   key: string,
   backend: StorageBackend,
   deserialize: (raw: string) => T,
@@ -43,7 +43,7 @@ function readFromStorage<T>(
   }
 }
 
-function writeToStorage<T>(
+export function writeToStorage<T>(
   key: string,
   value: T,
   backend: StorageBackend,

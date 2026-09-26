@@ -53,7 +53,6 @@ import { toast } from "sonner"
 import { EmitInvoiceButton } from "@/components/fiscal/EmitInvoiceButton"
 import { FiscalDocumentBadge, type FiscalDocumentStatus } from "@/components/fiscal/FiscalDocumentBadge"
 import { useFiscalProfile } from "@/hooks/data/use-fiscal-profile"
-import { usePointsOfSale } from "@/hooks/data/use-points-of-sale"
 import { usePromoteToOrder } from "@/hooks/data/use-promote-to-order"
 import { PaymentMethodSelect } from "@/components/payment-methods/PaymentMethodSelect"
 
@@ -169,13 +168,12 @@ export function SaleOperationsList({
   const [promotedMap, setPromotedMap] = useState<Map<string, PromotedOrderState>>(new Map())
   const [promotingKey, setPromotingKey] = useState<string | null>(null)
 
-  // Fiscal context needed by EmitInvoiceButton
+  // Fiscal context needed by EmitInvoiceButton. punto-venta-seleccion (D4): el
+  // punto de venta lo resuelve el propio botón (antes acá se mandaba
+  // `pointsOfSale[0]`, el de menor número aunque estuviera inactivo, sin
+  // preguntar).
   const { profile: fiscalProfile } = useFiscalProfile()
-  const { pointsOfSale }           = usePointsOfSale()
   const promoteMutation            = usePromoteToOrder()
-
-  // Pick first active point of sale (EmitInvoiceButton accepts optional pointOfSaleId)
-  const defaultPointOfSaleId: string | null = pointsOfSale?.[0]?.id ?? null
 
   const isDateFilterActive = !!(dateFrom || dateTo)
 
@@ -631,7 +629,6 @@ export function SaleOperationsList({
                           salesOrderStatus="confirmed"
                           fiscalDocumentId={null}
                           ivaConditionEmisor={fiscalProfile?.ivaCondition ?? null}
-                          pointOfSaleId={defaultPointOfSaleId}
                           label="Emitir comprobante"
                           onEmitFailed={() => clearPromoted(op.key)}
                         />
@@ -720,7 +717,7 @@ export function SaleOperationsList({
         label="ventas"
       />
 
-      {/* facturar-venta-manual: la emisión está embebida en EmitInvoiceButton (sin dialog separado) */}
+      {/* facturar-venta-manual: la emisión está embebida en EmitInvoiceButton. punto-venta-seleccion: con dos o más PV activos el propio botón abre EmitirComprobanteDialog para elegir. */}
     </div>
   )
 }

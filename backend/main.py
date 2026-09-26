@@ -140,6 +140,7 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> JSONRe
         code=getattr(exc, "code", None) or "http_error",
         field=getattr(exc, "field", None),
         headers={**cors_error_headers(request), **(exc.headers or {})},
+        extensions=getattr(exc, "extensions", None),
     )
 
 

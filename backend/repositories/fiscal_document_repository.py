@@ -44,6 +44,58 @@ class FiscalDocumentRepository(BaseRepository):
         )
         return dict(row) if row else None
 
+    async def get_invoice_lines(self, doc_id: str, account_id: str) -> dict:
+        """Detalle y condición de venta del comprobante, para imprimirlo.
+
+        factura-fiscal-imprimible (D8/D9). Las líneas son las de la orden de
+        venta vinculada (`sales_orders.fiscal_document_id`), con sus
+        snapshots, en el mismo orden que el detalle de la orden (`ORDER BY
+        id`). Filtro EXPLÍCITO por `account_id` además de la RLS (regla dura
+        del proyecto: la RLS es red, no guard único).
+
+        `sale_condition_kind`: el `kind` de la forma de pago de la orden; si la
+        orden no tiene, el de la operación de venta. `None` = sin forma de
+        pago registrada (se imprime "Contado").
+        """
+        rows = await self.fetch(
+            """
+            SELECT soi.name_snapshot,
+                   soi.quantity,
+                   soi.price,
+                   soi.subtotal,
+                   u.symbol AS unit_symbol
+            FROM public.sales_orders so
+            JOIN public.sales_order_items soi
+              ON soi.sales_order_id = so.id
+             AND soi.account_id = so.account_id
+            LEFT JOIN public.units_of_measure u ON u.id = soi.unit_id
+            WHERE so.fiscal_document_id = $1
+              AND so.account_id = $2
+            ORDER BY soi.id
+            """,
+            doc_id,
+            account_id,
+        )
+        kind = await self._conn.fetchval(
+            """
+            SELECT COALESCE(opm.kind, (
+                     SELECT spm.kind
+                     FROM public.sales s
+                     JOIN public.payment_methods spm ON spm.id = s.payment_method_id
+                     WHERE s.operation_id = so.sale_operation_id
+                       AND s.account_id = so.account_id
+                     LIMIT 1))
+            FROM public.sales_orders so
+            LEFT JOIN public.payment_methods opm ON opm.id = so.payment_method_id
+            WHERE so.fiscal_document_id = $1
+              AND so.account_id = $2
+            LIMIT 1
+            """,
+            doc_id,
+            account_id,
+        )
+        return {"lines": [dict(row) for row in rows], "sale_condition_kind": kind}
+
     async def update_authorized(
         self,
         doc_id: str,

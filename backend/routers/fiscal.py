@@ -14,6 +14,8 @@ Endpoints:
   POST /fiscal/points-of-sale/{id}/default — marcar PV predeterminado (punto-venta-seleccion)
   DELETE /fiscal/points-of-sale/default    — dejar la cuenta sin predeterminado
   POST /fiscal/documents/emit   — emitir comprobante pending_cae (OQ-3)
+  GET  /fiscal/documents/{id}/pdf — factura impresa (PDF) de un comprobante autorizado
+                                    (factura-fiscal-imprimible; ?disposition, ?copia)
   POST /fiscal/documents/process-pending-cron — relay del CAE (máquina, pg_cron, Bearer secret)
 
 fiscal-emision-segura (G1, 2026-09-22): el relay del CAE tiene UN SOLO camino —
@@ -37,6 +39,7 @@ from __future__ import annotations
 import hmac
 import logging
 import uuid
+from typing import Literal
 
 import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -60,6 +63,7 @@ from backend.schemas.fiscal import (
     PointOfSaleOut,
 )
 from backend.services.fiscal import fiscal_profile_service as svc
+from backend.services.fiscal import invoice_print_service
 from backend.services.fiscal.adapter_factory import build_cae_adapter, build_cae_adapter_from_settings
 
 logger = logging.getLogger(__name__)
@@ -75,6 +79,10 @@ def get_fp_repo(conn: asyncpg.Connection = Depends(get_db_conn)) -> FiscalProfil
 
 def get_pv_repo(conn: asyncpg.Connection = Depends(get_db_conn)) -> PointOfSaleRepository:
     return PointOfSaleRepository(conn)
+
+
+def get_fd_repo(conn: asyncpg.Connection = Depends(get_db_conn)) -> FiscalDocumentRepository:
+    return FiscalDocumentRepository(conn)
 
 
 # ── FiscalProfile endpoints ───────────────────────────────────────────────────
@@ -325,6 +333,36 @@ async def emit_pending_cae(
     emisión — fiscal-emision-segura G1 retiró el disparo inmediato.
     """
     return await svc.emit_pending_cae(conn, auth, str(account_id), payload)
+
+
+@router.get("/documents/{doc_id}/pdf")
+async def get_fiscal_document_pdf(
+    doc_id: uuid.UUID,
+    disposition: Literal["inline", "attachment"] = "inline",
+    copia: Literal["original", "duplicado"] = "original",
+    auth: dict = Depends(get_current_user),
+    account_id: uuid.UUID = Depends(get_account_id),
+    doc_repo: FiscalDocumentRepository = Depends(get_fd_repo),
+    profile_repo: FiscalProfileRepository = Depends(get_fp_repo),
+) -> Response:
+    """Factura impresa (PDF) de un comprobante autorizado — factura-fiscal-imprimible.
+
+    Reglas en `invoice_print_service`: 404 idéntico para uno ajeno o
+    inexistente, 409 RFC 7807 si no está autorizado o faltan datos para
+    imprimirlo. `copia=duplicado` cambia la leyenda (OQ-2). `no-store`: una
+    factura con datos fiscales no se guarda en cachés compartidas.
+    """
+    pdf, filename = await invoice_print_service.get_invoice_pdf(
+        doc_repo, profile_repo, str(account_id), doc_id, copy=copia,
+    )
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'{disposition}; filename="{filename}"',
+            "Cache-Control": "private, no-store",
+        },
+    )
 
 
 @router.post("/documents/emit-subscription-payment", status_code=201)

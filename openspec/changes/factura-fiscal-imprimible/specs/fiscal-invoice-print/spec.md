@@ -76,11 +76,11 @@ La factura SHALL imprimir la condición de venta: "Cuenta Corriente" cuando la f
 
 La factura SHALL incluir un código QR que codifique el texto `https://www.afip.gob.ar/fe/qr/?p=<DATOS>`, donde `<DATOS>` es el Base64 del JSON versión 1 de la especificación oficial de ARCA con las claves, en este orden, `ver` (1), `fecha` (`fecha_comprobante` en formato `AAAA-MM-DD`), `cuit` (CUIT del emisor como número), `ptoVta`, `tipoCmp` (código ARCA del tipo, 11 para Factura C), `nroCmp`, `importe` (total como número, sin decimales si son cero), `moneda` (`"PES"`), `ctz` (1), `tipoDocRec` y `nroDocRec` (los enviados a ARCA; 99 y 0 para consumidor final sin identificar), `tipoCodAut` (`"E"`) y `codAut` (el CAE como número), serializado sin espacios. Los campos numéricos SHALL ir como números JSON, no como texto. El QR SHALL imprimirse junto a la leyenda "Comprobante Autorizado", el CAE y su vencimiento.
 
-#### Scenario: El QR de la factura de Sumar codifica sus datos autorizados
+#### Scenario: El QR de una Factura C a consumidor final codifica sus datos autorizados
 
-- **GIVEN** el comprobante de Sumar (CUIT 27213790337, PV 3, número 501, fecha 2026-09-25, total 32500, consumidor final)
+- **GIVEN** un comprobante autorizado de un emisor monotributista (CUIT 20123456786, PV 3, número 501, fecha 2026-09-25, total 32500, consumidor final)
 - **WHEN** se decodifica el parámetro `p` del QR
-- **THEN** el JSON es `{"ver":1,"fecha":"2026-09-25","cuit":27213790337,"ptoVta":3,"tipoCmp":11,"nroCmp":501,"importe":32500,"moneda":"PES","ctz":1,"tipoDocRec":99,"nroDocRec":0,"tipoCodAut":"E","codAut":<CAE>}` con los números como números
+- **THEN** el JSON es `{"ver":1,"fecha":"2026-09-25","cuit":20123456786,"ptoVta":3,"tipoCmp":11,"nroCmp":501,"importe":32500,"moneda":"PES","ctz":1,"tipoDocRec":99,"nroDocRec":0,"tipoCodAut":"E","codAut":<CAE>}` con los números como números
 
 #### Scenario: El ejemplo oficial de ARCA se reproduce byte a byte
 

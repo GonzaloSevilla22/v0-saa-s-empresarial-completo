@@ -3682,7 +3682,7 @@ Pedido del PO: *"quiero que en la venta se pueda elegir el punto de venta o al f
 
 **Candidatos que deja**: `admin-pagos-factura-imprimible` (OQ-6); logo en la factura (OQ-4); Factura A/B (desglose por alícuota y leyenda de Transparencia Fiscal); `database.types.ts` sin regenerar (la firma de `rpc_fiscal_document_authorize` y las columnas nuevas no están en el archivo generado; nadie en el frontend las lee desde ahí).
 
-**Pendiente**: 8.3 (PR + CI + merge) y el grupo 9 con el PO — 9.1 verificación en prod por `SELECT`; **9.2 backfill con OK explícito del PO en el momento** (hoy 3 autorizados sin fecha: la 0003-00000501 de Sumar y las 2 de suscripciones de la plataforma; mientras tanto responden 409 `invoice_date_unknown`); 9.3 datos del emisor cargados por el PO y por Sumar; 9.4 humo real (imprimir, escanear el QR con un celular, constatar, WhatsApp).
+**Pendiente**: 8.3 (PR + CI + merge) y el grupo 9 con el PO — 9.1 verificación en prod por `SELECT`; **9.2 backfill con OK explícito del PO en el momento** (hoy 6 autorizados sin fecha, medidos por `SELECT` el 2026-09-26: 0003-00000501, 0003-00000502, 0003-00000503 y 0003-00000504 de Sumar y 0003-00000001 y 0003-00000002 de las suscripciones de la plataforma — el propose había contado 3 el 2026-09-25, antes de que Sumar emitiera la 502-504; mientras tanto responden 409 `invoice_date_unknown`); 9.3 datos del emisor cargados por el PO y por Sumar; 9.4 humo real (imprimir, escanear el QR con un celular, constatar, WhatsApp).
 
 ## Change `ventas-unidades-conversion` — 2026-09-24 (propose + apply en la misma sesión) ✅ COMPLETADA Y ARCHIVADA 2026-09-26 (PR #584 `c350a884`, migración `20261062000001`; corrección post-revisión y tres revisiones adversariales más el 2026-09-25 antes del merge)
 

@@ -20,7 +20,7 @@
 - [x] 2.1 Tests (rojo) en `backend/tests/test_factura_fiscal_fecha.py`: `WSFEAdapter._call_wsfe` devuelve `CAEResponse.fecha_comprobante` desde `FeDetResp…CbteFch`, y la fecha enviada si ARCA no la trae; `reconcile_submitted` la devuelve desde `ResultGet.CbteFch`; `CAERelayProcessor` la pasa a `update_authorized` en ambos caminos; `FiscalDocumentRepository.update_authorized` la manda como 5º argumento
 - [x] 2.2 Implementar: campo `fecha_comprobante` en `CAEResponse` y `ReconcileResponse` (`fiscal_document_port.py`), parseo en `wsfe_adapter.py`, propagación en `cae_relay_processor.py`, parámetro en `update_authorized`; el stub (`wsfe_stub_adapter.py`) devuelve la fecha que recibió
 - [x] 2.3 Triangular: respuesta con `CbteFch` vacía/deforme no rompe la autorización (fecha NULL, se loguea) y nunca convierte un `A` en error
-- [x] 2.4 (Sólo si OQ-7 = sí) Test con reloj fijo en 2026-09-26 02:30 UTC → `CbteFch = '20260925'`; el relay arma `CAERequest.fecha_comprobante` con la fecha de `America/Argentina/Buenos_Aires`
+- [x] 2.4 (Sólo si OQ-7 = sí) Test con reloj fijo en 2026-09-26 02:30 UTC → `CbteFch = '20260925'`; el relay arma `CAERequest.fecha_comprobante` con la fecha de `America/Argentina/Mendoza` (el texto original decía `Buenos_Aires`; mismo offset, zona canónica del proyecto — ver el sign-off en el design)
 
 ## 3. Perfil fiscal: datos del emisor
 
@@ -67,12 +67,12 @@
 
 - [x] 8.1 Backend completo (`pytest` con coverage ≥ 87 %), frontend completo (Vitest), `tsc` sin errores nuevos, gates SQL en el orden de `KPI_Validation.yml`
 - [x] 8.2 Revisión adversarial del diff centrada en: exactitud del payload del QR, tenencia del endpoint (404 idéntico), que la RPC reescrita sólo cambia las líneas nuevas, y que ninguna rama del frontend imprime un comprobante no autorizado
-- [ ] 8.3 PR del apply (conventional commits, trailer de co-autoría), CI en verde, merge
+- [ ] 8.3 PR del apply (conventional commits, trailer de co-autoría), CI en verde, merge **DB-first**: Render tiene `autoDeploy` por commit y termina ~10-15 s ANTES de que `deploy.yml` corra `supabase db push` (medido por el red team en los merges `3c57b033` y `e75e759f`); en esa ventana el backend nuevo llama a `rpc_fiscal_document_authorize` con 5 argumentos contra la firma vieja (`42883`) y el guard M-1 congela el comprobante (no hay doble emisión, pero queda un CAE real congelado para resolver a mano) y guardar el perfil fiscal da 500 (`42703`). No se resuelve con código: el merge se hace con el deploy de Render en pausa hasta ver la migración `20261064000001` viva en prod, y recién entonces se dispara el deploy del backend
 
 ## 9. Post-merge (con el PO)
 
 - [ ] 9.1 Verificar en prod (SELECT): `max(version)`, columnas nuevas, una sola `rpc_fiscal_document_authorize` de 5 parámetros con ACL y `COMMENT` correctos
-- [ ] 9.2 Backfill de `fecha_comprobante` de los comprobantes autorizados sin fecha (los 3 medidos el 2026-09-25 más cualquiera autorizado durante el despliegue) con `FECompConsultar` + `rpc_fiscal_document_set_fecha_comprobante`, **con OK explícito del PO** (OQ-9); anotar cada fecha obtenida
+- [ ] 9.2 Backfill de `fecha_comprobante` de los comprobantes autorizados sin fecha (los 6 medidos por `SELECT` el 2026-09-26: 0003-00000501, 0003-00000502, 0003-00000503 y 0003-00000504 de Sumar y 0003-00000001 y 0003-00000002 de las suscripciones de la plataforma — el propose contó 3 el 2026-09-25 —, más cualquiera autorizado durante el despliegue) con `FECompConsultar` + `rpc_fiscal_document_set_fecha_comprobante`, **con OK explícito del PO** (OQ-9); anotar cada fecha obtenida
 - [ ] 9.3 El PO (y Sumar) completan sus datos en `/configuracion/fiscal`
 - [ ] 9.4 Humo real: imprimir la Factura C 0003-00000501 de Sumar, escanear el QR con un celular y confirmar que ARCA muestra el comprobante; constatarla en `servicioscf.afip.gob.ar/publico/comprobantes/cae.aspx`; enviarla por WhatsApp desde el celular
 - [ ] 9.5 Actualizar `CHANGES.md` (ficha del change; cerrar el candidato `comprobante-fiscal-visible`; anotar candidatos nuevos: `admin-pagos-factura-imprimible` si OQ-6 lo difiere, logo si OQ-4) y guardar el resultado en engram

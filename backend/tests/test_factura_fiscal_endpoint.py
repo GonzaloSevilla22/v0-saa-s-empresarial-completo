@@ -25,7 +25,6 @@ import pytest
 
 from backend.tests.conftest import TEST_ACCOUNT_ID, make_token
 
-pypdf = pytest.importorskip("pypdf")
 
 DOC_ID = uuid.UUID("caaeccfd-1111-4111-8111-111111111111")
 CAE = "71234567890123"
@@ -126,6 +125,8 @@ class TestEndpoint:
                              path=f"/fiscal/documents/{DOC_ID}/pdf?copia=duplicado")
 
         assert resp.status_code == 200
+        # pypdf sólo en CI: el skip alcanza a este test, no a todo el módulo.
+        pypdf = pytest.importorskip("pypdf")
         text = "".join(p.extract_text() for p in pypdf.PdfReader(io.BytesIO(resp.content)).pages)
         assert "DUPLICADO" in text and "ORIGINAL" not in text
 

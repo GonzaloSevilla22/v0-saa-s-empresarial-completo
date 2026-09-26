@@ -29,7 +29,13 @@ from unittest.mock import patch
 
 import pytest
 
-pypdf = pytest.importorskip("pypdf")
+
+
+def _pypdf():
+    """pypdf sólo existe en CI (Backend_Tests.yml), no en requirements.txt. El
+    skip vive acá, no a nivel de módulo: si faltara, se saltean SÓLO los tests
+    que extraen texto del PDF, nunca los del QR RG 4892 ni los de la vista."""
+    return pytest.importorskip("pypdf")
 
 OFFICIAL_EXAMPLE_B64 = (
     "eyJ2ZXIiOjEsImZlY2hhIjoiMjAyMC0xMC0xMyIsImN1aXQiOjMwMDAwMDAwMDA3LCJwdG9WdGEiOjEw"
@@ -118,7 +124,7 @@ def _qr_json(url: str) -> tuple[dict, str]:
 
 
 def _pdf_text(pdf_bytes: bytes) -> tuple[str, int]:
-    reader = pypdf.PdfReader(io.BytesIO(pdf_bytes))
+    reader = _pypdf().PdfReader(io.BytesIO(pdf_bytes))
     return "\n".join(page.extract_text() or "" for page in reader.pages), len(reader.pages)
 
 
@@ -474,7 +480,7 @@ class TestRender:
         assert "Producto 49" in text
         assert "$ 32.500,00" in text
         # el total y el CAE van juntos en la última página
-        ultima = pypdf.PdfReader(io.BytesIO(render_invoice_pdf(_view(lines=lines)))).pages[-1].extract_text()
+        ultima = _pypdf().PdfReader(io.BytesIO(render_invoice_pdf(_view(lines=lines)))).pages[-1].extract_text()
         assert "Importe Total" in ultima and "Comprobante Autorizado" in ultima
 
     def test_una_descripcion_larga_no_rompe(self):
@@ -499,7 +505,7 @@ class TestRender:
 
         view = _view()
         pdf = invoice_pdf.render_invoice_pdf(view)
-        stream = pypdf.PdfReader(io.BytesIO(pdf)).pages[0].get_contents().get_data().decode("latin-1")
+        stream = _pypdf().PdfReader(io.BytesIO(pdf)).pages[0].get_contents().get_data().decode("latin-1")
 
         esperado = [list(row) for row in segno.make(view.qr_url, error="m", micro=False)
                     .matrix_iter(scale=1, border=invoice_pdf._QR_QUIET)]
@@ -526,3 +532,37 @@ class TestRender:
 
 def _primera_fila_oscura(matriz) -> int:
     return next(i for i, row in enumerate(matriz) if any(row))
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Los tests del QR NO dependen de pypdf (hallazgo del red team, 2026-09-26)
+# ═══════════════════════════════════════════════════════════════════════════
+
+def test_sin_pypdf_los_tests_del_qr_y_de_la_vista_igual_corren(tmp_path):
+    """pypdf se instala sólo en CI (Backend_Tests.yml), no en requirements.txt.
+    Si faltara, el skip NO puede llevarse puestos los tests del QR RG 4892 (el
+    byte a byte contra el ejemplo oficial de ARCA) ni los de la vista pura, que
+    no lo usan: sólo se saltean los que extraen texto del PDF. Se corre este
+    mismo archivo en un proceso aparte con un `pypdf` que no importa."""
+    import os
+    import pathlib
+    import subprocess
+    import sys
+
+    (tmp_path / "pypdf.py").write_text('raise ImportError("pypdf bloqueado por el test")\n', encoding="utf-8")
+    repo_root = pathlib.Path(__file__).resolve().parents[2]
+    env = {k: v for k, v in os.environ.items() if not k.startswith("COV_CORE")}
+    env["PYTHONPATH"] = os.pathsep.join(filter(None, [str(tmp_path), env.get("PYTHONPATH")]))
+    selected = [f"{pathlib.Path(__file__).resolve()}::{cls}"
+                for cls in ("TestQR", "TestVistaDeSumar", "TestReceptor", "TestCondicionDeVenta",
+                            "TestFotoDelEmisor", "TestNoSeImprimeConDatosAdivinados")]
+
+    result = subprocess.run(
+        [sys.executable, "-m", "pytest", *selected, "-q", "-rs", "-p", "no:cacheprovider"],
+        cwd=repo_root, env=env, capture_output=True, text=True, timeout=180,
+    )
+
+    out = result.stdout + result.stderr
+    assert result.returncode == 0, out
+    assert " passed" in out, out
+    assert "skipped" not in out, out

@@ -87,3 +87,43 @@ export function comprobanteTypeLabel(comprobanteType?: string | null): string {
   const capitalized = head.charAt(0).toUpperCase() + head.slice(1)
   return letter ? `${capitalized} ${letter}` : capitalized
 }
+
+/**
+ * factura-fiscal-imprimible (D10): constatación pública de comprobantes con CAE
+ * de ARCA — el "Verificar en ARCA" de la venta y de la orden.
+ */
+export const ARCA_CONSTATACION_URL = "https://servicioscf.afip.gob.ar/publico/comprobantes/cae.aspx"
+
+/** Letra del tipo de factura ("factura_c" → "C"); null si no es una factura A/B/C. */
+export function comprobanteLetter(comprobanteType?: string | null): string | null {
+  const match = /^factura_([abc])$/.exec(comprobanteType ?? "")
+  return match ? match[1].toUpperCase() : null
+}
+
+/**
+ * Nombre del archivo de la factura impresa: el mismo que manda el backend en
+ * `Content-Disposition` (`factura-C-0003-00000501.pdf`). El duplicado se
+ * descarga con sufijo para no pisar al original en la carpeta de descargas.
+ */
+export function invoiceFileName(
+  fiscal: Pick<SaleFiscalState, "comprobanteType" | "label">,
+  copy: "original" | "duplicado" = "original",
+): string {
+  const letter = comprobanteLetter(fiscal.comprobanteType) ?? "C"
+  const base = `factura-${letter}-${fiscal.label ?? "comprobante"}`
+  return `${base}${copy === "duplicado" ? "-duplicado" : ""}.pdf`
+}
+
+/** "Factura C 0003-00000501", o sólo el número si el tipo no se conoce. */
+export function invoiceDisplayName(fiscal: Pick<SaleFiscalState, "comprobanteType" | "label">): string | null {
+  if (!fiscal.label) return null
+  return fiscal.comprobanteType
+    ? `${comprobanteTypeLabel(fiscal.comprobanteType)} ${fiscal.label}`
+    : fiscal.label
+}
+
+/** ¿Hay una factura autorizada para ver, imprimir o enviar? */
+export function hasPrintableInvoice(fiscal?: SaleFiscalState | null): fiscal is SaleFiscalState {
+  return !!fiscal && fiscal.status === "authorized" && !fiscal.frozen
+}
+

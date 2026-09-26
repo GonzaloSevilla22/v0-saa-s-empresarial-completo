@@ -17,6 +17,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { pythonClient } from "@/lib/api/python-client"
 import { queryKeys } from "@/lib/query-keys"
 import type { PaymentMethodKind } from "@/lib/types"
+import type { FiscalReadModelRow } from "@/lib/fiscal-comprobante"
 
 // ── API shapes ─────────────────────────────────────────────────────────────────
 
@@ -50,7 +51,11 @@ export interface SalesOrderItemApiRow {
   subtotal: string | number
 }
 
-export interface SalesOrderApiRow {
+/**
+ * factura-fiscal-imprimible (D10): la lista trae el estado REAL del
+ * comprobante con los mismos nombres que `/sales` (`FiscalReadModelRow`).
+ */
+export interface SalesOrderApiRow extends FiscalReadModelRow {
   id: string
   account_id: string
   branch_id: string

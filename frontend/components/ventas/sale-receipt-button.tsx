@@ -8,11 +8,27 @@
  *  - "Enviar por WhatsApp" → direct deep-link to the client's number (wa.me/<phone>?text=…).
  *    Falls back to WhatsApp contact picker if no phone is available.
  *
- * Zero external PDF library — uses the browser's native print pipeline.
+ * factura-fiscal-imprimible (D10): con el comprobante AUTORIZADO el menú pasa a
+ * "Factura" (ver/imprimir, descargar, duplicado, verificar en ARCA) y el
+ * comprobante interno queda rotulado "sin validez fiscal"; WhatsApp comparte
+ * la FACTURA. El PDF lo genera el backend (`GET /fiscal/documents/{id}/pdf`)
+ * desde lo autorizado; el compartir/descargar es el MISMO flujo del
+ * comprobante interno (helpers de abajo), no una copia.
  */
 
 import { useState, useCallback } from "react"
-import { FileText, Copy, Check, Loader2, MessageCircle, ChevronDown } from "lucide-react"
+import {
+  FileText,
+  Copy,
+  Check,
+  Loader2,
+  MessageCircle,
+  ChevronDown,
+  Download,
+  Files,
+  ShieldCheck,
+  Receipt,
+} from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -35,6 +51,48 @@ import { buildWhatsAppUrl, normalizeWhatsAppPhone } from "@/lib/phone-utils"
 import { useUnitsOfMeasure } from "@/hooks/use-units-of-measure"
 import { resolveUnit } from "@/lib/unit-utils"
 import type { SaleOperation } from "@/lib/group-operations"
+import { FiscalInvoiceError, fetchFiscalInvoicePdf, type InvoiceCopy } from "@/lib/api/fiscal-invoice"
+import {
+  ARCA_CONSTATACION_URL,
+  hasPrintableInvoice,
+  invoiceDisplayName,
+  invoiceFileName,
+} from "@/lib/fiscal-comprobante"
+
+/** Adónde lleva el aviso de datos del emisor incompletos. */
+const FISCAL_SETTINGS_PATH = "/configuracion/fiscal"
+
+// ── Helpers de archivo compartidos (comprobante interno y factura) ─────────────
+
+/** Descarga un blob con un <a download>, y libera la URL después. */
+function downloadBlob(blob: Blob, fileName: string): void {
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement("a")
+  a.href = url
+  a.download = fileName
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  setTimeout(() => URL.revokeObjectURL(url), 10_000)
+}
+
+/**
+ * Comparte un PDF por el menú nativo (en el celular el usuario elige WhatsApp y
+ * se manda el archivo adjunto). `shared` = se compartió o el usuario canceló;
+ * `unsupported` = el dispositivo no puede compartir archivos (o falló) y el
+ * caller sigue con su fallback.
+ */
+async function sharePdf(file: File, text: string, title: string): Promise<"shared" | "unsupported"> {
+  const nav = navigator as Navigator & { canShare?: (d: ShareData) => boolean }
+  if (!nav.canShare?.({ files: [file] })) return "unsupported"
+  try {
+    await nav.share({ files: [file], text, title })
+    return "shared"
+  } catch (err) {
+    if ((err as Error)?.name === "AbortError") return "shared" // el usuario canceló
+    return "unsupported" // si falló el share (ej. iOS), fallback de descarga
+  }
+}
 
 interface SaleReceiptButtonProps {
   op: SaleOperation
@@ -50,6 +108,8 @@ export function SaleReceiptButton({
   clientFirstName,
 }: SaleReceiptButtonProps) {
   const { user } = useAuth()
+  const fiscal = op.fiscal
+  const invoice = hasPrintableInvoice(fiscal) ? fiscal : null
   const [loadingPrint, setLoadingPrint] = useState(false)
   const [loadingWa, setLoadingWa]       = useState(false)
   const [copied, setCopied]             = useState(false)
@@ -143,6 +203,84 @@ export function SaleReceiptButton({
     [clientPhone, hasValidPhone],
   )
 
+  // ── Factura (comprobante autorizado) ─────────────────────────────────────
+  const showInvoiceError = useCallback((err: unknown) => {
+    const message = err instanceof Error && err.message ? err.message : "No se pudo obtener la factura."
+    const needsIssuerData = err instanceof FiscalInvoiceError && err.code === "issuer_data_incomplete"
+    toast.error(
+      message,
+      needsIssuerData
+        ? {
+            action: {
+              label: "Completar datos fiscales",
+              onClick: () => window.location.assign(FISCAL_SETTINGS_PATH),
+            },
+          }
+        : undefined,
+    )
+  }, [])
+
+  const handleInvoice = useCallback(
+    async (mode: "view" | "download" | "duplicate") => {
+      if (!invoice) return
+      const copy: InvoiceCopy = mode === "duplicate" ? "duplicado" : "original"
+      setLoadingPrint(true)
+      try {
+        const blob = await fetchFiscalInvoicePdf(invoice.documentId, {
+          disposition: mode === "view" ? "inline" : "attachment",
+          copy,
+        })
+        if (!blob) return // la sesión venció: ya se navegó al login
+        const fileName = invoiceFileName(invoice, copy)
+        if (mode === "view") {
+          // Pestaña nueva con el visor de PDF del navegador (imprime desde ahí).
+          // Un blob application/pdf no ejecuta scripts: la CSP no interviene.
+          const url = URL.createObjectURL(blob)
+          const win = window.open(url, "_blank")
+          setTimeout(() => URL.revokeObjectURL(url), 60_000)
+          if (!win) {
+            downloadBlob(blob, fileName)
+            toast.info("Descargamos la factura en PDF. Abrila para imprimirla.")
+          }
+        } else {
+          downloadBlob(blob, fileName)
+        }
+      } catch (err: unknown) {
+        showInvoiceError(err)
+      } finally {
+        setLoadingPrint(false)
+      }
+    },
+    [invoice, showInvoiceError],
+  )
+
+  const handleVerifyInArca = useCallback(() => {
+    window.open(ARCA_CONSTATACION_URL, "_blank", "noopener,noreferrer")
+  }, [])
+
+  const handleWhatsAppInvoice = useCallback(async () => {
+    if (!invoice) return
+    const shortText = generateReceiptShortText(op, {
+      ...receiptOpts,
+      documentName: `la ${invoiceDisplayName(invoice) ?? "factura"}`,
+    })
+    setLoadingWa(true)
+    try {
+      const blob = await fetchFiscalInvoicePdf(invoice.documentId, { disposition: "attachment", copy: "original" })
+      if (!blob) return
+      const fileName = invoiceFileName(invoice)
+      const file = new File([blob], fileName, { type: "application/pdf" })
+      if ((await sharePdf(file, shortText, "Factura")) === "shared") return
+      downloadBlob(blob, fileName)
+      openWhatsAppText(shortText)
+      toast.info("Descargamos la factura en PDF. Adjuntala en el chat de WhatsApp que se abrió.")
+    } catch (err: unknown) {
+      showInvoiceError(err)
+    } finally {
+      setLoadingWa(false)
+    }
+  }, [invoice, op, receiptOpts, openWhatsAppText, showInvoiceError])
+
   const handleWhatsApp = useCallback(async () => {
     const shortText = generateReceiptShortText(op, receiptOpts)
     setLoadingWa(true)
@@ -165,30 +303,13 @@ export function SaleReceiptButton({
       if (!res.ok) throw new Error("pdf")
 
       const blob = await res.blob()
-      const file = new File([blob], `comprobante-${payload.receipt_number}.pdf`, {
-        type: "application/pdf",
-      })
+      const fileName = `comprobante-${payload.receipt_number}.pdf`
+      const file = new File([blob], fileName, { type: "application/pdf" })
 
-      const nav = navigator as Navigator & { canShare?: (d: ShareData) => boolean }
-      if (nav.canShare?.({ files: [file] })) {
-        try {
-          await nav.share({ files: [file], text: shortText, title: "Comprobante de venta" })
-          return
-        } catch (err) {
-          if ((err as Error)?.name === "AbortError") return // el usuario canceló
-          // si falló el share (ej. iOS), seguimos al fallback de descarga
-        }
-      }
+      if ((await sharePdf(file, shortText, "Comprobante de venta")) === "shared") return
 
       // Fallback: descargar el PDF + abrir WhatsApp con el mensaje corto
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement("a")
-      a.href = url
-      a.download = `comprobante-${payload.receipt_number}.pdf`
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      setTimeout(() => URL.revokeObjectURL(url), 10_000)
+      downloadBlob(blob, fileName)
       openWhatsAppText(shortText)
       toast.info("Descargamos el comprobante en PDF. Adjuntalo en el chat de WhatsApp que se abrió.")
     } catch {
@@ -202,7 +323,7 @@ export function SaleReceiptButton({
   return (
     <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
 
-      {/* ── Comprobante dropdown ─────────────────────────────────────────── */}
+      {/* ── Comprobante / Factura dropdown ───────────────────────────────── */}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button
@@ -213,23 +334,45 @@ export function SaleReceiptButton({
           >
             {loadingPrint
               ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              : <FileText className="h-3.5 w-3.5" />}
-            Comprobante
+              : invoice ? <Receipt className="h-3.5 w-3.5" /> : <FileText className="h-3.5 w-3.5" />}
+            {invoice ? "Factura" : "Comprobante"}
             <ChevronDown className="h-3 w-3 text-muted-foreground" />
           </Button>
         </DropdownMenuTrigger>
 
         <DropdownMenuContent
           align="end"
-          className="w-48 bg-popover border-border"
+          className={`${invoice ? "w-64" : "w-48"} bg-popover border-border`}
           onClick={(e) => e.stopPropagation()}
         >
+          {invoice && (
+            <>
+              <DropdownMenuItem className="gap-2 cursor-pointer" onSelect={() => handleInvoice("view")}>
+                <Receipt className="h-4 w-4 text-muted-foreground" />
+                <span>Ver / imprimir factura</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem className="gap-2 cursor-pointer" onSelect={() => handleInvoice("download")}>
+                <Download className="h-4 w-4 text-muted-foreground" />
+                <span>Descargar factura (PDF)</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem className="gap-2 cursor-pointer" onSelect={() => handleInvoice("duplicate")}>
+                <Files className="h-4 w-4 text-muted-foreground" />
+                <span>Descargar duplicado</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem className="gap-2 cursor-pointer" onSelect={handleVerifyInArca}>
+                <ShieldCheck className="h-4 w-4 text-muted-foreground" />
+                <span>Verificar en ARCA</span>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+            </>
+          )}
+
           <DropdownMenuItem
             className="gap-2 cursor-pointer"
             onSelect={handleDownload}
           >
             <FileText className="h-4 w-4 text-muted-foreground" />
-            <span>Descargar / Imprimir</span>
+            <span>{invoice ? "Comprobante interno (sin validez fiscal)" : "Descargar / Imprimir"}</span>
           </DropdownMenuItem>
 
           <DropdownMenuSeparator />
@@ -250,7 +393,7 @@ export function SaleReceiptButton({
       <Button
         variant="outline"
         size="sm"
-        onClick={handleWhatsApp}
+        onClick={invoice ? handleWhatsAppInvoice : handleWhatsApp}
         disabled={loadingWa}
         className={[
           "h-7 gap-1.5 text-xs px-2.5 transition-colors",
@@ -260,7 +403,7 @@ export function SaleReceiptButton({
         ].join(" ")}
         title={
           hasValidPhone
-            ? "Enviar comprobante por WhatsApp al cliente"
+            ? `Enviar ${invoice ? "la factura" : "comprobante"} por WhatsApp al cliente`
             : "Enviar por WhatsApp (sin número de cliente registrado)"
         }
       >

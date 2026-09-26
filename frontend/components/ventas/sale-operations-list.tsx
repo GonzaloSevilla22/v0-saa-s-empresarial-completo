@@ -51,7 +51,7 @@ import {
 import { toast } from "sonner"
 // facturar-venta-manual: nueva ruta fiscal vía promote → emit
 import { EmitInvoiceButton } from "@/components/fiscal/EmitInvoiceButton"
-import { FiscalDocumentBadge, type FiscalDocumentStatus } from "@/components/fiscal/FiscalDocumentBadge"
+import { FiscalInvoiceSummary } from "@/components/fiscal/FiscalInvoiceSummary"
 import { useFiscalProfile } from "@/hooks/data/use-fiscal-profile"
 import { usePromoteToOrder } from "@/hooks/data/use-promote-to-order"
 import { PaymentMethodSelect } from "@/components/payment-methods/PaymentMethodSelect"
@@ -603,23 +603,12 @@ export function SaleOperationsList({
                           en curso, vía promotedMap. El read model nuevo cierra
                           ese hueco, y de paso es donde se ve "Anulado". */}
                       {op.fiscal && (
-                        <span className="inline-flex items-center gap-1.5">
-                          <FiscalDocumentBadge
-                            documentId={op.fiscal.documentId}
-                            initialStatus={op.fiscal.status}
-                            initialFrozen={op.fiscal.frozen}
-                            verbose
-                            // venta-editable-vs-promocion-legacy: cuando el
-                            // relay autoriza, la fila se refresca sola (el
-                            // texto lateral pasa a "Comprobante enviado a ARCA").
-                            onStatusChange={() => onRefetch()}
-                          />
-                          {op.fiscal.label && (
-                            <span className="text-xs text-muted-foreground tabular-nums">
-                              {op.fiscal.label}
-                            </span>
-                          )}
-                        </span>
+                        // factura-fiscal-imprimible (D10): badge + "Factura C
+                        // 0003-00000501" + (autorizado) CAE, vencimiento y
+                        // "Verificar en ARCA". venta-editable-vs-promocion-legacy:
+                        // cuando el relay autoriza, la fila se refresca sola (y
+                        // el refetch trae el CAE).
+                        <FiscalInvoiceSummary fiscal={op.fiscal} onStatusChange={() => onRefetch()} />
                       )}
                       {promoted && !hasLiveDoc ? (
                         // Preparada en esta sesión y todavía sin comprobante

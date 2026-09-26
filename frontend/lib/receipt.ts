@@ -553,6 +553,11 @@ export interface ReceiptTextOptions extends ReceiptOptions {
    * If omitted or the sale has no named client, the greeting is generic.
    */
   clientFirstName?: string
+  /**
+   * factura-fiscal-imprimible: qué se envía en el mensaje corto de WhatsApp,
+   * con artículo ("la Factura C 0003-00000501"). Default: "el comprobante".
+   */
+  documentName?: string
 }
 
 export function generateReceiptText(
@@ -629,7 +634,7 @@ export function generateReceiptShortText(
     lines.push(`Hola ${firstName} 👋`)
     lines.push("")
   }
-  lines.push(`Te enviamos el comprobante de tu compra en *${biz}*.`)
+  lines.push(`Te enviamos ${opts.documentName || "el comprobante"} de tu compra en *${biz}*.`)
   lines.push("")
   lines.push("¡Gracias por tu compra! 🙌")
 

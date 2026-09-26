@@ -5,7 +5,11 @@
  *
  * Muestra las órdenes de venta confirmadas con:
  *   - Estado de la venta (confirmed / draft / canceled)
- *   - FiscalDocumentBadge con Realtime si ya tiene comprobante
+ *   - FiscalInvoiceSummary (badge con Realtime + CAE + "Verificar en ARCA") si
+ *     ya tiene comprobante. factura-fiscal-imprimible (D10): el estado inicial
+ *     es el REAL (read model de /sales-orders) — antes se pasaba
+ *     `initialStatus="pending_cae"` fijo y una orden autorizada se veía "En
+ *     trámite" para siempre (Realtime sólo avisa cambios).
  *   - EmitInvoiceButton si está confirmada y SIN comprobante
  *
  * Design ref: D1 (endpoint dedicado), D4 (async), D6 (idempotencia).
@@ -14,14 +18,14 @@
 import { useSalesOrders } from "@/hooks/data/use-sales-orders"
 import { useFiscalProfile } from "@/hooks/data/use-fiscal-profile"
 import { EmitInvoiceButton } from "@/components/fiscal/EmitInvoiceButton"
-import { FiscalDocumentBadge } from "@/components/fiscal/FiscalDocumentBadge"
+import { FiscalInvoiceSummary } from "@/components/fiscal/FiscalInvoiceSummary"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { formatMoney } from "@/lib/format"
+import { mapFiscalState } from "@/lib/fiscal-comprobante"
 import Link from "next/link"
 import { ShoppingBag, Plus } from "lucide-react"
-import type { FiscalDocumentStatus } from "@/components/fiscal/FiscalDocumentBadge"
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -120,6 +124,7 @@ export default function SalesOrdersPage() {
       {sortedOrders.length > 0 && (
         <div className="flex flex-col gap-2">
           {sortedOrders.map((order) => {
+            const fiscal = mapFiscalState(order)
             const createdAt = new Date(order.created_at)
             const dateLabel = createdAt.toLocaleDateString("es-AR", {
               day: "2-digit",
@@ -130,7 +135,7 @@ export default function SalesOrdersPage() {
             return (
               <div
                 key={order.id}
-                className="flex items-center gap-3 rounded-lg border border-border bg-card px-4 py-3"
+                className="flex flex-wrap items-center gap-3 rounded-lg border border-border bg-card px-4 py-3"
               >
                 {/* Status badge */}
                 <Badge
@@ -154,14 +159,11 @@ export default function SalesOrdersPage() {
                   </Link>
                 </div>
 
-                {/* Fiscal section: badge OR emit button */}
-                <div className="shrink-0 flex items-center">
-                  {order.fiscal_document_id ? (
-                    <FiscalDocumentBadge
-                      documentId={order.fiscal_document_id}
-                      initialStatus={"pending_cae" as FiscalDocumentStatus}
-                      verbose
-                    />
+                {/* Fiscal section: comprobante OR emit button. En móvil ocupa su
+                    propio renglón (basis-full) para que el CAE no desborde. */}
+                <div className="flex min-w-0 basis-full items-center sm:basis-auto sm:shrink-0">
+                  {fiscal ? (
+                    <FiscalInvoiceSummary fiscal={fiscal} />
                   ) : (
                     <EmitInvoiceButton
                       salesOrderId={order.id}

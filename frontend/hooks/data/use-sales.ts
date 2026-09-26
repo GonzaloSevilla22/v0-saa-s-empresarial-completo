@@ -7,7 +7,7 @@ import { queryKeys } from "@/lib/query-keys"
 import { isFiscalDocumentStatus } from "@/lib/types"
 import type { Sale } from "@/lib/types"
 import { formatComprobante } from "@/lib/fiscal-comprobante"
-import type { SaleCartItem } from "@/lib/cart-utils"
+import { roundUnitPrice, type SaleCartItem } from "@/lib/cart-utils"
 import {
   buildPaginationMeta,
   type PaginationMeta,
@@ -260,7 +260,11 @@ export function useSales() {
         due_date:        opMeta.dueDate ?? null,
         items: items.map(item => ({
           product_id: item.productId,
-          amount:     item.unitPrice * (1 - item.discount / 100),
+          // ventas-unidades-conversion (cuarta revisión, D-F′): el precio con
+          // descuento viaja con su precisión real y SIN ruido binario —
+          // 4,575 al 10 % es 4.1175, no 4.117500000000001 (sales.amount y
+          // sales.total son numeric sin escala: el ruido quedaba grabado).
+          amount:     roundUnitPrice(item.unitPrice * (1 - item.discount / 100)),
           quantity:   item.quantity,
           unit_id:    item.unitId ?? null,
         })),
@@ -369,7 +373,9 @@ export function useSales() {
     }) => {
       const items = newItems.map(item => ({
         product_id: item.productId,
-        amount:     item.unitPrice * (1 - item.discount / 100),
+        // ventas-unidades-conversion (cuarta revisión, D-F′): mismo precio
+        // sin ruido binario que el alta.
+        amount:     roundUnitPrice(item.unitPrice * (1 - item.discount / 100)),
         quantity:   item.quantity,
         // edicion-preserva-contexto (F1 §D7): unit_id viaja pegado a la
         // línea — el form lo prefillea desde SaleItemOut.unit_id y lo

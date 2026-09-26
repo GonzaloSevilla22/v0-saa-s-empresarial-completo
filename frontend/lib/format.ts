@@ -7,19 +7,48 @@ export const CURRENCIES: { value: Currency; label: string; symbol: string }[] = 
   { value: "BRL", label: "Real Brasileno", symbol: "R$" },
 ]
 
+const MONEY_FORMAT: Record<Currency, { locale: string; currency: string }> = {
+  ARS: { locale: "es-AR", currency: "ARS" },
+  USD: { locale: "en-US", currency: "USD" },
+  EUR: { locale: "de-DE", currency: "EUR" },
+  BRL: { locale: "pt-BR", currency: "BRL" },
+}
+
 export function formatMoney(value: number, currency: Currency = "ARS"): string {
-  const config: Record<Currency, { locale: string; currency: string }> = {
-    ARS: { locale: "es-AR", currency: "ARS" },
-    USD: { locale: "en-US", currency: "USD" },
-    EUR: { locale: "de-DE", currency: "EUR" },
-    BRL: { locale: "pt-BR", currency: "BRL" },
-  }
-  const c = config[currency]
+  const c = MONEY_FORMAT[currency]
   return new Intl.NumberFormat(c.locale, {
     style: "currency",
     currency: c.currency,
     minimumFractionDigits: 0,
     maximumFractionDigits: 2,
+  }).format(value)
+}
+
+/**
+ * ventas-unidades-conversion (cuarta revisión, D-F′): precio UNITARIO de una
+ * línea con la precisión que tiene. Con D-F el precio es por unidad de la
+ * línea — $4.575/kg vendido en gramos es $4,575/g — y `formatMoney` lo
+ * cortaba en 2 decimales ("100 g × $4,58 = $457,50"). Un precio al centavo
+ * sale idéntico a `formatMoney`; uno sub-centavo, con hasta 5 decimales (la
+ * precisión que `roundUnitPrice` conserva) y sin ruido binario. Para
+ * IMPORTES (subtotal, total) sigue siendo `formatMoney`.
+ *
+ * @example
+ * formatUnitPrice(4.575)    → "$ 4,575"
+ * formatUnitPrice(1.23456)  → "$ 1,23456"
+ * formatUnitPrice(1800)     → "$ 1.800"   (igual que formatMoney)
+ */
+export function formatUnitPrice(value: number, currency: Currency = "ARS"): string {
+  const cents = value * 100
+  if (!Number.isFinite(value) || Math.abs(cents - Math.round(cents)) < 1e-6) {
+    return formatMoney(value, currency)
+  }
+  const c = MONEY_FORMAT[currency]
+  return new Intl.NumberFormat(c.locale, {
+    style: "currency",
+    currency: c.currency,
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 5,
   }).format(value)
 }
 

@@ -21,7 +21,17 @@ import { ExportButton } from "@/components/export/ExportButton"
 import { holdsOwnStock, getStockStatus, isBelowThreshold, type StockStatus } from "@/lib/product-stock"
 import { TransferStockAction } from "@/components/branches/TransferStockAction"
 import { ProductBranchBreakdown } from "@/components/stock/ProductBranchBreakdown"
+import { useUnitsOfMeasure } from "@/hooks/use-units-of-measure"
+import { resolveUnit } from "@/lib/unit-utils"
+import { formatQuantity, formatStock } from "@/lib/format-unit"
 import type { Product } from "@/lib/types"
+
+/**
+ * ventas-unidades-conversion (D8): símbolo de la unidad base del producto —
+ * la unidad en que se lleva su stock. `undefined` = producto por unidades
+ * (formatStock cae a "uds"), nunca un "uds" fijo sobre un producto en kilos.
+ */
+type UnitSymbolFor = (row: Product) => string | undefined
 
 /** Sort order for the "Estado" column — most urgent first, "sin mínimo" last. */
 const STATUS_SORT_RANK: Record<StockStatus, number> = {
@@ -39,7 +49,9 @@ const STATUS_SORT_RANK: Record<StockStatus, number> = {
  * a dónde transferir, D7). `buildColumns` se memoiza en el componente con
  * `showTransfer` como dependencia.
  */
-function buildColumns(showTransfer: boolean): Column<Product>[] {
+// Exportada para el test de columnas (ventas-unidades-conversion 6.1): la
+// página entera arrastra demasiados hooks para renderizarla en jsdom.
+export function buildColumns(showTransfer: boolean, unitSymbolFor: UnitSymbolFor): Column<Product>[] {
   return [
   {
     key: "name",
@@ -54,14 +66,16 @@ function buildColumns(showTransfer: boolean): Column<Product>[] {
   {
     key: "stock",
     header: "Stock actual",
-    cell: (row) => <span className="font-medium tabular-nums">{row.stock}</span>,
+    // ventas-unidades-conversion (D8): mismo formateador que el catálogo —
+    // "0.550 kg" para un producto en kilos, "12 uds" para uno por unidades.
+    cell: (row) => <span className="font-medium tabular-nums">{formatStock(row.stock, unitSymbolFor(row))}</span>,
     sortable: true,
     sortValue: (row) => row.stock,
   },
   {
     key: "minStock",
     header: "Stock mínimo",
-    cell: (row) => <span className="tabular-nums text-muted-foreground">{row.minStock}</span>,
+    cell: (row) => <span className="tabular-nums text-muted-foreground">{formatStock(row.minStock, unitSymbolFor(row))}</span>,
   },
   {
     key: "status",
@@ -76,7 +90,7 @@ function buildColumns(showTransfer: boolean): Column<Product>[] {
     cell: (row) => {
       const toOrder = isBelowThreshold(row.stock, row.minStock) ? row.minStock * 2 - row.stock : 0
       return toOrder > 0 ? (
-        <span className="text-primary font-medium tabular-nums">{toOrder} unidades</span>
+        <span className="text-primary font-medium tabular-nums">{formatStock(toOrder, unitSymbolFor(row))}</span>
       ) : (
         <span className="text-muted-foreground">—</span>
       )
@@ -124,6 +138,34 @@ function AdjustButton({ product }: { product: Product }) {
   )
 }
 
+/**
+ * Tarjeta móvil de /stock (misma unidad que la columna). Exportada para que
+ * el arnés visual monte la tarjeta REAL en vez de una copia (auditoría
+ * post-apply: la copia divergía sin que ningún test lo viera).
+ */
+export function buildMobileCard(unitSymbolFor: UnitSymbolFor) {
+  return (row: Product) => {
+      const toOrder = isBelowThreshold(row.stock, row.minStock) ? row.minStock * 2 - row.stock : 0
+      const sym = unitSymbolFor(row)
+      return (
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0 flex flex-col gap-0.5">
+            <span className="font-medium text-sm text-foreground truncate">{row.name}</span>
+            <span className="text-xs text-muted-foreground">{row.category}</span>
+            {toOrder > 0 && (
+              <span className="text-xs text-primary font-medium">Reponer: {formatStock(toOrder, sym)}</span>
+            )}
+          </div>
+          <div className="flex flex-col items-end gap-1 shrink-0">
+            <StockSemaphore stock={row.stock} minStock={row.minStock} size="sm" />
+            {/* ventas-unidades-conversion (D8): "0.550 / 0.500 kg", nunca "uds" fijo */}
+            <span className="text-xs text-muted-foreground tabular-nums">{formatQuantity(row.stock)} / {formatStock(row.minStock, sym)}</span>
+          </div>
+        </div>
+      )
+  }
+}
+
 export default function StockPage() {
   const { products } = useProducts()
   // The stock/reposition views operate over real inventory items only —
@@ -139,7 +181,18 @@ export default function StockPage() {
   const { branches } = useBranches()
   const { limits } = usePlanLimits()
   const showTransfer = !!limits?.hasBranchesModule && branches.length > 1
-  const columns = useMemo(() => buildColumns(showTransfer), [showTransfer])
+
+  // ventas-unidades-conversion (D8): la unidad base del producto se resuelve
+  // con el mismo hook que usan los formularios. OJO: useUnitsOfMeasure no está
+  // cacheado (useState + useEffect), así que esta página hace su propia
+  // consulta a units_of_measure al montar — un catálogo chico, pero no
+  // "sin consulta nueva". Migrarlo a useQuery = candidato aparte.
+  const { unitsById } = useUnitsOfMeasure()
+  const unitSymbolFor = useMemo<UnitSymbolFor>(
+    () => (row) => resolveUnit(row.baseUnitId, unitsById)?.symbol,
+    [unitsById],
+  )
+  const columns = useMemo(() => buildColumns(showTransfer, unitSymbolFor), [showTransfer, unitSymbolFor])
 
   // sucursal-guard-vaciado-auditoria (G3, task 7.5): camino directo desde el
   // aviso de error de venta — humanizeOperationError navega a
@@ -229,24 +282,7 @@ export default function StockPage() {
         renderExpanded={(row) => <ProductBranchBreakdown productId={row.id} />}
         expandLabel={(row) => row.name}
         expandContentLabel="desglose por sucursal"
-        mobileCard={(row) => {
-          const toOrder = isBelowThreshold(row.stock, row.minStock) ? row.minStock * 2 - row.stock : 0
-          return (
-            <div className="flex items-center justify-between gap-3">
-              <div className="min-w-0 flex flex-col gap-0.5">
-                <span className="font-medium text-sm text-foreground truncate">{row.name}</span>
-                <span className="text-xs text-muted-foreground">{row.category}</span>
-                {toOrder > 0 && (
-                  <span className="text-xs text-primary font-medium">Reponer: {toOrder} uds</span>
-                )}
-              </div>
-              <div className="flex flex-col items-end gap-1 shrink-0">
-                <StockSemaphore stock={row.stock} minStock={row.minStock} size="sm" />
-                <span className="text-xs text-muted-foreground tabular-nums">{row.stock} / {row.minStock} uds</span>
-              </div>
-            </div>
-          )
-        }}
+        mobileCard={buildMobileCard(unitSymbolFor)}
         exportColumns={[
           { key: "name",     header: "Producto"      },
           { key: "category", header: "Categoría"     },

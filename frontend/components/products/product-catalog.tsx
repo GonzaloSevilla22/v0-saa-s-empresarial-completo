@@ -263,11 +263,16 @@ export function ProductCatalog({
     }
 
     const q = search.toLowerCase()
+    // ventas-unidades-conversion (auditoría post-apply): el id también matchea —
+    // la acción "Editar producto" de operation-errors enlaza /productos?q=<uuid>
+    // (el error de la RPC sólo trae el id) y el catálogo devolvía la lista vacía.
+    const matchesId = (id: string) => id.toLowerCase() === q
 
     const filteredGroups = groups
       .map((g) => {
         // productos-categorias-sku (13.3): el SKU entra a los predicados.
         const parentHit =
+          matchesId(g.parent.id) ||
           g.parent.name.toLowerCase().includes(q) ||
           (g.parent.category ?? "").toLowerCase().includes(q) ||
           (g.parent.barcode ?? "").toLowerCase().includes(q) ||
@@ -275,6 +280,7 @@ export function ProductCatalog({
 
         const matchingChildren = g.children.filter(
           (c) =>
+            matchesId(c.id) ||
             c.name.toLowerCase().includes(q) ||
             (c.barcode ?? "").toLowerCase().includes(q) ||
             (c.sku ?? "").toLowerCase().includes(q),
@@ -288,6 +294,7 @@ export function ProductCatalog({
 
     const filteredStandalones = standalones.filter(
       (p) =>
+        matchesId(p.id) ||
         p.name.toLowerCase().includes(q) ||
         (p.category ?? "").toLowerCase().includes(q) ||
         (p.barcode ?? "").toLowerCase().includes(q) ||

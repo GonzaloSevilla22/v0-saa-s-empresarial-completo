@@ -27,13 +27,88 @@ _APPLY_STOCK_DELTA_SQL = (
 # sucursales", decisión PO 2026-07-04). branch_stock.min_stock es la única
 # fuente de verdad real del umbral de alerta (trigger check_branch_low_stock);
 # products.min_stock queda DEPRECATED (columna legacy, ver COMMENT en la DB).
-_SET_MIN_STOCK_SQL = "SELECT public.rpc_set_product_min_stock($1::uuid, $2::int)"
+# ventas-unidades-conversion (D7): la RPC pasa a (uuid, numeric) — el umbral
+# admite fracciones en la unidad base del producto (branch_stock.min_stock
+# numeric(15,4)). Nunca `::int`: truncaría 0,5 kg a 0 en silencio.
+_SET_MIN_STOCK_SQL = "SELECT public.rpc_set_product_min_stock($1::uuid, $2::numeric)"
 
 # productos-categorias-sku (D12) / productos-costo-nullable: columnas que el
 # UPDATE acepta en NULL explícito — `cost` es tri-estado por el mismo molde
 # exacto que `sku`/`category_id` (D12 de aquel change): campo ausente
 # conserva, informado en null desasigna (queda sin costo cargado).
-_NULLABLE_ON_UPDATE: frozenset[str] = frozenset({"sku", "category_id", "cost"})
+_NULLABLE_ON_UPDATE: frozenset[str] = frozenset({"sku", "category_id", "cost", "base_unit_id"})
+
+# ventas-unidades-conversion (D10): la unidad base tiene que ser visible para la
+# cuenta (del sistema o propia) — el FK a units_of_measure no está scopeado por
+# tenant, así que sin este chequeo un uuid ajeno se asignaría igual.
+_UNIT_VISIBLE_SQL = (
+    "SELECT 1 FROM units_of_measure "
+    "WHERE id = $1::uuid AND (is_system = true OR account_id = $2::uuid)"
+)
+
+# ventas-unidades-conversion (revisión del PR #584, BE-1 / D-C): guard de
+# cambio de unidad base. Las cantidades de branch_stock y stock_movements se
+# guardan en la unidad base del producto; cambiarla con stock o historial las
+# reinterpreta en silencio ("12 u" pasa a leerse "12 kg"). Las variantes
+# heredan la unidad del padre, así que el alcance es el GRUPO (el producto y
+# sus variantes). `account_id = $2` en las dos tablas Y en products es el
+# guard de tenencia (regla dura: todo repository filtra explícito por
+# account_id; la RLS es red). "Stock ≠ 0 en alguna sucursal", no la suma:
+# +5 en una y −5 en otra también son cantidades en la unidad vieja.
+_GROUP_HAS_STOCK_SQL = """
+SELECT EXISTS (
+    SELECT 1
+      FROM branch_stock bs
+      JOIN products p ON p.id = bs.product_id
+     WHERE bs.account_id = $2
+       AND p.account_id = $2
+       AND (p.id = $1::uuid OR p.parent_id = $1::uuid)
+       AND bs.quantity <> 0
+)
+"""
+
+_GROUP_HAS_MOVEMENTS_SQL = """
+SELECT EXISTS (
+    SELECT 1
+      FROM stock_movements sm
+      JOIN products p ON p.id = sm.product_id
+     WHERE sm.account_id = $2
+       AND p.account_id = $2
+       AND (p.id = $1::uuid OR p.parent_id = $1::uuid)
+)
+"""
+
+# ventas-unidades-conversion — cuarta revisión del PR #584 (fix-round 3):
+# ASIGNAR la unidad base a un producto que no tenía también reinterpreta si su
+# stock y su historia se grabaron con una unidad EXPLÍCITA distinta (un
+# producto sin base admite líneas en cualquier unidad base: kg, L, u). True si
+# el producto o alguna variante que HEREDA (base propia NULL — misma regla que
+# trg_product_base_unit_guard) tiene una línea con unidad distinta de la que
+# se asigna, en cualquiera de las seis tablas de líneas. Las líneas sin unidad
+# no declaran ninguna. `account_id = $2` en products Y en cada tabla de líneas
+# es el guard de tenencia (regla dura: la RLS es red, no guard único).
+_GROUP_HAS_LINES_IN_OTHER_UNIT_SQL = """
+SELECT EXISTS (
+    SELECT 1
+      FROM products p
+     WHERE p.account_id = $2
+       AND (p.id = $1::uuid OR (p.parent_id = $1::uuid AND p.base_unit_id IS NULL))
+       AND (
+            EXISTS (SELECT 1 FROM sales l WHERE l.product_id = p.id AND l.account_id = $2
+                       AND l.unit_id IS NOT NULL AND l.unit_id <> $3::uuid)
+         OR EXISTS (SELECT 1 FROM purchases l WHERE l.product_id = p.id AND l.account_id = $2
+                       AND l.unit_id IS NOT NULL AND l.unit_id <> $3::uuid)
+         OR EXISTS (SELECT 1 FROM sale_items l WHERE l.product_id = p.id AND l.account_id = $2
+                       AND l.unit_id IS NOT NULL AND l.unit_id <> $3::uuid)
+         OR EXISTS (SELECT 1 FROM purchase_items l WHERE l.product_id = p.id AND l.account_id = $2
+                       AND l.unit_id IS NOT NULL AND l.unit_id <> $3::uuid)
+         OR EXISTS (SELECT 1 FROM sales_order_items l WHERE l.product_id = p.id AND l.account_id = $2
+                       AND l.unit_id IS NOT NULL AND l.unit_id <> $3::uuid)
+         OR EXISTS (SELECT 1 FROM quote_items l WHERE l.product_id = p.id AND l.account_id = $2
+                       AND l.unit_id IS NOT NULL AND l.unit_id <> $3::uuid)
+       )
+)
+"""
 
 # productos-categorias-sku (D14): recategorización en lote como UN SOLO UPDATE.
 # `AND p.account_id = $2` ES el guard de tenencia (regla dura: todo repository
@@ -61,13 +136,37 @@ UPDATE products p
 
 
 class ProductRepository(BaseRepository):
-    async def _propagate_min_stock(self, product_id: str, min_stock: int) -> None:
+    async def _propagate_min_stock(self, product_id: str, min_stock: Decimal) -> None:
         """branch-min-stock-realign: propaga min_stock a todas las filas
         branch_stock existentes del producto, vía RPC SECURITY DEFINER
         (guard is_account_writer). Debe invocarse dentro de la misma
         transacción asyncpg que create()/update() usan para persistir el
-        producto."""
-        await self.fetchrow(_SET_MIN_STOCK_SQL, product_id, min_stock)
+        producto. ventas-unidades-conversion: el valor viaja como Decimal
+        (fraccionario, en la unidad base del producto)."""
+        await self.fetchrow(_SET_MIN_STOCK_SQL, product_id, Decimal(str(min_stock)))
+
+    async def unit_visible_to_account(self, unit_id: str, account_id: str) -> bool:
+        """ventas-unidades-conversion (D10): True si la unidad es del sistema o
+        de la cuenta. Guard de tenencia de `base_unit_id`, NO un reemplazo del
+        FK (que sigue garantizando existencia)."""
+        row = await self.fetchrow(_UNIT_VISIBLE_SQL, unit_id, account_id)
+        return row is not None
+
+    async def has_stock_or_movements(self, product_id: str, account_id: str) -> bool:
+        """ventas-unidades-conversion (D-C): True si el producto (o alguna de sus
+        variantes) tiene stock ≠ 0 en alguna sucursal o algún movimiento de
+        stock. Dos consultas en orden, la segunda sólo si la primera no alcanza
+        — el stock es el caso común y el más barato de responder."""
+        if await self._conn.fetchval(_GROUP_HAS_STOCK_SQL, product_id, account_id):
+            return True
+        return bool(await self._conn.fetchval(_GROUP_HAS_MOVEMENTS_SQL, product_id, account_id))
+
+    async def has_lines_in_other_unit(self, product_id: str, account_id: str, unit_id: str) -> bool:
+        """ventas-unidades-conversion (cuarta revisión): True si el producto o
+        una variante que hereda su unidad tiene alguna línea (ventas, compras,
+        sus ítems, pedidos o presupuestos) grabada con una unidad explícita
+        distinta de `unit_id` — la que se le quiere asignar como base."""
+        return bool(await self._conn.fetchval(_GROUP_HAS_LINES_IN_OTHER_UNIT_SQL, product_id, account_id, unit_id))
 
     async def list_by_org(self, account_id: str) -> list[dict]:
         # C-21: lee de v_products_with_stock para que el campo `stock` refleje
@@ -98,8 +197,8 @@ class ProductRepository(BaseRepository):
                 """
                 INSERT INTO products (user_id, account_id, name, price, cost, min_stock,
                                       barcode, sku, parent_id, is_variant, stock_control_type,
-                                      category_id)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                                      category_id, base_unit_id)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
                 RETURNING id
                 """,
                 user_id,
@@ -122,6 +221,8 @@ class ProductRepository(BaseRepository):
                 # representación física; el nombre legible lo deriva
                 # v_products_with_stock (LEFT JOIN product_categories).
                 data.get("category_id"),
+                # ventas-unidades-conversion (D10): unidad en que se lleva el stock.
+                data.get("base_unit_id"),
             )
             if row is None:
                 return None
@@ -136,7 +237,7 @@ class ProductRepository(BaseRepository):
             # inicial, para que la fila branch_stock recién creada (si hubo
             # stock inicial) ya exista y reciba el min_stock del payload.
             if "min_stock" in data:
-                await self._propagate_min_stock(str(row["id"]), int(data.get("min_stock") or 0))
+                await self._propagate_min_stock(str(row["id"]), Decimal(str(data.get("min_stock") or 0)))
             return await self.get_by_id(str(row["id"]), account_id)
 
     async def update(self, product_id: str, account_id: str, data: dict) -> asyncpg.Record | None:
@@ -163,7 +264,7 @@ class ProductRepository(BaseRepository):
                 *values,
             )
         if min_stock_target is not None:
-            await self._propagate_min_stock(product_id, int(min_stock_target))
+            await self._propagate_min_stock(product_id, Decimal(str(min_stock_target)))
         if stock_target is not None:
             current = await self._conn.fetchval(
                 "SELECT stock FROM v_products_with_stock WHERE id = $1 AND account_id = $2",

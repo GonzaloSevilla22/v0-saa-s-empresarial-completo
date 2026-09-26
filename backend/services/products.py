@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import asyncpg
+import uuid
 from fastapi import HTTPException
 
+from backend.core.errors import ProblemHTTPException
 from backend.core.guards import require_role
 from backend.repositories.plan_limits_repository import PlanLimitsRepository
 from backend.repositories.product_category_repository import ProductCategoryRepository
@@ -74,6 +76,102 @@ async def get_product(repo: ProductRepository, account_id: str, product_id: str)
     return dict(record)
 
 
+async def _resolve_base_unit_for_account(
+    repo: ProductRepository,
+    base_unit_id: uuid.UUID | None,
+    account_id: str,
+) -> str | None:
+    """ventas-unidades-conversion (D10): `None` se conserva (sin unidad base);
+    un uuid tiene que ser una unidad del sistema o de la cuenta — el FK a
+    units_of_measure no está scopeado por tenant, así que sin este guard un
+    uuid ajeno se asignaría igual. 422 con token propio, nunca 500."""
+    if base_unit_id is None:
+        return None
+    if not await repo.unit_visible_to_account(str(base_unit_id), account_id):
+        raise HTTPException(
+            status_code=422,
+            detail="base_unit_not_found: la unidad base no existe o no pertenece a esta cuenta",
+        )
+    return str(base_unit_id)
+
+
+# ventas-unidades-conversion — revisión del PR #584, hallazgo BE-1, decisión
+# provisoria D-C (opción (a) de la decisión 6 del PO, pendiente de sign-off):
+# las cantidades de branch_stock/stock_movements están en la unidad base del
+# producto, así que CAMBIARLA (o desasignarla) con stock o historial las
+# reinterpretaría en silencio. Asignar a un producto sin unidad y mandar la
+# misma que ya tiene no son cambios.
+BASE_UNIT_LOCKED_CODE = "base_unit_locked"
+_BASE_UNIT_LOCKED_DETAIL = (
+    "No se puede cambiar la unidad base de este producto: ya tiene stock o "
+    "movimientos registrados en la unidad actual, y cambiarla haría que esas "
+    "cantidades se lean en la unidad nueva (12 u pasarían a ser 12 kg). "
+    "Dejá la unidad actual, o creá un producto nuevo con la unidad correcta "
+    "y pasale el stock con un ajuste."
+)
+# Cuarta revisión del PR #584: ASIGNAR sobre stock e historia grabados con
+# otra unidad explícita es la misma reinterpretación (historia en 'u' + base
+# 'kg': "7 u" pasan a leerse "7 kg").
+_BASE_UNIT_ASSIGN_LOCKED_DETAIL = (
+    "No se puede asignar esa unidad base a este producto: ya tiene stock y "
+    "operaciones cargadas en otra unidad, y asignarla haría que esas "
+    "cantidades se lean en la unidad nueva (7 u pasarían a ser 7 kg). "
+    "Asignale la unidad en la que ya lo venías cargando, o creá un producto "
+    "nuevo con la unidad correcta y pasale el stock con un ajuste."
+)
+
+
+def _unit_str(value: object) -> str | None:
+    return None if value is None else str(value)
+
+
+# Segunda revisión del PR #584: este chequeo es el camino rápido con el 409
+# tipado (code/field). La regla la hace cumplir la base —
+# trg_product_base_unit_guard (P0409 base_unit_locked) evalúa con la fila
+# bloqueada y cubre PostgREST, el importador, el re-parent de una variante y
+# (cuarta revisión) el DELETE físico del padre y la asignación sobre historia
+# en otra unidad; si la gana otro escritor, el asyncpg handler traduce el
+# P0409 a 409. La carrera contra una
+# compra concurrente la cierran los DOS lados: el trigger y las RPCs de
+# venta/compra, que desde la tercera revisión normalizan la cantidad DESPUÉS
+# de tomar el producto FOR UPDATE (antes, en tres de los seis caminos, una
+# compra podía escribir kg sobre una base ya cambiada a 'u' —
+# supabase/tests/test_ventas_unidades_conversion_race.sh).
+async def _guard_base_unit_change(
+    repo: ProductRepository,
+    existing: asyncpg.Record,
+    new_base_unit_id: str | None,
+    product_id: str,
+    account_id: str,
+) -> None:
+    current = _unit_str(existing["base_unit_id"] if "base_unit_id" in existing.keys() else None)
+    if current == new_base_unit_id:
+        return
+    if current is None:
+        # ASIGNAR (cuarta revisión): sólo se traba si alguna línea del grupo se
+        # grabó con OTRA unidad explícita Y hay cantidades que reinterpretar.
+        # Las líneas se miran primero: sin conflicto, ni se consulta el stock.
+        if new_base_unit_id is None or not await repo.has_lines_in_other_unit(
+            product_id, account_id, new_base_unit_id
+        ):
+            return
+        if await repo.has_stock_or_movements(product_id, account_id):
+            raise ProblemHTTPException(
+                status_code=409,
+                detail=_BASE_UNIT_ASSIGN_LOCKED_DETAIL,
+                code=BASE_UNIT_LOCKED_CODE,
+                field="base_unit_id",
+            )
+        return
+    if await repo.has_stock_or_movements(product_id, account_id):
+        raise ProblemHTTPException(
+            status_code=409,
+            detail=_BASE_UNIT_LOCKED_DETAIL,
+            code=BASE_UNIT_LOCKED_CODE,
+            field="base_unit_id",
+        )
+
+
 async def create_product(
     repo: ProductRepository,
     auth: dict,
@@ -95,6 +193,9 @@ async def create_product(
 
     data = payload.model_dump()
     data["sku"] = normalize_sku(payload.sku)
+    # ventas-unidades-conversion (D10): la unidad base viaja como str y tiene
+    # que ser visible para la cuenta (del sistema o propia).
+    data["base_unit_id"] = await _resolve_base_unit_for_account(repo, payload.base_unit_id, account_id)
 
     parent_id = data.get("parent_id")
     if parent_id:
@@ -135,6 +236,7 @@ async def update_product(
     sku_provided: bool = False,
     category_provided: bool = False,
     cost_provided: bool = False,
+    base_unit_provided: bool = False,
     category_repo: ProductCategoryRepository | None = None,
 ) -> dict:
     """productos-categorias-sku (D12): tri-estado por AUSENCIA para `sku` y
@@ -143,9 +245,19 @@ async def update_product(
     conserva el costo que el producto tenía, informado en `null` lo
     desasigna (queda sin costo cargado) — nunca por `is None`, porque `None`
     es indistinguible de "no lo mandé" sin `model_fields_set`.
+    ventas-unidades-conversion (D10) extiende el molde a `base_unit_id`, con
+    el guard de cambio de unidad (D-C, `_guard_base_unit_change`).
     El resto de los campos conserva `exclude_none` (task 9.4)."""
     require_role(auth, ["user", "admin"])
-    data = payload.model_dump(exclude_none=True, exclude={"sku", "category_id", "cost"})
+    data = payload.model_dump(exclude_none=True, exclude={"sku", "category_id", "cost", "base_unit_id"})
+
+    # La fila actual sólo hace falta para los campos que dependen del estado
+    # vivo (herencia de categoría, guard de unidad base): una sola lectura.
+    existing: asyncpg.Record | None = None
+    if category_provided or base_unit_provided:
+        existing = await repo.get_by_id(product_id, account_id)
+        if existing is None:
+            raise HTTPException(status_code=404, detail="Producto no encontrado")
 
     if sku_provided:
         data["sku"] = normalize_sku(payload.sku)
@@ -153,10 +265,12 @@ async def update_product(
     if cost_provided:
         data["cost"] = payload.cost
 
-    if category_provided:
-        existing = await repo.get_by_id(product_id, account_id)
-        if existing is None:
-            raise HTTPException(status_code=404, detail="Producto no encontrado")
+    if base_unit_provided and existing is not None:
+        new_base_unit = await _resolve_base_unit_for_account(repo, payload.base_unit_id, account_id)
+        await _guard_base_unit_change(repo, existing, new_base_unit, product_id, account_id)
+        data["base_unit_id"] = new_base_unit
+
+    if category_provided and existing is not None:
         # D11/9.7: una variante hereda del padre — el cliente no puede
         # contradecirlo; se ignora sin validar ni escribir.
         if existing["parent_id"] is None:

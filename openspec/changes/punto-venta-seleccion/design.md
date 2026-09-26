@@ -136,11 +136,11 @@ Se conserva: título, tipo de comprobante resuelto por el backend (no editable),
 - **[Una pestaña abierta con el bundle viejo]** sigue mandando `[0]`/`null` hasta recargar → con predeterminado configurado, el `null` pasa a funcionar; el `[0]` sigue siendo el comportamiento de hoy. Sin regresión.
 - **[`sessionStorage` bloqueado o vacío]** → `usePersistentState` ya lo tolera; D6 cae al predeterminado.
 - **[Tests existentes que fijan el comportamiento viejo]** (`sale-operations-list-facturar.test.tsx` mockea dos PV y espera el primero) → se actualizan como parte del RED: el cambio de expectativa ES el cambio de comportamiento pedido.
-- **[Número de migración]** `20261062000001` puede tomarlo otro PR antes del merge → renumerar en el apply (precedente: `cuenta-corriente-party-guard` renumeró tres veces).
+- **[Número de migración]** `20261062000001` lo tomó `ventas-unidades-conversion` (PR #584, nota del 2026-09-25) y este change pasó a `20261063000001`, que también puede tomarlo otro PR antes del merge → renumerar en el apply (precedente: `cuenta-corriente-party-guard` renumeró tres veces).
 
 ## Migration Plan
 
-1. Migración `20261062000001_punto_venta_predeterminado.sql`: `ADD COLUMN IF NOT EXISTS is_default`, CHECK e índice idempotentes (el auto-apply de Supabase GitHub exige migraciones re-ejecutables), `CREATE OR REPLACE rpc_emit_pending_cae` + `COMMENT` + ACLs, y un bloque `DO` de introspección que asserta lo prometido (columna, índice, CHECK, la RPC contiene la rama del predeterminado, ACLs sin `anon`, `md5` de `rpc_emit_subscription_payment_cae` sin cambios).
+1. Migración `20261063000001_punto_venta_predeterminado.sql`: `ADD COLUMN IF NOT EXISTS is_default`, CHECK e índice idempotentes (el auto-apply de Supabase GitHub exige migraciones re-ejecutables), `CREATE OR REPLACE rpc_emit_pending_cae` + `COMMENT` + ACLs, y un bloque `DO` de introspección que asserta lo prometido (columna, índice, CHECK, la RPC contiene la rama del predeterminado, ACLs sin `anon`, `md5` de `rpc_emit_subscription_payment_cae` sin cambios).
 2. Sin backfill: `is_default = false` en los 4 PV existentes. La facturación desde `/ventas/ordenes` empieza a funcionar igual (el usuario elige en el diálogo); el predeterminado es opcional.
 3. Merge → CI/CD aplica la migración y despliega (`feedback_cicd_merge_pipeline`); verificar `MAX(version)` y el cuerpo vivo en prod, y que Render desplegó (`GET /deploys`, el auto-deploy no siempre dispara).
 4. **Rollback**: revertir el PR de frontend/backend es inocuo (la columna nueva queda sin uso). Para la RPC, re-aplicar el cuerpo anterior (guardado en el archivo de migración `20261059000001`) en una migración nueva; la columna puede quedarse.

@@ -18,8 +18,10 @@ import { groupPurchasesByOperation, type PurchaseOperation } from "@/lib/group-o
 import { getDeleteCompensation } from "@/lib/delete-compensation"
 import { DeleteOperationDialog } from "@/components/shared/delete-operation-dialog"
 import { exportToCSV } from "@/lib/excel"
-import { formatMoney, formatDate } from "@/lib/format"
-import type { Purchase } from "@/lib/types"
+import { formatMoney, formatUnitPrice, formatDate } from "@/lib/format"
+import { formatQuantity } from "@/lib/format-unit"
+import { resolveUnit } from "@/lib/unit-utils"
+import type { Purchase, UnitOfMeasure } from "@/lib/types"
 import type { PaginationMeta, PageSizeOption } from "@/lib/pagination-utils"
 import {
   Plus, Pencil, ChevronDown, ChevronRight,
@@ -70,6 +72,14 @@ interface PurchaseOperationsListProps {
   onDeleteOperation:(op: PurchaseOperation) => Promise<void>
   onEditOperation?: (op: PurchaseOperation) => void
   onRefetch:       () => void
+  /**
+   * ventas-unidades-conversion (cuarta revisión, D-F′): unidades de medida por
+   * id, para mostrar la cantidad con el símbolo de SU línea ("450 g") y
+   * exportarlo en el CSV. La página lo pasa desde useUnitsOfMeasure (el
+   * listado no hace fetch propio); sin él la cantidad sale sin símbolo — nunca
+   * se inventa una unidad.
+   */
+  unitsById?:      Map<string, UnitOfMeasure>
 }
 
 export function PurchaseOperationsList({
@@ -79,7 +89,12 @@ export function PurchaseOperationsList({
   paymentMethodId, setPaymentMethodId, clearFilters,
   onPageChange, onPageSizeChange,
   onAdd, onDeleteOperation, onEditOperation, onRefetch,
+  unitsById,
 }: PurchaseOperationsListProps) {
+  const unitSymbolFor = useCallback(
+    (unitId?: string | null) => (unitsById ? resolveUnit(unitId, unitsById)?.symbol : undefined),
+    [unitsById],
+  )
   const [search,      setSearch]      = useState("")
   const [expandedKey, setExpandedKey] = useState<string | null>(null)
   const [deletingKey, setDeletingKey] = useState<string | null>(null)
@@ -108,7 +123,8 @@ export function PurchaseOperationsList({
     const rows = filtered.flatMap((op) =>
       op.items.map((item) => ({
         date: item.date, productName: item.productName,
-        quantity: item.quantity, unitCost: item.unitCost,
+        quantity: item.quantity, unit: unitSymbolFor(item.unitId) ?? "",
+        unitCost: item.unitCost,
         total: item.total, description: item.description ?? "",
         paymentMethodName:
           op.items[0]?.paymentMethodName ?? UNASSIGNED_PAYMENT_METHOD_LABEL,
@@ -120,6 +136,7 @@ export function PurchaseOperationsList({
       { key: "date",              header: "Fecha"         },
       { key: "productName",       header: "Producto"      },
       { key: "quantity",          header: "Cantidad"      },
+      { key: "unit",              header: "Unidad"        },
       { key: "unitCost",          header: "Costo unit."   },
       { key: "total",             header: "Total"         },
       { key: "paymentMethodName", header: "Forma de pago" },
@@ -446,8 +463,8 @@ export function PurchaseOperationsList({
                     {op.items.map((item) => (
                       <div key={item.id} className="grid grid-cols-[1fr_72px_110px_110px] gap-2 px-3 py-2.5 border-t border-border/30 text-sm items-center hover:bg-accent/10 min-w-[320px]">
                         <span className="font-medium text-foreground">{item.productName}</span>
-                        <span className="text-center text-muted-foreground tabular-nums">{item.quantity}</span>
-                        <span className="text-right text-muted-foreground tabular-nums">{formatMoney(item.unitCost)}</span>
+                        <span className="text-center text-muted-foreground tabular-nums">{formatQuantity(item.quantity, unitSymbolFor(item.unitId))}</span>
+                        <span className="text-right text-muted-foreground tabular-nums">{formatUnitPrice(item.unitCost)}</span>
                         <span className="text-right font-semibold text-cyan-400 tabular-nums">{formatMoney(item.total)}</span>
                       </div>
                     ))}

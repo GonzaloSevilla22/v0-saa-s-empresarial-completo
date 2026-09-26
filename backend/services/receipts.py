@@ -46,6 +46,23 @@ def _format_amount(amount: Decimal | float | int, currency: str) -> str:
     return f"{symbol} {s}"
 
 
+def _format_unit_price(amount: Decimal | float | int, currency: str) -> str:
+    """ventas-unidades-conversion (cuarta revisión, D-F′): precio UNITARIO con
+    su precisión. Con D-F el precio es por unidad de la línea ($4.575/kg en
+    gramos es $4,575/g) y `_format_amount` lo cortaba en 2 decimales ("100 g ×
+    $ 4,58 = $ 457,50"). Al centavo: igual que `_format_amount`; sub-centavo:
+    hasta 5 decimales (la precisión de roundUnitPrice), sin ruido binario."""
+    value = Decimal(str(amount))
+    if value == value.quantize(Decimal("0.01")):
+        return _format_amount(value, currency)
+    value = value.quantize(Decimal("0.00001")).normalize()
+    decimals = max(2, -value.as_tuple().exponent)
+    s = f"{value:,.{decimals}f}"
+    s = s.replace(",", "X").replace(".", ",").replace("X", ".")
+    symbol = "$" if currency == "ARS" else currency
+    return f"{symbol} {s}"
+
+
 def _format_date(value: datetime.datetime | datetime.date) -> str:
     if isinstance(value, datetime.datetime):
         value = value.date()
@@ -223,7 +240,7 @@ def build_sales_receipt_pdf(data: SalesReceiptData) -> bytes:
     for item in data.items:
         pdf.cell(86, 9, "  " + _latin1(item.name)[:46], border="B", new_x="RIGHT", new_y="TOP")
         pdf.cell(18, 9, str(item.quantity), border="B", align="C", new_x="RIGHT", new_y="TOP")
-        pdf.cell(35, 9, _format_amount(item.unit_price, data.currency), border="B", align="R", new_x="RIGHT", new_y="TOP")
+        pdf.cell(35, 9, _format_unit_price(item.unit_price, data.currency), border="B", align="R", new_x="RIGHT", new_y="TOP")
         pdf.cell(35, 9, _format_amount(item.subtotal, data.currency) + "  ", border="B", align="R", new_x="LMARGIN", new_y="NEXT")
 
     # ── Total ─────────────────────────────────────────────────────────────────

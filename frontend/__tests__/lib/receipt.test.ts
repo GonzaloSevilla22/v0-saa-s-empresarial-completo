@@ -187,3 +187,44 @@ describe("generateReceiptHTML — escapado de datos del usuario (no regresión)"
     expect(html.match(/<script(?:\s|>)/gi)).toHaveLength(1)
   })
 })
+
+// ── ventas-unidades-conversion (task 6.3): la cantidad lleva la unidad de la línea ──
+import { generateReceiptText, buildSalesReceiptPdfPayload } from "@/lib/receipt"
+
+describe("comprobante — la cantidad lleva el símbolo de la unidad de la línea", () => {
+  const unitSymbolFor = (unitId?: string) => (unitId === "u-g" ? "g" : unitId === "u-kg" ? "kg" : undefined)
+  const opts: ReceiptOptions = { ...BASE_OPTS, unitSymbolFor }
+  const op = makeOp({
+    items: [
+      makeItem({ id: "s1", productName: "Tomate", quantity: 450, unitPrice: 1, total: 450, unitId: "u-g" }),
+      makeItem({ id: "s2", productName: "Zapallo", quantity: 1.25, unitPrice: 100, total: 125, unitId: "u-kg" }),
+      makeItem({ id: "s3", productName: "Bolsa", quantity: 3, unitPrice: 10, total: 30 }),
+    ],
+    total: 605,
+  })
+
+  it("HTML: 450 g, 1.250 kg y 3 sin unidad", () => {
+    const html = generateReceiptHTML(op, opts)
+    expect(html).toContain('<td class="center">450 g</td>')
+    expect(html).toContain('<td class="center">1.250 kg</td>')
+    expect(html).toContain('<td class="center">3</td>')
+  })
+
+  it("texto para WhatsApp / portapapeles: x450 g", () => {
+    const text = generateReceiptText(op, opts)
+    expect(text).toContain("Tomate x450 g →")
+    expect(text).toContain("Zapallo x1.250 kg →")
+    expect(text).toContain("Bolsa x3 →")
+  })
+
+  it("payload del PDF: la cantidad viaja ya formateada con su unidad", () => {
+    const payload = buildSalesReceiptPdfPayload(op, opts)
+    expect(payload.items.map((i) => i.quantity)).toEqual(["450 g", "1.250 kg", "3"])
+  })
+
+  it("sin resolver unidades, la cantidad sale sin símbolo (nunca inventa uno)", () => {
+    const html = generateReceiptHTML(op, BASE_OPTS)
+    expect(html).toContain('<td class="center">450</td>')
+    expect(html).not.toContain("450 g")
+  })
+})

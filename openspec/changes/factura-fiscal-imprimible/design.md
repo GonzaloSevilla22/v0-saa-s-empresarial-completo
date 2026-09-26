@@ -204,7 +204,7 @@ Read models que se extienden (sin columnas denormalizadas): `sales_repository.py
 
 ## Migration Plan
 
-1. Migración única (número a confirmar al aplicar, `≥ 20261062000001`; revisar que ningún change en curso lo haya tomado): columnas nuevas en `fiscal_profiles` y `fiscal_documents` (`ADD COLUMN IF NOT EXISTS`, NULLABLE, sin defaults que reescriban la tabla), `DROP`+`CREATE` de `rpc_fiscal_document_authorize` con ACL/`COMMENT` re-aplicados, `rpc_fiscal_document_set_fecha_comprobante` interna, `DO` de introspección (un solo overload, ACL exacta). Idempotente.
+1. Migración única (número a confirmar al aplicar, `≥ 20261064000001` (20261062000001 = `ventas-unidades-conversion`, 20261063000001 = `punto-venta-seleccion`); revisar que ningún change en curso lo haya tomado): columnas nuevas en `fiscal_profiles` y `fiscal_documents` (`ADD COLUMN IF NOT EXISTS`, NULLABLE, sin defaults que reescriban la tabla), `DROP`+`CREATE` de `rpc_fiscal_document_authorize` con ACL/`COMMENT` re-aplicados, `rpc_fiscal_document_set_fecha_comprobante` interna, `DO` de introspección (un solo overload, ACL exacta). Idempotente.
 2. Deploy del backend: `update_authorized` pasa la fecha; hasta que el backend nuevo esté arriba, la RPC vieja-firma sigue funcionando por el `DEFAULT NULL` (y un documento autorizado en esa ventana queda sin fecha → cae en el backfill).
 3. Backfill de fechas con `FECompConsultar` (script de una vez, con OK del PO): los 3 documentos existentes más cualquiera autorizado en la ventana del paso 2.
 4. El PO completa sus datos en `/configuracion/fiscal` y el de Sumar (o Sumar misma) los suyos.

@@ -160,6 +160,8 @@ async def update_product(
         sku_provided="sku" in payload.model_fields_set,
         category_provided="category_id" in payload.model_fields_set,
         cost_provided="cost" in payload.model_fields_set,
+        # ventas-unidades-conversion (D10): mismo tri-estado para la unidad base.
+        base_unit_provided="base_unit_id" in payload.model_fields_set,
         category_repo=category_repo,
     )
 

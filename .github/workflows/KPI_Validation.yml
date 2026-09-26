@@ -724,9 +724,68 @@ jobs:
           psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261036000001_c30_party_movement_helpers_definer.sql
           psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261037000001_get_account_ids_for_user_own_membership.sql
           psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261038000001_c28_register_cash_movement_revoke_authenticated.sql
-          psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261039000001_dashboard_critical_stock_items.sql
-          # productos-categoria-text-retiro (2026-09-09): idempotente — reaplicada localmente sin cambios.
-          psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261040000001_productos_categoria_text_retiro.sql
+          # ventas-unidades-conversion (2026-09-25): 20261062000001 pasa
+          # branch_stock.min_stock de integer a numeric(15,4) y, por eso,
+          # DROP + CREATE de get_dashboard_critical_stock_items (su RETURNS
+          # TABLE declaraba `min_stock integer`). Reaplicada acá, en su
+          # posición cronológica real, la PRIMERA sentencia ejecutable de
+          # 20261039000001 (el CREATE OR REPLACE FUNCTION de la L52 — antes
+          # sólo hay comentarios) choca con el tipo de retorno ya vigente:
+          # error nativo estable `cannot change return type of existing
+          # function` + HINT `Use DROP FUNCTION get_dashboard_critical_stock_
+          # items(uuid,integer) first`. Nada del archivo llega a aplicarse (ni
+          # el COMMENT, ni las ACLs, ni su gate embebido): la definición
+          # vigente (la de 20261062000001) queda intacta. Misma familia que
+          # 20261024000001 arriba (migración VIEJA que asume una definición
+          # que una POSTERIOR ya cambió). Se tolera SOLO ese error sobre ESA
+          # función; cualquier otro → exit 1. El `supabase db reset` +
+          # `schema_snapshot` de más abajo reconverge y lo asserta.
+          set +e
+          REAPPLY_OUT=$(psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261039000001_dashboard_critical_stock_items.sql 2>&1)
+          REAPPLY_RC=$?
+          set -e
+          echo "$REAPPLY_OUT"
+          if [ "$REAPPLY_RC" -ne 0 ]; then
+            if echo "$REAPPLY_OUT" | grep -qF 'cannot change return type of existing function' && echo "$REAPPLY_OUT" | grep -qF 'get_dashboard_critical_stock_items'; then
+              echo "20261039000001 reapply chocó con el RETURNS TABLE de get_dashboard_critical_stock_items ya cambiado por 20261062000001 (ventas-unidades-conversion, min_stock numeric) — reconverge con el 'supabase db reset' de más abajo"
+            else
+              echo "ERROR: el reapply de 20261039000001 falló por un motivo DISTINTO del esperado."
+              exit 1
+            fi
+          fi
+          # productos-categoria-text-retiro (2026-09-09): era idempotente
+          # hasta ventas-unidades-conversion (2026-09-25). 20261062000001
+          # recrea v_products_with_stock (DROP VIEW + CREATE VIEW, porque el
+          # ALTER de branch_stock.min_stock no se puede hacer con la vista
+          # encima) y le agrega `base_unit_id` al final. Reaplicada acá, la
+          # PRIMERA sentencia ejecutable de 20261040000001 (el CREATE OR
+          # REPLACE VIEW de la L42 — antes sólo hay comentarios) trae una
+          # columna menos y Postgres la rechaza con el error nativo estable
+          # `cannot drop columns from view`; el resto del archivo no corre
+          # (ON_ERROR_STOP) y ya quedó aplicado en el apply inicial del stack.
+          # Ese mensaje de Postgres NO nombra la vista, así que el ancla a
+          # v_products_with_stock es estructural y se verifica acá mismo: el
+          # archivo tiene UN solo CREATE OR REPLACE VIEW y es el de
+          # public.v_products_with_stock — si alguien le suma otra vista, la
+          # tolerancia deja de aplicar y el paso falla en vez de tragarse un
+          # error ajeno. Cualquier otro error → exit 1. Reconverge con el
+          # `supabase db reset` de más abajo.
+          set +e
+          REAPPLY_OUT=$(psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261040000001_productos_categoria_text_retiro.sql 2>&1)
+          REAPPLY_RC=$?
+          set -e
+          echo "$REAPPLY_OUT"
+          if [ "$REAPPLY_RC" -ne 0 ]; then
+            VIEW_STMTS=$(grep -c 'CREATE OR REPLACE VIEW' supabase/migrations/20261040000001_productos_categoria_text_retiro.sql || true)
+            if echo "$REAPPLY_OUT" | grep -qF 'cannot drop columns from view' \
+               && [ "$VIEW_STMTS" = "1" ] \
+               && grep -qF 'CREATE OR REPLACE VIEW public.v_products_with_stock' supabase/migrations/20261040000001_productos_categoria_text_retiro.sql; then
+              echo "20261040000001 reapply chocó con v_products_with_stock ya recreada con una columna más (base_unit_id) por 20261062000001 (ventas-unidades-conversion) — reconverge con el 'supabase db reset' de más abajo"
+            else
+              echo "ERROR: el reapply de 20261040000001 falló por un motivo DISTINTO del esperado (o el archivo ya no tiene un único CREATE OR REPLACE VIEW sobre v_products_with_stock)."
+              exit 1
+            fi
+          fi
 
           # importador-gastos-transaccional: idempotente (CREATE OR REPLACE,
           # sin DROP), reaplicada localmente.
@@ -919,6 +978,62 @@ jobs:
             exit 1
           fi
           echo "Reconvergencia OK: constraints + firmas de función + ACLs quedaron IDÉNTICOS al estado previo a este paso."
+
+          # ventas-unidades-conversion (2026-09-25): reaplicación de
+          # 20261062000001, el ÚLTIMO eslabón de la cadena. Va DESPUÉS de la
+          # reconvergencia a propósito, no junto a las demás: la cadena de
+          # arriba reaplica 20261045000001 (CREATE OR REPLACE de
+          # rpc_atomic_update_sale_operation con su cuerpo de esa fecha) y no
+          # reaplica 20261060000001/20261061000001, así que al final de la
+          # cadena ese cuerpo no es ni el de partida del preflight de
+          # 20261062000001 ni el que ella deja → el preflight ABORTA siempre
+          # (y las otras nueve funciones volverían a su cuerpo de partida,
+          # ejercitando la rama de reescritura en vez de la de reaplicación).
+          # Sobre el estado reconvergido (= la historia real completa, con
+          # 20261062000001 ya aplicada por el reset), los diez cuerpos son
+          # exactamente `v_rewritten`: esto ejercita la rama de reaplicación
+          # del preflight (10 NOTICE "ya es el cuerpo de esta migración": los seis
+          # que escriben stock + los tres de reporting de la segunda revisión +
+          # check_low_margin de la tercera) y el gate embebido (sección 14), y
+          # prueba que DROP VIEW + ALTER TYPE +
+          # DROP/CREATE de las dos funciones de min_stock son re-ejecutables.
+          # SIN tolerancia (ON_ERROR_STOP=1 + `set -e`: cualquier error →
+          # rojo), y el schema tiene que quedar IDÉNTICO al de antes del paso:
+          # una reaplicación que cambie ACLs, firmas o constraints no es
+          # idempotente aunque salga con exit 0.
+          #
+          # REGLA PARA EL PR SIGUIENTE (cuarta revisión del PR #584): este
+          # bloque exige que las DIEZ funciones sigan con el cuerpo que
+          # 20261062000001 deja (_c29_confirm_order_core,
+          # rpc_create_sale_operation_v2, rpc_create_purchase_operation,
+          # rpc_atomic_update_sale_operation,
+          # rpc_atomic_update_purchase_operation, rpc_create_sale_operation,
+          # reporting_sales_lines_in_window, rpc_dashboard_kpi_summary,
+          # rpc_dashboard_channel_margin, check_low_margin). Una migración
+          # POSTERIOR que redefina cualquiera de ellas hace abortar el
+          # preflight de este reapply y pone validate-kpis en ROJO en un PR
+          # ajeno. Esa migración tiene que RETIRAR este bloque en el mismo PR
+          # (su propio gate pasa a ser el control de esas funciones) — el
+          # mismo criterio por el que 20261060000001 y 20261061000001, que
+          # también tienen preflight, no están en esta cadena.
+          UOM_OUT=$(psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261062000001_ventas_unidades_conversion.sql 2>&1) || { echo "$UOM_OUT"; echo "ERROR: el reapply de 20261062000001 falló (sin tolerancia)."; exit 1; }
+          echo "$UOM_OUT"
+          UOM_REAPPLIED=$(echo "$UOM_OUT" | grep -cF 'ya es el cuerpo de esta migraci' || true)
+          if [ "$UOM_REAPPLIED" != "10" ]; then
+            echo "ERROR: el reapply de 20261062000001 no tomó la rama de reaplicación del preflight en las 10 funciones (tomó $UOM_REAPPLIED/10): alguna quedó reescrita desde su cuerpo de partida, o sea que el estado reconvergido no es el que la migración deja."
+            exit 1
+          fi
+          if ! echo "$UOM_OUT" | grep -qF 'GATE ventas-unidades-conversion (embebido): PASS'; then
+            echo "ERROR: el reapply de 20261062000001 no imprimió el PASS de su gate embebido."
+            exit 1
+          fi
+          schema_snapshot > /tmp/schema_after_uom_reapply.txt
+          if ! diff -u /tmp/schema_before_reapply.txt /tmp/schema_after_uom_reapply.txt > /tmp/schema_diff_uom.txt; then
+            echo "NOT IDEMPOTENT: reaplicar 20261062000001 cambió el schema (constraints + firmas de función + ACLs):"
+            cat /tmp/schema_diff_uom.txt
+            exit 1
+          fi
+          echo "20261062000001 idempotente: rama de reaplicación 10/10, gate embebido PASS y schema IDÉNTICO al previo a este paso."
 
       # -v ON_ERROR_STOP=1 is required: without it psql prints RAISE EXCEPTION
       # errors but still exits 0, so failing assertions show green in CI.
@@ -2164,6 +2279,71 @@ jobs:
       # claim_pending 0 filas: el FECAESolicitar NUNCA sale con importes viejos).
       - name: Run venta editable sin CAE gate
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_venta_editable_sin_cae.sql
+
+      # ventas-unidades-conversion (2026-09-25, corregido post-revision PR #584):
+      # 20261062000001 ya se aplico al levantar el stack; este paso solo corre
+      # el gate. 16 bloques (A-P): (A) la definicion unica
+      # _uom_normalize_quantity caso por caso (relativa a la unidad base del
+      # PRODUCTO, tipo cruzado P0400 unit_type_mismatch, sin unidad base solo
+      # unidades base P0400 unit_requires_base_unit); (B) los SEIS caminos que
+      # escriben stock (formulario, POS, edicion de venta, alta y edicion de
+      # compra, mas la rama legacy del kill-switch y la variante que hereda la
+      # unidad base del padre) descuentan lo mismo para 450 g sobre un producto
+      # en kg -- antes el POS y las dos ediciones movian la cantidad CRUDA (450
+      # kg); (C) tipo cruzado rechazado en cada camino SIN rastro parcial,
+      # borrado que revierte lo normalizado e invariante
+      # SUM(quantity_delta) = branch_stock con unidades mixtas; (D)
+      # branch_stock.min_stock numeric(15,4): umbral de 0,5 kg propagado y con
+      # alerta; (E) introspeccion de cuerpos vivos, ACLs, firmas y COMMENTs
+      # (espejo del gate embebido, para que una migracion POSTERIOR que
+      # redefina una de las funciones no le pase por al lado); (F) unidades de
+      # SISTEMA (kg/g, sembradas por el propio gate si el stack no las tiene);
+      # (G) tenencia: la unidad de OTRA cuenta da P0404 sin dejar rastro; (H)
+      # residuo cero de la fixture (incluye la segunda cuenta y las unidades de
+      # sistema sembradas por el gate). Segunda revision: (I) contrato de precio
+      # D-F (el precio es por unidad de la LINEA: 100 g a $1,80/g = $180) y
+      # reporting en unidad BASE (ranking 0,1 kg / COGS 60, margen por canal,
+      # costo por venta del Tablero); (J) la reversa de la edicion usa el
+      # quantity_delta GUARDADO (D6); (K) 4 decimales, base propia de una
+      # variante, factor <= 0 rechazado; (L) trg_product_base_unit_guard:
+      # P0409 base_unit_locked tambien por PostgREST y, desde la tercera
+      # revision, al re-parentar o desenganchar una variante que hereda. Tercera
+      # revision: (M) D-F' el precio por unidad de la linea se guarda sin
+      # redondear (sales_order_items.price era numeric(15,2): el POS grababa
+      # 4,58 por 4,575 y editar sin cambios re-preciaba 2.058,75 -> 2.061) y el
+      # total es exacto en POS, formulario, compra y edicion; (N) la alerta de
+      # margen por email (check_low_margin) costea la cantidad en unidad base.
+      # (E) suma la introspeccion de la normalizacion DESPUES del FOR UPDATE en
+      # los seis caminos. Cuarta revision: (L) tambien rechaza ASIGNAR la
+      # unidad base sobre stock e historia grabados en otra unidad (historia en
+      # kg + base g dejaba el stock 1000 veces menor), el DELETE fisico del
+      # padre de una variante que sobrevive y el re-parent del importador (error
+      # de fila); (O) una unidad en uso no cambia de factor, tipo ni base
+      # (P0409 unit_in_use); (P) el total de dinero se redondea UNA vez
+      # (round(sum, 2)): 2 x 0,333 kg a $999 cargaban 665,34 contra una factura
+      # de 665,33. (E) cuenta las seis columnas de precio de linea y ubica lock
+      # y helper con regexp_instr.
+      - name: Run ventas unidades conversion gate
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_ventas_unidades_conversion.sql
+
+      # ventas-unidades-conversion, tercera revision (2026-09-25): carrera
+      # CAMBIO DE UNIDAD BASE vs COMPRA con DOS conexiones reales (una sesion
+      # nunca bloquea contra su propio lock). El trigger de la unidad base se
+      # evalua al hacer el UPDATE, antes del commit; si la compra normalizaba la
+      # cantidad ANTES de tomar el producto FOR UPDATE, leia la unidad
+      # commiteada (kg), esperaba la fila y escribia 2 kg que se leian 2 u
+      # (reproducido por la revision). Cinco casos: (a) cambio abierto vs compra
+      # -> P0400 sin stock ni movimiento; (b) compra abierta vs cambio -> P0409;
+      # (c) cambio de la unidad del PADRE abierto vs compra de la variante que
+      # hereda -> P0400. Control negativo ejecutado: con la normalizacion antes
+      # del FOR UPDATE, (a) termina en PURCHASE_OK con stock 2 en 'u'. Cuarta
+      # revision (write skew del re-parent): (d) re-parent de una variante con
+      # stock a un padre en kg ABIERTO vs cambio de la base de ese padre a 'u'
+      # -> P0409; (e) el orden inverso -> P0409. Control negativo ejecutado: sin
+      # el FOR SHARE sobre el padre nuevo, (d) termina en BASE_CHANGE_OK y (e) en
+      # REPARENT_OK (5 kg bajo un padre en 'u').
+      - name: Run ventas unidades conversion race gate (dos conexiones)
+        run: DB_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres bash supabase/tests/test_ventas_unidades_conversion_race.sh
 
       # venta-editable-sin-cae, caso (c) de la prueba de exclusion: el relay
       # tiene la fila de fiscal_documents TOMADA y la edicion entra en el medio.

@@ -7,6 +7,7 @@ import { ResponsiveModal } from "@/components/shared/responsive-modal"
 import { PurchaseOperationsList } from "@/components/compras/purchase-operations-list"
 import { InvoiceAIButton } from "@/components/invoice/InvoiceAIButton"
 import { useAuth } from "@/contexts/auth-context"
+import { useUnitsOfMeasure } from "@/hooks/use-units-of-measure"
 import { useOrgRole } from "@/hooks/useOrgRole"
 import { NoWriteAccessBanner } from "@/components/shared/NoWriteAccessBanner"
 import { ModuleMetricsWrapper } from "@/components/admin/ModuleMetricsWrapper"
@@ -24,6 +25,9 @@ export default function ComprasPage() {
   } = usePurchases()
 
   const { isAdmin } = useAuth()
+  // ventas-unidades-conversion (cuarta revisión, D-F′): el listado muestra la
+  // cantidad con el símbolo de su línea ("450 g") y lo exporta en el CSV.
+  const { unitsById } = useUnitsOfMeasure()
   const { isWriter } = useOrgRole()
 
   const [dialogOpen,       setDialogOpen]       = useState(false)
@@ -92,6 +96,7 @@ export default function ComprasPage() {
         onDeleteOperation={handleDeleteOperation}
         onEditOperation={handleEdit}
         onRefetch={refetch}
+        unitsById={unitsById}
       />
 
       <ResponsiveModal

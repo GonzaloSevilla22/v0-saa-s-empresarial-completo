@@ -7,6 +7,7 @@ import { SaleForm } from "@/components/forms/sale-form"
 import { ResponsiveModal } from "@/components/shared/responsive-modal"
 import { SaleOperationsList } from "@/components/ventas/sale-operations-list"
 import { useAuth } from "@/contexts/auth-context"
+import { useUnitsOfMeasure } from "@/hooks/use-units-of-measure"
 import { useOrgRole } from "@/hooks/useOrgRole"
 import { NoWriteAccessBanner } from "@/components/shared/NoWriteAccessBanner"
 import { ModuleMetricsWrapper } from "@/components/admin/ModuleMetricsWrapper"
@@ -24,6 +25,9 @@ export default function VentasPage() {
   } = useSales()
 
   const { isAdmin } = useAuth()
+  // ventas-unidades-conversion (cuarta revisión, D-F′): el listado muestra la
+  // cantidad con el símbolo de su línea ("450 g") y lo exporta en el CSV.
+  const { unitsById } = useUnitsOfMeasure()
   const { isWriter } = useOrgRole()
 
   const [dialogOpen,       setDialogOpen]       = useState(false)
@@ -94,6 +98,7 @@ export default function VentasPage() {
         onDeleteOperation={handleDeleteOperation}
         onEditOperation={handleEdit}
         onRefetch={refetch}
+        unitsById={unitsById}
       />
 
       <ResponsiveModal

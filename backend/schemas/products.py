@@ -27,12 +27,21 @@ class ProductCreate(BaseModel):
     # sólo faltaba el camino de escritura (ver ProductUpdate).
     cost: Decimal | None = None
     stock: Decimal = Decimal("0")
-    min_stock: int = 0
+    # ventas-unidades-conversion (D7): el umbral de alerta se expresa en la
+    # UNIDAD BASE del producto y admite fracciones ("avisar cuando queden
+    # 0,5 kg") — branch_stock.min_stock es numeric(15,4) desde 20261062000001.
+    # Nunca negativo: 422 acá, GREATEST(…, 0) en la RPC como red.
+    min_stock: Decimal = Field(default=Decimal("0"), ge=0)
     barcode: str | None = None
     sku: str | None = None
     parent_id: str | None = None
     is_variant: bool = False
     stock_control_type: str = "unit"
+    # ventas-unidades-conversion (D10): la unidad en que se lleva el stock del
+    # producto (FK units_of_measure, del sistema o de la cuenta). Hasta este
+    # change el formulario la mandaba y el backend la descartaba en silencio.
+    # NULL = sin unidad base (sólo admite unidades base al vender/comprar).
+    base_unit_id: uuid.UUID | None = None
 
 
 class ProductUpdate(BaseModel):
@@ -51,10 +60,15 @@ class ProductUpdate(BaseModel):
     price: Decimal | None = None
     cost: Decimal | None = None
     stock: Decimal | None = None
-    min_stock: int | None = None
+    # ventas-unidades-conversion (D7): fraccionario, nunca negativo (ver ProductCreate).
+    min_stock: Decimal | None = Field(default=None, ge=0)
     barcode: str | None = None
     sku: str | None = None
     stock_control_type: str | None = None
+    # ventas-unidades-conversion (D10): tri-estado por AUSENCIA de la clave
+    # (mismo molde que `cost`/`sku`/`category_id`): omitida conserva; uuid
+    # asigna; null desasigna.
+    base_unit_id: uuid.UUID | None = None
 
 
 class ProductOut(BaseModel):
@@ -79,6 +93,12 @@ class ProductOut(BaseModel):
     is_variant: bool | None
     stock_control_type: str | None
     created_at: datetime.datetime
+    # ventas-unidades-conversion (D10): expuesta por v_products_with_stock
+    # desde 20261062000001 (columna aditiva al final). Default None para que
+    # una fila de una base sin la migración siga deserializando.
+    # ventas-unidades-conversion (auditoría post-apply): unidad base EFECTIVA —
+    # la vista devuelve la propia o, para una variante, la de su padre.
+    base_unit_id: uuid.UUID | None = None
 
 
 # ── productos-categorias-sku (D14): recategorización en lote ─────────────────

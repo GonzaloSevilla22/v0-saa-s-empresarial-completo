@@ -32,6 +32,8 @@ import {
 } from "@/lib/receipt"
 import { getDocumentScriptNonce } from "@/lib/script-nonce"
 import { buildWhatsAppUrl, normalizeWhatsAppPhone } from "@/lib/phone-utils"
+import { useUnitsOfMeasure } from "@/hooks/use-units-of-measure"
+import { resolveUnit } from "@/lib/unit-utils"
 import type { SaleOperation } from "@/lib/group-operations"
 
 interface SaleReceiptButtonProps {
@@ -52,6 +54,14 @@ export function SaleReceiptButton({
   const [loadingWa, setLoadingWa]       = useState(false)
   const [copied, setCopied]             = useState(false)
 
+  // ventas-unidades-conversion (D8): la unidad de cada línea, desde el mismo
+  // mapa cacheado que usan los formularios.
+  const { unitsById } = useUnitsOfMeasure()
+  const unitSymbolFor = useCallback(
+    (unitId?: string) => resolveUnit(unitId, unitsById)?.symbol,
+    [unitsById],
+  )
+
   // ── Receipt options derived from user profile ────────────────────────────
   const receiptOpts = {
     businessName:    user?.businessName || user?.name || "Mi Negocio",
@@ -59,6 +69,7 @@ export function SaleReceiptButton({
     businessEmail:   user?.email,
     logoUrl:         user?.avatar,
     clientFirstName: clientFirstName ?? undefined,
+    unitSymbolFor,
   }
 
   // Does the client have a valid WhatsApp-capable phone number?

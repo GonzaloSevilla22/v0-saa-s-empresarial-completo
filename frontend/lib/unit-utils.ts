@@ -10,6 +10,7 @@
  * - Behavior driven by the UnitOfMeasure object — never by the calling module
  */
 
+import { roundUnitPrice } from "@/lib/cart-utils"
 import type { UnitOfMeasure } from "@/lib/types"
 
 // ─── Semantic predicates ──────────────────────────────────────────────────────
@@ -58,23 +59,122 @@ export function unitInputMin(unit?: UnitOfMeasure | null): number {
 // ─── Quantity normalization ───────────────────────────────────────────────────
 
 /**
- * Converts a display quantity (entered in the selected unit) to the normalized
- * base quantity that the DB stores in branch_stock (C-21: migrated from products.stock).
+ * Converts a display quantity (entered in the selected unit) to the quantity
+ * in which the product's stock is kept: the product's BASE unit (ventas-unidades-
+ * conversion D1). Mirror of the single SQL definition `_uom_normalize_quantity`
+ * that every stock-writing path uses server-side — this helper only lets the
+ * frontend validate stock locally before hitting the network; the server
+ * decides.
  *
- * The RPC does the same conversion server-side; this helper lets the frontend
- * validate stock locally before hitting the network.
+ *   normalized = displayQty × factor(unit) ÷ factor(product base unit)
+ *
+ * Rounded to 4 decimals (NUMERIC(15,4)) so `450 × 0.001` compares cleanly.
  *
  * @example
- * // product.stock stored in grams, kg.factor = 1000
- * toBaseQuantity(2.5, kgUnit)      → 2500
- * // no unit → factor = 1
- * toBaseQuantity(3, undefined)     → 3
+ * // product kept in kg (factor 1), line entered in g (factor 0.001)
+ * toBaseQuantity(450, gUnit, kgUnit)   → 0.45
+ * // product kept in g, line entered in kg
+ * toBaseQuantity(0.5, kgUnit, gUnit)   → 500
+ * // line without unit → the quantity as-is, whatever the product's base unit
+ * // (the SQL returns `p_quantity::numeric(15,4)` without looking at the base)
+ * toBaseQuantity(3, undefined, gUnit)  → 3
  */
 export function toBaseQuantity(
   displayQty: number,
   unit?: UnitOfMeasure | null,
+  productBaseUnit?: UnitOfMeasure | null,
 ): number {
-  return displayQty * (unit?.factor ?? 1)
+  if (!unit) return roundToNumeric4(displayQty)
+  const factor = unit.factor / (productBaseUnit?.factor ?? 1)
+  return roundToNumeric4(displayQty * factor)
+}
+
+/**
+ * Re-expresses a unit PRICE (or cost) from one unit of a line to another —
+ * the price contract of ventas-unidades-conversion (D-F, provisional until the
+ * PO signs off): the `amount`/`price` of a line is per unit of THE LINE, so
+ * `amount × quantity` stays the line total the server recomputes
+ * (`rpc_create_sale_operation`) or takes from the client (`subtotal` of the
+ * POS), as in every historical sale. The catalogue price is per BASE unit of
+ * the product; choosing another unit rescales it with the SAME factor that
+ * `toBaseQuantity` uses, so price(line) × qty(line) = price(base) × qty(base).
+ *
+ * "No unit" means the product's base unit (same reading as `toBaseQuantity`).
+ *
+ * The result keeps its full precision (D-F′, third review of PR #584): only the
+ * binary noise is stripped (`roundUnitPrice`, 15 significant digits). It used
+ * to be rounded to 4 decimals like a stock quantity, and a catalogue price with
+ * cents per kg needs 5 per gram — 450 g at $1.234,56/kg charged $555,57, not
+ * $555,552, and kg → g → kg came back as $1.234,60.
+ *
+ * @example
+ * convertUnitPrice(1800, kg, g, kg)     → 1.8      ($/g from $/kg)
+ * convertUnitPrice(1234.56, kg, g, kg)  → 1.23456  (not 1.2346)
+ * convertUnitPrice(100, u, doc, u)      → 1200     ($/docena from $/u)
+ */
+export function convertUnitPrice(
+  price: number,
+  fromUnit?: UnitOfMeasure | null,
+  toUnit?: UnitOfMeasure | null,
+  productBaseUnit?: UnitOfMeasure | null,
+): number {
+  const baseFactor = productBaseUnit?.factor ?? 1
+  const fromFactor = fromUnit?.factor ?? baseFactor
+  const toFactor   = toUnit?.factor ?? baseFactor
+  if (fromFactor === toFactor) return price
+  return roundUnitPrice((price * toFactor) / fromFactor)
+}
+
+/** Same precision as NUMERIC(15,4), the column type of every stock quantity. */
+function roundToNumeric4(qty: number): number {
+  return Math.round(qty * 10_000) / 10_000
+}
+
+// ─── Unit compatibility (selector) ─────────────────────────────────────────
+
+/**
+ * Returns true when a unit is a BASE unit of its type (factor 1, no parent).
+ * Kilogramo, Litro, Metro and Unidad are base units; Gramo, Docena, mL are not.
+ */
+export function isBaseUnit(unit: Pick<UnitOfMeasure, "factor" | "baseUnitId">): boolean {
+  return unit.factor === 1 && !unit.baseUnitId
+}
+
+/**
+ * The units a line may use for a product — the ONLY definition, shared by the
+ * POS, the sale form and the purchase form (ventas-unidades-conversion D3/D5),
+ * and the exact mirror of what `_uom_normalize_quantity` accepts server-side:
+ *
+ * - product WITH a base unit  → every unit of the same `type` (the base included);
+ *   converting across types (kg ↔ L) is never defined, so those are not offered.
+ * - product WITHOUT base unit → only base units (factor 1): there is no
+ *   reference against which to convert a derived unit (this is how 0,381 "mL"
+ *   became a -0.0004 stock movement on 2026-09-22).
+ *
+ * @example
+ * compatibleUnits(units, kgUnit)    → [kg, g, tn]
+ * compatibleUnits(units, undefined) → [u, kg, L, m]
+ */
+export function compatibleUnits(
+  units: UnitOfMeasure[],
+  productBaseUnit?: UnitOfMeasure | null,
+): UnitOfMeasure[] {
+  // Auditoría post-apply: un solo predicado (isUnitCompatible); antes había
+  // una segunda copia acá.
+  return units.filter((u) => isUnitCompatible(u, productBaseUnit))
+}
+
+/**
+ * Whether a previously chosen unit is still valid for a product — used to
+ * fall back to the product's base unit (or "no unit") when the product changes.
+ */
+export function isUnitCompatible(
+  unit: UnitOfMeasure | null | undefined,
+  productBaseUnit?: UnitOfMeasure | null,
+): boolean {
+  if (!unit) return true
+  if (productBaseUnit) return unit.type === productBaseUnit.type
+  return isBaseUnit(unit)
 }
 
 // ─── Lookup helpers ───────────────────────────────────────────────────────────

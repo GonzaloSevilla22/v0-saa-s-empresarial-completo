@@ -11,8 +11,11 @@
  * La fila de "Yerba suelta (kg)" (a granel, al final) documenta el stock
  * decimal ("2,5") y que el mínimo es siempre entero — el validador admite
  * decimales en el stock (branch_stock.quantity es numeric(15,4)) pero exige
- * entero en el mínimo (products.min_stock / branch_stock.min_stock). Aceite
- * de oliva vuelve a stock 30: una botella no se fracciona.
+ * entero en el mínimo. No es por la columna (branch_stock.min_stock también es
+ * numeric(15,4) desde ventas-unidades-conversion y el formulario de producto
+ * acepta 0,5 kg): es una limitación del importador — `rpc_bulk_upsert_products`
+ * castea el mínimo con `::integer`. Aceite de oliva vuelve a stock 30: una
+ * botella no se fracciona.
  */
 
 export const TEMPLATE_HEADER = "Tipo;Nombre;Precio;Costo;Categoría;Stock;Stock mínimo;Código;SKU"

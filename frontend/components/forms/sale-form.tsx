@@ -25,7 +25,9 @@ import {
   unitInputStep,
   unitInputMin,
   toBaseQuantity,
+  convertUnitPrice,
   resolveUnit,
+  compatibleUnits,
 } from "@/lib/unit-utils"
 import {
   calcSaleSubtotal,
@@ -268,6 +270,26 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
     [unitId, unitsById],
   )
 
+  // ventas-unidades-conversion (D1/D5): unidad en que se lleva el stock del
+  // producto; normalización local y opciones del selector salen de la misma
+  // función que en el POS y en el formulario de compra.
+  const productBaseUnit = useMemo(
+    () => resolveUnit(selectedProduct?.baseUnitId, unitsById),
+    [selectedProduct, unitsById],
+  )
+  const unitOptions = useMemo(
+    () => compatibleUnits(units, productBaseUnit),
+    [units, productBaseUnit],
+  )
+
+  // Contrato D-F: el precio de catálogo está en la unidad BASE; el aviso
+  // "Cat." compara contra ese precio re-expresado en la unidad de la línea
+  // (si no, elegir gramos mostraría siempre "precio modificado").
+  const catalogPriceForLine = useMemo(
+    () => convertUnitPrice(selectedProduct?.price ?? 0, productBaseUnit, selectedUnit, productBaseUnit),
+    [selectedProduct, productBaseUnit, selectedUnit],
+  )
+
   // Input constraints for the staged quantity — driven by selected unit type
   const stagedStep = useMemo(() => unitInputStep(selectedUnit), [selectedUnit])
   const stagedMin  = useMemo(() => unitInputMin(selectedUnit),  [selectedUnit])
@@ -285,8 +307,8 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
 
   // Quantity converted to base unit — used for local stock validation
   const stagedQuantityNormalized = useMemo(
-    () => toBaseQuantity(quantity, selectedUnit),
-    [quantity, selectedUnit],
+    () => toBaseQuantity(quantity, selectedUnit, productBaseUnit),
+    [quantity, selectedUnit, productBaseUnit],
   )
 
   // ── Option lists ────────────────────────────────────────────────────────────
@@ -309,6 +331,17 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
   const clientOptions = useMemo(
     () => clients.map((c) => ({ value: c.id, label: c.name })),
     [clients],
+  )
+
+  // Corrección del PR #584 (edición): una línea rehidratada no trae
+  // step/minQty — se derivan de su unidad (o de la unidad base del producto)
+  // con las mismas funciones que el alta. Sin esto, bajar 0,45 kg a 0,40 kg
+  // en el carrito de edición lo subía en silencio a 1 (`?? 1`).
+  const lineUnitOf = useCallback(
+    (item: { unitId?: string; productId: string }) =>
+      resolveUnit(item.unitId, unitsById) ??
+      resolveUnit(productById.get(item.productId)?.baseUnitId, unitsById),
+    [unitsById, productById],
   )
 
   // ── Handlers ────────────────────────────────────────────────────────────────
@@ -351,7 +384,7 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
             ? {
                 ...item,
                 quantity:     newQty,
-                quantityBase: toBaseQuantity(newQty, baseUnit),
+                quantityBase: toBaseQuantity(newQty, baseUnit, baseUnit),
                 subtotal:     calcSaleSubtotal(product.price, newQty, item.discount),
               }
             : item,
@@ -370,8 +403,7 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
             subtotal:     calcSaleSubtotal(product.price, qty, 0),
             unitId:       product.baseUnitId || undefined,
             unitSymbol:   baseUnit?.symbol,
-            unitFactor:   baseUnit?.factor,
-            quantityBase: toBaseQuantity(qty, baseUnit),
+            quantityBase: toBaseQuantity(qty, baseUnit, baseUnit),
             step,
             minQty:       qty,
           },
@@ -386,7 +418,11 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
     setDiscount(0)
     // Pre-select the product's base unit so step/min are immediately correct
     const p = products.find((x) => x.id === id)
-    setUnitId(p?.baseUnitId ?? "")
+    const nextUnitId = p?.baseUnitId ?? ""
+    setUnitId(nextUnitId)
+    // ventas-unidades-conversion (D5): la cantidad arranca en el mínimo de la
+    // unidad base (0,001 para medibles), no en un 1 fijo.
+    setQuantity(unitInputMin(resolveUnit(nextUnitId, unitsById)))
     setUnitPrice(p?.price ?? 0)
   }
 
@@ -401,11 +437,14 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
       (item) => item.productId === productId && (item.unitId ?? "") === unitId,
     )
 
+    // El stock del producto se lleva en su unidad BASE: el disponible se
+    // informa con el símbolo de la base, nunca con el de la línea (con la
+    // línea en gramos decía "0.550 g" sobre 0,55 kg — corrección del PR #584).
     if (existing) {
       const newQty           = existing.quantity + quantity
-      const newNormalized    = toBaseQuantity(newQty, selectedUnit)
+      const newNormalized    = toBaseQuantity(newQty, selectedUnit, productBaseUnit)
       if (newNormalized > selectedProduct.stock) {
-        toast.error(`Stock insuficiente (disponible: ${formatStock(selectedProduct.stock, selectedUnit?.symbol)})`)
+        toast.error(`Stock insuficiente (disponible: ${formatStock(selectedProduct.stock, productBaseUnit?.symbol)})`)
         return
       }
       setCartItems((prev) =>
@@ -424,7 +463,7 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
     } else {
       // New cart entry (different product or different unit)
       if (stagedQuantityNormalized > selectedProduct.stock) {
-        toast.error(`Stock insuficiente (disponible: ${formatStock(selectedProduct.stock, selectedUnit?.symbol)})`)
+        toast.error(`Stock insuficiente (disponible: ${formatStock(selectedProduct.stock, productBaseUnit?.symbol)})`)
         return
       }
       setCartItems((prev) => [
@@ -439,7 +478,6 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
           subtotal:      stagedSubtotal,
           unitId:        unitId || undefined,
           unitSymbol:    selectedUnit?.symbol,
-          unitFactor:    selectedUnit?.factor,
           quantityBase:  stagedQuantityNormalized,
           step:          stagedStep,
           minQty:        stagedMin,
@@ -465,11 +503,15 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
       prev.map((item) => {
         if (item.id !== id) return item
         // Use the item's own minQty — not a global 1 — so medibles can go below 1
-        const newQty = Math.max(item.minQty ?? 1, qty)
+        const newQty = Math.max(item.minQty ?? unitInputMin(lineUnitOf(item)), qty)
         return {
           ...item,
           quantity:     newQty,
-          quantityBase: toBaseQuantity(newQty, resolveUnit(item.unitId, unitsById)),
+          quantityBase: toBaseQuantity(
+            newQty,
+            resolveUnit(item.unitId, unitsById),
+            resolveUnit(productById.get(item.productId)?.baseUnitId, unitsById),
+          ),
           subtotal:     calcSaleSubtotal(item.unitPrice, newQty, item.discount),
         }
       }),
@@ -714,10 +756,10 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
               quantity:    item.quantity,
               unitValue:   item.unitPrice,
               subtotal:    item.subtotal,
-              step:        item.step,
-              minQty:      item.minQty,
+              step:        item.step ?? unitInputStep(lineUnitOf(item)),
+              minQty:      item.minQty ?? unitInputMin(lineUnitOf(item)),
               badge: [
-                item.unitSymbol ?? null,
+                item.unitSymbol ?? lineUnitOf(item)?.symbol ?? null,
                 item.discount > 0 ? `${item.discount}% desc.` : null,
               ]
                 .filter(Boolean)
@@ -1032,9 +1074,9 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
               <div className="flex flex-col gap-1">
                 <Label className="text-[10px] text-muted-foreground flex items-center justify-between">
                   Precio unit.
-                  {unitPrice !== selectedProduct!.price && (
+                  {unitPrice !== catalogPriceForLine && (
                     <span className="text-[9px] text-amber-400 tabular-nums">
-                      Cat. {formatMoney(selectedProduct!.price, currency)}
+                      Cat. {formatMoney(catalogPriceForLine, currency)}
                     </span>
                   )}
                 </Label>
@@ -1072,14 +1114,22 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
                       setUnitId(next)
                       const nextUnit = next ? unitsById.get(next) : undefined
                       setQuantity(unitInputMin(nextUnit))
+                      // Contrato D-F (precio por unidad de la LÍNEA): el precio
+                      // se re-expresa con el mismo factor que la cantidad —
+                      // 100 g a $1.800/kg cobran $180, no $180.000.
+                      setUnitPrice((prev) => convertUnitPrice(prev, selectedUnit, nextUnit, productBaseUnit))
                     }}
                   >
                     <SelectTrigger className="bg-background border-border text-foreground h-10 text-sm">
                       <SelectValue placeholder="Base (×1)" />
                     </SelectTrigger>
                     <SelectContent className="bg-popover border-border">
-                      <SelectItem value="__none__">Sin unidad (base)</SelectItem>
-                      {units.map((u) => (
+                      {/* ventas-unidades-conversion (D5): sólo unidades compatibles
+                          con la unidad base del producto (misma regla que el POS). */}
+                      {!productBaseUnit && (
+                        <SelectItem value="__none__">Sin unidad (base)</SelectItem>
+                      )}
+                      {unitOptions.map((u) => (
                         <SelectItem key={u.id} value={u.id}>
                           {u.symbol} — {u.name}
                         </SelectItem>

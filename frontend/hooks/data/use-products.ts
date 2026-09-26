@@ -21,13 +21,19 @@ interface ProductApiRow {
   price: string | number | null
   cost: string | number | null
   stock: string | number
-  min_stock: number | null
+  // ventas-unidades-conversion: `branch_stock.min_stock` es numeric(15,4) y
+  // FastAPI serializa el Decimal como STRING ("0.5000"), igual que stock /
+  // price / cost. Sin el Number() del mapeo, "5.0000".toFixed() tiraba /stock.
+  min_stock: string | number | null
   barcode: string | null
   sku: string | null
   is_variant: boolean | null
   stock_control_type: string | null
   created_at: string
   parent_id?: string | null
+  // ventas-unidades-conversion (D10): unidad en que se lleva el stock; ausente
+  // en una base sin la migración → undefined.
+  base_unit_id?: string | null
 }
 
 function mapProduct(p: ProductApiRow): Product {
@@ -46,12 +52,16 @@ function mapProduct(p: ProductApiRow): Product {
     price,
     margin:           cost == null ? null : (price > 0 ? Math.round(((price - cost) / price) * 100) : 0),
     stock:            Number(p.stock),
-    minStock:         p.min_stock ?? 0,
+    minStock:         p.min_stock == null ? 0 : Number(p.min_stock),
     barcode:          p.barcode   ?? undefined,
     sku:              p.sku       ?? undefined,
     parentId:         p.parent_id ?? undefined,
     isVariant:        p.is_variant ?? false,
     stockControlType: (p.stock_control_type ?? "tracked") as Product["stockControlType"],
+    // ventas-unidades-conversion (D10): hasta este change el hook no mapeaba
+    // la unidad base, así que el catálogo mostraba "uds" para todo y el
+    // selector de unidad de los formularios nunca conocía la del producto.
+    baseUnitId:       p.base_unit_id ?? undefined,
   }
 }
 
@@ -225,6 +235,9 @@ export function useProducts() {
         parent_id:          product.parentId    ?? null,
         is_variant:         product.isVariant,
         stock_control_type: product.stockControlType ?? "tracked",
+        // ventas-unidades-conversion (D10): el formulario ya la mandaba y se
+        // perdía acá. null = sin unidad base.
+        base_unit_id:       product.baseUnitId ?? null,
       })
     },
     onSuccess: () => {
@@ -255,6 +268,14 @@ export function useProducts() {
         barcode:            product.barcode     ?? null,
         sku:                product.sku         ?? null,
         stock_control_type: product.stockControlType ?? "tracked",
+        // ventas-unidades-conversion (D10): el formulario manda siempre el
+        // estado vigente del campo — null desasigna (misma semántica que sku).
+        // ventas-unidades-conversion (auditoría post-apply): tri-estado por
+        // ausencia de punta a punta — el campo se OMITE cuando el formulario no
+        // lo determina (variante, padre variant_only, producto no rastreado) y
+        // el backend conserva el valor; un uuid asigna. Antes `undefined` se
+        // mandaba como `null` y desasignaba la unidad base al editar el nombre.
+        ...(product.baseUnitId !== undefined ? { base_unit_id: product.baseUnitId } : {}),
       })
     },
     onSuccess: () => {

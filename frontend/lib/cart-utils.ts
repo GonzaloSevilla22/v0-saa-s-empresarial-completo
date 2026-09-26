@@ -10,6 +10,11 @@
  * Precision contract
  * - All subtotals are rounded to 4 decimal places (matches NUMERIC(15,4) in DB)
  * - toFixed(4) via _round4 prevents floating-point drift (1.1 * 3 ≠ 3.3000…03)
+ * - A line UNIT PRICE is NOT rounded to a fixed number of decimals
+ *   (ventas-unidades-conversion D-F′): re-expressed per gram a catalogue price
+ *   with cents needs 5 decimals ($1.234,56/kg = $1,23456/g) and, per mg, 8.
+ *   `roundUnitPrice` only strips binary noise (15 significant digits); the
+ *   price columns of every document line are unconstrained NUMERIC.
  */
 
 // ─── Operation ID ─────────────────────────────────────────────────────────────
@@ -42,9 +47,11 @@ export interface SaleCartItem {
   unitId?: string
   /** Symbol shown in cart and on receipt (e.g. "kg", "doc"). */
   unitSymbol?: string
-  /** Conversion factor to base unit — used for server-side stock accounting. */
-  unitFactor?: number
-  /** Visual qty × unitFactor — pre-normalized for local stock validation. */
+  /**
+   * Visual qty converted to the PRODUCT's base unit (ventas-unidades-conversion
+   * D1/D5) — pre-normalized for local stock validation only; the server
+   * normalizes again with the single SQL definition and is the one that decides.
+   */
   quantityBase?: number
   // ── Input constraints (driven by unit type) ────────────────────────────────
   /** HTML input step: 1 for unitarios, 0.001 for medibles. */
@@ -73,7 +80,26 @@ export function calcSaleSubtotal(
  */
 export function unitPriceFromSubtotal(subtotal: number, qty: number): number {
   if (qty <= 0) return 0
-  return _round4(subtotal / qty)
+  return roundUnitPrice(subtotal / qty)
+}
+
+/**
+ * Cleans the binary floating-point noise of a line UNIT PRICE without
+ * truncating its precision (ventas-unidades-conversion D-F′, provisional until
+ * the PO signs off): 15 significant digits, the precision a double carries
+ * reliably. Rounding to a fixed 4 decimals broke the line total as soon as the
+ * unit is small — $1.234,56/kg is $1,23456/g, and 1,2346 × 450 g charged
+ * $555,57 instead of $555,552 (in mg, 1000× worse); a subtotal typed on a line
+ * in grams did not round-trip either (2000 / 450 → 4,4444 → $1.999,98).
+ *
+ * @example
+ * roundUnitPrice(1234.56 * 0.001)   → 1.23456   (not 1.2345599999999999)
+ * roundUnitPrice(1.1 * 0.001)       → 0.0011    (not 0.0011000000000000001)
+ * roundUnitPrice(10000 / 3)         → 3333.33333333333
+ */
+export function roundUnitPrice(price: number): number {
+  if (!Number.isFinite(price)) return price
+  return Number(price.toPrecision(15))
 }
 
 // ─── Purchase Cart ────────────────────────────────────────────────────────────
@@ -93,9 +119,7 @@ export interface PurchaseCartItem {
   unitId?: string
   /** Symbol shown in cart (e.g. "kg", "doc"). */
   unitSymbol?: string
-  /** Conversion factor to base unit. */
-  unitFactor?: number
-  /** Visual qty × unitFactor — pre-normalized for local validation. */
+  /** Visual qty converted to the PRODUCT's base unit — local validation only. */
   quantityBase?: number
   // ── Input constraints (driven by unit type) ────────────────────────────────
   /** HTML input step: 1 for unitarios, 0.001 for medibles. */

@@ -81,6 +81,9 @@ export function formatQuantity(qty: number, unitSymbol?: string | null): string 
  * (grams within kg, millilitres within L, etc.) and align with NUMERIC(15,4).
  */
 function _fmtQtyNum(qty: number): string {
-  if (Number.isInteger(qty)) return qty.toString()
-  return qty.toFixed(3)
+  // Defensa: un Decimal serializado ("5.0000") que llegue sin mapear no puede
+  // tirar la pantalla (`"5.0000".toFixed` → TypeError rompió /stock, PR #584).
+  const n = Number(qty)
+  if (Number.isInteger(n)) return n.toString()
+  return n.toFixed(3)
 }

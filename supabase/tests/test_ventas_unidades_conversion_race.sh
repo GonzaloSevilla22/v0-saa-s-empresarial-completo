@@ -20,7 +20,7 @@
 # compra obtiene el lock, READ COMMITTED le da una foto nueva: el helper lee
 # la unidad base nueva y rechaza la línea en g con P0400 unit_type_mismatch.
 #
-# Tres casos, los tres con DOS conexiones reales:
+# Cinco casos, los cinco con DOS conexiones reales:
 #   (a) cambio de unidad base ABIERTO vs compra → la compra termina en P0400,
 #       sin stock, sin movimiento y sin fila de compra.
 #   (b) compra ABIERTA vs cambio de unidad base → el cambio espera la fila,
@@ -28,6 +28,16 @@
 #   (c) una VARIANTE que hereda la unidad del padre: cambio de la unidad del
 #       PADRE abierto (el trigger toma la variante FOR UPDATE) vs compra de la
 #       variante → P0400; la variante no queda con stock en la unidad vieja.
+#   (d) (cuarta revisión, write skew) RE-PARENT de una variante con stock que
+#       hereda kg, a otro padre en kg, ABIERTO vs cambio de la unidad base de
+#       ese padre nuevo a 'u'. El FK sólo toma KEY SHARE sobre el padre nuevo
+#       (no choca con el NO KEY UPDATE del cambio de base) y el cambio no ve
+#       todavía a la variante como hija: los dos pasaban y quedaban 5 kg
+#       leyéndose 5 u. Con FOR SHARE sobre el padre nuevo el cambio de base
+#       espera, ve a la hija con stock y termina en P0409.
+#   (e) la misma carrera en el otro orden: cambio de la unidad base del padre
+#       nuevo ABIERTO vs re-parent → el re-parent espera, lee la unidad nueva
+#       y termina en P0409 (antes leía la commiteada, kg, y pasaba).
 #
 # Sólo la COMPRA es alcanzable: una venta necesita stock > 0 en la sucursal,
 # y con stock distinto de 0 el trigger ya rechaza el cambio de unidad base —
@@ -109,6 +119,12 @@ DECLARE
   v_pb      uuid;
   v_parent  uuid;
   v_var     uuid;
+  v_p1      uuid;   -- (d) padre kg de origen
+  v_p2      uuid;   -- (d) padre kg de destino (su base se cambia en paralelo)
+  v_v1      uuid;   -- (d) variante que hereda kg, con stock
+  v_p3      uuid;   -- (e) padre kg de origen
+  v_p4      uuid;   -- (e) padre kg de destino
+  v_v2      uuid;   -- (e) variante que hereda kg, con stock
 BEGIN
   INSERT INTO auth.users (id, aud, role, email, created_at, updated_at, raw_user_meta_data)
   VALUES (v_user, 'authenticated', 'authenticated', 'ventas-unidades-race@test.local', now(), now(),
@@ -136,12 +152,32 @@ BEGIN
   INSERT INTO public.products (user_id, account_id, name, sku, cost, price, parent_id, is_variant)
   VALUES (v_user, v_account, 'Queso VUCR — horma', 'VUCR-V', 900, 1800, v_parent, true) RETURNING id INTO v_var;
 
+  -- (d)/(e) cuarta revisión: re-parent vs cambio de la base del padre nuevo.
+  INSERT INTO public.products (user_id, account_id, name, sku, cost, price, base_unit_id, stock_control_type)
+  VALUES (v_user, v_account, 'Salame VUCR P1 (kg)', 'VUCR-P1', 900, 1800, v_kg, 'variant_only') RETURNING id INTO v_p1;
+  INSERT INTO public.products (user_id, account_id, name, sku, cost, price, base_unit_id, stock_control_type)
+  VALUES (v_user, v_account, 'Salame VUCR P2 (kg)', 'VUCR-P2', 900, 1800, v_kg, 'variant_only') RETURNING id INTO v_p2;
+  INSERT INTO public.products (user_id, account_id, name, sku, cost, price, parent_id, is_variant)
+  VALUES (v_user, v_account, 'Salame VUCR — picado fino', 'VUCR-V1', 900, 1800, v_p1, true) RETURNING id INTO v_v1;
+  INSERT INTO public.products (user_id, account_id, name, sku, cost, price, base_unit_id, stock_control_type)
+  VALUES (v_user, v_account, 'Salame VUCR P3 (kg)', 'VUCR-P3', 900, 1800, v_kg, 'variant_only') RETURNING id INTO v_p3;
+  INSERT INTO public.products (user_id, account_id, name, sku, cost, price, base_unit_id, stock_control_type)
+  VALUES (v_user, v_account, 'Salame VUCR P4 (kg)', 'VUCR-P4', 900, 1800, v_kg, 'variant_only') RETURNING id INTO v_p4;
+  INSERT INTO public.products (user_id, account_id, name, sku, cost, price, parent_id, is_variant)
+  VALUES (v_user, v_account, 'Salame VUCR — picado grueso', 'VUCR-V2', 900, 1800, v_p3, true) RETURNING id INTO v_v2;
+  PERFORM set_config('request.jwt.claims', json_build_object('sub', v_user::text, 'role', 'authenticated')::text, true);
+  PERFORM set_config('request.jwt.claim.sub', v_user::text, true);
+  PERFORM public.rpc_adjust_branch_stock(v_v1, v_branch, 5, 'seed gate VUCR (d)');
+  PERFORM public.rpc_adjust_branch_stock(v_v2, v_branch, 5, 'seed gate VUCR (e)');
+
   CREATE TEMP TABLE IF NOT EXISTS _race_out (k text, v text);
   DELETE FROM _race_out;
   INSERT INTO _race_out VALUES
     ('user', v_user::text), ('account', v_account::text), ('branch', v_branch::text),
     ('kg', v_kg::text), ('g', v_g::text), ('u', v_u::text),
-    ('pa', v_pa::text), ('pb', v_pb::text), ('parent', v_parent::text), ('var', v_var::text);
+    ('pa', v_pa::text), ('pb', v_pb::text), ('parent', v_parent::text), ('var', v_var::text),
+    ('pone', v_p1::text), ('ptwo', v_p2::text), ('vone', v_v1::text),
+    ('pthree', v_p3::text), ('pfour', v_p4::text), ('vtwo', v_v2::text);
 END $$;
 SELECT string_agg(k || '=' || v, ';' ORDER BY k) FROM _race_out;
 SQL
@@ -149,7 +185,7 @@ SQL
 
 eval "$(echo "$FIXTURE" | tr ';' '\n' | grep -E '^[a-z]+=' | sed 's/^/R_/')"
 USER_ID="$R_user"; ACCOUNT_ID="$R_account"
-[ -n "${R_var:-}" ] || fail "el fixture no devolvió los productos"
+[ -n "${R_var:-}" ] && [ -n "${R_vtwo:-}" ] || fail "el fixture no devolvió los productos"
 echo "fixture: account=$ACCOUNT_ID branch=$R_branch"
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -213,6 +249,7 @@ stock_of()     { q "SELECT COALESCE(SUM(quantity), 0)::numeric(15,4) FROM public
 movements_of() { q "SELECT count(*) FROM public.stock_movements WHERE product_id = '$1';"; }
 purchases_of() { q "SELECT count(*) FROM public.purchases WHERE product_id = '$1';"; }
 base_of()      { q "SELECT COALESCE(base_unit_id::text, 'NULL') FROM public.products WHERE id = '$1';"; }
+parent_of()    { q "SELECT COALESCE(parent_id::text, 'NULL') FROM public.products WHERE id = '$1';"; }
 
 # ═════════════════════════════════════════════════════════════════════════════
 # (a) Cambio de unidad base ABIERTO vs compra
@@ -302,7 +339,77 @@ echo "$B_OUT" | grep -q 'PURCHASE_ERR sqlstate=P0400' \
 [ "$(movements_of "$R_var")" = "0" ] || fail "(c): quedaron movimientos de la variante"
 echo "PASS (c): con el cambio de unidad del padre abierto, la compra de la variante espera, lee la unidad heredada NUEVA y rechaza (P0400)."
 
+# ═════════════════════════════════════════════════════════════════════════════
+# (d) Re-parent ABIERTO vs cambio de la unidad base del padre NUEVO
+# ═════════════════════════════════════════════════════════════════════════════
+psql "$DB_URL" -X -q -t -A >/dev/null 2>&1 <<SQL &
+BEGIN;
+UPDATE public.products SET parent_id = '$R_ptwo' WHERE id = '$R_vone';
+$A_WAIT_BLOCK
+COMMIT;
+SQL
+A_PID=$!
+wait_for_a
+echo "sesión A: re-parent de la variante (5 kg, hereda kg) al padre P2 (kg) ABIERTO — misma unidad efectiva, el trigger lo dejó pasar"
+B_OUT=$(psql "$DB_URL" -X -q -t -A 2>&1 <<SQL
+SET statement_timeout = '25s';
+DO \$\$
+DECLARE v_sqlstate text; v_msg text;
+BEGIN
+  UPDATE public.products SET base_unit_id = '$R_u' WHERE id = '$R_ptwo';
+  RAISE NOTICE 'BASE_CHANGE_OK';
+EXCEPTION WHEN OTHERS THEN
+  GET STACKED DIAGNOSTICS v_sqlstate = RETURNED_SQLSTATE;
+  v_msg := SQLERRM;
+  RAISE NOTICE 'BASE_CHANGE_ERR sqlstate=% msg=%', v_sqlstate, v_msg;
+END \$\$;
+SQL
+)
+wait "$A_PID" 2>/dev/null
+A_PID=""
+
+[ "$(parent_of "$R_vone")" = "$R_ptwo" ] || fail "(d): el re-parent de la sesión A no commiteó (padre $(parent_of "$R_vone"))"
+echo "$B_OUT" | grep -q 'BASE_CHANGE_ERR sqlstate=P0409' \
+  || fail "(d): el cambio de la unidad base del padre nuevo tenía que esperar el re-parent y terminar en P0409. Salida: $B_OUT | base de P2=$(base_of "$R_ptwo") — sin FOR SHARE sobre el padre nuevo los dos pasan y la variante queda con 5 kg bajo un padre en 'u'."
+[ "$(base_of "$R_ptwo")" = "$R_kg" ] || fail "(d): la unidad base de P2 cambió debajo de la variante con stock ($(base_of "$R_ptwo"))"
+echo "PASS (d): con el re-parent abierto, el cambio de base del padre nuevo espera la fila (FOR SHARE), ve a la variante con stock y rechaza con P0409."
+
+# ═════════════════════════════════════════════════════════════════════════════
+# (e) Cambio de la unidad base del padre NUEVO abierto vs re-parent
+# ═════════════════════════════════════════════════════════════════════════════
+psql "$DB_URL" -X -q -t -A >/dev/null 2>&1 <<SQL &
+BEGIN;
+UPDATE public.products SET base_unit_id = '$R_u' WHERE id = '$R_pfour';
+$A_WAIT_BLOCK
+COMMIT;
+SQL
+A_PID=$!
+wait_for_a
+echo "sesión A: cambio de la unidad base de P4 kg → u ABIERTO (P4 no tiene hijas: el trigger lo dejó pasar)"
+B_OUT=$(psql "$DB_URL" -X -q -t -A 2>&1 <<SQL
+SET statement_timeout = '25s';
+DO \$\$
+DECLARE v_sqlstate text; v_msg text;
+BEGIN
+  UPDATE public.products SET parent_id = '$R_pfour' WHERE id = '$R_vtwo';
+  RAISE NOTICE 'REPARENT_OK';
+EXCEPTION WHEN OTHERS THEN
+  GET STACKED DIAGNOSTICS v_sqlstate = RETURNED_SQLSTATE;
+  v_msg := SQLERRM;
+  RAISE NOTICE 'REPARENT_ERR sqlstate=% msg=%', v_sqlstate, v_msg;
+END \$\$;
+SQL
+)
+wait "$A_PID" 2>/dev/null
+A_PID=""
+
+[ "$(base_of "$R_pfour")" = "$R_u" ] || fail "(e): el cambio de base de la sesión A no commiteó"
+echo "$B_OUT" | grep -q 'REPARENT_ERR sqlstate=P0409' \
+  || fail "(e): el re-parent tenía que esperar el cambio de base y terminar en P0409 (la variante pasaría de kg a 'u' con 5 de stock). Salida: $B_OUT | padre=$(parent_of "$R_vtwo")"
+[ "$(parent_of "$R_vtwo")" = "$R_pthree" ] || fail "(e): la variante con stock quedó bajo el padre $(parent_of "$R_vtwo")"
+echo "PASS (e): con el cambio de base del padre nuevo abierto, el re-parent espera (FOR SHARE), lee la unidad nueva y rechaza con P0409."
+
 cleanup
 LEFT=$(q "SELECT count(*) FROM public.products WHERE account_id = '$ACCOUNT_ID' OR user_id = '$USER_ID';")
 [ "$LEFT" = "0" ] || { echo "GATE VENTAS-UNIDADES-CONVERSION-RACE FAILED: el cleanup dejó $LEFT productos" >&2; exit 1; }
-echo "GATE VENTAS-UNIDADES-CONVERSION-RACE PASSED: cambio de unidad base vs compra en las dos direcciones y con herencia de variante — la cantidad se normaliza con la fila tomada. Fixtures limpios."
+echo "GATE VENTAS-UNIDADES-CONVERSION-RACE PASSED: cambio de unidad base vs compra en las dos direcciones y con herencia de variante — la cantidad se normaliza con la fila tomada —, y re-parent vs cambio de la base del padre nuevo en los dos órdenes (FOR SHARE). Fixtures limpios."

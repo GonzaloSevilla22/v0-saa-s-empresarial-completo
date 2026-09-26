@@ -3,9 +3,11 @@
 -- CHANGE: ventas-unidades-conversion (2026-09-24) — governance MEDIA con un
 --         tramo de severidad ALTA (reescribe seis RPCs SECURITY DEFINER que
 --         escriben stock y, desde la segunda revisión, las tres lecturas de
---         reporting que cuentan/costean cantidades; no escribe dinero, caja,
---         cuentas corrientes ni fiscal — pero el contrato de PRECIO por unidad
---         de la línea, D-F, sí es de dinero y queda pendiente del sign-off).
+--         reporting que cuentan/costean cantidades; no escribe fiscal — pero
+--         el contrato de PRECIO por unidad de la línea, D-F, sí es de dinero y
+--         queda pendiente del sign-off, y desde la cuarta revisión el total
+--         que va a caja, banco y cuenta corriente se redondea una sola vez:
+--         con líneas sub-centavo cambia un centavo, D-F′).
 --         Renumerada de 20261061000001 a 20261062000001 el 2026-09-25: la
 --         20261061000001 la tomó el PR #585 (venta-editable-vs-promocion-legacy),
 --         ya mergeado y vivo en prod.
@@ -56,6 +58,18 @@
 --  rpc_create_purchase_operation y la rama legacy de rpc_create_sale_operation
 --  la cantidad se normaliza DESPUÉS de tomar el producto FOR UPDATE (TOCTOU
 --  contra un cambio de unidad base abierto; los otros tres ya lo hacían).
+--  Cuarta revisión (2026-09-25):
+--   · §11 el guard de la unidad base también rechaza ASIGNARLA cuando el
+--     grupo tiene stock o movimientos y líneas grabadas con otra unidad
+--     explícita (historia en kg + base 'g' dejaba el stock 1000 veces menor),
+--     dispara en el DELETE físico de un padre (la variante que sobrevive no
+--     pierde la unidad heredada por ON DELETE SET NULL) y toma FOR SHARE el
+--     padre nuevo al re-parentar (write skew con un cambio de su base);
+--   · §11b trg_uom_in_use_guard: una unidad en uso no cambia de factor, tipo
+--     ni base (el reporting recalcula con el factor vigente, D13);
+--   · 2-7: el total de DINERO (caja, banco, cuenta corriente, evento
+--     contable) se redondea UNA vez, round(Σ amount × quantity, 2), en los
+--     cuatro cuerpos que lo acumulaban línea a línea en numeric(15,2).
 --
 -- CUERPOS DE PARTIDA (md5 de prosrc CR-stripped, re-medidos contra prod
 -- gxdhpxvdjjkmxhdkkwyb el 2026-09-25 — después del deploy de #585, 308
@@ -119,14 +133,17 @@ DECLARE
   -- rpc_create_purchase_operation y rpc_create_sale_operation (normalización
   -- después del FOR UPDATE) y el nuevo de check_low_margin; el archivo pasó a
   -- LF sin CR literales y los nueve anteriores no cambiaron (se miden
-  -- CR-stripped).
+  -- CR-stripped). Cuarta revisión: re-medidos los cuatro cuerpos que acumulan
+  -- el total de dinero (rpc_create_sale_operation_v2,
+  -- rpc_create_purchase_operation, rpc_atomic_update_sale_operation y la rama
+  -- legacy de rpc_create_sale_operation: round(Σ, 2) una vez, 2-7).
   v_rewritten jsonb := jsonb_build_object(
     '_c29_confirm_order_core',              'd69e1ea6daac7c4deec0a1603ae4ceae',
-    'rpc_create_sale_operation_v2',         'cd9faffb6aacd735565575ac5c28a1ef',
-    'rpc_create_purchase_operation',        '485339208790c80cf96e38e539ec4c03',
-    'rpc_atomic_update_sale_operation',     '66c49a34b4e9de40ddbe90a1e33d0f83',
+    'rpc_create_sale_operation_v2',         '23f9f29a90d33aecf6b5add389488f68',
+    'rpc_create_purchase_operation',        '0366977251522a469d123c4d143f42f9',
+    'rpc_atomic_update_sale_operation',     'e8687db5ecdcc6056325550f37c8cbc0',
     'rpc_atomic_update_purchase_operation', '23558c073cf71d08ea4a0dfb15079555',
-    'rpc_create_sale_operation',            '5685625cd216fc192cf992f120b71b2f',
+    'rpc_create_sale_operation',            '577f86d234937234e6797e71120e349e',
     'reporting_sales_lines_in_window',      '32500045f7934cb1e86b6051c21b515b',
     'rpc_dashboard_kpi_summary',            'bba246e4a9e507b19a56e1cc01ec8bcd',
     'rpc_dashboard_channel_margin',         '881b3390fb0d2c9fd6dbc34f9aa15120',
@@ -336,7 +353,7 @@ DECLARE
   -- pagos-cableados-restantes (D1/D4/D5): kind derivado + total acumulado
   -- para el cargo de crédito y el movimiento de caja opt-in.
   v_kind                  text;
-  v_total_sum             numeric(15,2) := 0;
+  v_total_sum             numeric := 0;   -- cuarta revisión: sin escala, round(Σ, 2) al cerrar el loop
   v_cash_session_status   text;
   v_cash_session_branch   uuid;
 BEGIN
@@ -590,6 +607,13 @@ BEGIN
       || jsonb_build_object('id', v_new_sale_id, 'product_id', v_item.product_id);
   END LOOP;
 
+  -- ventas-unidades-conversion (cuarta revisión): el total de DINERO se
+  -- redondea al centavo UNA vez, sobre Σ(amount × quantity). El acumulador
+  -- era numeric(15,2) y redondeaba cada suma parcial: dos líneas de 0,333 kg
+  -- a $999 cargaban 665,34 a caja/banco/cuenta corriente/evento contra una
+  -- venta de 665,334 y una factura de round(Σ) = 665,33.
+  v_total_sum := round(v_total_sum, 2);
+
   -- pagos-cableados-restantes (OQ-C, D4): opt-in de caja — las tres
   -- condiciones se validan en el SERVIDOR (kind cash + sesión abierta en la
   -- sucursal EFECTIVA + fecha de hoy en ART), nunca se confía en la UI. La
@@ -748,7 +772,7 @@ DECLARE
     v_qty_norm        numeric(15,4);
     v_stock_sum       numeric(15,4);   -- C-21: Σ branch_stock (reemplaza products.stock)
     v_inserted        integer;
-    v_total_sum       numeric(15,2) := 0;
+    v_total_sum       numeric := 0;   -- cuarta revisión: sin escala, round(Σ, 2) al cerrar el loop
     v_kind            text;            -- pagos-cableados-restantes (D7)
     -- caja-compras-cobranzas (D2):
     v_cash_movement_id    uuid;
@@ -994,6 +1018,13 @@ BEGIN
         v_result_items := v_result_items
             || jsonb_build_object('id', v_new_purchase_id, 'product_id', v_item.product_id);
     END LOOP;
+
+    -- ventas-unidades-conversion (cuarta revisión): el total de DINERO se
+    -- redondea al centavo UNA vez, sobre Σ(amount × quantity). El acumulador
+    -- era numeric(15,2) y redondeaba cada suma parcial: dos líneas de 0,333 kg
+    -- a $999 cargaban 665,34 a caja/banco/cuenta corriente/evento contra una
+    -- venta de 665,334 y una factura de round(Σ) = 665,33.
+    v_total_sum := round(v_total_sum, 2);
 
     -- ── caja-compras-cobranzas (D2) — OPT-IN DE CAJA, 3 condiciones ───────────
     -- Copiado LITERAL del molde de rpc_create_expense: mismos tres tokens de
@@ -1596,7 +1627,7 @@ DECLARE
   v_branch           RECORD;
   -- asiento-venta-formulario (D7, override del PO): ajustar el rastro
   -- contable de la operación editada en vez de bloquear la edición.
-  v_total_sum          numeric(15,2) := 0;
+  v_total_sum          numeric := 0;   -- cuarta revisión: sin escala, round(Σ, 2) al cerrar el loop
   v_kind_final          text;
   v_pending_event_id    uuid;
   v_pending_event_type  text;
@@ -2098,6 +2129,13 @@ BEGIN
     v_result_items := v_result_items
       || jsonb_build_object('id', v_new_sale_id, 'product_id', v_item.product_id);
   END LOOP;
+
+  -- ventas-unidades-conversion (cuarta revisión): el total de DINERO se
+  -- redondea al centavo UNA vez, sobre Σ(amount × quantity). El acumulador
+  -- era numeric(15,2) y redondeaba cada suma parcial: dos líneas de 0,333 kg
+  -- a $999 cargaban 665,34 a caja/banco/cuenta corriente/evento contra una
+  -- venta de 665,334 y una factura de round(Σ) = 665,33.
+  v_total_sum := round(v_total_sum, 2);
 
   -- edicion-preserva-contexto (F1, design §D9): la orden promovida SIN
   -- comprobante "real" se re-apunta al operation_id nuevo, en la misma
@@ -2659,7 +2697,7 @@ BEGIN
       v_canal        text;
       -- pagos-cableados-restantes (task 5.3): mismo trío que la rama v2.
       v_kind                  text;
-      v_total_sum             numeric(15,2) := 0;
+      v_total_sum             numeric := 0;   -- cuarta revisión: sin escala, round(Σ, 2) al cerrar el loop
       v_cash_session_status   text;
       v_cash_session_branch   uuid;
     BEGIN
@@ -2856,6 +2894,13 @@ BEGIN
         v_result_items := v_result_items
           || jsonb_build_object('id', v_new_sale_id, 'product_id', v_item.product_id);
       END LOOP;
+
+      -- ventas-unidades-conversion (cuarta revisión): el total de DINERO se
+      -- redondea al centavo UNA vez, sobre Σ(amount × quantity). El acumulador
+      -- era numeric(15,2) y redondeaba cada suma parcial: dos líneas de 0,333 kg
+      -- a $999 cargaban 665,34 a caja/banco/cuenta corriente/evento contra una
+      -- venta de 665,334 y una factura de round(Σ) = 665,33.
+      v_total_sum := round(v_total_sum, 2);
 
       -- pagos-cableados-restantes (task 5.3/6.2): mismo trío opt-in de caja
       -- + cargo de crédito que la rama v2 — la rama legacy queda consistente.
@@ -3517,10 +3562,11 @@ $function$;
 
 -- ─── 11. La unidad base no cambia debajo del stock (D-C, en la base) ─────────
 -- D-C (decisión provisoria hasta el sign-off del PO, decisión 6 opción (a)):
--- se permite ASIGNAR la unidad base a un producto que no la tenía; cambiarla
--- (o quitarla) se rechaza si el grupo (el producto y las variantes que la
--- heredan) tiene stock distinto de 0 en alguna sucursal o movimientos de
--- stock — "12 u" pasaría a leerse "12 kg". El guard de FastAPI
+-- se permite ASIGNAR la unidad base a un producto que no la tenía (desde la
+-- cuarta revisión, salvo que su stock y su historia estén grabados con OTRA
+-- unidad explícita); cambiarla (o quitarla) se rechaza si el grupo (el
+-- producto y las variantes que la heredan) tiene stock distinto de 0 en
+-- alguna sucursal o movimientos de stock — "12 u" pasaría a leerse "12 kg". El guard de FastAPI
 -- (_guard_base_unit_change) quedaba solo: `authenticated` tiene UPDATE sobre
 -- products.base_unit_id (policy products_writer_update), así que un PATCH
 -- por PostgREST lo salteaba, y el chequeo leía sin bloquear (TOCTOU con una
@@ -3549,9 +3595,39 @@ DECLARE
   v_old_parent_base  uuid;
   v_old_eff      uuid;
   v_new_eff      uuid;
-  v_self_changed     boolean;
-  v_children_changed boolean;
+  v_self_changed      boolean;
+  v_children_changed  boolean;
+  v_self_assigned     boolean;
+  v_children_assigned boolean;
+  v_stash             jsonb;
+  v_conflict_unit     uuid;
 BEGIN
+  -- Cuarta revisión: DELETE físico de un PADRE. products_parent_id_fkey es ON
+  -- DELETE SET NULL: la acción referencial desengancha a las variantes que
+  -- sobreviven, y cuando ese UPDATE llega a este trigger el padre ya no es
+  -- visible — la unidad que heredaban se perdía sin control ("5 kg" → "5
+  -- uds"; `authenticated` tiene DELETE por products_writer_delete). Acá se
+  -- toman FOR UPDATE las variantes que heredan (serializa con una venta o
+  -- compra de la variante) y la unidad del padre queda en un GUC LOCAL de la
+  -- transacción; la rama UPDATE la lee cuando no encuentra al padre y decide
+  -- con el stock de la variante que QUEDA. Borrar el padre junto con sus
+  -- variantes en la misma sentencia no traba nada: la acción referencial corre
+  -- al final de la sentencia y ya no las encuentra.
+  IF TG_OP = 'DELETE' THEN
+    IF OLD.base_unit_id IS NOT NULL THEN
+      PERFORM 1 FROM public.products v
+       WHERE v.parent_id = OLD.id AND v.base_unit_id IS NULL
+       ORDER BY v.id
+       FOR UPDATE;
+      IF FOUND THEN
+        v_stash := COALESCE(NULLIF(current_setting('ventas_uom.deleted_parent_base', true), ''), '{}')::jsonb;
+        PERFORM set_config('ventas_uom.deleted_parent_base',
+                           (v_stash || jsonb_build_object(OLD.id::text, OLD.base_unit_id::text))::text, true);
+      END IF;
+    END IF;
+    RETURN OLD;
+  END IF;
+
   -- Tenencia: sólo cuando la unidad base (o la cuenta) efectivamente cambia.
   IF NEW.base_unit_id IS NOT NULL AND (
        TG_OP = 'INSERT'
@@ -3582,49 +3658,126 @@ BEGIN
   -- padre de OLD para la de antes y el de NEW para la de después.
   IF OLD.parent_id IS NOT NULL THEN
     SELECT p.base_unit_id INTO v_old_parent_base FROM public.products p WHERE p.id = OLD.parent_id;
+    IF NOT FOUND THEN
+      -- Cuarta revisión: el padre se está borrando en esta misma sentencia
+      -- (este UPDATE es la acción referencial ON DELETE SET NULL); su unidad
+      -- la dejó la rama DELETE en el GUC local.
+      v_old_parent_base := NULLIF(
+        COALESCE(NULLIF(current_setting('ventas_uom.deleted_parent_base', true), ''), '{}')::jsonb
+          ->> OLD.parent_id::text, '')::uuid;
+    END IF;
   END IF;
   IF NEW.parent_id IS NOT NULL THEN
-    SELECT p.base_unit_id INTO v_parent_base FROM public.products p WHERE p.id = NEW.parent_id;
+    IF NEW.parent_id IS DISTINCT FROM OLD.parent_id THEN
+      -- Cuarta revisión (write skew): re-parentar bajo P2 mientras otra
+      -- transacción cambia la unidad base de P2. El FK sólo toma KEY SHARE
+      -- sobre P2, que no choca con el NO KEY UPDATE del cambio de base, y ese
+      -- cambio no ve todavía a esta variante como hija: los dos pasaban.
+      -- FOR SHARE sí choca: el que llega segundo espera y decide sobre lo
+      -- commiteado (test_ventas_unidades_conversion_race.sh, (d) y (e)).
+      SELECT p.base_unit_id INTO v_parent_base FROM public.products p WHERE p.id = NEW.parent_id FOR SHARE;
+    ELSE
+      SELECT p.base_unit_id INTO v_parent_base FROM public.products p WHERE p.id = NEW.parent_id;
+    END IF;
   END IF;
   v_old_eff := COALESCE(OLD.base_unit_id, v_old_parent_base);
   v_new_eff := COALESCE(NEW.base_unit_id, v_parent_base);
 
-  -- D-C: asignar a quien no tenía unidad efectiva se permite; sin cambio
-  -- efectivo no hay nada que proteger. Dos grupos, cada uno con su condición:
+  -- Sin cambio efectivo no hay nada que proteger. Dos grupos, cada uno con su
+  -- condición:
   --   · el producto mismo, si SU unidad efectiva cambia (base propia o padre);
   --   · las variantes que HEREDAN su base propia, si la base PROPIA cambia
-  --     desde un valor no nulo (re-parentar al producto no las toca: heredan
-  --     NEW.base_unit_id, no la unidad efectiva de NEW).
-  v_self_changed     := v_old_eff IS NOT NULL AND v_old_eff IS DISTINCT FROM v_new_eff;
-  v_children_changed := OLD.base_unit_id IS NOT NULL AND NEW.base_unit_id IS DISTINCT FROM OLD.base_unit_id;
-  IF NOT v_self_changed AND NOT v_children_changed THEN
+  --     (re-parentar al producto no las toca: heredan NEW.base_unit_id, no la
+  --     unidad efectiva de NEW).
+  -- CAMBIAR (de una unidad a otra, o quitarla) con stock o movimientos → P0409.
+  -- ASIGNAR (de ninguna a una) — cuarta revisión: también → P0409 si el grupo
+  -- tiene stock o movimientos Y alguna línea grabada con una unidad EXPLÍCITA
+  -- distinta de la que se asigna. Un producto sin unidad base admite líneas
+  -- en cualquier unidad base (kg, L, u): con historia en kg, asignarle 'g'
+  -- dejaba el stock 1000 veces menor, y con historia en 'u', asignarle 'kg'
+  -- lo reinterpretaba en kilos (redteam-3a/30-31). Las líneas SIN unidad no
+  -- declaran ninguna: sobre ellas la asignación sigue permitida (D-C).
+  v_self_changed      := v_old_eff IS NOT NULL AND v_old_eff IS DISTINCT FROM v_new_eff;
+  v_children_changed  := OLD.base_unit_id IS NOT NULL AND NEW.base_unit_id IS DISTINCT FROM OLD.base_unit_id;
+  v_self_assigned     := v_old_eff IS NULL AND v_new_eff IS NOT NULL;
+  v_children_assigned := OLD.base_unit_id IS NULL AND NEW.base_unit_id IS NOT NULL;
+  IF NOT (v_self_changed OR v_children_changed OR v_self_assigned OR v_children_assigned) THEN
     RETURN NEW;
   END IF;
 
   -- Las variantes que heredan se toman FOR UPDATE (orden de id) para
   -- serializar con las ventas/compras, que toman la fila de su producto.
-  IF v_children_changed THEN
+  IF v_children_changed OR v_children_assigned THEN
     PERFORM 1 FROM public.products v
      WHERE v.parent_id = NEW.id AND v.base_unit_id IS NULL
      ORDER BY v.id
      FOR UPDATE;
   END IF;
 
-  IF EXISTS (
-       SELECT 1 FROM public.branch_stock bs
-        WHERE bs.quantity <> 0
-          AND ((v_self_changed AND bs.product_id = NEW.id)
-               OR (v_children_changed
-                   AND bs.product_id IN (SELECT v.id FROM public.products v
-                                          WHERE v.parent_id = NEW.id AND v.base_unit_id IS NULL))))
-     OR EXISTS (
-       SELECT 1 FROM public.stock_movements sm
-        WHERE (v_self_changed AND sm.product_id = NEW.id)
-           OR (v_children_changed
-               AND sm.product_id IN (SELECT v.id FROM public.products v
-                                      WHERE v.parent_id = NEW.id AND v.base_unit_id IS NULL))) THEN
+  IF (v_self_changed OR v_children_changed) AND (
+       EXISTS (
+         SELECT 1 FROM public.branch_stock bs
+          WHERE bs.quantity <> 0
+            AND ((v_self_changed AND bs.product_id = NEW.id)
+                 OR (v_children_changed
+                     AND bs.product_id IN (SELECT v.id FROM public.products v
+                                            WHERE v.parent_id = NEW.id AND v.base_unit_id IS NULL))))
+       OR EXISTS (
+         SELECT 1 FROM public.stock_movements sm
+          WHERE (v_self_changed AND sm.product_id = NEW.id)
+             OR (v_children_changed
+                 AND sm.product_id IN (SELECT v.id FROM public.products v
+                                        WHERE v.parent_id = NEW.id AND v.base_unit_id IS NULL)))) THEN
     RAISE EXCEPTION 'base_unit_locked: el producto % ya tiene stock o movimientos en su unidad base actual; cambiarla haría que las cantidades se lean en otra unidad. Creá un producto nuevo con la unidad correcta y pasale el stock con un ajuste.', NEW.id
       USING ERRCODE = 'P0409';
+  END IF;
+
+  IF v_self_assigned OR v_children_assigned THEN
+    -- Los productos cuya unidad efectiva se asigna, cada uno con la unidad
+    -- que pasaría a tener; y la primera línea grabada en otra unidad.
+    WITH grp AS (
+      SELECT NEW.id AS product_id, v_new_eff AS target WHERE v_self_assigned
+      UNION ALL
+      SELECT v.id, NEW.base_unit_id FROM public.products v
+       WHERE v_children_assigned AND v.parent_id = NEW.id AND v.base_unit_id IS NULL
+    ), lines AS (
+      SELECT s.product_id, s.unit_id FROM public.sales s WHERE s.product_id IN (SELECT g.product_id FROM grp g)
+      UNION ALL
+      SELECT pu.product_id, pu.unit_id FROM public.purchases pu WHERE pu.product_id IN (SELECT g.product_id FROM grp g)
+      UNION ALL
+      SELECT si.product_id, si.unit_id FROM public.sale_items si WHERE si.product_id IN (SELECT g.product_id FROM grp g)
+      UNION ALL
+      SELECT pi.product_id, pi.unit_id FROM public.purchase_items pi WHERE pi.product_id IN (SELECT g.product_id FROM grp g)
+      UNION ALL
+      SELECT soi.product_id, soi.unit_id FROM public.sales_order_items soi WHERE soi.product_id IN (SELECT g.product_id FROM grp g)
+      UNION ALL
+      SELECT qi.product_id, qi.unit_id FROM public.quote_items qi WHERE qi.product_id IN (SELECT g.product_id FROM grp g)
+    )
+    SELECT l.unit_id INTO v_conflict_unit
+      FROM lines l JOIN grp g ON g.product_id = l.product_id
+     WHERE l.unit_id IS NOT NULL AND l.unit_id IS DISTINCT FROM g.target
+     LIMIT 1;
+
+    IF v_conflict_unit IS NOT NULL AND (
+         EXISTS (
+           SELECT 1 FROM public.branch_stock bs
+            WHERE bs.quantity <> 0
+              AND ((v_self_assigned AND bs.product_id = NEW.id)
+                   OR (v_children_assigned
+                       AND bs.product_id IN (SELECT v.id FROM public.products v
+                                              WHERE v.parent_id = NEW.id AND v.base_unit_id IS NULL))))
+         OR EXISTS (
+           SELECT 1 FROM public.stock_movements sm
+            WHERE (v_self_assigned AND sm.product_id = NEW.id)
+               OR (v_children_assigned
+                   AND sm.product_id IN (SELECT v.id FROM public.products v
+                                          WHERE v.parent_id = NEW.id AND v.base_unit_id IS NULL)))) THEN
+      RAISE EXCEPTION 'base_unit_locked: el producto % tiene stock o movimientos y operaciones cargadas en otra unidad (%); asignarle la unidad base % haría que esas cantidades se lean en la unidad nueva. Asignale la unidad en que ya lo venías cargando, o creá un producto nuevo con la unidad correcta y pasale el stock con un ajuste.',
+        NEW.id,
+        COALESCE((SELECT u.symbol FROM public.units_of_measure u WHERE u.id = v_conflict_unit), v_conflict_unit::text),
+        COALESCE((SELECT u.symbol FROM public.units_of_measure u WHERE u.id = COALESCE(v_new_eff, NEW.base_unit_id)), COALESCE(v_new_eff, NEW.base_unit_id)::text)
+        USING ERRCODE = 'P0409';
+    END IF;
   END IF;
 
   RETURN NEW;
@@ -3632,15 +3785,69 @@ END;
 $$;
 
 COMMENT ON FUNCTION public.fn_product_base_unit_guard() IS
-  'ventas-unidades-conversion (D-C, segunda y tercera revisión; provisorio hasta el sign-off del PO): la unidad base EFECTIVA de un producto (propia o heredada del padre) no cambia ni se quita si el grupo tiene stock <> 0 o movimientos (P0409 base_unit_locked) — ni cambiando base_unit_id ni re-parentando o desenganchando una variante que hereda (parent_id); asignarla a un producto que no tenía se permite. Tenencia: la unidad base es del sistema o de la cuenta (P0404 base_unit_not_found). Único punto de paso para FastAPI, PostgREST y cualquier escritor futuro.';
+  'ventas-unidades-conversion (D-C, segunda a cuarta revisión; provisorio hasta el sign-off del PO): la unidad base EFECTIVA de un producto (propia o heredada del padre) no cambia ni se quita si el grupo tiene stock <> 0 o movimientos (P0409 base_unit_locked) — ni cambiando base_unit_id, ni re-parentando o desenganchando una variante que hereda (parent_id, con FOR SHARE sobre el padre nuevo), ni borrando físicamente al padre de una variante que sobrevive (DELETE: la unidad del padre pasa por el GUC local ventas_uom.deleted_parent_base a la acción referencial ON DELETE SET NULL). ASIGNARLA a un producto que no tenía se permite salvo que el grupo tenga stock o movimientos Y líneas grabadas con una unidad explícita distinta de la asignada (P0409). Tenencia: la unidad base es del sistema o de la cuenta (P0404 base_unit_not_found). Único punto de paso para FastAPI, PostgREST, el importador y cualquier escritor futuro.';
 
 REVOKE ALL ON FUNCTION public.fn_product_base_unit_guard() FROM PUBLIC, anon, authenticated;
 
 DROP TRIGGER IF EXISTS trg_product_base_unit_guard ON public.products;
 CREATE TRIGGER trg_product_base_unit_guard
-  BEFORE INSERT OR UPDATE OF base_unit_id, account_id, parent_id ON public.products
+  BEFORE INSERT OR UPDATE OF base_unit_id, account_id, parent_id OR DELETE ON public.products
   FOR EACH ROW
   EXECUTE FUNCTION public.fn_product_base_unit_guard();
+
+-- ─── 11b. Una unidad EN USO no cambia de factor, tipo ni base (cuarta revisión) ──
+-- D13 recalcula la cantidad base al LEER con el factor VIGENTE de cada unidad
+-- (_uom_quantity_for_reporting), y la policy uom_account_update deja a
+-- `authenticated` editar las unidades de su cuenta por PostgREST: pasar la
+-- Docena de 12 a 6 reinterpretaba hacia atrás unidades y costo del ranking
+-- mientras el stock ya grabado quedaba como estaba (redteam-3a/33-uom-factor:
+-- ranking 12 → 6 u, costo 600 → 300, stock 88 igual). Es el mismo riesgo que
+-- D-C cierra para products.base_unit_id. Una unidad que es la base de algún
+-- producto o la unidad de alguna línea (ventas, compras, sus ítems, pedidos y
+-- presupuestos) conserva factor, type y base_unit_id — P0409 unit_in_use;
+-- nombre y símbolo se editan libres. Para corregir una conversión se crea una
+-- unidad nueva. Prod: 0 unidades de cuenta y ninguna pantalla que las edite
+-- (medido el 2026-09-25); las de sistema ya no son escribibles por
+-- `authenticated`. No serializa con una venta concurrente que use la unidad
+-- (haría falta bloquear la unidad en el camino caliente de cada línea): la
+-- ventana es de milisegundos sobre una edición que ninguna pantalla ofrece.
+CREATE OR REPLACE FUNCTION public.fn_uom_in_use_guard()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+BEGIN
+  IF NEW.factor       IS NOT DISTINCT FROM OLD.factor
+     AND NEW.type         IS NOT DISTINCT FROM OLD.type
+     AND NEW.base_unit_id IS NOT DISTINCT FROM OLD.base_unit_id THEN
+    RETURN NEW;
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.products          WHERE base_unit_id = OLD.id)
+     OR EXISTS (SELECT 1 FROM public.sales             WHERE unit_id = OLD.id)
+     OR EXISTS (SELECT 1 FROM public.purchases         WHERE unit_id = OLD.id)
+     OR EXISTS (SELECT 1 FROM public.sale_items        WHERE unit_id = OLD.id)
+     OR EXISTS (SELECT 1 FROM public.purchase_items    WHERE unit_id = OLD.id)
+     OR EXISTS (SELECT 1 FROM public.sales_order_items WHERE unit_id = OLD.id)
+     OR EXISTS (SELECT 1 FROM public.quote_items       WHERE unit_id = OLD.id) THEN
+    RAISE EXCEPTION 'unit_in_use: la unidad % (%) es la unidad base de algún producto o la unidad de alguna operación; cambiarle el factor, el tipo o la unidad base reinterpretaría esas cantidades y su costo. Creá una unidad nueva con la conversión correcta.',
+      OLD.name, OLD.symbol
+      USING ERRCODE = 'P0409';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+COMMENT ON FUNCTION public.fn_uom_in_use_guard() IS
+  'ventas-unidades-conversion (cuarta revisión): trigger trg_uom_in_use_guard (BEFORE UPDATE OF factor, type, base_unit_id ON units_of_measure). Una unidad que es la base de algún producto o la unidad de alguna línea (sales, purchases, sale_items, purchase_items, sales_order_items, quote_items) no cambia de factor, tipo ni base — P0409 unit_in_use —, porque el reporting (D13) recalcula la cantidad base con el factor vigente y el stock ya grabado no se re-expresa. Nombre y símbolo se editan libres.';
+
+REVOKE ALL ON FUNCTION public.fn_uom_in_use_guard() FROM PUBLIC, anon, authenticated;
+
+DROP TRIGGER IF EXISTS trg_uom_in_use_guard ON public.units_of_measure;
+CREATE TRIGGER trg_uom_in_use_guard
+  BEFORE UPDATE OF factor, type, base_unit_id ON public.units_of_measure
+  FOR EACH ROW
+  EXECUTE FUNCTION public.fn_uom_in_use_guard();
 
 -- ─── 12. D-F′: el precio por unidad de la LÍNEA no se redondea (tercera revisión) ──
 -- Contrato D-F (D12): `amount`/`price` es por unidad de la línea. Re-expresado
@@ -3923,13 +4130,16 @@ BEGIN
   ] LOOP
     SELECT replace(p.prosrc, E'\r', '') INTO v_src FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
     WHERE n.nspname = 'public' AND p.proname = v_fn;
-    v_pos1 := strpos(v_src, COALESCE(substring(v_src FROM 'FROM\s+public\.products\s+WHERE\s+id\s*=\s*v_item\.product_id\s+FOR UPDATE'), E'\x01'));
-    v_pos2 := strpos(v_src, '_uom_normalize_quantity(v_item.product_id');
+    -- Cuarta revisión: posiciones por regexp_instr (tolerante a espacios).
+    v_pos1 := regexp_instr(v_src, 'FROM\s+public\.products\s+WHERE\s+id\s*=\s*v_item\.product_id\s+FOR\s+UPDATE');
+    v_pos2 := regexp_instr(v_src, '_uom_normalize_quantity\s*\(\s*v_item\.product_id');
     IF v_pos1 = 0 OR v_pos2 = 0 OR v_pos2 < v_pos1 THEN
       v_bad := v_bad || format('%s: normaliza la cantidad antes de tomar el producto FOR UPDATE', v_fn);
     END IF;
   END LOOP;
-  -- (b) D-F′: ninguna columna de precio de línea redondea el precio unitario.
+  -- (b) D-F′: ninguna columna de precio de línea redondea el precio unitario
+  --     (cuarta revisión: se cuentan las seis — un rename no pasa callado).
+  v_cnt := 0;
   FOR v_res, v_scale IN
     SELECT c.table_name::text || '.' || c.column_name::text, c.numeric_scale
     FROM information_schema.columns c
@@ -3938,10 +4148,14 @@ BEGIN
                                                         ('sales', 'amount'), ('sale_items', 'price'),
                                                         ('purchases', 'amount'), ('purchase_items', 'price'))
   LOOP
+    v_cnt := v_cnt + 1;
     IF v_scale IS NOT NULL THEN
       v_bad := v_bad || format('%s: numeric con escala %s (D-F′: el precio por unidad de la línea no se redondea)', v_res, v_scale);
     END IF;
   END LOOP;
+  IF v_cnt <> 6 THEN
+    v_bad := v_bad || format('D-F′: se vieron %s de las 6 columnas de precio de línea', v_cnt);
+  END IF;
   -- (c) la alerta de margen costea la cantidad en unidad base.
   SELECT replace(p.prosrc, E'\r', '') INTO v_src FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
   WHERE n.nspname = 'public' AND p.proname = 'check_low_margin';
@@ -3957,6 +4171,32 @@ BEGIN
   ) THEN
     v_bad := v_bad || 'trg_product_base_unit_guard: no observa parent_id'::text;
   END IF;
+  -- Cuarta revisión: (e) el guard dispara también en DELETE (borrar el padre);
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger t
+                 WHERE t.tgrelid = 'public.products'::regclass AND t.tgname = 'trg_product_base_unit_guard'
+                   AND (t.tgtype::int & 8) <> 0) THEN
+    v_bad := v_bad || 'trg_product_base_unit_guard: no dispara en DELETE'::text;
+  END IF;
+  -- (f) una unidad en uso no cambia de factor/tipo/base;
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger t
+                 WHERE t.tgrelid = 'public.units_of_measure'::regclass AND t.tgname = 'trg_uom_in_use_guard' AND NOT t.tgisinternal) THEN
+    v_bad := v_bad || 'units_of_measure: falta trg_uom_in_use_guard'::text;
+  END IF;
+  IF has_function_privilege('authenticated', 'public.fn_uom_in_use_guard()', 'EXECUTE') THEN
+    v_bad := v_bad || 'fn_uom_in_use_guard: ejecutable por authenticated'::text;
+  END IF;
+  -- (g) el total de dinero se redondea UNA vez en los cuatro cuerpos que lo acumulan.
+  FOREACH v_fn IN ARRAY ARRAY[
+    'rpc_create_sale_operation_v2', 'rpc_create_purchase_operation',
+    'rpc_atomic_update_sale_operation', 'rpc_create_sale_operation'
+  ] LOOP
+    SELECT replace(p.prosrc, E'\r', '') INTO v_src FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public' AND p.proname = v_fn;
+    IF v_src ~ 'v_total_sum\s+numeric\s*\(\s*15\s*,\s*2\s*\)'
+       OR v_src !~ 'v_total_sum\s*:=\s*round\s*\(\s*v_total_sum\s*,\s*2\s*\)' THEN
+      v_bad := v_bad || format('%s: el total se acumula redondeando línea a línea en vez de round(Σ, 2) una vez', v_fn);
+    END IF;
+  END LOOP;
 
   IF array_length(v_bad, 1) > 0 THEN
     RAISE EXCEPTION 'GATE ventas-unidades-conversion (embebido) FAILED: %', array_to_string(v_bad, E'\n  ');

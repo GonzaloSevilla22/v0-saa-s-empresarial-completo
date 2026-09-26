@@ -169,6 +169,25 @@ DECLARE
   v_qty             numeric;
   v_pos1            integer;
   v_pos2            integer;
+
+  -- L.13-L.24, (O) y (P): cuarta revisión del PR #584 (fix-round 3, 2026-09-25).
+  v_p_as_kg         uuid;   -- sin base, stock + historia en kg
+  v_p_as_u          uuid;   -- sin base, stock + historia en u
+  v_p_as_none       uuid;   -- sin base, stock + historia SIN unidad
+  v_p_asp           uuid;   -- padre sin base cuya variante (historia en u) hereda
+  v_p_asv           uuid;
+  v_p_asp2          uuid;   -- padre sin base (re-parent a un padre en kg)
+  v_p_asv2          uuid;
+  v_p_dp            uuid;   -- padre en kg cuya variante con stock sobrevive al DELETE
+  v_p_dv            uuid;
+  v_p_dp3           uuid;   -- padre SIN base: su DELETE no le quita nada a la variante
+  v_p_dv3           uuid;
+  v_u_o_free        uuid;   -- unidad de la cuenta que nada referencia
+  v_p_tot           uuid;   -- (P) total al centavo
+  v_p_tot2          uuid;
+  v_pm_credit       uuid;
+  v_supplier        uuid;
+  v_ids_p           uuid[];
 BEGIN
   -- ═══════════════════════════════════════════════════════════════════════
   -- Setup
@@ -811,14 +830,19 @@ BEGIN
   ] LOOP
     SELECT replace(p.prosrc, E'\r', '') INTO v_src FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
     WHERE n.nspname = 'public' AND p.proname = v_fn;
-    v_pos1 := strpos(v_src, COALESCE(substring(v_src FROM 'FROM\s+public\.products\s+WHERE\s+id\s*=\s*v_item\.product_id\s+FOR UPDATE'), E'\x01'));
-    v_pos2 := strpos(v_src, '_uom_normalize_quantity(v_item.product_id');
+    -- Cuarta revisión: posiciones por regexp_instr (tolerante a espacios y
+    -- saltos de línea), no por strpos del primer texto literal.
+    v_pos1 := regexp_instr(v_src, 'FROM\s+public\.products\s+WHERE\s+id\s*=\s*v_item\.product_id\s+FOR\s+UPDATE');
+    v_pos2 := regexp_instr(v_src, '_uom_normalize_quantity\s*\(\s*v_item\.product_id');
     IF v_pos1 = 0 OR v_pos2 = 0 OR v_pos2 < v_pos1 THEN
       v_failures := v_failures || format('E %s: normaliza la cantidad antes de tomar el producto FOR UPDATE (lock en %s, helper en %s)', v_fn, v_pos1, v_pos2);
     END IF;
   END LOOP;
   -- (b) D-F′: el precio por unidad de la línea no se redondea en ninguna
   --     columna de precio de línea (las otras cuatro ya eran numeric sin tope).
+  --     Cuarta revisión: se cuentan las columnas VISTAS — si una tabla o una
+  --     columna se renombra, el loop iteraba menos de seis y pasaba callado.
+  v_cnt := 0;
   FOR v_txt, v_val IN
     SELECT c.table_name || '.' || c.column_name, c.numeric_scale
     FROM information_schema.columns c
@@ -827,10 +851,14 @@ BEGIN
                                             ('sales', 'amount'), ('sale_items', 'price'),
                                             ('purchases', 'amount'), ('purchase_items', 'price'))
   LOOP
+    v_cnt := v_cnt + 1;
     IF v_val IS NOT NULL THEN
       v_failures := v_failures || format('E %s: numeric con escala %s — redondea el precio por unidad de la línea (D-F′)', v_txt, v_val);
     END IF;
   END LOOP;
+  IF v_cnt <> 6 THEN
+    v_failures := v_failures || format('E D-F′: se vieron %s de las 6 columnas de precio de línea (¿una tabla o columna renombrada?)', v_cnt);
+  END IF;
   -- (c) la alerta de margen costea la cantidad en unidad base.
   SELECT replace(p.prosrc, E'\r', '') INTO v_src FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
   WHERE n.nspname = 'public' AND p.proname = 'check_low_margin';
@@ -846,6 +874,34 @@ BEGIN
   ) THEN
     v_failures := v_failures || 'E trg_product_base_unit_guard: no observa parent_id'::text;
   END IF;
+  -- Cuarta revisión:
+  -- (e) el guard también dispara en DELETE (borrar el padre desenganchaba la
+  --     variante con ON DELETE SET NULL y le quitaba la unidad heredada).
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger t
+                 WHERE t.tgrelid = 'public.products'::regclass AND t.tgname = 'trg_product_base_unit_guard'
+                   AND (t.tgtype::int & 8) <> 0) THEN
+    v_failures := v_failures || 'E trg_product_base_unit_guard: no dispara en DELETE'::text;
+  END IF;
+  -- (f) una unidad en uso no cambia de factor/tipo/base (units_of_measure).
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger t
+                 WHERE t.tgrelid = 'public.units_of_measure'::regclass AND t.tgname = 'trg_uom_in_use_guard' AND NOT t.tgisinternal) THEN
+    v_failures := v_failures || 'E units_of_measure: falta trg_uom_in_use_guard'::text;
+  ELSIF has_function_privilege('authenticated', 'public.fn_uom_in_use_guard()', 'EXECUTE') THEN
+    v_failures := v_failures || 'E fn_uom_in_use_guard: ejecutable por authenticated'::text;
+  END IF;
+  -- (g) el total de dinero se redondea una vez (sin acumulador numeric(15,2))
+  --     en los cuatro cuerpos que lo acumulan línea a línea.
+  FOREACH v_fn IN ARRAY ARRAY[
+    'rpc_create_sale_operation_v2', 'rpc_create_purchase_operation',
+    'rpc_atomic_update_sale_operation', 'rpc_create_sale_operation'
+  ] LOOP
+    SELECT replace(p.prosrc, E'\r', '') INTO v_src FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public' AND p.proname = v_fn;
+    IF v_src ~ 'v_total_sum\s+numeric\s*\(\s*15\s*,\s*2\s*\)'
+       OR v_src !~ 'v_total_sum\s*:=\s*round\s*\(\s*v_total_sum\s*,\s*2\s*\)' THEN
+      v_failures := v_failures || format('E %s: el total se acumula redondeando línea a línea (numeric(15,2)) en vez de round(Σ, 2) una vez', v_fn);
+    END IF;
+  END LOOP;
 
   IF COALESCE(array_length(v_failures, 1), 0) = v_fail_before THEN RAISE NOTICE 'PASS (E) introspección'; END IF;
 
@@ -1272,7 +1328,174 @@ BEGIN
     v_failures := v_failures || format('L.12 re-parent de una variante con base propia: rechazó (%s %s)', SQLSTATE, SQLERRM);
   END;
 
-  IF COALESCE(array_length(v_failures, 1), 0) = v_fail_before THEN RAISE NOTICE 'PASS (L) unidad base bloqueada debajo del stock: 12/12'; END IF;
+  -- L.13-L.24 (cuarta revisión, fix-round 3). ASIGNAR la unidad base a un
+  -- producto que no tenía también reinterpreta si su stock y su historia se
+  -- grabaron con una unidad EXPLÍCITA distinta: un producto sin base admite
+  -- líneas en cualquier unidad base (kg, L, u). Con historia en kg, asignarle
+  -- 'g' dejaba el stock 1000 veces menor; con historia en 'u', asignarle 'kg'
+  -- hacía que el POS vendiera kg de algo contado en unidades
+  -- (redteam-3a/30-assign-probe, 31-assign-same-type).
+  INSERT INTO public.products (user_id, account_id, name, sku, cost, price)
+  VALUES (v_user_a, v_account_a, 'Harina VUC AS (historia kg)', 'VUC-AS-KG', 100.00, 200.00) RETURNING id INTO v_p_as_kg;
+  INSERT INTO public.products (user_id, account_id, name, sku, cost, price)
+  VALUES (v_user_a, v_account_a, 'Huevo VUC AS (historia u)', 'VUC-AS-U', 50.00, 100.00) RETURNING id INTO v_p_as_u;
+  INSERT INTO public.products (user_id, account_id, name, sku, cost, price)
+  VALUES (v_user_a, v_account_a, 'Papa VUC AS (historia sin unidad)', 'VUC-AS-NONE', 100.00, 200.00) RETURNING id INTO v_p_as_none;
+  PERFORM public.rpc_adjust_branch_stock(v_p_as_kg,   v_branch_a, 10, 'seed gate VUC L.13');
+  PERFORM public.rpc_adjust_branch_stock(v_p_as_u,    v_branch_a, 10, 'seed gate VUC L.14');
+  PERFORM public.rpc_adjust_branch_stock(v_p_as_none, v_branch_a, 10, 'seed gate VUC L.16');
+  PERFORM public.rpc_create_sale_operation('vuc-l13-' || gen_random_uuid()::text, NULL, CURRENT_DATE, 'ARS',
+    jsonb_build_array(jsonb_build_object('product_id', v_p_as_kg, 'amount', 200.00, 'quantity', 2, 'unit_id', v_u_kg)), v_branch_a, NULL);
+  PERFORM public.rpc_create_sale_operation('vuc-l14-' || gen_random_uuid()::text, NULL, CURRENT_DATE, 'ARS',
+    jsonb_build_array(jsonb_build_object('product_id', v_p_as_u, 'amount', 100.00, 'quantity', 3, 'unit_id', v_u_u)), v_branch_a, NULL);
+  PERFORM public.rpc_create_sale_operation('vuc-l16-' || gen_random_uuid()::text, NULL, CURRENT_DATE, 'ARS',
+    jsonb_build_array(jsonb_build_object('product_id', v_p_as_none, 'amount', 200.00, 'quantity', 1)), v_branch_a, NULL);
+
+  -- L.13 historia en kg → asignar 'g' → P0409 (el stock 8 kg pasaría a leerse 8 g).
+  BEGIN
+    UPDATE public.products SET base_unit_id = v_u_g WHERE id = v_p_as_kg;
+    v_failures := v_failures || 'L.13 asignar g a un producto con stock e historia en kg: no rechazó (8 kg pasan a leerse 8 g)'::text;
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLSTATE <> 'P0409' OR position('base_unit_locked' IN SQLERRM) = 0 THEN
+      v_failures := v_failures || format('L.13 esperaba P0409 base_unit_locked, obtuvo %s %s', SQLSTATE, SQLERRM);
+    END IF;
+  END;
+  -- L.14 historia en 'u' → asignar 'kg' → P0409.
+  BEGIN
+    UPDATE public.products SET base_unit_id = v_u_kg WHERE id = v_p_as_u;
+    v_failures := v_failures || 'L.14 asignar kg a un producto con stock e historia en u: no rechazó'::text;
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLSTATE <> 'P0409' OR position('base_unit_locked' IN SQLERRM) = 0 THEN
+      v_failures := v_failures || format('L.14 esperaba P0409 base_unit_locked, obtuvo %s %s', SQLSTATE, SQLERRM);
+    END IF;
+  END;
+  -- L.15 historia en kg → asignar 'kg' → se permite (declara la unidad en que ya se cargaba:
+  --      el backfill OQ-1 de los productos vendidos en kg sigue siendo posible).
+  BEGIN
+    UPDATE public.products SET base_unit_id = v_u_kg WHERE id = v_p_as_kg;
+  EXCEPTION WHEN OTHERS THEN
+    v_failures := v_failures || format('L.15 asignar kg a un producto con historia en kg: rechazó (%s %s)', SQLSTATE, SQLERRM);
+  END;
+  SELECT base_unit_id::text INTO v_txt FROM public.products WHERE id = v_p_as_kg;
+  IF v_txt IS DISTINCT FROM v_u_kg::text THEN v_failures := v_failures || format('L.15 la base quedó en %s', v_txt); END IF;
+  -- L.16 historia SIN unidad → asignar 'kg' → se permite (la línea sin unidad no declara ninguna).
+  BEGIN
+    UPDATE public.products SET base_unit_id = v_u_kg WHERE id = v_p_as_none;
+  EXCEPTION WHEN OTHERS THEN
+    v_failures := v_failures || format('L.16 asignar kg a un producto con historia sin unidad: rechazó (%s %s)', SQLSTATE, SQLERRM);
+  END;
+  -- L.17 el camino PostgREST (authenticated) tampoco asigna kg sobre historia en 'u'.
+  BEGIN
+    SET LOCAL ROLE authenticated;
+    UPDATE public.products SET base_unit_id = v_u_kg WHERE id = v_p_as_u;
+    RESET ROLE;
+    v_failures := v_failures || 'L.17 PATCH por PostgREST (authenticated): asignó kg sobre historia en u'::text;
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLSTATE <> 'P0409' THEN v_failures := v_failures || format('L.17 PostgREST: esperaba P0409, obtuvo %s %s', SQLSTATE, SQLERRM); END IF;
+  END;
+  RESET ROLE;
+  SELECT COALESCE(base_unit_id::text, 'NULL') INTO v_txt FROM public.products WHERE id = v_p_as_u;
+  IF v_txt <> 'NULL' THEN v_failures := v_failures || format('L.14/L.17 la base de un producto con historia en u quedó en %s', v_txt); END IF;
+
+  -- L.18 grupo: un PADRE sin base cuya variante (que hereda) tiene stock e historia
+  --      en 'u' → asignarle 'kg' al padre → P0409 (la variante pasaría a heredar kg).
+  INSERT INTO public.products (user_id, account_id, name, sku, cost, price, stock_control_type)
+  VALUES (v_user_a, v_account_a, 'Remera VUC AS (padre sin base)', 'VUC-ASP', 1.00, 2.00, 'variant_only') RETURNING id INTO v_p_asp;
+  INSERT INTO public.products (user_id, account_id, name, sku, cost, price, parent_id, is_variant)
+  VALUES (v_user_a, v_account_a, 'Remera VUC AS — talle M', 'VUC-ASV', 1.00, 2.00, v_p_asp, true) RETURNING id INTO v_p_asv;
+  PERFORM public.rpc_adjust_branch_stock(v_p_asv, v_branch_a, 5, 'seed gate VUC L.18');
+  PERFORM public.rpc_create_sale_operation('vuc-l18-' || gen_random_uuid()::text, NULL, CURRENT_DATE, 'ARS',
+    jsonb_build_array(jsonb_build_object('product_id', v_p_asv, 'amount', 2.00, 'quantity', 1, 'unit_id', v_u_u)), v_branch_a, NULL);
+  BEGIN
+    UPDATE public.products SET base_unit_id = v_u_kg WHERE id = v_p_asp;
+    v_failures := v_failures || 'L.18 asignar kg al padre de una variante con historia en u: no rechazó'::text;
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLSTATE <> 'P0409' THEN v_failures := v_failures || format('L.18 esperaba P0409, obtuvo %s %s', SQLSTATE, SQLERRM); END IF;
+  END;
+  -- L.19 el mismo padre con la unidad en que la variante ya se cargaba ('u') → se permite.
+  BEGIN
+    UPDATE public.products SET base_unit_id = v_u_u WHERE id = v_p_asp;
+  EXCEPTION WHEN OTHERS THEN
+    v_failures := v_failures || format('L.19 asignar u al padre de una variante con historia en u: rechazó (%s %s)', SQLSTATE, SQLERRM);
+  END;
+  -- L.20 re-parentar una variante sin unidad efectiva (historia en 'u', stock) a un
+  --      padre en kg también es ASIGNAR → P0409.
+  INSERT INTO public.products (user_id, account_id, name, sku, cost, price, stock_control_type)
+  VALUES (v_user_a, v_account_a, 'Remera VUC AS2 (padre sin base)', 'VUC-ASP2', 1.00, 2.00, 'variant_only') RETURNING id INTO v_p_asp2;
+  INSERT INTO public.products (user_id, account_id, name, sku, cost, price, parent_id, is_variant)
+  VALUES (v_user_a, v_account_a, 'Remera VUC AS2 — talle L', 'VUC-ASV2', 1.00, 2.00, v_p_asp2, true) RETURNING id INTO v_p_asv2;
+  PERFORM public.rpc_adjust_branch_stock(v_p_asv2, v_branch_a, 5, 'seed gate VUC L.20');
+  PERFORM public.rpc_create_sale_operation('vuc-l20-' || gen_random_uuid()::text, NULL, CURRENT_DATE, 'ARS',
+    jsonb_build_array(jsonb_build_object('product_id', v_p_asv2, 'amount', 2.00, 'quantity', 1, 'unit_id', v_u_u)), v_branch_a, NULL);
+  BEGIN
+    UPDATE public.products SET parent_id = v_p_rp_k WHERE id = v_p_asv2;
+    v_failures := v_failures || 'L.20 re-parentar a un padre en kg una variante con historia en u: no rechazó'::text;
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLSTATE <> 'P0409' THEN v_failures := v_failures || format('L.20 esperaba P0409, obtuvo %s %s', SQLSTATE, SQLERRM); END IF;
+  END;
+
+  -- L.21 DELETE físico del PADRE (kg) por PostgREST: products_parent_id_fkey es
+  --      ON DELETE SET NULL, así que la variante con stock que lo hereda
+  --      sobreviviría sin unidad ("5 kg" → "5 uds") → P0409, la variante conserva
+  --      el padre. (redteam-3b/10-reparent-via-delete: el trigger no veía al
+  --      padre ya borrado y lo tomaba como "sin unidad antes".)
+  INSERT INTO public.products (user_id, account_id, name, sku, cost, price, base_unit_id, stock_control_type)
+  VALUES (v_user_a, v_account_a, 'Queso VUC DP (padre kg)', 'VUC-DP', 1.00, 2.00, v_u_kg, 'variant_only') RETURNING id INTO v_p_dp;
+  INSERT INTO public.products (user_id, account_id, name, sku, cost, price, parent_id, is_variant)
+  VALUES (v_user_a, v_account_a, 'Queso VUC DP — horma', 'VUC-DV', 1.00, 2.00, v_p_dp, true) RETURNING id INTO v_p_dv;
+  PERFORM public.rpc_adjust_branch_stock(v_p_dv, v_branch_a, 5, 'seed gate VUC L.21');
+  BEGIN
+    SET LOCAL ROLE authenticated;
+    DELETE FROM public.products WHERE id = v_p_dp;
+    RESET ROLE;
+    v_failures := v_failures || 'L.21 DELETE del padre por PostgREST: aceptado (la variante con 5 kg quedó sin unidad)'::text;
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLSTATE <> 'P0409' OR position('base_unit_locked' IN SQLERRM) = 0 THEN
+      v_failures := v_failures || format('L.21 esperaba P0409 base_unit_locked, obtuvo %s %s', SQLSTATE, SQLERRM);
+    END IF;
+  END;
+  RESET ROLE;
+  SELECT parent_id::text INTO v_txt FROM public.products WHERE id = v_p_dv;
+  IF v_txt IS DISTINCT FROM v_p_dp::text OR NOT EXISTS (SELECT 1 FROM public.products WHERE id = v_p_dp) THEN
+    v_failures := v_failures || format('L.21 la variante quedó con padre %s (el padre %s)', v_txt,
+      CASE WHEN EXISTS (SELECT 1 FROM public.products WHERE id = v_p_dp) THEN 'sigue' ELSE 'se borró' END);
+  END IF;
+  -- L.22 borrar el padre JUNTO con su variante (nada sobrevive con la unidad
+  --      perdida) → se permite: el guard protege a la variante que queda, no
+  --      traba un borrado masivo.
+  BEGIN
+    DELETE FROM public.products WHERE id IN (v_p_dp, v_p_dv);
+  EXCEPTION WHEN OTHERS THEN
+    v_failures := v_failures || format('L.22 DELETE del padre con su variante en la misma sentencia: rechazó (%s %s)', SQLSTATE, SQLERRM);
+  END;
+  -- L.23 borrar un padre SIN unidad base: la variante que queda no pierde nada → se permite.
+  INSERT INTO public.products (user_id, account_id, name, sku, cost, price, stock_control_type)
+  VALUES (v_user_a, v_account_a, 'Remera VUC DP3 (padre sin base)', 'VUC-DP3', 1.00, 2.00, 'variant_only') RETURNING id INTO v_p_dp3;
+  INSERT INTO public.products (user_id, account_id, name, sku, cost, price, parent_id, is_variant)
+  VALUES (v_user_a, v_account_a, 'Remera VUC DP3 — talle S', 'VUC-DV3', 1.00, 2.00, v_p_dp3, true) RETURNING id INTO v_p_dv3;
+  PERFORM public.rpc_adjust_branch_stock(v_p_dv3, v_branch_a, 5, 'seed gate VUC L.23');
+  BEGIN
+    DELETE FROM public.products WHERE id = v_p_dp3;
+  EXCEPTION WHEN OTHERS THEN
+    v_failures := v_failures || format('L.23 DELETE de un padre sin unidad base: rechazó (%s %s)', SQLSTATE, SQLERRM);
+  END;
+  SELECT COALESCE(parent_id::text, 'NULL') INTO v_txt FROM public.products WHERE id = v_p_dv3;
+  IF v_txt <> 'NULL' THEN v_failures := v_failures || format('L.23 la variante quedó con padre %s', v_txt); END IF;
+  -- L.24 el importador (rpc_bulk_upsert_products) también escribe parent_id: el
+  --      re-parent de una variante con stock a un padre en otra unidad vuelve como
+  --      ERROR DE FILA (base_unit_locked), el resto del lote sigue, nada cambia.
+  v_jsonb := public.rpc_bulk_upsert_products(
+    jsonb_build_array(jsonb_build_object('row_no', 7, 'sku', 'VUC-RP-V', 'name', 'Queso VUC RP — horma', 'parent_id', v_p_rp_u)),
+    v_user_a);
+  IF COALESCE((v_jsonb->>'updated')::int, -1) <> 0 OR jsonb_array_length(COALESCE(v_jsonb->'errors', '[]'::jsonb)) <> 1
+     OR position('base_unit_locked' IN COALESCE(v_jsonb->'errors'->0->>'message', '')) = 0
+     OR COALESCE((v_jsonb->'errors'->0->>'row')::int, -1) <> 7 THEN
+    v_failures := v_failures || format('L.24 importador: esperaba 0 actualizados y 1 error de fila 7 con base_unit_locked, obtuvo %s', v_jsonb);
+  END IF;
+  SELECT parent_id::text INTO v_txt FROM public.products WHERE id = v_p_rp_v;
+  IF v_txt IS DISTINCT FROM v_p_rp_k2::text THEN v_failures := v_failures || format('L.24 el importador re-parentó la variante a %s', v_txt); END IF;
+
+  IF COALESCE(array_length(v_failures, 1), 0) = v_fail_before THEN RAISE NOTICE 'PASS (L) unidad base bloqueada debajo del stock: 24/24'; END IF;
 
   -- ═══════════════════════════════════════════════════════════════════════
   -- (M) D-F′ — el precio por unidad de la LÍNEA se guarda sin redondear y el
@@ -1490,6 +1713,157 @@ BEGIN
   IF COALESCE(array_length(v_failures, 1), 0) = v_fail_before THEN RAISE NOTICE 'PASS (N) alerta de margen en unidad base: 5/5'; END IF;
 
   -- ═══════════════════════════════════════════════════════════════════════
+  -- (O) (cuarta revisión) units_of_measure: el factor, el tipo y la base de
+  --     una unidad EN USO (unidad base de un producto o unidad de una línea)
+  --     no cambian — P0409 unit_in_use. El reporting recalcula la cantidad
+  --     base al leer (D13) con el factor VIGENTE, y la policy
+  --     uom_account_update deja a `authenticated` editar las unidades de su
+  --     cuenta: 12 → 6 en el factor de la Docena reinterpretaba hacia atrás
+  --     unidades y costo del ranking mientras el stock quedaba como estaba
+  --     (redteam-3a/33-uom-factor). Mismo riesgo que D-C cierra para
+  --     products.base_unit_id.
+  -- ═══════════════════════════════════════════════════════════════════════
+  v_fail_before := COALESCE(array_length(v_failures, 1), 0);
+  INSERT INTO public.units_of_measure (account_id, name, symbol, type, factor, base_unit_id, is_system)
+  VALUES (v_account_a, 'Libra VUC (sin uso)', 'lb', 'weight', 0.4536, v_u_kg, false) RETURNING id INTO v_u_o_free;
+
+  -- O.1 factor de una unidad que es la BASE de productos (kg).
+  BEGIN
+    UPDATE public.units_of_measure SET factor = 2 WHERE id = v_u_kg;
+    v_failures := v_failures || 'O.1 cambiar el factor de una unidad base de productos: no rechazó'::text;
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLSTATE <> 'P0409' OR position('unit_in_use' IN SQLERRM) = 0 THEN
+      v_failures := v_failures || format('O.1 esperaba P0409 unit_in_use, obtuvo %s %s', SQLSTATE, SQLERRM);
+    END IF;
+  END;
+  -- O.2 factor de una unidad usada en LÍNEAS (Docena: B/M venden en docenas).
+  BEGIN
+    UPDATE public.units_of_measure SET factor = 6 WHERE id = v_u_doc;
+    v_failures := v_failures || 'O.2 cambiar el factor de una unidad usada en líneas (12 → 6): no rechazó'::text;
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLSTATE <> 'P0409' THEN v_failures := v_failures || format('O.2 esperaba P0409, obtuvo %s %s', SQLSTATE, SQLERRM); END IF;
+  END;
+  -- O.3 el tipo de una unidad en uso.
+  BEGIN
+    UPDATE public.units_of_measure SET type = 'volume' WHERE id = v_u_g;
+    v_failures := v_failures || 'O.3 cambiar el tipo de una unidad en uso: no rechazó'::text;
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLSTATE <> 'P0409' THEN v_failures := v_failures || format('O.3 esperaba P0409, obtuvo %s %s', SQLSTATE, SQLERRM); END IF;
+  END;
+  -- O.4 la base (base_unit_id) de una unidad en uso.
+  BEGIN
+    UPDATE public.units_of_measure SET base_unit_id = NULL WHERE id = v_u_g;
+    v_failures := v_failures || 'O.4 cambiar la base de una unidad en uso: no rechazó'::text;
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLSTATE <> 'P0409' THEN v_failures := v_failures || format('O.4 esperaba P0409, obtuvo %s %s', SQLSTATE, SQLERRM); END IF;
+  END;
+  -- O.5 el camino PostgREST (authenticated + uom_account_update) tampoco pasa.
+  BEGIN
+    SET LOCAL ROLE authenticated;
+    UPDATE public.units_of_measure SET factor = 6 WHERE id = v_u_doc;
+    RESET ROLE;
+    v_failures := v_failures || 'O.5 PATCH por PostgREST (authenticated): cambió el factor de la Docena en uso'::text;
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLSTATE <> 'P0409' THEN v_failures := v_failures || format('O.5 PostgREST: esperaba P0409, obtuvo %s %s', SQLSTATE, SQLERRM); END IF;
+  END;
+  RESET ROLE;
+  SELECT factor INTO v_val FROM public.units_of_measure WHERE id = v_u_doc;
+  IF v_val <> 12 THEN v_failures := v_failures || format('O el factor de la Docena quedó en %s', v_val); END IF;
+  -- O.6 el nombre y el símbolo de una unidad en uso sí se editan (no reinterpretan nada).
+  BEGIN
+    UPDATE public.units_of_measure SET name = 'Docena VUC (renombrada)', symbol = 'dz' WHERE id = v_u_doc;
+  EXCEPTION WHEN OTHERS THEN
+    v_failures := v_failures || format('O.6 renombrar una unidad en uso: rechazó (%s %s)', SQLSTATE, SQLERRM);
+  END;
+  -- O.7 una unidad que nada referencia se corrige libremente.
+  BEGIN
+    UPDATE public.units_of_measure SET factor = 0.45359237 WHERE id = v_u_o_free;
+  EXCEPTION WHEN OTHERS THEN
+    v_failures := v_failures || format('O.7 corregir el factor de una unidad sin uso: rechazó (%s %s)', SQLSTATE, SQLERRM);
+  END;
+
+  IF COALESCE(array_length(v_failures, 1), 0) = v_fail_before THEN RAISE NOTICE 'PASS (O) unidad en uso inmutable en factor/tipo/base: 7/7'; END IF;
+
+  -- ═══════════════════════════════════════════════════════════════════════
+  -- (P) (cuarta revisión) el total de DINERO de una operación se redondea al
+  --     centavo UNA vez, sobre Σ(amount × quantity) — no línea a línea. El
+  --     acumulador era numeric(15,2): con dos líneas de 0,333 kg a $999
+  --     (332,667 c/u) el cargo, la caja, el banco y el evento contable daban
+  --     665,34 mientras la venta suma 665,334 y la factura round(Σ) = 665,33
+  --     (redteam-3a/10-probe-head). Previo a este PR; D-F′ lo vuelve la norma
+  --     (las líneas en g/mL tienen total sub-centavo casi siempre).
+  -- ═══════════════════════════════════════════════════════════════════════
+  v_fail_before := COALESCE(array_length(v_failures, 1), 0);
+  SELECT id INTO v_pm_credit FROM public.payment_methods
+  WHERE account_id = v_account_a AND kind = 'credit' AND deleted_at IS NULL ORDER BY sort_order LIMIT 1;
+  IF v_pm_credit IS NULL THEN
+    RAISE EXCEPTION 'SETUP FAILED: la cuenta no tiene una forma de pago credit sembrada (v3-provisioning-seed)';
+  END IF;
+  INSERT INTO public.suppliers (account_id, name) VALUES (v_account_a, 'Proveedor Gate VUC') RETURNING id INTO v_supplier;
+  INSERT INTO public.products (user_id, account_id, name, sku, cost, price, base_unit_id)
+  VALUES (v_user_a, v_account_a, 'Queso VUC P1 (kg)', 'VUC-TOT1', 600.00, 999.00, v_u_kg) RETURNING id INTO v_p_tot;
+  INSERT INTO public.products (user_id, account_id, name, sku, cost, price, base_unit_id)
+  VALUES (v_user_a, v_account_a, 'Queso VUC P2 (kg)', 'VUC-TOT2', 600.00, 999.00, v_u_kg) RETURNING id INTO v_p_tot2;
+  PERFORM public.rpc_adjust_branch_stock(v_p_tot,  v_branch_a, 20, 'seed gate VUC P');
+  PERFORM public.rpc_adjust_branch_stock(v_p_tot2, v_branch_a, 20, 'seed gate VUC P');
+  v_jsonb := jsonb_build_array(
+    jsonb_build_object('product_id', v_p_tot,  'amount', 999, 'quantity', 0.333, 'unit_id', v_u_kg),
+    jsonb_build_object('product_id', v_p_tot2, 'amount', 999, 'quantity', 0.333, 'unit_id', v_u_kg));
+
+  -- P.1 alta de venta a crédito (rpc_create_sale_operation_v2): cargo y evento = round(Σ) = 665,33.
+  v_result := public.rpc_create_sale_operation('vuc-p1-' || gen_random_uuid()::text, v_client_a, CURRENT_DATE, 'ARS',
+    v_jsonb, v_branch_a, NULL, v_pm_credit);
+  v_op := (v_result->>'operation_id')::uuid;
+  SELECT round(sum(total), 2) INTO v_val FROM public.sales WHERE operation_id = v_op;
+  SELECT sum(amount) INTO v_amount FROM public.customer_account_movements WHERE reference_id = v_op;
+  SELECT (payload->>'total')::numeric INTO v_total FROM public.events WHERE aggregate_id = v_op AND event_type = 'SaleOperationCreated';
+  IF v_val IS DISTINCT FROM 665.33 OR v_amount IS DISTINCT FROM 665.33 OR v_total IS DISTINCT FROM 665.33 THEN
+    v_failures := v_failures || format('P.1 venta a crédito 2 × 0,333 kg a $999: round(Σ total)=%s cargo=%s evento=%s, esperaba 665.33 los tres', v_val, v_amount, v_total);
+  END IF;
+  -- P.2 la misma venta por la rama legacy del kill-switch (sale_items_rpc_v2=false):
+  --     el cargo (la rama legacy no emite evento contable).
+  INSERT INTO public.account_feature_flags (account_id, flag_key, enabled)
+  VALUES (v_account_a, 'sale_items_rpc_v2', false);
+  v_result := public.rpc_create_sale_operation('vuc-p2-' || gen_random_uuid()::text, v_client_a, CURRENT_DATE, 'ARS',
+    v_jsonb, v_branch_a, NULL, v_pm_credit);
+  DELETE FROM public.account_feature_flags WHERE account_id = v_account_a AND flag_key = 'sale_items_rpc_v2';
+  v_op := (v_result->>'operation_id')::uuid;
+  SELECT sum(amount) INTO v_amount FROM public.customer_account_movements WHERE reference_id = v_op;
+  IF v_amount IS DISTINCT FROM 665.33 THEN
+    v_failures := v_failures || format('P.2 rama legacy a crédito: cargo=%s, esperaba 665.33', v_amount);
+  END IF;
+  -- P.3 alta de compra a crédito con proveedor: cargo al proveedor y evento = 665,33.
+  v_result := public.rpc_create_purchase_operation('vuc-p3-' || gen_random_uuid()::text, CURRENT_DATE, 'Compra gate VUC P.3',
+    v_jsonb, v_branch_a, NULL, v_pm_credit, NULL, v_supplier);
+  v_op := (v_result->>'operation_id')::uuid;
+  SELECT sum(abs(amount)) INTO v_amount FROM public.supplier_account_movements WHERE reference_id = v_op;
+  SELECT (payload->>'total')::numeric INTO v_total FROM public.events WHERE aggregate_id = v_op AND event_type = 'PurchaseCreated';
+  IF v_amount IS DISTINCT FROM 665.33 OR v_total IS DISTINCT FROM 665.33 THEN
+    v_failures := v_failures || format('P.3 compra a crédito: cargo al proveedor=%s evento=%s, esperaba 665.33 los dos', v_amount, v_total);
+  END IF;
+  -- P.4 edición de una venta SIN cambios: el evento pendiente se reescribe con round(Σ) = 665,33.
+  v_result := public.rpc_create_sale_operation('vuc-p4-' || gen_random_uuid()::text, NULL, CURRENT_DATE, 'ARS',
+    v_jsonb, v_branch_a, NULL);
+  v_op := (v_result->>'operation_id')::uuid;
+  SELECT array_agg(id ORDER BY id) INTO v_ids_p FROM public.sales WHERE operation_id = v_op;
+  v_result := public.rpc_atomic_update_sale_operation(v_ids_p, NULL, CURRENT_DATE, 'ARS', v_jsonb);
+  v_op2 := (v_result->>'operation_id')::uuid;
+  SELECT (payload->>'total')::numeric INTO v_total FROM public.events WHERE aggregate_id = v_op2;
+  SELECT round(sum(total), 2) INTO v_val FROM public.sales WHERE operation_id = v_op2;
+  IF v_total IS DISTINCT FROM 665.33 OR v_val IS DISTINCT FROM 665.33 THEN
+    v_failures := v_failures || format('P.4 edición sin cambios: evento=%s round(Σ total)=%s, esperaba 665.33 los dos', v_total, v_val);
+  END IF;
+  -- P.5 control: con importes al centavo nada cambia (2 × 1 kg a $999 = 1.998).
+  v_result := public.rpc_create_sale_operation('vuc-p5-' || gen_random_uuid()::text, v_client_a, CURRENT_DATE, 'ARS',
+    jsonb_build_array(jsonb_build_object('product_id', v_p_tot, 'amount', 999, 'quantity', 1, 'unit_id', v_u_kg),
+                      jsonb_build_object('product_id', v_p_tot2, 'amount', 999, 'quantity', 1, 'unit_id', v_u_kg)),
+    v_branch_a, NULL, v_pm_credit);
+  SELECT sum(amount) INTO v_amount FROM public.customer_account_movements WHERE reference_id = (v_result->>'operation_id')::uuid;
+  IF v_amount IS DISTINCT FROM 1998 THEN v_failures := v_failures || format('P.5 control al centavo: cargo=%s, esperaba 1998', v_amount); END IF;
+
+  IF COALESCE(array_length(v_failures, 1), 0) = v_fail_before THEN RAISE NOTICE 'PASS (P) total de dinero redondeado una vez: 5/5'; END IF;
+
+  -- ═══════════════════════════════════════════════════════════════════════
   -- Cleanup (DELETE FROM accounts cascadea; branches/accounts con guard →
   -- replica; events/email_logs/idempotency no cascadean por cuenta).
   -- ═══════════════════════════════════════════════════════════════════════
@@ -1511,6 +1885,11 @@ BEGIN
   -- cuelga de auth.users por user_id se retira explícito (auditoría post-apply:
   -- dejaba 7 unidades, 7 formas de pago, 7 categorías y 3 audit_logs por corrida).
   DELETE FROM public.units_of_measure      WHERE account_id IN (v_account_a, v_account_b);
+  DELETE FROM public.customer_account_movements WHERE account_id IN (v_account_a, v_account_b);
+  DELETE FROM public.customer_accounts     WHERE account_id IN (v_account_a, v_account_b);
+  DELETE FROM public.supplier_account_movements WHERE account_id IN (v_account_a, v_account_b);
+  DELETE FROM public.supplier_accounts     WHERE account_id IN (v_account_a, v_account_b);
+  DELETE FROM public.suppliers             WHERE account_id IN (v_account_a, v_account_b);
   DELETE FROM public.payment_methods       WHERE account_id IN (v_account_a, v_account_b);
   DELETE FROM public.product_categories    WHERE account_id IN (v_account_a, v_account_b);
   DELETE FROM public.audit_logs            WHERE account_id IN (v_account_a, v_account_b);
@@ -1552,12 +1931,18 @@ BEGIN
          OR id = v_u_alien OR id = ANY(v_sys_seeded)
     UNION ALL SELECT 'payment_methods', count(*)::int FROM public.payment_methods
       WHERE account_id IN (v_account_a, v_account_b)
+    UNION ALL SELECT 'customer_account_movements', count(*)::int FROM public.customer_account_movements
+      WHERE account_id IN (v_account_a, v_account_b)
+    UNION ALL SELECT 'supplier_account_movements', count(*)::int FROM public.supplier_account_movements
+      WHERE account_id IN (v_account_a, v_account_b)
+    UNION ALL SELECT 'suppliers', count(*)::int FROM public.suppliers
+      WHERE account_id IN (v_account_a, v_account_b)
   LOOP
     IF v_cnt <> 0 THEN
       v_failures := v_failures || format('H residuo: %s filas del fixture en %s tras el cleanup', v_cnt, v_txt);
     END IF;
   END LOOP;
-  IF COALESCE(array_length(v_failures, 1), 0) = v_fail_before THEN RAISE NOTICE 'PASS (H) residuo cero: 9/9 tablas'; END IF;
+  IF COALESCE(array_length(v_failures, 1), 0) = v_fail_before THEN RAISE NOTICE 'PASS (H) residuo cero: 12/12 tablas'; END IF;
 
   IF array_length(v_failures, 1) > 0 THEN
     RAISE EXCEPTION E'GATE ventas-unidades-conversion FAILED (% fallos):\n  %',
@@ -1579,6 +1964,11 @@ EXCEPTION WHEN OTHERS THEN
     DELETE FROM public.sales_orders          WHERE account_id IN (v_account_a, v_account_b);
     DELETE FROM public.branches              WHERE account_id IN (v_account_a, v_account_b);
     DELETE FROM public.units_of_measure      WHERE account_id IN (v_account_a, v_account_b);
+    DELETE FROM public.customer_account_movements WHERE account_id IN (v_account_a, v_account_b);
+    DELETE FROM public.customer_accounts     WHERE account_id IN (v_account_a, v_account_b);
+    DELETE FROM public.supplier_account_movements WHERE account_id IN (v_account_a, v_account_b);
+    DELETE FROM public.supplier_accounts     WHERE account_id IN (v_account_a, v_account_b);
+    DELETE FROM public.suppliers             WHERE account_id IN (v_account_a, v_account_b);
     DELETE FROM public.payment_methods       WHERE account_id IN (v_account_a, v_account_b);
     DELETE FROM public.product_categories    WHERE account_id IN (v_account_a, v_account_b);
     DELETE FROM public.audit_logs            WHERE account_id IN (v_account_a, v_account_b);

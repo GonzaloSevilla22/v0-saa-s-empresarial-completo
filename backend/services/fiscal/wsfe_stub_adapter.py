@@ -11,7 +11,7 @@ from __future__ import annotations
 import datetime
 import hashlib
 
-
+from backend.core.timezone import today_in_argentina
 from backend.services.fiscal.fiscal_document_port import (
     CAERequest,
     CAEResponse,
@@ -54,6 +54,10 @@ class WSFEStubAdapter(FiscalDocumentPort):
         self._submitted: dict[str, int] = (
             submitted_registry if submitted_registry is not None else {}
         )
+        # factura-fiscal-imprimible (D5): la fecha con la que "ARCA" autorizó
+        # cada envío, para que la reconciliación devuelva la MISMA. Aparte del
+        # registro de números para no cambiar su tipo (los tests lo inyectan).
+        self._submitted_dates: dict[str, datetime.date] = {}
         self._reconcile_failure = reconcile_failure
 
     async def request_cae(self, invoice_data: CAERequest) -> CAEResponse:
@@ -101,6 +105,12 @@ class WSFEStubAdapter(FiscalDocumentPort):
         # los tests, y las dos tienen que encontrar la misma entrada.
         self._submitted[str(invoice_data.fiscal_document_id)] = invoice_data.number
 
+        # factura-fiscal-imprimible (D5): el stub "autoriza" con la fecha que
+        # recibió — o, sin fecha, la de hoy en Argentina, igual que el adapter
+        # real (OQ-7).
+        fecha_comprobante = invoice_data.fecha_comprobante or today_in_argentina()
+        self._submitted_dates[str(invoice_data.fiscal_document_id)] = fecha_comprobante
+
         fake_cae = self._derive_cae(invoice_data.fiscal_document_id)
         due_date = datetime.date.today() + datetime.timedelta(days=10)
 
@@ -113,6 +123,7 @@ class WSFEStubAdapter(FiscalDocumentPort):
             # G3: el stub nunca diverge del número local (no habla con ARCA, así
             # que no tiene otro número que informar).
             number=invoice_data.number,
+            fecha_comprobante=fecha_comprobante,
         )
 
     async def reconcile_submitted(
@@ -154,6 +165,9 @@ class WSFEStubAdapter(FiscalDocumentPort):
                 cae=self._derive_cae(doc_key),
                 cae_due_date=datetime.date.today() + datetime.timedelta(days=10),
                 number=self._submitted[doc_key],
+                # Como FECompConsultar: sólo la fecha que "ARCA" tiene (None si
+                # el registro vino inyectado sin fechas).
+                fecha_comprobante=self._submitted_dates.get(doc_key),
             )
 
         # ARCA no lo tiene. `ultimo_autorizado = requested_number - 1` hace que

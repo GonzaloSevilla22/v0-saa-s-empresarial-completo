@@ -58,12 +58,15 @@ async def test_update_authorized_calls_authorize_rpc_with_cae_and_due_date():
 
     assert matched is True
     conn.fetchval.assert_awaited_once()
-    query, doc_id, cae, cae_due_date, number = conn.fetchval.call_args.args
+    # factura-fiscal-imprimible (20261064000001): 5.º argumento, la fecha que
+    # ARCA confirmó (NULL cuando el caller no la pasa).
+    query, doc_id, cae, cae_due_date, number, fecha = conn.fetchval.call_args.args
     assert "rpc_fiscal_document_authorize" in query
     assert doc_id == DOC_ID
     assert cae == "75123456789012"
     assert cae_due_date == datetime.date(2026, 7, 20)
     assert number == 9
+    assert fecha is None
 
 
 @pytest.mark.asyncio

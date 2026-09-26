@@ -29,6 +29,7 @@ import datetime
 import logging
 from typing import TYPE_CHECKING
 
+from backend.core.timezone import today_in_argentina
 from backend.services.fiscal.fiscal_document_port import (
     CAERequest,
     CAEResponse,
@@ -86,6 +87,44 @@ _SOAP_OPERATION_TIMEOUT_SECONDS = 45
 # lo fija como regresión: cualquier cambio futuro a estas dos constantes que
 # rompa el presupuesto total falla el gate, no sólo "está seteado").
 _SOAP_WSDL_LOAD_TIMEOUT_SECONDS = 20
+
+
+_SIN_DATO = object()
+
+
+def _parse_cbte_fch(raw: object, *, fallback: datetime.date | None) -> datetime.date | None:
+    """La `CbteFch` (AAAAMMDD) de una respuesta de ARCA, sin levantar NUNCA.
+
+    factura-fiscal-imprimible (D5 + task 2.3). Tres casos, y no son el mismo:
+      * ausente o vacía → `fallback` (en FECAESolicitar, la fecha que se
+        ENVIÓ: ARCA autorizó el comprobante con esa fecha y el campo de la
+        respuesta es su eco; en FECompConsultar el fallback es None, porque el
+        envío original pudo ser de otro día);
+      * legible → esa fecha (ARCA es la fuente de verdad, como con el número);
+      * presente pero ilegible → None y un warning: no se inventa una fecha
+        sobre una respuesta que no entendemos, y el comprobante cae en el
+        backfill (OQ-9).
+    No levanta a propósito: vive dentro del parseo de un `Resultado='A'`, donde
+    cualquier excepción congelaría un documento con un CAE REAL por culpa de
+    un dato que sólo sirve para imprimir.
+    """
+    if raw is _SIN_DATO or raw is None:
+        return fallback
+    text = str(raw).strip()
+    if not text:
+        return fallback
+    try:
+        if len(text) != 8 or not text.isdigit():
+            raise ValueError(text)
+        return datetime.datetime.strptime(text, "%Y%m%d").date()
+    except ValueError:
+        logger.warning(
+            "WSFEAdapter: CbteFch ilegible en la respuesta de ARCA (%r); el "
+            "comprobante se autoriza igual y queda sin fecha confirmada "
+            "(fecha_comprobante NULL → backfill).",
+            raw,
+        )
+        return None
 
 
 class WSFEUltimoAutorizadoIlegibleError(Exception):
@@ -845,6 +884,10 @@ class WSFEAdapter(FiscalDocumentPort):
         except (TypeError, ValueError):
             number = requested_number
 
+        # factura-fiscal-imprimible (D5): SÓLO la fecha que ARCA tiene para el
+        # comprobante — sin fallback, el envío original pudo ser de otro día.
+        fecha_comprobante = _parse_cbte_fch(getattr(det, "CbteFch", _SIN_DATO), fallback=None)
+
         logger.critical(
             "WSFEAdapter.reconcile_submitted: el comprobante %s-%s SÍ existe en ARCA "
             "con CAE %s — el documento %s se autoriza con ese CAE, no se pide uno nuevo.",
@@ -855,6 +898,7 @@ class WSFEAdapter(FiscalDocumentPort):
             cae=str(cae),
             cae_due_date=vto,
             number=number,
+            fecha_comprobante=fecha_comprobante,
         )
 
     async def _call_wsfe(
@@ -874,7 +918,11 @@ class WSFEAdapter(FiscalDocumentPort):
         client = _build_zeep_client(wsfev1_url)
 
         cbte_tipo = _COMPROBANTE_AFIP_CODE.get(invoice_data.comprobante_type, 6)
-        fecha = (invoice_data.fecha_comprobante or datetime.date.today()).strftime("%Y%m%d")
+        # factura-fiscal-imprimible (OQ-7): sin fecha explícita, la del día EN
+        # ARGENTINA — nunca `date.today()`, que en un servidor en UTC fecha al
+        # día siguiente toda factura pedida después de las 21:00.
+        fecha_enviada = invoice_data.fecha_comprobante or today_in_argentina()
+        fecha = fecha_enviada.strftime("%Y%m%d")
 
         auth = {
             "Token": token,
@@ -1080,6 +1128,11 @@ class WSFEAdapter(FiscalDocumentPort):
                     cae_due_date=datetime.datetime.strptime(det.CAEFchVto, "%Y%m%d").date(),
                     is_approved=True,
                     number=number,
+                    # factura-fiscal-imprimible (D5): la fecha que ARCA
+                    # confirmó; sin ella, la enviada. Nunca levanta.
+                    fecha_comprobante=_parse_cbte_fch(
+                        getattr(det, "CbteFch", _SIN_DATO), fallback=fecha_enviada,
+                    ),
                 )
             else:
                 # Rechazado: extraer primer error

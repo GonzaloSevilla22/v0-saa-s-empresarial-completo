@@ -50,6 +50,7 @@ class FiscalDocumentRepository(BaseRepository):
         cae: str,
         cae_due_date: datetime.date,
         number: int | None = None,
+        fecha_comprobante: datetime.date | None = None,
     ) -> bool:
         """Transiciona el comprobante a authorized con el CAE obtenido.
 
@@ -74,13 +75,20 @@ class FiscalDocumentRepository(BaseRepository):
         el CAE se persiste igual pero el documento queda CONGELADO, no
         autorizado. El caller lo usa para no loguear "autorizado" cuando en
         realidad no lo está.
+
+        factura-fiscal-imprimible (D5): `fecha_comprobante` es la `CbteFch` con
+        la que ARCA autorizó (5.º parámetro, `DEFAULT NULL` en la RPC). La RPC
+        la persiste junto con la foto del emisor SÓLO en la transición real a
+        `authorized`. `None` = no confirmada: la factura no se imprime hasta el
+        backfill (OQ-9), nunca con una fecha adivinada.
         """
         return await self._conn.fetchval(
-            "SELECT public.rpc_fiscal_document_authorize($1::uuid, $2, $3, $4::bigint)",
+            "SELECT public.rpc_fiscal_document_authorize($1::uuid, $2, $3, $4::bigint, $5::date)",
             doc_id,
             cae,
             cae_due_date,
             number,
+            fecha_comprobante,
         )
 
     async def freeze_unconfirmed(

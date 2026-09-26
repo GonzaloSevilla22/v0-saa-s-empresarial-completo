@@ -375,8 +375,12 @@ class TestNumeroAutoritativo:
         )
 
     @pytest.mark.asyncio
-    async def test_update_authorized_llama_la_rpc_con_4_args(self):
-        """3.5 RED: el repo llama rpc_fiscal_document_authorize con 4 parámetros.
+    async def test_update_authorized_llama_la_rpc_con_5_args(self):
+        """3.5 RED: el repo llama rpc_fiscal_document_authorize con 5 parámetros.
+
+        factura-fiscal-imprimible (20261064000001): la RPC ganó un 5.º parámetro,
+        `p_fecha_comprobante` (la CbteFch que ARCA confirmó). Este test se AMPLÍA
+        (no se adapta para que pase): sin fecha, el 5.º argumento es NULL.
 
         (M-1, red team 2026-09-22): el repo pasó de `execute` (descarta el
         resultado) a `fetchval` (recupera el boolean de la RPC) — el caller
@@ -401,8 +405,8 @@ class TestNumeroAutoritativo:
         args = conn.fetchval.await_args.args
         query = args[0]
         assert "rpc_fiscal_document_authorize" in query
-        assert "$4" in query, f"La query debe pasar 4 parámetros; got: {query}"
-        assert args[1:] == (DOC_ID, "86250464989491", datetime.date(2026, 12, 31), 51)
+        assert "$5::date" in query, f"La query debe pasar 5 parámetros; got: {query}"
+        assert args[1:] == (DOC_ID, "86250464989491", datetime.date(2026, 12, 31), 51, None)
 
     @pytest.mark.asyncio
     async def test_update_authorized_acepta_number_ausente(self):

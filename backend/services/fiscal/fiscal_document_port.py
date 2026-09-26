@@ -97,6 +97,11 @@ class CAEResponse:
     error_detail: str | None = None
     number: int | None = None
     submitted: bool = False
+    # factura-fiscal-imprimible (D5): la fecha con la que ARCA autorizó el
+    # comprobante (`FECAEDetResponse.CbteFch`; si ARCA no la informa, la que se
+    # ENVIÓ). None = ilegible: nunca se inventa una fecha — la factura no se
+    # imprime hasta el backfill (OQ-9).
+    fecha_comprobante: datetime.date | None = None
 
 
 @dataclass
@@ -130,6 +135,10 @@ class ReconcileResponse:
     ultimo_autorizado: int | None = None   # cross-check del 602
     error_code: str | None = None
     error_detail: str | None = None
+    # factura-fiscal-imprimible (D5): SÓLO la `ResultGet.CbteFch` de
+    # FECompConsultar (el envío original pudo ser de otro día). None si ARCA no
+    # la trae o no se puede leer.
+    fecha_comprobante: datetime.date | None = None
 
 
 class FiscalDocumentPort(ABC):

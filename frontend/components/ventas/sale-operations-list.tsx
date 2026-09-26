@@ -36,9 +36,11 @@ import { groupSalesByOperation, type SaleOperation } from "@/lib/group-operation
 import { getDeleteCompensation } from "@/lib/delete-compensation"
 import { DeleteOperationDialog } from "@/components/shared/delete-operation-dialog"
 import { exportToCSV } from "@/lib/excel"
-import { formatMoney, formatDate, type Currency } from "@/lib/format"
+import { formatMoney, formatUnitPrice, formatDate, type Currency } from "@/lib/format"
+import { formatQuantity } from "@/lib/format-unit"
+import { resolveUnit } from "@/lib/unit-utils"
 import { SaleReceiptButton } from "@/components/ventas/sale-receipt-button"
-import type { Sale, Client, SaleFiscalState } from "@/lib/types"
+import type { Sale, Client, SaleFiscalState, UnitOfMeasure } from "@/lib/types"
 import { ProductDisplay } from "@/components/shared/product-display"
 import type { PaginationMeta, PageSizeOption } from "@/lib/pagination-utils"
 import {
@@ -124,6 +126,14 @@ interface SaleOperationsListProps {
   onDeleteOperation:(op: SaleOperation) => Promise<void>
   onEditOperation?: (op: SaleOperation) => void
   onRefetch:       () => void
+  /**
+   * ventas-unidades-conversion (cuarta revisión, D-F′): unidades de medida por
+   * id, para mostrar la cantidad con el símbolo de SU línea ("450 g") y
+   * exportarlo en el CSV. La página lo pasa desde useUnitsOfMeasure (el
+   * listado no hace fetch propio); sin él la cantidad sale sin símbolo — nunca
+   * se inventa una unidad.
+   */
+  unitsById?:      Map<string, UnitOfMeasure>
 }
 
 // ── Promote-to-order result tracked per operation key ────────────────────────
@@ -143,8 +153,13 @@ export function SaleOperationsList({
   paymentMethodId, setPaymentMethodId, clearFilters,
   onPageChange, onPageSizeChange,
   clients, onAdd, onDeleteOperation, onEditOperation, onRefetch,
+  unitsById,
 }: SaleOperationsListProps) {
   const clientMap    = useMemo(() => new Map(clients.map((c) => [c.id, c])), [clients])
+  const unitSymbolFor = useCallback(
+    (unitId?: string | null) => (unitsById ? resolveUnit(unitId, unitsById)?.symbol : undefined),
+    [unitsById],
+  )
   const [search,     setSearch]     = useState("")
   const [expandedKey, setExpandedKey] = useState<string | null>(null)
   const [deletingKey, setDeletingKey] = useState<string | null>(null)
@@ -188,6 +203,7 @@ export function SaleOperationsList({
       op.items.map((item) => ({
         date: item.date, clientName: op.clientName,
         productName: item.productName, quantity: item.quantity,
+        unit: unitSymbolFor(item.unitId) ?? "",
         unitPrice: item.unitPrice, total: item.total,
         currency: op.currency, operationId: op.operationId ?? "",
       })),
@@ -197,6 +213,7 @@ export function SaleOperationsList({
       { key: "clientName",  header: "Cliente"      },
       { key: "productName", header: "Producto"     },
       { key: "quantity",    header: "Cantidad"     },
+      { key: "unit",        header: "Unidad"       },
       { key: "unitPrice",   header: "Precio unit." },
       { key: "total",       header: "Total"        },
       { key: "currency",    header: "Moneda"       },
@@ -562,8 +579,8 @@ export function SaleOperationsList({
                     {op.items.map((item) => (
                       <div key={item.id} className="grid grid-cols-[1fr_72px_110px_110px] gap-2 px-3 py-2.5 border-t border-border/30 text-sm items-center hover:bg-accent/10 min-w-[320px]">
                         <ProductDisplay mode="table" name={item.productName} />
-                        <span className="text-center text-muted-foreground tabular-nums">{item.quantity}</span>
-                        <span className="text-right text-muted-foreground tabular-nums">{formatMoney(item.unitPrice, op.currency)}</span>
+                        <span className="text-center text-muted-foreground tabular-nums">{formatQuantity(item.quantity, unitSymbolFor(item.unitId))}</span>
+                        <span className="text-right text-muted-foreground tabular-nums">{formatUnitPrice(item.unitPrice, op.currency)}</span>
                         <span className="text-right font-semibold text-success tabular-nums">{formatMoney(item.total, op.currency)}</span>
                       </div>
                     ))}

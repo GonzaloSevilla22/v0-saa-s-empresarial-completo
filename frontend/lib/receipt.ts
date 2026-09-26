@@ -15,7 +15,7 @@
  *   window.open(url, "_blank")
  */
 
-import { formatMoney } from "@/lib/format"
+import { formatMoney, formatUnitPrice } from "@/lib/format"
 import { formatQuantity } from "@/lib/format-unit"
 import type { SaleOperation } from "@/lib/group-operations"
 import type { Currency } from "@/lib/format"
@@ -420,7 +420,7 @@ export function generateReceiptHTML(
       <tr>
         <td class="product-name">${esc(item.productName)}</td>
         <td class="center">${esc(formatQuantity(item.quantity, opts.unitSymbolFor?.(item.unitId)))}</td>
-        <td class="right">${esc(formatMoney(item.unitPrice, op.currency as Currency))}</td>
+        <td class="right">${esc(formatUnitPrice(item.unitPrice, op.currency as Currency))}</td>
         <td class="right subtotal">${esc(formatMoney(item.total, op.currency as Currency))}</td>
       </tr>`,
     )

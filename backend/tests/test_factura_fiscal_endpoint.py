@@ -221,8 +221,13 @@ class TestRepositorio:
         assert "so.account_id = $2" in normalized
         assert "soi.account_id = so.account_id" in normalized
         assert "ORDER BY soi.id" in normalized
-        for col in ("soi.name_snapshot", "soi.quantity", "soi.price", "soi.subtotal"):
+        for col in ("soi.quantity", "soi.price", "soi.subtotal"):
             assert col in normalized
+        # Sin snapshot del nombre (231 líneas en prod, medido 2026-09-26: órdenes
+        # viejas y ventas promovidas), la descripción es el nombre del producto
+        # — nunca "Sin descripción" en una factura.
+        assert ("COALESCE(NULLIF(btrim(soi.name_snapshot), ''), p.name) AS name_snapshot") in normalized
+        assert "LEFT JOIN public.products p ON p.id = soi.product_id" in normalized
 
         kind_query, *kind_args = conn.fetchval.await_args.args
         normalized_kind = " ".join(kind_query.split())

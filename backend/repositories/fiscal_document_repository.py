@@ -56,10 +56,14 @@ class FiscalDocumentRepository(BaseRepository):
         `sale_condition_kind`: el `kind` de la forma de pago de la orden; si la
         orden no tiene, el de la operación de venta. `None` = sin forma de
         pago registrada (se imprime "Contado").
+
+        La descripción es el snapshot del nombre y, si la línea no lo tiene
+        (231 líneas en prod al 2026-09-26: órdenes viejas y ventas promovidas),
+        el nombre actual del producto — nunca "Sin descripción" en una factura.
         """
         rows = await self.fetch(
             """
-            SELECT soi.name_snapshot,
+            SELECT COALESCE(NULLIF(btrim(soi.name_snapshot), ''), p.name) AS name_snapshot,
                    soi.quantity,
                    soi.price,
                    soi.subtotal,
@@ -68,6 +72,7 @@ class FiscalDocumentRepository(BaseRepository):
             JOIN public.sales_order_items soi
               ON soi.sales_order_id = so.id
              AND soi.account_id = so.account_id
+            LEFT JOIN public.products p ON p.id = soi.product_id AND p.account_id = soi.account_id
             LEFT JOIN public.units_of_measure u ON u.id = soi.unit_id
             WHERE so.fiscal_document_id = $1
               AND so.account_id = $2
@@ -141,6 +146,35 @@ class FiscalDocumentRepository(BaseRepository):
             cae_due_date,
             number,
             fecha_comprobante,
+        )
+
+    async def list_authorized_without_fecha(self) -> list[dict]:
+        """Autorizados sin `fecha_comprobante` (anteriores a factura-fiscal-imprimible).
+
+        Para el backfill de OQ-9 (`services/fiscal/fecha_backfill.py`), que corre
+        con una conexión de servicio y el OK del PO. Trae CUIT y ambiente del
+        perfil, igual que el relay, para consultar a ARCA.
+        """
+        return await self.fetch(
+            """
+            SELECT fd.*, fp.cuit, fp.ambiente
+            FROM public.fiscal_documents fd
+            JOIN public.fiscal_profiles fp ON fp.id = fd.fiscal_profile_id
+            WHERE fd.status = 'authorized'
+              AND fd.fecha_comprobante IS NULL
+            ORDER BY fd.created_at
+            """
+        )
+
+    async def set_fecha_comprobante(self, doc_id: str, fecha: datetime.date) -> bool:
+        """Completa la fecha confirmada por ARCA (RPC interna, sólo sobre NULL).
+
+        `False` = no escribió (ya tenía fecha, o el documento no está authorized).
+        """
+        return await self._conn.fetchval(
+            "SELECT public.rpc_fiscal_document_set_fecha_comprobante($1::uuid, $2::date)",
+            doc_id,
+            fecha,
         )
 
     async def freeze_unconfirmed(

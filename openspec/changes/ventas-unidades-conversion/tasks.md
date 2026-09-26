@@ -48,7 +48,41 @@
 
 - [ ] 7.1 Corrida completa: el apply la dio por hecha con `db reset` (307 migraciones), "83/83 gates", `pytest` 2536 passed y `vitest`, pero los gates se corrieron sueltos y no el workflow (ver 2.3). Se reabre: vale el run de CI de `validate-kpis`, `Backend_Tests`, `Frontend_Tests` y `E2E_Tests` sobre el commit final de la corrección, en verde (a completar con el run de CI).
 - [x] 7.2 `CHANGES.md` (entrada del change con el apply, D10, el movimiento dañado `cf4550c0-…` y los candidatos que quedan), `knowledge-base/05_reglas_de_negocio.md` (RN-24 reescrita: unidad base del producto, mismo tipo, sin base sólo factor 1, reversa por delta guardado; RN-23 con el umbral fraccionario), `CLAUDE.md` ítem 26 + `python scripts/ci/check_docs_sync.py --fix` (AGENTS.md regenerado). Verificación: `check_docs_sync.py` OK. *Corrección 2026-09-25*: ítem 26 acortado a hechos verificables, cifras no verificadas retiradas de `CHANGES.md`, RN-24 con la regla D11 y el dato real de variantes; `AGENTS.md` se regenera en el commit de la corrección.
-- [ ] 7.3 Verificación post-merge en prod (sólo `SELECT`): `MAX(version) = 20261062000001` (309 migraciones), tipo de `branch_stock.min_stock`, firma única de `rpc_set_product_min_stock` = `(uuid, numeric)` (riesgo D-E), ACLs del helper, los seis cuerpos vivos con la llamada, `COMMENT ON FUNCTION` de las dos funciones recreadas, `v_products_with_stock.base_unit_id`. Pendiente hasta el merge y el deploy.
+- [ ] 7.3 Verificación post-merge en prod (sólo `SELECT`). Pendiente hasta el merge y el deploy. *Cuarta revisión*: la lista original nombraba sólo lo que creó el primer apply; ahora cubre todo lo que la migración crea o reescribe (resultado esperado en cada comentario):
+
+  ```sql
+  -- 1) versión y los diez cuerpos: una definición cada uno, md5 = v_rewritten de la cabecera
+  SELECT max(version), count(*) FROM supabase_migrations.schema_migrations;          -- 20261062000001 / 309
+  SELECT p.proname, count(*) AS defs, max(md5(replace(p.prosrc, chr(13), ''))) AS md5
+  FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+  WHERE n.nspname = 'public' AND p.proname IN (
+    '_c29_confirm_order_core', 'rpc_create_sale_operation_v2', 'rpc_create_purchase_operation',
+    'rpc_atomic_update_sale_operation', 'rpc_atomic_update_purchase_operation', 'rpc_create_sale_operation',
+    'reporting_sales_lines_in_window', 'rpc_dashboard_kpi_summary', 'rpc_dashboard_channel_margin', 'check_low_margin')
+  GROUP BY 1 ORDER BY 1;                                                              -- 10 filas, defs = 1
+  -- 2) ACLs: todo false
+  SELECT f, has_function_privilege('anon', f, 'EXECUTE') AS anon, has_function_privilege('authenticated', f, 'EXECUTE') AS auth
+  FROM unnest(ARRAY['public._uom_normalize_quantity(uuid,uuid,numeric)', 'public._uom_quantity_for_reporting(uuid,uuid,numeric)',
+                    'public.fn_product_base_unit_guard()', 'public.fn_uom_in_use_guard()']) AS f;
+  -- 3) triggers
+  SELECT tgname, pg_get_triggerdef(oid) FROM pg_trigger
+  WHERE tgname IN ('trg_product_base_unit_guard', 'trg_uom_in_use_guard');           -- INSERT OR DELETE OR UPDATE OF base_unit_id, account_id, parent_id / UPDATE OF factor, type, base_unit_id
+  -- 4) D-F′: precio de línea sin escala
+  SELECT table_name, column_name, numeric_scale FROM information_schema.columns
+  WHERE table_schema = 'public' AND column_name = 'price' AND table_name IN ('sales_order_items', 'quote_items');   -- numeric_scale NULL
+  -- 5) COMMENTs: todo true
+  SELECT f, obj_description(f::regprocedure, 'pg_proc') IS NOT NULL
+  FROM unnest(ARRAY['public.check_low_margin()', 'public.get_dashboard_critical_stock_items(uuid,integer)',
+                    'public.rpc_set_product_min_stock(uuid,numeric)', 'public.fn_product_base_unit_guard()',
+                    'public.fn_uom_in_use_guard()', 'public._uom_normalize_quantity(uuid,uuid,numeric)',
+                    'public._uom_quantity_for_reporting(uuid,uuid,numeric)']) AS f;
+  -- 6) min_stock, firma única (riesgo D-E) y la vista
+  SELECT data_type, numeric_scale FROM information_schema.columns
+  WHERE table_schema = 'public' AND table_name = 'branch_stock' AND column_name = 'min_stock';                   -- numeric / 4
+  SELECT pg_get_function_identity_arguments(oid) FROM pg_proc WHERE proname = 'rpc_set_product_min_stock';     -- una fila: p_product_id uuid, p_min_stock numeric
+  SELECT count(*) FROM information_schema.columns
+  WHERE table_schema = 'public' AND table_name = 'v_products_with_stock' AND column_name = 'base_unit_id';      -- 1
+  ```
 - [ ] 7.4 Humo real del PO en prod: producto en kg con stock 1, venta de 450 g desde el POS (también con Docena) y desde el formulario, edición a 300 g, borrado, `/stock` desktop y mobile en `0.550 kg`, mínimo `0.5` con alerta, cambio de unidad base de un producto con stock rechazado (D11); decisiones 2-9 del PO (`design.md` §"Sign-off del PO"), incluidos el ajuste manual del movimiento dañado y OQ-1. Pendiente hasta el deploy.
 
 ## 8. Auditoría post-apply (2026-09-24, PR #584)
@@ -102,6 +136,21 @@
 - [x] 11.8 Verificación local completa (2026-09-25): `db reset` 309; los 93 pasos de `validate-kpis` en orden con el `run` literal del YAML → 92 OK + `test_facturar_venta_manual_race.sh` 20/20 re-corrido solo (en la corrida completa falló sólo la iteración 6, por `statement_timeout` bajo la carga de `vitest` en paralelo); `pytest` 2563 passed / 1 skipped / 7 deselected (97,77 %); `vitest` 386 archivos / 3585 tests; `tsc` 8 errores = `main`; arnés visual 17/17; `openspec validate --all --strict` 109/109.
 - [ ] 11.9 Run real de CI (`validate-kpis` completo, con el paso de reaplicación 10/10, el gate y el arnés de carrera) sobre el commit final: lo hace la fase de push (7.1).
 
+## 12. Cuarta revisión (2026-09-25, rama `claude/nice-noether-rrkgyh` sobre `8bd9250b`)
+
+> El red team 3 (dos lentes) dejó la rama en `mergeable=false`: 1 mayor (asignar la unidad base sobre historia en otra unidad) + 8 menores (listados/exports sin unidad y precio unitario cortado, `ai-precio`/`fair-advisor` fuera de D13, total de dinero redondeado línea a línea, DELETE del padre/write skew/importador, PR body, checklist post-merge, KB) + 7 nits. Lo que toca código, cerrado con TDD; evidencia en la sesión (`fix-584/fix-round-3/`).
+
+- [x] 12.1 **Asignar la unidad base sobre historia en otra unidad** (mayor): `trg_product_base_unit_guard` rechaza con `P0409` asignar (propia, al padre de variantes que heredan o por re-parent) si el grupo tiene stock o movimientos y líneas con otra unidad explícita; `PUT /products` lo espeja (`has_lines_in_other_unit`). Verificación: gate L.13-L.20 (historia kg → `g` y `u` → `kg` rechazados, también por PostgREST; kg → `kg` y sin unidad → `kg` permitidos; padre y re-parent); backend (i)-(k).
+- [x] 12.2 **DELETE físico del padre, write skew del re-parent e importador**: el trigger dispara en `DELETE` (GUC local hacia la acción `ON DELETE SET NULL`) y toma `FOR SHARE` el padre nuevo. Verificación: gate L.21-L.24 (DELETE por PostgREST → `P0409` y la variante conserva el padre; borrado conjunto permitido; padre sin base permitido; importador → error de fila 7); arnés de carrera (d) y (e) → `P0409`, rojos contra el cuerpo de la tercera revisión.
+- [x] 12.3 **Total de dinero redondeado una vez** en los cuatro cuerpos que lo acumulan; `v_rewritten` re-medido para los cuatro. Verificación: gate (P) 5/5 (venta a crédito v2 y legacy, compra a crédito, edición sin cambios → 665,33; control al centavo 1998); introspección (E) y gate embebido.
+- [x] 12.4 **Unidad en uso inmutable**: `trg_uom_in_use_guard` (`P0409 unit_in_use`). Verificación: gate (O) 7/7 (base de productos, líneas, tipo, base, PostgREST; renombrar y corregir una unidad sin uso se permiten).
+- [x] 12.5 **Listados, CSV, ticket y PDF**: `formatUnitPrice` (`lib/format.ts`), símbolo de la línea y columna "Unidad" en los listados de ventas y compras (unidades por prop desde la página), ticket HTML y `_format_unit_price` en el PDF. Verificación: `format-unit-price.test.ts`, `operations-list-line-units.test.tsx`, `receipt-unit-price.test.ts`, `test_receipts_unit_price_precision.py`.
+- [x] 12.6 **Precio con descuento sin ruido binario** (`use-sales.ts`, alta y edición). Verificación: `use-sales-discount-price-precision.test.ts`.
+- [x] 12.7 **Gate**: la introspección de D-F′ cuenta las seis columnas y ubica lock y helper con `regexp_instr` (también en el gate embebido).
+- [x] 12.8 **Docs**: 7.3 con las consultas; `design.md` (D9, D11, D12, D13, "Cuarta revisión", riesgos con la regla del bloque de reaplicación, Migration Plan §5, sign-off en orden con las filas 13 y 14); specs delta (`units-of-measure`: asignación, DELETE, importador, carrera del re-parent, excepción del fallback de la reversa, unidad en uso, total redondeado una vez, listados/ticket; `reporting-invariants`: consumidores pendientes); KB 04/05/06; `KPI_Validation.yml` (comentarios del reapply 10/10 con la regla de retiro, gate A-P, arnés (a)-(e)); `CHANGES.md` (entrada de la cuarta revisión, candidatos, regla); `CLAUDE.md` ítem 26 + `check_docs_sync.py --fix`; `proposal.md` (governance).
+- [x] 12.9 Verificación local completa (2026-09-25): `db reset` 309 con los diez md5 = `v_rewritten`; los pasos de `validate-kpis` en orden con el `run` literal del YAML → **92 OK / 0 FAIL** (reaplicación 10/10 + gate embebido PASS + schema idéntico, gate A-P, arnés (a)-(e), ACLs); `test_facturar_venta_manual_race.sh` aparte con `ITER=3` → nueve casos 3/3; `pytest` 2570 passed / 1 skipped / 7 deselected (97,78 %); `vitest` 390 archivos / 3601 tests (3599 + 2 timeouts bajo carga en archivos no tocados, verdes solos); `tsc` 8 errores = `main`; `openspec validate --all --strict` 109/109; `check_docs_sync.py` OK. El run real de CI sobre el head final es de la fase de push (11.9).
+- [ ] 12.10 Sin cerrar en código, anotados como candidatos en `CHANGES.md`: la columna de unidad en `generate-export`, `ai-precio`/`fair-advisor` fuera de D13 y el precio sub-centavo en el carrito. El PR body y el run real de CI sobre el head final son de la fase de push (7.1, 11.9).
+
 ### TDD Cycle Evidence
 
 Las filas del apply original (2026-09-24) no tienen RED registrado: la sesión de la nube escribió tests y código en el mismo commit. Se dejan explícitas para que la ausencia sea visible y no se lean como TDD. Las de la corrección (2026-09-25) tienen su salida RED/GREEN guardada en la evidencia de la sesión.
@@ -144,3 +193,11 @@ Las filas del apply original (2026-09-24) no tienen RED registrado: la sesión d
 | 11.4 D-F′ (base) | gate (M) + (E) | SQL gate | ✅ | ✅ M.1 `amount=4.58`, M.2 edición `2061.000000`, M.3 `amount=1.23`; (E) `sales_order_items.price`/`quote_items.price` escala 2 | ✅ 6/6 | ✅ formulario, compra y sus ediciones (control, ya exactos), docenas | ✅ ALTER guardado (reaplicación no-op), relfilenode igual |
 | 11.4 D-F′ (frontend) | `unit-utils-price-per-line-unit.test.ts`, `cart-utils.test.ts`, `pos-price-per-line-unit.test.tsx`, `sale-form-price-per-line-unit.test.tsx`, `purchase-form-price-per-line-unit.test.tsx`, `sale-form-edit-fractional-qty.test.tsx` | Unit + componente | ✅ 25/25 previos | ✅ 10 fallan: `1.2346` vs `1.23456`, `555.57`, `0.0012`, `1234.6`, `1999.98`, `9999.9999`, `3333.3333` | ✅ 35/35; suites relacionadas 211/211 | ✅ g, mg, ida y vuelta, ruido binario, subtotal tipeado, POS/venta/compra, edición (pin) | ✅ `roundUnitPrice` en la capa canónica |
 | 11.5 re-parent | gate L.8-L.12 | SQL gate | ✅ L.1-L.7 | ✅ L.8/L.9/L.10 "no rechazó" | ✅ 12/12 | ✅ mismo padre efectivo y base propia → permitido | ✅ grupos separados (producto / variantes que heredan) |
+| 12.1 asignar sobre historia en otra unidad | gate L.13-L.20 | SQL gate | ✅ A-P restantes PASS | ✅ `01-gate-RED.txt`: L.13/L.14/L.17/L.18/L.20 "no rechazó" (L.15/L.19 fallan en cascada) | ✅ L 24/24 (`03-gate-GREEN1.txt`) | ✅ kg → `kg` y sin unidad → `kg` permitidos; padre, re-parent y PostgREST rechazados | ✅ mensaje con los símbolos de las dos unidades |
+| 12.1 backend | `backend/tests/test_ventas_unidades_conversion_base_unit_lock.py` | Unit (router → service → repo, asyncpg mockeado) | ✅ 12/12 | ✅ `07-be-RED.txt`: 4 fallan (`assert 200 == 409`, `has_lines_in_other_unit` inexistente) | ✅ 16/16 | ✅ con líneas en otra unidad pero sin stock → 200; sin líneas → ni consulta el stock | ✅ líneas antes que el stock |
+| 12.2 DELETE e importador | gate L.21-L.24 | SQL gate | ✅ | ✅ L.21 "DELETE del padre por PostgREST: aceptado" y la variante sin padre | ✅ 4/4 | ✅ borrado conjunto y padre sin base permitidos; importador → error de fila | ✅ GUC local único (jsonb) |
+| 12.2 write skew | `supabase/tests/test_ventas_unidades_conversion_race.sh` (d)(e) | SQL, dos conexiones | ✅ (a)(b)(c) PASS | ✅ con el cuerpo de la tercera revisión: (d) `BASE_CHANGE_OK` (`05-race-RED.txt`), (e) `REPARENT_OK` (`05b-race-RED-only-e.txt`) | ✅ (a)-(e) PASS (`06-race-GREEN.txt`) | ✅ los dos órdenes | — |
+| 12.3 total al centavo | gate (P) + (E) | SQL gate | ✅ | ✅ P.1-P.4 cargo/evento 665.34; (E) acumulador `numeric(15,2)` en los cuatro cuerpos | ✅ 5/5 | ✅ v2, legacy, compra, edición; control al centavo | ✅ `v_rewritten` re-medido |
+| 12.4 unidad en uso | gate (O) | SQL gate | ✅ | ✅ O.1-O.5 "no rechazó", factor de la Docena en 6 | ✅ 7/7 | ✅ renombrar y unidad sin uso permitidos | — |
+| 12.5 precio unitario y unidad en pantalla | `format-unit-price.test.ts`, `operations-list-line-units.test.tsx`, `receipt-unit-price.test.ts`, `test_receipts_unit_price_precision.py` | Unit + componente | ✅ `receipt.test.ts`, `test_receipts.py` | ✅ `12-fe-units-RED.txt` (11 fallan: `formatUnitPrice is not a function`, sin `450 g`, sin columna Unidad, ticket con `$ 4,58`); `11-be-receipt-RED.txt` (import) | ✅ 27/27 + 12/12 | ✅ ventas y compras, sin unidades no inventa, USD, al centavo = `formatMoney` | ✅ `MONEY_FORMAT` compartido |
+| 12.6 descuento | `use-sales-discount-price-precision.test.ts` | Hook | ✅ | ✅ `09-fe-RED.txt`: `4.117500000000001`, `1.9800000000000002` | ✅ 4/4 | ✅ alta y edición, sin descuento intacto | — |

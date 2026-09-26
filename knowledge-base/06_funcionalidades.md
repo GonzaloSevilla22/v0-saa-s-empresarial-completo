@@ -191,7 +191,7 @@
 - Alerta de stock bajo (`low_stock_alert`) — automática, max 1 por producto/24h
 - Aviso de nueva reunión (`meeting_notice`) — automático en INSERT de meetings
 - Aviso de nuevo pool de compra (`pool_notice`) — automático en INSERT de pools
-- Alerta de margen bajo (`low_margin_alert`) — definida, no activada aún en MVP
+- Alerta de margen bajo (`low_margin_alert`) — **activa**: el trigger `on_sale_insert_margin_check` la registra por cada venta con margen de línea menor al 15 % (205 en prod al 2026-09-25, 71 en los últimos 30 días). Desde `ventas-unidades-conversion` compara el importe de la línea contra el costo en unidad base (RN-D7): dejan de salir los falsos positivos de cantidad mayor a 1 y de ventas en gramos
 
 ---
 

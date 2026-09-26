@@ -987,10 +987,10 @@ jobs:
           # reaplica 20261060000001/20261061000001, así que al final de la
           # cadena ese cuerpo no es ni el de partida del preflight de
           # 20261062000001 ni el que ella deja → el preflight ABORTA siempre
-          # (y las otras cinco funciones volverían a su cuerpo de partida,
+          # (y las otras nueve funciones volverían a su cuerpo de partida,
           # ejercitando la rama de reescritura en vez de la de reaplicación).
           # Sobre el estado reconvergido (= la historia real completa, con
-          # 20261062000001 ya aplicada por el reset), los seis cuerpos son
+          # 20261062000001 ya aplicada por el reset), los diez cuerpos son
           # exactamente `v_rewritten`: esto ejercita la rama de reaplicación
           # del preflight (10 NOTICE "ya es el cuerpo de esta migración": los seis
           # que escriben stock + los tres de reporting de la segunda revisión +
@@ -1001,6 +1001,21 @@ jobs:
           # rojo), y el schema tiene que quedar IDÉNTICO al de antes del paso:
           # una reaplicación que cambie ACLs, firmas o constraints no es
           # idempotente aunque salga con exit 0.
+          #
+          # REGLA PARA EL PR SIGUIENTE (cuarta revisión del PR #584): este
+          # bloque exige que las DIEZ funciones sigan con el cuerpo que
+          # 20261062000001 deja (_c29_confirm_order_core,
+          # rpc_create_sale_operation_v2, rpc_create_purchase_operation,
+          # rpc_atomic_update_sale_operation,
+          # rpc_atomic_update_purchase_operation, rpc_create_sale_operation,
+          # reporting_sales_lines_in_window, rpc_dashboard_kpi_summary,
+          # rpc_dashboard_channel_margin, check_low_margin). Una migración
+          # POSTERIOR que redefina cualquiera de ellas hace abortar el
+          # preflight de este reapply y pone validate-kpis en ROJO en un PR
+          # ajeno. Esa migración tiene que RETIRAR este bloque en el mismo PR
+          # (su propio gate pasa a ser el control de esas funciones) — el
+          # mismo criterio por el que 20261060000001 y 20261061000001, que
+          # también tienen preflight, no están en esta cadena.
           UOM_OUT=$(psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261062000001_ventas_unidades_conversion.sql 2>&1) || { echo "$UOM_OUT"; echo "ERROR: el reapply de 20261062000001 falló (sin tolerancia)."; exit 1; }
           echo "$UOM_OUT"
           UOM_REAPPLIED=$(echo "$UOM_OUT" | grep -cF 'ya es el cuerpo de esta migraci' || true)
@@ -2267,7 +2282,7 @@ jobs:
 
       # ventas-unidades-conversion (2026-09-25, corregido post-revision PR #584):
       # 20261062000001 ya se aplico al levantar el stack; este paso solo corre
-      # el gate. 14 bloques (A-N): (A) la definicion unica
+      # el gate. 16 bloques (A-P): (A) la definicion unica
       # _uom_normalize_quantity caso por caso (relativa a la unidad base del
       # PRODUCTO, tipo cruzado P0400 unit_type_mismatch, sin unidad base solo
       # unidades base P0400 unit_requires_base_unit); (B) los SEIS caminos que
@@ -2299,7 +2314,15 @@ jobs:
       # total es exacto en POS, formulario, compra y edicion; (N) la alerta de
       # margen por email (check_low_margin) costea la cantidad en unidad base.
       # (E) suma la introspeccion de la normalizacion DESPUES del FOR UPDATE en
-      # los seis caminos.
+      # los seis caminos. Cuarta revision: (L) tambien rechaza ASIGNAR la
+      # unidad base sobre stock e historia grabados en otra unidad (historia en
+      # kg + base g dejaba el stock 1000 veces menor), el DELETE fisico del
+      # padre de una variante que sobrevive y el re-parent del importador (error
+      # de fila); (O) una unidad en uso no cambia de factor, tipo ni base
+      # (P0409 unit_in_use); (P) el total de dinero se redondea UNA vez
+      # (round(sum, 2)): 2 x 0,333 kg a $999 cargaban 665,34 contra una factura
+      # de 665,33. (E) cuenta las seis columnas de precio de linea y ubica lock
+      # y helper con regexp_instr.
       - name: Run ventas unidades conversion gate
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_ventas_unidades_conversion.sql
 
@@ -2309,11 +2332,16 @@ jobs:
       # evalua al hacer el UPDATE, antes del commit; si la compra normalizaba la
       # cantidad ANTES de tomar el producto FOR UPDATE, leia la unidad
       # commiteada (kg), esperaba la fila y escribia 2 kg que se leian 2 u
-      # (reproducido por la revision). Tres casos: (a) cambio abierto vs compra
+      # (reproducido por la revision). Cinco casos: (a) cambio abierto vs compra
       # -> P0400 sin stock ni movimiento; (b) compra abierta vs cambio -> P0409;
       # (c) cambio de la unidad del PADRE abierto vs compra de la variante que
       # hereda -> P0400. Control negativo ejecutado: con la normalizacion antes
-      # del FOR UPDATE, (a) termina en PURCHASE_OK con stock 2 en 'u'.
+      # del FOR UPDATE, (a) termina en PURCHASE_OK con stock 2 en 'u'. Cuarta
+      # revision (write skew del re-parent): (d) re-parent de una variante con
+      # stock a un padre en kg ABIERTO vs cambio de la base de ese padre a 'u'
+      # -> P0409; (e) el orden inverso -> P0409. Control negativo ejecutado: sin
+      # el FOR SHARE sobre el padre nuevo, (d) termina en BASE_CHANGE_OK y (e) en
+      # REPARENT_OK (5 kg bajo un padre en 'u').
       - name: Run ventas unidades conversion race gate (dos conexiones)
         run: DB_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres bash supabase/tests/test_ventas_unidades_conversion_race.sh
 

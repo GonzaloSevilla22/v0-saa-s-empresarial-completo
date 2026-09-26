@@ -51,7 +51,7 @@ Detalle de agregados, invariantes y catálogo de eventos: `modelo-dominio-aliada
 - **IDs**: UUID v4 en todas las entidades
 - **Timestamps**: `created_at` (default `NOW()`) en todas las tablas; `updated_at` en profiles e invoice_documents (con trigger de auto-update)
 - **Foreign Keys**: referencias a `auth.users(id)` para `user_id`; `ON DELETE CASCADE` o `SET NULL` según el contexto
-- **Tipos de moneda**: `NUMERIC(15,2)` para dinero; `NUMERIC(15,4)` para cantidades de stock (soporte de fracciones)
+- **Tipos de moneda**: `NUMERIC(15,2)` para importes de dinero (subtotales, totales, caja, banco, cuentas corrientes); `NUMERIC` **sin escala** para el precio unitario de una línea (`sales.amount`, `sale_items.price`, `sales_order_items.price`, `quote_items.price`, `purchases.amount`, `purchase_items.price` — `ventas-unidades-conversion`, D-F′: el precio es por unidad de la línea y $4,575/g no entra en dos decimales, RN-24-bis); `NUMERIC(15,4)` para cantidades de stock (soporte de fracciones)
 - **RLS habilitado**: todas las tablas de usuario (ver `03_actores_y_roles.md`)
 
 ---
@@ -118,8 +118,9 @@ user_id         UUID    FK auth.users
 client_id       UUID    FK clients(id) NULLABLE
 product_id      UUID    FK products(id) ON DELETE SET NULL
 operation_id    UUID    -- agrupa ítems del mismo carrito
-amount          NUMERIC(15,2)   -- precio unitario × cantidad
-quantity        NUMERIC(15,4)
+amount          NUMERIC         -- precio por unidad DE LA LÍNEA, sin escala (RN-24-bis, D-F/D-F′)
+quantity        NUMERIC(15,4)   -- en la unidad de la línea
+total           NUMERIC         -- importe de la línea = amount × quantity
 unit_id         UUID    FK units_of_measure(id)
 date            DATE
 created_at      TIMESTAMP
@@ -131,8 +132,9 @@ id              UUID    PK
 user_id         UUID    FK auth.users
 product_id      UUID    FK products(id) ON DELETE SET NULL
 operation_id    UUID    -- agrupa ítems del mismo carrito
-amount          NUMERIC(15,2)
-quantity        NUMERIC(15,4)
+amount          NUMERIC         -- costo por unidad DE LA LÍNEA, sin escala (RN-24-bis)
+quantity        NUMERIC(15,4)   -- en la unidad de la línea
+total           NUMERIC         -- importe de la línea = amount × quantity
 description     TEXT
 unit_id         UUID    FK units_of_measure(id)
 date            DATE

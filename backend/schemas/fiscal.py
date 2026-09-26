@@ -133,6 +133,10 @@ class PointOfSaleOut(BaseModel):
     branch_id: uuid.UUID | None = None
     numero: int
     is_active: bool
+    # punto-venta-seleccion (D2): predeterminado de la cuenta (uno como mucho,
+    # sólo activo). Default False: una fila leída antes de que la migración
+    # exista (deploy del backend antes que la base) no rompe la respuesta.
+    is_default: bool = False
     created_at: datetime.datetime
 
 

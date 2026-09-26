@@ -17,11 +17,11 @@
 
 ## 2. Backend: predeterminado en repository, service, router y schema
 
-- [ ] 2.1 RED — `backend/tests/test_c27_point_of_sale_repository.py`: `set_default` corre las dos sentencias en orden y filtra por `account_id` en ambas; devuelve `None` si el PV es de otra cuenta o inactivo; `clear_default` filtra por `account_id`; `deactivate` escribe `is_default = false` junto con `is_active = false`.
-- [ ] 2.2 GREEN — `PointOfSaleRepository.set_default(pv_id, account_id)`, `clear_default(account_id)` y `deactivate` extendido (D9).
-- [ ] 2.3 RED — tests del service/router: `POST /fiscal/points-of-sale/{id}/default` → 200 con `is_default = true`; 404 para PV ajeno/inactivo/inexistente sin cambiar la marca; `DELETE /fiscal/points-of-sale/default` → 204; `member` → 403 en los dos (guard `require_account_role(conn, auth, CAN_CONFIGURE)`); `GET /fiscal/points-of-sale` incluye `is_default`.
-- [ ] 2.4 GREEN — `fiscal_profile_service.set_default_point_of_sale` / `clear_default_point_of_sale` con el guard; 2 endpoints en `routers/fiscal.py` (sin lógica en el router; `/default` como sub-recurso, D9); `PointOfSaleOut.is_default: bool`; actualizar la docstring de rutas del router.
-- [ ] 2.5 REFACTOR + coverage: `pytest` completo del backend, coverage ≥ 87 %.
+- [x] 2.1 RED — `backend/tests/test_c27_point_of_sale_repository.py`: `set_default` corre las dos sentencias en orden y filtra por `account_id` en ambas; devuelve `None` si el PV es de otra cuenta o inactivo; `clear_default` filtra por `account_id`; `deactivate` escribe `is_default = false` junto con `is_active = false`.
+- [x] 2.2 GREEN — `PointOfSaleRepository.set_default(pv_id, account_id)`, `clear_default(account_id)` y `deactivate` extendido (D9).
+- [x] 2.3 RED — tests del service/router: `POST /fiscal/points-of-sale/{id}/default` → 200 con `is_default = true`; 404 para PV ajeno/inactivo/inexistente sin cambiar la marca; `DELETE /fiscal/points-of-sale/default` → 204; `member` → 403 en los dos (guard `require_account_role(conn, auth, CAN_CONFIGURE)`); `GET /fiscal/points-of-sale` incluye `is_default`.
+- [x] 2.4 GREEN — `fiscal_profile_service.set_default_point_of_sale` / `clear_default_point_of_sale` con el guard; 2 endpoints en `routers/fiscal.py` (sin lógica en el router; `/default` como sub-recurso, D9); `PointOfSaleOut.is_default: bool`; actualizar la docstring de rutas del router.
+- [x] 2.5 REFACTOR + coverage: `pytest` completo del backend, coverage ≥ 87 %.
 
 ## 3. Frontend: regla de preselección y selector compartido
 
@@ -66,3 +66,6 @@
 | 0.4 | backend `test_c27_point_of_sale_repository.py` + fiscal (6 archivos) / frontend 9 archivos | — | ✅ backend 195 passed + 1 skipped; frontend 102/102 | — | — | — | — |
 | 1.1-1.3 | `supabase/tests/test_punto_venta_predeterminado.sql` | SQL gate (ejecuta la RPC) | ✅ 0.1: md5 local == prod `8c10f8ca…` | ✅ (0) falla: sin columna/CHECK/índice/rama/COMMENT; (a-h) falla: columna `is_default` inexistente | ✅ migración `20261063000001` → PASS (0), (a-h), (z) | ✅ 9 casos (a,b,c,d,e,e2,f,g,h) + mutantes: RPC vieja cae en (0)+(c); predeterminado sin filtrar cuenta cae en (e2) | ✅ residuo cero dinámico (toda tabla con `account_id`) |
 | 1.4-1.5 | `KPI_Validation.yml` (paso nuevo + reapply de 20261063000001) | CI | ✅ | — | ✅ `db reset` 310 migraciones; paso de reapply completo EXIT=0 (schema idéntico) | ✅ `test_facturar_venta_manual`, `test_fiscal_emit_consumidor_final`, `test_function_acl_gate`, `test_errcode_5char_gate`, `test_venta_editable_sin_cae` verdes | — |
+| 2.1-2.2 | `backend/tests/test_c27_point_of_sale_repository.py::TestPointOfSaleDefaultRepository` | Unit (repository, conn mockeada) | ✅ 195 passed + 1 skipped | ✅ 4 fallan (`set_default`/`clear_default` inexistentes; `deactivate` sin `is_default = false`) | ✅ 14/14 | ✅ orden de las 2 sentencias + args por cuenta; PV ajeno/inactivo → None con ROLLBACK (el `__aexit__` recibe la excepción); `clear_default` y `deactivate` por cuenta | ✅ excepción interna `_PointOfSaleNotMarkable` para forzar el rollback |
+| 2.3-2.4 | `…::TestPointOfSaleDefaultEndpoints` | Integration (router + service con mock pool) | ✅ | ✅ 7 fallan (404/405 por rutas inexistentes, `KeyError is_default`) | ✅ 22/22 | ✅ owner 200, ajeno/inactivo 404, uuid inválido 422, DELETE 204 filtrado por cuenta, member 403 (POST y DELETE, sin escribir), token owner con base member → 403 (capacidad sensible), GET expone `is_default` | ✅ docstring de rutas del router |
+| 2.5 | suite completa `backend/tests -m "not integration"` | — | — | — | ✅ 2582 passed, 1 skipped; coverage 93,94 % (≥ 87 %) | — | — |

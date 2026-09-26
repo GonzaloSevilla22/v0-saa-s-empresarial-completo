@@ -9,6 +9,7 @@
  *   falta (mismas etiquetas que la configuración fiscal).
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
+import { Blob as NodeBlob } from "node:buffer"
 
 const { redirectedMock } = vi.hoisted(() => ({ redirectedMock: vi.fn() }))
 
@@ -22,6 +23,21 @@ vi.mock("@/lib/api/auth-headers", () => ({
 }))
 
 import { FiscalInvoiceError, fetchFiscalInvoicePdf } from "@/lib/api/fiscal-invoice"
+
+/**
+ * El blob que devuelve `Response.blob()` puede venir de OTRO realm que el
+ * `Blob` global de jsdom (en CI, Node 20: el `Response` es el de undici y el
+ * `Blob` global es el de jsdom), así que `toBeInstanceOf(Blob)` falla sin que
+ * el helper esté roto. Se asserta por forma: la etiqueta `[object Blob]`, el
+ * tipo `application/pdf`, el tamaño y el contenido.
+ */
+async function expectPdfBlob(blob: unknown, content: string): Promise<void> {
+  expect(Object.prototype.toString.call(blob)).toBe("[object Blob]")
+  const b = blob as Blob
+  expect(b.type).toBe("application/pdf")
+  expect(b.size).toBe(content.length)
+  expect(await b.text()).toBe(content)
+}
 
 function problem(status: number, body: Record<string, unknown>): Response {
   return new Response(JSON.stringify(body), {
@@ -56,8 +72,25 @@ describe("fetchFiscalInvoicePdf", () => {
       "http://api.test/fiscal/documents/fd-1/pdf?disposition=inline&copia=original",
       { method: "GET", headers: { Authorization: "Bearer tok-1" } },
     )
-    expect(blob).toBeInstanceOf(Blob)
-    expect(await blob!.text()).toBe("%PDF-1.4")
+    await expectPdfBlob(blob, "%PDF-1.4")
+  })
+
+  it("acepta el blob aunque venga de otro realm (el Blob de Node, como en CI)", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      blob: async () => new NodeBlob(["%PDF-1.4"], { type: "application/pdf" }),
+    })
+
+    const blob = await fetchFiscalInvoicePdf("fd-1")
+
+    await expectPdfBlob(blob, "%PDF-1.4")
+  })
+
+  it("la aserción de forma distingue un cuerpo que NO es PDF", async () => {
+    const html = new NodeBlob(["<html>"], { type: "text/html" })
+    await expect(expectPdfBlob(html, "<html>")).rejects.toThrow()
+    await expect(expectPdfBlob("%PDF-1.4", "%PDF-1.4")).rejects.toThrow()
   })
 
   it("descarga del duplicado", async () => {

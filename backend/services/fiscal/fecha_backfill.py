@@ -5,9 +5,10 @@ Los comprobantes autorizados ANTES de este change no tienen la fecha con la que
 ARCA los autorizó (no se persistía en ningún lado), y sin ella la factura no se
 imprime (409 `invoice_date_unknown`): nunca con una fecha adivinada.
 
-Este procedimiento la completa preguntándole a ARCA (`FECompConsultar`, vía el
-mismo `reconcile_submitted` que usa el relay y que desde este change devuelve
-`ResultGet.CbteFch`) y la escribe con la RPC interna
+Este procedimiento la completa preguntándole a ARCA (`FECompConsultar`, vía
+`consultar_comprobante`: la misma consulta que la reconciliación del relay,
+que desde este change devuelve `ResultGet.CbteFch`, pero de sólo lectura y sin
+su CRITICAL de "se autoriza con ese CAE") y la escribe con la RPC interna
 `rpc_fiscal_document_set_fecha_comprobante`, que sólo completa una fecha NULL
 de un `authorized`.
 
@@ -64,7 +65,19 @@ async def backfill_fecha_comprobante(
     `not_written`, `not_confirmed`, `cae_mismatch`, `fecha_unknown`}.
     """
     report: list[dict] = []
-    for doc in await repo.list_authorized_without_fecha():
+    docs = await repo.list_authorized_without_fecha()
+    if apply:
+        logger.info(
+            "backfill fecha_comprobante APLICADO: %s comprobante(s); consulta de sólo lectura a "
+            "ARCA (FECompConsultar) y escribe la fecha confirmada con la RPC interna.", len(docs),
+        )
+    else:
+        logger.info(
+            "backfill fecha_comprobante ENSAYO: %s comprobante(s); consulta de sólo lectura a "
+            "ARCA (FECompConsultar) — no se escribe nada ni se autoriza ningún comprobante.",
+            len(docs),
+        )
+    for doc in docs:
         doc_id = str(doc["id"])
         row = {
             "doc_id": doc_id,
@@ -72,7 +85,9 @@ async def backfill_fecha_comprobante(
             "fecha": None,
             "result": "not_confirmed",
         }
-        rec = await adapter.reconcile_submitted(_cae_request(doc), requested_number=int(doc["number"]))
+        # NUNCA reconcile_submitted: ésa es la del relay y loguea en CRITICAL que
+        # el documento "se autoriza con ese CAE" (falso acá).
+        rec = await adapter.consultar_comprobante(_cae_request(doc), number=int(doc["number"]))
 
         if rec.outcome != "authorized":
             logger.warning("backfill fecha: %s no confirmado por ARCA (%s %s)",

@@ -8,7 +8,10 @@ archivo sólo arma la conexión y el adapter.
 ⚠ NO correr en producción sin el OK EXPLÍCITO del PO en el momento (task 9.2
 del change): con `--apply` ESCRIBE en la base de producción y consulta a ARCA
 real con el certificado de plataforma. Sin `--apply` es un ensayo: consulta y
-reporta qué escribiría, sin tocar la base.
+reporta qué escribiría, sin tocar la base. El ensayo TAMBIÉN consulta ARCA
+producción (sólo lectura: FECompConsultar vía `consultar_comprobante`, que no
+autoriza nada ni loguea en CRITICAL): pedir el OK del PO también para el
+ensayo.
 
 Uso (la conexión es la del backend: DATABASE_URL; el adapter real se arma con
 AFIP_PLATFORM_CERT/KEY/CUIT como el relay — sin certificado, el stub, que se
@@ -51,7 +54,7 @@ async def _run(apply: bool) -> int:
     finally:
         await conn.close()
 
-    print(f"{'APLICADO' if apply else 'ENSAYO (sin escribir)'} — {len(report)} comprobante(s) autorizados sin fecha")
+    print(f"{'APLICADO (escribe)' if apply else 'ENSAYO (sólo lectura: FECompConsultar, sin escribir)'} — {len(report)} comprobante(s) autorizados sin fecha")
     for row in report:
         print(f"  {row['comprobante']}  {row['doc_id']}  fecha={row['fecha']}  -> {row['result']}")
     return 0 if all(row["result"] in _OK for row in report) else 1

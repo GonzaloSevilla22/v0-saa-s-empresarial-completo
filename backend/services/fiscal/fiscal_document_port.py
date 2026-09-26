@@ -181,3 +181,20 @@ class FiscalDocumentPort(ABC):
                 "puede demostrar qué pasó con el envío, así que no se emite nada."
             ),
         )
+
+    async def consultar_comprobante(
+        self, invoice_data: CAERequest, number: int
+    ) -> ReconcileResponse:
+        """Consulta de SÓLO LECTURA de un comprobante en ARCA (FECompConsultar).
+
+        factura-fiscal-imprimible (backfill de `fecha_comprobante`, OQ-9). La
+        misma pregunta que `reconcile_submitted`, pero sin su semántica: no hay
+        un envío dudoso ni un documento que se vaya a autorizar con la
+        respuesta, así que un adapter real NO debe loguear en CRITICAL que "se
+        autoriza con ese CAE" (la señal CRITICAL es la que se vigila en prod).
+
+        El default delega en `reconcile_submitted` — fail-closed: un adapter
+        que no implemente ninguna de las dos devuelve `unknown`, nunca una
+        fecha inventada.
+        """
+        return await self.reconcile_submitted(invoice_data, requested_number=number)

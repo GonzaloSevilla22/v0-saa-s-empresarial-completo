@@ -723,6 +723,41 @@ class WSFEAdapter(FiscalDocumentPort):
         invoice_data: CAERequest,
         requested_number: int,
     ) -> ReconcileResponse:
+        """Reconciliación del relay: FECompConsultar sobre un envío dudoso.
+
+        Si ARCA tiene el comprobante, el relay autoriza el documento con ESE CAE
+        (nunca pide uno nuevo) — por eso el CRITICAL: es la señal que se vigila
+        en prod. La consulta en sí vive en `_consultar_fecompconsultar`.
+        """
+        rec = await self._consultar_fecompconsultar(invoice_data, requested_number)
+        if rec.outcome == "authorized":
+            logger.critical(
+                "WSFEAdapter.reconcile_submitted: el comprobante %s-%s SÍ existe en ARCA "
+                "con CAE %s — el documento %s se autoriza con ese CAE, no se pide uno nuevo.",
+                invoice_data.punto_de_venta, rec.number, rec.cae, invoice_data.fiscal_document_id,
+            )
+        return rec
+
+    async def consultar_comprobante(
+        self,
+        invoice_data: CAERequest,
+        number: int,
+    ) -> ReconcileResponse:
+        """Consulta de SÓLO LECTURA (backfill de la fecha): el mismo
+        FECompConsultar, sin autorizar nada ni loguear en CRITICAL."""
+        rec = await self._consultar_fecompconsultar(invoice_data, number)
+        logger.info(
+            "WSFEAdapter.consultar_comprobante: consulta de sólo lectura (FECompConsultar) "
+            "del comprobante %s-%s del documento %s -> %s. No se autoriza ni se modifica nada.",
+            invoice_data.punto_de_venta, number, invoice_data.fiscal_document_id, rec.outcome,
+        )
+        return rec
+
+    async def _consultar_fecompconsultar(
+        self,
+        invoice_data: CAERequest,
+        requested_number: int,
+    ) -> ReconcileResponse:
         """¿ARCA tiene el comprobante `requested_number`? — FECompConsultar.
 
         fiscal-riesgos-residuales (R1). Se llama cuando el relay reclama un
@@ -883,11 +918,6 @@ class WSFEAdapter(FiscalDocumentPort):
         # comprobante — sin fallback, el envío original pudo ser de otro día.
         fecha_comprobante = _parse_cbte_fch(getattr(det, "CbteFch", _SIN_DATO), fallback=None)
 
-        logger.critical(
-            "WSFEAdapter.reconcile_submitted: el comprobante %s-%s SÍ existe en ARCA "
-            "con CAE %s — el documento %s se autoriza con ese CAE, no se pide uno nuevo.",
-            invoice_data.punto_de_venta, number, cae, invoice_data.fiscal_document_id,
-        )
         return ReconcileResponse(
             outcome="authorized",
             cae=str(cae),

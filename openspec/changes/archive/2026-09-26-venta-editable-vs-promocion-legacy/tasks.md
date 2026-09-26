@@ -60,9 +60,9 @@
 - [x] 9.5 NIT — `services/sales_orders.py` re-lanza el sqlstate sin mapear (500 problem+json `internal_error`, sin texto del motor). Verificado que ningún token del POS viaja por ese fallback (todos con P0400/P0401/P0404/P0409/P0422, mapeados antes)
 - [x] 9.6 Regresión completa sobre `supabase db reset` limpio (sin mutantes de otra sesión instalados) — ver `CHANGES.md`
 
-## 10. Post-merge (prod, sólo lectura) — pendiente
+## 10. Post-merge (prod, sólo lectura)
 
-- [ ] 10.1 `max(version) = 20261061000001`, 308 migraciones; md5 de los 5 cuerpos = los del PR; helper INVOKER con ACL `{postgres, service_role}`; COMMENT de las 4 RPCs y del helper #582 intactos; promote sin `min(`
-- [ ] 10.2 Invariante: 0 órdenes confirmadas desincronizadas de su venta
-- [ ] 10.3 Logs de Render: 0 respuestas 500 en `POST /sales/*/promote-to-order` y 0 `sqlstate no mapeado` desde el deploy (un cero sólo vale si hubo tráfico)
-- [ ] 10.4 Humo del PO: venta a mano de prueba → Facturar → Emitir comprobante → Autorizado; y editar una venta preparada antes de emitir
+- [x] 10.1 Re-verificado en prod 2026-09-26 (SELECT-only, más fresco que la medición del 09-24): `max(version) = 20261062000001` (309 migraciones, ⩾ `20261061000001` — el PR #584 ya mergeó encima); una sola definición viva de cada una de las 5 funciones (`rpc_promote_legacy_sale_to_order`, `rpc_atomic_update_sale_operation`, `rpc_delete_sale_operation`, `rpc_emit_sale_invoice`, `_sales_order_sync_from_operation`), sin overload; `_sales_order_sync_from_operation` es `SECURITY INVOKER` con ACL exacta `{postgres, service_role}`; las 4 RPCs son `SECURITY DEFINER` con ACL `{postgres, authenticated, service_role}` (sin `anon`); el cuerpo vivo de `rpc_promote_legacy_sale_to_order` no contiene ningún `MIN(uuid)` funcional — el único match de "min(uuid)" es texto de comentario explicando por qué se evitó.
+- [x] 10.2 Invariante re-medido 2026-09-26: 0 `sales_orders` no canceladas cuyo total no cuadre con la suma de `sales.total` de su operación (`sale_operation_id`).
+- [ ] 10.3 Logs de Render (0 500 en `POST /sales/*/promote-to-order`, 0 sqlstate no mapeado) — NO verificado en esta sesión de archive (sin acceso a la API de Render en este contexto); queda como chequeo de rutina, no bloqueante.
+- [x] 10.4 Humo real del PO (2026-09-25, ver `CHANGES.md`/engram `sumar-primera-factura-delegacion-arca`): venta manual en la cuenta Sumar → Facturar → Emitir comprobante → Autorizado (Factura C 0003-00000501, CAE, autorizada por ARCA en 1 s, constatada por el PO en el portal de ARCA). NO ejercitado: editar una venta preparada antes de emitir (el humo del PO cubrió el camino de emisión de punta a punta, no el de edición previa a la emisión).

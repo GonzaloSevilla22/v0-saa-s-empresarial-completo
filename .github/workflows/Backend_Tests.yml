@@ -56,8 +56,12 @@ jobs:
       # JWTs (backend/tests/conftest.py). El extra `[crypto]` es el que trae
       # `cryptography`, necesario para la rama ES256 de producción y para la
       # clave EC que genera backend/tests/test_auth_jwks.py.
+      #
+      # factura-fiscal-imprimible: `pypdf` es sólo de tests (extrae el texto
+      # del PDF de la factura para verificar su contenido legal); producción no
+      # lo instala, por eso no está en requirements.txt.
       - name: Install dependencies
-        run: pip install -r backend/requirements.txt pytest pytest-asyncio pytest-cov
+        run: pip install -r backend/requirements.txt pytest pytest-asyncio pytest-cov "pypdf>=4"
 
       - name: Run pytest with coverage floor
         # auth-hardening-jwt-cookies D9: este job no declaraba NINGUNA

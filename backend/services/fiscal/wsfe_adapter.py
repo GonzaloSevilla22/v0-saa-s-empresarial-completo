@@ -30,6 +30,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from backend.core.timezone import today_in_argentina
+from backend.services.fiscal.comprobante import COMPROBANTE_AFIP_CODE, resolve_receptor_doc
 from backend.services.fiscal.fiscal_document_port import (
     CAERequest,
     CAEResponse,
@@ -298,16 +299,10 @@ def _build_zeep_client(url: str):
     )
 
 
-# Mapping de comprobante_type a codigo AFIP (CbteTipo)
-_COMPROBANTE_AFIP_CODE = {
-    "factura_a": 1,
-    "factura_b": 6,
-    "factura_c": 11,
-    "nota_debito_a": 2,
-    "nota_credito_a": 3,
-    "nota_debito_b": 7,
-    "nota_credito_b": 8,
-}
+# Mapping de comprobante_type a codigo AFIP (CbteTipo). factura-fiscal-imprimible:
+# la tabla vive en `comprobante.py`, compartida con la factura impresa y su QR
+# (nunca copiada); este alias conserva el nombre que usa el adapter.
+_COMPROBANTE_AFIP_CODE = COMPROBANTE_AFIP_CODE
 
 # Mapping receptor_iva_condition -> CondicionIVAReceptorId (RG 5616/2024).
 # consumidor_final=5 confirmado por E2E homologacion (CAE 86250464989491).
@@ -395,13 +390,13 @@ class WSFEAdapter(FiscalDocumentPort):
         cuit_receptor legacy (→ 80) → sin identificar (99, DocNro=0).
         Regla AFIP: DocTipo=99 ⇒ DocNro=0 (un 99 con DocNro no nulo es inconsistente).
         """
-        doc_tipo = invoice_data.receptor_doc_tipo
-        doc_nro_raw = invoice_data.receptor_doc_nro
-        if doc_tipo in (80, 96) and doc_nro_raw:
-            return int(doc_tipo), int(str(doc_nro_raw).replace("-", ""))
-        if invoice_data.cuit_receptor:
-            return 80, int(str(invoice_data.cuit_receptor).replace("-", ""))
-        return 99, 0
+        # factura-fiscal-imprimible: la regla vive en `comprobante.py` porque la
+        # factura impresa y su QR tienen que declarar EXACTAMENTE lo mismo.
+        return resolve_receptor_doc(
+            invoice_data.receptor_doc_tipo,
+            invoice_data.receptor_doc_nro,
+            invoice_data.cuit_receptor,
+        )
 
     async def request_cae(self, invoice_data: CAERequest) -> CAEResponse:
         """Solicita el CAE a AFIP vía WSAA + WSFEv1.

@@ -143,3 +143,77 @@ El sistema SHALL mostrar cada cantidad de stock y cada cantidad de línea acompa
 - **GIVEN** un producto sin unidad base con stock `12`
 - **WHEN** se lo ve en el listado de stock o en un ticket
 - **THEN** la cantidad se muestra como `12 uds` (listado) y `12` con el símbolo genérico (ticket), sin decimales
+
+### Requirement: El precio de una línea es por unidad de la línea y se guarda sin redondear
+
+*(D12 / contrato D-F, y D-F′ de la tercera revisión — provisorio, pendiente del sign-off del PO: es dinero.)* El `amount` / `price` de toda línea de venta, compra, orden o presupuesto SHALL expresarse por unidad **de la línea** (la unidad elegida por el usuario), de modo que el importe de la línea sea `precio × cantidad` en la unidad de la línea, igual que en todas las operaciones históricas. El precio del catálogo SHALL entenderse en la unidad base del producto; al elegir otra unidad, el frontend SHALL re-expresarlo con el mismo factor que la normalización de cantidad (`precio(línea) × cantidad(línea) = precio(base) × cantidad(base)`), en el POS, en el formulario de venta y en el de compra.
+
+El precio por unidad de la línea NO SHALL redondearse a un número fijo de decimales en ninguna capa: las columnas de precio de toda línea de documento (`sales.amount`, `sale_items.price`, `sales_order_items.price`, `quote_items.price`, `purchases.amount`, `purchase_items.price`) SHALL ser `numeric` sin escala, y el frontend SHALL limitarse a limpiar el ruido binario del cálculo (15 dígitos significativos). Los importes de dinero que se cobran o se postean (subtotal de la orden, total de la orden, caja, banco, cuenta corriente) SHALL seguir expresados al centavo. Editar una operación sin cambiar sus líneas NO SHALL cambiar su importe.
+
+#### Scenario: 100 g de un producto a $1.800/kg cobran $180
+
+- **GIVEN** un producto con unidad base Kilogramo y precio de catálogo `1800`
+- **WHEN** se registra por el formulario de venta una línea de `100` con unidad Gramo
+- **THEN** el precio de la línea es `1.8`, el total de la línea es `180` y el stock baja `0.1`
+
+#### Scenario: Una docena se cobra como docena
+
+- **GIVEN** un producto con unidad base Unidad y precio de catálogo `100`
+- **WHEN** se vende desde el POS `1` con unidad Docena
+- **THEN** el total de la línea es `1200` y el stock baja `12`
+
+#### Scenario: El POS guarda el precio por gramo sin redondear y el total es exacto
+
+- **GIVEN** un producto con unidad base Kilogramo y precio de catálogo `4575`
+- **WHEN** se vende desde el POS `100` con unidad Gramo al precio re-expresado `4.575`
+- **THEN** `sales.amount`, `sale_items.price` y `sales_order_items.price` valen `4.575` (no `4.58`), `sales.total` es `457.50` y `amount × quantity = total`
+
+#### Scenario: Editar sin cambios no re-precia la venta
+
+- **GIVEN** una venta del POS de `450` con unidad Gramo a `4.575` por gramo, con total `2058.75`
+- **WHEN** se edita la operación reenviando la misma línea (precio rehidratado desde `sales.amount`)
+- **THEN** el total sigue en `2058.75` (antes quedaba en `2061` por el precio redondeado a `4.58`) y la orden re-sincronizada conserva precio `4.575` y subtotal `2058.75`
+
+#### Scenario: Un precio con más decimales se conserva y el cobro va al centavo
+
+- **GIVEN** un producto con unidad base Kilogramo y precio de catálogo `1234.56`
+- **WHEN** se venden desde el POS `450` con unidad Gramo
+- **THEN** el precio de la línea es `1.23456` (no `1.2346`), el subtotal del cliente es `555.552` y el total cobrado es `555.55`, con `|amount × quantity − total| < 0.005`
+
+#### Scenario: El formulario de venta, la compra y sus ediciones dan el mismo total
+
+- **GIVEN** un producto con unidad base Kilogramo
+- **WHEN** se registra `100` con unidad Gramo a `4.575` por el formulario de venta y, aparte, por el alta de compra, y cada operación se edita sin cambios
+- **THEN** los cuatro totales son `457.50`
+
+### Requirement: La unidad base efectiva de un producto no cambia debajo de su stock
+
+*(D11 / decisión D-C, provisoria hasta el sign-off del PO.)* La base de datos SHALL rechazar, para cualquier escritor (API, PostgREST o una función futura), todo cambio que altere la unidad base **efectiva** de un producto (la propia o, para una variante que no declara una, la de su padre) si el producto afectado tiene stock distinto de `0` en alguna sucursal o algún movimiento de stock: `P0409` con token `base_unit_locked`. Esto incluye cambiar o quitar `base_unit_id`, y re-parentar o desenganchar una variante que hereda la unidad. Asignar una unidad base a un producto que no tenía unidad efectiva SHALL permitirse aunque tenga stock. La unidad base SHALL ser del sistema o de la cuenta del producto (`P0404`, `base_unit_not_found`).
+
+La carrera entre un cambio de unidad base y una venta o compra concurrente del mismo producto SHALL resolverse sin escribir stock en la unidad vieja: las funciones que escriben stock SHALL normalizar la cantidad recién después de tomar la fila del producto con bloqueo, y el guard de la unidad base SHALL tomar las variantes que heredan con bloqueo.
+
+#### Scenario: Cambiar la unidad base de un producto con stock se rechaza
+
+- **GIVEN** un producto con unidad base Kilogramo, stock `10` y movimientos
+- **WHEN** se intenta cambiar su unidad base a Gramo, o quitarla, por la API o con un `PATCH` de PostgREST como `authenticated`
+- **THEN** la operación falla con `P0409` y token `base_unit_locked`, y la unidad base sigue siendo Kilogramo
+
+#### Scenario: Asignar la unidad a un producto que no tenía se permite
+
+- **GIVEN** un producto sin unidad base con stock `10`
+- **WHEN** se le asigna Kilogramo
+- **THEN** el cambio se acepta y el stock pasa a leerse en kilogramos
+
+#### Scenario: Re-parentar una variante que hereda con stock se rechaza
+
+- **GIVEN** una variante sin unidad base propia, hija de un padre en Kilogramo, con stock `5`
+- **WHEN** se la re-parenta a un padre en Unidad, o se la desengancha (`parent_id = NULL`)
+- **THEN** la operación falla con `P0409` y token `base_unit_locked`
+- **AND** re-parentarla a otro padre en Kilogramo se permite, igual que re-parentar una variante con unidad base propia
+
+#### Scenario: Cambio de unidad base concurrente con una compra
+
+- **GIVEN** un producto con unidad base Kilogramo, sin stock ni movimientos
+- **WHEN** una sesión cambia su unidad base a Unidad y, antes de que commitee, otra sesión registra una compra de `2000` con unidad Gramo
+- **THEN** la compra espera la fila del producto y termina con `P0400` (`unit_type_mismatch`), sin stock, movimiento ni fila de compra
+- **AND** en el orden inverso (compra abierta, cambio después) el cambio de unidad espera y termina con `P0409`

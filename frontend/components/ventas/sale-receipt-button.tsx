@@ -224,28 +224,33 @@ export function SaleReceiptButton({
     async (mode: "view" | "download" | "duplicate") => {
       if (!invoice) return
       const copy: InvoiceCopy = mode === "duplicate" ? "duplicado" : "original"
+      // La pestaña se abre YA, dentro del gesto del usuario: abrirla después
+      // del `await` del PDF la bloquean los navegadores móviles (Safari iOS).
+      // Se le carga el PDF cuando llega; si falla, se cierra.
+      const tab = mode === "view" ? window.open("", "_blank") : null
       setLoadingPrint(true)
       try {
         const blob = await fetchFiscalInvoicePdf(invoice.documentId, {
           disposition: mode === "view" ? "inline" : "attachment",
           copy,
         })
-        if (!blob) return // la sesión venció: ya se navegó al login
+        if (!blob) {
+          tab?.close() // la sesión venció: ya se navegó al login
+          return
+        }
         const fileName = invoiceFileName(invoice, copy)
-        if (mode === "view") {
-          // Pestaña nueva con el visor de PDF del navegador (imprime desde ahí).
-          // Un blob application/pdf no ejecuta scripts: la CSP no interviene.
+        if (mode === "view" && tab) {
+          // Visor de PDF del navegador (imprime desde ahí). Un blob
+          // application/pdf no ejecuta scripts: la CSP no interviene.
           const url = URL.createObjectURL(blob)
-          const win = window.open(url, "_blank")
+          tab.location.href = url
           setTimeout(() => URL.revokeObjectURL(url), 60_000)
-          if (!win) {
-            downloadBlob(blob, fileName)
-            toast.info("Descargamos la factura en PDF. Abrila para imprimirla.")
-          }
         } else {
           downloadBlob(blob, fileName)
+          if (mode === "view") toast.info("Descargamos la factura en PDF. Abrila para imprimirla.")
         }
       } catch (err: unknown) {
+        tab?.close()
         showInvoiceError(err)
       } finally {
         setLoadingPrint(false)

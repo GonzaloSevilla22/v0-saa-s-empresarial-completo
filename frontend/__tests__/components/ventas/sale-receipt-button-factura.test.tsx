@@ -108,14 +108,46 @@ describe("SaleReceiptButton — factura autorizada", () => {
     }
   })
 
-  it("«Ver / imprimir factura» abre el PDF del endpoint en una pestaña nueva", async () => {
-    const openSpy = vi.spyOn(window, "open").mockReturnValue({} as Window)
+  it("«Ver / imprimir factura» abre la pestaña EN el gesto y después carga el PDF", async () => {
+    // La pestaña se abre ANTES del fetch (dentro del gesto del usuario): abrirla
+    // después de un await la bloquean los navegadores móviles (Safari iOS).
+    const tab = { location: { href: "" }, close: vi.fn() }
+    const openSpy = vi.spyOn(window, "open").mockReturnValue(tab as unknown as Window)
+    let openedBeforeFetch = false
+    fetchInvoiceMock.mockImplementation(async () => {
+      openedBeforeFetch = openSpy.mock.calls.length === 1
+      return new Blob(["%PDF-1.4"], { type: "application/pdf" })
+    })
     const user = await openMenu()
 
     await user.click(await screen.findByText("Ver / imprimir factura"))
 
-    await waitFor(() => expect(fetchInvoiceMock).toHaveBeenCalledWith("fd-1", { disposition: "inline", copy: "original" }))
-    expect(openSpy).toHaveBeenCalledWith("blob:factura-1", "_blank")
+    await waitFor(() => expect(tab.location.href).toBe("blob:factura-1"))
+    expect(openedBeforeFetch).toBe(true)
+    expect(openSpy).toHaveBeenCalledWith("", "_blank")
+    expect(fetchInvoiceMock).toHaveBeenCalledWith("fd-1", { disposition: "inline", copy: "original" })
+  })
+
+  it("si la pestaña está bloqueada, descarga el PDF", async () => {
+    vi.spyOn(window, "open").mockReturnValue(null)
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {})
+    const user = await openMenu()
+
+    await user.click(await screen.findByText("Ver / imprimir factura"))
+
+    await waitFor(() => expect(clickSpy).toHaveBeenCalled())
+    expect((clickSpy.mock.contexts[0] as HTMLAnchorElement).download).toBe("factura-C-0003-00000501.pdf")
+  })
+
+  it("si falla, cierra la pestaña que había abierto", async () => {
+    const tab = { location: { href: "" }, close: vi.fn() }
+    vi.spyOn(window, "open").mockReturnValue(tab as unknown as Window)
+    fetchInvoiceMock.mockRejectedValue(new FiscalInvoiceError("invoice_date_unknown", "Estamos confirmando…"))
+    const user = await openMenu()
+
+    await user.click(await screen.findByText("Ver / imprimir factura"))
+
+    await waitFor(() => expect(tab.close).toHaveBeenCalled())
   })
 
   it("«Descargar duplicado» pide la copia DUPLICADO y la descarga", async () => {
@@ -164,7 +196,7 @@ describe("SaleReceiptButton — factura autorizada", () => {
   })
 
   it("datos del emisor incompletos: aviso con acción a /configuracion/fiscal", async () => {
-    vi.spyOn(window, "open").mockReturnValue({} as Window)
+    vi.spyOn(window, "open").mockReturnValue({ location: { href: "" }, close: vi.fn() } as unknown as Window)
     fetchInvoiceMock.mockRejectedValue(new FiscalInvoiceError(
       "issuer_data_incomplete",
       "Para imprimir la factura falta completar el domicilio comercial.",

@@ -2445,7 +2445,27 @@ jobs:
       # inactivo o desactivar sin limpiar la marca -> 23514; (h) la RPC de
       # suscripciones con 2 activos + predeterminado sigue dando P0422, con
       # control positivo; (z) residuo cero en toda tabla de public con
-      # account_id. Mutantes ejecutados en local: la RPC vieja cae en (0) y
-      # (c); el predeterminado buscado sin filtrar la cuenta cae en (e2).
+      # account_id; (e3) PV explícito de otra cuenta -> P0404, sin reservar
+      # número ni crear comprobante en ninguna cuenta; (i) el trigger
+      # trg_points_of_sale_guard_default rechaza con P0401 a un actor sin rol
+      # owner/admin que intenta tocar is_default (INSERT o UPDATE), sin
+      # bloquear el resto de los campos, y permite al owner. Mutantes
+      # ejecutados en local: la RPC vieja cae en (0) y (c); el predeterminado
+      # buscado sin filtrar la cuenta cae en (e2); la rama explícita sin
+      # filtro de cuenta cae en (e3) vía P0401 de rpc_next_document_number
+      # (hallazgo de red-team: sin (e3) ningún gate hasta ahora ejercitaba
+      # ese camino).
       - name: Run punto de venta predeterminado gate
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_punto_venta_predeterminado.sql
+
+      # punto-venta-seleccion — TOCTOU (hallazgo de red-team): los tres SELECT
+      # de resolución de PV en rpc_emit_pending_cae toman FOR SHARE, así que
+      # una emisión concurrente con una desactivación/cambio de predeterminado
+      # ESPERA y re-evalúa en vez de facturar sobre un PV que queda inactivo.
+      # No se puede probar en un solo archivo .sql (una sesión nunca bloquea
+      # contra su propio lock) — dos conexiones psql reales, mismo patrón que
+      # test_facturar_venta_manual_race.sh. Verifica con pg_blocking_pids que
+      # la emisión REALMENTE esperó (no sólo que tardó) y que nunca queda un
+      # fiscal_documents en el PV que terminó inactivo.
+      - name: Run punto de venta predeterminado race gate (dos conexiones)
+        run: ITER=10 DB_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres bash supabase/tests/test_punto_venta_predeterminado_race.sh

@@ -220,15 +220,26 @@ class TestPointOfSaleDefaultRepository:
 
         conn, tx = _ctx_conn()
         order: list[str] = []
-        conn.execute = AsyncMock(side_effect=lambda *a: order.append("clear") or "UPDATE 1")
+
+        def _execute_side_effect(sql, *args):
+            order.append("lock" if "pg_advisory_xact_lock" in sql else "clear")
+            return "UPDATE 1"
+
+        conn.execute = AsyncMock(side_effect=_execute_side_effect)
         conn.fetchrow = AsyncMock(side_effect=lambda *a: order.append("set") or PV_DEFAULT_ROW)
 
         result = await PointOfSaleRepository(conn).set_default(PV_ROW["id"], ACCOUNT_ID)
 
-        assert order == ["clear", "set"]
+        # punto-venta-seleccion (red-team): lock de transacción por cuenta
+        # ANTES de la limpieza — sin él, dos marcados concurrentes en PVs
+        # distintos de la misma cuenta no se serializan.
+        assert order == ["lock", "clear", "set"]
         conn.transaction.assert_called_once()
-        clear_sql, *clear_args = conn.execute.await_args.args
+        lock_sql, *lock_args = conn.execute.await_args_list[0].args
+        clear_sql, *clear_args = conn.execute.await_args_list[1].args
         set_sql, *set_args = conn.fetchrow.await_args.args
+        assert "pg_advisory_xact_lock" in lock_sql
+        assert lock_args == [ACCOUNT_ID]
         # Quitar la marca vieja: sólo en ESTA cuenta y sin tocar el pedido.
         assert "is_default = false" in clear_sql.lower()
         assert "account_id = $1" in clear_sql

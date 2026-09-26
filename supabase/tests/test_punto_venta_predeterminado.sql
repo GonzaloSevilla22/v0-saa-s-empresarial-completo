@@ -33,6 +33,8 @@
 --       predeterminado en silencio.
 --   (e2) tenencia: el predeterminado de OTRA cuenta no resuelve la
 --       ambigüedad de ésta (P0422).
+--   (e3) tenencia (red-team): un PV EXPLÍCITO de OTRA cuenta se rechaza con
+--       P0404 — sin reservar número ni crear comprobante en ninguna cuenta.
 --   (f) índice único: un segundo predeterminado en la misma cuenta falla
 --       (23505); en otra cuenta pasa.
 --   (g) CHECK: marcar un PV inactivo como predeterminado falla (23514), y
@@ -42,6 +44,10 @@
 --       explícito sigue dando P0422 (D5); control positivo con PV explícito.
 --   (z) Limpieza verificada: cero filas del fixture en toda tabla de public
 --       con account_id.
+--   (i) trg_points_of_sale_guard_default (red-team): un miembro con sólo el
+--       rol 'seller' NO puede escribir is_default (UPDATE ni INSERT) por
+--       PostgREST — P0401 — pero sí otros campos del PV (control negativo);
+--       el owner sí puede.
 --
 -- Patrón del proyecto: fallos acumulados en text[], un RAISE EXCEPTION por
 -- bloque, anchors vía handle_new_user, limpieza en el camino feliz y en el
@@ -109,6 +115,16 @@ BEGIN
     v_failures := v_failures || 'falta el índice único parcial points_of_sale_one_default_per_account ON (account_id) WHERE is_default'::text;
   END IF;
 
+  -- Trigger de guard (red-team): sólo owner/admin puede tocar is_default
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_trigger
+    WHERE  tgrelid = 'public.points_of_sale'::regclass
+      AND  tgname  = 'trg_points_of_sale_guard_default'
+      AND  NOT tgisinternal
+  ) THEN
+    v_failures := v_failures || 'falta el trigger trg_points_of_sale_guard_default (BEFORE INSERT OR UPDATE)'::text;
+  END IF;
+
   -- RPC de ventas: una sola definición, DEFINER, ACLs, COMMENT
   SELECT count(*) INTO v_count
   FROM   pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
@@ -142,6 +158,9 @@ BEGIN
     v_def := replace(pg_get_functiondef(v_oid), E'\r', '');
     IF v_def NOT LIKE '%is_default%' THEN
       v_failures := v_failures || 'rpc_emit_pending_cae no contiene la rama del predeterminado (is_default)'::text;
+    END IF;
+    IF v_def NOT LIKE '%FOR SHARE%' THEN
+      v_failures := v_failures || 'rpc_emit_pending_cae no toma FOR SHARE en la resolución de PV (TOCTOU, hallazgo de red-team)'::text;
     END IF;
     -- El resto de la resolución D11 sigue intacto.
     IF v_def NOT LIKE '%point_of_sale_not_found_or_inactive%'
@@ -254,6 +273,18 @@ BEGIN
 
   v_claims_a := json_build_object('sub', v_user_a::text, 'role', 'authenticated')::text;
 
+  -- El resto de este bloque escribe is_default DIRECTO como postgres (fixture
+  -- puro, sin JWT ni membresía owner/admin) para armar los escenarios de
+  -- (a)-(h) — no está ejercitando el trigger de guard (eso es el bloque (i),
+  -- con su propio fixture owner/seller). Mismo precedente que
+  -- fiscal-marca-previa-al-envio (#577/20261059000001): el disparador NO
+  -- tiene exención por rol, así que el fixture se corre bajo
+  -- session_replication_role = replica (que Postgres ya saltea para
+  -- triggers "origin" normales) en vez de debilitar el guard. Las
+  -- aserciones de (f)/(g) siguen intactas: CHECK y el índice único parcial
+  -- NUNCA se saltean con replica, sólo los triggers.
+  SET session_replication_role = replica;
+
   -- ═══ (a) Un solo PV activo, sin explícito → ese ═══
   PERFORM set_config('request.jwt.claims', v_claims_a, true);
   EXECUTE 'SET LOCAL ROLE authenticated';
@@ -323,6 +354,42 @@ BEGIN
 
   IF v_state <> 'P0422' THEN
     v_failures := v_failures || format('(e2) el predeterminado de OTRA cuenta no debía resolver la ambigüedad de A; got %s', v_state);
+  END IF;
+
+  -- ═══ (e3) PV EXPLÍCITO de otra cuenta → P0404, nunca se emite (red-team) ═══
+  -- v_pv_b5 (cuenta B, activo, predeterminado) recién creado arriba. Como A,
+  -- pedirlo EXPLÍCITO tiene que rechazarse igual que el implícito de (e2) —
+  -- el filtro `AND account_id = v_account_id` de la rama explícita
+  -- (migración L164-174) es el único freno hoy; sin él, el único guard que
+  -- pararía la emisión es el P0401 de rpc_next_document_number, con OTRO
+  -- código de error.
+  SELECT count(*), COALESCE(sum(last_number), 0) INTO v_seq_rows_before, v_seq_sum_before
+  FROM   public.document_sequences WHERE point_of_sale_id = v_pv_b5;
+  SELECT count(*) INTO v_docs_before FROM public.fiscal_documents WHERE account_id IN (v_account_a, v_account_b);
+
+  PERFORM set_config('request.jwt.claims', v_claims_a, true);
+  EXECUTE 'SET LOCAL ROLE authenticated';
+  BEGIN
+    v_result := public.rpc_emit_pending_cae('factura_c', 260, NULL, v_pv_b5);
+    v_state := 'ok';
+  EXCEPTION WHEN OTHERS THEN
+    v_state := SQLSTATE;
+  END;
+  EXECUTE 'RESET ROLE';
+
+  IF v_state <> 'P0404' THEN
+    v_failures := v_failures || format('(e3) PV explícito de otra cuenta debía rechazarse con P0404; got %s', v_state);
+  END IF;
+
+  SELECT count(*), COALESCE(sum(last_number), 0) INTO v_seq_rows_after, v_seq_sum_after
+  FROM   public.document_sequences WHERE point_of_sale_id = v_pv_b5;
+  SELECT count(*) INTO v_docs_after FROM public.fiscal_documents WHERE account_id IN (v_account_a, v_account_b);
+  IF v_seq_rows_after <> v_seq_rows_before OR v_seq_sum_after <> v_seq_sum_before THEN
+    v_failures := v_failures || format('(e3) el P0404 no debía reservar número en el PV ajeno: filas %s->%s, suma %s->%s',
+                                       v_seq_rows_before, v_seq_rows_after, v_seq_sum_before, v_seq_sum_after);
+  END IF;
+  IF v_docs_after <> v_docs_before THEN
+    v_failures := v_failures || format('(e3) el P0404 no debía crear comprobante en ninguna cuenta: %s->%s', v_docs_before, v_docs_after);
   END IF;
 
   -- ═══ (c) Dos activos con el 9999 predeterminado, sin explícito → 9999 ═══
@@ -523,6 +590,8 @@ BEGIN
     END IF;
   END IF;
 
+  SET session_replication_role = DEFAULT;
+
   IF array_length(v_failures, 1) > 0 THEN
     RAISE EXCEPTION E'GATE PUNTO-VENTA-PREDETERMINADO (a-h) FAILED:\n  %', array_to_string(v_failures, E'\n  ');
   END IF;
@@ -614,6 +683,157 @@ EXCEPTION
     RAISE;
 END $$;
 
+-- ── (i) Guard trg_points_of_sale_guard_default: sólo owner/admin ────────────
+-- Hallazgo de red-team: la RLS de points_of_sale habilita UPDATE a los 7
+-- roles is_writer=true (is_account_writer, desde v3-rbac-multirole), así que
+-- un vendedor/cajero podía escribir is_default directo por PostgREST y
+-- cambiar qué PV usa rpc_emit_pending_cae. Fixture propio: un owner real
+-- (ancla vía handle_new_user) + una segunda membresía en la MISMA cuenta con
+-- rol 'seller' únicamente (sin fila 'owner'/'admin' en el pivot).
+DO $$
+DECLARE
+  v_failures    text[] := '{}';
+  v_owner       uuid := gen_random_uuid();
+  v_seller      uuid := gen_random_uuid();
+  v_account     uuid;
+  v_fp          uuid;
+  v_pv1         uuid;
+  v_pv2         uuid;
+  v_seller_mid  uuid;
+  v_seller_own_account uuid;
+  v_claims_owner  text;
+  v_claims_seller text;
+  v_state       text;
+BEGIN
+  INSERT INTO auth.users (id, aud, role, email, created_at, updated_at, raw_user_meta_data)
+  VALUES (v_owner, 'authenticated', 'authenticated', 'pv-predeterminado-guard-owner@test.local', now(), now(),
+          jsonb_build_object('name', 'Gate PV Guard Owner', 'phone', '', 'locality', '', 'province', ''));
+  INSERT INTO auth.users (id, aud, role, email, created_at, updated_at, raw_user_meta_data)
+  VALUES (v_seller, 'authenticated', 'authenticated', 'pv-predeterminado-guard-seller@test.local', now(), now(),
+          jsonb_build_object('name', 'Gate PV Guard Seller', 'phone', '', 'locality', '', 'province', ''));
+
+  SELECT account_id INTO v_account FROM public.account_members WHERE user_id = v_owner ORDER BY created_at LIMIT 1;
+  IF v_account IS NULL THEN
+    RAISE EXCEPTION 'SETUP FAILED (i): handle_new_user no resolvió la cuenta del owner ancla';
+  END IF;
+
+  -- Segunda membresía en la MISMA cuenta, rol legacy 'member' (irrelevante:
+  -- member_active_roles lee sólo del pivot account_member_roles).
+  INSERT INTO public.account_members (account_id, user_id, role)
+  VALUES (v_account, v_seller, 'member') RETURNING id INTO v_seller_mid;
+  INSERT INTO public.account_member_roles (account_id, member_id, role)
+  VALUES (v_account, v_seller_mid, 'seller');
+
+  INSERT INTO public.fiscal_profiles (account_id, cuit, iva_condition, ambiente, delegacion_autorizada)
+  VALUES (v_account, '20990630045', 'monotributista', 'homologacion', true) RETURNING id INTO v_fp;
+  INSERT INTO public.points_of_sale (fiscal_profile_id, account_id, numero, is_active)
+  VALUES (v_fp, v_account, 3, true) RETURNING id INTO v_pv1;
+  INSERT INTO public.points_of_sale (fiscal_profile_id, account_id, numero, is_active)
+  VALUES (v_fp, v_account, 9999, true) RETURNING id INTO v_pv2;
+
+  v_claims_owner  := json_build_object('sub', v_owner::text,  'role', 'authenticated')::text;
+  v_claims_seller := json_build_object('sub', v_seller::text, 'role', 'authenticated')::text;
+
+  -- (i-a) el seller NO puede marcar un PV como predeterminado por PostgREST.
+  PERFORM set_config('request.jwt.claims', v_claims_seller, true);
+  EXECUTE 'SET LOCAL ROLE authenticated';
+  BEGIN
+    UPDATE public.points_of_sale SET is_default = true WHERE id = v_pv1;
+    v_state := 'ok';
+  EXCEPTION WHEN OTHERS THEN
+    v_state := SQLSTATE;
+  END;
+  EXECUTE 'RESET ROLE';
+  IF v_state <> 'P0401' THEN
+    v_failures := v_failures || format('(i-a) UPDATE is_default=true por un seller debía rechazarse con P0401; got %s', v_state);
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.points_of_sale WHERE id = v_pv1 AND is_default) THEN
+    v_failures := v_failures || '(i-a) el PV quedó marcado como predeterminado a pesar del rechazo'::text;
+  END IF;
+
+  -- (i-b) el seller tampoco puede insertar un PV nuevo ya marcado.
+  PERFORM set_config('request.jwt.claims', v_claims_seller, true);
+  EXECUTE 'SET LOCAL ROLE authenticated';
+  BEGIN
+    INSERT INTO public.points_of_sale (fiscal_profile_id, account_id, numero, is_active, is_default)
+    VALUES (v_fp, v_account, 4, true, true);
+    v_state := 'ok';
+  EXCEPTION WHEN OTHERS THEN
+    v_state := SQLSTATE;
+  END;
+  EXECUTE 'RESET ROLE';
+  IF v_state <> 'P0401' THEN
+    v_failures := v_failures || format('(i-b) INSERT con is_default=true por un seller debía rechazarse con P0401; got %s', v_state);
+  END IF;
+
+  -- (i-c) el seller SÍ puede seguir escribiendo otros campos del mismo PV
+  -- (numero/is_active: deuda preexistente y fuera de alcance de este guard,
+  -- declarada en la migración) — control negativo: el guard es puntual.
+  PERFORM set_config('request.jwt.claims', v_claims_seller, true);
+  EXECUTE 'SET LOCAL ROLE authenticated';
+  BEGIN
+    UPDATE public.points_of_sale SET is_active = is_active WHERE id = v_pv1;
+    v_state := 'ok';
+  EXCEPTION WHEN OTHERS THEN
+    v_state := SQLSTATE;
+  END;
+  EXECUTE 'RESET ROLE';
+  IF v_state <> 'ok' THEN
+    v_failures := v_failures || format('(i-c) un UPDATE que no toca is_default no debía pasar por este guard; got %s', v_state);
+  END IF;
+
+  -- (i-d) control positivo: el OWNER sí puede marcar el predeterminado.
+  PERFORM set_config('request.jwt.claims', v_claims_owner, true);
+  EXECUTE 'SET LOCAL ROLE authenticated';
+  BEGIN
+    UPDATE public.points_of_sale SET is_default = true WHERE id = v_pv2;
+    v_state := 'ok';
+  EXCEPTION WHEN OTHERS THEN
+    v_state := SQLSTATE;
+  END;
+  EXECUTE 'RESET ROLE';
+  IF v_state <> 'ok' THEN
+    v_failures := v_failures || format('(i-d) el owner debía poder marcar el predeterminado; got %s', v_state);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.points_of_sale WHERE id = v_pv2 AND is_default) THEN
+    v_failures := v_failures || '(i-d) el owner marcó el predeterminado pero la fila no quedó is_default=true'::text;
+  END IF;
+
+  IF array_length(v_failures, 1) > 0 THEN
+    RAISE EXCEPTION E'GATE PUNTO-VENTA-PREDETERMINADO (i) FAILED:\n  %', array_to_string(v_failures, E'\n  ');
+  END IF;
+
+  RAISE NOTICE 'PASS (i): trg_points_of_sale_guard_default — seller rechazado (UPDATE e INSERT, P0401), campos ajenos a is_default sin bloquear, owner permitido.';
+
+  -- Limpieza (fixture propio, cuenta distinta de (0)/(a-h)/(z)). El signup
+  -- de v_seller vía handle_new_user también le aprovisionó SU PROPIA cuenta
+  -- (de la que es owner) además de la membresía 'seller' en v_account — hay
+  -- que borrar las DOS o accounts_owner_user_id_fkey bloquea el DELETE de
+  -- auth.users.
+  SELECT account_id INTO v_seller_own_account FROM public.account_members
+  WHERE  user_id = v_seller AND account_id <> v_account ORDER BY created_at LIMIT 1;
+
+  DELETE FROM public.points_of_sale       WHERE account_id = v_account;
+  DELETE FROM public.fiscal_profiles      WHERE account_id = v_account;
+  DELETE FROM public.account_member_roles WHERE account_id = v_account;
+  SET session_replication_role = replica;
+  DELETE FROM public.accounts WHERE id IN (v_account, v_seller_own_account);
+  SET session_replication_role = DEFAULT;
+  DELETE FROM public.account_members WHERE account_id IN (v_account, v_seller_own_account);
+  DELETE FROM public.billing_events  WHERE user_id IN (v_owner, v_seller);
+  DELETE FROM public.email_logs      WHERE user_id IN (v_owner, v_seller);
+  DELETE FROM public.profiles        WHERE id IN (v_owner, v_seller);
+  DELETE FROM auth.users             WHERE id IN (v_owner, v_seller);
+
+EXCEPTION
+  WHEN OTHERS THEN
+    BEGIN
+      EXECUTE 'RESET ROLE';
+    EXCEPTION WHEN OTHERS THEN NULL;
+    END;
+    RAISE;
+END $$;
+
 -- =============================================================================
--- GATE PUNTO-VENTA-PREDETERMINADO PASSED (2 bloques: introspección + a-h/z).
+-- GATE PUNTO-VENTA-PREDETERMINADO PASSED (3 bloques: introspección + a-h/z + i).
 -- =============================================================================

@@ -85,9 +85,20 @@ class PointOfSaleRepository(BaseRepository):
         Devuelve None si el PV no existe, es de otra cuenta o está inactivo — y
         en ese caso REVIERTE la primera sentencia: la marca vigente queda
         intacta.
+
+        Lock de transacción por cuenta (`pg_advisory_xact_lock`, hallazgo de
+        red-team de punto-venta-seleccion) ANTES de la sentencia de limpieza:
+        sin él, dos marcados concurrentes en PVs distintos de la misma cuenta
+        no se serializaban — el segundo veía "UPDATE 0" en su propia limpieza
+        (snapshot previo al commit del primero) y recién explotaba con un
+        23505 genérico al confirmar, en vez de last-writer-wins ordenado.
         """
         try:
             async with self._conn.transaction():
+                await self.execute(
+                    "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+                    account_id,
+                )
                 await self.execute(
                     """
                     UPDATE public.points_of_sale

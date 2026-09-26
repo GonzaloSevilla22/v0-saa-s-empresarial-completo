@@ -3612,7 +3612,7 @@ El resto de la tabla del segundo red team (marcado/congelado/autorizado inmutabl
 
 ---
 
-### `punto-venta-seleccion` — APPLY 2026-09-26 (governance MEDIA; propose #586 mergeado; apply en rama `opsx/punto-venta-seleccion-apply`, sin pushear: pendiente de PR, CI, merge, verificación en prod y humo del PO)
+### `punto-venta-seleccion` — APPLY 2026-09-26 (governance MEDIA; propose #586 mergeado; apply en rama `opsx/punto-venta-seleccion-apply`, con 6 hallazgos de red-team corregidos en la misma rama; pendiente de PR, CI, merge, verificación en prod y humo del PO)
 
 Pedido del PO: *"quiero que en la venta se pueda elegir el punto de venta o al facturar, por si tienen más de 1"*. Artefactos en `openspec/changes/punto-venta-seleccion/`.
 
@@ -3643,9 +3643,17 @@ Pedido del PO: *"quiero que en la venta se pueda elegir el punto de venta o al f
 - `supabase db reset` en el stack local fallaba con `DbSetupError` (el seed de realtime choca con `tenants_external_id_index`: el contenedor de realtime corriendo re-siembra el tenant en la base recién recreada). Parar `supabase_realtime_*` antes del reset lo resuelve; el reset lo vuelve a levantar.
 - `md5(pg_get_functiondef(...))` local ≠ prod por el CRLF del checkout de Windows: el gate y la migración comparan **sin `\r`** (`replace(..., E'\r', '')`), que da el mismo md5 en los dos entornos.
 
-**Candidatos que deja (no bloqueantes):** PV por sucursal (`points_of_sale.branch_id`, D2 opción b) si aparece una cuenta con un PV por local; unificar los guards heredados de crear/desactivar PV (`require_role(auth, ["user","admin"])`, anteriores a `v3-rbac-multirole`) a `require_account_role(CAN_CONFIGURE)`; higiene del PV 9999 de las dos cuentas (diagnóstico del 2026-09-21); `/ventas/ordenes` sigue con colores literales en el badge de estado de la orden (`green-500`/`red-500`, preexistente, fuera de la superficie de este change); reactivar un PV inactivo desde la UI (Non-Goal).
+**Red-team (2026-09-26, antes de abrir el PR) — 6 hallazgos, todos `minor`, corregidos en la misma rama** (ver `design.md` §"Hallazgos de red-team corregidos antes del merge" y task 6.5 en `tasks.md`):
+1. **`is_default` escribible por cualquiera de los 7 roles `is_writer`** (no sólo owner/admin): la RLS de `points_of_sale` habilita `UPDATE` a todos con `is_writer=true` desde `v3-rbac-multirole`, así que un vendedor/cajero podía marcar el predeterminado directo por PostgREST saltando el guard `CAN_CONFIGURE` del backend. Fix: trigger `trg_points_of_sale_guard_default` (`P0401` a quien no sea owner/admin) — no protege `numero`/`is_active`/`fiscal_profile_id` (deuda preexistente, declarada, no de este change). Gate: bloque `(i)` nuevo.
+2. **TOCTOU en las tres ramas de resolución de PV** de `rpc_emit_pending_cae`: sin lock, una desactivación/cambio de predeterminado concurrente podía dejar un `pending_cae` en un PV que termina inactivo. Fix: los 3 `SELECT` toman `FOR SHARE` + `IF NOT FOUND` propio en la rama de un solo activo. Verificado con **dos conexiones reales** (gate nuevo `test_punto_venta_predeterminado_race.sh`, en CI, 5/10 iteraciones locales confirmadas con `pg_blocking_pids`).
+3. **Sin gate para un PV explícito de otra cuenta**: caso `(e3)` nuevo (P0404, cero rastro en ninguna cuenta).
+4. **`set_default` sin serializar por cuenta**: dos marcados concurrentes podían chocar con un `23505` genérico. Fix: `pg_advisory_xact_lock` por cuenta antes de la limpieza.
+5. **`md5` de `rpc_emit_subscription_payment_cae` fijado dentro de la MIGRACIÓN** (no editable una vez en prod, rompería el reapply de `KPI_Validation.yml` ante una reescritura futura A PROPÓSITO): se retiró del `DO` block de la migración, queda sólo en el gate.
+6. **Atribución sin verificar del "1 Issue" del overlay de Next** en las capturas de `/ventas` (la ficha original decía que venía del Tablero): las capturas muestran que aparece justo al abrir `PointOfSaleSelect`; pendiente de una repasada con `console.on('pageerror')` — no bloqueante, candidato abierto.
 
-**Pendiente:** tasks 7.1 (verificación post-merge en prod: `MAX(version)`, columna/índice/CHECK, cuerpo vivo y `COMMENT`, ACLs, md5 de la RPC de suscripciones, 0 predeterminados, deploy de Render) y 7.2 (humo real del PO en Sumar).
+**Candidatos que deja (no bloqueantes):** PV por sucursal (`points_of_sale.branch_id`, D2 opción b) si aparece una cuenta con un PV por local; unificar los guards heredados de crear/desactivar PV (`require_role(auth, ["user","admin"])`, anteriores a `v3-rbac-multirole`) a `require_account_role(CAN_CONFIGURE)`; extender el guard de `is_default` (hallazgo 1) a `numero`/`is_active`/`fiscal_profile_id`; verificar la atribución real del "1 Issue" del overlay de Next (hallazgo 6); higiene del PV 9999 de las dos cuentas (diagnóstico del 2026-09-21); `/ventas/ordenes` sigue con colores literales en el badge de estado de la orden (`green-500`/`red-500`, preexistente, fuera de la superficie de este change); reactivar un PV inactivo desde la UI (Non-Goal).
+
+**Pendiente:** tasks 7.1 (verificación post-merge en prod: `MAX(version)`, columna/índice/CHECK/trigger, cuerpo vivo y `COMMENT`, ACLs, 0 predeterminados, deploy de Render) y 7.2 (humo real del PO en Sumar).
 
 ## Change `factura-fiscal-imprimible` — propose 2026-09-25
 

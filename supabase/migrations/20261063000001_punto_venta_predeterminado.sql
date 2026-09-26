@@ -24,11 +24,28 @@
 --      ON (account_id) WHERE is_default: como mucho uno por cuenta. Es un
 --      índice (no constraint): no admite DEFERRABLE, por eso el repository
 --      quita la marca vieja y pone la nueva en DOS sentencias (D9).
---   4. rpc_emit_pending_cae (D3): en la rama "sin PV explícito y más de un
+--   4. Disparador trg_points_of_sale_guard_default (hallazgo de red-team): la
+--      RLS de la tabla habilita UPDATE a los 7 roles is_writer=true
+--      (is_account_writer, desde v3-rbac-multirole), no sólo owner/admin — el
+--      guard de CAN_CONFIGURE del backend (D-service) no tiene equivalente en
+--      la base, así que cualquier vendedor/cajero podía escribir is_default
+--      directo por PostgREST. El disparador (BEFORE INSERT OR UPDATE) rechaza
+--      con P0401 cualquier cambio de is_default hecho por un actor sin rol
+--      owner/admin en la cuenta; el resto de la fila (numero, is_active,
+--      fiscal_profile_id) sigue sin protección propia — deuda preexistente,
+--      no de este change, anotada en CHANGES.md. Postgres saltea los
+--      disparadores normales con session_replication_role='replica' (el
+--      patrón ya usado por el cleanup de los gates SQL), así que no hace
+--      falta ninguna excepción explícita para eso.
+--   5. rpc_emit_pending_cae (D3): en la rama "sin PV explícito y más de un
 --      activo", usa el predeterminado activo de la cuenta antes de levantar
---      P0422. Es el ÚNICO cambio: explícito inválido → P0404 aunque haya
---      predeterminado; cero activos → P0404; uno → ese; varios sin
---      predeterminado → P0422 (sin cambio).
+--      P0422. explícito inválido → P0404 aunque haya predeterminado; cero
+--      activos → P0404; uno → ese; varios sin predeterminado → P0422 (sin
+--      cambio). Los tres SELECT de resolución de PV toman FOR SHARE (hallazgo
+--      de red-team, TOCTOU preexistente en las tres ramas): conflictúa con el
+--      FOR NO KEY UPDATE implícito de una desactivación/cambio de
+--      predeterminado concurrente, así que la emisión espera y re-evalúa en
+--      vez de facturar sobre un PV que está a punto de quedar inactivo.
 --
 -- Cuerpo partido del pg_get_functiondef VIVO de prod, releído el 2026-09-26
 -- inmediatamente antes de escribir esta migración: md5 (sin \r)
@@ -82,7 +99,47 @@ CREATE UNIQUE INDEX IF NOT EXISTS points_of_sale_one_default_per_account
   ON public.points_of_sale (account_id)
   WHERE is_default;
 
--- ── 4. rpc_emit_pending_cae: el predeterminado resuelve la ambigüedad ────────
+-- ── 4. Guard: sólo owner/admin puede cambiar is_default ──────────────────────
+CREATE OR REPLACE FUNCTION public.points_of_sale_guard_default_owner_admin()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+BEGIN
+  IF (TG_OP = 'INSERT' AND NEW.is_default)
+     OR (TG_OP = 'UPDATE' AND NEW.is_default IS DISTINCT FROM OLD.is_default)
+  THEN
+    IF NOT EXISTS (
+      SELECT 1
+      FROM   public.account_members am
+      JOIN   LATERAL unnest(public.member_active_roles(am.id)) AS r(code) ON true
+      WHERE  am.account_id = NEW.account_id
+        AND  am.user_id    = (SELECT auth.uid())
+        AND  r.code IN ('owner', 'admin')
+    ) THEN
+      RAISE EXCEPTION 'unauthorized: only owner or admin can change points_of_sale.is_default'
+        USING ERRCODE = 'P0401';
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$function$;
+
+COMMENT ON FUNCTION public.points_of_sale_guard_default_owner_admin() IS
+  'punto-venta-seleccion (hallazgo de red-team): la RLS de points_of_sale '
+  'habilita UPDATE a los 7 roles is_writer=true (is_account_writer), no sólo '
+  'owner/admin. Este disparador cierra ESE hueco puntual para is_default '
+  '(P0401 si el actor no es owner/admin de la cuenta) — no reemplaza la RLS '
+  'ni protege numero/is_active/fiscal_profile_id.';
+
+DROP TRIGGER IF EXISTS trg_points_of_sale_guard_default ON public.points_of_sale;
+CREATE TRIGGER trg_points_of_sale_guard_default
+  BEFORE INSERT OR UPDATE ON public.points_of_sale
+  FOR EACH ROW
+  EXECUTE FUNCTION public.points_of_sale_guard_default_owner_admin();
+
+-- ── 5. rpc_emit_pending_cae: el predeterminado resuelve la ambigüedad ────────
 CREATE OR REPLACE FUNCTION public.rpc_emit_pending_cae(
   p_comprobante_type  text,
   p_total             numeric,
@@ -160,13 +217,20 @@ BEGIN
     END IF;
   END IF;
 
-  -- Resolver PV efectivo (D11)
+  -- Resolver PV efectivo (D11). Los tres SELECT toman FOR SHARE: conflictúa
+  -- con el FOR NO KEY UPDATE que toma una desactivación/cambio de
+  -- predeterminado concurrente (fiscal-riesgos-residuales / TOCTOU hallado en
+  -- red-team de punto-venta-seleccion), así que esta RPC espera a que esa
+  -- transacción termine y vuelve a evaluar is_active/is_default con datos
+  -- ya committeados en vez de emitir sobre un PV que está a punto de
+  -- desactivarse.
   IF p_point_of_sale_id IS NOT NULL THEN
     SELECT id, numero INTO v_pv
     FROM   public.points_of_sale
     WHERE  id = p_point_of_sale_id
       AND  account_id = v_account_id
-      AND  is_active = TRUE;
+      AND  is_active = TRUE
+    FOR SHARE;
 
     IF NOT FOUND THEN
       RAISE EXCEPTION 'point_of_sale_not_found_or_inactive: el punto de venta no existe, no pertenece a la cuenta o está inactivo'
@@ -191,7 +255,8 @@ BEGIN
       FROM   public.points_of_sale
       WHERE  account_id = v_account_id
         AND  is_active  = TRUE
-        AND  is_default = TRUE;
+        AND  is_default = TRUE
+      FOR SHARE;
 
       IF NOT FOUND THEN
         RAISE EXCEPTION 'ambiguous_point_of_sale: la cuenta tiene % puntos de venta activos — especificá point_of_sale_id', v_active_pv_count
@@ -201,7 +266,17 @@ BEGIN
     ELSE
       SELECT id, numero INTO v_pv
       FROM   public.points_of_sale
-      WHERE  account_id = v_account_id AND is_active = TRUE;
+      WHERE  account_id = v_account_id AND is_active = TRUE
+      FOR SHARE;
+      -- Hallazgo de red-team (TOCTOU): con FOR SHARE, si el ÚNICO activo se
+      -- desactivó en la transacción que este SELECT esperó, la fila deja de
+      -- matchear el WHERE al re-evaluarse y NOT FOUND es real (no sólo
+      -- teórico) — P0404 explícito en vez de dejar v_pv.id en NULL y
+      -- reventar más abajo, en rpc_next_document_number, con otro error.
+      IF NOT FOUND THEN
+        RAISE EXCEPTION 'no_active_point_of_sale: la cuenta no tiene puntos de venta activos'
+          USING ERRCODE = 'P0404';
+      END IF;
       v_effective_pv_id := v_pv.id;
     END IF;
   END IF;
@@ -257,13 +332,12 @@ REVOKE ALL ON FUNCTION public.rpc_emit_pending_cae(text, numeric, uuid, uuid, in
 GRANT EXECUTE ON FUNCTION public.rpc_emit_pending_cae(text, numeric, uuid, uuid, integer, text, numeric, numeric, integer)
   TO authenticated, service_role, postgres;
 
--- ── 5. Introspección (sólo catálogo, sin datos) ──────────────────────────────
+-- ── 6. Introspección (sólo catálogo, sin datos) ──────────────────────────────
 DO $$
 DECLARE
   v_sig CONSTANT text :=
     'public.rpc_emit_pending_cae(text, numeric, uuid, uuid, integer, text, numeric, numeric, integer)';
   v_oid     oid;
-  v_sub_oid oid;
   v_count   integer;
   v_def     text;
 BEGIN
@@ -292,6 +366,15 @@ BEGIN
     RAISE EXCEPTION 'punto-venta-seleccion: falta el índice único parcial points_of_sale_one_default_per_account';
   END IF;
 
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_trigger
+    WHERE  tgrelid = 'public.points_of_sale'::regclass
+      AND  tgname  = 'trg_points_of_sale_guard_default'
+      AND  NOT tgisinternal
+  ) THEN
+    RAISE EXCEPTION 'punto-venta-seleccion: falta el trigger trg_points_of_sale_guard_default';
+  END IF;
+
   SELECT count(*) INTO v_count
   FROM   pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
   WHERE  n.nspname = 'public' AND p.proname = 'rpc_emit_pending_cae';
@@ -305,18 +388,23 @@ BEGIN
     RAISE EXCEPTION 'punto-venta-seleccion: rpc_emit_pending_cae no contiene la rama del predeterminado';
   END IF;
 
+  IF v_def NOT LIKE '%FOR SHARE%' THEN
+    RAISE EXCEPTION 'punto-venta-seleccion: rpc_emit_pending_cae no toma FOR SHARE en la resolución de PV (TOCTOU)';
+  END IF;
+
   IF has_function_privilege('anon', v_oid, 'EXECUTE')
      OR has_function_privilege('public', v_oid, 'EXECUTE')
      OR NOT has_function_privilege('authenticated', v_oid, 'EXECUTE') THEN
     RAISE EXCEPTION 'punto-venta-seleccion: ACLs de rpc_emit_pending_cae incorrectas (anon/PUBLIC sin EXECUTE, authenticated con EXECUTE)';
   END IF;
 
-  -- D5: la facturación de suscripciones queda intacta (md5 vivo de prod, sin \r).
-  v_sub_oid := to_regprocedure('public.rpc_emit_subscription_payment_cae(text, uuid, integer, text)');
-  IF v_sub_oid IS NULL
-     OR md5(replace(pg_get_functiondef(v_sub_oid), E'\r', '')) <> 'a74f516057f5346fe88d8ba026f918d8' THEN
-    RAISE EXCEPTION 'punto-venta-seleccion: rpc_emit_subscription_payment_cae cambió — D5 la deja intacta';
-  END IF;
-
+  -- D5 (rpc_emit_subscription_payment_cae intacta) NO se fija con un md5 acá:
+  -- esta migración corre de nuevo en el paso de reaplicación de
+  -- KPI_Validation.yml sobre el estado ya reconvergido, y una reescritura
+  -- futura A PROPÓSITO de esa RPC (documentada en su propia migración)
+  -- rompería este DO block para siempre — la migración, a diferencia del
+  -- gate, no se puede editar una vez aplicada en prod. La comprobación
+  -- md5 real vive sólo en supabase/tests/test_punto_venta_predeterminado.sql,
+  -- que sí se puede actualizar en el mismo PR que reescriba esa RPC.
   RAISE NOTICE 'punto-venta-seleccion (introspección): OK';
 END $$;

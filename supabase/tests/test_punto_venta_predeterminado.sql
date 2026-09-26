@@ -124,6 +124,11 @@ BEGIN
   ) THEN
     v_failures := v_failures || 'falta el trigger trg_points_of_sale_guard_default (BEFORE INSERT OR UPDATE)'::text;
   END IF;
+  IF has_function_privilege('anon', 'public.points_of_sale_guard_default_owner_admin()', 'EXECUTE')
+     OR has_function_privilege('authenticated', 'public.points_of_sale_guard_default_owner_admin()', 'EXECUTE')
+     OR has_function_privilege('public', 'public.points_of_sale_guard_default_owner_admin()', 'EXECUTE') THEN
+    v_failures := v_failures || 'points_of_sale_guard_default_owner_admin() es una función trigger y no debe ser EXECUTE para anon/authenticated/PUBLIC'::text;
+  END IF;
 
   -- RPC de ventas: una sola definición, DEFINER, ACLs, COMMENT
   SELECT count(*) INTO v_count

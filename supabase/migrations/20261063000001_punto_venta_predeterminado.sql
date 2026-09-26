@@ -133,6 +133,14 @@ COMMENT ON FUNCTION public.points_of_sale_guard_default_owner_admin() IS
   '(P0401 si el actor no es owner/admin de la cuenta) — no reemplaza la RLS '
   'ni protege numero/is_active/fiscal_profile_id.';
 
+-- Es SECURITY DEFINER (necesita leer account_members/member_active_roles sin
+-- que la RLS del actor se lo permita) pero NUNCA una RPC de usuario: sólo la
+-- invoca el trigger. Sin este REVOKE, test_function_acl_gate.sql (1) la
+-- marca como una función trigger SECURITY DEFINER ejecutable por
+-- anon/authenticated — el mismo gotcha 42725/re-GRANT que ya documentó
+-- cuenta-corriente-party-guard.
+REVOKE ALL ON FUNCTION public.points_of_sale_guard_default_owner_admin() FROM PUBLIC, anon, authenticated;
+
 DROP TRIGGER IF EXISTS trg_points_of_sale_guard_default ON public.points_of_sale;
 CREATE TRIGGER trg_points_of_sale_guard_default
   BEFORE INSERT OR UPDATE ON public.points_of_sale
@@ -373,6 +381,12 @@ BEGIN
       AND  NOT tgisinternal
   ) THEN
     RAISE EXCEPTION 'punto-venta-seleccion: falta el trigger trg_points_of_sale_guard_default';
+  END IF;
+
+  IF has_function_privilege('anon', 'public.points_of_sale_guard_default_owner_admin()', 'EXECUTE')
+     OR has_function_privilege('authenticated', 'public.points_of_sale_guard_default_owner_admin()', 'EXECUTE')
+     OR has_function_privilege('public', 'public.points_of_sale_guard_default_owner_admin()', 'EXECUTE') THEN
+    RAISE EXCEPTION 'punto-venta-seleccion: points_of_sale_guard_default_owner_admin() es una función trigger y no debe ser ejecutable por anon/authenticated/PUBLIC';
   END IF;
 
   SELECT count(*) INTO v_count

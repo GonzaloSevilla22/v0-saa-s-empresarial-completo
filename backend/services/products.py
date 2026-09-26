@@ -109,6 +109,16 @@ _BASE_UNIT_LOCKED_DETAIL = (
     "Dejá la unidad actual, o creá un producto nuevo con la unidad correcta "
     "y pasale el stock con un ajuste."
 )
+# Cuarta revisión del PR #584: ASIGNAR sobre stock e historia grabados con
+# otra unidad explícita es la misma reinterpretación (historia en 'u' + base
+# 'kg': "7 u" pasan a leerse "7 kg").
+_BASE_UNIT_ASSIGN_LOCKED_DETAIL = (
+    "No se puede asignar esa unidad base a este producto: ya tiene stock y "
+    "operaciones cargadas en otra unidad, y asignarla haría que esas "
+    "cantidades se lean en la unidad nueva (7 u pasarían a ser 7 kg). "
+    "Asignale la unidad en la que ya lo venías cargando, o creá un producto "
+    "nuevo con la unidad correcta y pasale el stock con un ajuste."
+)
 
 
 def _unit_str(value: object) -> str | None:
@@ -118,8 +128,10 @@ def _unit_str(value: object) -> str | None:
 # Segunda revisión del PR #584: este chequeo es el camino rápido con el 409
 # tipado (code/field). La regla la hace cumplir la base —
 # trg_product_base_unit_guard (P0409 base_unit_locked) evalúa con la fila
-# bloqueada y cubre PostgREST y el re-parent de una variante; si la gana otro
-# escritor, el asyncpg handler traduce el P0409 a 409. La carrera contra una
+# bloqueada y cubre PostgREST, el importador, el re-parent de una variante y
+# (cuarta revisión) el DELETE físico del padre y la asignación sobre historia
+# en otra unidad; si la gana otro escritor, el asyncpg handler traduce el
+# P0409 a 409. La carrera contra una
 # compra concurrente la cierran los DOS lados: el trigger y las RPCs de
 # venta/compra, que desde la tercera revisión normalizan la cantidad DESPUÉS
 # de tomar el producto FOR UPDATE (antes, en tres de los seis caminos, una
@@ -133,7 +145,23 @@ async def _guard_base_unit_change(
     account_id: str,
 ) -> None:
     current = _unit_str(existing["base_unit_id"] if "base_unit_id" in existing.keys() else None)
-    if current is None or current == new_base_unit_id:
+    if current == new_base_unit_id:
+        return
+    if current is None:
+        # ASIGNAR (cuarta revisión): sólo se traba si alguna línea del grupo se
+        # grabó con OTRA unidad explícita Y hay cantidades que reinterpretar.
+        # Las líneas se miran primero: sin conflicto, ni se consulta el stock.
+        if new_base_unit_id is None or not await repo.has_lines_in_other_unit(
+            product_id, account_id, new_base_unit_id
+        ):
+            return
+        if await repo.has_stock_or_movements(product_id, account_id):
+            raise ProblemHTTPException(
+                status_code=409,
+                detail=_BASE_UNIT_ASSIGN_LOCKED_DETAIL,
+                code=BASE_UNIT_LOCKED_CODE,
+                field="base_unit_id",
+            )
         return
     if await repo.has_stock_or_movements(product_id, account_id):
         raise ProblemHTTPException(

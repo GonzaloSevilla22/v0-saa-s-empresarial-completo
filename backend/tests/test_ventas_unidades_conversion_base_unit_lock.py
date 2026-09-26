@@ -5,7 +5,10 @@ unidad de un producto que YA tiene stock o historial reinterpreta en silencio
 todas sus cantidades: "12 u" pasa a leerse "12 kg". Decisión provisoria
 (opción (a) de la decisión 6 del PO, pendiente de sign-off):
 
-  (a) ASIGNAR una unidad a un producto que no tenía        → permitido, aunque tenga stock
+  (a) ASIGNAR una unidad a un producto que no tenía        → permitido, aunque tenga stock,
+      SALVO que su stock/historia estén grabados con OTRA unidad explícita
+      (cuarta revisión del PR #584: historia en kg + base 'g' dejaba el stock
+      1000 veces menor; historia en 'u' + base 'kg' lo leía en kilos) → 409
   (b) CAMBIAR la unidad con stock ≠ 0 en alguna sucursal   → 409 `base_unit_locked`
   (c) CAMBIAR la unidad con stock 0 pero con movimientos   → 409 `base_unit_locked`
   (d) CAMBIAR la unidad sin stock ni movimientos           → permitido
@@ -50,13 +53,24 @@ def _product_row(base_unit_id: str | None) -> dict:
     }
 
 
-def _wire(conn, *, current_base: str | None, has_stock: bool, has_movements: bool):
+def _wire(
+    conn,
+    *,
+    current_base: str | None,
+    has_stock: bool,
+    has_movements: bool,
+    has_other_unit_lines: bool = False,
+):
     """Arma el conn falso: la fila actual del producto, el guard de tenencia de
-    la unidad siempre OK, y las dos consultas del guard nuevo por separado.
-    Devuelve las listas donde quedan registradas las consultas y los UPDATE."""
+    la unidad siempre OK, y las consultas del guard por separado (stock,
+    movimientos y — cuarta revisión — líneas grabadas en otra unidad, que
+    quedan en `conn.lines_checks`). Devuelve las listas donde quedan
+    registradas las consultas y los UPDATE."""
     stock_checks: list[tuple] = []
     movement_checks: list[tuple] = []
+    lines_checks: list[tuple] = []
     updates: list[tuple[str, tuple]] = []
+    conn.lines_checks = lines_checks
 
     async def fetchrow_side_effect(query, *args):
         if "FROM units_of_measure" in query:
@@ -64,6 +78,9 @@ def _wire(conn, *, current_base: str | None, has_stock: bool, has_movements: boo
         return _product_row(current_base)
 
     async def fetchval_side_effect(query, *args):
+        if "FROM quote_items" in query:
+            lines_checks.append(args)
+            return has_other_unit_lines
         if "FROM branch_stock" in query:
             stock_checks.append(args)
             return has_stock
@@ -113,9 +130,13 @@ async def test_assign_base_unit_to_product_without_one_is_allowed_even_with_stoc
     assert len(updates) == 1
     assert "base_unit_id = $" in updates[0][0]
     assert UNIT_KG in updates[0][1]
-    # Asignar no es cambiar: el guard ni siquiera consulta el stock.
+    # Asignar no es cambiar: sin líneas grabadas en OTRA unidad el guard ni
+    # siquiera consulta el stock (cuarta revisión: sí mira las líneas, con la
+    # unidad que se asigna y scopeado a la cuenta).
     assert stock_checks == []
     assert movement_checks == []
+    assert len(conn.lines_checks) == 1
+    assert [str(a) for a in conn.lines_checks[0]] == [PRODUCT_ID, str(TEST_ACCOUNT_ID), UNIT_KG]
 
 
 # (b) ─────────────────────────────────────────────────────────────────────────
@@ -312,3 +333,61 @@ async def test_db_trigger_base_unit_locked_maps_to_409_problem(async_client, moc
     assert resp.status_code == 409, resp.text
     assert resp.headers["content-type"].startswith("application/problem+json")
     assert "base_unit_locked" in resp.json()["detail"]
+
+
+# ── Cuarta revisión del PR #584 (fix-round 3) ───────────────────────────────
+# (i) ASIGNAR sobre stock e historia grabados con OTRA unidad explícita: un
+#     producto sin unidad base admite líneas en cualquier unidad base (kg, L,
+#     u). Con historia en 'u', asignarle 'kg' hacía que "7 u" se leyeran "7 kg"
+#     y que el POS vendiera kilos de algo contado en unidades
+#     (redteam-3a/30-assign-probe). Mismo 409 que el cambio, con un detalle que
+#     dice qué hacer.
+async def test_assign_base_unit_over_history_in_another_unit_is_rejected_409(async_client, mock_pool):
+    pool, conn = mock_pool
+    stock_checks, _, updates = _wire(
+        conn, current_base=None, has_stock=True, has_movements=True, has_other_unit_lines=True,
+    )
+
+    resp = await _put(async_client, pool, {"base_unit_id": UNIT_KG})
+
+    _assert_locked(resp)
+    assert "otra unidad" in resp.json()["detail"]
+    assert "asign" in resp.json()["detail"].lower()
+    assert updates == []
+    assert len(conn.lines_checks) == 1
+    assert len(stock_checks) == 1
+
+
+# (j) ...pero sin stock ni movimientos no hay cantidades que reinterpretar:
+#     asignar se permite (mismo criterio que el cambio, D-C).
+async def test_assign_base_unit_with_other_unit_lines_but_no_stock_nor_movements_is_allowed(async_client, mock_pool):
+    pool, conn = mock_pool
+    stock_checks, movement_checks, updates = _wire(
+        conn, current_base=None, has_stock=False, has_movements=False, has_other_unit_lines=True,
+    )
+
+    resp = await _put(async_client, pool, {"base_unit_id": UNIT_KG})
+
+    assert resp.status_code == 200, resp.text
+    assert len(stock_checks) == 1
+    assert len(movement_checks) == 1
+    assert len(updates) == 1
+
+
+# (k) Repositorio: la consulta de líneas en otra unidad recorre las SEIS
+#     tablas de líneas, sólo el producto y las variantes que HEREDAN (base
+#     propia NULL — misma regla que trg_product_base_unit_guard), ignora las
+#     líneas sin unidad, compara contra la unidad que se asigna y filtra la
+#     cuenta en products y en cada tabla de líneas (regla dura de tenencia).
+async def test_repo_other_unit_lines_query_scope():
+    repo, conn = _repo_with([True])
+
+    assert await repo.has_lines_in_other_unit(PRODUCT_ID, str(TEST_ACCOUNT_ID), UNIT_KG) is True
+    sql, *args = conn.fetchval.await_args_list[0].args
+    assert args == [PRODUCT_ID, str(TEST_ACCOUNT_ID), UNIT_KG]
+    assert "p.account_id = $2" in sql
+    assert "p.parent_id = $1::uuid AND p.base_unit_id IS NULL" in sql
+    for table in ("sales", "purchases", "sale_items", "purchase_items", "sales_order_items", "quote_items"):
+        assert f"FROM {table} l " in sql, table
+    assert sql.count("l.account_id = $2") == 6
+    assert sql.count("l.unit_id IS NOT NULL AND l.unit_id <> $3::uuid") == 6

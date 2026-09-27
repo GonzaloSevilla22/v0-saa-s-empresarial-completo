@@ -66,7 +66,7 @@
 | Capa | Tecnología | Notas |
 |------|------------|-------|
 | **BaaS** | Supabase (Auth, DB, Edge Functions, Storage, Realtime) | Proyecto real: `gxdhpxvdjjkmxhdkkwyb` |
-| **DB** | PostgreSQL vía Supabase, con RLS org-based | 311 migraciones en prod, última `20261064000001_factura_fiscal_imprimible` (PR #591; verificada en prod 2026-09-26: `max(version)=20261064000001`, 311 filas) |
+| **DB** | PostgreSQL vía Supabase, con RLS org-based | 312 migraciones en prod, última `20261065000001_unidades_decisiones_8_9` (migración de datos, decisiones 8 y 9 de `ventas-unidades-conversion`, PR #…; verificar en prod tras el merge: `max(version)=20261065000001`, 312 filas — la anterior, `20261064000001_factura_fiscal_imprimible` (PR #591), verificada en prod 2026-09-26 con 311) |
 | **Extensiones PG** | `pg_cron` (grace period, relay outbox) · `pg_net` / DB webhooks (email, outbox, relay CAE) | — |
 | **Edge Functions** | Deno (Supabase) — 12 funciones | `ai-insights`, `ai-resumen`, `ai-precio`, `ai-rentabilidad`, `ai-comparativo`, `ai-prediccion`, `ai-simulador`, `ai-estadisticas`, `fair-advisor`, `invoice-ocr`, `generate-export`, `send-email` |
 | **IA** | OpenAI API | `gpt-4o-mini` en las 9 funciones de IA; **`gpt-4o`** (visión) en `invoice-ocr` |

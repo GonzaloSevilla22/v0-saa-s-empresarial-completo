@@ -290,3 +290,37 @@ class TestRepositorio:
         query, *args = conn.fetchval.await_args.args
         assert "rpc_fiscal_document_set_fecha_comprobante($1::uuid, $2::date)" in query
         assert args == [DOC_A, datetime.date(2026, 9, 25)]
+
+
+# ── Conexión del script contra el pooler de Supabase ──────────────────────────
+#
+# Bug real (2026-09-27, primer `--apply` en prod): el script abría la conexión con
+# `asyncpg.connect(dsn)` a secas y, contra el pooler en modo transaction, el
+# segundo statement preparado chocaba con `DuplicatePreparedStatementError`
+# ("prepared statement __asyncpg_stmt_1__ already exists"). El pool del backend
+# (`backend/core/database.py`) ya usa `statement_cache_size=0` por el mismo motivo.
+
+
+class TestScriptConexion:
+    async def test_conecta_sin_cache_de_statements_para_el_pooler(self, monkeypatch):
+        from unittest.mock import AsyncMock, MagicMock
+
+        from backend.scripts import backfill_fecha_comprobante as script
+
+        conn = MagicMock()
+        conn.close = AsyncMock()
+        connect = AsyncMock(return_value=conn)
+        monkeypatch.setattr(script.asyncpg, "connect", connect)
+        monkeypatch.setattr(script, "backfill_fecha_comprobante", AsyncMock(return_value=[]))
+        monkeypatch.setattr(script, "build_cae_adapter_from_settings", MagicMock())
+        monkeypatch.setenv("DATABASE_URL", "postgresql://u:p@pooler.example:6543/postgres")
+
+        rc = await script._run(apply=False)
+
+        assert rc == 0
+        connect.assert_awaited_once()
+        assert connect.await_args.args[0] == "postgresql://u:p@pooler.example:6543/postgres"
+        assert connect.await_args.kwargs.get("statement_cache_size") == 0, (
+            "contra el pooler (transaction mode) la conexión tiene que ir con statement_cache_size=0"
+        )
+        conn.close.assert_awaited_once()

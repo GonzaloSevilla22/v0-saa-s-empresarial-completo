@@ -370,10 +370,14 @@ BEGIN
     RAISE EXCEPTION 'GATE ESTADISTICAS FAILED (bucket viernes): revenue=% ops=% y esperaba 250/1 (amount como fallback, legacy cuenta 1).', v_row.revenue, v_row.operations;
   END IF;
   -- Un día sin ventas del rango informa cero, no se omite.
+  -- v_today - 9 colisiona con v_fri los domingos (v_monday = v_today - 6,
+  -- v_fri = v_monday - 3 = v_today - 9), que SÍ tiene ventas sembradas —
+  -- se usa v_fri - 1 (jueves, dentro de la ventana, nunca sembrado en
+  -- ningún día de la semana).
   SELECT * INTO v_row FROM public.rpc_sales_evolution(v_account, v_start, v_end, 'day', NULL, NULL) r
-  WHERE r.period = 'bucket' AND r.bucket_start = v_today - 9;
+  WHERE r.period = 'bucket' AND r.bucket_start = v_fri - 1;
   IF NOT FOUND OR v_row.revenue <> 0 OR v_row.operations <> 0 THEN
-    RAISE EXCEPTION 'GATE ESTADISTICAS FAILED (bucket vacío): el día % debe existir en cero.', v_today - 9;
+    RAISE EXCEPTION 'GATE ESTADISTICAS FAILED (bucket vacío): el día % debe existir en cero.', v_fri - 1;
   END IF;
   -- Sin corrimiento de zona (D3): el jueves anterior al viernes legacy no
   -- tiene ventas; un AT TIME ZONE sobre sales.date correría la de G a ese día.

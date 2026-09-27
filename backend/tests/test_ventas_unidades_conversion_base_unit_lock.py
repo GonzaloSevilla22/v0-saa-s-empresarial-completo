@@ -208,6 +208,30 @@ async def test_unassigning_base_unit_with_stock_is_rejected_409(async_client, mo
     assert updates == []
 
 
+# (f′) DESASIGNAR (null) sin stock ni movimientos → permitido, y la base queda
+#      en NULL. Decisión 7 (OK del PO 2026-09-27): el formulario ofrece "Sin
+#      unidad", así que este camino deja de ser sólo de API; el guard D-C SÍ
+#      corre (desasignar es un cambio) y, sin nada que reinterpretar, deja pasar.
+async def test_unassigning_base_unit_without_stock_nor_movements_is_allowed(async_client, mock_pool):
+    pool, conn = mock_pool
+    stock_checks, movement_checks, updates = _wire(conn, current_base=UNIT_KG, has_stock=False, has_movements=False)
+
+    resp = await _put(async_client, pool, {"name": "Tomate", "base_unit_id": None})
+
+    assert resp.status_code == 200, resp.text
+    # El guard consultó stock y movimientos, scopeados al producto y la cuenta.
+    assert [tuple(str(a) for a in c) for c in stock_checks] == [(PRODUCT_ID, str(TEST_ACCOUNT_ID))]
+    assert [tuple(str(a) for a in c) for c in movement_checks] == [(PRODUCT_ID, str(TEST_ACCOUNT_ID))]
+    # Desasignar no mira líneas en otra unidad: eso es sólo para ASIGNAR.
+    assert conn.lines_checks == []
+    # El UPDATE escribe base_unit_id = NULL explícito (no se filtra el None).
+    assert len(updates) == 1
+    query, args = updates[0]
+    assert "base_unit_id = $" in query
+    set_columns = [c.split("=")[0].strip() for c in query.split(" SET ")[1].split(" WHERE ")[0].split(",")]
+    assert args[2 + set_columns.index("base_unit_id")] is None
+
+
 async def test_omitting_base_unit_never_runs_the_guard(async_client, mock_pool):
     """Tri-estado por ausencia: un PUT que no toca la unidad no paga el guard."""
     pool, conn = mock_pool

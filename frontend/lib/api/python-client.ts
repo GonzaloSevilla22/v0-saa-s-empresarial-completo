@@ -1,4 +1,5 @@
 import { getAuthHeaders, handleUnauthorized, tokenFromHeaders } from "@/lib/api/auth-headers";
+import { PythonApiError } from "@/lib/api/python-api-error";
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL;
 
@@ -47,7 +48,10 @@ async function handleResponse<T>(response: Response, sentToken?: string | null):
   }
   if (!response.ok) {
     const body = await response.json().catch(() => ({ detail: response.statusText }));
-    throw new Error(body.detail ?? response.statusText);
+    // ventas-unidades-conversion (decisión 7): mismo `message` que antes (el
+    // `detail`), más `status`/`code`/`field` del problem+json para quien
+    // necesite distinguir un error puntual sin parsear el texto.
+    throw new PythonApiError(body.detail ?? response.statusText, response.status, body);
   }
   // 204 No Content (p. ej. DELETE) no trae body: parsear con response.json()
   // tiraría "Unexpected end of JSON input". Devolvemos undefined.

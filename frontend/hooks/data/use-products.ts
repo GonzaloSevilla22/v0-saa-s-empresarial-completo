@@ -199,6 +199,14 @@ export function useImportProducts() {
 // ── Hook ─────────────────────────────────────────────────────────────────────
 
 /**
+ * Campos del payload de escritura que relajan a `Product` (lectura) a
+ * tri-estado: en la lectura son valores resueltos; en la escritura
+ * `undefined` = "no lo toqué, conservá" y `null` = "desasignalo"
+ * (productos-costo-nullable D12 / ventas-unidades-conversion decisión 7).
+ */
+type ProductTriStateWrite = { cost?: number | null; baseUnitId?: string | null }
+
+/**
  * Returns products list + mutations (add, update, delete, bulkSetCategory) via Python API.
  */
 export function useProducts() {
@@ -218,7 +226,10 @@ export function useProducts() {
     // `number | null` — para un ALTA, omitir la clave y mandar `null`
     // producen el mismo resultado (sin costo cargado), así que el caller no
     // necesita distinguirlos.
-    mutationFn: async (product: Omit<Product, "id" | "cost"> & { cost?: number | null }) => {
+    // ventas-unidades-conversion (decisión 7): `baseUnitId` también admite
+    // `null` en la escritura — "Sin unidad" en el formulario. En el alta
+    // `null` y la ausencia producen lo mismo (`base_unit_id: null`).
+    mutationFn: async (product: Omit<Product, "id" | "cost" | "baseUnitId"> & ProductTriStateWrite) => {
       return pythonClient.post<ProductApiRow>("/products", {
         name:               product.name,
         // productos-categoria-text-retiro: `category` (nombre libre) ya no se
@@ -252,7 +263,11 @@ export function useProducts() {
     // en `null` para DESASIGNARLO. `Product.cost` (lectura) es siempre
     // `number | null` definido; este payload de escritura relaja sólo ESE
     // campo a también admitir `undefined`.
-    mutationFn: async (product: Omit<Product, "cost"> & { cost?: number | null }) => {
+    // ventas-unidades-conversion (decisión 7): `baseUnitId` es tri-estado
+    // igual que `cost` — `undefined` conserva, uuid asigna, `null` desasigna
+    // (opción "Sin unidad" del formulario; sujeta al guard D11/D-C del
+    // backend: 409 base_unit_locked con stock o historia).
+    mutationFn: async (product: Omit<Product, "cost" | "baseUnitId"> & ProductTriStateWrite) => {
       return pythonClient.put<ProductApiRow>(`/products/${product.id}`, {
         name:               product.name,
         // productos-categoria-text-retiro: `category` ya no se envía (idem alta).

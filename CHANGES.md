@@ -3788,6 +3788,8 @@ Gate: L.13-L.24, (O), (P) y la introspección (E) ampliada (también en el gate 
 
 **Sign-off del PO 2026-09-26**: aplica las recomendaciones; decisiones 7-9 diferidas a pedido (detalle completo en `openspec/changes/ventas-unidades-conversion/design.md` §"Sign-off del PO").
 
+**Decisión 7 implementada 2026-09-27** (OK del PO: *"aplica las 3 recomendaciones para las tres decisiones que quedaron"*; PR #596, sin migración): opción **"Sin unidad"** en el selector de unidad del formulario de producto — en la edición manda `base_unit_id: null` explícito, en el alta deja el producto sin unidad base como antes; sigue sujeta a D11 (409 `base_unit_locked` con stock/historia: el formulario muestra el `detail` del backend y vuelve el selector a la unidad que conserva). `pythonClient` pasa a lanzar `PythonApiError` (mismo `message`, más `status`/`code`/`field` del problem+json).
+
 **Archivado 2026-09-26** (change movido a `openspec/changes/archive/2026-09-26-ventas-unidades-conversion/`; specs delta sincronizadas a `openspec/specs/{units-of-measure,reporting-invariants,branch-stock,inventory-single-ledger,operation-edit-context,sales-order}/`). Cierre de las cinco tasks que quedaban abiertas:
 
 - **7.1/11.9 — CI en verde sobre el commit final**: `gh pr checks 584` sobre el head mergeado (squash, `c350a884`, `mergedAt 2026-09-26T05:16:49Z`) — `validate-kpis`, `pytest`, `vitest`, `playwright` y `AGENTS.md == CLAUDE.md` en PASS, deploy de Vercel completado. Ningún check en rojo.

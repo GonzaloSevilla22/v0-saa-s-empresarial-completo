@@ -46,7 +46,10 @@ async def _run(apply: bool) -> int:
     if not dsn:
         print("Falta DATABASE_URL.")
         return 2
-    conn = await asyncpg.connect(dsn)
+    # DATABASE_URL apunta al pooler de Supabase (transaction mode): sin
+    # `statement_cache_size=0` el segundo statement preparado choca con
+    # DuplicatePreparedStatementError (mismo motivo que el pool de core/database.py).
+    conn = await asyncpg.connect(dsn, statement_cache_size=0)
     try:
         report = await backfill_fecha_comprobante(
             FiscalDocumentRepository(conn), build_cae_adapter_from_settings(), apply=apply,

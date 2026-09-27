@@ -20,6 +20,7 @@ from __future__ import annotations
 import datetime
 import logging
 
+from backend.core.timezone import today_in_argentina
 from backend.services.fiscal.fiscal_document_port import CAERequest, CAEResponse, FiscalDocumentPort
 from backend.services.fiscal.wsfe_adapter import WSFEAdapter
 
@@ -115,6 +116,11 @@ class CAERelayProcessor:
             neto=float(doc["neto"]) if doc.get("neto") is not None else None,
             iva_amount=float(doc["iva_amount"]) if doc.get("iva_amount") is not None else None,
             iva_alicuota_id=doc.get("iva_alicuota_id"),
+            # factura-fiscal-imprimible (OQ-7): la fecha que se le pide a ARCA es
+            # la del día en Argentina, no la del reloj UTC del servidor (una
+            # factura pedida después de las 21:00 salía con la fecha de mañana,
+            # y esa fecha ahora va impresa y en el QR).
+            fecha_comprobante=today_in_argentina(),
             # fiscal-riesgos-residuales (R1): el hook que persiste la marca del
             # envío ANTES de que el FECAESolicitar salga.
             on_submit_start=self._make_submit_hook(doc["id"], marca_del_tick),
@@ -208,6 +214,8 @@ class CAERelayProcessor:
                     # G3: el número que ARCA confirmó. La RPC lo adopta si difiere
                     # del local y deja el desfasaje en document_status_history.
                     number=response.number,
+                    # factura-fiscal-imprimible (D5): la fecha que ARCA confirmó.
+                    fecha_comprobante=response.fecha_comprobante,
                 )
             except Exception as exc:
                 logger.critical(
@@ -354,6 +362,8 @@ class CAERelayProcessor:
                     cae=rec.cae,
                     cae_due_date=rec.cae_due_date,
                     number=rec.number or requested,
+                    # factura-fiscal-imprimible (D5): la ResultGet.CbteFch.
+                    fecha_comprobante=rec.fecha_comprobante,
                 )
             except Exception as exc:
                 logger.critical(

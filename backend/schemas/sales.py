@@ -160,6 +160,10 @@ class SaleItemOut(BaseModel):
     fiscal_document_status: str | None = None
     fiscal_punto_de_venta: int | None = None
     fiscal_number: int | None = None
+    # factura-fiscal-imprimible (D10): CAE, vencimiento y tipo del comprobante.
+    fiscal_cae: str | None = None
+    fiscal_cae_due_date: datetime.date | None = None
+    fiscal_comprobante_type: str | None = None
     #: El pedido salió hacia ARCA (cae_submit_started_at).
     fiscal_submitted_to_arca: bool = False
     #: Salió y su resultado nunca se confirmó — requiere revisión manual.

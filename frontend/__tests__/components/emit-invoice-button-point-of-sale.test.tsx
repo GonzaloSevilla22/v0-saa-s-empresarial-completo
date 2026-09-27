@@ -31,7 +31,7 @@ const pvRow = (id: string, numero: number, isActive = true, isDefault = false) =
 })
 
 const PROFILE_ROW = {
-  id: "fp-1", account_id: "acc-1", cuit: "27213790337", iva_condition: "monotributista",
+  id: "fp-1", account_id: "acc-1", cuit: "20123456786", iva_condition: "monotributista",
   iibb_condition: null, ambiente: "produccion", delegacion_autorizada: true,
   certificado_afip_path: null, created_at: "2026-09-26T00:00:00Z",
 }

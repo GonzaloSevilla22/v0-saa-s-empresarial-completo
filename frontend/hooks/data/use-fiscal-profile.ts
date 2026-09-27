@@ -38,9 +38,16 @@ export interface FiscalProfile {
   // v22: delegación ARCA
   delegacionAutorizada: boolean
   platformRepresentanteCuit: string | null
+  // factura-fiscal-imprimible (D7): datos del emisor para la factura impresa
+  razonSocial: string | null
+  nombreFantasia: string | null
+  domicilioComercial: string | null
+  iibbNumero: string | null
+  /** "YYYY-MM-DD" */
+  inicioActividades: string | null
 }
 
-interface FiscalProfileApiRow {
+export interface FiscalProfileApiRow {
   id: string
   account_id: string
   cuit: string
@@ -52,9 +59,16 @@ interface FiscalProfileApiRow {
   // v22: delegación ARCA
   delegacion_autorizada: boolean
   platform_representante_cuit: string | null
+  // factura-fiscal-imprimible: opcionales — un backend anterior a la migración
+  // no los manda.
+  razon_social?: string | null
+  nombre_fantasia?: string | null
+  domicilio_comercial?: string | null
+  iibb_numero?: string | null
+  inicio_actividades?: string | null
 }
 
-interface FiscalProfileInput {
+export interface FiscalProfileInput {
   cuit: string
   iva_condition: IvaCondition
   iibb_condition?: string | null
@@ -62,9 +76,16 @@ interface FiscalProfileInput {
   certificado_afip_path?: string | null
   // v22: atestación de delegación ARCA (solo owner/admin)
   delegacion_autorizada?: boolean
+  // factura-fiscal-imprimible (D7): tri-estado en el backend — ausente =
+  // conservar, null = borrar, valor = reemplazar. Mandar SÓLO los tocados.
+  razon_social?: string | null
+  nombre_fantasia?: string | null
+  domicilio_comercial?: string | null
+  iibb_numero?: string | null
+  inicio_actividades?: string | null
 }
 
-function mapRow(r: FiscalProfileApiRow): FiscalProfile {
+export function mapFiscalProfileRow(r: FiscalProfileApiRow): FiscalProfile {
   return {
     id:                        r.id,
     accountId:                 r.account_id,
@@ -77,6 +98,12 @@ function mapRow(r: FiscalProfileApiRow): FiscalProfile {
     // v22
     delegacionAutorizada:      r.delegacion_autorizada ?? false,
     platformRepresentanteCuit: r.platform_representante_cuit ?? null,
+    // factura-fiscal-imprimible
+    razonSocial:               r.razon_social ?? null,
+    nombreFantasia:            r.nombre_fantasia ?? null,
+    domicilioComercial:        r.domicilio_comercial ?? null,
+    iibbNumero:                r.iibb_numero ?? null,
+    inicioActividades:         r.inicio_actividades ?? null,
   }
 }
 
@@ -112,7 +139,7 @@ export function useFiscalProfile() {
     queryFn: async (): Promise<FiscalProfile | null> => {
       try {
         const data = await pythonClient.get<FiscalProfileApiRow>("/fiscal/profile")
-        return mapRow(data)
+        return mapFiscalProfileRow(data)
       } catch (err: unknown) {
         // 404 = perfil no configurado aún → retornar null en lugar de error
         const message = err instanceof Error ? err.message : String(err)
@@ -155,7 +182,7 @@ export function useUpsertFiscalProfile() {
       // para que el backend lo persista correctamente (false también es un valor válido).
       const payload: FiscalProfileInput = { ...input }
       const data = await pythonClient.post<FiscalProfileApiRow>("/fiscal/profile", payload)
-      return mapRow(data)
+      return mapFiscalProfileRow(data)
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.fiscalProfile.all() })

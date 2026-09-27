@@ -115,6 +115,13 @@ class SalesRepository(BaseRepository):
                    fd.status                                AS fiscal_document_status,
                    fd.punto_de_venta                        AS fiscal_punto_de_venta,
                    fd.number                                AS fiscal_number,
+                   -- factura-fiscal-imprimible (D10): el CAE, su vencimiento
+                   -- y el tipo, para mostrarlos junto al badge y ofrecer la
+                   -- factura impresa. Derivados del mismo JOIN, sin columnas
+                   -- denormalizadas.
+                   fd.cae                                   AS fiscal_cae,
+                   fd.cae_due_date                          AS fiscal_cae_due_date,
+                   fd.comprobante_type                      AS fiscal_comprobante_type,
                    (fd.cae_submit_started_at IS NOT NULL)   AS fiscal_submitted_to_arca,
                    -- `fiscal_frozen` replica EXACTAMENTE la condición de
                    -- backend/routers/fiscal.py (`is_frozen`: la marca Y

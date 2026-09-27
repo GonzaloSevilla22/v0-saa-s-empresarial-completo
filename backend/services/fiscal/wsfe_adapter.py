@@ -29,6 +29,8 @@ import datetime
 import logging
 from typing import TYPE_CHECKING
 
+from backend.core.timezone import today_in_argentina
+from backend.services.fiscal.comprobante import COMPROBANTE_AFIP_CODE, resolve_receptor_doc
 from backend.services.fiscal.fiscal_document_port import (
     CAERequest,
     CAEResponse,
@@ -86,6 +88,44 @@ _SOAP_OPERATION_TIMEOUT_SECONDS = 45
 # lo fija como regresión: cualquier cambio futuro a estas dos constantes que
 # rompa el presupuesto total falla el gate, no sólo "está seteado").
 _SOAP_WSDL_LOAD_TIMEOUT_SECONDS = 20
+
+
+_SIN_DATO = object()
+
+
+def _parse_cbte_fch(raw: object, *, fallback: datetime.date | None) -> datetime.date | None:
+    """La `CbteFch` (AAAAMMDD) de una respuesta de ARCA, sin levantar NUNCA.
+
+    factura-fiscal-imprimible (D5 + task 2.3). Tres casos, y no son el mismo:
+      * ausente o vacía → `fallback` (en FECAESolicitar, la fecha que se
+        ENVIÓ: ARCA autorizó el comprobante con esa fecha y el campo de la
+        respuesta es su eco; en FECompConsultar el fallback es None, porque el
+        envío original pudo ser de otro día);
+      * legible → esa fecha (ARCA es la fuente de verdad, como con el número);
+      * presente pero ilegible → None y un warning: no se inventa una fecha
+        sobre una respuesta que no entendemos, y el comprobante cae en el
+        backfill (OQ-9).
+    No levanta a propósito: vive dentro del parseo de un `Resultado='A'`, donde
+    cualquier excepción congelaría un documento con un CAE REAL por culpa de
+    un dato que sólo sirve para imprimir.
+    """
+    if raw is _SIN_DATO or raw is None:
+        return fallback
+    text = str(raw).strip()
+    if not text:
+        return fallback
+    try:
+        if len(text) != 8 or not text.isdigit():
+            raise ValueError(text)
+        return datetime.datetime.strptime(text, "%Y%m%d").date()
+    except ValueError:
+        logger.warning(
+            "WSFEAdapter: CbteFch ilegible en la respuesta de ARCA (%r); el "
+            "comprobante se autoriza igual y queda sin fecha confirmada "
+            "(fecha_comprobante NULL → backfill).",
+            raw,
+        )
+        return None
 
 
 class WSFEUltimoAutorizadoIlegibleError(Exception):
@@ -259,16 +299,10 @@ def _build_zeep_client(url: str):
     )
 
 
-# Mapping de comprobante_type a codigo AFIP (CbteTipo)
-_COMPROBANTE_AFIP_CODE = {
-    "factura_a": 1,
-    "factura_b": 6,
-    "factura_c": 11,
-    "nota_debito_a": 2,
-    "nota_credito_a": 3,
-    "nota_debito_b": 7,
-    "nota_credito_b": 8,
-}
+# Mapping de comprobante_type a codigo AFIP (CbteTipo). factura-fiscal-imprimible:
+# la tabla vive en `comprobante.py`, compartida con la factura impresa y su QR
+# (nunca copiada); este alias conserva el nombre que usa el adapter.
+_COMPROBANTE_AFIP_CODE = COMPROBANTE_AFIP_CODE
 
 # Mapping receptor_iva_condition -> CondicionIVAReceptorId (RG 5616/2024).
 # consumidor_final=5 confirmado por E2E homologacion (CAE 86250464989491).
@@ -356,13 +390,13 @@ class WSFEAdapter(FiscalDocumentPort):
         cuit_receptor legacy (→ 80) → sin identificar (99, DocNro=0).
         Regla AFIP: DocTipo=99 ⇒ DocNro=0 (un 99 con DocNro no nulo es inconsistente).
         """
-        doc_tipo = invoice_data.receptor_doc_tipo
-        doc_nro_raw = invoice_data.receptor_doc_nro
-        if doc_tipo in (80, 96) and doc_nro_raw:
-            return int(doc_tipo), int(str(doc_nro_raw).replace("-", ""))
-        if invoice_data.cuit_receptor:
-            return 80, int(str(invoice_data.cuit_receptor).replace("-", ""))
-        return 99, 0
+        # factura-fiscal-imprimible: la regla vive en `comprobante.py` porque la
+        # factura impresa y su QR tienen que declarar EXACTAMENTE lo mismo.
+        return resolve_receptor_doc(
+            invoice_data.receptor_doc_tipo,
+            invoice_data.receptor_doc_nro,
+            invoice_data.cuit_receptor,
+        )
 
     async def request_cae(self, invoice_data: CAERequest) -> CAEResponse:
         """Solicita el CAE a AFIP vía WSAA + WSFEv1.
@@ -689,6 +723,41 @@ class WSFEAdapter(FiscalDocumentPort):
         invoice_data: CAERequest,
         requested_number: int,
     ) -> ReconcileResponse:
+        """Reconciliación del relay: FECompConsultar sobre un envío dudoso.
+
+        Si ARCA tiene el comprobante, el relay autoriza el documento con ESE CAE
+        (nunca pide uno nuevo) — por eso el CRITICAL: es la señal que se vigila
+        en prod. La consulta en sí vive en `_consultar_fecompconsultar`.
+        """
+        rec = await self._consultar_fecompconsultar(invoice_data, requested_number)
+        if rec.outcome == "authorized":
+            logger.critical(
+                "WSFEAdapter.reconcile_submitted: el comprobante %s-%s SÍ existe en ARCA "
+                "con CAE %s — el documento %s se autoriza con ese CAE, no se pide uno nuevo.",
+                invoice_data.punto_de_venta, rec.number, rec.cae, invoice_data.fiscal_document_id,
+            )
+        return rec
+
+    async def consultar_comprobante(
+        self,
+        invoice_data: CAERequest,
+        number: int,
+    ) -> ReconcileResponse:
+        """Consulta de SÓLO LECTURA (backfill de la fecha): el mismo
+        FECompConsultar, sin autorizar nada ni loguear en CRITICAL."""
+        rec = await self._consultar_fecompconsultar(invoice_data, number)
+        logger.info(
+            "WSFEAdapter.consultar_comprobante: consulta de sólo lectura (FECompConsultar) "
+            "del comprobante %s-%s del documento %s -> %s. No se autoriza ni se modifica nada.",
+            invoice_data.punto_de_venta, number, invoice_data.fiscal_document_id, rec.outcome,
+        )
+        return rec
+
+    async def _consultar_fecompconsultar(
+        self,
+        invoice_data: CAERequest,
+        requested_number: int,
+    ) -> ReconcileResponse:
         """¿ARCA tiene el comprobante `requested_number`? — FECompConsultar.
 
         fiscal-riesgos-residuales (R1). Se llama cuando el relay reclama un
@@ -845,16 +914,16 @@ class WSFEAdapter(FiscalDocumentPort):
         except (TypeError, ValueError):
             number = requested_number
 
-        logger.critical(
-            "WSFEAdapter.reconcile_submitted: el comprobante %s-%s SÍ existe en ARCA "
-            "con CAE %s — el documento %s se autoriza con ese CAE, no se pide uno nuevo.",
-            invoice_data.punto_de_venta, number, cae, invoice_data.fiscal_document_id,
-        )
+        # factura-fiscal-imprimible (D5): SÓLO la fecha que ARCA tiene para el
+        # comprobante — sin fallback, el envío original pudo ser de otro día.
+        fecha_comprobante = _parse_cbte_fch(getattr(det, "CbteFch", _SIN_DATO), fallback=None)
+
         return ReconcileResponse(
             outcome="authorized",
             cae=str(cae),
             cae_due_date=vto,
             number=number,
+            fecha_comprobante=fecha_comprobante,
         )
 
     async def _call_wsfe(
@@ -874,7 +943,11 @@ class WSFEAdapter(FiscalDocumentPort):
         client = _build_zeep_client(wsfev1_url)
 
         cbte_tipo = _COMPROBANTE_AFIP_CODE.get(invoice_data.comprobante_type, 6)
-        fecha = (invoice_data.fecha_comprobante or datetime.date.today()).strftime("%Y%m%d")
+        # factura-fiscal-imprimible (OQ-7): sin fecha explícita, la del día EN
+        # ARGENTINA — nunca `date.today()`, que en un servidor en UTC fecha al
+        # día siguiente toda factura pedida después de las 21:00.
+        fecha_enviada = invoice_data.fecha_comprobante or today_in_argentina()
+        fecha = fecha_enviada.strftime("%Y%m%d")
 
         auth = {
             "Token": token,
@@ -1080,6 +1153,11 @@ class WSFEAdapter(FiscalDocumentPort):
                     cae_due_date=datetime.datetime.strptime(det.CAEFchVto, "%Y%m%d").date(),
                     is_approved=True,
                     number=number,
+                    # factura-fiscal-imprimible (D5): la fecha que ARCA
+                    # confirmó; sin ella, la enviada. Nunca levanta.
+                    fecha_comprobante=_parse_cbte_fch(
+                        getattr(det, "CbteFch", _SIN_DATO), fallback=fecha_enviada,
+                    ),
                 )
             else:
                 # Rechazado: extraer primer error

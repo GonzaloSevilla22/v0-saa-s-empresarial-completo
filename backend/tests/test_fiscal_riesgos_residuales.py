@@ -781,9 +781,12 @@ class TestProcessorReconciliaEnVezDeEmitir:
         await processor.process_document(_marcado())
 
         adapter.request_cae.assert_not_called()
+        # factura-fiscal-imprimible: la reconciliación pasa también la fecha
+        # que ARCA confirmó (None: esta respuesta no la trae).
         repo.update_authorized.assert_awaited_once_with(
             doc_id=DOC_ID, cae="86250464989491",
             cae_due_date=datetime.date(2026, 12, 31), number=51,
+            fecha_comprobante=None,
         )
         repo.clear_submit_mark.assert_not_awaited()
 

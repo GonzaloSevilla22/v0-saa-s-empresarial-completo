@@ -53,7 +53,7 @@
 | **Cache / rate-limit / idempotencia** | Redis ≥5.0 (Upstash free) | Instancia por env var; no declarada en el repo |
 | **Reintentos** | `tenacity` ≥8.2 | — |
 | **HTTP client** | `httpx` ≥0.27 | — |
-| **PDFs** | `fpdf2` ≥2.7 | Comprobantes y recibos |
+| **PDFs** | `fpdf2` ≥2.7 + `segno` ≥1.6 | Comprobantes, recibos y la Factura C imprimible con el QR de ARCA (RG 4892, dibujado como rectángulos desde la matriz de `segno`); `pypdf` ≥4 sólo en tests/CI |
 | **SOAP AFIP/ARCA** | `zeep` ≥4.2,<5 | Facturación electrónica (C-27) |
 | **SDK Supabase** | `supabase-py` ≥2.0 | — |
 | **Testing** | pytest ≥8 + pytest-asyncio (`asyncio_mode=auto`) + httpx + asyncpg-stubs | Coverage ≥87% en CI; `omit` de `tests/` y `.venv/` |
@@ -66,7 +66,7 @@
 | Capa | Tecnología | Notas |
 |------|------------|-------|
 | **BaaS** | Supabase (Auth, DB, Edge Functions, Storage, Realtime) | Proyecto real: `gxdhpxvdjjkmxhdkkwyb` |
-| **DB** | PostgreSQL vía Supabase, con RLS org-based | 310 migraciones en prod tras el merge de `punto-venta-seleccion`; última `20261063000001_punto_venta_predeterminado` (rama `opsx/punto-venta-seleccion-apply`, sin mergear; verificar en prod tras el merge: `max(version)=20261063000001`, 310 filas). La anterior, `20261062000001_ventas_unidades_conversion`, es la del PR #584, ya mergeado (verificada en prod 2026-09-26: `max(version)=20261062000001`, 309 filas) |
+| **DB** | PostgreSQL vía Supabase, con RLS org-based | 311 migraciones en prod tras el merge de `factura-fiscal-imprimible`; última `20261064000001_factura_fiscal_imprimible` (rama `opsx/factura-fiscal-imprimible-apply`, sin mergear; verificar en prod tras el merge: `max(version)=20261064000001`, 311 filas). La anterior, `20261063000001_punto_venta_predeterminado`, es la del PR #590, ya mergeado (verificada en prod 2026-09-26: `max(version)=20261063000001`, 310 filas) |
 | **Extensiones PG** | `pg_cron` (grace period, relay outbox) · `pg_net` / DB webhooks (email, outbox, relay CAE) | — |
 | **Edge Functions** | Deno (Supabase) — 12 funciones | `ai-insights`, `ai-resumen`, `ai-precio`, `ai-rentabilidad`, `ai-comparativo`, `ai-prediccion`, `ai-simulador`, `ai-estadisticas`, `fair-advisor`, `invoice-ocr`, `generate-export`, `send-email` |
 | **IA** | OpenAI API | `gpt-4o-mini` en las 9 funciones de IA; **`gpt-4o`** (visión) en `invoice-ocr` |

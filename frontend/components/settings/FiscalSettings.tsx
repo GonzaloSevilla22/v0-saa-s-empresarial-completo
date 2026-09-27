@@ -58,7 +58,14 @@ import {
 } from "@/hooks/data/use-points-of-sale"
 import { formatPointOfSaleLabel } from "@/lib/fiscal-point-of-sale"
 import { translateFiscalConfigError } from "@/lib/fiscal-config-errors"
-import type { IvaCondition, Ambiente } from "@/hooks/data/use-fiscal-profile"
+import { describeMissingIssuerFields, missingIssuerPrintFields } from "@/lib/fiscal-issuer"
+import { argentinaToday } from "@/lib/date-range"
+import type {
+  IvaCondition,
+  Ambiente,
+  FiscalProfile,
+  FiscalProfileInput,
+} from "@/hooks/data/use-fiscal-profile"
 import type { PointOfSale } from "@/hooks/data/use-points-of-sale"
 
 // ── Schemas ───────────────────────────────────────────────────────────────────
@@ -74,8 +81,32 @@ const newPvSchema = z.object({
   numero: z.coerce.number().int().min(1, "Número de PV debe ser ≥ 1"),
 })
 
+// factura-fiscal-imprimible (D7): datos del emisor para la factura impresa.
+// Mismos límites que el schema del backend (422 antes de tocar la DB).
+const issuerPrintSchema = z.object({
+  razon_social:        z.string().max(120, "Máximo 120 caracteres."),
+  nombre_fantasia:     z.string().max(120, "Máximo 120 caracteres."),
+  domicilio_comercial: z.string().max(200, "Máximo 200 caracteres."),
+  iibb_numero:         z.string().max(30, "Máximo 30 caracteres."),
+  inicio_actividades:  z
+    .string()
+    .refine(
+      (value) => value === "" || value <= argentinaToday(),
+      "La fecha de inicio de actividades no puede ser posterior a hoy.",
+    ),
+})
+
 type FiscalProfileFormValues = z.infer<typeof fiscalProfileSchema>
 type NewPvFormValues = z.infer<typeof newPvSchema>
+type IssuerPrintFormValues = z.infer<typeof issuerPrintSchema>
+
+const ISSUER_PRINT_KEYS = [
+  "razon_social",
+  "nombre_fantasia",
+  "domicilio_comercial",
+  "iibb_numero",
+  "inicio_actividades",
+] as const satisfies readonly (keyof IssuerPrintFormValues)[]
 
 // ── Labels ────────────────────────────────────────────────────────────────────
 
@@ -263,6 +294,172 @@ function FiscalProfileForm() {
           className="self-start"
         >
           {upsert.isPending ? "Guardando..." : profile ? "Actualizar perfil" : "Guardar perfil"}
+        </Button>
+      </form>
+    </Form>
+  )
+}
+
+// ── IssuerPrintDataSection (factura-fiscal-imprimible) ─────────────────────────
+// Datos del emisor que exige la factura impresa (RG 1415). Formulario propio
+// para mandar SÓLO lo que el usuario tocó: el backend es tri-estado (ausente =
+// conservar, null = borrar), así que un campo que no se tocó nunca pisa lo
+// guardado. cuit/iva/ambiente viajan del perfil porque el endpoint los exige.
+
+function toIssuerFormValues(profile: FiscalProfile | null): IssuerPrintFormValues {
+  return {
+    razon_social:        profile?.razonSocial ?? "",
+    nombre_fantasia:     profile?.nombreFantasia ?? "",
+    domicilio_comercial: profile?.domicilioComercial ?? "",
+    iibb_numero:         profile?.iibbNumero ?? "",
+    inicio_actividades:  profile?.inicioActividades ?? "",
+  }
+}
+
+export function IssuerPrintDataSection() {
+  const { profile, isLoading } = useFiscalProfile()
+  const upsert = useUpsertFiscalProfile()
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const [saveOk, setSaveOk] = useState(false)
+
+  const form = useForm<IssuerPrintFormValues>({
+    resolver: zodResolver(issuerPrintSchema),
+    defaultValues: toIssuerFormValues(profile),
+    values: profile ? toIssuerFormValues(profile) : undefined,
+  })
+
+  const missing = missingIssuerPrintFields(profile)
+  const disabled = !profile || isLoading
+
+  async function onSubmit(values: IssuerPrintFormValues) {
+    if (!profile) return
+    setSaveError(null)
+    setSaveOk(false)
+    const dirty = form.formState.dirtyFields
+    const payload: FiscalProfileInput = {
+      cuit:          profile.cuit,
+      iva_condition: profile.ivaCondition,
+      ambiente:      profile.ambiente,
+    }
+    for (const key of ISSUER_PRINT_KEYS) {
+      if (dirty[key]) payload[key] = values[key].trim() || null
+    }
+    try {
+      await upsert.mutateAsync(payload)
+      setSaveOk(true)
+      setTimeout(() => setSaveOk(false), 3000)
+    } catch (err: unknown) {
+      setSaveError(err instanceof Error ? err.message : "Error al guardar los datos para imprimir.")
+    }
+  }
+
+  return (
+    <Form {...form}>
+      {/* noValidate: `max` limita el selector de fecha, pero el mensaje lo da
+          el schema (en castellano), no la validación nativa del navegador. */}
+      <form noValidate onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col gap-4">
+        {!profile ? (
+          <p className="text-sm text-muted-foreground">
+            Guardá primero los datos fiscales (CUIT y condición IVA) para poder cargar estos datos.
+          </p>
+        ) : (
+          missing.length > 0 && (
+            <Alert>
+              <AlertDescription>
+                Para imprimir tus facturas falta completar {describeMissingIssuerFields(missing)}.
+              </AlertDescription>
+            </Alert>
+          )
+        )}
+
+        <fieldset disabled={disabled} className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2">
+          <FormField
+            control={form.control}
+            name="razon_social"
+            render={({ field }) => (
+              <FormItem className="sm:col-span-2">
+                <FormLabel>Razón social</FormLabel>
+                <FormControl>
+                  <Input placeholder="Apellido y nombre o razón social, como figura en ARCA" {...field} />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name="nombre_fantasia"
+            render={({ field }) => (
+              <FormItem className="sm:col-span-2">
+                <FormLabel>Nombre de fantasía (opcional)</FormLabel>
+                <FormControl>
+                  <Input placeholder="El nombre de tu negocio" {...field} />
+                </FormControl>
+                <FormDescription>
+                  Si lo cargás, va grande en la factura y la razón social debajo.
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name="domicilio_comercial"
+            render={({ field }) => (
+              <FormItem className="sm:col-span-2">
+                <FormLabel>Domicilio comercial</FormLabel>
+                <FormControl>
+                  <Input placeholder="Calle, número y localidad" {...field} />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name="iibb_numero"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Número de Ingresos Brutos</FormLabel>
+                <FormControl>
+                  <Input inputMode="numeric" placeholder="Ej. 0712345" {...field} />
+                </FormControl>
+                <FormDescription>
+                  Si no tenés número, alcanza con la condición IIBB de Datos fiscales.
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name="inicio_actividades"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Inicio de actividades</FormLabel>
+                <FormControl>
+                  <Input type="date" max={argentinaToday()} {...field} />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        </fieldset>
+
+        {saveError && (
+          <Alert variant="destructive">
+            <AlertDescription>{saveError}</AlertDescription>
+          </Alert>
+        )}
+
+        {saveOk && (
+          <p className="text-sm text-success" role="status">
+            Datos para imprimir guardados.
+          </p>
+        )}
+
+        <Button type="submit" disabled={disabled || upsert.isPending} className="self-start">
+          {upsert.isPending ? "Guardando..." : "Guardar datos para imprimir"}
         </Button>
       </form>
     </Form>
@@ -805,6 +1002,20 @@ export function FiscalSettings() {
         </CardHeader>
         <CardContent>
           <FiscalProfileForm />
+        </CardContent>
+      </Card>
+
+      {/* factura-fiscal-imprimible (D7): datos del emisor para la factura impresa */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Datos para imprimir la factura</CardTitle>
+          <CardDescription>
+            Razón social, domicilio comercial, Ingresos Brutos e inicio de actividades: van en el
+            encabezado de tus facturas. No hacen falta para facturar, sólo para imprimirlas.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <IssuerPrintDataSection />
         </CardContent>
       </Card>
 

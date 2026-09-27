@@ -32,6 +32,7 @@ def problem_detail(
     title: str | None = None,
     type_: str = "about:blank",
     field: str | None = None,
+    extensions: dict | None = None,
 ) -> dict:
     """v3-api-standards D1/D2 — construye el shape RFC 7807.
 
@@ -48,6 +49,10 @@ def problem_detail(
     }
     if field is not None:
         body["field"] = field
+    # factura-fiscal-imprimible: miembros de extensión RFC 7807 adicionales
+    # (p. ej. `missing` en issuer_data_incomplete). Nunca pisan los base.
+    for key, value in (extensions or {}).items():
+        body.setdefault(key, value)
     return body
 
 
@@ -59,11 +64,15 @@ def problem_response(
     title: str | None = None,
     field: str | None = None,
     headers: dict[str, str] | None = None,
+    extensions: dict | None = None,
 ) -> JSONResponse:
     """Envuelve `problem_detail` en un `JSONResponse` con el media type 7807."""
     return JSONResponse(
         status_code=status,
-        content=problem_detail(status=status, detail=detail, code=code, title=title, field=field),
+        content=problem_detail(
+            status=status, detail=detail, code=code, title=title, field=field,
+            extensions=extensions,
+        ),
         headers=headers,
         media_type=PROBLEM_JSON_MEDIA_TYPE,
     )
@@ -271,10 +280,13 @@ class ProblemHTTPException(HTTPException):
         code: str,
         field: str | None = None,
         headers: dict[str, str] | None = None,
+        extensions: dict | None = None,
     ) -> None:
         super().__init__(status_code=status_code, detail=detail, headers=headers)
         self.code = code
         self.field = field
+        # factura-fiscal-imprimible: miembros de extensión RFC 7807 extra.
+        self.extensions = extensions
 
 
 async def asyncpg_error_handler(request: Request, exc: asyncpg.PostgresError) -> JSONResponse:

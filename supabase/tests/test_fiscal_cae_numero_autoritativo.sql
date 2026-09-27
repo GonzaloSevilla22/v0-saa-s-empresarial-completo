@@ -94,7 +94,9 @@ BEGIN
   FROM   pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
   WHERE  n.nspname = 'public' AND p.proname = 'rpc_fiscal_document_authorize';
 
-  IF v_args <> 'p_doc_id uuid, p_cae text, p_cae_due_date date, p_number bigint' THEN
+  -- factura-fiscal-imprimible (20261064000001): + p_fecha_comprobante date
+  -- DEFAULT NULL (DROP + CREATE, sin overload).
+  IF v_args <> 'p_doc_id uuid, p_cae text, p_cae_due_date date, p_number bigint, p_fecha_comprobante date' THEN
     RAISE EXCEPTION 'GATE FISCAL-CAE (1) FAILED: firma inesperada de rpc_fiscal_document_authorize: (%)', v_args;
   END IF;
 
@@ -102,7 +104,7 @@ BEGIN
     RAISE EXCEPTION 'GATE FISCAL-CAE (1) FAILED: rpc_fiscal_document_authorize dejó de ser SECURITY DEFINER (fiscal_documents no tiene policy de UPDATE: sin DEFINER el relay no puede autorizar nada).';
   END IF;
 
-  RAISE NOTICE 'PASS (1): rpc_fiscal_document_authorize con firma única (uuid, text, date, bigint) y SECURITY DEFINER.';
+  RAISE NOTICE 'PASS (1): rpc_fiscal_document_authorize con firma única (uuid, text, date, bigint, date) y SECURITY DEFINER.';
 END $$;
 
 
@@ -110,7 +112,7 @@ END $$;
 DO $$
 DECLARE
   v_fns CONSTANT text[] := ARRAY[
-    'public.rpc_fiscal_document_authorize(uuid, text, date, bigint)',
+    'public.rpc_fiscal_document_authorize(uuid, text, date, bigint, date)',
     'public.rpc_fiscal_document_claim_pending(uuid, integer)',
     'public.rpc_fiscal_document_retry(uuid, integer, timestamp with time zone, text)',
     'public.rpc_fiscal_document_reject(uuid, text)',
@@ -168,7 +170,7 @@ DECLARE
   -- (es drift-tolerante por diseño) y la protección desaparece sin que nada
   -- falle. Este bloque es el que convierte ese silencio en un fallo.
   v_sigs CONSTANT text[] := ARRAY[
-    'public.rpc_fiscal_document_authorize(uuid, text, date, bigint)',
+    'public.rpc_fiscal_document_authorize(uuid, text, date, bigint, date)',
     'public.rpc_fiscal_document_claim_pending(uuid, integer)',
     'public.rpc_fiscal_document_retry(uuid, integer, timestamp with time zone, text)',
     'public.rpc_fiscal_document_reject(uuid, text)',
@@ -205,7 +207,7 @@ DECLARE
   v_missing   text[] := '{}';
   v_token     text;
 BEGIN
-  SELECT pg_get_functiondef(to_regprocedure('public.rpc_fiscal_document_authorize(uuid, text, date, bigint)'))
+  SELECT pg_get_functiondef(to_regprocedure('public.rpc_fiscal_document_authorize(uuid, text, date, bigint, date)'))
   INTO   v_authorize;
   SELECT pg_get_functiondef(to_regprocedure('public.rpc_fiscal_document_claim_pending(uuid, integer)'))
   INTO   v_claim;

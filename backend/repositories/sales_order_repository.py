@@ -143,12 +143,28 @@ class SalesOrderRepository(BaseRepository):
         qa-integral-modulos (G8/D6): payment_method se DERIVA de
         payment_methods.kind vía LEFT JOIN — la columna propia (TEXT legacy)
         fue retirada por limpiezas-pagos-admin y el SELECT * ya no la traía,
-        rompiendo el contrato SalesOrderOut (500 en todo el listado)."""
+        rompiendo el contrato SalesOrderOut (500 en todo el listado).
+
+        factura-fiscal-imprimible (D10): trae el estado REAL del comprobante.
+        Sin esto `/ventas/ordenes` le pasaba `initialStatus="pending_cae"` fijo
+        al badge y una orden ya autorizada se veía "En trámite" para siempre
+        (Realtime sólo avisa cambios). Mismos nombres que el read model de
+        `/sales`; `fiscal_frozen` con la condición de `routers/fiscal.py`
+        (`is_frozen`: la marca Y `pending_cae`). El JOIN también exige la
+        cuenta: la orden y su comprobante son de la misma."""
         return await self.fetch(
             """
-            SELECT so.*, pm.kind AS payment_method
+            SELECT so.*, pm.kind AS payment_method,
+                   fd.status           AS fiscal_document_status,
+                   fd.punto_de_venta   AS fiscal_punto_de_venta,
+                   fd.number           AS fiscal_number,
+                   fd.cae              AS fiscal_cae,
+                   fd.cae_due_date     AS fiscal_cae_due_date,
+                   fd.comprobante_type AS fiscal_comprobante_type,
+                   (fd.cae_submit_unconfirmed_at IS NOT NULL AND fd.status = 'pending_cae') AS fiscal_frozen
             FROM public.sales_orders so
             LEFT JOIN public.payment_methods pm ON pm.id = so.payment_method_id
+            LEFT JOIN public.fiscal_documents fd ON fd.id = so.fiscal_document_id AND fd.account_id = so.account_id
             WHERE so.account_id = $1::uuid
             ORDER BY so.created_at DESC
             """,

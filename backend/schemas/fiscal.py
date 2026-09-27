@@ -13,7 +13,9 @@ import datetime
 import uuid
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from backend.core.timezone import today_in_argentina
 
 
 def _check_receptor_coherente(tipo: int | None, nro: str | None) -> None:
@@ -65,6 +67,35 @@ class FiscalProfileCreate(BaseModel):
     certificado_afip_path: str | None = None
     # v22: flag de atestación de delegación (OQ-4 — solo owner/admin, guard en el service)
     delegacion_autorizada: bool = False
+    # factura-fiscal-imprimible (D7, OQ-1): datos del emisor que exige la factura
+    # impresa (RG 1415). Todos opcionales: su ausencia no bloquea la emisión,
+    # sólo la impresión. Tri-estado en el upsert (junto con iibb_condition):
+    # ausente = conservar, null = borrar, valor = reemplazar.
+    razon_social: str | None = Field(default=None, max_length=120)
+    nombre_fantasia: str | None = Field(default=None, max_length=120)
+    domicilio_comercial: str | None = Field(default=None, max_length=200)
+    iibb_numero: str | None = Field(default=None, max_length=30)
+    inicio_actividades: datetime.date | None = None
+
+    @field_validator(
+        "iibb_condition", "razon_social", "nombre_fantasia", "domicilio_comercial", "iibb_numero",
+        mode="before",
+    )
+    @classmethod
+    def _texto_en_blanco_es_null(cls, value: object) -> object:
+        """Recorta los textos; uno en blanco es "borrar" (null), nunca un dato
+        cargado: un domicilio de espacios no puede habilitar la impresión."""
+        if isinstance(value, str):
+            value = value.strip()
+            return value or None
+        return value
+
+    @field_validator("inicio_actividades")
+    @classmethod
+    def _inicio_no_futuro(cls, value: datetime.date | None) -> datetime.date | None:
+        if value is not None and value > today_in_argentina():
+            raise ValueError("La fecha de inicio de actividades no puede ser posterior a hoy.")
+        return value
 
 
 class FiscalProfileUpdate(BaseModel):
@@ -105,6 +136,13 @@ class FiscalProfileOut(BaseModel):
     # v22: CUIT del representante de plataforma (de config, no de la cuenta)
     # Expuesto para guiar al usuario en el onboarding ARCA. Solo el CUIT, nunca el cert/key.
     platform_representante_cuit: str | None = None
+    # factura-fiscal-imprimible (D7): datos del emisor. Default None: una fila
+    # leída antes de que la migración exista no rompe la respuesta.
+    razon_social: str | None = None
+    nombre_fantasia: str | None = None
+    domicilio_comercial: str | None = None
+    iibb_numero: str | None = None
+    inicio_actividades: datetime.date | None = None
 
 
 # ── PointOfSale schemas ──────────────────────────────────────────────────────

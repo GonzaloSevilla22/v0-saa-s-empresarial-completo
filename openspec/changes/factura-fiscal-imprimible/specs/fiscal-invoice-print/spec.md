@@ -2,13 +2,19 @@
 
 ### Requirement: Representación impresa de la Factura C autorizada
 
-El sistema SHALL generar en el backend un PDF de la representación impresa de un comprobante fiscal `authorized` de tipo `factura_c` que contenga, como mínimo: la leyenda de copia ("ORIGINAL"); los datos del emisor (razón social, nombre de fantasía si existe, domicilio comercial, CUIT, la leyenda "IVA RESPONSABLE MONOTRIBUTO", Ingresos Brutos como número o condición, fecha de inicio de actividades); la letra "C" y el código "011"; el punto de venta en 4 dígitos y el número en 8 (`0003-00000501`); la fecha de emisión; el bloque del receptor; la condición de venta; el detalle de líneas (descripción, cantidad, precio unitario, subtotal); el importe total; el CAE; la fecha de vencimiento del CAE; y el QR de ARCA. Todo dato fiscal impreso (número, fecha, tipo, importe, receptor, CAE, vencimiento) SHALL salir de lo persistido en `fiscal_documents` al autorizar, nunca del estado actual de la venta ni del cliente. El importe total impreso SHALL ser `fiscal_documents.total`.
+El sistema SHALL generar en el backend un PDF de la representación impresa de un comprobante fiscal `authorized` de tipo `factura_c` que contenga, como mínimo: la leyenda de copia ("ORIGINAL" por defecto, o "DUPLICADO" cuando se pide con `copia=duplicado`); los datos del emisor (razón social, nombre de fantasía si existe, domicilio comercial, CUIT, la leyenda "IVA RESPONSABLE MONOTRIBUTO", Ingresos Brutos como número o condición, fecha de inicio de actividades); la letra "C" y el código "011"; el punto de venta en 4 dígitos y el número en 8 (`0003-00000501`); la fecha de emisión; el bloque del receptor; la condición de venta; el detalle de líneas (descripción, cantidad, precio unitario, subtotal); el importe total; el CAE; la fecha de vencimiento del CAE; y el QR de ARCA. Todo dato fiscal impreso (número, fecha, tipo, importe, receptor, CAE, vencimiento) SHALL salir de lo persistido en `fiscal_documents` al autorizar, nunca del estado actual de la venta ni del cliente. El importe total impreso SHALL ser `fiscal_documents.total`.
 
 #### Scenario: La factura de Sumar se imprime con sus datos autorizados
 
 - **GIVEN** el comprobante `factura_c` autorizado con `punto_de_venta = 3`, `number = 501`, `fecha_comprobante = 2026-09-25`, `total = 32500`, `cae_due_date = 2026-10-05`, sin receptor identificado, con una línea "Ciclista Lycra con Bolsillos Kaese Talle 2 Negro" × 1 a $32.500
 - **WHEN** se genera su PDF
 - **THEN** el texto del PDF contiene "ORIGINAL", "C", "011", "0003-00000501", "25/09/2026", "Consumidor Final", "Contado", la descripción de la línea, "$ 32.500,00", el CAE completo y "05/10/2026"
+
+#### Scenario: Duplicado a pedido
+
+- **GIVEN** el comprobante autorizado de Sumar
+- **WHEN** se pide su PDF con `copia=duplicado`
+- **THEN** el texto del PDF contiene "DUPLICADO" y no contiene "ORIGINAL", y el resto de la factura es idéntico
 
 #### Scenario: La fecha impresa es la del comprobante, no la de la venta
 
@@ -70,11 +76,11 @@ La factura SHALL imprimir la condición de venta: "Cuenta Corriente" cuando la f
 
 La factura SHALL incluir un código QR que codifique el texto `https://www.afip.gob.ar/fe/qr/?p=<DATOS>`, donde `<DATOS>` es el Base64 del JSON versión 1 de la especificación oficial de ARCA con las claves, en este orden, `ver` (1), `fecha` (`fecha_comprobante` en formato `AAAA-MM-DD`), `cuit` (CUIT del emisor como número), `ptoVta`, `tipoCmp` (código ARCA del tipo, 11 para Factura C), `nroCmp`, `importe` (total como número, sin decimales si son cero), `moneda` (`"PES"`), `ctz` (1), `tipoDocRec` y `nroDocRec` (los enviados a ARCA; 99 y 0 para consumidor final sin identificar), `tipoCodAut` (`"E"`) y `codAut` (el CAE como número), serializado sin espacios. Los campos numéricos SHALL ir como números JSON, no como texto. El QR SHALL imprimirse junto a la leyenda "Comprobante Autorizado", el CAE y su vencimiento.
 
-#### Scenario: El QR de la factura de Sumar codifica sus datos autorizados
+#### Scenario: El QR de una Factura C a consumidor final codifica sus datos autorizados
 
-- **GIVEN** el comprobante de Sumar (CUIT 27213790337, PV 3, número 501, fecha 2026-09-25, total 32500, consumidor final)
+- **GIVEN** un comprobante autorizado de un emisor monotributista (CUIT 20123456786, PV 3, número 501, fecha 2026-09-25, total 32500, consumidor final)
 - **WHEN** se decodifica el parámetro `p` del QR
-- **THEN** el JSON es `{"ver":1,"fecha":"2026-09-25","cuit":27213790337,"ptoVta":3,"tipoCmp":11,"nroCmp":501,"importe":32500,"moneda":"PES","ctz":1,"tipoDocRec":99,"nroDocRec":0,"tipoCodAut":"E","codAut":<CAE>}` con los números como números
+- **THEN** el JSON es `{"ver":1,"fecha":"2026-09-25","cuit":20123456786,"ptoVta":3,"tipoCmp":11,"nroCmp":501,"importe":32500,"moneda":"PES","ctz":1,"tipoDocRec":99,"nroDocRec":0,"tipoCodAut":"E","codAut":<CAE>}` con los números como números
 
 #### Scenario: El ejemplo oficial de ARCA se reproduce byte a byte
 
@@ -128,7 +134,7 @@ Si el comprobante se autorizó en el ambiente de homologación (según la foto d
 
 ### Requirement: Endpoint de la factura en PDF con tenencia
 
-El backend SHALL exponer `GET /fiscal/documents/{id}/pdf` en el router `fiscal`, con arquitectura de 3 capas (router sin lógica, service con las reglas, repositorio con filtro explícito por `account_id` además de la RLS). SHALL responder 200 `application/pdf` sólo para un comprobante `authorized` de la cuenta del usuario, con `Content-Disposition` `inline` por defecto o `attachment` si `disposition=attachment`, y nombre de archivo `factura-<letra>-<PPPP>-<NNNNNNNN>.pdf`. Un comprobante de otra cuenta SHALL responder 404 con el mismo cuerpo que uno inexistente. Un comprobante en `pending_cae`, `rejected` o `voided` SHALL responder 409 `fiscal_document_not_authorized`. Los errores SHALL seguir RFC 7807.
+El backend SHALL exponer `GET /fiscal/documents/{id}/pdf` en el router `fiscal`, con arquitectura de 3 capas (router sin lógica, service con las reglas, repositorio con filtro explícito por `account_id` además de la RLS). SHALL responder 200 `application/pdf` sólo para un comprobante `authorized` de la cuenta del usuario, con `Content-Disposition` `inline` por defecto o `attachment` si `disposition=attachment`, y nombre de archivo `factura-<letra>-<PPPP>-<NNNNNNNN>.pdf`. Un comprobante de otra cuenta SHALL responder 404 con el mismo cuerpo que uno inexistente. Un comprobante en `pending_cae`, `rejected` o `voided` SHALL responder 409 `fiscal_document_not_authorized`. El parámetro opcional `copia` (`original` por defecto, o `duplicado`) SHALL elegir la leyenda de copia; cualquier otro valor SHALL responder 422. Los errores SHALL seguir RFC 7807.
 
 #### Scenario: El dueño descarga su factura
 
@@ -180,7 +186,7 @@ Donde se muestra el estado de un comprobante fiscal de una venta (`/ventas`) o d
 
 ### Requirement: Imprimir, descargar y enviar la factura desde la venta
 
-En `/ventas`, el menú de comprobante de una venta con comprobante autorizado SHALL ofrecer "Ver / imprimir factura" (abre el PDF del endpoint en una pestaña nueva, con descarga como alternativa si el navegador la bloquea), "Descargar factura (PDF)" y "Verificar en ARCA", y SHALL conservar, rotulado como "Comprobante interno (sin validez fiscal)", el comprobante interno existente. "Enviar por WhatsApp" SHALL compartir el PDF de la factura (share nativo con archivo; si no está disponible, descarga del PDF y apertura de WhatsApp con un texto que menciona la factura). Para una venta sin comprobante autorizado el menú y el envío por WhatsApp SHALL comportarse como hasta ahora. Un 409 `issuer_data_incomplete` SHALL mostrarse con una acción que lleve a `/configuracion/fiscal`.
+En `/ventas`, el menú de comprobante de una venta con comprobante autorizado SHALL ofrecer "Ver / imprimir factura" (abre el PDF del endpoint en una pestaña nueva, con descarga como alternativa si el navegador la bloquea), "Descargar factura (PDF)", "Descargar duplicado" (el mismo PDF con la leyenda "DUPLICADO") y "Verificar en ARCA", y SHALL conservar, rotulado como "Comprobante interno (sin validez fiscal)", el comprobante interno existente. "Enviar por WhatsApp" SHALL compartir el PDF de la factura (share nativo con archivo; si no está disponible, descarga del PDF y apertura de WhatsApp con un texto que menciona la factura). Para una venta sin comprobante autorizado el menú y el envío por WhatsApp SHALL comportarse como hasta ahora. Un 409 `issuer_data_incomplete` SHALL mostrarse con una acción que lleve a `/configuracion/fiscal`.
 
 #### Scenario: Imprimir la factura
 

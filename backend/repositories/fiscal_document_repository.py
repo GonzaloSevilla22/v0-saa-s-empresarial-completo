@@ -44,12 +44,70 @@ class FiscalDocumentRepository(BaseRepository):
         )
         return dict(row) if row else None
 
+    async def get_invoice_lines(self, doc_id: str, account_id: str) -> dict:
+        """Detalle y condición de venta del comprobante, para imprimirlo.
+
+        factura-fiscal-imprimible (D8/D9). Las líneas son las de la orden de
+        venta vinculada (`sales_orders.fiscal_document_id`), con sus
+        snapshots, en el mismo orden que el detalle de la orden (`ORDER BY
+        id`). Filtro EXPLÍCITO por `account_id` además de la RLS (regla dura
+        del proyecto: la RLS es red, no guard único).
+
+        `sale_condition_kind`: el `kind` de la forma de pago de la orden; si la
+        orden no tiene, el de la operación de venta. `None` = sin forma de
+        pago registrada (se imprime "Contado").
+
+        La descripción es el snapshot del nombre y, si la línea no lo tiene
+        (231 líneas en prod al 2026-09-26: órdenes viejas y ventas promovidas),
+        el nombre actual del producto — nunca "Sin descripción" en una factura.
+        """
+        rows = await self.fetch(
+            """
+            SELECT COALESCE(NULLIF(btrim(soi.name_snapshot), ''), p.name) AS name_snapshot,
+                   soi.quantity,
+                   soi.price,
+                   soi.subtotal,
+                   u.symbol AS unit_symbol
+            FROM public.sales_orders so
+            JOIN public.sales_order_items soi
+              ON soi.sales_order_id = so.id
+             AND soi.account_id = so.account_id
+            LEFT JOIN public.products p ON p.id = soi.product_id AND p.account_id = soi.account_id
+            LEFT JOIN public.units_of_measure u ON u.id = soi.unit_id
+            WHERE so.fiscal_document_id = $1
+              AND so.account_id = $2
+            ORDER BY soi.id
+            """,
+            doc_id,
+            account_id,
+        )
+        kind = await self._conn.fetchval(
+            """
+            SELECT COALESCE(opm.kind, (
+                     SELECT spm.kind
+                     FROM public.sales s
+                     JOIN public.payment_methods spm ON spm.id = s.payment_method_id
+                     WHERE s.operation_id = so.sale_operation_id
+                       AND s.account_id = so.account_id
+                     LIMIT 1))
+            FROM public.sales_orders so
+            LEFT JOIN public.payment_methods opm ON opm.id = so.payment_method_id
+            WHERE so.fiscal_document_id = $1
+              AND so.account_id = $2
+            LIMIT 1
+            """,
+            doc_id,
+            account_id,
+        )
+        return {"lines": [dict(row) for row in rows], "sale_condition_kind": kind}
+
     async def update_authorized(
         self,
         doc_id: str,
         cae: str,
         cae_due_date: datetime.date,
         number: int | None = None,
+        fecha_comprobante: datetime.date | None = None,
     ) -> bool:
         """Transiciona el comprobante a authorized con el CAE obtenido.
 
@@ -74,13 +132,49 @@ class FiscalDocumentRepository(BaseRepository):
         el CAE se persiste igual pero el documento queda CONGELADO, no
         autorizado. El caller lo usa para no loguear "autorizado" cuando en
         realidad no lo está.
+
+        factura-fiscal-imprimible (D5): `fecha_comprobante` es la `CbteFch` con
+        la que ARCA autorizó (5.º parámetro, `DEFAULT NULL` en la RPC). La RPC
+        la persiste junto con la foto del emisor SÓLO en la transición real a
+        `authorized`. `None` = no confirmada: la factura no se imprime hasta el
+        backfill (OQ-9), nunca con una fecha adivinada.
         """
         return await self._conn.fetchval(
-            "SELECT public.rpc_fiscal_document_authorize($1::uuid, $2, $3, $4::bigint)",
+            "SELECT public.rpc_fiscal_document_authorize($1::uuid, $2, $3, $4::bigint, $5::date)",
             doc_id,
             cae,
             cae_due_date,
             number,
+            fecha_comprobante,
+        )
+
+    async def list_authorized_without_fecha(self) -> list[dict]:
+        """Autorizados sin `fecha_comprobante` (anteriores a factura-fiscal-imprimible).
+
+        Para el backfill de OQ-9 (`services/fiscal/fecha_backfill.py`), que corre
+        con una conexión de servicio y el OK del PO. Trae CUIT y ambiente del
+        perfil, igual que el relay, para consultar a ARCA.
+        """
+        return await self.fetch(
+            """
+            SELECT fd.*, fp.cuit, fp.ambiente
+            FROM public.fiscal_documents fd
+            JOIN public.fiscal_profiles fp ON fp.id = fd.fiscal_profile_id
+            WHERE fd.status = 'authorized'
+              AND fd.fecha_comprobante IS NULL
+            ORDER BY fd.created_at
+            """
+        )
+
+    async def set_fecha_comprobante(self, doc_id: str, fecha: datetime.date) -> bool:
+        """Completa la fecha confirmada por ARCA (RPC interna, sólo sobre NULL).
+
+        `False` = no escribió (ya tenía fecha, o el documento no está authorized).
+        """
+        return await self._conn.fetchval(
+            "SELECT public.rpc_fiscal_document_set_fecha_comprobante($1::uuid, $2::date)",
+            doc_id,
+            fecha,
         )
 
     async def freeze_unconfirmed(

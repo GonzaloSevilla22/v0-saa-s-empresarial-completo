@@ -5,23 +5,30 @@
  *
  * Muestra las órdenes de venta confirmadas con:
  *   - Estado de la venta (confirmed / draft / canceled)
- *   - FiscalDocumentBadge con Realtime si ya tiene comprobante
+ *   - FiscalInvoiceSummary (badge con Realtime + CAE + "Verificar en ARCA") si
+ *     ya tiene comprobante. factura-fiscal-imprimible (D10): el estado inicial
+ *     es el REAL (read model de /sales-orders) — antes se pasaba
+ *     `initialStatus="pending_cae"` fijo y una orden autorizada se veía "En
+ *     trámite" para siempre (Realtime sólo avisa cambios).
  *   - EmitInvoiceButton si está confirmada y SIN comprobante
  *
  * Design ref: D1 (endpoint dedicado), D4 (async), D6 (idempotencia).
  */
 
+import { useCallback } from "react"
+import { useQueryClient } from "@tanstack/react-query"
 import { useSalesOrders } from "@/hooks/data/use-sales-orders"
 import { useFiscalProfile } from "@/hooks/data/use-fiscal-profile"
 import { EmitInvoiceButton } from "@/components/fiscal/EmitInvoiceButton"
-import { FiscalDocumentBadge } from "@/components/fiscal/FiscalDocumentBadge"
+import { FiscalInvoiceSummary } from "@/components/fiscal/FiscalInvoiceSummary"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { formatMoney } from "@/lib/format"
+import { mapFiscalState } from "@/lib/fiscal-comprobante"
+import { queryKeys } from "@/lib/query-keys"
 import Link from "next/link"
 import { ShoppingBag, Plus } from "lucide-react"
-import type { FiscalDocumentStatus } from "@/components/fiscal/FiscalDocumentBadge"
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -42,6 +49,15 @@ const STATUS_CLASS: Record<string, string> = {
 export default function SalesOrdersPage() {
   const { data: orders, isLoading, error } = useSalesOrders()
   const { profile: fiscalProfile } = useFiscalProfile()
+  const queryClient = useQueryClient()
+  // factura-fiscal-imprimible (red team, minor c): el CAE, su vencimiento y
+  // "Verificar en ARCA" salen del read model de /sales-orders, no del payload
+  // de Realtime. Cuando el badge ve un estado nuevo (p. ej. se autorizó), se
+  // vuelve a pedir la lista para que aparezcan sin recargar — mismo contrato
+  // que /ventas (`onStatusChange={() => onRefetch()}`).
+  const refreshOrders = useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: queryKeys.salesOrders.lists() })
+  }, [queryClient])
   // punto-venta-seleccion (D4): el PV lo resuelve EmitInvoiceButton. Antes acá
   // sólo se mandaba uno si había UN activo; con dos o más iba `null` y la
   // emisión fallaba con P0422 (100% de las cuentas que facturan, medido en
@@ -120,6 +136,7 @@ export default function SalesOrdersPage() {
       {sortedOrders.length > 0 && (
         <div className="flex flex-col gap-2">
           {sortedOrders.map((order) => {
+            const fiscal = mapFiscalState(order)
             const createdAt = new Date(order.created_at)
             const dateLabel = createdAt.toLocaleDateString("es-AR", {
               day: "2-digit",
@@ -130,7 +147,7 @@ export default function SalesOrdersPage() {
             return (
               <div
                 key={order.id}
-                className="flex items-center gap-3 rounded-lg border border-border bg-card px-4 py-3"
+                className="flex flex-wrap items-center gap-3 rounded-lg border border-border bg-card px-4 py-3"
               >
                 {/* Status badge */}
                 <Badge
@@ -154,14 +171,11 @@ export default function SalesOrdersPage() {
                   </Link>
                 </div>
 
-                {/* Fiscal section: badge OR emit button */}
-                <div className="shrink-0 flex items-center">
-                  {order.fiscal_document_id ? (
-                    <FiscalDocumentBadge
-                      documentId={order.fiscal_document_id}
-                      initialStatus={"pending_cae" as FiscalDocumentStatus}
-                      verbose
-                    />
+                {/* Fiscal section: comprobante OR emit button. En móvil ocupa su
+                    propio renglón (basis-full) para que el CAE no desborde. */}
+                <div className="flex min-w-0 basis-full items-center sm:basis-auto sm:shrink-0">
+                  {fiscal ? (
+                    <FiscalInvoiceSummary fiscal={fiscal} onStatusChange={refreshOrders} />
                   ) : (
                     <EmitInvoiceButton
                       salesOrderId={order.id}

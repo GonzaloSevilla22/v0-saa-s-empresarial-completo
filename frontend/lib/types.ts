@@ -462,6 +462,12 @@ export interface SaleFiscalState {
   frozen: boolean
   /** Pendiente SIN marca: editar o borrar la venta lo ANULA. */
   voidable: boolean
+  /** factura-fiscal-imprimible: CAE (14 dígitos) — sólo si está autorizado. */
+  cae?: string | null
+  /** factura-fiscal-imprimible: vencimiento del CAE, "YYYY-MM-DD". */
+  caeDueDate?: string | null
+  /** factura-fiscal-imprimible: "factura_c", etc. */
+  comprobanteType?: string | null
 }
 
 export interface Sale {

@@ -1087,6 +1087,33 @@ jobs:
           fi
           echo "20261064000001 idempotente: introspección OK y schema IDÉNTICO al previo a este paso."
 
+          # unidades-decisiones-8-9 (2026-09-27): reaplicación de
+          # 20261065000001 sobre el estado reconvergido (mismo criterio: el
+          # eslabón más nuevo se reaplica sobre la historia real completa). Es
+          # una migración de DATOS sin DDL (dos bloques DO: Kilogramo como
+          # unidad base de los productos que se venden por kilo, y el ajuste de
+          # -0,3806 de la venta del 22-09 cargada en mL); idempotente por
+          # construcción (UPDATE ... WHERE base_unit_id IS NULL sobre un
+          # predicado que excluye lo ya asignado; el ajuste se guarda con una
+          # marca en metadata y no se repite). Acá no hay candidatos ni el
+          # movimiento a corregir — el gate test_unidades_decisiones_8_9.sql la
+          # ejecuta dos veces contra fixtures reales —, así que lo que se exige
+          # es que corra sin error, que imprima el NOTICE final de cada
+          # decisión, y que el schema quede IDÉNTICO.
+          D89_OUT=$(psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261065000001_unidades_decisiones_8_9.sql 2>&1) || { echo "$D89_OUT"; echo "ERROR: el reapply de 20261065000001 falló (sin tolerancia)."; exit 1; }
+          echo "$D89_OUT"
+          if ! echo "$D89_OUT" | grep -qF 'decisión 9' || ! echo "$D89_OUT" | grep -qF 'decisión 8'; then
+            echo "ERROR: el reapply de 20261065000001 no imprimió el NOTICE de las dos decisiones."
+            exit 1
+          fi
+          schema_snapshot > /tmp/schema_after_d89_reapply.txt
+          if ! diff -u /tmp/schema_before_reapply.txt /tmp/schema_after_d89_reapply.txt > /tmp/schema_diff_d89.txt; then
+            echo "NOT IDEMPOTENT: reaplicar 20261065000001 cambió el schema (constraints + firmas de función + ACLs):"
+            cat /tmp/schema_diff_d89.txt
+            exit 1
+          fi
+          echo "20261065000001 idempotente: las dos decisiones corrieron y el schema quedó IDÉNTICO al previo a este paso."
+
       # -v ON_ERROR_STOP=1 is required: without it psql prints RAISE EXCEPTION
       # errors but still exits 0, so failing assertions show green in CI.
       - name: Run deterministic KPI tests
@@ -2512,3 +2539,19 @@ jobs:
       # ninguna (intento real, 42501); (7) residuo cero.
       - name: Run factura fiscal imprimible gate
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_factura_fiscal_imprimible.sql
+
+      # unidades-decisiones-8-9 (2026-09-27, OK del PO): migración de DATOS
+      # 20261065000001 (decisiones 8 y 9 del sign-off de
+      # ventas-unidades-conversion). `supabase start` ya la aplicó sobre una
+      # base sin candidatos (no-op); el gate siembra fixtures reales y la
+      # EJECUTA con \i dos veces: (a) sin unidad base + ventas en kg → kg,
+      # también con una venta sin unidad y en otra cuenta; (b) kg + mL, kg +
+      # compra en u, o sólo compras → omitido; (c) base propia intacta; (d)
+      # variante que hereda, padre con variante viva que hereda y producto
+      # borrado → intactos; (p) un P0409 del guard en una fila se captura y
+      # las demás se asignan; (e) el ajuste de -0,3806 sobre el movimiento
+      # cf4550c0-… con marca, espejo de rpc_apply_product_stock_delta, y
+      # branch_stock baja exactamente eso; (f) la reaplicación no cambia nada;
+      # (h) residuo cero. Corre desde la raíz del repo (el \i es relativo).
+      - name: Run unidades decisiones 8 y 9 gate
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_unidades_decisiones_8_9.sql

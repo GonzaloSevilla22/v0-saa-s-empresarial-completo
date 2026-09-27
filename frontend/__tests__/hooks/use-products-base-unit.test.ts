@@ -101,4 +101,36 @@ describe("useProducts — base_unit_id", () => {
     // unidad base — el campo no viaja.
     expect(vi.mocked(pythonClient.put).mock.calls[1][1]).not.toHaveProperty("base_unit_id")
   })
+
+  it("decisión 7: baseUnitId null en la edición viaja como base_unit_id: null (desasigna, no se omite)", async () => {
+    vi.mocked(pythonClient.get).mockResolvedValue([])
+    vi.mocked(pythonClient.put).mockResolvedValue({ ...ROW, base_unit_id: null })
+    const { result } = renderHook(() => useProducts(), { wrapper: makeWrapper() })
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+
+    await act(async () => {
+      await result.current.updateProduct({
+        id: "prod-kg", name: "Tomate", category: "Verdulería", price: 1000, margin: 40,
+        stock: 0, minStock: 0, isVariant: false, stockControlType: "tracked", baseUnitId: null,
+      })
+    })
+    const [path, body] = vi.mocked(pythonClient.put).mock.calls[0]
+    expect(path).toBe("/products/prod-kg")
+    expect(body).toHaveProperty("base_unit_id", null)
+  })
+
+  it("decisión 7: baseUnitId null en el alta viaja como base_unit_id: null (sin unidad, igual que omitirla)", async () => {
+    vi.mocked(pythonClient.get).mockResolvedValue([])
+    vi.mocked(pythonClient.post).mockResolvedValue({ ...ROW, base_unit_id: null })
+    const { result } = renderHook(() => useProducts(), { wrapper: makeWrapper() })
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+
+    await act(async () => {
+      await result.current.addProduct({
+        name: "Bolsa", category: "Otros", price: 10, cost: 5, margin: 50,
+        stock: 3, minStock: 0, isVariant: false, stockControlType: "tracked", baseUnitId: null,
+      })
+    })
+    expect(vi.mocked(pythonClient.post).mock.calls[0][1]).toHaveProperty("base_unit_id", null)
+  })
 })

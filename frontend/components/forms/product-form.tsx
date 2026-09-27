@@ -12,10 +12,32 @@ import { ProductCategorySelect } from "@/components/product-categories/ProductCa
 import { useBarcodeScanner } from "@/hooks/use-barcode-scanner"
 import { generateEAN13 } from "@/lib/barcode-utils"
 import { cn } from "@/lib/utils"
+import { PythonApiError } from "@/lib/api/python-api-error"
 import { toast } from "sonner"
 
 import type { Product, StockControlType } from "@/lib/types"
 import { Barcode, Package, Wrench, ScanLine, X } from "lucide-react"
+
+/**
+ * ventas-unidades-conversion (decisión 7, OK del PO 2026-09-27): valor del
+ * selector para la opción explícita "Sin unidad". Radix no admite un
+ * `SelectItem` con `value=""` (el vacío queda reservado para el placeholder
+ * "Seleccionar unidad", que significa "no lo toqué"); los ids de unidad son
+ * uuid, así que el centinela no colisiona.
+ */
+const NO_BASE_UNIT = "none"
+
+/**
+ * El backend rechazó el cambio de unidad base por D11/D-C: el guard del
+ * service responde `code: "base_unit_locked"`; si la carrera la gana otro
+ * escritor, el trigger `trg_product_base_unit_guard` llega como P0409 con el
+ * token al principio del `detail`.
+ */
+const BASE_UNIT_LOCKED_CODE = "base_unit_locked"
+function isBaseUnitLockedError(error: unknown): boolean {
+  if (error instanceof PythonApiError && error.code === BASE_UNIT_LOCKED_CODE) return true
+  return error instanceof Error && error.message.startsWith(`${BASE_UNIT_LOCKED_CODE}:`)
+}
 
 interface ProductFormProps {
   onSuccess: () => void
@@ -145,10 +167,16 @@ export function ProductForm({ onSuccess, initialData, defaultParentId }: Product
       // backend conserva el valor; en el alta viaja null). Sin la condición
       // "tracked", elegir kg y pasar a Servicio / Digital guardaba una unidad
       // que el usuario ya no ve (corrección del PR #584).
+      // Decisión 7: "Sin unidad" manda `null` explícito = desasignar (en el
+      // alta es lo mismo que no elegir); el selector sin tocar sigue en
+      // `undefined`. Quitarla con stock o historia la rechaza el backend
+      // (D11/D-C, 409 base_unit_locked).
       baseUnitId:
-        !isVariant && stockControlType === "tracked" && baseUnitId
-          ? baseUnitId
-          : undefined,
+        isVariant || stockControlType !== "tracked" || !baseUnitId
+          ? undefined
+          : baseUnitId === NO_BASE_UNIT
+            ? null
+            : baseUnitId,
     }
 
     try {
@@ -165,6 +193,10 @@ export function ProductForm({ onSuccess, initialData, defaultParentId }: Product
       // backend) se muestra tal cual; el formulario conserva lo cargado.
       const msg = error instanceof Error && error.message ? error.message : "Error al guardar producto"
       toast.error(msg)
+      // Decisión 7: la unidad base NO cambió (el producto tiene stock o
+      // historia) — el selector vuelve a la que conserva, así lo que se ve es
+      // lo que quedó guardado y el resto de lo cargado se puede reintentar.
+      if (isBaseUnitLockedError(error)) setBaseUnitId(initialData?.baseUnitId ?? "")
     }
   }
 
@@ -325,6 +357,8 @@ export function ProductForm({ onSuccess, initialData, defaultParentId }: Product
                   <SelectValue placeholder="Seleccionar unidad" />
                 </SelectTrigger>
                 <SelectContent className="bg-popover border-border max-h-56">
+                  {/* Decisión 7: opción explícita para desasignar la unidad base. */}
+                  <SelectItem value={NO_BASE_UNIT}>Sin unidad</SelectItem>
                   {Array.from(unitGroups.entries()).map(([type, groupUnits]) => (
                     <div key={type}>
                       <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
@@ -339,6 +373,13 @@ export function ProductForm({ onSuccess, initialData, defaultParentId }: Product
                   ))}
                 </SelectContent>
               </Select>
+              {/* Decisión 7: quitar la unidad sigue sujeto a D11/D-C — se avisa
+                  antes de guardar, con el mismo molde que la ayuda del costo. */}
+              {initialData?.baseUnitId && baseUnitId === NO_BASE_UNIT && (
+                <p className="text-[11px] text-muted-foreground">
+                  Sólo se puede quitar si el producto no tiene stock ni movimientos.
+                </p>
+              )}
             </div>
           )}
         </div>

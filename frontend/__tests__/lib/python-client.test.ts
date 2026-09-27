@@ -247,3 +247,60 @@ describe("pythonClient — tratamiento del 401 (D7)", () => {
     expect(error!.message).not.toMatch(/recarg/i)
   })
 })
+
+// ventas-unidades-conversion (decisión 7): el formulario de producto necesita
+// distinguir el 409 `base_unit_locked` de cualquier otro error para volver el
+// selector a la unidad que el producto conserva. Hasta acá `handleResponse`
+// tiraba un `Error` con el `detail` y descartaba el resto del problem+json
+// (RFC 7807, v3-api-standards §1: `code` y `field`). El error sigue siendo un
+// `Error` con el MISMO `message`, así que ningún manejo existente cambia.
+describe("pythonClient — los errores conservan status, code y field del problem+json", () => {
+  let pythonClient: typeof import("@/lib/api/python-client").pythonClient
+  let PythonApiError: typeof import("@/lib/api/python-api-error").PythonApiError
+
+  beforeEach(async () => {
+    vi.clearAllMocks()
+    vi.resetModules()
+    resolveAccessTokenMock.mockResolvedValue({ status: "active", token: "test-token" })
+    vi.stubEnv("NEXT_PUBLIC_BACKEND_URL", "http://localhost:8000")
+    ;({ pythonClient } = await import("@/lib/api/python-client"))
+    ;({ PythonApiError } = await import("@/lib/api/python-api-error"))
+  })
+
+  it("un 409 problem+json expone code/field/status y conserva el detail como message", async () => {
+    const detail = "No se puede cambiar la unidad base de este producto: ya tiene stock"
+    mockFetch.mockResolvedValueOnce(
+      buildFetchResponse({ status: 409, detail, code: "base_unit_locked", field: "base_unit_id" }, 409),
+    )
+
+    const error = await pythonClient.put("/products/p1", { base_unit_id: null }).catch((e: unknown) => e)
+
+    expect(error).toBeInstanceOf(Error)
+    expect(error).toBeInstanceOf(PythonApiError)
+    const apiError = error as InstanceType<typeof PythonApiError>
+    expect(apiError.message).toBe(detail)
+    expect(apiError.status).toBe(409)
+    expect(apiError.code).toBe("base_unit_locked")
+    expect(apiError.field).toBe("base_unit_id")
+  })
+
+  it("un error sin cuerpo JSON cae al statusText, con status y sin code", async () => {
+    mockFetch.mockResolvedValueOnce(
+      Promise.resolve({
+        ok: false,
+        status: 502,
+        statusText: "Bad Gateway",
+        json: () => Promise.reject(new SyntaxError("Unexpected token <")),
+      } as unknown as Response),
+    )
+
+    const error = await pythonClient.get("/products").catch((e: unknown) => e)
+
+    expect(error).toBeInstanceOf(PythonApiError)
+    const apiError = error as InstanceType<typeof PythonApiError>
+    expect(apiError.message).toBe("Bad Gateway")
+    expect(apiError.status).toBe(502)
+    expect(apiError.code).toBeUndefined()
+    expect(apiError.field).toBeUndefined()
+  })
+})

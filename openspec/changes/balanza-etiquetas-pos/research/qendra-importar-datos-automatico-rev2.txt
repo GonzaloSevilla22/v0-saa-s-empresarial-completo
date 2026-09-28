@@ -1,0 +1,54 @@
+Fuente: "Qendra - Importar datos automático Rev 2 ESP.pdf" (Systel), del paquete QENDRA-Importacion-automatica-de-datos-ESP de soporte.systel-global.com.
+Texto extraído con pypdf para el propose de balanza-etiquetas-pos (2026-09-28). Sólo las páginas 7 y 8, que son las que cita design.md (Nota 5: letras del código EAN13; fallos de importación: ñ, ';', descripciones repetidas).
+Es documentación de la Cuora clásica / Qendra, no de la Cuora Neo.
+
+===== PÁGINA 7 =====
+Metodología para interconectar datos entre un sistemas de administración y el sistema de gestión Qendra
+Campos que debe tener el archivo.
+Número: Numérico, 1-300.
+Nombre: Alfanumérico con restricciones (Nota 1), longitud máxima 20 caracteres.
+Información: Alfanumérico con restricciones (Nota 1), longitud máxima 300 caracteres.
+Nota 1: Los equipos Cuora no soportan el conjunto completo de caracteres ASCII, sólo soportan los caracteres del siguiente conjunto:  !"#$%&
+´()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]º_`abcdefghijklmnopqrstuvwxyz{|}ñÑ
+Debido a que el archivo de traspaso de información es un CSV separado por punto y coma (;), se debe asegurar que en campos alfanuméricos no este este 
+caracter, ya que generaría dos campos diferentes. Por ejemplo debería asegurarse que nunca ocurra una descripción "Tomate; de estación" ya que tomaría dos 
+campos diferentes.
+Nota 2: Número de PLU es un número que va de 1 a 8000 y es el que asocia el PLU dentro de la balanza, y por otro lado tenemos el código de PLU, que es el 
+código de barras y puede ser desde 1 a 99.997 (999.999 desde enero 2020). Lo que siempre se recomienda es usar el mismo código, para no confundir. Usamos 
+este código para todo y es el que se imprimirá en el código de barras.
+Nota 3: En determinado tipo de negocios, utilizan dos listas de precios, un precio minorista (lista 1) y otro precio mayorista (lista 2). En caso de que el sistema 
+de punto de venta no soporte esta dualidad de listas de precios, simplemente tienen que pasar un precio (0,00).
+Nota 4: Este campo asocia el Origen, Conservación o Receta al PLU. El campo debe estar dado de alta en Qendra previamente, o debe incluirse dentro del 
+archivo de importación  de Origenes, Conservaciónes o Recetas respectivamente. Si su sistema de gestión no maneja este tipo de datos, debe dejarse en blanco.
+Nota 5: Este campo permite personalizar la impresión del código de barras EAN13, solo en el caso que el campo Configuración EAN este definido como P. 
+Los caracteres disponibles para esta configuración son:
+• Numericos fijos, del 0 al 9.
+• I, para el importe.
+• B, para el numero de balanza.
+• P, para el codigo del PLU.
+• C, para cantidad en Kg o Unidades.
+• S, para la sección.
+Systel Postventa 0810-888-7978                                                     Rev 1                                                                                                                           Pag 7 de 9
+
+===== PÁGINA 8 =====
+Metodología para interconectar datos entre un sistemas de administración y el sistema de gestión Qendra
+ Fallos en la importación automática u omisión de productos.
+Al realizar una importación automática, podemos notar ciertos fallos o productos rechazados. Esto puede deberse a alguna inconsistencia en los datos del 
+archivo CSV(archivo generado por el sistema de gestión) o por el proceso de importación de Qendra.
+ Para corregir estos fallos y permitir que la importación automática se realice sin problemas, debe evitarse: 
+Utilizar la letra Ñ o ñ en descripciones, suele generar problemas.
+Colocar “;” (punto y coma) en medio de una descripción o precio.
+Dejar valores en blanco (al menos colocar el 0). 
+Utilizar texto en campos numéricos (precio, vencimiento, etc.). 
+Utilizar números en campos alfabéticos (Número de PLU, código de PLU, tipo de venta, etc.). 
+Separar decimales con signos de puntuación distintos (precio de PLU 1: 43.44, precio de PLU 2: 65,64). 
+No colocar descripciones repetidas. Hasta la versión de Qendra 3.1.8 genera errores, hay que aplicar un
+parche. En versiones posteriores ya se permite duplicar descripciones.
+Utilizar signo $ (signo pesos) en el campo de precio. 
+No utilizar caracteres especiales: para mayor certeza, intentar utilizar solo los que muestra el teclado la
+balanza, incluyendo letras, números y signos (caracteres amarillos en teclados Cuora/Cuora Max). 
+Utilizar mas de 18 caracteres. 
+Utilizar un separador decimal en el precio, distinto al que está configurado en nuestro Windows (revisar
+región y distribución de teclado). 
+Systel Postventa 0810-888-7978                                                     Rev 1                                                                                                                           Pag 8 de 9
+

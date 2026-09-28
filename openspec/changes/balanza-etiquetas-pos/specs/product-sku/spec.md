@@ -80,7 +80,7 @@ El sistema SHALL traducir la violación del índice único de código de balanza
 
 ### Requirement: El código de balanza es criterio de búsqueda exacta del listado de productos
 
-El sistema SHALL incluir el código de balanza entre los criterios de la búsqueda del listado de productos, con coincidencia **exacta** del número (no por prefijo ni por contenido), junto a los criterios vigentes, con un único predicado para productos sueltos, padres y variantes. El buscador de productos del POS SHALL encontrar también un producto por su código de balanza.
+El sistema SHALL incluir el código de balanza entre los criterios de la búsqueda del listado de productos, con coincidencia **exacta** del número (no por prefijo ni por contenido), junto a los criterios vigentes, con un único predicado para productos sueltos, padres y variantes. El buscador de productos compartido (POS, formulario de venta y formulario de compra) SHALL encontrar también un producto por su código de balanza, con la misma coincidencia exacta del número (no por contenido).
 
 #### Scenario: Buscar un producto por su código de balanza
 

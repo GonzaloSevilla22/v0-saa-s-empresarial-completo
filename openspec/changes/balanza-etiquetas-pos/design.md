@@ -329,6 +329,27 @@ La lectura de etiquetas y la exportación están disponibles en todos los planes
 3. Verificación post-merge (sólo lectura): `MAX(version)`, columna/CHECKs (rango y `products_scale_plu_not_parent`)/índice, última columna de la vista, tabla + RLS + políticas + disparador + ACLs, cuerpo vivo de `rpc_bulk_upsert_products` con `scale_plu`, 0 productos con PLU y 0 filas en `scale_settings`.
 4. **Rollback**: revertir el PR de frontend/backend es inocuo (columna y tabla quedan sin uso). La RPC de upsert se restaura re-aplicando su cuerpo anterior (archivo `20261044000001`) en una migración nueva.
 
+## Sign-off del PO
+
+**Fecha:** 2026-09-28. **Texto literal del PO:** «ya pasó el validate kpi y aplica todo con recomendaciones».
+
+El PO adopta, para las diez Open Questions de abajo, la opción **RECOMENDADA** de cada una tal como está redactada en su propia entrada:
+
+| OQ | Adoptada (= recomendada) |
+|---|---|
+| OQ-1 — Valor embebido | **Importe** (configuración de fábrica). |
+| OQ-2 — Decimales del importe | **2 decimales** en Aliadata (fábrica); la guía prueba 0 decimales en la balanza como hipótesis, con la redistribución de dígitos como alternativa verificada. |
+| OQ-3 — Una línea por etiqueta | **Sí** (D8): cada etiqueta agrega su propia línea, nunca se fusiona. |
+| OQ-4 — Exportación | **En el navegador** (D12), sin cuota ni `export_logs`, disponible en todos los planes. |
+| OQ-5 — Validación del archivo con el equipo | Primera instalación valida con el equipo real (Importador de Neo Basic Tools/Suite Neo en PC Windows, o servidor FTP/SFTP del propio comercio); confirmado post-merge en la tarea 13.2. |
+| OQ-6 — Columna PLU en el importador | **Incluir** (D14). |
+| OQ-7 — Producto pesable sin unidad base | **Rechazar** la etiqueta con `sale_mode_mismatch` y mensaje accionable. |
+| OQ-8 — Orden de resolución | **Código exacto → balanza → SKU** (D6). |
+| OQ-9 — Stock insuficiente en una etiqueta | **Mismo bloqueo que el alta manual, acumulativo** (`exceedsStock`, D7). |
+| OQ-10 — Rollo de etiquetas vs papel continuo | **Rollo de etiquetas en venta directa**, como requisito operativo de la guía (D11.4); confirmación real en la tarea 13.2. No se recibió la respuesta "papel continuo", así que el apply **no** está bloqueado. |
+
+Ninguna decisión (D1–D16) cambia de rumbo por este sign-off: todas ya estaban escritas asumiendo la opción recomendada. Queda pendiente sólo la confirmación empírica con el equipo real de la verdulería (tarea 13.2, post-merge).
+
 ## Open Questions
 
 - **OQ-1 — Valor embebido recomendado para la verdulería.** Recomendado: **importe** (configuración de fábrica, no hay que tocar la balanza para el formato, el cliente paga exactamente la etiqueta). Alternativa: **peso** (Aliadata cobra con su lista y el stock baja el peso exacto, pero exige reconfigurar el Campo C de la balanza y el cliente puede ver en la etiqueta un precio distinto). Los dos quedan soportados; sólo cambia la guía. La alternativa **depende de un supuesto sin verificar**: que el desplegable de la Neo ofrezca un campo con el peso ("Cantidad" en la Cuora clásica; el manual de la Neo no lo lista) — se confirma en el equipo real (13.2).

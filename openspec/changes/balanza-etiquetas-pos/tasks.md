@@ -2,7 +2,7 @@
 
 ## 0. Sign-off y checkpoints previos (sólo lectura)
 
-- [ ] 0.1 **[PO]** Sign-off de OQ-1..OQ-10 (OQ-10 —rollo de etiquetas o papel continuo— bloquea el apply sólo si la respuesta es "papel continuo") (`design.md` §Open Questions). Registrar la respuesta textual en `design.md` §"Sign-off del PO" antes de escribir producción; si el PO elige una alternativa, actualizar D-correspondiente, specs y estas tareas en el mismo PR.
+- [x] 0.1 **[PO]** Sign-off de OQ-1..OQ-10 (OQ-10 —rollo de etiquetas o papel continuo— bloquea el apply sólo si la respuesta es "papel continuo") (`design.md` §Open Questions). Registrar la respuesta textual en `design.md` §"Sign-off del PO" antes de escribir producción; si el PO elige una alternativa, actualizar D-correspondiente, specs y estas tareas en el mismo PR.
 - [ ] 0.2 Confirmar que `20261066000001` sigue libre (`ls supabase/migrations`, PRs abiertos, `list_migrations` de prod); renumerar si no.
 - [ ] 0.3 Releer de prod, INMEDIATAMENTE antes de escribir la migración: `pg_get_functiondef('public.rpc_bulk_upsert_products(jsonb, uuid)'::regprocedure)` + su `obj_description` + ACL, y `pg_get_viewdef('public.v_products_with_stock')`; compararlos (sin `\r`) contra `20261044000001` y `20261062000001` L2989. Si difieren, partir del vivo y anotar el desvío. Confirmar que la rama `EXCEPTION WHEN OTHERS` por fila sigue devolviendo `SQLERRM` crudo (`20261044000001` L499-506): es donde D14 agrega el `GET STACKED DIAGNOSTICS`.
 - [ ] 0.4 Confirmar en prod (SELECT) el punto de partida: 0 filas con `scale_plu` (la columna no existe), tabla `scale_settings` inexistente, cantidad de productos con unidad base de tipo peso (referencia para el humo).

@@ -407,6 +407,13 @@ export interface Product {
    * 'variant_only' → parent catalogue entry, stock lives in variant children
    */
   stockControlType?: StockControlType
+  /**
+   * balanza-etiquetas-pos (D2): código de PLU de la balanza etiquetadora —
+   * un TERCER código del producto, distinto de `sku` y `barcode`. `null`/
+   * `undefined` = sin asignar. Único por cuenta entre productos vivos; nunca
+   * en un producto `variant_only` (se asigna a cada variante).
+   */
+  scalePlu?: number | null
 }
 
 /**

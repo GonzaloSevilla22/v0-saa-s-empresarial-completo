@@ -19,6 +19,32 @@ export const MAX_IMPORT_SIZE_BYTES = 5 * 1024 * 1024 // 5 MB
 // ─── Export ───────────────────────────────────────────────────────────────────
 
 /**
+ * balanza-etiquetas-pos (D12): la mecánica de Blob/enlace/revocación, extraída
+ * de `exportToCSV` para que la pestaña Balanza la reutilice tal cual — su
+ * archivo (Formato 1 de Systel) NO lleva BOM ni comillas, a diferencia del
+ * CSV genérico de acá, así que no puede llamar a `exportToCSV` directamente.
+ *
+ * Append al DOM — lo exige Firefox y algunos builds de Chromium. La
+ * revocación se demora para que el navegador termine de procesar el click.
+ */
+export function downloadTextFile(content: string, filename: string, mime: string): void {
+  const blob = new Blob([content], { type: mime })
+  const url = URL.createObjectURL(blob)
+
+  const link = document.createElement("a")
+  link.href = url
+  link.download = filename
+  link.style.display = "none"
+  document.body.appendChild(link)
+  link.click()
+
+  setTimeout(() => {
+    URL.revokeObjectURL(url)
+    document.body.removeChild(link)
+  }, 150)
+}
+
+/**
  * Exports `data` to a UTF-8 CSV file using `;` as separator.
  * The file is compatible with Excel (auto-detects the separator when BOM present).
  */
@@ -41,22 +67,7 @@ export function exportToCSV<T extends Record<string, unknown>>(
       .join(";"),
   )
   const csv = BOM + [header, ...rows].join("\n")
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" })
-  const url = URL.createObjectURL(blob)
-
-  // Append to DOM — required in Firefox and some Chromium builds
-  const link = document.createElement("a")
-  link.href = url
-  link.download = `${filename}.csv`
-  link.style.display = "none"
-  document.body.appendChild(link)
-  link.click()
-
-  // Delay revocation: the browser must process the click before we free the URL
-  setTimeout(() => {
-    URL.revokeObjectURL(url)
-    document.body.removeChild(link)
-  }, 150)
+  downloadTextFile(csv, `${filename}.csv`, "text/csv;charset=utf-8;")
 }
 
 // ─── Import helpers ───────────────────────────────────────────────────────────

@@ -2,7 +2,7 @@
 
 ### Requirement: Configuración de la balanza por cuenta
 
-El sistema SHALL guardar por cuenta, en la tabla `scale_settings` (una fila por cuenta), si la lectura de etiquetas de balanza está habilitada y los tres formatos de código de barras de la balanza —venta por peso, venta por unidad y varios—, cada uno descrito como una lista ordenada de hasta cuatro campos (A a D) con su tipo (número fijo, código PLU, importe, peso, cantidad u otro que se ignora), su cantidad de dígitos y, según el tipo, su valor fijo o sus decimales. Una cuenta sin fila SHALL comportarse como balanza **deshabilitada** con los formatos de fábrica de la Systel Cuora Neo (peso `20` + código 4 + importe 6 con 2 decimales; unidad `21` + código 4 + importe 6 con 2 decimales; varios `22` + otro 2 + importe 8 con 2 decimales).
+El sistema SHALL guardar por cuenta, en la tabla `scale_settings` (una fila por cuenta), si la lectura de etiquetas de balanza está habilitada y los tres formatos de código de barras de la balanza —venta por peso, venta por unidad y varios—, cada uno descrito como una lista ordenada de hasta cuatro campos (A a D) con su tipo (número fijo, código PLU, importe, cantidad —peso en kilogramos en el formato de peso, unidades en el de unidad— u otro que se ignora), su cantidad de dígitos y, según el tipo, su valor fijo o sus decimales. Una cuenta sin fila SHALL comportarse como balanza **deshabilitada** con los formatos de fábrica de la Systel Cuora Neo (peso `20` + código 4 + importe 6 con 2 decimales; unidad `21` + código 4 + importe 6 con 2 decimales; varios `22` + otro 2 + otro 8, contenido no interpretado).
 
 Cualquier miembro de la cuenta SHALL poder leer la configuración. Sólo un owner o admin de la cuenta SHALL poder crearla o modificarla, y la restricción SHALL sostenerse en dos capas: el servicio de la API (respuesta 403) y la base de datos (rechazo `P0401` ante una escritura directa de otro rol, aunque la política de escritura habilite a los roles escritores). Ningún miembro de otra cuenta y ningún usuario anónimo SHALL leer ni escribir la configuración de una cuenta.
 
@@ -34,7 +34,7 @@ Cualquier miembro de la cuenta SHALL poder leer la configuración. Sólo un owne
 
 ### Requirement: Validación del formato de etiqueta
 
-El sistema SHALL aceptar un formato habilitado sólo si cumple todas estas reglas, con la misma definición en el frontend y en la API: la suma de los dígitos de sus campos es exactamente 12; el campo A es un número fijo de 1 a 3 dígitos cuyo valor tiene esa cantidad de dígitos y empieza con `2`; los formatos de peso y de unidad tienen exactamente un campo de código PLU de 1 a 6 dígitos y exactamente un campo de valor (importe o peso para el de peso; importe o cantidad para el de unidad); los decimales del valor son un entero de 0 a 3; y ninguna cabecera de un formato habilitado es prefijo de la cabecera de otro formato habilitado. Una configuración que no cumple SHALL rechazarse con un error que identifique el formato y el campo, sin guardar nada.
+El sistema SHALL aceptar un formato habilitado sólo si cumple todas estas reglas, con la misma definición en el frontend y en la API: la suma de los dígitos de sus campos es exactamente 12; el campo A es un número fijo de 1 a 3 dígitos cuyo valor tiene esa cantidad de dígitos y empieza con `2`; los formatos de peso y de unidad tienen exactamente un campo de código PLU de 1 a 6 dígitos y exactamente un campo de valor (importe o cantidad); el formato de varios no tiene código PLU y sólo se le exige la cabecera; los decimales del valor son un entero de 0 a 3; y ninguna cabecera de un formato habilitado es prefijo de la cabecera de otro formato habilitado. Una configuración que no cumple SHALL rechazarse con un error que identifique el formato y el campo, sin guardar nada.
 
 #### Scenario: La suma de dígitos distinta de 12 se rechaza
 
@@ -59,9 +59,9 @@ El sistema SHALL aceptar un formato habilitado sólo si cumple todas estas regla
 
 ### Requirement: Decodificación de la etiqueta de balanza
 
-El frontend SHALL decodificar un código leído con una única función pura de la capa canónica que, dada la configuración de la cuenta, distinga cuatro resultados: el código no es de balanza (balanza deshabilitada, no son 13 dígitos, o ninguna cabecera habilitada coincide); es de balanza pero inválido (dígito verificador EAN-13 incorrecto, o PLU igual a cero); es un ticket de varios artículos (no soportado); o es una etiqueta válida, en cuyo caso SHALL devolver el formato (peso o unidad), el PLU como entero sin ceros a la izquierda y el valor (importe, peso o cantidad) aplicando los decimales configurados. La validación del dígito verificador SHALL reutilizar la función EAN-13 existente.
+El frontend SHALL decodificar un código leído con una única función pura de la capa canónica que, dada la configuración de la cuenta, distinga cuatro resultados: el código no es de balanza, con su motivo (balanza deshabilitada, no es un EAN-13 de 13 dígitos, o ninguna cabecera habilitada coincide); es de balanza pero inválido (dígito verificador EAN-13 incorrecto, PLU igual a cero, valor igual a cero, o 12 dígitos que empiezan con una cabecera habilitada — el lector no transmite el dígito verificador —); es un ticket de varios artículos (no soportado); o es una etiqueta válida, en cuyo caso SHALL devolver el formato (peso o unidad), el PLU como entero sin ceros a la izquierda y el valor (importe, peso o cantidad) aplicando los decimales configurados. Una etiqueta de valor cero NO SHALL convertirse nunca en una línea. La validación del dígito verificador SHALL reutilizar la función EAN-13 existente.
 
-#### Scenario: Ejemplo oficial de Systel con la configuración de fábrica
+#### Scenario: Etiqueta de peso con la configuración de fábrica
 
 - **GIVEN** la balanza habilitada con los formatos de fábrica
 - **WHEN** se decodifica `2002610013638`
@@ -75,7 +75,7 @@ El frontend SHALL decodificar un código leído con una única función pura de 
 
 #### Scenario: Peso embebido
 
-- **GIVEN** el formato de peso con cabecera `20`, código 4 y peso de 6 dígitos con 3 decimales
+- **GIVEN** el formato de peso con cabecera `20`, código 4 y cantidad de 6 dígitos con 3 decimales
 - **WHEN** se decodifica `2005090012504`
 - **THEN** el resultado es PLU 509 con peso 1,250 kg
 
@@ -91,6 +91,18 @@ El frontend SHALL decodificar un código leído con una única función pura de 
 - **WHEN** se decodifica `2200000045003`
 - **THEN** el resultado es "ticket de varios artículos, no soportado"
 
+#### Scenario: Una etiqueta con valor cero no agrega ninguna línea
+
+- **GIVEN** la balanza habilitada con los formatos de fábrica
+- **WHEN** se decodifica `2002610000003` (importe 0) o `2101000000002`
+- **THEN** el resultado es inválido por valor cero y no se agrega ninguna línea
+
+#### Scenario: Lector sin dígito verificador
+
+- **GIVEN** la balanza habilitada con los formatos de fábrica
+- **WHEN** se lee `200261001363` (12 dígitos que empiezan con la cabecera `20`)
+- **THEN** el resultado es inválido y el mensaje indica habilitar la transmisión del dígito verificador EAN-13 en el lector
+
 #### Scenario: Balanza deshabilitada
 
 - **GIVEN** la balanza deshabilitada
@@ -99,7 +111,7 @@ El frontend SHALL decodificar un código leído con una única función pura de 
 
 ### Requirement: Orden de resolución de un código leído
 
-El POS y el formulario de venta SHALL resolver todo código leído con una única función compartida y en este orden: (1) un producto vivo, que no sea padre con variantes, cuyo código de barras coincide exactamente (sin distinguir mayúsculas); (2) una etiqueta de balanza, si la decodificación la reconoce — una etiqueta inválida o de varios artículos SHALL terminar la resolución con un error, sin pasar al paso siguiente; (3) un producto vivo, que no sea padre con variantes, cuyo SKU coincide (sin distinguir mayúsculas); (4) un error de código no encontrado.
+El POS y el formulario de venta SHALL resolver todo código leído con una única función compartida y en este orden: (1) un producto vivo, que no sea padre con variantes, cuyo código de barras coincide exactamente (sin distinguir mayúsculas); (2) una etiqueta de balanza, si la decodificación la reconoce — una etiqueta inválida o de varios artículos SHALL terminar la resolución con un error, sin pasar al paso siguiente; (3) un producto vivo, que no sea padre con variantes, cuyo SKU coincide (sin distinguir mayúsculas); (4) un error. Cuando el código del paso 4 es un EAN-13 válido que empieza con `2`, el error SHALL decir que parece una etiqueta de balanza que no coincide con ningún formato configurado e indicar revisar Configuración → Balanza; en otro caso SHALL decir que el código no se encontró.
 
 #### Scenario: Un código de barras declarado gana sobre la interpretación de balanza
 
@@ -118,9 +130,15 @@ El POS y el formulario de venta SHALL resolver todo código leído con una únic
 - **WHEN** se lee un código que no es código de barras, etiqueta ni SKU de ningún producto
 - **THEN** la pantalla informa que el código no se encontró y el indicador del lector muestra el estado de error
 
+#### Scenario: Una etiqueta con una cabecera no configurada se explica
+
+- **GIVEN** la balanza habilitada con los formatos de fábrica
+- **WHEN** se lee `2702610013637` y ningún producto tiene ese código de barras ni ese SKU
+- **THEN** el mensaje indica que parece una etiqueta de balanza con cabecera 27 que no coincide con ningún formato configurado y que se revise Configuración → Balanza
+
 ### Requirement: Una etiqueta de balanza se convierte en una línea de venta
 
-El frontend SHALL convertir una etiqueta válida en una línea de venta con una única función pura compartida por el POS y el formulario de venta, que busca el producto por su código de balanza entre los productos vivos de la cuenta y expresa la línea en la unidad base efectiva del producto. Con **importe** embebido, el subtotal de la línea SHALL ser exactamente el importe de la etiqueta, la cantidad SHALL derivarse como importe ÷ precio del catálogo redondeado a 0,001 kg (expresado en la unidad base) y el precio unitario SHALL derivarse del subtotal y la cantidad con la función canónica existente, de modo que el total cobrado sea el importe de la etiqueta. Con **peso** embebido, la cantidad SHALL ser el peso y el precio el del catálogo. En el formato **por unidad**, una cantidad embebida SHALL usarse tal cual con el precio del catálogo, y un importe embebido SHALL cobrarse exacto con una cantidad de al menos 1 derivada de importe ÷ precio. La línea SHALL nacer sin descuento y con el paso y mínimo de su unidad, editable como cualquier otra. Ninguna RPC ni endpoint de venta SHALL cambiar para aceptarla.
+El frontend SHALL convertir una etiqueta válida en una línea de venta con una única función pura compartida por el POS y el formulario de venta, que busca el producto por su código de balanza entre los productos vivos de la cuenta y expresa la línea en la unidad base efectiva del producto. Una etiqueta del formato de peso SHALL exigir que la unidad base efectiva sea de tipo peso, y una del formato por unidad que el producto se venda por unidades (unidad de tipo unidad o sin unidad base); un producto medible que no es de peso (volumen, longitud) no admite ninguno de los dos formatos. Con **importe** embebido, el subtotal de la línea SHALL ser exactamente el importe de la etiqueta, la cantidad SHALL derivarse como importe ÷ precio del catálogo redondeado a 0,001 kg (expresado en la unidad base) y el precio unitario SHALL derivarse del subtotal y la cantidad con la función canónica existente, de modo que el total cobrado sea el importe de la etiqueta. Con **peso** embebido, la cantidad SHALL ser el peso y el precio el del catálogo. En el formato **por unidad**, una cantidad embebida SHALL usarse tal cual con el precio del catálogo, y un importe embebido SHALL cobrarse exacto con una cantidad de al menos 1 derivada de importe ÷ precio. La línea SHALL nacer sin descuento y con el paso y mínimo de su unidad, editable como cualquier otra. Ninguna RPC ni endpoint de venta SHALL cambiar para aceptarla.
 
 #### Scenario: Importe embebido cobra exactamente la etiqueta
 
@@ -136,7 +154,7 @@ El frontend SHALL convertir una etiqueta válida en una línea de venta con una 
 
 #### Scenario: Peso embebido usa el precio del catálogo
 
-- **GIVEN** el producto "Papa" con unidad base Kilogramo, precio 1.800 y código de balanza 509, y el formato de peso con peso de 6 dígitos y 3 decimales
+- **GIVEN** el producto "Papa" con unidad base Kilogramo, precio 1.800 y código de balanza 509, y el formato de peso con cantidad de 6 dígitos y 3 decimales
 - **WHEN** se lee `2005090012504`
 - **THEN** se agrega una línea de 1,250 kg a 1.800 con subtotal 2.250
 
@@ -154,7 +172,7 @@ El frontend SHALL convertir una etiqueta válida en una línea de venta con una 
 
 ### Requirement: Errores accionables al leer una etiqueta
 
-Cuando una etiqueta válida no puede convertirse en línea, el sistema SHALL no agregar nada al carrito y SHALL mostrar un mensaje que diga qué hacer, distinguiendo al menos: PLU no asignado a ningún producto de la cuenta (indicando dónde asignarlo), PLU asignado a un producto padre con variantes, producto sin precio, modo de venta incompatible (etiqueta de peso para un producto cuya unidad base no es de peso, o etiqueta por unidad para un producto de peso) y cantidad derivada menor a la precisión mínima. Un ticket de varios artículos SHALL explicar que sus productos deben cargarse uno por uno. Cuando la línea supera el stock disponible SHALL aplicarse el mismo rechazo y el mismo mensaje que a un alta manual.
+Cuando una etiqueta válida no puede convertirse en línea, el sistema SHALL no agregar nada al carrito y SHALL mostrar un mensaje que diga qué hacer, distinguiendo al menos: PLU no asignado a ningún producto de la cuenta (indicando dónde asignarlo), PLU asignado a un producto padre con variantes, producto sin precio, modo de venta incompatible (etiqueta de peso para un producto cuya unidad base no es de peso, o etiqueta por unidad para un producto de peso) y cantidad derivada menor a la precisión mínima. Un ticket de varios artículos SHALL explicar que sus productos deben cargarse uno por uno. El control de stock SHALL ser **acumulativo**: cuando la suma de las cantidades (en la unidad base) de todas las líneas del carrito del mismo producto más la de la etiqueta supera el stock disponible, SHALL aplicarse el mismo rechazo y el mismo mensaje que a un alta manual, en el POS y en el formulario de venta.
 
 #### Scenario: PLU sin producto
 
@@ -172,18 +190,36 @@ Cuando una etiqueta válida no puede convertirse en línea, el sistema SHALL no 
 - **WHEN** se lee `2200000045003` con los formatos de fábrica
 - **THEN** no se agrega ninguna línea y el mensaje indica cargar los productos del ticket uno por uno
 
+#### Scenario: Dos etiquetas que juntas superan el stock
+
+- **GIVEN** el producto "Tomate" con unidad base Kilogramo, código de balanza 261 y 3 kg disponibles, y una línea de balanza de 2 kg ya en el carrito
+- **WHEN** se lee otra etiqueta de 2 kg del mismo producto
+- **THEN** no se agrega la segunda línea y el mensaje es el mismo de stock insuficiente que el de un alta manual
+
 ### Requirement: Cada etiqueta de balanza es una línea propia
 
-Cada etiqueta de balanza leída SHALL agregar una línea nueva al carrito, aunque ya exista una línea del mismo producto y la misma unidad, para que cada pesada conserve su importe y pueda quitarse sola. Los códigos de barras comunes y los SKU SHALL conservar el comportamiento de sumar el mínimo de la unidad a la línea existente del mismo producto y unidad.
+Cada etiqueta de balanza leída SHALL agregar una línea nueva al carrito, aunque ya exista una línea del mismo producto y la misma unidad, para que cada pesada conserve su importe y pueda quitarse sola. La línea de balanza SHALL quedar marcada como tal y NO SHALL fusionarse nunca con otra: un alta manual, un código de barras común o un SKU del mismo producto y unidad SHALL sumar sobre una línea que no sea de balanza, o crear una nueva, y nunca modificar la cantidad, el precio ni el subtotal de una línea de balanza. Los códigos de barras comunes y los SKU de un producto que se vende por unidades SHALL sumar el mínimo de la unidad a la línea existente (no de balanza) del mismo producto y unidad, con una única función compartida por el POS y el formulario de venta. Un código común o SKU de un producto medible (por ejemplo, de peso) NO SHALL agregar una cantidad mínima arbitraria: SHALL dejar el producto elegido en el selector de alta de la pantalla con el foco en la cantidad, para que se ingrese.
 
 #### Scenario: Dos etiquetas del mismo producto
 
 - **WHEN** se leen dos etiquetas distintas del mismo PLU
 - **THEN** el carrito tiene dos líneas de ese producto, cada una con el importe de su etiqueta
 
+#### Scenario: Un alta manual no se suma sobre una línea de balanza
+
+- **GIVEN** el carrito con una línea de balanza de "Tomate" de 2,840 kg y subtotal 13,63
+- **WHEN** se agrega a mano, o por un código de barras común, 1 kg de "Tomate" en la misma unidad
+- **THEN** el carrito tiene dos líneas y la de balanza conserva 2,840 kg y subtotal 13,63
+
+#### Scenario: Un producto de peso leído por código común pide la cantidad
+
+- **GIVEN** un producto con unidad base Kilogramo y código de barras `7790000000010`
+- **WHEN** se lee `7790000000010`
+- **THEN** no se agrega ninguna línea con una cantidad mínima y el producto queda elegido en el selector de alta con el foco en la cantidad
+
 ### Requirement: El POS lee códigos con el lector
 
-El POS (`/ventas/pos`) SHALL montar el lector de códigos y su indicador junto al buscador de productos, y SHALL agregar al carrito lo que resuelva la función compartida de resolución. El indicador SHALL mostrar el resultado de cada lectura (el producto agregado o el motivo del error) usando los tokens semánticos del sistema de diseño. El lector SHALL suspenderse mientras haya abierto un diálogo modal que no lo contenga, mientras se registra la venta y cuando el usuario no tiene permiso de escritura. Una lectura hecha con el foco en un campo de texto o numérico NO SHALL dejar el código escrito dentro de ese campo.
+El POS (`/ventas/pos`) SHALL montar el lector de códigos y su indicador junto al buscador de productos, y SHALL agregar al carrito lo que resuelva la función compartida de resolución. El indicador SHALL mostrar el resultado de cada lectura (el producto agregado o el motivo del error) usando los tokens semánticos del sistema de diseño, en una región que los lectores de pantalla anuncian (`role="status"`, `aria-live`), con un texto corto que no desborda en móvil; el mensaje completo de un error SHALL mostrarse además en un aviso. El lector SHALL suspenderse mientras haya abierto un diálogo modal del sistema de diseño (diálogo, hoja lateral, cajón o diálogo de confirmación) que no lo contenga, mientras se registra la venta y cuando el usuario no tiene permiso de escritura; los desplegables (buscador de productos, selects, menús) NO SHALL suspenderlo. Una lectura hecha con el foco en un campo de texto o numérico NO SHALL dejar el código escrito dentro de ese campo, y una tecla mantenida apretada NO SHALL tomarse como una lectura.
 
 #### Scenario: Escanear una etiqueta en el POS
 
@@ -203,9 +239,21 @@ El POS (`/ventas/pos`) SHALL montar el lector de códigos y su indicador junto a
 - **WHEN** se lee una etiqueta
 - **THEN** no se agrega ninguna línea
 
+#### Scenario: El buscador de productos abierto no suspende el lector
+
+- **GIVEN** el POS con el desplegable del buscador de productos abierto
+- **WHEN** se lee una etiqueta válida
+- **THEN** la línea se agrega al carrito
+
+#### Scenario: Una tecla mantenida no es una lectura
+
+- **GIVEN** el POS con el foco en el campo de precio unitario
+- **WHEN** el usuario mantiene apretada la tecla `0`
+- **THEN** los ceros quedan escritos en el campo y no aparece ningún error de código no encontrado
+
 ### Requirement: El formulario de venta usa la misma resolución
 
-El formulario de venta SHALL resolver cada código leído con la misma función compartida que el POS, sin lógica propia de etiquetas, y SHALL seguir leyendo mientras él mismo está dentro de su diálogo "Nueva venta" o "Editar venta"; un diálogo anidado abierto encima SHALL suspender el lector. La lectura NO SHALL dejar el código escrito dentro del campo con foco.
+El formulario de venta SHALL resolver cada código leído con la misma función compartida que el POS, sin lógica propia de etiquetas, y SHALL seguir leyendo mientras él mismo está dentro de su diálogo "Nueva venta" o "Editar venta"; un diálogo anidado abierto encima (por ejemplo, la confirmación de anulación) SHALL suspender el lector. La lectura NO SHALL dejar el código escrito dentro del campo con foco, y el control de stock de lo que agrega el lector SHALL ser el mismo, acumulativo, que el de su alta manual.
 
 #### Scenario: Escanear una etiqueta en el formulario de venta
 
@@ -215,13 +263,19 @@ El formulario de venta SHALL resolver cada código leído con la misma función 
 
 #### Scenario: Un código de barras común conserva su comportamiento
 
-- **GIVEN** el formulario de venta con una línea del producto de código `7791234567898` y cantidad 1
+- **GIVEN** el formulario de venta con una línea del producto de código `7791234567898` (vendido por unidad) y cantidad 1
 - **WHEN** se vuelve a leer `7791234567898`
 - **THEN** la misma línea pasa a cantidad 2
 
+#### Scenario: La confirmación de anulación abierta suspende el lector
+
+- **GIVEN** el formulario de venta con la confirmación de anulación abierta encima
+- **WHEN** se lee una etiqueta válida
+- **THEN** no se agrega ninguna línea
+
 ### Requirement: Pestaña Balanza en Configuración
 
-La página de configuración SHALL tener una pestaña "Balanza", enlazable como `/configuracion?tab=balanza`, que permita habilitar la lectura de etiquetas, editar los tres formatos campo por campo con la línea "Resultado" que la balanza muestra para el mismo formato (dígitos fijos, la letra del campo repetida por cada dígito y `X` al final), restaurar los valores de fábrica, ver el importe máximo representable por cada formato con importe y un aviso cuando un producto con código de balanza tiene un precio por kilo mayor que ese máximo, y probar un código real contra la configuración **en edición**: el probador SHALL mostrar el formato detectado, el PLU, el valor decodificado, el producto resuelto y la línea que se agregaría, o el error correspondiente. Los miembros que no son owner ni admin SHALL ver la configuración en sólo lectura y poder usar el probador. La pestaña SHALL verse correctamente en desktop y en móvil, en tema claro y oscuro.
+La página de configuración SHALL tener una pestaña "Balanza", enlazable como `/configuracion?tab=balanza`, que permita habilitar la lectura de etiquetas, editar los tres formatos campo por campo con la línea "Resultado" que la balanza muestra para el mismo formato (dígitos fijos, la letra del campo repetida por cada dígito y `X` al final), restaurar los valores de fábrica, ver el importe máximo representable por cada formato con importe y un aviso cuando un producto con código de balanza tiene un precio por kilo mayor que ese máximo, y probar un código real contra la configuración **en edición**: el probador SHALL mostrar el formato detectado, el PLU, el valor decodificado, el producto resuelto y la línea que se agregaría, o el error correspondiente con su motivo, y SHALL decodificar aunque la lectura de etiquetas esté deshabilitada (avisándolo), para que el comercio confirme una etiqueta real antes de habilitarla. El campo del probador SHALL tener una etiqueta asociada y su resultado SHALL anunciarse a los lectores de pantalla. La pestaña SHALL incluir una guía con los pasos de configuración del equipo citando la página del manual, el requisito operativo de emitir un comprobante por artículo (o usar el modo pre-empaque) y el prerrequisito de importar el archivo desde una PC con el software de Systel. Los miembros que no son owner ni admin SHALL ver la configuración en sólo lectura y poder usar el probador. La pestaña SHALL verse correctamente en desktop y en móvil, en tema claro y oscuro.
 
 #### Scenario: La línea Resultado espeja la de la balanza
 
@@ -233,6 +287,12 @@ La página de configuración SHALL tener una pestaña "Balanza", enlazable como 
 - **GIVEN** la configuración guardada con importe de 2 decimales y el usuario cambió a 0 decimales sin guardar
 - **WHEN** prueba `2002610135002`
 - **THEN** el probador muestra importe 13.500
+
+#### Scenario: Con la lectura deshabilitada el probador decodifica igual
+
+- **GIVEN** una cuenta sin configuración guardada (lectura deshabilitada, formatos de fábrica)
+- **WHEN** prueba `2002610013638`
+- **THEN** el probador muestra PLU 261 e importe 13,63, y avisa que la lectura de etiquetas todavía está deshabilitada
 
 #### Scenario: Aviso de desborde
 
@@ -247,7 +307,7 @@ La página de configuración SHALL tener una pestaña "Balanza", enlazable como 
 
 ### Requirement: Exportación del catálogo para la balanza
 
-La pestaña Balanza SHALL ofrecer "Exportar catálogo para la balanza", que genera en el navegador, sin consumir la cuota de exportaciones ni registrarse en el historial de exportaciones, un archivo CSV en el Formato 1 de importación de Systel Suite Neo: una línea por producto vivo con código de balanza, sin encabezado, exactamente 9 campos separados por `;`, fin de línea `\r\n`: nombre de la categoría, código de balanza, nombre del producto, SKU como código ERP, precio lista 1, precio lista 2 `0,00`, tipo de venta, vencimiento `0` y un campo extra vacío. El precio SHALL ir con 2 decimales, coma decimal, sin separador de miles ni símbolo, por kilo cuando la unidad base efectiva es de peso y por unidad en otro caso; el tipo de venta SHALL ser `p` para productos de peso y `u` para el resto. Todo texto SHALL transliterarse a ASCII imprimible sin tildes ni `ñ`, sin `;` ni saltos de línea, y truncarse a la longitud máxima del campo. Los productos sin precio, los padres con variantes y los códigos de balanza con más dígitos que el campo código del formato habilitado SHALL omitirse, y la pantalla SHALL informar cuántos se exportaron y cuáles se omitieron y por qué.
+La pestaña Balanza SHALL ofrecer "Exportar catálogo para la balanza", que genera en el navegador, sin consumir la cuota de exportaciones ni registrarse en el historial de exportaciones, un archivo CSV en el Formato 1 de importación de Systel Suite Neo: una línea por producto vivo con código de balanza, sin encabezado, sin marca de orden de bytes (BOM) ni comillas, exactamente 9 campos separados por `;`, fin de línea `\r\n`: nombre de la categoría, código de balanza, nombre del producto, SKU como código ERP, precio lista 1, precio lista 2 `0,00`, tipo de venta, vencimiento `0` y un campo extra vacío. El precio SHALL ir con 2 decimales, coma decimal, sin separador de miles ni símbolo, por kilo cuando la unidad base efectiva es de peso y por unidad en otro caso; el tipo de venta SHALL ser `p` para productos de peso y `u` para los que se venden por unidades. Todo texto SHALL transliterarse a ASCII imprimible sin tildes ni `ñ`, sin `;` ni saltos de línea, y truncarse a la longitud máxima del campo. Los productos sin precio, los padres con variantes, los productos medibles que no son de peso y los códigos de balanza con más dígitos que el campo código del formato habilitado SHALL omitirse, y la pantalla SHALL informar cuántos se exportaron y cuáles se omitieron y por qué.
 
 #### Scenario: Un producto de peso se exporta por kilo
 

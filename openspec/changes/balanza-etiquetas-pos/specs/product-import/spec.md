@@ -2,7 +2,7 @@
 
 ### Requirement: La importación acepta el código de balanza como columna opcional
 
-El importador de productos SHALL aceptar una columna opcional "Código balanza" (también reconocida con los encabezados `PLU` y `codigo balanza`) e incluirla en la plantilla descargable y en la plantilla generada desde el catálogo. El cliente SHALL validar que el valor sea un entero de 1 a 999.999 (en otro caso, error de su fila) y SHALL marcar como error de fila un mismo código de balanza repetido en dos filas del archivo. Una celda vacía SHALL viajar como **ausencia**: al actualizar un producto existente conserva su código de balanza, y al crear uno nuevo lo deja sin código. En el servidor, la unidad de trabajo de importación SHALL persistir el código de balanza con la misma regla de ausencia, y un código de balanza que ya pertenece a otro producto vivo de la cuenta SHALL rechazar el lote entero sin escritura parcial, informando el error en la fila que lo trae.
+El importador de productos SHALL aceptar una columna opcional "Código balanza" (también reconocida con los encabezados `PLU` y `codigo balanza`) e incluirla en la plantilla descargable y en la plantilla generada desde el catálogo. El cliente SHALL validar que el valor sea un entero de 1 a 999.999 (en otro caso, error de su fila) y SHALL marcar como error de fila un mismo código de balanza repetido en dos filas del archivo. Una celda vacía SHALL viajar como **ausencia**: al actualizar un producto existente conserva su código de balanza, y al crear uno nuevo lo deja sin código. En el servidor, la unidad de trabajo de importación SHALL persistir el código de balanza con la misma regla de ausencia, y un código de balanza que ya pertenece a otro producto vivo de la cuenta, o que se asigna a un producto padre con variantes, SHALL rechazar el lote entero sin escritura parcial, informando el error en la fila que lo trae con un mensaje que nombra el código de balanza. El cliente SHALL marcar como error la fila "Padre" que trae código de balanza.
 
 #### Scenario: Importar productos con código de balanza
 
@@ -25,6 +25,11 @@ El importador de productos SHALL aceptar una columna opcional "Código balanza" 
 - **GIVEN** un producto vivo "Papa" con código de balanza 509
 - **WHEN** se importa una fila de otro producto con código de balanza 509
 - **THEN** el lote se rechaza sin escribir ninguna fila y el error identifica la fila y el código 509
+
+#### Scenario: Una fila Padre no admite código de balanza
+
+- **WHEN** se importa una fila de tipo "Padre" con código de balanza 261
+- **THEN** la vista previa marca error en esa fila; si la fila llegara igual al servidor, el lote se rechaza sin escritura parcial con el error en esa fila
 
 #### Scenario: Código inválido
 

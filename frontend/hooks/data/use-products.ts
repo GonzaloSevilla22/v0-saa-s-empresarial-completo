@@ -34,6 +34,10 @@ interface ProductApiRow {
   // ventas-unidades-conversion (D10): unidad en que se lleva el stock; ausente
   // en una base sin la migración → undefined.
   base_unit_id?: string | null
+  // balanza-etiquetas-pos (D2): código de PLU de la balanza; ausente en una
+  // base sin la migración → undefined (se degrada a `null`, igual que
+  // `base_unit_id`).
+  scale_plu?: number | null
 }
 
 function mapProduct(p: ProductApiRow): Product {
@@ -62,6 +66,8 @@ function mapProduct(p: ProductApiRow): Product {
     // la unidad base, así que el catálogo mostraba "uds" para todo y el
     // selector de unidad de los formularios nunca conocía la del producto.
     baseUnitId:       p.base_unit_id ?? undefined,
+    // balanza-etiquetas-pos (D2): `null` = sin código de balanza asignado.
+    scalePlu:         p.scale_plu ?? null,
   }
 }
 
@@ -204,7 +210,7 @@ export function useImportProducts() {
  * `undefined` = "no lo toqué, conservá" y `null` = "desasignalo"
  * (productos-costo-nullable D12 / ventas-unidades-conversion decisión 7).
  */
-type ProductTriStateWrite = { cost?: number | null; baseUnitId?: string | null }
+type ProductTriStateWrite = { cost?: number | null; baseUnitId?: string | null; scalePlu?: number | null }
 
 /**
  * Returns products list + mutations (add, update, delete, bulkSetCategory) via Python API.
@@ -229,7 +235,7 @@ export function useProducts() {
     // ventas-unidades-conversion (decisión 7): `baseUnitId` también admite
     // `null` en la escritura — "Sin unidad" en el formulario. En el alta
     // `null` y la ausencia producen lo mismo (`base_unit_id: null`).
-    mutationFn: async (product: Omit<Product, "id" | "cost" | "baseUnitId"> & ProductTriStateWrite) => {
+    mutationFn: async (product: Omit<Product, "id" | "cost" | "baseUnitId" | "scalePlu"> & ProductTriStateWrite) => {
       return pythonClient.post<ProductApiRow>("/products", {
         name:               product.name,
         // productos-categoria-text-retiro: `category` (nombre libre) ya no se
@@ -249,6 +255,9 @@ export function useProducts() {
         // ventas-unidades-conversion (D10): el formulario ya la mandaba y se
         // perdía acá. null = sin unidad base.
         base_unit_id:       product.baseUnitId ?? null,
+        // balanza-etiquetas-pos (D2): en el alta, omitir la clave y mandar
+        // `null` producen lo mismo (sin código de balanza asignado).
+        scale_plu:          product.scalePlu ?? null,
       })
     },
     onSuccess: () => {
@@ -267,7 +276,7 @@ export function useProducts() {
     // igual que `cost` — `undefined` conserva, uuid asigna, `null` desasigna
     // (opción "Sin unidad" del formulario; sujeta al guard D11/D-C del
     // backend: 409 base_unit_locked con stock o historia).
-    mutationFn: async (product: Omit<Product, "cost" | "baseUnitId"> & ProductTriStateWrite) => {
+    mutationFn: async (product: Omit<Product, "cost" | "baseUnitId" | "scalePlu"> & ProductTriStateWrite) => {
       return pythonClient.put<ProductApiRow>(`/products/${product.id}`, {
         name:               product.name,
         // productos-categoria-text-retiro: `category` ya no se envía (idem alta).
@@ -291,6 +300,9 @@ export function useProducts() {
         // el backend conserva el valor; un uuid asigna. Antes `undefined` se
         // mandaba como `null` y desasignaba la unidad base al editar el nombre.
         ...(product.baseUnitId !== undefined ? { base_unit_id: product.baseUnitId } : {}),
+        // balanza-etiquetas-pos (D2): tri-estado por ausencia — omitida
+        // conserva el PLU vigente; un número lo asigna; `null` lo desasigna.
+        ...(product.scalePlu !== undefined ? { scale_plu: product.scalePlu } : {}),
       })
     },
     onSuccess: () => {

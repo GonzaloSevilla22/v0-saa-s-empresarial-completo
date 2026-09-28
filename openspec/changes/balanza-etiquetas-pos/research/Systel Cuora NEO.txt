@@ -1,0 +1,61 @@
+Archivos con campos separados por punto y coma (;) con extensión CSV, sin encabezados.
+
+El importador verifica la cantidad de campos disponibles en el archivo por cada línea, y en base a eso procesa Formato 1, Formato 2 o Formato 3. En un mismo archivo, pueden venir lineas de Formato 1, Formato 2 o Formato 3 mezclados.
+
+El formato SIEMPRE sera procesado como completo, solo que admite formato 1, 2 o 3. En caso que sea 1 o 2, tomará los datos que faltan como nulos.
+
+Nombre de sección; Código de PLU; Nombre; Código ERP; Precio Lista 1; Precio Lista 2; Tipo de venta (unidad/peso); Vencimiento; Campo extra 1; Tara; Porcentaje de agua; Datos de Origen; Datos de conservación; Recetas de ingredientes; Tabla Nutricional; Porción; Valor energetico; Carbohidratos; Proteínas; Grasas totales; Grasas saturadas; Grasas trans; Fibra Alimentaria; Sodio; Configuración EAN; Descripcion EAN; Azúcares totales; Azúcares adicionales; Contiene edulcorante; Contiene cafeína; Activo
+
+
+Ejemplos
+Carniceria;9002;PLU 9 campos;3;9002;75;PESO;10;Pollo de chacra;;;;;;;;;;;;;;;;;;;;;;
+Verduleria;9001;PLU 26 campos;9001;20,99;15,2;PESO;0;Envasada en origen;51;0;Origen;Conservacion;Ingredientes;0;;0;0;0;0;0;0;0;0;;1234567891230;;;;;
+Varios;9003;PLU 31 campos;9000;200;150;UNIDAD;0;;0;0;;;1;3;Porción 100 gramos;500;61;5;31;19;0;0;0;;1234567891230;23;32;Y;N;N
+
+
+
+Campos que debe tener el archivo. (9 campos)
+
+Formato 1 --> Este archivo es el mas básico que podemos generar, ya que contiene los datos mínimos que necesita un PLU dado de alta en la balanza.
+
+Nombre de sección: Alfanumérico, longitud máxima 56 caracteres.
+Código de PLU: Numérico, 1-sin limite (recomendable no superar 9.999.999).
+Nombre: Alfanumérico, longitud máxima 56 caracteres.
+Código ERP: Alfanumérico, longitud máxima 25 caracteres.
+Precio Lista 1: Numerico, con dos decimales. Utilizar punto o coma como separador decimal (es indistinto). NO debe contener el símbolo de la moneda. No debe tener el separador de miles.
+Precio Lista 2: Numerico, con dos decimales.Utilizar punto o coma como separador decimal (es indistinto) NO debe contener el símbolo de la moneda. No debe tener el separador de miles.
+Tipo de venta (unidad/peso): "unidad" o "u" (sin las comillas) para identificar los productos de venta por unidad y "peso" o "p" (sin las comillas) para los productos de venta por peso. No es sensible a mayúsculas, por lo tanto unidad=Unidad=UNIDAD.
+Vencimiento (días): Numérico, 0-9999. Se toman los días definidos menos 1 día, para calcular la fecha de vencimiento. Si viene fecha de vencimiento 0, se anula la impresión de fecha de vencimiento.
+Campo extra 1: Alfanumérico, longitud máxima 2000 caracteres.
+
+Formato 2 --> Como opcional tenemos los datos extras que es para aquellos PLUS que lo requieran. Si viene un dato de estos, deben venir todos. (26 campos)
+
+Tara: Numerico, de 0 a 0.750, es la tara expresada en kilogramos. El decimal tiene que ser punto (ejemplo 0.75).
+Porcentaje de agua: Este campo es ignorado.
+Datos de Origen (Se guarda en Campo Extra 2): Alfanumerico longitud máxima 300 caracteres.
+Datos de conservación: Alfanumerico longitud máxima 300 caracteres.
+Recetas de ingredientes: Alfanumerico longitud máxima 300 caracteres.
+Tabla Nutricional: (sin las comillas), Colocar el nro del tipo de tabla a utilizar para identificar si ese PLU tiene tabla nutricional asociada.
+	“0” o nulo o “N” o “n”, si no utiliza tabla nutricional --> Deben venir los campos hasta Descripción EAN, pero los asociados a tabla nutricional pueden venir con un 0.
+  	“1” o “S” o “s” (Res. GMC 46/033 - 47/034) Antigua resolución nutricional Argentina/Uruguaya --> Deben venir los campos hasta Descripción EAN.
+  	“2” (RDC Nº 429 ANVISA) Nueva resolución Brasilera de información nutricional
+  	"3" (Ley N° 27.642) Octógonos nutricionales para Argentina --> Deben venir todos los campos hasta Contiene cafeína.
+Porción: Alfanumérico, longitud máxima 37 caracteres. En forma automática agrega la palabra "PORCIÓN ". Debe venir el peso de la porción en gramos con la letra g (puede venir g o gr o gramos o lo que sea, pero con letra g). Puede traer cualquier otro texto adicional.
+Valor energetico: Numerico, de 0 a 9999 en kcal y automáticamente calcula y agrega el valor en kj.
+Carbohidratos: Numerico, de 0 a 9999.
+Proteínas: Numerico, de 0 a 9999.
+Grasas totales: Numerico, de 0 a 9999.
+Grasas saturadas: Numerico, de 0 a 9999.
+Grasas trans: Numerico, de 0 a 9999.
+Fibra Alimentaria: Numerico, de 0 a 9999.
+Sodio: Numerico, de 0 a 9999.
+Configuración EAN: Este campo es ignorado.
+Descripcion EAN: Alfanumerico.
+
+Formato 3 --> Como opcional tenemos los datos nutricionales extras (para octognos) y de activo o no, que es para aquellos PLUS que lo requieran. Si viene un dato de estos, deben venir todos. (31 campos)
+
+Azúcares totales: Numerico, de 0 a 9999.
+Azúcares adicionales: Numerico, de 0 a 9999.
+Contiene edulcorante: Alfanumérico "Y" o "N" (sin las comillas)
+Contiene cafeína: Alfanumérico "Y" o "N" (sin las comillas)
+Activo: Alfanumérico "Y" o "N" (sin las comillas)

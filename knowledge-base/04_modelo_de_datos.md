@@ -97,6 +97,7 @@ parent_id           UUID        FK products(id)  -- para variantes
 is_variant          BOOLEAN     DEFAULT FALSE
 base_unit_id        UUID        FK units_of_measure(id)
 stock_control_type  TEXT        -- 'tracked'|'untracked'|'variant_only'
+scale_plu           INTEGER     NULL  -- balanza-etiquetas-pos (2026-09-28): código de PLU de balanza etiquetadora, tercer código del producto (no `sku` ni `barcode`). CHECK `products_scale_plu_range` (1-999.999: cabe en el campo "Código" del EAN-13 de la etiqueta). CHECK `products_scale_plu_not_parent` (`scale_plu IS NULL OR stock_control_type IS DISTINCT FROM 'variant_only'`): un padre con variantes no admite PLU propio, se vende a través de sus variantes. Único por cuenta sobre filas vivas: `idx_products_scale_plu_account_unique ON products (account_id, scale_plu) WHERE scale_plu IS NOT NULL AND deleted_at IS NULL` (mismo molde que `idx_products_barcode_account_unique`; ver RN-B3). Expuesto como última columna de `v_products_with_stock`. Sin backfill (nace NULL, lo asigna el comercio).
 created_at          TIMESTAMP
 ```
 
@@ -234,6 +235,18 @@ created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 **Invariante de tipo:** toda unidad porta un `type` no nulo del conjunto cerrado (`unit`=conteo, `weight`=peso, `volume`=volumen, `length`=longitud, `custom`=otro). `factor` es relativo a la unidad base (`base_unit_id`) del **mismo** `type` — la conversión entre unidades (capability V3.5, no implementada aún) solo opera dentro de un mismo `type`.
 
 > **OQ1 (pendiente del PO, ver CHANGES.md):** el Modelo V3 §7.1 nombra los tipos como `peso|volumen|contable`. Ese rename NO se ejecutó — es BREAKING (toca el CHECK, `frontend/lib/types.ts` y colapsaría `length`/`custom` sin destino claro) y hoy no aporta valor funcional (0 filas per-tenant). El enum físico vigente sigue siendo `unit|weight|volume|length|custom`.
+
+---
+
+### `scale_settings` — Configuración de balanza etiquetadora por cuenta (`balanza-etiquetas-pos`, 2026-09-28)
+```sql
+account_id   UUID         PK, FK accounts(id) ON DELETE CASCADE
+enabled      BOOLEAN      NOT NULL DEFAULT false
+layouts      JSONB        NOT NULL  -- 3 formatos ordenados [weighed, unit, multi], cada uno con hasta 4 campos A-D (tipo, dígitos, valor fijo/decimales); CHECK jsonb_typeof=array AND length=3
+updated_at   TIMESTAMPTZ  NOT NULL DEFAULT now()
+updated_by   UUID         NULL
+```
+Sin fila = balanza desactivada con los formatos de fábrica (peso `20BBBBCCCCCCX`, unidad `21BBBBCCCCCCX`, varios `22AACCCCCCCCX`); el primer `PUT` inserta. RLS: `SELECT` para cualquier miembro de la cuenta; `INSERT`/`UPDATE` sólo con `is_account_writer(account_id)`; sin `DELETE`. Disparador `BEFORE INSERT OR UPDATE` `trg_scale_settings_guard_owner_admin` (`SECURITY DEFINER`, molde de `points_of_sale_guard_default_owner_admin`) rechaza con `P0401` si el actor no es owner/admin — defensa en dos capas junto con `require_account_role(CAN_CONFIGURE)` en el backend. `REVOKE ALL … FROM anon`. Consumida por el decodificador de etiquetas del POS y del formulario de venta, el probador y la exportación del catálogo de la pestaña Configuración → Balanza (capability `scale-label-integration`).
 
 ---
 

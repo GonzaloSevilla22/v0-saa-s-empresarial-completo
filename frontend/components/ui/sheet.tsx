@@ -72,6 +72,9 @@ const SheetContent = React.forwardRef<
     <SheetOverlay />
     <SheetPrimitive.Content
       ref={composedRef}
+      // balanza-etiquetas-pos (D9): mismo marcador que DialogContent — el
+      // Sheet también es un Radix Dialog (mismo primitive) sin `aria-modal`.
+      data-scanner-modal=""
       className={cn(sheetVariants({ side }), className)}
       {...props}
     >

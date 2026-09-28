@@ -56,13 +56,16 @@ vi.mock("@/lib/import/parser", () => ({
     rows: [
       {
         tipo: "Producto", nombre: "Producto nuevo", sku: "", sku_padre: "", producto_padre: "",
-        precio: "10", costo: "5", categoria: "", stock: "0", stock_minimo: "0", codigo: "", attributes: {},
+        precio: "10", costo: "5", categoria: "", stock: "0", stock_minimo: "0", codigo: "", codigo_balanza: "", attributes: {},
         lineNumber: 2,
       } satisfies RawImportRow,
     ],
   })),
 }))
 vi.mock("@/hooks/useOrgRole", () => ({ useOrgRole: () => ({ isWriter: true, role: "owner", isLoading: false }) }))
+vi.mock("@/hooks/data/use-scale-settings", () => ({
+  useScaleSettings: () => ({ settings: { enabled: false, layouts: [] }, isLoading: false, isError: false, error: null }),
+}))
 vi.mock("@/hooks/use-units-of-measure", () => ({
   useUnitsOfMeasure: () => ({ unitsById: new Map() }),
 }))

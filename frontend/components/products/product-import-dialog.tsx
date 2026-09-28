@@ -46,6 +46,7 @@ import {
 import { useImportProducts } from "@/hooks/data/use-products"
 import { useProductCategories } from "@/hooks/data/use-product-categories"
 import { prepareProductImport, type PreparedImport } from "@/lib/import/importer"
+import { useScaleSettings } from "@/hooks/data/use-scale-settings"
 import { newCategoryLimitMessage } from "@/lib/import/validator"
 import { planProductLimitMessage } from "@/lib/plan-utils"
 import { buildTemplateCsv } from "@/lib/import/template"
@@ -144,6 +145,9 @@ export function ProductImportDialog({
   // Categoría y generar el template.
   const { productCategories } = useProductCategories(true)
   const { importMutation, invalidateImportData } = useImportProducts()
+  // balanza-etiquetas-pos (D14): aviso no bloqueante si "Código" decodifica
+  // como etiqueta de balanza — con la configuración TAL CUAL de la cuenta.
+  const { settings: scaleSettings } = useScaleSettings()
 
   const [step,          setStep]         = useState<Step>(1)
   const [fileName,      setFileName]     = useState("")
@@ -203,7 +207,7 @@ export function ProductImportDialog({
     setIdempotencyKey("")
 
     try {
-      const result = await prepareProductImport(selected, productCategories)
+      const result = await prepareProductImport(selected, productCategories, scaleSettings)
       if (result.apiRows.length > PRODUCT_IMPORT_MAX_ROWS) {
         toast.error(
           `Máximo ${PRODUCT_IMPORT_MAX_ROWS} filas por lote (recibidas ${result.apiRows.length}) — el archivo no se trocea, corregilo y volvé a subirlo.`,
@@ -488,6 +492,7 @@ export function ProductImportDialog({
                   <div><span className="font-medium text-foreground">Stock mínimo</span> <span className="text-muted-foreground">(opcional — número entero)</span></div>
                   <div><span className="font-medium text-foreground">Código</span> <span className="text-muted-foreground">(código de barras)</span></div>
                   <div><span className="font-medium text-foreground">SKU</span> <span className="text-muted-foreground">(opcional — si coincide con uno existente, actualiza ese producto)</span></div>
+                  <div><span className="font-medium text-foreground">Código balanza</span> <span className="text-muted-foreground">(opcional — PLU de la balanza, alias "PLU"; entero de 1 a 999.999)</span></div>
                 </div>
               </div>
 

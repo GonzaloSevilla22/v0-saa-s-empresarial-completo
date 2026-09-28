@@ -37,6 +37,7 @@ function makeRow(
     stock: 0,
     minStock: 0,
     barcode: null,
+    scalePlu: null,
     attributes: [],
     warnings: [],
     errors: [],

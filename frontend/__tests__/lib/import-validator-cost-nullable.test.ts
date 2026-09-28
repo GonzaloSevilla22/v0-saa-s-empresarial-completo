@@ -13,7 +13,7 @@ import type { RawImportRow } from "@/lib/import/types"
 function raw(over: Partial<RawImportRow> & { lineNumber: number }): RawImportRow {
   return {
     tipo: "Producto", nombre: "Producto", sku: "", sku_padre: "", producto_padre: "",
-    precio: "10", costo: "5", categoria: "", stock: "0", stock_minimo: "0", codigo: "", attributes: {},
+    precio: "10", costo: "5", categoria: "", stock: "0", stock_minimo: "0", codigo: "", codigo_balanza: "", attributes: {},
     ...over,
   }
 }

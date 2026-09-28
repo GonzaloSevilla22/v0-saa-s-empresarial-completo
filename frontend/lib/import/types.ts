@@ -33,6 +33,9 @@ export const IMPORT_COLUMN_MAP = [
   { csvHeader: "Stock",           key: "stock"           },
   { csvHeader: "Stock mínimo",    key: "stock_minimo"    },
   { csvHeader: "Código",          key: "codigo"          },
+  // balanza-etiquetas-pos (D14, OQ-6): alias "PLU" para quien copia el
+  // vocabulario de la balanza tal cual en su planilla.
+  { csvHeader: "Código balanza",  key: "codigo_balanza", aliases: ["plu"] },
 ] as const
 
 /** Only the name is strictly required. Everything else is optional. */
@@ -56,6 +59,8 @@ export interface RawImportRow {
   stock:           string
   stock_minimo:    string
   codigo:          string
+  /** balanza-etiquetas-pos (D14): celda vacía = ausente (nunca "0"). */
+  codigo_balanza:  string
   attributes:      Record<string, string>
 }
 
@@ -100,6 +105,8 @@ export interface ValidatedImportRow {
   stock:         number
   minStock:      number
   barcode:       string | null
+  /** balanza-etiquetas-pos (D14): `null` = celda vacía (ausente, conserva). */
+  scalePlu:      number | null
   attributes:    ImportAttribute[]
   warnings:      string[]
   errors:        string[]

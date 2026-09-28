@@ -22,6 +22,7 @@ import { validateImportRows, type NewCategorySummary } from "@/lib/import/valida
 import { resolveHierarchy }   from "@/lib/import/resolver"
 import type { ImportCategoryRef, ResolvedImportRow, ValidatedImportRow } from "@/lib/import/types"
 import type { ProductImportRow } from "@/lib/types"
+import type { ScaleSettings } from "@/lib/scale-layout"
 
 export interface PreparedImport {
   /** Todas las filas validadas (incluye las que tienen error de cliente). */
@@ -49,6 +50,8 @@ export interface PreparedImport {
 export async function prepareProductImport(
   file: File,
   categories: readonly ImportCategoryRef[] = [],
+  /** balanza-etiquetas-pos (D14): aviso no bloqueante de "Código" ~ etiqueta. */
+  scaleSettings?: ScaleSettings,
 ): Promise<PreparedImport> {
   const parsed = await parseImportFile(file)
   if (!parsed.ok) throw new Error(parsed.error)
@@ -57,7 +60,7 @@ export async function prepareProductImport(
     rows: validatedRows, invalidCount, warningCount,
     parentCount, variantCount, standaloneCount,
     newCategories, newCategoryLimitExceeded, maxNewCategories,
-  } = validateImportRows(parsed.rows, categories)
+  } = validateImportRows(parsed.rows, categories, scaleSettings)
 
   // Superar el tope se comunica en el PASO 2 (alerta inline + botón
   // deshabilitado), igual que antes de este change — no se aborta el
@@ -96,6 +99,9 @@ function toApiRow(row: ResolvedImportRow): ProductImportRow {
     stock:    isPadre ? 0 : row.stock,
     minStock: row.minStock,
     barcode:  row.barcode,
+    // balanza-etiquetas-pos (D2/D14): un Padre (variant_only) no admite PLU
+    // (ya es error de fila en el validador si lo trae) — null, no 0.
+    scalePlu: isPadre ? null : row.scalePlu,
     sku:      row.sku,
     // D9: la referencia explícita viaja TAL CUAL — nunca se resuelve en el
     // cliente. resolvedParentId ya no lo produce ningún camino (el resolver

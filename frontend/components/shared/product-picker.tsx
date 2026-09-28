@@ -30,6 +30,14 @@ interface PickerOption {
   price:       number
   stock:       number
   unitSymbol?: string
+  /**
+   * balanza-etiquetas-pos (D2): FUERA de `searchKey` a propósito —
+   * `searchKey` filtra por subcadena ("5"/"50" encontrarían el PLU 509), y
+   * la búsqueda por código de balanza es EXACTA (escribir "509" encuentra el
+   * producto; "50" no lo encuentra por PLU, aunque sí por nombre/SKU/barcode
+   * si coincidiera con esos).
+   */
+  scalePlu?: number | null
 }
 
 // ── Props ─────────────────────────────────────────────────────────────────────
@@ -101,6 +109,7 @@ export function ProductPicker({
             price:       p.price,
             stock:       p.stock,
             unitSymbol:  baseUnit?.symbol,
+            scalePlu:    p.scalePlu ?? null,
           }
         }),
     [products, parentProductIds, productById, unitsById],
@@ -135,15 +144,24 @@ export function ProductPicker({
       const key     = norm(o.searchKey)        // searchKey already lowercase + no diacritics; add z↔s
       const display = norm(o.displayName)
 
-      // AND semantics: every token must appear somewhere
-      if (!tokens.every((t) => key.includes(t) || display.includes(t))) continue
+      // balanza-etiquetas-pos (D2): coincidencia EXACTA por código de
+      // balanza, fuera de `searchKey` — "509" encuentra el PLU 509; "50" no
+      // (a diferencia de una subcadena de nombre/SKU/barcode).
+      const pluExactMatch = o.scalePlu != null && raw === String(o.scalePlu)
 
-      // Rank by relevance (higher = better match)
-      let score = 0
-      if (key.includes(q) || display.includes(q))                        score += 100 // exact phrase
-      if (key.startsWith(tokens[0]) || display.startsWith(tokens[0]))    score += 50  // starts with first token
-      for (const t of tokens) {
-        if (key.startsWith(t) || key.includes(` ${t}`))                  score += 10  // word-boundary hit
+      // AND semantics: every token must appear somewhere
+      const tokenMatch = tokens.every((t) => key.includes(t) || display.includes(t))
+      if (!pluExactMatch && !tokenMatch) continue
+
+      // Rank by relevance (higher = better match) — un PLU exacto es la
+      // coincidencia más fuerte posible (identifica un único producto).
+      let score = pluExactMatch ? 1000 : 0
+      if (tokenMatch) {
+        if (key.includes(q) || display.includes(q))                        score += 100 // exact phrase
+        if (key.startsWith(tokens[0]) || display.startsWith(tokens[0]))    score += 50  // starts with first token
+        for (const t of tokens) {
+          if (key.startsWith(t) || key.includes(` ${t}`))                  score += 10  // word-boundary hit
+        }
       }
 
       scored.push({ option: o, score })

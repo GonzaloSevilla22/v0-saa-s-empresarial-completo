@@ -82,6 +82,7 @@ interface ProductImportRowApi {
   stock?: string | null
   min_stock?: number | null
   barcode?: string | null
+  scale_plu?: number | null
   sku?: string | null
   sku_parent?: string | null
   parent_name?: string | null
@@ -177,6 +178,7 @@ export function useImportProducts() {
         stock: r.stock != null ? String(r.stock) : null,
         min_stock: r.minStock ?? null,
         barcode: r.barcode ?? null,
+        scale_plu: r.scalePlu ?? null,
         sku: r.sku ?? null,
         sku_parent: r.skuParent ?? null,
         parent_name: r.parentName ?? null,

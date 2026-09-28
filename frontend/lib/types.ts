@@ -679,6 +679,8 @@ export interface ProductImportRow {
   stock?: number | null
   minStock?: number | null
   barcode?: string | null
+  /** balanza-etiquetas-pos (D14): `null`/`undefined` = celda vacía (ausente, conserva). */
+  scalePlu?: number | null
   sku?: string | null
   /** Referencia de jerarquía por SKU — el SERVIDOR la resuelve por cuenta (D9). */
   skuParent?: string | null

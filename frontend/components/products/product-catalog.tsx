@@ -263,28 +263,26 @@ export function ProductCatalog({
     }
 
     const q = search.toLowerCase()
-    // ventas-unidades-conversion (auditoría post-apply): el id también matchea —
-    // la acción "Editar producto" de operation-errors enlaza /productos?q=<uuid>
-    // (el error de la RPC sólo trae el id) y el catálogo devolvía la lista vacía.
-    const matchesId = (id: string) => id.toLowerCase() === q
+    const qTrimmed = search.trim()
+
+    // balanza-etiquetas-pos (D2, task 10.3): único predicado — antes eran
+    // tres copias inline (padre, variantes, producto suelto) sobre
+    // nombre/código de barras/SKU, con el id (ventas-unidades-conversion) y
+    // ahora la coincidencia EXACTA por scalePlu ("509" encuentra el PLU 509;
+    // "50" no lo encuentra por PLU — a diferencia del resto de los campos,
+    // que son por subcadena).
+    const matchesProductSearch = (p: Product) =>
+      p.id.toLowerCase() === q ||
+      p.name.toLowerCase().includes(q) ||
+      (p.category ?? "").toLowerCase().includes(q) ||
+      (p.barcode ?? "").toLowerCase().includes(q) ||
+      (p.sku ?? "").toLowerCase().includes(q) ||
+      (p.scalePlu != null && String(p.scalePlu) === qTrimmed)
 
     const filteredGroups = groups
       .map((g) => {
-        // productos-categorias-sku (13.3): el SKU entra a los predicados.
-        const parentHit =
-          matchesId(g.parent.id) ||
-          g.parent.name.toLowerCase().includes(q) ||
-          (g.parent.category ?? "").toLowerCase().includes(q) ||
-          (g.parent.barcode ?? "").toLowerCase().includes(q) ||
-          (g.parent.sku ?? "").toLowerCase().includes(q)
-
-        const matchingChildren = g.children.filter(
-          (c) =>
-            matchesId(c.id) ||
-            c.name.toLowerCase().includes(q) ||
-            (c.barcode ?? "").toLowerCase().includes(q) ||
-            (c.sku ?? "").toLowerCase().includes(q),
-        )
+        const parentHit = matchesProductSearch(g.parent)
+        const matchingChildren = g.children.filter(matchesProductSearch)
 
         if (!parentHit && matchingChildren.length === 0) return null
 
@@ -292,14 +290,7 @@ export function ProductCatalog({
       })
       .filter(Boolean) as ProductGroup[]
 
-    const filteredStandalones = standalones.filter(
-      (p) =>
-        matchesId(p.id) ||
-        p.name.toLowerCase().includes(q) ||
-        (p.category ?? "").toLowerCase().includes(q) ||
-        (p.barcode ?? "").toLowerCase().includes(q) ||
-        (p.sku ?? "").toLowerCase().includes(q),
-    )
+    const filteredStandalones = standalones.filter(matchesProductSearch)
 
     return { filteredGroups, filteredStandalones }
   }, [groups, standalones, search])

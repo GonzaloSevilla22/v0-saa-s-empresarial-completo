@@ -98,6 +98,9 @@ async def import_products(
                 "min_stock": row.min_stock,
                 "barcode": row.barcode,
                 "sku": row.sku,
+                # balanza-etiquetas-pos (D14): ausente viaja como null → la RPC
+                # conserva el código vigente (COALESCE, igual que barcode).
+                "scale_plu": row.scale_plu,
                 "sku_parent": row.sku_parent,
                 "parent_name": row.parent_name,
                 "is_variant": row.is_variant,
@@ -162,6 +165,8 @@ async def update_product(
         cost_provided="cost" in payload.model_fields_set,
         # ventas-unidades-conversion (D10): mismo tri-estado para la unidad base.
         base_unit_provided="base_unit_id" in payload.model_fields_set,
+        # balanza-etiquetas-pos (D2): mismo tri-estado para el código de balanza.
+        scale_plu_provided="scale_plu" in payload.model_fields_set,
         category_repo=category_repo,
     )
 

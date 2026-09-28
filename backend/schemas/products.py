@@ -42,6 +42,10 @@ class ProductCreate(BaseModel):
     # change el formulario la mandaba y el backend la descartaba en silencio.
     # NULL = sin unidad base (sólo admite unidades base al vender/comprar).
     base_unit_id: uuid.UUID | None = None
+    # balanza-etiquetas-pos (D2): código de balanza (PLU) que la etiquetadora
+    # imprime en el EAN-13 de la etiqueta. Opcional; 1..999.999 (tiene que
+    # caber en el campo "Código" del EAN-13). Un variant_only no lo admite.
+    scale_plu: int | None = Field(default=None, ge=1, le=999999)
 
 
 class ProductUpdate(BaseModel):
@@ -69,6 +73,10 @@ class ProductUpdate(BaseModel):
     # (mismo molde que `cost`/`sku`/`category_id`): omitida conserva; uuid
     # asigna; null desasigna.
     base_unit_id: uuid.UUID | None = None
+    # balanza-etiquetas-pos (D2): tri-estado por AUSENCIA de la clave (mismo
+    # molde, `scale_plu_provided` en el router): omitida conserva; valor
+    # asigna; null desasigna.
+    scale_plu: int | None = Field(default=None, ge=1, le=999999)
 
 
 class ProductOut(BaseModel):
@@ -99,6 +107,10 @@ class ProductOut(BaseModel):
     # ventas-unidades-conversion (auditoría post-apply): unidad base EFECTIVA —
     # la vista devuelve la propia o, para una variante, la de su padre.
     base_unit_id: uuid.UUID | None = None
+    # balanza-etiquetas-pos (D2): última columna de v_products_with_stock desde
+    # 20261066000001. Default None: una base sin la migración sigue
+    # deserializando.
+    scale_plu: int | None = None
 
 
 # ── productos-categorias-sku (D14): recategorización en lote ─────────────────
@@ -175,6 +187,9 @@ class ProductImportRowIn(BaseModel):
     parent_name: str | None = None
     is_variant: bool | None = None
     stock_control_type: str | None = None
+    # balanza-etiquetas-pos (D14): celda vacía = ausente (`None` → null en el
+    # JSON; la RPC conserva el código vigente, igual que barcode).
+    scale_plu: int | None = Field(default=None, ge=1, le=999999)
     attributes: list[ProductImportAttributeIn] = Field(default_factory=list)
 
 

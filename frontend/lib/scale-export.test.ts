@@ -109,6 +109,15 @@ describe("buildScaleCsv — D12", () => {
     expect(warnings).toContainEqual({ productId: "p8", productName: "Con SKU largo", reason: "sku_too_long" })
   })
 
+  it("un nombre con comillas dobles y simples no rompe el archivo (11.4 red-team): sin comillado RFC4180, pasan literales sin agregar campos", () => {
+    const p = product({ id: "p10", name: `Dulce de "leche" 1kg`, price: 10, baseUnitId: "u-kg", scalePlu: 830 })
+    const { csv } = buildScaleCsv([p], CATEGORIES, UNITS, ENABLED_FACTORY)
+    const line = csv.split("\r\n")[0]
+    const fields = line.split(";")
+    expect(fields).toHaveLength(31)
+    expect(line).toContain(`Dulce de "leche" 1kg`)
+  })
+
   it("TRIANGULATE: nombre y sección con emoji/tildes/ñ se translitera a ASCII", () => {
     const p = product({ id: "p9", name: "Ñoquis 🥔 caseros", price: 10, baseUnitId: "u-un", scalePlu: 820 })
     const { csv } = buildScaleCsv([p], CATEGORIES, UNITS, ENABLED_FACTORY)

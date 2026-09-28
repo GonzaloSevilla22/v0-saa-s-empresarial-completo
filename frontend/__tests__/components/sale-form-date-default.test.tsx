@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest"
 import { render } from "@testing-library/react"
 import { SaleForm } from "@/components/forms/sale-form"
+import { FACTORY_SCALE_SETTINGS } from "@/lib/scale-layout"
 
 // app-timezone-argentina, task 2.2: el default y el `max` del selector de
 // fecha deben resolver al día ARGENTINO, no al día UTC del server. Este test
@@ -35,6 +36,12 @@ vi.mock("@/hooks/data/use-payment-methods", () => ({ usePaymentMethods: () => ({
 // python-client, que tira al importar sin NEXT_PUBLIC_BACKEND_URL.
 vi.mock("@/hooks/data/use-collection-settings", () => ({
   useCollectionSettings: () => ({ data: { defaultPaymentTermsDays: null }, isLoading: false }),
+}))
+// balanza-etiquetas-pos (grupo 8): la balanza deshabilitada de fábrica no
+// cambia nada de lo que este archivo ejercita, pero el hook real dispara
+// python-client sin NEXT_PUBLIC_BACKEND_URL en el entorno de test.
+vi.mock("@/hooks/data/use-scale-settings", () => ({
+  useScaleSettings: () => ({ settings: FACTORY_SCALE_SETTINGS, isLoading: false, isError: false, error: null }),
 }))
 
 vi.mock("@/hooks/data/use-customer-account", () => ({ useCustomerAccount: () => ({ data: null }) }))

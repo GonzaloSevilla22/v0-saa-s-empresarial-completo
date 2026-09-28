@@ -1,6 +1,9 @@
 "use client"
 
 import { useState, useMemo, useCallback, useEffect, useRef } from "react"
+import type { ScanFeedback } from "@/hooks/use-barcode-scanner"
+import { useScaleSettings } from "@/hooks/data/use-scale-settings"
+import { resolveScan } from "@/lib/scan-resolution"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { NumericInput } from "@/components/ui/numeric-input"
@@ -33,6 +36,8 @@ import {
   calcSaleSubtotal,
   calcCartTotal,
   unitPriceFromSubtotal,
+  addScannedProductLine,
+  exceedsStock,
   type SaleCartItem,
 } from "@/lib/cart-utils"
 import { useIdempotencyKey } from "@/hooks/use-idempotency-key"
@@ -74,6 +79,20 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
   const { idempotencyKey, resetIdempotencyKey } = useIdempotencyKey("sale-create")
   const isEdit = !!editingOperation
   const router = useRouter()
+
+  // ── balanza-etiquetas-pos (D3/D10): configuración de balanza, siempre
+  // fresca (staleTime corto + refetch en foco/mount) ──────────────────────────
+  const { settings: scaleSettings } = useScaleSettings()
+  // D9: el `<form>` es el contenedor de referencia para la suspensión por
+  // diálogo modal — el `AlertDialog` de anulación (`confirmVoidOpen`) porta
+  // su contenido fuera de este árbol (Radix Portal), así que cuando está
+  // abierto `scopeRef.current` deja de estar "contenido" y el lector se
+  // suspende; el diálogo "Nueva venta" que envuelve este form SÍ lo contiene.
+  const scopeRef = useRef<HTMLFormElement>(null)
+  // D8: un producto medible escaneado por código común/SKU no agrega una
+  // cantidad arbitraria — queda elegido en el picker con el foco en "Cantidad".
+  const quantityInputRef = useRef<HTMLInputElement>(null)
+  const [focusQuantityToken, setFocusQuantityToken] = useState(0)
 
   // ── pagos-cableados-restantes (OQ-C/OQ-D): catálogo + kind resuelto ────────
   // Mismo patrón que /ventas/pos (pos-catalogo-pagos D7/D8) — reutilización
@@ -126,6 +145,11 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
       // reenvía tal cual — el form no ofrece cambiar la unidad al editar,
       // pero el valor tiene que sobrevivir el round-trip para no perderse.
       unitId:      item.unitId,
+      // balanza-etiquetas-pos (D8): toda línea rehidratada nace "persisted"
+      // — nunca se fusiona (un alta manual o un código del mismo producto y
+      // unidad crea una línea nueva) y no cuenta contra el disponible en
+      // `exceedsStock` (su cantidad ya salió de `product.stock`).
+      source:      "persisted" as const,
     }))
   })
 
@@ -218,6 +242,16 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
   useEffect(() => {
     if (!dueDateTouched) setDueDate(resolvedDueDate)
   }, [resolvedDueDate, dueDateTouched])
+
+  // balanza-etiquetas-pos (D8): foco en "Cantidad" tras elegir un producto
+  // medible por código común/SKU — corre DESPUÉS del commit (el input recién
+  // existe una vez que `selectedProduct` es verdadero).
+  useEffect(() => {
+    if (focusQuantityToken > 0) {
+      quantityInputRef.current?.focus()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusQuantityToken])
 
   // ── pagos-cableados-restantes (OQ-C): opt-in de caja ────────────────────────
   // La sucursal EFECTIVA es la elegida en el form, o la primera activa de la
@@ -313,16 +347,6 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
 
   // ── Option lists ────────────────────────────────────────────────────────────
 
-  // IDs of parent catalogue entries (have at least one variant child).
-  // Must NOT appear in the sale dropdown — users must pick a specific variant.
-  const parentProductIds = useMemo(() => {
-    const ids = new Set<string>()
-    for (const p of products) {
-      if (p.parentId) ids.add(p.parentId)
-    }
-    return ids
-  }, [products])
-
   const productById = useMemo(
     () => new Map(products.map((p) => [p.id, p])),
     [products],
@@ -347,70 +371,45 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
   // ── Handlers ────────────────────────────────────────────────────────────────
 
   /**
-   * Called by the barcode scanner on each successful scan.
-   * Looks up the product by its barcode and directly adds qty 1 to the cart,
-   * bypassing the staged-item flow so the user can scan multiple items
-   * without clicking "Agregar".
+   * balanza-etiquetas-pos (D6/D9): resuelve un código leído por el lector
+   * (código de barras exacto → etiqueta de balanza → SKU → error, D6) y lo
+   * despacha SIN ninguna lógica de etiquetas propia — todo vive en `lib/`
+   * (`resolveScan`, `addScannedProductLine`, `exceedsStock`, `resolveScaleScan`).
    */
-  const handleBarcodeScan = useCallback((barcode: string) => {
-    const product = products.find(
-      (p) =>
-        p.barcode &&
-        p.barcode.toUpperCase() === barcode.toUpperCase() &&
-        !parentProductIds.has(p.id),
-    )
+  function handleScan(code: string): ScanFeedback {
+    const result = resolveScan(code, { products, units, unitsById, settings: scaleSettings })
 
-    if (!product) {
-      toast.error(`Código "${barcode}" no encontrado`)
-      return
+    if (result.kind === "error") {
+      return { ok: false, label: result.message }
     }
 
-    const baseUnit = resolveUnit(product.baseUnitId, unitsById)
-    const qty      = unitInputMin(baseUnit)   // honour fractional-unit minimums
-    const step     = unitInputStep(baseUnit)
-
-    setCartItems((prev) => {
-      const existing = prev.find(
-        (item) =>
-          item.productId === product.id &&
-          (item.unitId ?? "") === (product.baseUnitId ?? ""),
-      )
-
-      if (existing) {
-        const newQty = existing.quantity + qty
-        toast.success(`+${qty} ${product.name}`)
-        return prev.map((item) =>
-          item.id === existing.id
-            ? {
-                ...item,
-                quantity:     newQty,
-                quantityBase: toBaseQuantity(newQty, baseUnit, baseUnit),
-                subtotal:     calcSaleSubtotal(product.price, newQty, item.discount),
-              }
-            : item,
-        )
-      } else {
-        toast.success(`✓ ${product.name}`)
-        return [
-          ...prev,
-          {
-            id:           crypto.randomUUID(),
-            productId:    product.id,
-            productName:  getCanonicalLabel(product, product.parentId ? productById.get(product.parentId) : undefined),
-            unitPrice:    product.price,
-            quantity:     qty,
-            discount:     0,
-            subtotal:     calcSaleSubtotal(product.price, qty, 0),
-            unitId:       product.baseUnitId || undefined,
-            unitSymbol:   baseUnit?.symbol,
-            quantityBase: toBaseQuantity(qty, baseUnit, baseUnit),
-            step,
-            minQty:       qty,
-          },
-        ]
+    if (result.kind === "product") {
+      const addResult = addScannedProductLine(cartItems, result.product, { unitsById, products })
+      if ("needsQuantity" in addResult) {
+        // D8: producto medible por código común/SKU — se elige en el
+        // selector y el foco pasa a "Cantidad" sin agregar 0,001.
+        handleProductChange(result.product.id)
+        setFocusQuantityToken((t) => t + 1)
+        return { ok: true, label: `Ingresá la cantidad de «${result.product.name}»` }
       }
-    })
-  }, [products, parentProductIds, unitsById, productById])
+      setCartItems(addResult.items)
+      return { ok: true, label: `✓ ${result.product.name}` }
+    }
+
+    // result.kind === "scale_line" (D7): una línea nueva, nunca fusionada
+    // (D8) — el chequeo de stock es acumulativo (exceedsStock, D7/OQ-9).
+    const line        = result.line
+    const lineProduct = productById.get(line.productId)
+    const lineBaseUnit = resolveUnit(lineProduct?.baseUnitId, unitsById)
+    if (exceedsStock(cartItems, line.productId, line.quantityBase ?? line.quantity, lineProduct?.stock ?? 0)) {
+      return {
+        ok: false,
+        label: `Stock insuficiente (disponible: ${formatStock(lineProduct?.stock ?? 0, lineBaseUnit?.symbol)})`,
+      }
+    }
+    setCartItems((prev) => [...prev, { id: crypto.randomUUID(), ...line }])
+    return { ok: true, label: `✓ ${line.productName}` }
+  }
 
   function handleProductChange(id: string) {
     setProductId(id)
@@ -432,21 +431,27 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
       return
     }
 
-    // Existing cart item with same product AND same unit → accumulate quantities
+    // D8: la fusión sólo mira líneas SIN `source` — una línea de balanza
+    // (`"scale"`) o rehidratada al editar (`"persisted"`) nunca se toca
+    // desde el alta manual.
     const existing = cartItems.find(
-      (item) => item.productId === productId && (item.unitId ?? "") === unitId,
+      (item) => item.productId === productId && (item.unitId ?? "") === unitId && !item.source,
     )
 
     // El stock del producto se lleva en su unidad BASE: el disponible se
     // informa con el símbolo de la base, nunca con el de la línea (con la
     // línea en gramos decía "0.550 g" sobre 0,55 kg — corrección del PR #584).
+    // D7/OQ-9: el chequeo es ACUMULATIVO (`exceedsStock`) — suma todas las
+    // líneas del carrito del mismo producto (persisted excluida) más lo
+    // nuevo, en vez de mirar sólo la línea que se está tocando.
+    if (exceedsStock(cartItems, productId, stagedQuantityNormalized, selectedProduct.stock)) {
+      toast.error(`Stock insuficiente (disponible: ${formatStock(selectedProduct.stock, productBaseUnit?.symbol)})`)
+      return
+    }
+
     if (existing) {
       const newQty           = existing.quantity + quantity
       const newNormalized    = toBaseQuantity(newQty, selectedUnit, productBaseUnit)
-      if (newNormalized > selectedProduct.stock) {
-        toast.error(`Stock insuficiente (disponible: ${formatStock(selectedProduct.stock, productBaseUnit?.symbol)})`)
-        return
-      }
       setCartItems((prev) =>
         prev.map((item) =>
           item.id === existing.id
@@ -461,11 +466,6 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
       )
       toast.success(`Cantidad actualizada: ${selectedProduct.name}`)
     } else {
-      // New cart entry (different product or different unit)
-      if (stagedQuantityNormalized > selectedProduct.stock) {
-        toast.error(`Stock insuficiente (disponible: ${formatStock(selectedProduct.stock, productBaseUnit?.symbol)})`)
-        return
-      }
       setCartItems((prev) => [
         ...prev,
         {
@@ -695,7 +695,7 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
 
   // ── Render ───────────────────────────────────────────────────────────────────
   return (
-    <form onSubmit={handleSubmit}>
+    <form ref={scopeRef} onSubmit={handleSubmit}>
       {/* edicion-preserva-contexto (F2 §D11): banner de bloqueo fiscal —
           explica el motivo ANTES de que el usuario intente guardar. El
           fieldset de más abajo deja todos los controles inertes; este
@@ -1056,7 +1056,7 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
               <PackagePlus className="h-3.5 w-3.5" />
               Agregar producto
             </Label>
-            <BarcodeScannerInput onScan={handleBarcodeScan} />
+            <BarcodeScannerInput onScan={handleScan} scopeRef={scopeRef} guardFocusedInput />
           </div>
 
           <ProductPicker
@@ -1095,6 +1095,7 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
                     {quantityLabel}
                   </Label>
                   <NumericInput
+                    ref={quantityInputRef}
                     min={stagedMin}
                     step={stagedStep}
                     value={quantity}

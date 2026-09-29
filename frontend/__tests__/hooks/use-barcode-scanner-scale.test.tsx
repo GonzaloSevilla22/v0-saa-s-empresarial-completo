@@ -13,6 +13,7 @@ import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from "vite
 import { render, screen, act } from "@testing-library/react"
 import "@testing-library/jest-dom"
 import { useBarcodeScanner, type ScanFeedback } from "@/hooks/use-barcode-scanner"
+import { BarcodeScannerInput } from "@/components/shared/barcode-scanner-input"
 import { ResponsiveModal } from "@/components/shared/responsive-modal"
 import {
   AlertDialog,
@@ -47,6 +48,56 @@ function pressKey(key: string, extra: Partial<KeyboardEventInit> = {}) {
 function scanCode(code: string) {
   for (const ch of code) pressKey(ch)
   pressKey("Enter")
+}
+
+/**
+ * Simula la ÚNICA parte del "escribir en el campo" que jsdom no hace sola: la
+ * inserción de texto que el navegador ejecuta como acción por defecto de un
+ * `keydown` no prevenido. Usa el setter nativo del prototipo (como
+ * `restoreNativeValue` en producción) + un evento `input` real para que el
+ * `onChange` de un input CONTROLADO lo vea y re-renderice — exactamente lo
+ * que pasa en un navegador real entre dos teclas de una ráfaga.
+ */
+function insertNativeChar(el: HTMLInputElement, ch: string): void {
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set
+  const next = el.value + ch
+  if (setter) setter.call(el, next)
+  else el.value = next
+  el.dispatchEvent(new Event("input", { bubbles: true }))
+}
+
+/**
+ * Escanea un código como lo vería un navegador REAL con `guardFocusedInput`:
+ * cada tecla es un evento de `document` separado (no un único `act()` que
+ * agrupa todo), y el carácter que el hook NO previno se escribe en el campo
+ * con foco — que es justo lo que puede disparar el re-render del padre que
+ * F1 (revisión adversarial PR #599) encontró rompiendo el buffer a mitad de
+ * ráfaga. `act()` por tecla es necesario: agrupar todo en un solo `act()`
+ * batchea los `setState` y nunca deja correr el efecto entre caracteres,
+ * ocultando el bug (mismo motivo que F2 señala sobre los tests existentes).
+ *
+ * Reloj FALSO (sin avanzarlo entre teclas): con el reloj real, el overhead
+ * del propio `act()`/re-render en el entorno de test puede superar los 50 ms
+ * de `scannerThreshold` entre dos `act()` sucesivos y hacer que CADA tecla
+ * se vea como una ráfaga nueva (falso negativo del test, nada que ver con
+ * `guardFocusedInput`) — el reloj congelado imita un lector real, donde el
+ * hardware entrega los caracteres en microsegundos.
+ */
+function scanCodeAsRealBrowser(input: HTMLInputElement, code: string): void {
+  vi.useFakeTimers()
+  try {
+    for (const ch of code) {
+      act(() => {
+        const { defaultPrevented } = pressKey(ch)
+        if (!defaultPrevented) insertNativeChar(input, ch)
+      })
+    }
+    act(() => {
+      pressKey("Enter")
+    })
+  } finally {
+    vi.useRealTimers()
+  }
 }
 
 // ── Harness genérico (sin diálogos) ─────────────────────────────────────────
@@ -92,11 +143,26 @@ describe("useBarcodeScanner — enabled", () => {
 })
 
 describe("useBarcodeScanner — e.repeat (D9)", () => {
+  // Fix F2 (revisión adversarial PR #599): sin fake timers, esta aserción
+  // pasaba aunque se borrara `if (e.repeat) return` — el auto-flush del
+  // buffer corre a los `scannerThreshold * 4` = 200 ms, DESPUÉS de que el
+  // `expect` ya se había evaluado. Con el reloj avanzado 250 ms, el test
+  // exige de verdad que ninguna tecla mantenida haya quedado en el buffer.
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
   it("una tecla mantenida (repeat: true) no se toma como escaneo", () => {
     const onScan = vi.fn()
     render(<ScannerHarness onScan={onScan} />)
     act(() => {
       for (let i = 0; i < 6; i++) pressKey("0", { repeat: true })
+    })
+    act(() => {
+      vi.advanceTimersByTime(250)
     })
     expect(onScan).not.toHaveBeenCalled()
   })
@@ -139,7 +205,13 @@ describe("useBarcodeScanner — guardFocusedInput (D9)", () => {
     const input = screen.getByLabelText("Cantidad") as HTMLInputElement
     input.focus()
 
-    act(() => scanCode("7791234567898"))
+    // Fix F2 (revisión adversarial PR #599): jsdom no inserta texto por sí
+    // solo en un keydown — sin escribir el PRIMER carácter (el único que el
+    // hook no previene) a mano, `input.value` nunca cambiaba de "1" y el
+    // `expect` de abajo pasaba aunque se borrara `restoreNativeValue` por
+    // completo. `scanCodeAsRealBrowser` simula esa inserción y usa un
+    // `act()` por tecla (no uno solo agrupando toda la ráfaga).
+    scanCodeAsRealBrowser(input, "7791234567898")
 
     expect(input.value).toBe("1")
   })
@@ -151,12 +223,96 @@ describe("useBarcodeScanner — guardFocusedInput (D9)", () => {
     input.value = "5"
     input.focus()
 
-    act(() => {
-      for (let i = 0; i < 5; i++) pressKey("0", { repeat: true })
-    })
+    vi.useFakeTimers()
+    try {
+      act(() => {
+        for (let i = 0; i < 5; i++) pressKey("0", { repeat: true })
+      })
+      // Fix F2: sin avanzar el reloj más allá del auto-flush (200 ms), este
+      // test pasaba aunque se borrara `if (e.repeat) return` — el buffer
+      // nunca llegaba a vaciarse por timer ANTES del `expect`.
+      act(() => {
+        vi.advanceTimersByTime(250)
+      })
+    } finally {
+      vi.useRealTimers()
+    }
 
     expect(input.value).toBe("5")
     expect(onScan).not.toHaveBeenCalled()
+  })
+
+  // ── Regresión F1 (revisión adversarial PR #599) ───────────────────────────
+  //
+  // El POS y el formulario de venta pasan un `onScan` SIN memoizar (una
+  // `function handleScan(code) {...}` declarada en el cuerpo del componente,
+  // nueva identidad en cada render) y montan un campo controlado (Cantidad,
+  // Precio, Descuento) que re-renderiza el componente en cada carácter que
+  // llega a escribirse. Antes del fix, `onScan` estaba en las deps del
+  // efecto que suscribe `document` — cada re-render resuscribía el efecto,
+  // y su cleanup (`resetBuffer`) vaciaba el buffer a mitad de la ráfaga: la
+  // etiqueta nunca llegaba a `minLength` y quedaba escrita entera en el
+  // campo (y el Enter final, sin prevenir, podía enviar el <form>).
+  describe("useBarcodeScanner — onScan inestable + input controlado (regresión F1)", () => {
+    it("un onScan sin memoizar, recreado en cada render por el propio estado del input, igual completa el escaneo", () => {
+      const scanned: string[] = []
+      function InstableParentHarness() {
+        const [quantity, setQuantity] = useState("1")
+        // A propósito NO es un useCallback — así es exactamente como
+        // `pos/page.tsx` y `sale-form.tsx` declaran `handleScan` (F1).
+        function handleScan(code: string): void {
+          scanned.push(code)
+        }
+        useBarcodeScanner({ onScan: handleScan, guardFocusedInput: true })
+        return (
+          <input
+            aria-label="Cantidad"
+            value={quantity}
+            onChange={(e) => setQuantity(e.target.value)}
+          />
+        )
+      }
+      render(<InstableParentHarness />)
+      const input = screen.getByLabelText("Cantidad") as HTMLInputElement
+      input.focus()
+
+      scanCodeAsRealBrowser(input, "7791234567898")
+
+      expect(scanned).toEqual(["7791234567898"])
+      // El primer carácter (el único no prevenido) queda restaurado.
+      expect(input.value).toBe("1")
+    })
+
+    it("el mismo escenario a través de BarcodeScannerInput (POS/sale-form reales)", () => {
+      const scanned: string[] = []
+      function InstableParentHarness() {
+        const [quantity, setQuantity] = useState("1")
+        // Igual que `pos/page.tsx`: `function handleScan(code) { ... }` sin
+        // memoizar, pasada directo como prop `onScan`.
+        function handleScan(code: string): ScanFeedback {
+          scanned.push(code)
+          return { ok: true, label: "Tomate" }
+        }
+        return (
+          <div>
+            <input
+              aria-label="Cantidad"
+              value={quantity}
+              onChange={(e) => setQuantity(e.target.value)}
+            />
+            <BarcodeScannerInput onScan={handleScan} guardFocusedInput />
+          </div>
+        )
+      }
+      render(<InstableParentHarness />)
+      const input = screen.getByLabelText("Cantidad") as HTMLInputElement
+      input.focus()
+
+      scanCodeAsRealBrowser(input, "7791234567898")
+
+      expect(scanned).toEqual(["7791234567898"])
+      expect(input.value).toBe("1")
+    })
   })
 
   it("sin la opción (product-form), ningún carácter se previene — el navegador lo escribe en el campo con foco", () => {

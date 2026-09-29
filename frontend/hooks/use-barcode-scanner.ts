@@ -99,6 +99,17 @@ function restoreNativeValue(el: GuardableElement, value: string): void {
 }
 
 /**
+ * Fix post-revisión-adversarial-#599 (F1, segunda causa raíz): un valor por
+ * `default` en la desestructuración de parámetros es una expresión que se
+ * evalúa de NUEVO en cada llamada — con `allowedCharsRegex = /…/` inline,
+ * cada render del caller que no pasa esta prop (todos: `BarcodeScannerInput`
+ * no la expone) creaba un `RegExp` con identidad nueva, que quedaba en las
+ * deps del efecto y lo resuscribía en CADA render sin importar el fix de
+ * `onScanRef` de más abajo. Constante de módulo = misma identidad siempre.
+ */
+const DEFAULT_ALLOWED_CHARS_REGEX = /^[A-Za-z0-9\-_.]$/
+
+/**
  * Document-level barcode scanner hook.
  *
  * Listens to `keydown` events at the document level and differentiates
@@ -117,7 +128,7 @@ export function useBarcodeScanner({
   enabled = true,
   scannerThreshold = 50,
   minLength = 4,
-  allowedCharsRegex = /^[A-Za-z0-9\-_.]$/,
+  allowedCharsRegex = DEFAULT_ALLOWED_CHARS_REGEX,
   scopeRef,
   guardFocusedInput = false,
 }: UseBarcodeScannerOptions) {
@@ -130,6 +141,18 @@ export function useBarcodeScanner({
   // tenía ANTES del primer carácter de la ráfaga en curso.
   const guardedElementRef  = useRef<GuardableElement | null>(null)
   const guardedPrevValueRef = useRef<string>("")
+
+  // Fix post-revisión-adversarial-#599 (F1): `onScan` NO puede ser una
+  // dependencia del efecto que suscribe el listener de `document` — en el
+  // POS y el formulario de venta llega como una función SIN memoizar (nueva
+  // identidad en cada render), y cada tecla que llega al campo con foco
+  // dispara un `onChange` que re-renderiza al padre. Si el efecto tuviera
+  // `onScan` en sus deps, se RE-SUSCRIBIRÍA en cada una de esas teclas, y su
+  // cleanup (`resetBuffer`) vaciaría el buffer a mitad de la ráfaga — la
+  // etiqueta nunca junta `minLength` y queda escrita entera en el campo. La
+  // ref siempre apunta a la versión más reciente sin forzar la resuscripción.
+  const onScanRef = useRef(onScan)
+  onScanRef.current = onScan
 
   const resetBuffer = useCallback(() => {
     bufferRef.current      = ""
@@ -152,10 +175,13 @@ export function useBarcodeScanner({
           restoreNativeValue(el, guardedPrevValueRef.current)
         }
       }
-      onScan(code)
+      onScanRef.current(code)
     }
     resetBuffer()
-  }, [onScan, minLength, resetBuffer, guardFocusedInput])
+    // `onScan` deliberadamente AFUERA de las deps (ver `onScanRef` arriba) —
+    // `flush` debe quedar ESTABLE aunque el `onScan` del caller cambie de
+    // identidad en cada render.
+  }, [minLength, resetBuffer, guardFocusedInput])
 
   useEffect(() => {
     if (!enabled) return
@@ -190,7 +216,7 @@ export function useBarcodeScanner({
               restoreNativeValue(el, guardedPrevValueRef.current)
             }
           }
-          onScan(code)
+          onScanRef.current(code)
         }
         resetBuffer()
         return
@@ -237,5 +263,10 @@ export function useBarcodeScanner({
       document.removeEventListener("keydown", handleKeyDown, { capture: true })
       resetBuffer()
     }
-  }, [enabled, flush, resetBuffer, onScan, minLength, scannerThreshold, allowedCharsRegex, scopeRef, guardFocusedInput])
+    // `onScan` deliberadamente AFUERA de las deps — ver `onScanRef` arriba.
+    // Con `onScan` acá, un caller que lo pasa sin memoizar (POS, formulario
+    // de venta) resuscribiría este efecto en cada tecla que llega a un
+    // campo con foco, y el cleanup (`resetBuffer`) vaciaría el buffer a
+    // mitad de la ráfaga (F1, revisión adversarial PR #599).
+  }, [enabled, flush, resetBuffer, minLength, scannerThreshold, allowedCharsRegex, scopeRef, guardFocusedInput])
 }

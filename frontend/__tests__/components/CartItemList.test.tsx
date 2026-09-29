@@ -92,4 +92,35 @@ describe("CartItemList", () => {
     expect(badge.className).toContain("text-warning")
     expect(badge.className).toContain("border-warning/25")
   })
+
+  // ── Hallazgo balanza-etiquetas-pos (pasada visual 11.2, navegador real) ────
+  //
+  // El input de Subtotal editable es `<input type="number">` sin `step`
+  // explícito — el `step` implícito del navegador para `type="number"` es
+  // `1` (sólo enteros). El de Cantidad, la fila de arriba, SÍ declara
+  // `step={item.step ?? 1}` — el de Subtotal quedó afuera. Con un subtotal
+  // de centavos real (p. ej. $13,63, exactamente lo que devuelve una
+  // etiqueta de balanza o cualquier precio con IVA), el navegador marca el
+  // campo `stepMismatch` — invisible en jsdom/Testing Library (`fireEvent`
+  // no corre la validación nativa de formulario), pero en Chrome real un
+  // click en el submit del `<form>` que contiene este input CANCELA el
+  // envío y muestra el globo nativo "Please enter a valid value" en vez de
+  // disparar `onSubmit` — reproducido en Playwright contra el POS real:
+  // "Cobrar" quedaba sin efecto con una línea de Tomate a $13,63.
+  it("el Subtotal editable acepta centavos sin quedar en stepMismatch (bloqueaba el submit nativo del form)", () => {
+    installMatchMediaStub(false)
+    const itemsWithCents: CartDisplayItem[] = [
+      { id: "1", productName: "Tomate", quantity: 2.84, unitValue: 4.8, subtotal: 13.63 },
+    ]
+    render(
+      <CartItemList
+        items={itemsWithCents}
+        onRemove={vi.fn()}
+        onUpdateQty={vi.fn()}
+        onUpdateSubtotal={vi.fn()}
+      />
+    )
+    const subtotalInput = screen.getByLabelText("Subtotal de Tomate") as HTMLInputElement
+    expect(subtotalInput.validity.stepMismatch).toBe(false)
+  })
 })

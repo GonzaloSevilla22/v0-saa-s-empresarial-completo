@@ -155,4 +155,19 @@ describe("PosPage — el precio es por unidad de la LÍNEA (D-F)", () => {
     expect(Number(inputUnder(/^Precio unit/).value)).toBe(1.23456)
     expect(Number(inputUnder(/^Subtotal/).value)).toBe(555.552)
   })
+
+  // Hallazgo balanza-etiquetas-pos (pasada visual 11.2, navegador real):
+  // "Precio unit." tenía `step={1}` hardcodeado y "Subtotal" (staging) no
+  // declaraba `step` — el implícito de `type="number"` es `1` (enteros). Con
+  // un precio de catálogo real con centavos (Salame $1.234,56/kg), ambos
+  // campos quedaban en `stepMismatch` nativo — invisible en jsdom con
+  // `fireEvent` (no corre la validación nativa), pero en un navegador real
+  // un click en "Agregar al carrito"/"Cobrar" (submit del `<form>`) se
+  // cancelaba en silencio. Reproducido en Playwright contra el POS real.
+  it("Precio unit. y Subtotal (staging) no quedan en stepMismatch con un precio de centavos real", () => {
+    render(<PosPage />)
+    fireEvent.click(screen.getByRole("button", { name: "elegir Salame" }))
+    expect(inputUnder(/^Precio unit/).validity.stepMismatch).toBe(false)
+    expect(inputUnder(/^Subtotal/).validity.stepMismatch).toBe(false)
+  })
 })

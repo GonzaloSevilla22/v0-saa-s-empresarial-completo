@@ -990,9 +990,17 @@ export default function PosPage() {
                 <div className="grid grid-cols-2 gap-2">
                   <div className="flex flex-col gap-1">
                     <Label className="text-[10px] text-muted-foreground">Precio unit.</Label>
+                    {/* Hallazgo balanza-etiquetas-pos (pasada visual 11.2,
+                        navegador real): `step={1}` (hardcodeado) hacía
+                        `stepMismatch` con cualquier precio de catálogo real
+                        (centavos, o hasta 5 decimales al cambiar de unidad,
+                        D-F) — un click real en "Agregar al carrito"/"Cobrar"
+                        (submit del `<form>`) se cancelaba en silencio.
+                        `step="any"` — el precio por unidad de LÍNEA no tiene
+                        una granularidad fija (D-F′). */}
                     <NumericInput
                       min={0}
-                      step={1}
+                      step="any"
                       value={unitPrice}
                       onValueChange={setUnitPrice}
                       className="bg-background border-border text-foreground"
@@ -1058,6 +1066,7 @@ export default function PosPage() {
                     </Label>
                     <NumericInput
                       min={0}
+                      step="any"
                       value={subtotalFocused ? subtotalDraft : stagedSubtotal}
                       onFocus={(e) => {
                         e.target.select()

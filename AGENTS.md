@@ -66,7 +66,7 @@
 | Capa | Tecnología | Notas |
 |------|------------|-------|
 | **BaaS** | Supabase (Auth, DB, Edge Functions, Storage, Realtime) | Proyecto real: `gxdhpxvdjjkmxhdkkwyb` |
-| **DB** | PostgreSQL vía Supabase, con RLS org-based | 312 migraciones en prod, última `20261065000001_unidades_decisiones_8_9` (migración de datos, decisiones 8 y 9 de `ventas-unidades-conversion`, PR #597; verificar en prod tras el merge: `max(version)=20261065000001`, 312 filas — la anterior, `20261064000001_factura_fiscal_imprimible` (PR #591), verificada en prod 2026-09-26 con 311) |
+| **DB** | PostgreSQL vía Supabase, con RLS org-based | 313 migraciones en prod, última `20261066000001_balanza_etiquetas_pos` (PR #599; verificada en prod 2026-09-29: `max(version)=20261066000001`, 313 filas — la anterior, `20261065000001_unidades_decisiones_8_9` (migración de datos, decisiones 8 y 9 de `ventas-unidades-conversion`, PR #597), verificada en prod con 312) |
 | **Extensiones PG** | `pg_cron` (grace period, relay outbox) · `pg_net` / DB webhooks (email, outbox, relay CAE) | — |
 | **Edge Functions** | Deno (Supabase) — 12 funciones | `ai-insights`, `ai-resumen`, `ai-precio`, `ai-rentabilidad`, `ai-comparativo`, `ai-prediccion`, `ai-simulador`, `ai-estadisticas`, `fair-advisor`, `invoice-ocr`, `generate-export`, `send-email` |
 | **IA** | OpenAI API | `gpt-4o-mini` en las 9 funciones de IA; **`gpt-4o`** (visión) en `invoice-ocr` |
@@ -174,6 +174,7 @@ Los compact rules de cada skill los resuelve el orquestador desde `.atl/skill-re
 26. ~~**`ventas-unidades-conversion`**~~ ✅ **COMPLETADA Y ARCHIVADA 2026-09-26** (PR #584 `c350a884`, migración `20261062000001`; corregida en 4 rondas adversariales antes del merge; ver `CHANGES.md`).
 27. ~~**`punto-venta-seleccion`**~~ ✅ **COMPLETADA Y ARCHIVADA 2026-09-27** (PR #590 `a64c25a6`, migración `20261063000001_punto_venta_predeterminado`; verificada en prod y humo del PO 2026-09-27; ver `CHANGES.md`).
 28. ~~**`factura-fiscal-imprimible`**~~ ✅ **COMPLETADA Y ARCHIVADA 2026-09-27** (PR #591 `12ebd7d3`, migración `20261064000001_factura_fiscal_imprimible`; follow-ups #592/#593/#594; backfill y humo del PO 2026-09-27; ver `CHANGES.md`).
+29. ~~**`balanza-etiquetas-pos`**~~ ✅ **COMPLETADA Y ARCHIVADA 2026-09-29** (PR #599 `0cd2f77a`, migración `20261066000001_balanza_etiquetas_pos`; verificada en prod 2026-09-29; humo real del PO con la Cuora Neo pendiente; ver `CHANGES.md`).
 
 > **Pendientes externos del PO (no bloquean código)**: trámite ARCA homologación (C-27 5.2 / v22 9.1) y config de verificación de email en Supabase. **`v3-rbac-multirole` es CRÍTICO** — análisis solamente hasta sign-off explícito del PO (consume matriz de transiciones de `v3-document-status-history`).
 

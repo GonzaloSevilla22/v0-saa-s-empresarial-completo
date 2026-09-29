@@ -2,9 +2,7 @@
 
 ## Purpose
 Expone la importación masiva de productos por archivo (CSV/Excel) como un endpoint de la API de aplicación (`POST /products/import`), en reemplazo de la escritura directa del cliente contra `rpc_bulk_upsert_products` vía Supabase. El servidor resuelve la cuenta y el usuario desde el token de sesión, invoca una única función `SECURITY DEFINER` que aplica el lote completo como una sola unidad de trabajo (todo-o-nada, sin trocear), y ofrece un modo de simulación que devuelve el mismo veredicto que la importación real sin escribir nada. Cada error se reporta con el número de fila de origen, la importación es idempotente por clave y deduplicada por huella de archivo, y la superficie vive en la pantalla de productos ya existente con revisión previa a la confirmación.
-
 ## Requirements
-
 ### Requirement: La importación de productos por archivo se sirve por la API, nunca desde el cliente contra la base
 
 El sistema SHALL exponer la importación de productos por archivo como un endpoint de la API de aplicación, y el cliente NOT SHALL escribir productos invocando directamente la base de datos ni ninguna de sus funciones.
@@ -315,4 +313,40 @@ La superficie SHALL usar los tokens semánticos del sistema de diseño para los 
 - **GIVEN** un archivo con muchas filas
 - **WHEN** el usuario abre la revisión en un ancho de móvil
 - **THEN** la tabla se desplaza dentro de su contenedor, el documento no se ensancha y la acción de confirmar es alcanzable
+
+### Requirement: La importación acepta el código de balanza como columna opcional
+
+El importador de productos SHALL aceptar una columna opcional "Código balanza" (también reconocida con los encabezados `PLU` y `codigo balanza`) e incluirla en la plantilla descargable y en la plantilla generada desde el catálogo. El cliente SHALL validar que el valor sea un entero de 1 a 999.999 (en otro caso, error de su fila) y SHALL marcar como error de fila un mismo código de balanza repetido en dos filas del archivo. Una celda vacía SHALL viajar como **ausencia**: al actualizar un producto existente conserva su código de balanza, y al crear uno nuevo lo deja sin código. En el servidor, la unidad de trabajo de importación SHALL persistir el código de balanza con la misma regla de ausencia, y un código de balanza que ya pertenece a otro producto vivo de la cuenta, o que se asigna a un producto padre con variantes, SHALL rechazar el lote entero sin escritura parcial, informando el error en la fila que lo trae con un mensaje que nombra el código de balanza. El cliente SHALL marcar como error la fila "Padre" que trae código de balanza.
+
+#### Scenario: Importar productos con código de balanza
+
+- **WHEN** se importa un archivo con una fila "Tomate" con código de balanza 261
+- **THEN** el producto queda con `scale_plu = 261`
+
+#### Scenario: Celda vacía conserva el código existente
+
+- **GIVEN** un producto de SKU `TOM-01` con código de balanza 261
+- **WHEN** se importa una fila con SKU `TOM-01` y la celda de código de balanza vacía
+- **THEN** el producto conserva el código de balanza 261
+
+#### Scenario: Código repetido dentro del archivo
+
+- **WHEN** dos filas del archivo traen el código de balanza 261
+- **THEN** la vista previa marca error en la segunda fila y no se envía el lote
+
+#### Scenario: Código que ya usa otro producto del catálogo
+
+- **GIVEN** un producto vivo "Papa" con código de balanza 509
+- **WHEN** se importa una fila de otro producto con código de balanza 509
+- **THEN** el lote se rechaza sin escribir ninguna fila y el error identifica la fila y el código 509
+
+#### Scenario: Una fila Padre no admite código de balanza
+
+- **WHEN** se importa una fila de tipo "Padre" con código de balanza 261
+- **THEN** la vista previa marca error en esa fila; si la fila llegara igual al servidor, el lote se rechaza sin escritura parcial con el error en esa fila
+
+#### Scenario: Código inválido
+
+- **WHEN** una fila trae el código de balanza `12a` o `0`
+- **THEN** la vista previa marca error en esa fila
 

@@ -109,6 +109,22 @@ const FILES_WITH_FORBIDDEN_PATTERNS: Array<{ file: string; forbidden: string[] }
     file: "components/products/product-catalog.tsx",
     forbidden: ["text-emerald-400", "text-yellow-400", "text-red-400"],
   },
+  // Fix F6 (revisión adversarial PR #599, balanza-etiquetas-pos): dos avisos
+  // no bloqueantes nuevos usaban `text-yellow-500` literal en vez de
+  // `text-warning` — en tema claro mide ~1,9:1, muy por debajo de AA, justo
+  // en el aviso de desborde de importe (la señal de riesgo de cobro).
+  {
+    file: "components/settings/ScaleSettings.tsx",
+    forbidden: ["text-yellow-500"],
+  },
+  {
+    // Nota: product-form.tsx tiene OTRO literal preexistente y ajeno a este
+    // change (el span de "Margen": emerald/yellow/red-400) — fuera de
+    // alcance de F6 (revisión PR #599), que sólo tocó `text-yellow-500` en
+    // los dos avisos nuevos de balanza (D2, D6).
+    file: "components/forms/product-form.tsx",
+    forbidden: ["text-yellow-500"],
+  },
 ]
 
 describe("task 1.9 — hardcoded color classes migrated to semantic tokens", () => {

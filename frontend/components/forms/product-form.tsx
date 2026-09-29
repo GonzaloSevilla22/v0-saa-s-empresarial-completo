@@ -310,7 +310,7 @@ export function ProductForm({ onSuccess, initialData, defaultParentId }: Product
           {/* balanza-etiquetas-pos (D6): aviso no bloqueante — este código
               es una etiqueta de balanza, no un código de barras común. */}
           {scaleBarcodeWarning && (
-            <p className="text-[11px] text-yellow-500">{scaleBarcodeWarning}</p>
+            <p className="text-[11px] text-warning">{scaleBarcodeWarning}</p>
           )}
         </div>
       </div>
@@ -341,7 +341,7 @@ export function ProductForm({ onSuccess, initialData, defaultParentId }: Product
             El código de PLU que la balanza imprime en la etiqueta (Configuración → Balanza).
           </p>
           {scalePluDigitsWarning && (
-            <p className="text-[11px] text-yellow-500">{scalePluDigitsWarning}</p>
+            <p className="text-[11px] text-warning">{scalePluDigitsWarning}</p>
           )}
           {scalePluError && <p className="text-[11px] text-destructive">{scalePluError}</p>}
         </div>

@@ -525,7 +525,7 @@ function LayoutEditor({
           </p>
         )}
         {overflow && (
-          <p className="text-xs text-yellow-500">
+          <p className="text-xs text-warning">
             «{overflow.product.name}» supera el importe máximo representable ({formatMoney(overflow.max)}
             {layout.kind === "weighed" ? " por kg" : ""}) — una etiqueta de este producto podría no entrar en el
             código de barras.
@@ -638,7 +638,7 @@ function ScaleGuideAccordion() {
             Menú → <strong>Altas y bajas</strong> → <strong>PLU&apos;s</strong> → <strong>Nuevo</strong> →{" "}
             <strong>Código</strong> (el mismo número que "Código de balanza" acá), Código ERP, Modo de venta.
           </p>
-          <p className="text-yellow-500">
+          <p className="text-warning">
             No uses <strong>"Reemplazar PLU por el número"</strong> (solapa "Cód. barras" del PLU, pág. 80): su
             efecto no está documentado y, si lo activás, la exportación deja de ser compatible.
           </p>

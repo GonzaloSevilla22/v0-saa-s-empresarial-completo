@@ -18,7 +18,10 @@
  * botella no se fracciona.
  */
 
-export const TEMPLATE_HEADER = "Tipo;Nombre;Precio;Costo;Categoría;Stock;Stock mínimo;Código;SKU"
+// balanza-etiquetas-pos (D14/OQ-6): "Código balanza" al final — columna
+// nueva, no rompe una planilla ya cargada por posición si alguien la mira a
+// ojo (el parseo es por NOMBRE de encabezado, no por posición, de todos modos).
+export const TEMPLATE_HEADER = "Tipo;Nombre;Precio;Costo;Categoría;Stock;Stock mínimo;Código;SKU;Código balanza"
 
 const LEGACY_FALLBACK: readonly [string, string] = ["Ropa", "Alimentos"]
 
@@ -33,11 +36,12 @@ export function buildTemplateCsv(
 
   return [
     TEMPLATE_HEADER,
-    `Producto;Remera básica;5000;2500;${first};50;10;;REM-001`,
-    "Padre;Zapatillas Nike;;;;;;;ZAP-NIKE",
-    `Variante;Zapatillas Nike 41;18000;9000;${first};15;3;;ZAP-NIKE-41`,
-    `Variante;Zapatillas Nike 42;18000;9000;${first};12;3;;ZAP-NIKE-42`,
-    `Producto;Aceite de oliva 500ml;3200;1800;${second};30;5;7790001234567;ACE-500`,
-    `Producto;Yerba suelta (kg);4500;3000;${second};2,5;1;;YER-KG`,
+    `Producto;Remera básica;5000;2500;${first};50;10;;REM-001;`,
+    "Padre;Zapatillas Nike;;;;;;;ZAP-NIKE;",
+    `Variante;Zapatillas Nike 41;18000;9000;${first};15;3;;ZAP-NIKE-41;`,
+    `Variante;Zapatillas Nike 42;18000;9000;${first};12;3;;ZAP-NIKE-42;`,
+    `Producto;Aceite de oliva 500ml;3200;1800;${second};30;5;7790001234567;ACE-500;`,
+    // Yerba a granel: ejemplo con Código balanza cargado (PLU de la balanza).
+    `Producto;Yerba suelta (kg);4500;3000;${second};2,5;1;;YER-KG;509`,
   ].join("\n")
 }

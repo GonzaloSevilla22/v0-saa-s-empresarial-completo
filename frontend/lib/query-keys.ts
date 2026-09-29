@@ -88,6 +88,11 @@ export const queryKeys = {
     all:     () => ["fiscalDocuments"] as const,
     pending: () => ["fiscalDocuments", "pending"] as const,
   },
+  // balanza-etiquetas-pos: configuración de balanza por cuenta (D3).
+  scaleSettings: {
+    all:    () => ["scaleSettings"] as const,
+    detail: () => ["scaleSettings", "detail"] as const,
+  },
   // C-28: CashSession / CashMovement
   cashboxes: {
     all:      () => ["cashboxes"] as const,

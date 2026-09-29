@@ -12,6 +12,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 import { render, screen, fireEvent } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import type { Product, UnitOfMeasure } from "@/lib/types"
+import { FACTORY_SCALE_SETTINGS } from "@/lib/scale-layout"
 
 const toastError = vi.fn()
 
@@ -73,6 +74,12 @@ vi.mock("@/hooks/data/use-bank-accounts", () => ({
 }))
 vi.mock("@/hooks/data/use-customer-account", () => ({
   useCustomerAccount: () => ({ data: null, isLoading: false }),
+}))
+// balanza-etiquetas-pos (grupo 7): la balanza deshabilitada de fábrica no
+// cambia nada de lo que este archivo ejercita, pero el hook real dispara
+// python-client sin NEXT_PUBLIC_BACKEND_URL en el entorno de test.
+vi.mock("@/hooks/data/use-scale-settings", () => ({
+  useScaleSettings: () => ({ settings: FACTORY_SCALE_SETTINGS, isLoading: false, isError: false, error: null }),
 }))
 vi.mock("@/components/three/Celebration3D", () => ({ Celebration3D: () => null }))
 vi.mock("@/components/shared/NoWriteAccessBanner", () => ({ NoWriteAccessBanner: () => null }))
@@ -147,5 +154,20 @@ describe("PosPage — el precio es por unidad de la LÍNEA (D-F)", () => {
     fireEvent.change(inputUnder(/^Cantidad/), { target: { value: "450" } })
     expect(Number(inputUnder(/^Precio unit/).value)).toBe(1.23456)
     expect(Number(inputUnder(/^Subtotal/).value)).toBe(555.552)
+  })
+
+  // Hallazgo balanza-etiquetas-pos (pasada visual 11.2, navegador real):
+  // "Precio unit." tenía `step={1}` hardcodeado y "Subtotal" (staging) no
+  // declaraba `step` — el implícito de `type="number"` es `1` (enteros). Con
+  // un precio de catálogo real con centavos (Salame $1.234,56/kg), ambos
+  // campos quedaban en `stepMismatch` nativo — invisible en jsdom con
+  // `fireEvent` (no corre la validación nativa), pero en un navegador real
+  // un click en "Agregar al carrito"/"Cobrar" (submit del `<form>`) se
+  // cancelaba en silencio. Reproducido en Playwright contra el POS real.
+  it("Precio unit. y Subtotal (staging) no quedan en stepMismatch con un precio de centavos real", () => {
+    render(<PosPage />)
+    fireEvent.click(screen.getByRole("button", { name: "elegir Salame" }))
+    expect(inputUnder(/^Precio unit/).validity.stepMismatch).toBe(false)
+    expect(inputUnder(/^Subtotal/).validity.stepMismatch).toBe(false)
   })
 })

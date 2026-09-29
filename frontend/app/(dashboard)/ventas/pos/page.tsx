@@ -21,7 +21,7 @@
  *   - Para cualquier otro kind, no se exige sesión (cash_session_id omitido).
  */
 
-import { useState, useMemo, useRef, useCallback } from "react"
+import { useState, useMemo, useRef, useCallback, useEffect } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { ShoppingCart, PackagePlus, Plus, AlertCircle, CheckCircle2, Landmark, ChevronRight } from "lucide-react"
@@ -39,6 +39,8 @@ import { ScrollableCartShell } from "@/components/shared/scrollable-cart-shell"
 import { ProductPicker } from "@/components/shared/product-picker"
 import { NoWriteAccessBanner } from "@/components/shared/NoWriteAccessBanner"
 import { ResponsiveModal } from "@/components/shared/responsive-modal"
+import { BarcodeScannerInput } from "@/components/shared/barcode-scanner-input"
+import type { ScanFeedback } from "@/hooks/use-barcode-scanner"
 
 import { useOrgRole } from "@/hooks/useOrgRole"
 import { useProducts } from "@/hooks/data/use-products"
@@ -52,13 +54,17 @@ import { useBankAccounts } from "@/hooks/data/use-bank-accounts"
 import { useCustomerAccount } from "@/hooks/data/use-customer-account"
 import { useUnitsOfMeasure } from "@/hooks/use-units-of-measure"
 import { useIdempotencyKey } from "@/hooks/use-idempotency-key"
+import { useScaleSettings } from "@/hooks/data/use-scale-settings"
 import { isBankPaymentKind } from "@/lib/types"
+import { resolveScan } from "@/lib/scan-resolution"
 
 import { formatMoney } from "@/lib/format"
 import {
   calcSaleSubtotal,
   calcCartTotal,
   unitPriceFromSubtotal,
+  addScannedProductLine,
+  exceedsStock,
   type SaleCartItem,
 } from "@/lib/cart-utils"
 import {
@@ -68,6 +74,7 @@ import {
   convertUnitPrice,
   resolveUnit,
   compatibleUnits,
+  isProductoMedible,
 } from "@/lib/unit-utils"
 import { getCanonicalLabel } from "@/lib/product-labels"
 import { humanizeOperationError } from "@/lib/operation-errors"
@@ -136,6 +143,20 @@ export default function PosPage() {
   const { products }             = useProducts()
   const { clients }              = useClients()
   const { units, unitsById }     = useUnitsOfMeasure()
+
+  // ── balanza-etiquetas-pos (D3/D10): configuración de balanza, siempre
+  // fresca (staleTime corto + refetch en foco/mount — D10) ────────────────────
+  const { settings: scaleSettings } = useScaleSettings()
+
+  // balanza-etiquetas-pos (D9): el lector se suspende sólo ante un diálogo
+  // MODAL que no contenga a este contenedor (la hoja de cuenta bancaria);
+  // un Popover (ProductPicker) nunca lo suspende.
+  const scopeRef = useRef<HTMLDivElement>(null)
+  // balanza-etiquetas-pos (D8): un producto medible escaneado por código
+  // común/SKU no agrega una cantidad arbitraria — queda elegido en el picker
+  // con el foco en "Cantidad".
+  const quantityInputRef = useRef<HTMLInputElement>(null)
+  const [focusQuantityToken, setFocusQuantityToken] = useState(0)
 
   // ── Branch / cash session resolution ─────────────────────────────────────────
   // Use the first active branch to resolve the cashbox. The backend also resolves
@@ -354,26 +375,95 @@ export default function PosPage() {
     setUnitPrice(p?.price ?? 0)
   }
 
+  /**
+   * balanza-etiquetas-pos (D6/D9): resuelve un código leído por el lector
+   * (código de barras exacto → etiqueta de balanza → SKU → error, D6) y lo
+   * despacha SIN ninguna lógica de etiquetas propia — todo vive en `lib/`
+   * (`resolveScan`, `addScannedProductLine`, `exceedsStock`, `resolveScaleScan`).
+   */
+  function handleScan(code: string): ScanFeedback {
+    const result = resolveScan(code, { products, units, unitsById, settings: scaleSettings })
+
+    if (result.kind === "error") {
+      return { ok: false, label: result.message }
+    }
+
+    if (result.kind === "product") {
+      const baseUnit = resolveUnit(result.product.baseUnitId, unitsById)
+      // D8: producto medible por código común — no se agrega nada todavía
+      // (se elige en el picker, con foco en "Cantidad"), así que no hay
+      // stock que chequear acá: lo hace el alta manual cuando el usuario
+      // cargue la cantidad real (`handleAddToCart`, ya con `exceedsStock`).
+      if (isProductoMedible(baseUnit)) {
+        handleProductChange(result.product.id)
+        setFocusQuantityToken((t) => t + 1)
+        return { ok: true, label: `Ingresá la cantidad de «${result.product.name}»` }
+      }
+      // Fix F3 (revisión adversarial PR #599): un código común o SKU de un
+      // producto por unidades también suma stock — el mismo chequeo
+      // acumulativo que ya aplicaba en la rama `scale_line` y en el alta
+      // manual (D7/D8/OQ-9), que esta rama nunca corría.
+      const addBase = unitInputMin(baseUnit)
+      if (exceedsStock(cartItems, result.product.id, addBase, result.product.stock)) {
+        return {
+          ok: false,
+          label: `Stock insuficiente (disponible: ${formatStock(result.product.stock, baseUnit?.symbol)})`,
+        }
+      }
+      const addResult = addScannedProductLine(cartItems, result.product, { unitsById, products })
+      if ("needsQuantity" in addResult) {
+        // No debería pasar (ya se descartó arriba) — defensivo.
+        handleProductChange(result.product.id)
+        setFocusQuantityToken((t) => t + 1)
+        return { ok: true, label: `Ingresá la cantidad de «${result.product.name}»` }
+      }
+      setCartItems(addResult.items)
+      // Fix F9 (revisión adversarial PR #599): sólo el nombre — el
+      // indicador (BarcodeScannerInput) YA antepone su propio "✓ " en
+      // el estado success; devolver "✓ ${nombre}" acá duplicaba el tilde.
+      return { ok: true, label: result.product.name }
+    }
+
+    // result.kind === "scale_line" (D7): una línea nueva, nunca fusionada
+    // (D8) — el chequeo de stock es acumulativo (exceedsStock, D7/OQ-9).
+    const line       = result.line
+    const lineProduct = productById.get(line.productId)
+    const lineBaseUnit = resolveUnit(lineProduct?.baseUnitId, unitsById)
+    if (exceedsStock(cartItems, line.productId, line.quantityBase ?? line.quantity, lineProduct?.stock ?? 0)) {
+      return {
+        ok: false,
+        label: `Stock insuficiente (disponible: ${formatStock(lineProduct?.stock ?? 0, lineBaseUnit?.symbol)})`,
+      }
+    }
+    setCartItems((prev) => [...prev, { id: crypto.randomUUID(), ...line }])
+    return { ok: true, label: line.productName }
+  }
+
   function handleAddToCart() {
     if (!selectedProduct) {
       toast.error("Seleccioná un producto")
       return
     }
 
+    // D8: la fusión sólo mira líneas SIN `source` — una línea de balanza
+    // (`"scale"`) nunca se toca desde el alta manual.
     const existing = cartItems.find(
-      (item) => item.productId === productId && (item.unitId ?? "") === unitId,
+      (item) => item.productId === productId && (item.unitId ?? "") === unitId && !item.source,
     )
 
     // El disponible está en la unidad BASE del producto: se informa con su
     // símbolo ("0.550 kg", "3 uds"), no pelado ni con el de la línea
     // (corrección del PR #584; mismo mensaje que el formulario de venta).
+    // D7/OQ-9: el chequeo es ACUMULATIVO — suma todas las líneas del carrito
+    // del mismo producto (incluida la que se está fusionando) más lo nuevo.
+    if (exceedsStock(cartItems, productId, stagedQuantityNormalized, selectedProduct.stock)) {
+      toast.error(`Stock insuficiente (disponible: ${formatStock(selectedProduct.stock, productBaseUnit?.symbol)})`)
+      return
+    }
+
     if (existing) {
       const newQty        = existing.quantity + quantity
       const newNormalized = toBaseQuantity(newQty, selectedUnit, productBaseUnit)
-      if (newNormalized > selectedProduct.stock) {
-        toast.error(`Stock insuficiente (disponible: ${formatStock(selectedProduct.stock, productBaseUnit?.symbol)})`)
-        return
-      }
       setCartItems((prev) =>
         prev.map((item) =>
           item.id === existing.id
@@ -388,10 +478,6 @@ export default function PosPage() {
       )
       toast.success(`Cantidad actualizada: ${selectedProduct.name}`)
     } else {
-      if (stagedQuantityNormalized > selectedProduct.stock) {
-        toast.error(`Stock insuficiente (disponible: ${formatStock(selectedProduct.stock, productBaseUnit?.symbol)})`)
-        return
-      }
       const parent = selectedProduct.parentId
         ? productById.get(selectedProduct.parentId)
         : undefined
@@ -459,6 +545,17 @@ export default function PosPage() {
       ),
     )
   }
+
+  // balanza-etiquetas-pos (D8): foco en "Cantidad" tras elegir un producto
+  // medible por código común — corre DESPUÉS del commit del picker, no en
+  // el mismo tick del escaneo (el input recién existe una vez que
+  // `selectedProduct` es verdadero).
+  useEffect(() => {
+    if (focusQuantityToken > 0) {
+      quantityInputRef.current?.focus()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusQuantityToken])
 
   const handleClearCart = useCallback(() => {
     setCartItems([])
@@ -566,7 +663,7 @@ export default function PosPage() {
   // ── Render ────────────────────────────────────────────────────────────────────
 
   return (
-    <div className="flex flex-col gap-6 max-w-2xl mx-auto">
+    <div ref={scopeRef} className="flex flex-col gap-6 max-w-2xl mx-auto">
       {/* Page header */}
       <div className="flex items-start justify-between gap-4">
         <div>
@@ -863,10 +960,20 @@ export default function PosPage() {
 
           {/* ── SECTION: Agregar producto ──────────────────────────────────── */}
           <div className="flex flex-col gap-3 rounded-lg border border-dashed border-border bg-accent/15 p-3">
-            <Label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-              <PackagePlus className="h-3.5 w-3.5" />
-              Agregar producto
-            </Label>
+            <div className="flex items-center justify-between gap-2">
+              <Label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                <PackagePlus className="h-3.5 w-3.5" />
+                Agregar producto
+              </Label>
+              {/* balanza-etiquetas-pos (D10): código exacto → balanza → SKU
+                  (D6), sin ninguna lógica de etiquetas en la página. */}
+              <BarcodeScannerInput
+                onScan={handleScan}
+                enabled={isWriter && !submitting}
+                scopeRef={scopeRef}
+                guardFocusedInput
+              />
+            </div>
 
             <ProductPicker
               products={products}
@@ -883,9 +990,17 @@ export default function PosPage() {
                 <div className="grid grid-cols-2 gap-2">
                   <div className="flex flex-col gap-1">
                     <Label className="text-[10px] text-muted-foreground">Precio unit.</Label>
+                    {/* Hallazgo balanza-etiquetas-pos (pasada visual 11.2,
+                        navegador real): `step={1}` (hardcodeado) hacía
+                        `stepMismatch` con cualquier precio de catálogo real
+                        (centavos, o hasta 5 decimales al cambiar de unidad,
+                        D-F) — un click real en "Agregar al carrito"/"Cobrar"
+                        (submit del `<form>`) se cancelaba en silencio.
+                        `step="any"` — el precio por unidad de LÍNEA no tiene
+                        una granularidad fija (D-F′). */}
                     <NumericInput
                       min={0}
-                      step={1}
+                      step="any"
                       value={unitPrice}
                       onValueChange={setUnitPrice}
                       className="bg-background border-border text-foreground"
@@ -898,6 +1013,7 @@ export default function PosPage() {
                       Cantidad{selectedUnit ? ` (${selectedUnit.symbol})` : ""}
                     </Label>
                     <NumericInput
+                      ref={quantityInputRef}
                       min={stagedMin}
                       step={stagedStep}
                       value={quantity}
@@ -950,6 +1066,7 @@ export default function PosPage() {
                     </Label>
                     <NumericInput
                       min={0}
+                      step="any"
                       value={subtotalFocused ? subtotalDraft : stagedSubtotal}
                       onFocus={(e) => {
                         e.target.select()

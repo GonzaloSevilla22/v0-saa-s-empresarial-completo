@@ -10,6 +10,7 @@
 - Listar ventas con filtros por fecha, producto, cliente
 - Editar/eliminar venta (elimina el carrito completo si tiene varios ítems)
 - Ver total vendido por período (dashboard)
+- **POS (`/ventas/pos`) y formulario de venta leen etiquetas de balanza etiquetadora** (`balanza-etiquetas-pos`, 2026-09-28): lector USB común, sin conexión a la balanza; cada etiqueta agrega una línea con el importe exacto de la etiqueta (RN-B5), configuración por cuenta en Configuración → Balanza (capability `scale-label-integration`)
 
 ### Compras
 - Registrar compra a proveedor (producto, cantidad, costo unitario)
@@ -31,6 +32,7 @@
 ### Catálogo de Productos
 - Crear producto con nombre, categoría, precio de venta, costo, stock inicial
 - Asignar código de barras (barcode) y SKU únicos por usuario
+- Asignar código de balanza / PLU (`scale_plu`, único por cuenta, prohibido en un producto padre) para venderlo leyendo la etiqueta que imprime la balanza (`balanza-etiquetas-pos`, 2026-09-28)
 - Definir tipo de control de stock: tracked / untracked / variant_only
 - Asignar unidad de medida base (kg, litro, unidad, etc.)
 - Establecer stock mínimo para alertas automáticas
@@ -171,6 +173,7 @@
 - Configurar zona horaria
 - Configurar formato de fecha
 - Cambiar idioma de la interfaz (español por defecto)
+- Configurar la lectura de etiquetas de balanza etiquetadora (pestaña "Balanza", 11ª pestaña): interruptor, formato de los 3 tipos de etiqueta (peso/unidad/varios), probador contra una etiqueta real y exportación del catálogo al formato que lee el importador de la balanza (`balanza-etiquetas-pos`, 2026-09-28; sólo owner/admin editan, el resto de los miembros ve la configuración de sólo lectura y puede usar el probador y exportar)
 
 ---
 

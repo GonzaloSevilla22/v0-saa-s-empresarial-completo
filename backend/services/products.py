@@ -29,6 +29,40 @@ _SKU_UNIQUE_INDEX = "idx_products_sku_account_lower"
 # a account_id (idx_products_barcode_account_unique), mismo residuo de
 # tenencia que ya se corrigió para el SKU.
 _BARCODE_UNIQUE_INDEX = "idx_products_barcode_account_unique"
+# balanza-etiquetas-pos (D2): el código de balanza (PLU) es único por cuenta
+# sobre filas vivas; y un padre variant_only no lo admite (CHECK en la base).
+_SCALE_PLU_UNIQUE_INDEX = "idx_products_scale_plu_account_unique"
+_SCALE_PLU_NOT_PARENT_CHECK = "products_scale_plu_not_parent"
+_VARIANT_ONLY = "variant_only"
+SCALE_PLU_TAKEN_CODE = "scale_plu_taken"
+SCALE_PLU_PARENT_CODE = "scale_plu_parent"
+_SCALE_PLU_PARENT_DETAIL = (
+    "El código de balanza se asigna a cada variante: quitalo antes de "
+    "convertir el producto en padre (un producto con variantes no lleva código de balanza)."
+)
+
+
+def _scale_plu_parent_error() -> ProblemHTTPException:
+    return ProblemHTTPException(
+        status_code=422, detail=_SCALE_PLU_PARENT_DETAIL,
+        code=SCALE_PLU_PARENT_CODE, field="scale_plu",
+    )
+
+
+def _translate_check_violation(exc: asyncpg.CheckViolationError) -> HTTPException | None:
+    """balanza-etiquetas-pos (D2): la regla del padre vive en la base
+    (products_scale_plu_not_parent); si el 23514 llega igual (carrera o un
+    camino que el guard previo no cubrió), sale el mismo 422 legible."""
+    if getattr(exc, "constraint_name", None) == _SCALE_PLU_NOT_PARENT_CHECK:
+        return _scale_plu_parent_error()
+    return None
+
+
+def _guard_scale_plu_not_parent(stock_control_type: str | None, scale_plu: int | None) -> None:
+    """balanza-etiquetas-pos (D2): el 422 legible ANTES de escribir. La base
+    lo sostiene igual con el CHECK."""
+    if scale_plu is not None and stock_control_type == _VARIANT_ONLY:
+        raise _scale_plu_parent_error()
 
 
 def normalize_sku(sku: str | None) -> str | None:
@@ -40,8 +74,17 @@ def normalize_sku(sku: str | None) -> str | None:
     return trimmed or None
 
 
-def _translate_unique_violation(exc: asyncpg.UniqueViolationError, sku: str | None) -> HTTPException | None:
+def _translate_unique_violation(
+    exc: asyncpg.UniqueViolationError, sku: str | None, scale_plu: int | None = None
+) -> HTTPException | None:
     constraint = getattr(exc, "constraint_name", None)
+    if constraint == _SCALE_PLU_UNIQUE_INDEX:
+        return ProblemHTTPException(
+            status_code=409,
+            detail=f"El código de balanza {scale_plu} ya lo usa otro producto de tu cuenta.",
+            code=SCALE_PLU_TAKEN_CODE,
+            field="scale_plu",
+        )
     if constraint == _SKU_UNIQUE_INDEX:
         return HTTPException(
             status_code=409,
@@ -191,6 +234,10 @@ async def create_product(
             detail=f"Límite de productos alcanzado para el plan {plan} ({limit} máx.). Borrá productos existentes o subí de plan.",
         )
 
+    # balanza-etiquetas-pos (D2): un padre variant_only no lleva PLU — 422
+    # legible antes de contar/escribir nada (la base lo sostiene con el CHECK).
+    _guard_scale_plu_not_parent(payload.stock_control_type, payload.scale_plu)
+
     data = payload.model_dump()
     data["sku"] = normalize_sku(payload.sku)
     # ventas-unidades-conversion (D10): la unidad base viaja como str y tiene
@@ -217,7 +264,12 @@ async def create_product(
     try:
         record = await repo.create(auth["user_id"], account_id, data)
     except asyncpg.UniqueViolationError as exc:
-        translated = _translate_unique_violation(exc, data["sku"])
+        translated = _translate_unique_violation(exc, data["sku"], data.get("scale_plu"))
+        if translated is not None:
+            raise translated from exc
+        raise
+    except asyncpg.CheckViolationError as exc:
+        translated = _translate_check_violation(exc)
         if translated is not None:
             raise translated from exc
         raise
@@ -237,9 +289,14 @@ async def update_product(
     category_provided: bool = False,
     cost_provided: bool = False,
     base_unit_provided: bool = False,
+    scale_plu_provided: bool = False,
     category_repo: ProductCategoryRepository | None = None,
 ) -> dict:
-    """productos-categorias-sku (D12): tri-estado por AUSENCIA para `sku` y
+    """balanza-etiquetas-pos (D2) extiende el tri-estado a `scale_plu` y lee
+    `existing` también cuando se informa el PLU o cambia `stock_control_type`,
+    para dar el 422 del padre variant_only antes de escribir.
+
+    productos-categorias-sku (D12): tri-estado por AUSENCIA para `sku` y
     `category_id` (`*_provided` derivado de `model_fields_set` en el router).
     productos-costo-nullable extiende el mismo molde a `cost`: campo ausente
     conserva el costo que el producto tenía, informado en `null` lo
@@ -249,15 +306,34 @@ async def update_product(
     el guard de cambio de unidad (D-C, `_guard_base_unit_change`).
     El resto de los campos conserva `exclude_none` (task 9.4)."""
     require_role(auth, ["user", "admin"])
-    data = payload.model_dump(exclude_none=True, exclude={"sku", "category_id", "cost", "base_unit_id"})
+    data = payload.model_dump(
+        exclude_none=True, exclude={"sku", "category_id", "cost", "base_unit_id", "scale_plu"}
+    )
+    changes_stock_control_type = payload.stock_control_type is not None
 
     # La fila actual sólo hace falta para los campos que dependen del estado
-    # vivo (herencia de categoría, guard de unidad base): una sola lectura.
+    # vivo (herencia de categoría, guard de unidad base, guard del PLU en un
+    # padre): una sola lectura.
     existing: asyncpg.Record | None = None
-    if category_provided or base_unit_provided:
+    if category_provided or base_unit_provided or scale_plu_provided or changes_stock_control_type:
         existing = await repo.get_by_id(product_id, account_id)
         if existing is None:
             raise HTTPException(status_code=404, detail="Producto no encontrado")
+
+    if existing is not None and (scale_plu_provided or changes_stock_control_type):
+        existing_keys = existing.keys()
+        effective_plu = (
+            payload.scale_plu if scale_plu_provided
+            else (existing["scale_plu"] if "scale_plu" in existing_keys else None)
+        )
+        effective_type = (
+            payload.stock_control_type if changes_stock_control_type
+            else (existing["stock_control_type"] if "stock_control_type" in existing_keys else None)
+        )
+        _guard_scale_plu_not_parent(effective_type, effective_plu)
+
+    if scale_plu_provided:
+        data["scale_plu"] = payload.scale_plu
 
     if sku_provided:
         data["sku"] = normalize_sku(payload.sku)
@@ -285,7 +361,12 @@ async def update_product(
     try:
         record = await repo.update(product_id, account_id, data)
     except asyncpg.UniqueViolationError as exc:
-        translated = _translate_unique_violation(exc, data.get("sku"))
+        translated = _translate_unique_violation(exc, data.get("sku"), data.get("scale_plu"))
+        if translated is not None:
+            raise translated from exc
+        raise
+    except asyncpg.CheckViolationError as exc:
+        translated = _translate_check_violation(exc)
         if translated is not None:
             raise translated from exc
         raise

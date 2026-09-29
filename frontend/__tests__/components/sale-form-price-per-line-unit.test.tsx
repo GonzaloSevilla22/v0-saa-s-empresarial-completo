@@ -1,3 +1,4 @@
+import { FACTORY_SCALE_SETTINGS } from "@/lib/scale-layout"
 /**
  * Corrección del PR #584 (hallazgo BLOQUEANTE de la segunda revisión): el
  * subtotal se calculaba como precio por unidad BASE × cantidad en la unidad
@@ -51,6 +52,12 @@ vi.mock("@/components/payment-methods/PaymentMethodSelect", () => ({
 vi.mock("@/hooks/data/use-payment-methods", () => ({ usePaymentMethods: () => ({ paymentMethods: [] }) }))
 vi.mock("@/hooks/data/use-collection-settings", () => ({
   useCollectionSettings: () => ({ data: { defaultPaymentTermsDays: null }, isLoading: false }),
+}))
+// balanza-etiquetas-pos (grupo 8): la balanza deshabilitada de fábrica no
+// cambia nada de lo que este archivo ejercita, pero el hook real dispara
+// python-client sin NEXT_PUBLIC_BACKEND_URL en el entorno de test.
+vi.mock("@/hooks/data/use-scale-settings", () => ({
+  useScaleSettings: () => ({ settings: FACTORY_SCALE_SETTINGS, isLoading: false, isError: false, error: null }),
 }))
 vi.mock("@/hooks/data/use-customer-account", () => ({ useCustomerAccount: () => ({ data: null }) }))
 vi.mock("@/hooks/data/use-branches", () => ({ useBranches: () => ({ branches: [] }) }))

@@ -12,7 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
-import { Crown, Check, X, Package, Users, Sparkles, User, Settings2, ShieldCheck, FileText, Tags, Wallet, CalendarClock, Shapes } from "lucide-react"
+import { Crown, Check, X, Package, Users, Sparkles, User, Settings2, ShieldCheck, FileText, Tags, Wallet, CalendarClock, Shapes, ScanBarcode } from "lucide-react"
 import { MAX_PRODUCTS_FREE, MAX_CLIENTS_FREE, MAX_INSIGHTS_FREE } from "@/lib/constants"
 import { ProfileForm } from "@/components/settings/ProfileForm"
 import { AccountForm } from "@/components/settings/AccountForm"
@@ -23,6 +23,7 @@ import { CostCenterManager } from "@/components/cost-centers/CostCenterManager"
 import { CollectionSettingsForm } from "@/components/settings/CollectionSettingsForm"
 import { PaymentMethodManager } from "@/components/payment-methods/PaymentMethodManager"
 import { ProductCategoryManager } from "@/components/product-categories/ProductCategoryManager"
+import { ScaleSettings } from "@/components/settings/ScaleSettings"
 
 // ── Plan comparison data (unchanged from original) ────────────────────────────
 const features = [
@@ -41,7 +42,7 @@ const features = [
 
 const TAB_VALUES = [
   "perfil", "cuenta", "fiscal", "sistema", "equipo",
-  "centros-costo", "formas-pago", "categorias", "cobranzas", "plan",
+  "centros-costo", "formas-pago", "categorias", "cobranzas", "balanza", "plan",
 ] as const
 
 export default function ConfiguracionPage() {
@@ -81,7 +82,11 @@ export default function ConfiguracionPage() {
             vecinas — con 9 (85px) ya desbordaban por poco. Se retira el
             override de lg: desde sm son 5 columnas → 2 filas de 5 (153px por
             pestaña); mobile sigue 3+3+3+1. */}
-        <TabsList className="grid w-full grid-cols-3 sm:grid-cols-5 mb-6 h-auto">
+        {/* balanza-etiquetas-pos (D11): 11 tabs — grid-cols-3 sm:grid-cols-4
+            (4+4+3 desde sm, ~192px por pestaña en el contenedor de 768px sin
+            desborde de "Centros de costo"/"Formas de pago"; 3+3+3+2 en móvil,
+            375px, sin desborde horizontal — medido en el apply). */}
+        <TabsList className="grid w-full grid-cols-3 sm:grid-cols-4 mb-6 h-auto">
           <TabsTrigger value="perfil" className="flex items-center gap-1.5 text-xs sm:text-sm">
             <User className="h-3.5 w-3.5" />
             <span>Perfil</span>
@@ -117,6 +122,10 @@ export default function ConfiguracionPage() {
           <TabsTrigger value="cobranzas" className="flex items-center gap-1.5 text-xs sm:text-sm">
             <CalendarClock className="h-3.5 w-3.5" />
             <span>Cobranzas</span>
+          </TabsTrigger>
+          <TabsTrigger value="balanza" className="flex items-center gap-1.5 text-xs sm:text-sm">
+            <ScanBarcode className="h-3.5 w-3.5" />
+            <span>Balanza</span>
           </TabsTrigger>
           <TabsTrigger value="plan" className="flex items-center gap-1.5 text-xs sm:text-sm">
             <Crown className="h-3.5 w-3.5" />
@@ -218,6 +227,21 @@ export default function ConfiguracionPage() {
             </p>
           </div>
           <CollectionSettingsForm />
+        </TabsContent>
+
+        {/* ── Balanza (balanza-etiquetas-pos D11) ─────────────────────────────
+            Lectura de etiquetas de la balanza etiquetadora (Systel Cuora Neo)
+            en el POS y en ventas: interruptor, editor de formatos, probador,
+            guía y exportación del catálogo para la balanza. */}
+        <TabsContent value="balanza">
+          <div className="flex flex-col gap-1 mb-4">
+            <h2 className="text-lg font-semibold text-foreground">Balanza etiquetadora</h2>
+            <p className="text-sm text-muted-foreground">
+              Configurá el formato de las etiquetas de tu balanza para que el POS y el formulario de venta lean el
+              código de barras y cobren el importe exacto de la etiqueta.
+            </p>
+          </div>
+          <ScaleSettings />
         </TabsContent>
 
         {/* ── Plan (contenido original sin modificaciones) ───────────────────── */}

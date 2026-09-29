@@ -48,6 +48,11 @@ const DialogContent = React.forwardRef<
     <DialogOverlay />
     <DialogPrimitive.Content
       ref={composedRef}
+      // balanza-etiquetas-pos (D9): marcador explícito que el lector de
+      // códigos usa para suspenderse mientras hay un diálogo modal abierto
+      // que no lo contiene — Radix no pone `aria-modal` acá (sólo
+      // `role="dialog"`, que también lleva el Popover de `ProductPicker`).
+      data-scanner-modal=""
       className={cn(
         // v4-visual-3d-refresh Fase A (task 1.8): shadow-lg -> shadow-elevation-4
         // (frontend/docs/design-tokens.md: "Diálogos/modales"); duration-200

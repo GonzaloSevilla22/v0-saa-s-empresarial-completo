@@ -39,6 +39,7 @@ from backend.routers import (
     quotes,
     sales,
     sales_orders,
+    scale_settings,
     statistics,
     stock,
     supplier_accounts,
@@ -95,6 +96,9 @@ app.add_exception_handler(asyncpg.PostgresError, asyncpg_error_handler)
 # "validation_error" (p. ej. v3-api-standards §3: falta Idempotency-Key).
 _VALIDATION_ERROR_CODES: dict[str, str] = {
     "idempotency_key_required": "idempotency_key_required",
+    # balanza-etiquetas-pos (D4): formato de etiqueta inválido — el detalle nombra
+    # el formato y el campo.
+    "scale_layout_invalid": "scale_layout_invalid",
 }
 
 
@@ -214,3 +218,5 @@ app.include_router(bank_reconciliation.router)
 app.include_router(bank_movements.router)
 # v3-rbac-multirole Parte C (grupo 14): administración de miembros y sus roles
 app.include_router(members.router)
+# balanza-etiquetas-pos (D13): configuración de la balanza etiquetadora por cuenta
+app.include_router(scale_settings.router)

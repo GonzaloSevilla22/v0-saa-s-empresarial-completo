@@ -36,7 +36,9 @@ _SET_MIN_STOCK_SQL = "SELECT public.rpc_set_product_min_stock($1::uuid, $2::nume
 # UPDATE acepta en NULL explícito — `cost` es tri-estado por el mismo molde
 # exacto que `sku`/`category_id` (D12 de aquel change): campo ausente
 # conserva, informado en null desasigna (queda sin costo cargado).
-_NULLABLE_ON_UPDATE: frozenset[str] = frozenset({"sku", "category_id", "cost", "base_unit_id"})
+# balanza-etiquetas-pos (D2/D13): `scale_plu` entra al mismo molde — sin esto
+# "null desasigna" no hacía nada (el filtro de abajo descartaba el None).
+_NULLABLE_ON_UPDATE: frozenset[str] = frozenset({"sku", "category_id", "cost", "base_unit_id", "scale_plu"})
 
 # ventas-unidades-conversion (D10): la unidad base tiene que ser visible para la
 # cuenta (del sistema o propia) — el FK a units_of_measure no está scopeado por
@@ -197,8 +199,8 @@ class ProductRepository(BaseRepository):
                 """
                 INSERT INTO products (user_id, account_id, name, price, cost, min_stock,
                                       barcode, sku, parent_id, is_variant, stock_control_type,
-                                      category_id, base_unit_id)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+                                      scale_plu, category_id, base_unit_id)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
                 RETURNING id
                 """,
                 user_id,
@@ -217,6 +219,11 @@ class ProductRepository(BaseRepository):
                 data.get("parent_id"),
                 data.get("is_variant", False),
                 data.get("stock_control_type", "unit"),
+                # balanza-etiquetas-pos (D13): el INSERT tiene lista FIJA de
+                # columnas — sin esto el alta perdía el PLU en silencio. Va antes
+                # de category_id/base_unit_id para no mover el último
+                # placeholder, que otros tests fijan por posición.
+                data.get("scale_plu"),
                 # productos-categoria-text-retiro (D1): category_id es la única
                 # representación física; el nombre legible lo deriva
                 # v_products_with_stock (LEFT JOIN product_categories).

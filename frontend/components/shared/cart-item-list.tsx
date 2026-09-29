@@ -122,10 +122,22 @@ export function CartItemList({
             className="bg-background border-border text-foreground text-sm h-8"
           />
 
-          {/* Subtotal — editable when onUpdateSubtotal is provided */}
+          {/* Subtotal — editable when onUpdateSubtotal is provided.
+              Hallazgo balanza-etiquetas-pos (pasada visual 11.2, navegador
+              real): sin `step` explícito, el implícito de `type="number"`
+              es `1` (sólo enteros) — un subtotal con centavos (p. ej.
+              $13,63, el caso normal de cualquier venta) queda en
+              `stepMismatch` nativo, y un click real en "Cobrar"/"Guardar"
+              (submit del `<form>`) se cancela en silencio sin disparar
+              `onSubmit`. `step="any"`, no `"0.01"`: el subtotal derivado de
+              una línea por peso NO se redondea a centavos (D-F′, ver
+              pos-price-per-line-unit.test.tsx — $555,552 con 3 decimales es
+              un valor real, no un bug), así que un paso fijo de moneda
+              seguiría dando `stepMismatch` en esos casos. */}
           {onUpdateSubtotal ? (
             <NumericInput
               min={0}
+              step="any"
               value={item.subtotal}
               onValueChange={(val) => onUpdateSubtotal(item.id, val)}
               className="bg-background border-border text-right font-bold text-primary h-8 text-sm"

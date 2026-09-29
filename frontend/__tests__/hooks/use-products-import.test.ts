@@ -91,12 +91,12 @@ describe("useImportProducts — payload exacto (8.1)", () => {
       rows: [
         {
           row_no: 1, name: "Remera básica", category: null, price: "1000", cost: null, stock: null,
-          min_stock: null, barcode: null, sku: null, sku_parent: null, parent_name: null,
+          min_stock: null, barcode: null, scale_plu: null, sku: null, sku_parent: null, parent_name: null,
           is_variant: null, stock_control_type: null, attributes: [],
         },
         {
           row_no: 2, name: "Pantalón", category: "Ropa", price: "2000", cost: "800", stock: null,
-          min_stock: null, barcode: null, sku: "PANT-001", sku_parent: null, parent_name: null,
+          min_stock: null, barcode: null, scale_plu: null, sku: "PANT-001", sku_parent: null, parent_name: null,
           is_variant: null, stock_control_type: null,
           attributes: [{ key: "Talle", value: "M", sort_order: 0 }],
         },

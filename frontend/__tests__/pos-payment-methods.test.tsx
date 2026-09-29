@@ -14,6 +14,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { render, screen, fireEvent } from "@testing-library/react"
+import { FACTORY_SCALE_SETTINGS } from "@/lib/scale-layout"
 
 const PM_CASH     = { id: "pm-cash", accountId: "a", name: "Efectivo", kind: "cash" as const, isActive: true, sortOrder: 1, createdAt: "2026-01-01" }
 const PM_TRANSFER = { id: "pm-transfer", accountId: "a", name: "Transferencia", kind: "transfer" as const, isActive: true, sortOrder: 2, createdAt: "2026-01-01" }
@@ -72,6 +73,11 @@ vi.mock("@/hooks/data/use-bank-accounts", () => ({
 }))
 vi.mock("@/hooks/data/use-customer-account", () => ({
   useCustomerAccount: () => customerAccountMockValue,
+}))
+// balanza-etiquetas-pos (grupo 7): sin este mock, el hook real dispara
+// python-client sin NEXT_PUBLIC_BACKEND_URL en el entorno de test.
+vi.mock("@/hooks/data/use-scale-settings", () => ({
+  useScaleSettings: () => ({ settings: FACTORY_SCALE_SETTINGS, isLoading: false, isError: false, error: null }),
 }))
 vi.mock("@/components/three/Celebration3D", () => ({ Celebration3D: () => null }))
 vi.mock("@/components/shared/NoWriteAccessBanner", () => ({ NoWriteAccessBanner: () => null }))

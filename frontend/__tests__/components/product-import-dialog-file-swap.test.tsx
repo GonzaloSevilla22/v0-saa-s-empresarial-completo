@@ -54,6 +54,9 @@ vi.mock("@/hooks/data/use-products", () => ({
     invalidateImportData: vi.fn(),
   }),
 }))
+vi.mock("@/hooks/data/use-scale-settings", () => ({
+  useScaleSettings: () => ({ settings: { enabled: false, layouts: [] }, isLoading: false, isError: false, error: null }),
+}))
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }))
 
 const { ProductImportDialog } = await import("@/components/products/product-import-dialog")
@@ -61,7 +64,7 @@ const { ProductImportDialog } = await import("@/components/products/product-impo
 function raw(over: Partial<RawImportRow> & { lineNumber: number }): RawImportRow {
   return {
     tipo: "Producto", nombre: "Producto", sku: "", sku_padre: "", producto_padre: "",
-    precio: "10", costo: "5", categoria: "", stock: "0", stock_minimo: "0", codigo: "", attributes: {},
+    precio: "10", costo: "5", categoria: "", stock: "0", stock_minimo: "0", codigo: "", codigo_balanza: "", attributes: {},
     ...over,
   }
 }

@@ -1,0 +1,516 @@
+{
+  "_notes": [
+    "Casos compartidos entre pytest (backend/tests/test_scale_settings.py) y vitest (frontend/lib/scale-layout.test.ts).",
+    "Cada caso trae `settings.layouts` = [weighed, unit, multi], como lo recibe PUT /scale-settings.",
+    "Un layout ausente en el caso se completa con el de fábrica DESHABILITADO (enabled=false) para no interferir con la regla 5 (cabeceras que se pisan).",
+    "`layoutUnderTest` indica el índice (0=weighed,1=unit,2=multi) al que aplican `error_code` y `expected` cuando el caso ejercita un solo formato.",
+    "Ambigüedad D4 resuelta según la spec scale-label-integration: 'plu_zero_digits' se trata como PLU ausente (regla 3, 'exactamente un campo de código PLU'), no como campo ignorado (a diferencia de un campo Tara/ignored con digits=0, que sí se permite y se ignora, ver 'factory_weighed_valid').",
+    "error_code es un nombre descriptivo interno de este fixture (no está fijado por el design; el schema real puede usar sus propios códigos) — lo que importa para el contrato compartido es el booleano `valid`.",
+    "Fix F5 (revisión adversarial PR #599): 'factory_multi_valid' tenía 'resultPattern': '22CCIIIIIIIIX' (letra por TIPO de campo) — no reproducía lo que la balanza muestra (posición A/B/C/D, pág. 135) y difería del propio ejemplo de la tabla D3 del design ('22BBCCCCCCCCX'). Corregido a la letra por POSICIÓN, que coincide con las 4 filas ya existentes del fixture (canónicas: A/B/C/D en orden) y con D3. Ver 'reordered_fields_result_pattern' y 'tara_nonzero_result_pattern' abajo."
+  ],
+  "factory_disabled_layout": {
+    "kind": "multi",
+    "enabled": false,
+    "segments": []
+  },
+  "cases": [
+    {
+      "name": "factory_weighed_valid",
+      "layoutUnderTest": 0,
+      "settings": {
+        "enabled": true,
+        "layouts": [
+          {
+            "kind": "weighed",
+            "enabled": true,
+            "segments": [
+              { "field": "fixed", "digits": 2, "value": "20" },
+              { "field": "plu", "digits": 4 },
+              { "field": "amount", "digits": 6, "decimals": 2 },
+              { "field": "ignored", "digits": 0 }
+            ]
+          },
+          { "kind": "unit", "enabled": false, "segments": [] },
+          { "kind": "multi", "enabled": false, "segments": [] }
+        ]
+      },
+      "valid": true,
+      "error_code": null,
+      "expected": { "resultPattern": "20BBBBCCCCCCX", "maxAmount": 9999.99 }
+    },
+    {
+      "name": "factory_unit_valid",
+      "layoutUnderTest": 1,
+      "settings": {
+        "enabled": true,
+        "layouts": [
+          { "kind": "weighed", "enabled": false, "segments": [] },
+          {
+            "kind": "unit",
+            "enabled": true,
+            "segments": [
+              { "field": "fixed", "digits": 2, "value": "21" },
+              { "field": "plu", "digits": 4 },
+              { "field": "amount", "digits": 6, "decimals": 2 }
+            ]
+          },
+          { "kind": "multi", "enabled": false, "segments": [] }
+        ]
+      },
+      "valid": true,
+      "error_code": null,
+      "expected": { "resultPattern": "21BBBBCCCCCCX", "maxAmount": 9999.99 }
+    },
+    {
+      "name": "factory_multi_valid",
+      "layoutUnderTest": 2,
+      "settings": {
+        "enabled": true,
+        "layouts": [
+          { "kind": "weighed", "enabled": false, "segments": [] },
+          { "kind": "unit", "enabled": false, "segments": [] },
+          {
+            "kind": "multi",
+            "enabled": true,
+            "segments": [
+              { "field": "fixed", "digits": 2, "value": "22" },
+              { "field": "ignored", "digits": 2 },
+              { "field": "ignored", "digits": 8 }
+            ]
+          }
+        ]
+      },
+      "valid": true,
+      "error_code": null,
+      "expected": { "resultPattern": "22BBCCCCCCCCX" }
+    },
+    {
+      "name": "reordered_fields_result_pattern",
+      "notes": "Fix F5 (revision adversarial PR #599): campos reordenados (Importe en B, Codigo en C) -- la balanza sigue rotulando por POSICION (20BBBBBBCCCCX), nunca por tipo de campo (que hubiera dado 20CCCCCCBBBBX con la version anterior de letterFor).",
+      "layoutUnderTest": 0,
+      "settings": {
+        "enabled": true,
+        "layouts": [
+          {
+            "kind": "weighed",
+            "enabled": true,
+            "segments": [
+              { "field": "fixed", "digits": 2, "value": "20" },
+              { "field": "amount", "digits": 6, "decimals": 2 },
+              { "field": "plu", "digits": 4 }
+            ]
+          },
+          { "kind": "unit", "enabled": false, "segments": [] },
+          { "kind": "multi", "enabled": false, "segments": [] }
+        ]
+      },
+      "valid": true,
+      "error_code": null,
+      "expected": { "resultPattern": "20BBBBBBCCCCX", "maxAmount": 9999.99 }
+    },
+    {
+      "name": "tara_nonzero_result_pattern",
+      "notes": "Fix F5: una Tara con digits > 0 (D) tambien se rotula por posicion, no se salta ni comparte letra con el campo de importe.",
+      "layoutUnderTest": 0,
+      "settings": {
+        "enabled": true,
+        "layouts": [
+          {
+            "kind": "weighed",
+            "enabled": true,
+            "segments": [
+              { "field": "fixed", "digits": 2, "value": "20" },
+              { "field": "plu", "digits": 4 },
+              { "field": "amount", "digits": 4, "decimals": 2 },
+              { "field": "ignored", "digits": 2 }
+            ]
+          },
+          { "kind": "unit", "enabled": false, "segments": [] },
+          { "kind": "multi", "enabled": false, "segments": [] }
+        ]
+      },
+      "valid": true,
+      "error_code": null,
+      "expected": { "resultPattern": "20BBBBCCCCDDX", "maxAmount": 99.99 }
+    },
+    {
+      "name": "digits_sum_not_12_importe_5",
+      "layoutUnderTest": 0,
+      "notes": "Escenario oficial de la spec: numero fijo 2, codigo 4, importe 5 -> suma 11.",
+      "settings": {
+        "enabled": true,
+        "layouts": [
+          {
+            "kind": "weighed",
+            "enabled": true,
+            "segments": [
+              { "field": "fixed", "digits": 2, "value": "20" },
+              { "field": "plu", "digits": 4 },
+              { "field": "amount", "digits": 5, "decimals": 2 }
+            ]
+          },
+          { "kind": "unit", "enabled": false, "segments": [] },
+          { "kind": "multi", "enabled": false, "segments": [] }
+        ]
+      },
+      "valid": false,
+      "error_code": "digits_sum_not_12"
+    },
+    {
+      "name": "field_a_not_fixed_type",
+      "notes": "El campo A no es de tipo fijo (es codigo) -> invalido, sin importar el valor.",
+      "layoutUnderTest": 0,
+      "settings": {
+        "enabled": true,
+        "layouts": [
+          {
+            "kind": "weighed",
+            "enabled": true,
+            "segments": [
+              { "field": "plu", "digits": 2 },
+              { "field": "plu", "digits": 4 },
+              { "field": "amount", "digits": 6, "decimals": 2 }
+            ]
+          },
+          { "kind": "unit", "enabled": false, "segments": [] },
+          { "kind": "multi", "enabled": false, "segments": [] }
+        ]
+      },
+      "valid": false,
+      "error_code": "field_a_not_fixed"
+    },
+    {
+      "name": "field_a_fixed_not_starting_with_2",
+      "notes": "Escenario oficial: numero fijo 77.",
+      "layoutUnderTest": 0,
+      "settings": {
+        "enabled": true,
+        "layouts": [
+          {
+            "kind": "weighed",
+            "enabled": true,
+            "segments": [
+              { "field": "fixed", "digits": 2, "value": "77" },
+              { "field": "plu", "digits": 4 },
+              { "field": "amount", "digits": 6, "decimals": 2 }
+            ]
+          },
+          { "kind": "unit", "enabled": false, "segments": [] },
+          { "kind": "multi", "enabled": false, "segments": [] }
+        ]
+      },
+      "valid": false,
+      "error_code": "header_not_starting_with_2"
+    },
+    {
+      "name": "header_4_digits_too_long",
+      "notes": "Numero fijo de 4 digitos: el campo A admite 1 a 3 digitos.",
+      "layoutUnderTest": 0,
+      "settings": {
+        "enabled": true,
+        "layouts": [
+          {
+            "kind": "weighed",
+            "enabled": true,
+            "segments": [
+              { "field": "fixed", "digits": 4, "value": "2000" },
+              { "field": "plu", "digits": 2 },
+              { "field": "amount", "digits": 6, "decimals": 2 }
+            ]
+          },
+          { "kind": "unit", "enabled": false, "segments": [] },
+          { "kind": "multi", "enabled": false, "segments": [] }
+        ]
+      },
+      "valid": false,
+      "error_code": "header_length_invalid"
+    },
+    {
+      "name": "headers_prefix_conflict_2_and_21",
+      "notes": "Escenario oficial: peso con cabecera 2 y unidad con cabecera 21 -> 2 es prefijo de 21.",
+      "layoutUnderTest": 0,
+      "settings": {
+        "enabled": true,
+        "layouts": [
+          {
+            "kind": "weighed",
+            "enabled": true,
+            "segments": [
+              { "field": "fixed", "digits": 1, "value": "2" },
+              { "field": "plu", "digits": 5 },
+              { "field": "amount", "digits": 6, "decimals": 2 }
+            ]
+          },
+          {
+            "kind": "unit",
+            "enabled": true,
+            "segments": [
+              { "field": "fixed", "digits": 2, "value": "21" },
+              { "field": "plu", "digits": 4 },
+              { "field": "amount", "digits": 6, "decimals": 2 }
+            ]
+          },
+          { "kind": "multi", "enabled": false, "segments": [] }
+        ]
+      },
+      "valid": false,
+      "error_code": "header_prefix_conflict"
+    },
+    {
+      "name": "headers_20_and_201_prefix_conflict",
+      "notes": "Cabeceras que son prefijo una de otra con 3 digitos: 20 (2 digitos) es prefijo de 201 (3 digitos).",
+      "layoutUnderTest": 0,
+      "settings": {
+        "enabled": true,
+        "layouts": [
+          {
+            "kind": "weighed",
+            "enabled": true,
+            "segments": [
+              { "field": "fixed", "digits": 2, "value": "20" },
+              { "field": "plu", "digits": 4 },
+              { "field": "amount", "digits": 6, "decimals": 2 }
+            ]
+          },
+          {
+            "kind": "unit",
+            "enabled": true,
+            "segments": [
+              { "field": "fixed", "digits": 3, "value": "201" },
+              { "field": "plu", "digits": 3 },
+              { "field": "amount", "digits": 6, "decimals": 2 }
+            ]
+          },
+          { "kind": "multi", "enabled": false, "segments": [] }
+        ]
+      },
+      "valid": false,
+      "error_code": "header_prefix_conflict"
+    },
+    {
+      "name": "headers_20_and_21_coexist_valid",
+      "notes": "Contraejemplo positivo de la regla 5: 20 y 21 no son prefijo uno del otro y conviven.",
+      "layoutUnderTest": null,
+      "settings": {
+        "enabled": true,
+        "layouts": [
+          {
+            "kind": "weighed",
+            "enabled": true,
+            "segments": [
+              { "field": "fixed", "digits": 2, "value": "20" },
+              { "field": "plu", "digits": 4 },
+              { "field": "amount", "digits": 6, "decimals": 2 }
+            ]
+          },
+          {
+            "kind": "unit",
+            "enabled": true,
+            "segments": [
+              { "field": "fixed", "digits": 2, "value": "21" },
+              { "field": "plu", "digits": 4 },
+              { "field": "amount", "digits": 6, "decimals": 2 }
+            ]
+          },
+          { "kind": "multi", "enabled": false, "segments": [] }
+        ]
+      },
+      "valid": true,
+      "error_code": null
+    },
+    {
+      "name": "plu_zero_digits_treated_as_missing",
+      "notes": "Un campo plu con 0 digitos no cuenta como el 'exactamente un campo de codigo PLU' exigido (a diferencia de un campo ignored/tara con 0 digitos, que si se permite): se trata como PLU ausente.",
+      "layoutUnderTest": 0,
+      "settings": {
+        "enabled": true,
+        "layouts": [
+          {
+            "kind": "weighed",
+            "enabled": true,
+            "segments": [
+              { "field": "fixed", "digits": 2, "value": "20" },
+              { "field": "plu", "digits": 0 },
+              { "field": "amount", "digits": 10, "decimals": 2 }
+            ]
+          },
+          { "kind": "unit", "enabled": false, "segments": [] },
+          { "kind": "multi", "enabled": false, "segments": [] }
+        ]
+      },
+      "valid": false,
+      "error_code": "plu_missing"
+    },
+    {
+      "name": "plu_seven_digits_too_long",
+      "notes": "PLU de 7 digitos: el maximo es 6 (cabe en el campo Codigo del EAN-13 de 12 digitos).",
+      "layoutUnderTest": 0,
+      "settings": {
+        "enabled": true,
+        "layouts": [
+          {
+            "kind": "weighed",
+            "enabled": true,
+            "segments": [
+              { "field": "fixed", "digits": 1, "value": "2" },
+              { "field": "plu", "digits": 7 },
+              { "field": "amount", "digits": 4, "decimals": 2 }
+            ]
+          },
+          { "kind": "unit", "enabled": false, "segments": [] },
+          { "kind": "multi", "enabled": false, "segments": [] }
+        ]
+      },
+      "valid": false,
+      "error_code": "plu_digits_out_of_range"
+    },
+    {
+      "name": "two_value_fields_in_one_format",
+      "notes": "Dos valores (amount + quantity) en un mismo formato peso/unidad: solo se exige y admite exactamente uno.",
+      "layoutUnderTest": 0,
+      "settings": {
+        "enabled": true,
+        "layouts": [
+          {
+            "kind": "weighed",
+            "enabled": true,
+            "segments": [
+              { "field": "fixed", "digits": 2, "value": "20" },
+              { "field": "plu", "digits": 2 },
+              { "field": "amount", "digits": 4, "decimals": 2 },
+              { "field": "quantity", "digits": 4, "decimals": 0 }
+            ]
+          },
+          { "kind": "unit", "enabled": false, "segments": [] },
+          { "kind": "multi", "enabled": false, "segments": [] }
+        ]
+      },
+      "valid": false,
+      "error_code": "value_field_count_invalid"
+    },
+    {
+      "name": "no_value_field_in_weighed",
+      "notes": "Sin ningun campo de valor (amount o quantity): weighed/unit exigen exactamente uno.",
+      "layoutUnderTest": 0,
+      "settings": {
+        "enabled": true,
+        "layouts": [
+          {
+            "kind": "weighed",
+            "enabled": true,
+            "segments": [
+              { "field": "fixed", "digits": 2, "value": "20" },
+              { "field": "plu", "digits": 4 },
+              { "field": "ignored", "digits": 6 }
+            ]
+          },
+          { "kind": "unit", "enabled": false, "segments": [] },
+          { "kind": "multi", "enabled": false, "segments": [] }
+        ]
+      },
+      "valid": false,
+      "error_code": "value_field_count_invalid"
+    },
+    {
+      "name": "decimals_out_of_range_4",
+      "notes": "Decimales del campo de valor fuera de 0-3.",
+      "layoutUnderTest": 0,
+      "settings": {
+        "enabled": true,
+        "layouts": [
+          {
+            "kind": "weighed",
+            "enabled": true,
+            "segments": [
+              { "field": "fixed", "digits": 2, "value": "20" },
+              { "field": "plu", "digits": 4 },
+              { "field": "amount", "digits": 6, "decimals": 4 }
+            ]
+          },
+          { "kind": "unit", "enabled": false, "segments": [] },
+          { "kind": "multi", "enabled": false, "segments": [] }
+        ]
+      },
+      "valid": false,
+      "error_code": "decimals_out_of_range"
+    },
+    {
+      "name": "unit_format_quantity_with_nonzero_decimals_rejected",
+      "notes": "Escenario oficial: unitario numero fijo 21, codigo 4, cantidad 6 con 1 decimal -> rechazado (una cantidad fraccionaria no es vendible por unidades).",
+      "layoutUnderTest": 1,
+      "settings": {
+        "enabled": true,
+        "layouts": [
+          { "kind": "weighed", "enabled": false, "segments": [] },
+          {
+            "kind": "unit",
+            "enabled": true,
+            "segments": [
+              { "field": "fixed", "digits": 2, "value": "21" },
+              { "field": "plu", "digits": 4 },
+              { "field": "quantity", "digits": 6, "decimals": 1 }
+            ]
+          },
+          { "kind": "multi", "enabled": false, "segments": [] }
+        ]
+      },
+      "valid": false,
+      "error_code": "unit_quantity_decimals_invalid"
+    },
+    {
+      "name": "weighed_zero_decimals_valid",
+      "notes": "Importe de 6 digitos con 0 decimales: valido (hipotesis de la guia OQ-2), maximo representable 999999.",
+      "layoutUnderTest": 0,
+      "settings": {
+        "enabled": true,
+        "layouts": [
+          {
+            "kind": "weighed",
+            "enabled": true,
+            "segments": [
+              { "field": "fixed", "digits": 2, "value": "20" },
+              { "field": "plu", "digits": 4 },
+              { "field": "amount", "digits": 6, "decimals": 0 }
+            ]
+          },
+          { "kind": "unit", "enabled": false, "segments": [] },
+          { "kind": "multi", "enabled": false, "segments": [] }
+        ]
+      },
+      "valid": true,
+      "error_code": null,
+      "expected": { "resultPattern": "20BBBBCCCCCCX", "maxAmount": 999999 }
+    },
+    {
+      "name": "disabled_layout_with_invalid_segments_is_valid_overall",
+      "notes": "Un formato deshabilitado no se valida (D3/D4: 'El sistema SHALL aceptar un formato HABILITADO solo si...'); aqui weighed esta deshabilitado con una suma de digitos invalida y la configuracion completa es valida igual.",
+      "layoutUnderTest": 0,
+      "settings": {
+        "enabled": true,
+        "layouts": [
+          {
+            "kind": "weighed",
+            "enabled": false,
+            "segments": [
+              { "field": "fixed", "digits": 2, "value": "20" },
+              { "field": "plu", "digits": 4 },
+              { "field": "amount", "digits": 99, "decimals": 2 }
+            ]
+          },
+          {
+            "kind": "unit",
+            "enabled": true,
+            "segments": [
+              { "field": "fixed", "digits": 2, "value": "21" },
+              { "field": "plu", "digits": 4 },
+              { "field": "amount", "digits": 6, "decimals": 2 }
+            ]
+          },
+          { "kind": "multi", "enabled": false, "segments": [] }
+        ]
+      },
+      "valid": true,
+      "error_code": null
+    }
+  ]
+}

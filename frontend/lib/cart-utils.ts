@@ -17,6 +17,10 @@
  *   price columns of every document line are unconstrained NUMERIC.
  */
 
+import { getCanonicalLabel } from "@/lib/product-labels"
+import { isProductoMedible, resolveUnit, unitInputMin } from "@/lib/unit-utils"
+import type { Product, UnitOfMeasure } from "@/lib/types"
+
 // ─── Operation ID ─────────────────────────────────────────────────────────────
 
 /**
@@ -58,6 +62,18 @@ export interface SaleCartItem {
   step?: number
   /** Minimum quantity: mirrors step. */
   minQty?: number
+  /**
+   * balanza-etiquetas-pos (D8): origen de la línea.
+   * - `"scale"`:     una etiqueta de balanza leída en esta sesión — nunca se
+   *   fusiona con otra alta (código común, SKU o manual): cada pesada es una
+   *   línea propia con su propio importe.
+   * - `"persisted"`: una línea rehidratada al editar una venta existente —
+   *   tampoco se fusiona (su cantidad ya salió de `product.stock`) y no
+   *   cuenta contra el disponible en `exceedsStock`.
+   * - `undefined`:   una línea creada a mano o por código común/SKU en esta
+   *   sesión — la única fusionable.
+   */
+  source?: "scale" | "persisted"
 }
 
 export function calcSaleSubtotal(
@@ -143,4 +159,112 @@ export function calcCartTotal(items: { subtotal: number }[]): number {
 /** Rounds to 4 decimal places — matches NUMERIC(15,4) precision in the DB. */
 function _round4(n: number): number {
   return Math.round(n * 10_000) / 10_000
+}
+
+
+// ─── balanza-etiquetas-pos (D7/D8) ─────────────────────────────────────────────
+
+/**
+ * Chequeo de stock ACUMULATIVO (D7, OQ-9): suma el `quantityBase` de todas
+ * las líneas del carrito del MISMO producto agregadas en esta sesión
+ * (`source !== "persisted"` — al editar una venta, esas líneas ya salieron de
+ * `product.stock`) más `addBase`, y compara contra `stock`. Usado tanto por
+ * una etiqueta de balanza como por el alta manual (POS y formulario de venta),
+ * en sus dos ramas (fusión y línea nueva) — antes cada pantalla sólo medía la
+ * línea que estaba tocando, lo que dejaba pasar dos etiquetas que juntas
+ * superaban el disponible.
+ */
+export function exceedsStock(
+  items: Pick<SaleCartItem, "productId" | "source" | "quantityBase">[],
+  productId: string,
+  addBase: number,
+  stock: number,
+): boolean {
+  const sumBase = items
+    .filter((item) => item.productId === productId && item.source !== "persisted")
+    .reduce((sum, item) => sum + (item.quantityBase ?? 0), 0)
+  return sumBase + addBase > stock
+}
+
+export interface AddScannedProductLineContext {
+  unitsById: Map<string, UnitOfMeasure>
+  /** Catálogo completo — para resolver el nombre del producto con su padre. */
+  products: Product[]
+}
+
+export type AddScannedProductLineResult =
+  | { items: SaleCartItem[] }
+  | { needsQuantity: true }
+
+/**
+ * Alta de un producto encontrado por CÓDIGO COMÚN o SKU (D6/D8) — nunca por
+ * una etiqueta de balanza (esa la resuelve `resolveScaleScan`, D7). Reglas:
+ *
+ * - Producto **por unidades**: suma `unitInputMin` a la línea NO-balanza
+ *   (`source` ausente) del mismo producto y unidad base, conservando el
+ *   `unitPrice` de esa línea (un precio editado a mano no se pisa con el del
+ *   catálogo); si no hay una línea así, crea una con el precio del catálogo.
+ *   Nunca fusiona sobre una línea `"scale"` ni `"persisted"`.
+ * - Producto **medible** (peso, volumen, longitud, personalizada): NO agrega
+ *   una cantidad mínima arbitraria — devuelve `{ needsQuantity: true }` para
+ *   que la pantalla deje el producto elegido en su selector con el foco en
+ *   "Cantidad".
+ */
+export function addScannedProductLine(
+  items: SaleCartItem[],
+  product: Product,
+  ctx: AddScannedProductLineContext,
+): AddScannedProductLineResult {
+  const baseUnit = resolveUnit(product.baseUnitId, ctx.unitsById)
+
+  if (isProductoMedible(baseUnit)) {
+    return { needsQuantity: true }
+  }
+
+  // Fix F4 (revisión adversarial PR #599): el alta MANUAL (POS y formulario
+  // de venta) guarda `unitId: product.baseUnitId` para un producto con
+  // unidad base con nombre propio (nunca `undefined`) — comparar contra
+  // `!item.unitId` nunca encontraba esa línea y creaba una segunda. La
+  // comparación correcta es "la unidad base del producto", igual que el
+  // alta manual (`(item.unitId ?? '') === unitId`, D8).
+  const existingIndex = items.findIndex(
+    (item) =>
+      item.productId === product.id &&
+      !item.source &&
+      (item.unitId ?? product.baseUnitId ?? "") === (product.baseUnitId ?? ""),
+  )
+  const addQty = unitInputMin(baseUnit)
+
+  if (existingIndex >= 0) {
+    const existing = items[existingIndex]
+    const newQty = existing.quantity + addQty
+    const nextItems = items.slice()
+    nextItems[existingIndex] = {
+      ...existing,
+      quantity: newQty,
+      quantityBase: newQty,
+      subtotal: calcSaleSubtotal(existing.unitPrice, newQty, existing.discount),
+    }
+    return { items: nextItems }
+  }
+
+  const parent = product.parentId ? ctx.products.find((p) => p.id === product.parentId) : undefined
+  const newLine: SaleCartItem = {
+    id: crypto.randomUUID(),
+    productId: product.id,
+    productName: getCanonicalLabel(product, parent),
+    unitPrice: product.price,
+    quantity: addQty,
+    discount: 0,
+    subtotal: calcSaleSubtotal(product.price, addQty, 0),
+    // F4: la línea nueva nace con la MISMA unidad que el alta manual
+    // (`product.baseUnitId`), no `undefined` — así un escaneo posterior del
+    // mismo producto la encuentra y fusiona en vez de crear una tercera.
+    unitId: product.baseUnitId || undefined,
+    unitSymbol: baseUnit?.symbol,
+    quantityBase: addQty,
+    step: addQty,
+    minQty: addQty,
+  }
+  return { items: [...items, newLine] }
 }

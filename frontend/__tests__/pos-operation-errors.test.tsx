@@ -17,6 +17,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { render, screen, fireEvent, waitFor } from "@testing-library/react"
+import { FACTORY_SCALE_SETTINGS } from "@/lib/scale-layout"
 
 const PRODUCT_ID = "0dd2e5bb-2b93-4470-b4b6-52f008046112"
 const PRODUCT = {
@@ -69,6 +70,12 @@ vi.mock("@/hooks/data/use-bank-accounts", () => ({
 }))
 vi.mock("@/hooks/data/use-customer-account", () => ({
   useCustomerAccount: () => ({ data: null, isLoading: false }),
+}))
+// balanza-etiquetas-pos (grupo 7): la balanza deshabilitada de fábrica no
+// cambia nada de lo que este archivo ejercita, pero el hook real dispara
+// python-client sin NEXT_PUBLIC_BACKEND_URL en el entorno de test.
+vi.mock("@/hooks/data/use-scale-settings", () => ({
+  useScaleSettings: () => ({ settings: FACTORY_SCALE_SETTINGS, isLoading: false, isError: false, error: null }),
 }))
 vi.mock("@/components/three/Celebration3D", () => ({ Celebration3D: () => null }))
 vi.mock("@/components/shared/NoWriteAccessBanner", () => ({ NoWriteAccessBanner: () => null }))

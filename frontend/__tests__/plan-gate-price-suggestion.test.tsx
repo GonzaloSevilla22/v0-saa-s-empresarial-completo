@@ -48,6 +48,9 @@ vi.mock("@/hooks/data/use-products", () => ({
   }),
 }))
 vi.mock("@/hooks/useOrgRole", () => ({ useOrgRole: () => ({ isWriter: true, role: "owner", isLoading: false }) }))
+vi.mock("@/hooks/data/use-scale-settings", () => ({
+  useScaleSettings: () => ({ settings: { enabled: false, layouts: [] }, isLoading: false, isError: false, error: null }),
+}))
 vi.mock("@/hooks/use-units-of-measure", () => ({
   useUnitsOfMeasure: () => ({ unitsById: new Map() }),
 }))

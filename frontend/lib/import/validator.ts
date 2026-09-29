@@ -36,6 +36,8 @@
  */
 
 import { amountAmbiguityWarning, parseAmount, parseQuantity } from "@/lib/excel"
+import { decodeScaleBarcode } from "@/lib/scale-barcode"
+import type { ScaleSettings } from "@/lib/scale-layout"
 import {
   MAX_NEW_CATEGORIES_PER_IMPORT,
   VALID_ROW_TYPES,
@@ -45,6 +47,9 @@ import {
   type ImportAttribute,
   type ImportRowType,
 } from "@/lib/import/types"
+
+const SCALE_PLU_MIN = 1
+const SCALE_PLU_MAX = 999999
 
 export interface NewCategorySummary {
   name: string
@@ -83,6 +88,13 @@ export function normalizeCategoryName(raw: string): string {
 export function validateImportRows(
   rawRows: RawImportRow[],
   catalog: readonly ImportCategoryRef[] = [],
+  /**
+   * balanza-etiquetas-pos (D14): aviso no bloqueante si la columna "Código"
+   * decodifica como etiqueta de balanza válida — con la configuración TAL
+   * CUAL (`useScaleSettings()`), sin forzar `enabled` como hace el probador
+   * de la pestaña Balanza (D11.3, un caso de uso distinto).
+   */
+  scaleSettings?: ScaleSettings,
 ): ValidationSummary {
   // Nombre canónico por clave case-insensitive — incluye las DESACTIVADAS:
   // una categoría existente se reutiliza, nunca se duplica (el unique de la
@@ -90,8 +102,9 @@ export function validateImportRows(
   const canonicalByKey = new Map<string, string>()
   for (const c of catalog) canonicalByKey.set(c.name.trim().toLowerCase(), c.name)
 
-  const rows = rawRows.map((raw) => validateRow(raw, canonicalByKey))
+  const rows = rawRows.map((raw) => validateRow(raw, canonicalByKey, scaleSettings))
   flagDuplicateSkus(rows)
+  flagDuplicateScalePlus(rows)
 
   const newCategories = summariseNewCategories(rows)
 
@@ -109,7 +122,11 @@ export function validateImportRows(
   }
 }
 
-function validateRow(raw: RawImportRow, canonicalByKey: Map<string, string>): ValidatedImportRow {
+function validateRow(
+  raw: RawImportRow,
+  canonicalByKey: Map<string, string>,
+  scaleSettings?: ScaleSettings,
+): ValidatedImportRow {
   const errors:   string[] = []
   const warnings: string[] = []
 
@@ -218,6 +235,37 @@ function validateRow(raw: RawImportRow, canonicalByKey: Map<string, string>): Va
   // ── Barcode ────────────────────────────────────────────────────────────────
   const barcode = raw.codigo.trim() || null
 
+  // balanza-etiquetas-pos (D6/D14): aviso no bloqueante si el código
+  // ingresado decodifica como una etiqueta de balanza válida — "asigná el
+  // PLU en Código de balanza" en vez de dejarlo como código de barras común.
+  if (barcode && scaleSettings) {
+    const decoded = decodeScaleBarcode(barcode, scaleSettings)
+    if (decoded.status === "ok") {
+      warnings.push(
+        `El "Código" "${barcode}" es una etiqueta de balanza válida; asigná el PLU en "Código balanza" en vez de cargarlo como código de barras.`,
+      )
+    }
+  }
+
+  // ── Código de balanza (PLU) ──────────────────────────────────────────────
+  // balanza-etiquetas-pos (D14): entero 1-999.999; celda vacía = ausente
+  // (nunca 0); una fila "Padre" (variant_only) no admite PLU — es un error
+  // de fila, igual que en la base (CHECK products_scale_plu_not_parent).
+  let scalePlu: number | null = null
+  const rawScalePlu = (raw.codigo_balanza ?? "").trim()
+  if (rawScalePlu) {
+    const parsed = Number(rawScalePlu)
+    if (!Number.isInteger(parsed) || parsed < SCALE_PLU_MIN || parsed > SCALE_PLU_MAX) {
+      errors.push(
+        `Código balanza inválido: "${rawScalePlu}". Tiene que ser un número entero entre ${SCALE_PLU_MIN} y ${SCALE_PLU_MAX}.`,
+      )
+    } else if (rowType === "Padre") {
+      errors.push("Código balanza: se asigna a cada variante, no al producto padre.")
+    } else {
+      scalePlu = parsed
+    }
+  }
+
   // ── Dynamic attributes ─────────────────────────────────────────────────────
   const attributes: ImportAttribute[] = Object.entries(raw.attributes)
     .filter(([, v]) => v.trim() !== "")
@@ -237,6 +285,7 @@ function validateRow(raw: RawImportRow, canonicalByKey: Map<string, string>): Va
     stock,
     minStock,
     barcode,
+    scalePlu,
     attributes,
     warnings,
     errors,
@@ -264,6 +313,32 @@ function flagDuplicateSkus(rows: ValidatedImportRow[]): void {
     const others = lines.filter((l) => l !== r.lineNumber)
     r.warnings.push(
       `SKU "${r.sku}" repetido en el archivo (también en la línea ${others.join(", ")}) — la última fila actualiza al mismo producto.`,
+    )
+  }
+}
+
+/**
+ * balanza-etiquetas-pos (D14): dos filas del mismo archivo con el mismo
+ * código de balanza son un error de fila en las DOS — a diferencia del SKU
+ * repetido (que actualiza en cascada), un PLU repetido no tiene una
+ * interpretación válida: la base lo rechazaría con `23505` en la segunda,
+ * pero el lote es todo o nada, así que se corta antes de llegar al servidor.
+ */
+function flagDuplicateScalePlus(rows: ValidatedImportRow[]): void {
+  const linesByPlu = new Map<number, number[]>()
+  for (const r of rows) {
+    if (r.scalePlu == null) continue
+    const lines = linesByPlu.get(r.scalePlu) ?? []
+    lines.push(r.lineNumber)
+    linesByPlu.set(r.scalePlu, lines)
+  }
+  for (const r of rows) {
+    if (r.scalePlu == null) continue
+    const lines = linesByPlu.get(r.scalePlu) ?? []
+    if (lines.length < 2) continue
+    const others = lines.filter((l) => l !== r.lineNumber)
+    r.errors.push(
+      `Código balanza ${r.scalePlu} repetido en el archivo (también en la línea ${others.join(", ")}).`,
     )
   }
 }

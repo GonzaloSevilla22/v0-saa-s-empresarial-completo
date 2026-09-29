@@ -1114,6 +1114,46 @@ jobs:
           fi
           echo "20261065000001 idempotente: las dos decisiones corrieron y el schema quedó IDÉNTICO al previo a este paso."
 
+          # balanza-etiquetas-pos (2026-09-28): reaplicación de 20261066000001
+          # sobre el estado reconvergido, AL FINAL de la cadena (mismo criterio:
+          # el eslabón más nuevo se reaplica sobre la historia real completa).
+          # Idempotente por construcción: ADD COLUMN IF NOT EXISTS, CHECKs
+          # guardados contra pg_constraint, índice IF NOT EXISTS, CREATE OR
+          # REPLACE VIEW/FUNCTION con la misma forma (rpc_bulk_upsert_products
+          # con la MISMA firma, sin 42725), CREATE TABLE IF NOT EXISTS, DROP
+          # POLICY/TRIGGER IF EXISTS + CREATE, REVOKE/GRANT idempotentes.
+          # Va DESPUÉS del bloque de 20261062000001 a propósito: esa
+          # reaplicación hace DROP VIEW + CREATE VIEW v_products_with_stock SIN
+          # scale_plu, y schema_snapshot() no mira las columnas de las vistas —
+          # así que, además del diff vacío, se exige que scale_plu vuelva a ser
+          # la ÚLTIMA columna de la vista (el NOTICE de la introspección de la
+          # migración la nombra, y se re-consulta information_schema). SIN
+          # tolerancia. Verificado local: dos aplicaciones seguidas sin error y
+          # schema idéntico; 20261062000001 reaplicada deja base_unit_id como
+          # última columna y 20261066000001 la devuelve a scale_plu.
+          BAL_OUT=$(psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261066000001_balanza_etiquetas_pos.sql 2>&1) || { echo "$BAL_OUT"; echo "ERROR: el reapply de 20261066000001 falló (sin tolerancia)."; exit 1; }
+          echo "$BAL_OUT"
+          if ! echo "$BAL_OUT" | grep -qF 'balanza-etiquetas-pos (introspecci'; then
+            echo "ERROR: el reapply de 20261066000001 no imprimió el OK de su bloque de introspección."
+            exit 1
+          fi
+          if ! echo "$BAL_OUT" | grep -qF 'última columna de v_products_with_stock = scale_plu'; then
+            echo "ERROR: tras reaplicar 20261066000001, scale_plu no es la última columna de v_products_with_stock."
+            exit 1
+          fi
+          BAL_LAST_COL=$(psql -tA "$DSN" -c "SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'v_products_with_stock' ORDER BY ordinal_position DESC LIMIT 1")
+          if [ "$BAL_LAST_COL" != "scale_plu" ]; then
+            echo "ERROR: la última columna de v_products_with_stock es '$BAL_LAST_COL', no scale_plu."
+            exit 1
+          fi
+          schema_snapshot > /tmp/schema_after_bal_reapply.txt
+          if ! diff -u /tmp/schema_before_reapply.txt /tmp/schema_after_bal_reapply.txt > /tmp/schema_diff_bal.txt; then
+            echo "NOT IDEMPOTENT: reaplicar 20261066000001 cambió el schema (constraints + firmas de función + ACLs):"
+            cat /tmp/schema_diff_bal.txt
+            exit 1
+          fi
+          echo "20261066000001 idempotente: introspección OK, scale_plu última columna de la vista y schema IDÉNTICO al previo a este paso."
+
       # -v ON_ERROR_STOP=1 is required: without it psql prints RAISE EXCEPTION
       # errors but still exits 0, so failing assertions show green in CI.
       - name: Run deterministic KPI tests
@@ -2555,3 +2595,26 @@ jobs:
       # (h) residuo cero. Corre desde la raíz del repo (el \i es relativo).
       - name: Run unidades decisiones 8 y 9 gate
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_unidades_decisiones_8_9.sql
+
+      # balanza-etiquetas-pos (2026-09-28, governance MEDIA con tramos LOW).
+      # `supabase start` ya aplicó 20261066000001; este paso sólo corre el
+      # gate, que EJECUTA rpc_import_products como un owner real (SET LOCAL
+      # ROLE authenticated + claims): (0) introspección -- products.scale_plu
+      # integer NULL, CHECK products_scale_plu_range y
+      # products_scale_plu_not_parent, índice único parcial por cuenta sobre
+      # filas vivas, scale_plu última columna de v_products_with_stock (con
+      # security_invoker), scale_settings con RLS, 3 políticas sin DELETE,
+      # disparador owner/admin no ejecutable por anon/authenticated y anon
+      # sin privilegios, rpc_bulk_upsert_products con firma única, DEFINER,
+      # revocada de authenticated, con scale_plu y CONSTRAINT_NAME y su
+      # COMMENT vivo; (a) PLU duplicado en la cuenta -> 23505 del índice, en
+      # otra cuenta pasa, soft-deleted se reutiliza; (b) 0 y 1.000.000 ->
+      # 23514; (b') PLU a un variant_only y pasar a variant_only con PLU ->
+      # 23514 sin cambiar la fila; (c) la vista devuelve el valor; (d)
+      # scale_settings: CHECK de forma, seller P0401 en INSERT y UPDATE,
+      # owner inserta y actualiza, otra cuenta no ve ni escribe, sin DELETE;
+      # (e) import: asigna, celda ausente/vacía conserva, PLU ajeno rechaza el
+      # lote sin escritura parcial con el error en su fila nombrando el código
+      # (509), fila Padre con PLU -> error de fila; (z) residuo cero.
+      - name: Run balanza etiquetas POS gate
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_balanza_etiquetas_pos.sql

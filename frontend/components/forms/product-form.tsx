@@ -14,6 +14,9 @@ import { generateEAN13 } from "@/lib/barcode-utils"
 import { cn } from "@/lib/utils"
 import { PythonApiError } from "@/lib/api/python-api-error"
 import { toast } from "sonner"
+import { useScaleSettings } from "@/hooks/data/use-scale-settings"
+import { decodeScaleBarcode } from "@/lib/scale-barcode"
+import { isProductoPorUnidades } from "@/lib/unit-utils"
 
 import type { Product, StockControlType } from "@/lib/types"
 import { Barcode, Package, Wrench, ScanLine, X } from "lucide-react"
@@ -80,7 +83,42 @@ export function ProductForm({ onSuccess, initialData, defaultParentId }: Product
   )
   const [baseUnitId, setBaseUnitId] = useState(initialData?.baseUnitId ?? "")
 
+  // balanza-etiquetas-pos (D2, D13): tri-estado igual que cost/baseUnitId —
+  // `scalePluTouched` distingue "no lo toqué" (conserva en la edición) de
+  // "lo dejé en null" (desasigna). En un alta la clave siempre viaja.
+  const [scalePlu, setScalePlu] = useState<number | null>(initialData?.scalePlu ?? null)
+  const [scalePluTouched, setScalePluTouched] = useState(false)
+  const [scalePluError, setScalePluError] = useState<string | null>(null)
+
   const [isScanning, setIsScanning] = useState(false)
+
+  // balanza-etiquetas-pos (D6): la lectura de configuración es la de la
+  // cuenta TAL CUAL (sin forzar `enabled`, a diferencia del probador de la
+  // pestaña Balanza — acá es sólo un aviso, no una confirmación previa).
+  const { settings: scaleSettings } = useScaleSettings()
+  const scaleBarcodeWarning = useMemo(() => {
+    if (!barcode.trim()) return null
+    const decoded = decodeScaleBarcode(barcode.trim(), scaleSettings)
+    if (decoded.status !== "ok") return null
+    return "Esto es una etiqueta de balanza; asigná el PLU en \"Código de balanza\" en vez de usar este código de barras."
+  }, [barcode, scaleSettings])
+
+  // balanza-etiquetas-pos (D2/D12): aviso no bloqueante si el PLU tiene más
+  // dígitos que el campo "Código" del formato de venta habilitado que le
+  // corresponde (peso/unidad, según la unidad base elegida) — no entraría en
+  // la etiqueta que exporta el catálogo (D12).
+  const scalePluDigitsWarning = useMemo(() => {
+    if (scalePlu == null) return null
+    const unit = units.find((u) => u.id === baseUnitId)
+    const relevantKind = unit?.type === "weight" ? "weighed" : isProductoPorUnidades(unit) ? "unit" : null
+    if (!relevantKind) return null
+    const layout = scaleSettings.layouts.find((l) => l.kind === relevantKind && l.enabled)
+    const pluSegment = layout?.segments.find((s) => s.field === "plu")
+    if (!pluSegment) return null
+    const maxPlu = 10 ** pluSegment.digits - 1
+    if (scalePlu <= maxPlu) return null
+    return `El PLU ${scalePlu} tiene más dígitos que el campo Código del formato configurado (máximo ${maxPlu}) — no entraría en la etiqueta.`
+  }, [scalePlu, units, baseUnitId, scaleSettings])
 
   // productos-costo-nullable: sin costo, el margen es ausente — nunca 0 ni
   // un valor derivado de un costo inventado (capability product-cost).
@@ -153,6 +191,24 @@ export function ProductForm({ onSuccess, initialData, defaultParentId }: Product
       minStock: stockControlType === "untracked" ? 0 : minStock,
       barcode,
       sku: sku.trim() || undefined,
+      // balanza-etiquetas-pos (D2/D13): mismo tri-estado que cost — en un
+      // alta la clave siempre viaja; en una edición sólo si se tocó.
+      // Fix F8 (revisión adversarial PR #599): el campo se OCULTA para un
+      // padre `variant_only` (CHECK `products_scale_plu_not_parent`), así
+      // que el usuario no puede tocarlo ni verlo para vaciarlo — un
+      // `scale_plu` heredado (dato viejo) dejaba la edición de ESE producto
+      // permanentemente rota con un 422 invisible (el campo y su error en
+      // línea están ocultos). `stockControlType === "variant_only"` es
+      // EXACTAMENTE la misma condición que oculta el campo más abajo —
+      // nunca `isVariant` (una variante SÍ puede tener su propio PLU, el
+      // campo se le muestra igual que a un producto estándar). Cuando se
+      // oculta, la clave siempre viaja en `null`, sin importar
+      // `scalePluTouched` — nunca hay nada que conservar ahí.
+      ...(stockControlType === "variant_only"
+        ? { scalePlu: null }
+        : !initialData || scalePluTouched
+          ? { scalePlu }
+          : {}),
       parentId: resolvedParentId,
       // is_variant is derived from whether a parent is assigned
       isVariant: resolvedParentId !== undefined,
@@ -179,6 +235,7 @@ export function ProductForm({ onSuccess, initialData, defaultParentId }: Product
             : baseUnitId,
     }
 
+    setScalePluError(null)
     try {
       if (initialData) {
         await updateProduct({ ...productData, id: initialData.id })
@@ -197,6 +254,11 @@ export function ProductForm({ onSuccess, initialData, defaultParentId }: Product
       // historia) — el selector vuelve a la que conserva, así lo que se ve es
       // lo que quedó guardado y el resto de lo cargado se puede reintentar.
       if (isBaseUnitLockedError(error)) setBaseUnitId(initialData?.baseUnitId ?? "")
+      // balanza-etiquetas-pos (D2): 409 scale_plu_taken / 422 scale_plu_parent
+      // — el `field` del problem+json lo distingue de cualquier otro error.
+      if (error instanceof PythonApiError && error.field === "scale_plu") {
+        setScalePluError(error.message)
+      }
     }
   }
 
@@ -260,8 +322,45 @@ export function ProductForm({ onSuccess, initialData, defaultParentId }: Product
               Apunte el lector al código de barras...
             </p>
           )}
+          {/* balanza-etiquetas-pos (D6): aviso no bloqueante — este código
+              es una etiqueta de balanza, no un código de barras común. */}
+          {scaleBarcodeWarning && (
+            <p className="text-[11px] text-warning">{scaleBarcodeWarning}</p>
+          )}
         </div>
       </div>
+
+      {/* ── Código de balanza (PLU) — balanza-etiquetas-pos (D2) ─────────────
+          Oculto para un producto padre (variant_only): el PLU se asigna a
+          cada variante, nunca al padre (CHECK products_scale_plu_not_parent). */}
+      {stockControlType !== "variant_only" && (
+        <div className="flex flex-col gap-2">
+          <Label htmlFor="product-scale-plu" className="text-foreground">
+            Código de balanza (PLU) <span className="text-muted-foreground font-normal">(opcional)</span>
+          </Label>
+          <NumericInput
+            id="product-scale-plu"
+            nullable
+            min={1}
+            max={999999}
+            step={1}
+            value={scalePlu}
+            onValueChange={(v) => {
+              setScalePlu(v == null ? null : Math.trunc(v))
+              setScalePluTouched(true)
+              setScalePluError(null)
+            }}
+            className="bg-background border-border text-foreground"
+          />
+          <p className="text-[11px] text-muted-foreground">
+            El código de PLU que la balanza imprime en la etiqueta (Configuración → Balanza).
+          </p>
+          {scalePluDigitsWarning && (
+            <p className="text-[11px] text-warning">{scalePluDigitsWarning}</p>
+          )}
+          {scalePluError && <p className="text-[11px] text-destructive">{scalePluError}</p>}
+        </div>
+      )}
 
       {/* ── Categoría (sólo producto base) + SKU opcional ─────────────────── */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

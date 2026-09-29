@@ -32,6 +32,9 @@ vi.mock("@/hooks/data/use-products", () => ({
 vi.mock("@/hooks/use-units-of-measure", () => ({ useUnitsOfMeasure: () => ({ units: [] }) }))
 vi.mock("@/hooks/use-barcode-scanner", () => ({ useBarcodeScanner: () => undefined }))
 vi.mock("@/lib/barcode-utils", () => ({ generateEAN13: () => "7790000000000" }))
+vi.mock("@/hooks/data/use-scale-settings", () => ({
+  useScaleSettings: () => ({ settings: { enabled: false, layouts: [] }, isLoading: false, isError: false, error: null }),
+}))
 vi.mock("sonner", () => ({ toast: { success: (...a: unknown[]) => toastSuccess(...a), error: (...a: unknown[]) => toastError(...a) } }))
 vi.mock("@/components/product-categories/ProductCategorySelect", () => ({
   ProductCategorySelect: ({ value, onChange }: { value: string | null; onChange: (v: string | null) => void }) => (

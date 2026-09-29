@@ -55,7 +55,17 @@ export function parseImportText(text: string): ParseResult {
     const knownKeyIndices = new Map<string, number>()
     for (const col of IMPORT_COLUMN_MAP) {
       const idx = headers.indexOf(col.csvHeader.toLowerCase())
-      if (idx >= 0) knownKeyIndices.set(col.key, idx)
+      if (idx >= 0) {
+        knownKeyIndices.set(col.key, idx)
+        continue
+      }
+      // balanza-etiquetas-pos (D14): alias de encabezado ("PLU" además de
+      // "Código balanza") — sólo la columna que lo declara lo usa.
+      const aliases = "aliases" in col ? (col.aliases as readonly string[]) : undefined
+      if (aliases) {
+        const aliasIdx = headers.findIndex((h) => aliases.includes(h))
+        if (aliasIdx >= 0) knownKeyIndices.set(col.key, aliasIdx)
+      }
     }
 
     // ── Detect dynamic attribute columns ─────────────────────────────────────
@@ -112,6 +122,7 @@ export function parseImportText(text: string): ParseResult {
         stock:           get("stock"),
         stock_minimo:    get("stock_minimo"),
         codigo:          get("codigo"),
+        codigo_balanza:  get("codigo_balanza"),
         attributes,
       })
     }

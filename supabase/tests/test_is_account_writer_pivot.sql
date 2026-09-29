@@ -19,8 +19,13 @@
 -- SECURITY DEFINER. Bajar este número es correcto ACÁ y sospechoso en
 -- cualquier otro lado: si vuelve a bajar sin un change que lo explique, es una
 -- policy de escritura que alguien borró sin querer.
+-- balanza-etiquetas-pos (20261066000001) lo sube de 47/19 a 49/20: la tabla
+-- nueva `scale_settings` (config de balanza por cuenta) suma sus 2 policies
+-- de escritura (`scale_settings_writer_insert`/`scale_settings_writer_update`),
+-- ambas invocando is_account_writer(account_id) — subir el conteo al sumar una
+-- tabla nueva con escritura RLS-gated es esperado, no sospechoso.
 --
---   (1) estructura: la firma no cambió y las 47 policies sobre 19 tablas
+--   (1) estructura: la firma no cambió y las 49 policies sobre 20 tablas
 --       siguen existiendo (8.2) — no depende de datos, corre siempre.
 --   (2) un miembro con un rol que CONCEDE escritura (is_writer=true, p.ej.
 --       'seller') -> is_account_writer = true (8.1).
@@ -60,11 +65,11 @@ BEGIN
   WHERE schemaname = 'public'
     AND (qual ILIKE '%is_account_writer%' OR with_check ILIKE '%is_account_writer%');
 
-  IF v_n_pol <> 47 OR v_n_tab <> 19 THEN
-    RAISE EXCEPTION 'GATE FAILED (1): se esperaban 47 policies sobre 19 tablas invocando is_account_writer, hay % sobre %. (El conteo bajó de 48/20 a 47/19 en fiscal-riesgos-residuales R2, que retiró fiscal_documents_writer_insert a propósito — ver la cabecera.)', v_n_pol, v_n_tab;
+  IF v_n_pol <> 49 OR v_n_tab <> 20 THEN
+    RAISE EXCEPTION 'GATE FAILED (1): se esperaban 49 policies sobre 20 tablas invocando is_account_writer, hay % sobre %. (El conteo subió de 47/19 a 49/20 en balanza-etiquetas-pos, que sumó scale_settings con sus 2 policies de escritura — ver la cabecera.)', v_n_pol, v_n_tab;
   END IF;
 
-  RAISE NOTICE 'PASS (1): is_account_writer conserva su firma (1 arg) y las 47 policies sobre 19 tablas.';
+  RAISE NOTICE 'PASS (1): is_account_writer conserva su firma (1 arg) y las 49 policies sobre 20 tablas.';
 END $$;
 
 

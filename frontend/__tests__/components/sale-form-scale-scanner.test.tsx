@@ -19,18 +19,16 @@ import { FACTORY_SCALE_SETTINGS } from "@/lib/scale-layout"
 import type { Product, UnitOfMeasure } from "@/lib/types"
 import type { SaleOperation } from "@/lib/group-operations"
 import type { Sale } from "@/lib/types"
+import { scanBurst } from "../helpers/scanner-keys"
 
-/** Dispara un keydown real en `document`, como lo haría el lector físico. */
-function pressKey(key: string) {
-  document.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }))
-}
-
-/** Escanea un código completo (ráfaga rápida + Enter). */
+/**
+ * Escanea un código completo (ráfaga rápida + Enter) con `keydown` reales en
+ * `document`, sellados a ritmo de lector — sin depender del `Date.now()` real
+ * de la corrida, la intermitencia histórica de este archivo bajo carga (ver
+ * `__tests__/helpers/scanner-keys.ts`).
+ */
 function scan(code: string) {
-  act(() => {
-    for (const ch of code) pressKey(ch)
-    pressKey("Enter")
-  })
+  act(() => scanBurst(code))
 }
 
 const SETTINGS_ENABLED = { ...FACTORY_SCALE_SETTINGS, enabled: true }

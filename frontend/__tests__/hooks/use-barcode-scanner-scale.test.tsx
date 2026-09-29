@@ -21,6 +21,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { advanceArrival, pressScannerKey, scanBurst } from "../helpers/scanner-keys"
 
 beforeAll(() => {
   // ResponsiveModal (useIsMobile) necesita matchMedia — fuerza la rama Dialog.
@@ -37,17 +38,19 @@ beforeAll(() => {
     }) as MediaQueryList
 })
 
-/** Dispara un keydown real en `document`, como lo haría el lector físico. */
+/**
+ * Dispara un keydown real en `document`, como lo haría el lector físico: cada
+ * tecla llega sellada (`timeStamp`) a ritmo de lector HID — ver
+ * `__tests__/helpers/scanner-keys.ts` y el cierre del defecto de foco
+ * (tasks.md 11.4 ítem 6).
+ */
 function pressKey(key: string, extra: Partial<KeyboardEventInit> = {}) {
-  const event = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...extra })
-  const defaultPrevented = !document.dispatchEvent(event)
-  return { event, defaultPrevented }
+  return pressScannerKey(key, extra)
 }
 
-/** Escanea un código completo (ráfaga rápida + Enter) sin terminador aparte. */
+/** Escanea un código completo (ráfaga rápida + Enter). */
 function scanCode(code: string) {
-  for (const ch of code) pressKey(ch)
-  pressKey("Enter")
+  scanBurst(code)
 }
 
 /**
@@ -76,28 +79,24 @@ function insertNativeChar(el: HTMLInputElement, ch: string): void {
  * batchea los `setState` y nunca deja correr el efecto entre caracteres,
  * ocultando el bug (mismo motivo que F2 señala sobre los tests existentes).
  *
- * Reloj FALSO (sin avanzarlo entre teclas): con el reloj real, el overhead
- * del propio `act()`/re-render en el entorno de test puede superar los 50 ms
- * de `scannerThreshold` entre dos `act()` sucesivos y hacer que CADA tecla
- * se vea como una ráfaga nueva (falso negativo del test, nada que ver con
- * `guardFocusedInput`) — el reloj congelado imita un lector real, donde el
- * hardware entrega los caracteres en microsegundos.
+ * Reloj: cada tecla llega sellada a ritmo de lector (`pressScannerKey`), así
+ * que el overhead del propio `act()`/re-render entre dos teclas no cuenta —
+ * el hook mide la LLEGADA, no el procesamiento (tasks.md 11.4 ítem 6). Antes
+ * de ese fix este helper congelaba el reloj con `vi.useFakeTimers()` para
+ * esquivar justamente ese defecto; el caso con un re-render lento de verdad
+ * vive en `use-barcode-scanner-arrival-time.test.tsx`.
  */
 function scanCodeAsRealBrowser(input: HTMLInputElement, code: string): void {
-  vi.useFakeTimers()
-  try {
-    for (const ch of code) {
-      act(() => {
-        const { defaultPrevented } = pressKey(ch)
-        if (!defaultPrevented) insertNativeChar(input, ch)
-      })
-    }
+  advanceArrival(1_000)
+  for (const ch of code) {
     act(() => {
-      pressKey("Enter")
+      const { defaultPrevented } = pressKey(ch)
+      if (!defaultPrevented) insertNativeChar(input, ch)
     })
-  } finally {
-    vi.useRealTimers()
   }
+  act(() => {
+    pressKey("Enter")
+  })
 }
 
 // ── Harness genérico (sin diálogos) ─────────────────────────────────────────

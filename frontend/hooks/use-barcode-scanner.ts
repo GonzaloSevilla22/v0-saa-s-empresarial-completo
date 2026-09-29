@@ -20,9 +20,19 @@ export interface UseBarcodeScannerOptions {
   /** Enables or disables the scanner listener. Default: true. */
   enabled?: boolean
   /**
-   * Maximum milliseconds between consecutive keystrokes to be considered
-   * scanner input. Hardware scanners emit characters at < 20 ms intervals;
-   * human typing is typically > 50 ms. Default: 50.
+   * Maximum milliseconds between the ARRIVAL of two consecutive keystrokes
+   * (`KeyboardEvent.timeStamp`, see `keyArrivalTime`) for them to count as
+   * scanner input. USB/HID scanners emit a character every 5-20 ms; human
+   * typing stays well above 50 ms between keys. Default: 50.
+   *
+   * balanza-etiquetas-pos (11.4 ítem 6): se queda en 50 ms a propósito.
+   * Medido en Chromium con un emulador HID (CDP sin esperar el ack): con la
+   * CPU del renderer frenada x6, las llegadas de una ráfaga a 8 ms siguieron
+   * a 8 ms mientras el procesamiento de la 2ª tecla se atrasaba 70-150 ms —
+   * el defecto era el reloj (se medía el PROCESAMIENTO), no el umbral.
+   * Subirlo no hace falta y encarece el error opuesto: con
+   * `guardFocusedInput`, dos teclas humanas "rodadas" dentro del umbral se
+   * toman por ráfaga y la segunda se previene.
    */
   scannerThreshold?: number
   /**
@@ -99,6 +109,29 @@ function restoreNativeValue(el: GuardableElement, value: string): void {
 }
 
 /**
+ * balanza-etiquetas-pos — cierre del defecto de foco (tasks.md 11.4 ítem 6):
+ * el instante en que la tecla LLEGÓ al navegador, no el instante en que su
+ * handler pudo correr.
+ *
+ * Con el foco en un input controlado del POS, el primer carácter de una
+ * ráfaga (el único que `guardFocusedInput` deja escribir) dispara un
+ * `onChange` y un re-render síncrono de la página. Un lector HID real no
+ * espera a la página: las teclas siguientes ya llegaron y esperan en la cola
+ * del navegador. Medido en Chromium con la CPU del renderer frenada x4: la
+ * 2ª tecla esperó 64-72 ms en cola con llegadas a ≤ 25 ms — un `Date.now()`
+ * leído en el handler veía un gap de 70 ms, partía la ráfaga, dejaba el
+ * código escrito en el campo y no agregaba la línea.
+ *
+ * `e.timeStamp` es el sello que el navegador pone al recibir la tecla (en el
+ * mismo reloj que `performance.now()`), independiente de cuánto tardó React.
+ * Sin sello (0 — algún evento sintético de un entorno viejo), cae a
+ * `performance.now()`: monótono, a diferencia de `Date.now()`.
+ */
+function keyArrivalTime(e: KeyboardEvent): number {
+  return e.timeStamp > 0 ? e.timeStamp : performance.now()
+}
+
+/**
  * Fix post-revisión-adversarial-#599 (F1, segunda causa raíz): un valor por
  * `default` en la desestructuración de parámetros es una expresión que se
  * evalúa de NUEVO en cada llamada — con `allowedCharsRegex = /…/` inline,
@@ -113,11 +146,12 @@ const DEFAULT_ALLOWED_CHARS_REGEX = /^[A-Za-z0-9\-_.]$/
  * Document-level barcode scanner hook.
  *
  * Listens to `keydown` events at the document level and differentiates
- * between hardware scanner input (rapid burst < scannerThreshold ms per char)
- * and human keyboard typing (slower).
+ * between hardware scanner input (rapid burst: < scannerThreshold ms between
+ * the ARRIVAL of consecutive keys, `keyArrivalTime`) and human keyboard
+ * typing (slower).
  *
  * When a burst of chars ends with an Enter/Tab key (scanner terminator) or
- * times out after 3× scannerThreshold ms, `onScan` is called if the buffer
+ * times out after 4× scannerThreshold ms, `onScan` is called if the buffer
  * meets `minLength`.
  *
  * Does NOT intercept human keystrokes — only calls preventDefault on Enter
@@ -133,7 +167,10 @@ export function useBarcodeScanner({
   guardFocusedInput = false,
 }: UseBarcodeScannerOptions) {
   const bufferRef        = useRef<string>("")
-  const lastKeyTimeRef   = useRef<number>(0)
+  // Llegada (`keyArrivalTime`) de la última tecla de la ráfaga en curso;
+  // `null` = no hay ráfaga (un sello real puede valer casi 0 en una página
+  // recién cargada, así que 0 no sirve de centinela).
+  const lastKeyTimeRef   = useRef<number | null>(null)
   const flushTimerRef    = useRef<ReturnType<typeof setTimeout> | null>(null)
   // True only when ALL buffered chars arrived at scanner speed
   const fromScannerRef   = useRef<boolean>(true)
@@ -156,7 +193,7 @@ export function useBarcodeScanner({
 
   const resetBuffer = useCallback(() => {
     bufferRef.current      = ""
-    lastKeyTimeRef.current = 0
+    lastKeyTimeRef.current = null
     fromScannerRef.current = true
     guardedElementRef.current  = null
     guardedPrevValueRef.current = ""
@@ -166,9 +203,21 @@ export function useBarcodeScanner({
     }
   }, [])
 
+  // Auto-flush por temporizador: SÓLO para lectores configurados sin
+  // terminador (Enter/Tab).
   const flush = useCallback(() => {
+    flushTimerRef.current = null
     const code = normalizeBarcode(bufferRef.current)
-    if (code.length >= minLength && fromScannerRef.current) {
+    // balanza-etiquetas-pos (11.4 ítem 6): un buffer más corto que
+    // `minLength` no puede ser un escaneo, así que el temporizador no tiene
+    // nada que decidir — y NO debe vaciar la ráfaga: si el re-render que
+    // disparó el primer carácter tardó más que el temporizador, éste puede
+    // correr ANTES que las teclas del lector que ya llegaron y esperan en la
+    // cola; vaciarla ahí partía la etiqueta igual que el reloj viejo. La
+    // próxima tecla se juzga por su propia llegada (`keyArrivalTime`): si
+    // es tipeo humano, abre una ráfaga nueva y descarta este resto.
+    if (code.length < minLength) return
+    if (fromScannerRef.current) {
       if (guardFocusedInput && guardedElementRef.current) {
         const el = guardedElementRef.current
         if (el.value !== guardedPrevValueRef.current) {
@@ -197,11 +246,13 @@ export function useBarcodeScanner({
       // en un campo numérico se tomaría como escaneo.
       if (e.repeat) return
 
-      const now = Date.now()
-      const gap = lastKeyTimeRef.current > 0
-        ? now - lastKeyTimeRef.current
-        : Infinity
-      const isNewBurst = gap > scannerThreshold
+      const now = keyArrivalTime(e)
+      const last = lastKeyTimeRef.current
+      // Un sello que RETROCEDE (dos fuentes de reloj distintas) no prueba
+      // una ráfaga: se trata como tecla nueva, nunca como "rápida" — lo
+      // contrario haría que `guardFocusedInput` se comiera una tecla humana.
+      const gap = last === null ? Infinity : now - last
+      const isNewBurst = gap < 0 || gap > scannerThreshold
 
       // ── Terminator keys: Enter or Tab ────────────────────────────────────
       if (e.key === "Enter" || e.key === "Tab") {

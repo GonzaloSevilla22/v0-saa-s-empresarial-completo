@@ -26,6 +26,7 @@ import userEvent from "@testing-library/user-event"
 import "@testing-library/jest-dom"
 import type { Product, UnitOfMeasure } from "@/lib/types"
 import { FACTORY_SCALE_SETTINGS } from "@/lib/scale-layout"
+import { scanBurst } from "./helpers/scanner-keys"
 
 beforeAll(() => {
   // ResponsiveModal (useIsMobile) necesita matchMedia — fuerza la rama Dialog.
@@ -42,17 +43,13 @@ beforeAll(() => {
     }) as MediaQueryList
 })
 
-/** Dispara un keydown real en `document`, como lo haría el lector físico. */
-function pressKey(key: string) {
-  document.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }))
-}
-
-/** Escanea un código completo (ráfaga rápida + Enter). */
+/**
+ * Escanea un código completo (ráfaga rápida + Enter) con `keydown` reales en
+ * `document`, sellados a ritmo de lector — sin depender del `Date.now()` real
+ * de la corrida (ver `__tests__/helpers/scanner-keys.ts`).
+ */
 function scan(code: string) {
-  act(() => {
-    for (const ch of code) pressKey(ch)
-    pressKey("Enter")
-  })
+  act(() => scanBurst(code))
 }
 
 const toastError = vi.fn()

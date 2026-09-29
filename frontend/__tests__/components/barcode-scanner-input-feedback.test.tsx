@@ -12,14 +12,11 @@ vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }))
 
 import { toast } from "sonner"
 import { BarcodeScannerInput } from "@/components/shared/barcode-scanner-input"
+import { scanBurst } from "../helpers/scanner-keys"
 
+/** Ráfaga de lector sellada a ritmo HID (ver `__tests__/helpers/scanner-keys.ts`). */
 function dispatchScan(code: string) {
-  act(() => {
-    for (const ch of code) {
-      document.dispatchEvent(new KeyboardEvent("keydown", { key: ch, bubbles: true, cancelable: true }))
-    }
-    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }))
-  })
+  act(() => scanBurst(code))
 }
 
 beforeEach(() => vi.clearAllMocks())

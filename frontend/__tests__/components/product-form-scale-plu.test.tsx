@@ -131,6 +131,23 @@ describe("ProductForm — código de balanza (PLU)", () => {
     expect(body.scalePlu).toBe(777)
   })
 
+  // Fix F8 (revisión adversarial PR #599): un padre `variant_only` con un
+  // `scale_plu` heredado (dato viejo/inconsistente) oculta el campo — sin
+  // este fix, la clave queda sin enviar (tri-estado por ausencia) y el
+  // backend re-lee el `scale_plu` EXISTENTE de la fila para validar el
+  // `stock_control_type` que SÍ viaja siempre: 422 `scale_plu_parent` en
+  // CUALQUIER edición (ni siquiera cambiar el nombre), con el campo para
+  // corregirlo invisible — sin salida desde la UI.
+  it("un padre variant_only con scalePlu heredado se limpia solo al guardar (F8)", async () => {
+    const staleParent = { ...PARENT, scalePlu: 509 }
+    render(<ProductForm onSuccess={vi.fn()} initialData={staleParent} />)
+    expect(screen.queryByLabelText(/código de balanza/i)).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: /actualizar producto/i }))
+    await waitFor(() => expect(updateProductMock).toHaveBeenCalled())
+    const body = updateProductMock.mock.calls[0][0] as Record<string, unknown>
+    expect(body.scalePlu).toBeNull()
+  })
+
   it("muestra el 409 del backend (scale_plu_taken) junto al campo", async () => {
     updateProductMock.mockRejectedValueOnce(
       new PythonApiError("El código de balanza 261 ya lo usa otro producto de tu cuenta.", 409, {

@@ -193,7 +193,22 @@ export function ProductForm({ onSuccess, initialData, defaultParentId }: Product
       sku: sku.trim() || undefined,
       // balanza-etiquetas-pos (D2/D13): mismo tri-estado que cost — en un
       // alta la clave siempre viaja; en una edición sólo si se tocó.
-      ...(!initialData || scalePluTouched ? { scalePlu } : {}),
+      // Fix F8 (revisión adversarial PR #599): el campo se OCULTA para un
+      // padre `variant_only` (CHECK `products_scale_plu_not_parent`), así
+      // que el usuario no puede tocarlo ni verlo para vaciarlo — un
+      // `scale_plu` heredado (dato viejo) dejaba la edición de ESE producto
+      // permanentemente rota con un 422 invisible (el campo y su error en
+      // línea están ocultos). `stockControlType === "variant_only"` es
+      // EXACTAMENTE la misma condición que oculta el campo más abajo —
+      // nunca `isVariant` (una variante SÍ puede tener su propio PLU, el
+      // campo se le muestra igual que a un producto estándar). Cuando se
+      // oculta, la clave siempre viaja en `null`, sin importar
+      // `scalePluTouched` — nunca hay nada que conservar ahí.
+      ...(stockControlType === "variant_only"
+        ? { scalePlu: null }
+        : !initialData || scalePluTouched
+          ? { scalePlu }
+          : {}),
       parentId: resolvedParentId,
       // is_variant is derived from whether a parent is assigned
       isVariant: resolvedParentId !== undefined,

@@ -48,7 +48,14 @@ const PAPA: Product = {
   id: "p-papa", name: "Papa", category: "Verdulería", categoryId: "c1", cost: 5, price: 10, margin: 50,
   stock: 3, minStock: 0, isVariant: false, stockControlType: "tracked", baseUnitId: "u-kg", scalePlu: 300,
 }
-const PRODUCTS = [TOMATE, PAPA]
+// Por unidades, código de barras común, stock 1 — regresión F3 (revisión
+// adversarial PR #599): la rama `product` de `handleScan` no chequeaba
+// stock.
+const ZANAHORIA: Product = {
+  id: "p-zanahoria", name: "Zanahoria", category: "Verdulería", categoryId: "c1", cost: 1, price: 3, margin: 66,
+  stock: 1, minStock: 0, isVariant: false, stockControlType: "tracked", barcode: "ZANBC",
+}
+const PRODUCTS = [TOMATE, PAPA, ZANAHORIA]
 
 const addSaleOperationMock = vi.fn().mockResolvedValue({ ok: true })
 const updateSaleOperationMock = vi.fn().mockResolvedValue({
@@ -170,6 +177,17 @@ describe("SaleForm — lector de balanza (D6/D7/D8/D9)", () => {
     const texts = cartItemTexts()
     expect(texts).toHaveLength(2)
     expect(texts).toContain("Tomate — 13.63") // intacta
+  })
+
+  it("código de barras común repetido sobre stock 1: la segunda unidad se rechaza (F3)", () => {
+    render(<SaleForm onSuccess={vi.fn()} />)
+    scan("ZANBC")
+    expect(cartItemTexts()).toEqual(["Zanahoria — 3"])
+    scan("ZANBC")
+    // No se agregó una segunda unidad ni se fusionó sumando cantidad: el
+    // chequeo acumulativo de stock (D7/OQ-9) también corre para un código
+    // común, no sólo para una etiqueta de balanza.
+    expect(cartItemTexts()).toEqual(["Zanahoria — 3"])
   })
 
   it("dos etiquetas que juntas superan el stock: la segunda se rechaza (OQ-9)", () => {

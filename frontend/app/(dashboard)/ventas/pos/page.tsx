@@ -74,6 +74,7 @@ import {
   convertUnitPrice,
   resolveUnit,
   compatibleUnits,
+  isProductoMedible,
 } from "@/lib/unit-utils"
 import { getCanonicalLabel } from "@/lib/product-labels"
 import { humanizeOperationError } from "@/lib/operation-errors"
@@ -388,10 +389,30 @@ export default function PosPage() {
     }
 
     if (result.kind === "product") {
+      const baseUnit = resolveUnit(result.product.baseUnitId, unitsById)
+      // D8: producto medible por código común — no se agrega nada todavía
+      // (se elige en el picker, con foco en "Cantidad"), así que no hay
+      // stock que chequear acá: lo hace el alta manual cuando el usuario
+      // cargue la cantidad real (`handleAddToCart`, ya con `exceedsStock`).
+      if (isProductoMedible(baseUnit)) {
+        handleProductChange(result.product.id)
+        setFocusQuantityToken((t) => t + 1)
+        return { ok: true, label: `Ingresá la cantidad de «${result.product.name}»` }
+      }
+      // Fix F3 (revisión adversarial PR #599): un código común o SKU de un
+      // producto por unidades también suma stock — el mismo chequeo
+      // acumulativo que ya aplicaba en la rama `scale_line` y en el alta
+      // manual (D7/D8/OQ-9), que esta rama nunca corría.
+      const addBase = unitInputMin(baseUnit)
+      if (exceedsStock(cartItems, result.product.id, addBase, result.product.stock)) {
+        return {
+          ok: false,
+          label: `Stock insuficiente (disponible: ${formatStock(result.product.stock, baseUnit?.symbol)})`,
+        }
+      }
       const addResult = addScannedProductLine(cartItems, result.product, { unitsById, products })
       if ("needsQuantity" in addResult) {
-        // D8: producto medible por código común — se elige en el picker y el
-        // foco pasa a "Cantidad" sin agregar una cantidad arbitraria.
+        // No debería pasar (ya se descartó arriba) — defensivo.
         handleProductChange(result.product.id)
         setFocusQuantityToken((t) => t + 1)
         return { ok: true, label: `Ingresá la cantidad de «${result.product.name}»` }

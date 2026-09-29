@@ -112,6 +112,32 @@ describe("addScannedProductLine — D8", () => {
     expect(result).toEqual({ needsQuantity: true })
   })
 
+  // Fix F4 (revisión adversarial PR #599): el alta manual del POS y del
+  // formulario de venta guardan `unitId: product.baseUnitId` (nunca
+  // `undefined`) cuando el producto tiene una unidad base con nombre propio
+  // — `handleProductChange` preselecciona esa unidad y `handleAddToCart`
+  // guarda `unitId: unitId || undefined`. Antes del fix, `addScannedProductLine`
+  // sólo fusionaba sobre `!item.unitId`, así que un código común nunca
+  // encontraba esa línea manual y creaba una segunda línea del mismo
+  // producto — regresión de `sale-form` (que antes comparaba contra
+  // `baseUnitId`).
+  it("fusiona con una línea agregada A MANO que trae unitId = baseUnitId del producto (F4)", () => {
+    const lechuga = product({ id: "p-lechuga", name: "Lechuga", price: 4.5, baseUnitId: "u-un" })
+    const manualLine = line({ productId: "p-lechuga", quantity: 1, unitId: "u-un", unitPrice: 4.5, subtotal: 4.5 })
+    const result = addScannedProductLine([manualLine], lechuga, { unitsById: UNITS_BY_ID, products: [lechuga] })
+    if (!("items" in result)) throw new Error("expected items")
+    expect(result.items).toHaveLength(1)
+    expect(result.items[0].quantity).toBe(2)
+    expect(result.items[0].unitId).toBe("u-un")
+  })
+
+  it("la línea NUEVA que crea (sin una existente) también nace con unitId = baseUnitId, no undefined (F4)", () => {
+    const lechuga = product({ id: "p-lechuga", name: "Lechuga", price: 4.5, baseUnitId: "u-un" })
+    const result = addScannedProductLine([], lechuga, { unitsById: UNITS_BY_ID, products: [lechuga] })
+    if (!("items" in result)) throw new Error("expected items")
+    expect(result.items[0].unitId).toBe("u-un")
+  })
+
   it("resuelve el nombre canónico con el padre cuando el producto es una variante", () => {
     const padre = product({ id: "p-padre", name: "Buzo", price: 0 })
     const variante = product({ id: "p-var", name: "Talle M", price: 100, baseUnitId: "u-un", parentId: "p-padre" })

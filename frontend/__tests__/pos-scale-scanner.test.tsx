@@ -96,7 +96,15 @@ const CAJA: Product = {
   stock: 5, minStock: 0, isVariant: false, stockControlType: "tracked", scalePlu: 500,
 }
 
-const PRODUCTS = [TOMATE, PAPA, LECHUGA, BANANA, CAJA]
+// Por unidades, código de barras común, stock 1 — para el rechazo
+// acumulativo de un código COMÚN (F4, revisión adversarial PR #599: antes
+// de este fix, `addScannedProductLine` nunca chequeaba stock).
+const ZANAHORIA: Product = {
+  id: "p-zanahoria", name: "Zanahoria", category: "Verdulería", categoryId: "c1", cost: 1, price: 3, margin: 66,
+  stock: 1, minStock: 0, isVariant: false, stockControlType: "tracked", barcode: "ZANBC",
+}
+
+const PRODUCTS = [TOMATE, PAPA, LECHUGA, BANANA, CAJA, ZANAHORIA]
 
 vi.mock("sonner", () => ({ toast: { error: (...a: unknown[]) => toastError(...a), success: (...a: unknown[]) => toastSuccess(...a) } }))
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }))
@@ -231,6 +239,19 @@ describe("PosPage — lector de balanza (D6/D7/D8/D9/D10)", () => {
     render(<PosPage />)
     scan("LECH-1")
     expect(cartItemTexts()).toEqual(["Lechuga — 4.5"])
+  })
+
+  // Fix F3 (revisión adversarial PR #599): la rama `product` de `handleScan`
+  // (código común/SKU) no chequeaba stock — dos escaneos del mismo producto
+  // con stock 1 agregaban las dos líneas igual, sin el mismo rechazo
+  // acumulativo que ya tenía la rama `scale_line` (D7/OQ-9).
+  it("código de barras común repetido sobre stock 1: la segunda unidad se rechaza (F3)", () => {
+    render(<PosPage />)
+    scan("ZANBC")
+    expect(cartItemTexts()).toEqual(["Zanahoria — 3"])
+    scan("ZANBC")
+    expect(cartItemTexts()).toEqual(["Zanahoria — 3"]) // no se agregó una segunda unidad
+    expect(toastError).toHaveBeenCalledWith(expect.stringMatching(/Stock insuficiente/i))
   })
 
   it("un producto de base kg (medible) leído por código común NO agrega 0,001 kg: queda elegido con el foco en Cantidad", async () => {

@@ -221,8 +221,17 @@ export function addScannedProductLine(
     return { needsQuantity: true }
   }
 
+  // Fix F4 (revisión adversarial PR #599): el alta MANUAL (POS y formulario
+  // de venta) guarda `unitId: product.baseUnitId` para un producto con
+  // unidad base con nombre propio (nunca `undefined`) — comparar contra
+  // `!item.unitId` nunca encontraba esa línea y creaba una segunda. La
+  // comparación correcta es "la unidad base del producto", igual que el
+  // alta manual (`(item.unitId ?? '') === unitId`, D8).
   const existingIndex = items.findIndex(
-    (item) => item.productId === product.id && !item.unitId && !item.source,
+    (item) =>
+      item.productId === product.id &&
+      !item.source &&
+      (item.unitId ?? product.baseUnitId ?? "") === (product.baseUnitId ?? ""),
   )
   const addQty = unitInputMin(baseUnit)
 
@@ -248,7 +257,10 @@ export function addScannedProductLine(
     quantity: addQty,
     discount: 0,
     subtotal: calcSaleSubtotal(product.price, addQty, 0),
-    unitId: undefined,
+    // F4: la línea nueva nace con la MISMA unidad que el alta manual
+    // (`product.baseUnitId`), no `undefined` — así un escaneo posterior del
+    // mismo producto la encuentra y fusiona en vez de crear una tercera.
+    unitId: product.baseUnitId || undefined,
     unitSymbol: baseUnit?.symbol,
     quantityBase: addQty,
     step: addQty,

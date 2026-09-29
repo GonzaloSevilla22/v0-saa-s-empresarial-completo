@@ -43,7 +43,7 @@ El pedido del PO y la brecha contra lo que existe están en `proposal.md` y en e
 - Pantalla propia de pedidos (`sales_orders`): el pedido intermedio es un detalle interno de la conversión.
 - Reservar stock al presupuestar; alertas de stock que bloqueen.
 - Precio de lista / listas de precios múltiples; IVA discriminado en el presupuesto (Aliadata emite Factura C).
-- Migrar el comprobante interno de venta (`build_sales_receipt_pdf`, `SaleReceiptButton`) al constructor y al menú nuevos, y migrar el POS y `sale-form` al helper de alta de línea. Quedan como candidatos: tocarlos ensancha el diff sobre el hot path de venta sin que el pedido lo necesite.
+- Migrar el comprobante interno de venta (`build_sales_receipt_pdf`, `SaleReceiptButton`) al constructor y al menú nuevos, y migrar el POS a los helpers de carrito extraídos (`sale-form` sí se migra en este change, porque es de donde salen; D12). Quedan como candidatos: tocarlos ensancha el diff sobre el hot path de venta sin que el pedido lo necesite.
 - Conversión parcial (vender algunas líneas) o varias ventas desde un presupuesto.
 - Vencimiento editable de la cuenta corriente desde el diálogo de conversión (la venta a crédito usa la cascada, como el POS; OQ-P11).
 - Notificaciones de presupuesto aceptado o vencido (el evento `QuoteAccepted` ya existe; el consumidor no se toca).
@@ -56,7 +56,7 @@ Columnas aditivas en `quotes`:
 
 | Columna | Tipo | Regla |
 |---|---|---|
-| `number` | `bigint NULL` + `UNIQUE (account_id, number)` | La asigna el disparador de D3. Nullable a nivel columna para no romper a los escritores históricos: en prod hay 0 filas y los gates insertan sin número. El disparador garantiza que ninguna fila nueva nazca sin número. |
+| `number` | `bigint NULL` + `UNIQUE (account_id, number)` | La asigna el disparador de D3. Nullable a nivel columna para no romper a los escritores históricos: en prod hay 0 filas y los gates insertan sin número. El disparador garantiza que ninguna fila nueva nazca sin número por un camino con disparadores activos (bajo `session_replication_role = replica`, que usan algunos gates, no corren; D3). |
 | `notes` | `text NULL` | Condiciones, forma de entrega. Tope de 2.000 caracteres (`CHECK`). |
 | `sent_at` | `timestamptz NULL` | Primera vez que pasó a `sent`. |
 | `updated_at` / `updated_by` | `timestamptz NULL` / `uuid NULL` | Última edición. La UI avisa "modificado después de enviado" cuando `updated_at > sent_at`. |
@@ -74,7 +74,7 @@ Cuatro RPCs `SECURITY DEFINER` (`SET search_path = public`, `REVOKE … FROM PUB
 
 - **`rpc_create_quote(p_client_id uuid, p_branch_id uuid, p_valid_until date, p_notes text, p_items jsonb) → jsonb`**
   - Resuelve la cuenta con `current_account_ids()`, igual que `rpc_quick_sale`.
-  - Exige `is_account_writer`.
+  - Exige `is_account_writer` (`P0401`) y un rol de `CAN_QUOTE` (`P0403 insufficient_role`, D11), verificados **antes** del `INSERT`.
   - Cliente obligatorio y **vivo** de la cuenta (`P0404 client_not_found`, mismo literal que el guard de `operacion-party-guard`).
   - Sucursal opcional; si viene, debe ser de la cuenta y no estar cerrada (`P0404`/`P0422`).
   - `p_valid_until` NULL → `reporting_local_today() + default_quote_validity_days`. Si viene, debe ser ≥ hoy (ART) (`P0400 quote_valid_until_in_past`).
@@ -82,6 +82,7 @@ Cuatro RPCs `SECURITY DEFINER` (`SET search_path = public`, `REVOKE … FROM PUB
     - `product_id` NULL (línea de servicio) → exige una descripción (`description`, que se guarda en `name_snapshot`);
     - si hay producto: vivo, de la cuenta, y no padre con variantes (`P0404 product_not_found` / `P0400 product_is_parent`);
     - la unidad pasa por `_uom_normalize_quantity(product_id, unit_id, quantity)`, sólo para validar la compatibilidad (RN-24 (a)(b)(c)(f)); el resultado se descarta;
+    - toda línea con `unit_id`, **también la de servicio**, exige una unidad del sistema o de la cuenta (`P0404`, el mismo literal que el helper). `_uom_normalize_quantity` sale temprano cuando `product_id` es NULL, antes de su chequeo de tenencia de la unidad: sin este guard, una línea de servicio podría llevar una unidad de otra cuenta al PDF y a la venta;
     - `quantity > 0`, `price ≥ 0`, `0 ≤ subtotal`.
   - `total = round(Σ subtotal, 2)`, calculado en el servidor (RN-24-bis). El total que manda el cliente se ignora.
   - Inserta `quotes` (el disparador asigna el número y registra `NULL→draft`, validando el rol) y `quote_items` con los snapshots en el **mismo** `INSERT … SELECT` desde `products` **filtrado por `account_id`**.
@@ -90,13 +91,15 @@ Cuatro RPCs `SECURITY DEFINER` (`SET search_path = public`, `REVOKE … FROM PUB
   - Reemplazo completo (D5).
   - Toma `SELECT … FOR UPDATE` sobre el presupuesto.
   - Guards: tenencia (`P0404`, idéntico para inexistente y ajeno), rol (D11), estado (D5).
+  - `p_valid_until` es **obligatorio** (`P0400 quote_valid_until_required`): el reemplazo es completo, y un NULL dejaría el presupuesto sin vencimiento (el barrido y `is_expired` filtran `valid_until < hoy`). `p_branch_id` y `p_notes` NULL significan "sin sucursal" y "sin notas": la UI siempre manda el valor vigente de cada campo. `QuoteUpdateIn` declara los tres campos como requeridos, con `valid_until` no nulo.
 - **`rpc_transition_quote(p_quote_id uuid, p_to_status text, p_reason text) → jsonb`**
   - Destinos admitidos desde la API: `sent` y `rejected`. `accepted` va sólo por la conversión y `expired` sólo por el barrido (`P0400 quote_transition_not_allowed`).
   - `FOR UPDATE`, `record_status_transition` (valida el catálogo y el rol, exige motivo si el catálogo lo pide) y `UPDATE`.
   - `sent` sobre un presupuesto que ya está en `sent` es un **no-op idempotente** (200, sin historial duplicado): lo usa el menú de compartir, que marca como enviado en cada descarga o envío.
   - El primer `sent` fija `sent_at`.
 - **`rpc_delete_quote(p_quote_id uuid) → void`**
-  - Sólo en `draft` (política de borrado por categoría, KB 05 §borrado, ítem 4: los borradores admiten hard delete). En otro estado: `P0409 quote_not_deletable`.
+  - Sólo en `draft` **nunca enviado** (`sent_at IS NULL`; política de borrado por categoría, KB 05 §borrado, ítem 4: los borradores admiten hard delete). En otro caso: `P0409 quote_not_deletable`. Un `draft` reabierto por una edición (D5) que ya había llegado al cliente no se borra: se rechaza.
+  - Rol `CAN_QUOTE` verificado por la propia RPC (`P0403`, D11).
   - Borra `quote_items` (CASCADE) y `quotes`. El historial de estados queda como está, porque es append-only por estructura.
 
 Se hace `DROP POLICY` de `quotes_insert`, `quotes_update`, `quote_items_insert` y `quote_items_update`. Quedan sólo las políticas de `SELECT`, que es el patrón de `sales_orders` (D2 de C-29).
@@ -126,7 +129,9 @@ Capability nueva `internal-document-numbering`.
   - Es el mismo patrón UPDATE-then-INSERT de `rpc_next_document_number` (spec `document-sequence`). Nunca un `INSERT … ON CONFLICT DO UPDATE`: el gotcha de validación de `CHECK` del proyecto.
 - **Disparador** `BEFORE INSERT ON quotes`, `trg_quote_assign_number`: si `NEW.number IS NULL`, asigna `_next_internal_document_number(NEW.account_id, 'quote')`.
   - Es el paso obligado para cualquier escritor (RPC, gate o backfill), el mismo principio que `trg_guard_branch_decommission`.
-  - Un número explícito se respeta, para las fixtures; el `UNIQUE` lo protege.
+  - Un número explícito se respeta (fixtures) y **avanza la secuencia**: el disparador hace `last_number = GREATEST(last_number, NEW.number)` (creando la fila si falta), para que un alta posterior no choque con ese número. El `UNIQUE` protege el duplicado explícito.
+  - El mismo disparador completa un `valid_until` NULL con `reporting_local_today() + accounts.default_quote_validity_days` (D7): ningún presupuesto nace sin vencimiento, venga de la RPC o de una fixture.
+  - Bajo `session_replication_role = replica` los disparadores no corren. La garantía es "todo camino con disparadores activos", y la spec lo dice así. `number` sigue nullable: declararlo `NOT NULL` rompería los gates que insertan presupuestos en modo réplica (en prod hay 0 filas).
 - **Sin huecos**: el lock de la fila de secuencia se toma dentro de la transacción de alta y se libera al commit. Un alta que falla revierte el incremento. Serializa las altas de presupuestos **de una misma cuenta**, que duran milisegundos y no tocan stock.
   - A diferencia de la numeración fiscal, el lock largo no es un riesgo: la de ARCA exige lock corto porque la transacción de venta es larga.
 - **Formato visible**: `P-` + número con relleno a 8 dígitos (`P-00000012`). Una sola definición por lenguaje: `frontend/lib/internal-document-number.ts` (`formatInternalDocumentNumber('quote', n)`) y `backend/services/commercial_documents/numbering.py`, con un **fixture de casos compartido** (`backend/tests/fixtures/internal_document_number_cases.json`) que leen pytest y vitest, como el de `scale_layout_cases.json`. Sin prefijo por sucursal (OQ-P2).
@@ -143,23 +148,29 @@ El catálogo ya tiene todo lo que este change ejecuta:
 | `draft → sent` | `rpc_transition_quote('sent')`, desde "Marcar como enviado" o automáticamente al descargar o compartir |
 | `draft\|sent → accepted` | `_quote_accept_core`, dentro de la conversión |
 | `draft\|sent → rejected` | `rpc_transition_quote('rejected', motivo opcional)` |
-| `draft\|sent → expired` | `_expire_overdue_quotes` (sistema, actor NULL) |
+| `draft\|sent → expired` | `_expire_overdue_quotes` (sistema, actor = uuid cero, D7) |
+| `expired → draft`, `rejected → draft` | `rpc_update_quote`, al editar un presupuesto vencido o rechazado (reapertura, D5). **Filas nuevas** del catálogo |
 
-No se agregan filas ni se cambian roles. El requirement "Agregado Quote con ciclo de vida" de la spec `quote` dice `sent → accepted | rejected | expired, draft → expired`, que contradice el seed (`draft → accepted` y `draft → rejected` existen y tienen roles). Se **modifica** para describir el catálogo vigente. Es un error de la spec, no un cambio de comportamiento.
+Se agregan **dos filas** al catálogo: `quote: expired → draft` y `quote: rejected → draft`, con `allowed_role = {seller, admin, owner}` y sin motivo obligatorio. Son las que hacen cumplir el requisito 4 del PO (editable mientras no esté convertido en venta). No cambian los roles de las filas existentes. El requirement "Agregado Quote con ciclo de vida" de la spec `quote` dice `sent → accepted | rejected | expired, draft → expired`, que contradice el seed (`draft → accepted` y `draft → rejected` existen y tienen roles). Se **modifica** para describir el catálogo vigente. Es un error de la spec, no un cambio de comportamiento; el requirement modificado suma además la reapertura por edición, que sí es comportamiento nuevo.
 
 - **Editar no cambia el estado.** Un `sent` editado sigue `sent`. La UI muestra "Modificado después de enviado — reenvialo" (`updated_at > sent_at`).
   - *Rechazado*: volver a `draft` al editar. No hay transición `sent → draft` en el catálogo, y agregarla haría el estado menos útil, porque perdería que el cliente ya lo vio.
 
-### D5 — Edición: reemplazo atómico en `draft|sent`; `P0423` en los estados terminales
+### D5 — Edición: reemplazo atómico en todo estado salvo `accepted`; editar un vencido o rechazado lo reabre
 
 `rpc_update_quote`:
 
 1. `SELECT … FROM quotes WHERE id = $1 AND account_id IN (SELECT current_account_ids()) FOR UPDATE`. Si no hay fila: `P0404 quote_not_found`.
-2. Estado: `accepted` → `P0423 quote_locked_converted` ("el presupuesto ya se convirtió en la venta …; los cambios se hacen sobre la venta"). `expired` → `P0423 quote_locked_expired` ("duplicalo para cotizar de nuevo"). `rejected` → `P0423 quote_locked_rejected`. Es el mismo `P0423` "inmutable" que la venta con comprobante o dinero posteado (`operation-edit-context`), con un literal propio para que `operation-errors.ts` lo traduzca de forma accionable.
+2. Estado:
+   - `accepted` → `P0423 quote_locked_converted` ("el presupuesto ya se convirtió en la venta …; los cambios se hacen sobre la venta"). Es el mismo `P0423` "inmutable" que la venta con comprobante o dinero posteado (`operation-edit-context`), con un literal propio para que `operation-errors.ts` lo traduzca de forma accionable. Es el **único** estado que no se edita.
+   - `expired` o `rejected` → la edición **reabre** el presupuesto: `record_status_transition(…, status, 'draft', auth.uid(), NULL)` y el `UPDATE` deja `status = 'draft'`, en la misma transacción. El `p_valid_until` nuevo debe ser ≥ hoy (ART) (`P0400 quote_valid_until_in_past`).
 3. Si el presupuesto está en `draft|sent` pero su `valid_until` ya pasó (el barrido todavía no corrió), la edición se admite **sólo si** el `p_valid_until` nuevo es ≥ hoy. Es la vía para "ampliar la validez" (OQ-P5). Si no lo es: `P0400 quote_valid_until_in_past`.
 4. Mismos guards de cliente, sucursal y línea que el alta (D2).
 5. `DELETE FROM quote_items WHERE quote_id = $1` + `INSERT` de las líneas nuevas con snapshots **re-tomados** del maestro filtrado por cuenta. Luego `UPDATE quotes SET client_id, branch_id, valid_until, notes, total, updated_at = now(), updated_by = auth.uid()`.
 
+- **Por qué reabrir a `draft`**: es el requisito 4 del PO ("editable mientras no esté convertido en venta"). La versión editada todavía no se mandó, así que es un borrador; la próxima descarga o envío la pasa a `sent`. El historial conserva el vencimiento o el rechazo anterior.
+  - Un presupuesto vencido que el barrido todavía no marcó sigue en `sent` al editarlo (con "Modificado después de enviado"); uno ya marcado vuelve a `draft`. En los dos casos la UI ofrece "Editar" y exige ampliar la validez, así que para el usuario el comportamiento no depende de la hora del barrido (OQ-P14).
+  - *Rechazado*: dejar `expired` y `rejected` inmutables con `P0423`. Contradice el requisito firmado y obligaría a duplicar el presupuesto para corregir una fecha.
 - **Snapshots re-tomados**: la edición es un nuevo momento de cotización. El snapshot congela lo que se le prometió al cliente **en la última versión que se le mostró**.
   - *Rechazado*: conservar el snapshot de las líneas que no cambiaron. Obliga a emparejar líneas viejas con nuevas sin un id estable del carrito, y el beneficio es nulo: nombre, SKU y costo del maestro no son promesas al cliente, el precio sí, y el precio viene del payload.
 - *Rechazado*: un `PATCH` parcial por línea. La UI edita el carrito completo (el mismo `QuoteForm` del alta), así que el reemplazo es el contrato natural. Con un solo camino de escritura se evitan divergencias.
@@ -193,13 +204,15 @@ rpc_convert_quote_to_sale(
 Orden de ejecución (todo en una transacción):
 
 1. `auth.uid()` no nulo. `p_idempotency_key` no vacía (`P0400`). `p_payment_method_id` obligatorio (`P0400 payment_method_required`): la conversión no usa el camino legacy por texto.
-2. **Lock del documento de origen primero**: `SELECT … FROM quotes WHERE id = p_quote_id AND account_id IN (SELECT current_account_ids()) FOR UPDATE`. Sin fila: `P0404 quote_not_found` (inexistente y ajeno indistinguibles). `is_account_writer` → `P0401`.
+2. **Lock del documento de origen primero**: `SELECT … FROM quotes WHERE id = p_quote_id AND account_id IN (SELECT current_account_ids()) FOR UPDATE`. Sin fila: `P0404 quote_not_found` (inexistente y ajeno indistinguibles). `is_account_writer` → `P0401`; rol `CAN_QUOTE` → `P0403` (D11).
 3. **Idempotencia, después del lock**:
    - Si existe `operation_idempotency(user = auth.uid(), kind = 'sale', key)`, se busca la orden con `sale_operation_id =` esa operación **y** `source_quote_id = p_quote_id`.
    - Si existe, devuelve `{…, replayed: true}` sin escribir.
    - Si la clave existe pero pertenece a otra operación, `P0409 idempotency_key_conflict`: una clave reutilizada contra otro presupuesto no devuelve la venta de otro documento.
-   - Leer la clave **después** del lock serializa el doble clic con la misma clave: el segundo espera, ve la clave y hace replay en vez de tropezar con `quote_invalid_state`.
-4. **Líneas convertibles**: cada `quote_items.product_id` no nulo debe existir, pertenecer a la cuenta y estar vivo (`deleted_at IS NULL`). Si no, `P0404 quote_product_unavailable: <nombre del snapshot>` antes de escribir nada.
+   - Leer la clave **después** del lock serializa el doble clic con la misma clave **sobre el mismo presupuesto**: el segundo espera, ve la clave y hace replay en vez de tropezar con `quote_invalid_state`. El caso de la misma clave sobre dos presupuestos distintos en paralelo lo cierra el paso 6.
+4. **Guards de convertibilidad**, antes de escribir nada:
+   - cada `quote_items.product_id` no nulo debe existir, pertenecer a la cuenta, estar vivo (`deleted_at IS NULL`) y no ser un padre con variantes. Si no, `P0404 quote_product_unavailable: <nombre del snapshot>` (o `P0400 product_is_parent`, si al producto se le agregaron variantes después de cotizar);
+   - el cliente del presupuesto debe seguir vivo (`clients.deleted_at IS NULL`). Si no, `P0404 quote_client_unavailable` ("el cliente fue dado de baja: editá el presupuesto y elegí un cliente vigente"). El alta y la edición exigen un cliente vivo, pero `_quote_accept_core` y el núcleo de venta sólo comparan `account_id`, y no existe un guard de baja de clientes: sin este chequeo, una conversión a crédito postearía deuda contra un cliente que el panel de cobranzas y el digest de vencidos excluyen (`c.deleted_at IS NULL`).
    - El núcleo de venta no filtra `deleted_at`: sin este guard, un producto dado de baja se vendería.
    - La UI lo traduce a "editá el presupuesto y quitá o reemplazá «X»".
 5. `PERFORM`/`SELECT _quote_accept_core(p_quote_id, p_branch_id)`. Hace lo siguiente:
@@ -217,12 +230,18 @@ Orden de ejecución (todo en una transacción):
    - historial `draft→confirmed`.
    
    Tipo de comprobante NULL: la facturación es una acción posterior explícita (requirement vigente de `sales-order`).
+
+   Con `kind = 'cash'` el núcleo **exige** la sesión de caja (`P0400 cash_requires_session`, `20261062000001:1250`): es la semántica del POS, no el opt-in del formulario de venta. El diálogo (D12) resuelve la sesión y la envía siempre.
+
+   Después de la llamada se lee su resultado: si vuelve `replayed = true`, `RAISE 'idempotency_key_conflict' USING ERRCODE = 'P0409'`. Ese caso es una conversión concurrente con la **misma clave** sobre **otro** presupuesto: las dos vieron la clave libre en el paso 3 (cada una bloquea su propio presupuesto), y ésta esperó en el `ON CONFLICT DO NOTHING` del núcleo hasta que la otra commiteó. El núcleo devuelve entonces la operación ajena sin confirmar la orden recién creada (`20261062000001:1352-1375`); sin este chequeo quedaría un presupuesto `accepted` con una orden `draft` huérfana, apuntando a la venta de otro documento. El `RAISE` revierte la aceptación y la orden.
 7. Devuelve `{quote_id, quote_number, sales_order_id, operation_id, total, replayed: false}`.
 
 Consecuencias:
 
 - **Cualquier fallo revierte todo.** El presupuesto queda en su estado anterior (no queda `accepted` sin venta) y no queda ninguna orden `draft`. Stock insuficiente → `P0409` del núcleo, con el mismo literal que la UI ya traduce (`stock_insuficiente para producto <id>`).
 - **La venta es facturable sin cambios.** Es una `sales_orders` `confirmed` con `sale_operation_id`, el mismo estado que deja el POS, así que `EmitInvoiceButton`/`POST /sales-orders/{id}/emit-invoice` y "Facturar" desde `/ventas` funcionan tal cual. Borrarla o editarla sigue las reglas vigentes de la venta del POS (`operation-delete-compensation`: cancela la orden). El presupuesto **queda `accepted`**, que es terminal: una venta borrada no "reabre" el presupuesto. Para volver a vender, se duplica (OQ-P12).
+- **Snapshots de la venta**: producto, cantidad, unidad, precio y subtotal vienen del presupuesto, y las `sales_order_items` heredan sus snapshots sin re-leer el maestro. Las filas legacy `sales`/`sale_items` y el costo de `stock_movements` los congela el núcleo al confirmar desde el maestro vigente (`20261062000001:1437-1447`), igual que en una venta del POS: el costo de la venta es el del día de la venta. No se toca el núcleo para cambiarlo.
+- **Líneas de servicio**: se convierten. El núcleo inserta su fila legacy de `sales` sin producto ni descripción y sin `sale_items` (`20261062000001:1462-1476`); la descripción queda en `sales_order_items.name_snapshot`, que es lo que usa la factura. El read model de `/ventas` (tarea 6.6) resuelve la descripción de esas filas desde las líneas sin producto de la misma orden, emparejando por precio, cantidad, subtotal y unidad. Si dos líneas de servicio de la misma venta coinciden en esos cuatro valores, las dos muestran la misma descripción (límite declarado, OQ-P15). Hasta este change ningún camino de venta generaba líneas de servicio, así que el hueco es nuevo y se cierra acá.
 - **Orden de locks**: `quotes` (FOR UPDATE) → `products` (FOR UPDATE, dentro del núcleo, en orden de `sales_order_items.id`) → inserciones de `sales`/`sales_orders`. `quotes` no participa de ningún otro camino que tome los locks de venta, así que tomarla primero no invierte el orden global `sales → sales_orders → fiscal_documents` (la conversión crea filas, no bloquea filas existentes de `sales`). Se documenta junto a la regla global en `CHANGES.md`. `CLAUDE.md` no se toca en este change.
 - **Roles**: la transición `quote → accepted` exige `seller|admin|owner`, y `sales_order draft→confirmed` admite además `cashier`. La intersección efectiva es `seller|admin|owner`, que es `CAN_QUOTE` (D11). Un cajero no convierte presupuestos: sí vende en el POS, pero la conversión compromete una cotización.
 - **Grants**: `REVOKE ALL … FROM PUBLIC, anon`; `GRANT EXECUTE … TO authenticated`. `_c29_confirm_order_core` ya es invocable por `authenticated` (allowlist del chequeo (4)); llamarlo desde otra RPC definer no cambia su superficie.
@@ -235,21 +254,21 @@ Consecuencias:
 - **Función** `_expire_overdue_quotes() → integer`:
   - `SECURITY DEFINER`, sin `EXECUTE` para ningún rol de aplicación.
   - Recorre `quotes WHERE status IN ('draft','sent') AND valid_until < reporting_local_today()`, en orden de `id`, con `FOR UPDATE SKIP LOCKED`.
-  - Para cada uno, `record_status_transition(account_id, 'quote', id, status, 'expired', NULL, 'vencimiento automático')` (actor NULL: transición de sistema exenta de rol, que la spec `document-status-history` ya prevé en su escenario "Un proceso programado transiciona sin actor") y `UPDATE status = 'expired'`.
+  - Para cada uno, `record_status_transition(account_id, 'quote', id, status, 'expired', '00000000-0000-0000-0000-000000000000'::uuid, 'vencimiento automático')` y `UPDATE status = 'expired'`. El actor es el **uuid cero**, la convención de "sistema" del proyecto (`20261060000001:311`, igual que `rpc_record_fiscal_transition`): `document_status_history.performed_by` es `NOT NULL` (`20260807000001:91`), así que un actor NULL abortaría cada corrida con `23502` y ningún presupuesto vencería nunca. La fila `draft|sent → expired` tiene `allowed_role` NULL (exención 2 del helper), así que el uuid cero no necesita rol.
   - Idempotente: una segunda corrida no encuentra filas. Devuelve la cantidad vencida.
   - `SKIP LOCKED` evita esperar a una conversión en curso sobre el mismo presupuesto: si la conversión gana, el presupuesto queda `accepted` y el barrido no lo toca al día siguiente.
 - **Cron**: `cron.unschedule` + `cron.schedule('quotes-expire-sweep', '5 3 * * *', …)`. Corre a las 03:05 UTC (00:05 ART), así que un presupuesto "válido hasta ayer" amanece vencido. Es el molde de `cobranzas-overdue-digest-sweep`.
 - **Derivación al leer**: el read model devuelve `is_expired = status IN ('draft','sent') AND valid_until < reporting_local_today()`. La UI lo muestra como "Vencido" aunque el barrido todavía no haya corrido, y deshabilita "Venta" con la explicación. La conversión igual lo rechaza (`quote_expired`), como hoy.
 - **Validez por defecto**: `accounts.default_quote_validity_days` (15) + `rpc_set_default_quote_validity(p_days integer)`:
   - `SECURITY DEFINER`;
-  - guard **owner/admin** (`CAN_CONFIGURE`: es configuración de la cuenta, igual que las formas de pago);
+  - guard **owner/admin** (`CAN_CONFIGURE`: es configuración de la cuenta, igual que las formas de pago) → `P0403 insufficient_role`;
   - rango 1..365 (`P0400`).
   
   Endpoints `GET/PATCH /settings/quotes`, que es el molde exacto de `/settings/collections`.
   - *Rechazado*: una tabla `quote_settings`. Es un solo valor y la Regla de Tres no se alcanza. La columna sigue el precedente de `default_payment_terms_days`.
 - **Dónde se configura en la UI**: una tarjeta **"Presupuestos — validez por defecto"** dentro de la pestaña **Cobranzas** de `/configuracion`, debajo del plazo de pago. `/presupuestos` muestra "Validez por defecto: 15 días · Cambiar" con un enlace a `/configuracion?tab=cobranzas`.
   - Justificación: la pestaña ya reúne las **condiciones comerciales hacia el cliente** (plazo de pago); la validez de la cotización es de la misma familia.
-  - La barra ya tiene 12 pestañas (`balanza-etiquetas-pos` sumó la 11ª, con una deuda de medición visual declarada). Una 13ª pestaña para un solo número es desproporcionada.
+  - La barra tiene 11 pestañas (`balanza-etiquetas-pos` sumó la 11ª, con una deuda de medición visual declarada). Una 12ª pestaña para un solo número es desproporcionada.
   - No se renombra la pestaña: `?tab=cobranzas` está enlazada desde otras pantallas.
   - OQ-P9 deja abierta la alternativa.
 
@@ -271,7 +290,8 @@ Capability nueva `commercial-document-pdf`. El módulo nuevo `backend/services/c
   - nombre: `fiscal_profiles.nombre_fantasia` → `fiscal_profiles.razon_social` → `profiles.business_name` del `accounts.owner_user_id` → "Mi Negocio";
   - razón social y CUIT si hay perfil fiscal;
   - domicilio comercial si está cargado;
-  - teléfono y email del perfil del dueño.
+  - teléfono del perfil del dueño (`profiles.phone`). **Sin email**: `profiles` no tiene columna de email, y tomar el de `auth.users` imprimiría el email de acceso del dueño en un documento para terceros.
+  - *Rechazado*: reutilizar `_issuer` de `services/fiscal/invoice_pdf.py`. Completa campo por campo una foto fiscal persistida en el comprobante; no resuelve un emisor comercial desde la cuenta. Lo que sí se reutiliza es la lectura de `fiscal_profiles`/`profiles` del repositorio existente, filtrada por cuenta.
   
   **Nunca bloquea**: un presupuesto no es un comprobante fiscal, y en prod sólo 1 de 41 cuentas tiene domicilio. Lo que falta, se omite.
   - *Rechazado*: exigir los datos fiscales como la Factura C (`issuer_data_incomplete`). El 97 % de las cuentas no podría presupuestar.
@@ -295,7 +315,7 @@ Estado actual:
 
 Se extraen a la capa canónica **sin cambiar su comportamiento**:
 
-- `frontend/lib/document-share.ts`: `downloadBlob(blob, fileName)`, `sharePdf(file, text, title)` y `openWhatsAppText(phone, text)` (envuelve `buildWhatsAppUrl` y devuelve si había número válido).
+- `frontend/lib/document-share.ts`: `downloadBlob(blob, fileName)`, `sharePdf(file, text, title)` y `openWhatsAppText(phone, text)` (envuelve `buildWhatsAppUrl` y devuelve si había número válido). Único cambio de contrato: `sharePdf` devuelve `"shared" | "cancelled" | "unsupported"`, porque hoy la cancelación del usuario vuelve como `"shared"` (`sale-receipt-button.tsx:93`). `sale-receipt-button.tsx` trata `"cancelled"` igual que hoy trata `"shared"`, así que su comportamiento no cambia; el menú nuevo lo necesita para no marcar como enviado un presupuesto que el usuario no mandó.
 - `frontend/lib/api/document-pdf.ts`: `fetchDocumentPdf(path, params) → Blob | null` (encabezados de `getAuthHeaders`; `null` si `redirectedOnUnauthorized`; `DocumentPdfError(code, message)` desde el RFC 7807).
 - `sale-receipt-button.tsx` y `fiscal-invoice.ts` pasan a importarlos. Sus tests existentes son el safety net y deben seguir verdes sin cambios.
 
@@ -305,10 +325,11 @@ Se extraen a la capa canónica **sin cambiar su comportamiento**:
 - **Descargar PDF**.
 - **Enviar por WhatsApp**:
   - en el celular, share nativo con el **archivo**;
+    el share nativo exige la activación del gesto del usuario, que en Safari iOS expira después de los `await` del fetch. Por eso el menú **precarga** el PDF al abrirse y llama a `sharePdf` sincrónicamente dentro del toque cuando el blob ya está; si todavía no llegó, muestra "Preparando…" y pide un segundo toque;
   - en escritorio, descarga del PDF + `wa.me/<teléfono>?text=` con un texto corto y un toast "Adjuntalo en el chat que se abrió";
   - sin número válido, `wa.me/?text=` con el aviso "no hay número de WhatsApp registrado para este cliente". Es el mismo texto del comprobante de venta.
 
-Descargar y WhatsApp (no "Ver") llaman a `onShared`. En el presupuesto, `onShared` dispara `rpc_transition_quote('sent')` si el presupuesto está en `draft` (no-op idempotente si ya está `sent`) e invalida la query.
+Descargar (cuando la descarga ocurrió) y WhatsApp (con `"shared"` o con el fallback de descarga + `wa.me`, nunca con `"cancelled"`) llaman a `onShared`; "Ver" no. En el detalle del presupuesto, `onShared` se pasa **sólo** si el usuario tiene `CAN_QUOTE` (espejo de D11) y el presupuesto está en `draft`: un cajero descarga el PDF sin cambiar el estado. `onShared` dispara `rpc_transition_quote('sent')` e invalida la query; si falla, no muestra error (la descarga ya funcionó) y el estado se corrige en la próxima lectura.
 
 - *Por qué "Ver" no marca enviado*: mirar el PDF propio antes de mandarlo es el uso más común, y marcarlo mentiría el estado.
 
@@ -318,7 +339,8 @@ Descargar y WhatsApp (no "Ver") llaman a `onShared`. En el presupuesto, `onShare
 
 ### D10 — UI de `/presupuestos`
 
-- **Sidebar**: `{ title: "Presupuestos", href: "/presupuestos", icon: FileText }` (ícono de `lucide-react`; `FileText` ya se usa en el repo) en *Operaciones*, entre "POS — Venta Rápida" y "Compras". Sin gate de plan (D13). Breadcrumb en `breadcrumb-nav.tsx`: `"/presupuestos": "Presupuestos"`, `nuevo`: "Nuevo", `editar`: "Editar". La ruta queda protegida por defecto (`lib/auth/route-access.ts` protege todo `app/(dashboard)` por exclusión).
+- **Sidebar**: `{ title: "Presupuestos", href: "/presupuestos", icon: FileText }` (ícono de `lucide-react`; `FileText` ya se usa en el repo) en *Operaciones*, entre "POS — Venta Rápida" y "Compras". Sin gate de plan (D13). La ruta queda protegida por defecto (`lib/auth/route-access.ts` protege todo `app/(dashboard)` por exclusión).
+- **Breadcrumb** (`breadcrumb-nav.tsx`), con su mecanismo real: `PAGE_NAMES` por ruta completa, `PAGE_PREFIX_NAMES` por prefijo y `nameFromLastSegment` como respaldo. `/presupuestos` → "Presupuestos" y `/presupuestos/nuevo` → "Nuevo presupuesto" en `PAGE_NAMES`; `/presupuestos/<id>/editar` → "Editar presupuesto" y `/presupuestos/<id>` → "Detalle de presupuesto" se resuelven antes del respaldo, que mostraría el uuid capitalizado. "nuevo" nunca cae en la regla del detalle porque la ruta completa gana.
 - **`/presupuestos`** (listado):
   - `GET /quotes?status=&q=&page=&page_size=` paginado `{items,total,page,pages}` (estándar `api-standards`).
   - Filtros: pestañas de estado (Todos, Borradores, Enviados, Aceptados, Vencidos, Rechazados) y búsqueda por nombre de cliente o número (acepta "P-12", "12" o "00000012").
@@ -334,15 +356,17 @@ Descargar y WhatsApp (no "Ver") llaman a `onShared`. En el presupuesto, `onShare
 
 | Estado | Acciones |
 |---|---|
-| `draft` | Editar · Compartir (`DocumentShareMenu`) · **Venta** · Rechazar · Duplicar · Eliminar |
+| `draft` | Editar · Compartir (`DocumentShareMenu`) · **Venta** · Rechazar · Duplicar · Eliminar (sólo si nunca se envió) |
 | `sent` | Editar · Compartir · **Venta** · Rechazar · Duplicar |
 | `draft\|sent` vencido | Editar (para ampliar la validez) · Compartir · Duplicar · Rechazar. "Venta" deshabilitada con "Vencido el …: ampliá la validez o duplicalo" |
 | `accepted` | Compartir · Duplicar · Ver venta |
-| `expired` / `rejected` | Compartir · Duplicar |
+| `expired` / `rejected` | Editar (reabre a `draft`, D5; exige validez ≥ hoy) · Compartir · Duplicar |
 
-- **Ficha del cliente** (`/clientes/[id]`): botón "Nuevo presupuesto" → `/presupuestos/nuevo?cliente=<id>` y una sección "Presupuestos" con los últimos 5 del cliente (`GET /quotes?client_id=`) y enlace al listado filtrado (OQ-P7).
+Un vencido derivado (`is_expired`, el barrido todavía no corrió) y uno ya marcado `expired` muestran el mismo aviso ("Vencido el …: editalo para ampliar la validez o duplicalo") y la misma acción "Editar".
+
+- **Ficha del cliente** (`/clientes/[id]`): botón "Nuevo presupuesto" → `/presupuestos/nuevo?cliente=<id>` en `ClientDetailHeader`, visible en todas las pestañas, y una **pestaña nueva** "Presupuestos" (`/clientes/[id]/presupuestos`) con los últimos 5 del cliente (`GET /quotes?client_id=`) y enlace al listado filtrado (OQ-P7). La pestaña activa de `ClientDetailHeader` hoy se deriva como `isHistorialActive = !isCuentaActive`; con tres pestañas pasa a compararse por la ruta de cada una.
 - **`/ventas`**: la operación nacida de un presupuesto muestra el badge "Desde presupuesto P-00000012", con enlace. El read model de ventas y órdenes gana `source_quote_id` y `source_quote_number` derivados de `sales_orders.source_quote_id → quotes`, sin columnas denormalizadas.
-- **Errores**: `lib/operation-errors.ts` gana las traducciones de `quote_locked_converted|expired|rejected`, `quote_expired`, `quote_invalid_state`, `quote_product_unavailable`, `quote_not_deletable`, `quote_valid_until_in_past`, `idempotency_key_conflict` y `payment_method_required`. `stock_insuficiente` ya existe y se reutiliza.
+- **Errores**: `lib/operation-errors.ts` gana las traducciones accionables de `quote_locked_converted`, `quote_expired`, `quote_invalid_state`, `quote_product_unavailable`, `quote_client_unavailable`, `quote_not_deletable`, `quote_valid_until_in_past`, `quote_valid_until_required`, `product_not_found`, `product_is_parent`, `insufficient_role` (403 / `P0403`: "Tu rol no permite …"), `cash_requires_session`, `idempotency_key_conflict` y `payment_method_required`. `stock_insuficiente` ya existe y se reutiliza.
 - **Design system**: tokens semánticos, componentes base con `cva`, `ResponsiveModal` para los diálogos, verificación en desktop y 375 px × claro y oscuro (regla del PO).
 
 ### D11 — Permisos: capacidad `CAN_QUOTE` que espeja la FSM
@@ -352,12 +376,12 @@ Descargar y WhatsApp (no "Ver") llaman a `onShared`. En el presupuesto, `onShare
 | Operación | Guard en el service | Guard en la base |
 |---|---|---|
 | Listar, ver, PDF | miembro de la cuenta | RLS `SELECT` |
-| Crear, editar, enviar, rechazar, eliminar, convertir | `require_account_role(conn, auth, CAN_QUOTE)` | `is_account_writer` + rol vía `record_status_transition` |
+| Crear, editar, enviar, rechazar, eliminar, convertir | `require_account_role(conn, auth, CAN_QUOTE)` | `is_account_writer` (`P0401`) + rol `CAN_QUOTE` (`P0403`): verificado por la RPC en crear, editar y borrar, y por `record_status_transition` en las transiciones |
 | Validez por defecto | `CAN_CONFIGURE` | guard owner/admin en `rpc_set_default_quote_validity` |
 
-- `rpc_update_quote` no cambia de estado, así que `record_status_transition` no lo protege. Verifica el rol por sí misma con el mismo predicado que usa el helper de transiciones (roles activos no vencidos del actor en la cuenta ∩ `{seller, admin, owner}`) → `P0401`. Lo mismo `rpc_delete_quote`.
+- `rpc_create_quote`, `rpc_update_quote` y `rpc_delete_quote` verifican el rol por sí mismas **antes** de escribir, con el mismo predicado que usa el helper de transiciones (roles activos no vencidos del actor en la cuenta ∩ `{seller, admin, owner}`) → `P0403 insufficient_role`. Es el mismo código que devuelve `record_status_transition` (y que `backend/core/errors.py` ya mapea a 403): todo rechazo por rol es `P0403`, y `P0401` queda sólo para quien no es escritor de la cuenta. En el alta, el disparador de creación lo volvería a validar, pero el chequeo explícito primero evita depender de un efecto lateral.
 - Se retira `require_role(auth, ["user","admin"])` (legacy) de `services/quotes.py`.
-- El frontend oculta las acciones sin permiso con `useOrgRole` (patrón existente) y el backend es la fuente de verdad.
+- El frontend decide con un espejo canónico, `frontend/lib/rbac-capabilities.ts` (`CAN_QUOTE`, `hasCapability(roles, cap)`), atado por test al conjunto de `backend/core/rbac.py`, y evaluado sobre el **conjunto** `roles` de `useOrgRole`, no sobre el `role` singular: ese colapsa a `member` a un usuario que sólo es vendedor (`hooks/useOrgRole.ts:48-53`) y le ocultaría el módulo al usuario principal. Mientras el conjunto no resolvió, fail-open como `isWriter`. El backend es la fuente de verdad. Lo usan el listado, el detalle, la ficha del cliente y el `onShared` de D9.
 
 ### D12 — Backend 3 capas y `QuoteForm` en el frontend
 
@@ -372,30 +396,40 @@ Descargar y WhatsApp (no "Ver") llaman a `onShared`. En el presupuesto, `onShare
 - `repositories/quote_repository.py`: todo por RPC o por `SELECT` con `account_id` explícito. El listado hace `JOIN clients` para nombre y teléfono y deriva `is_expired`.
 - `services/quotes.py`: guards (D11), mapeo de errores a RFC 7807 con `ProblemHTTPException` (`code` estable = literal del error SQL), sin `HTTPException` crudo.
 - `routers/quotes.py`: `POST /quotes/{id}/convert` usa `require_idempotency_key(request, payload.idempotency_key)`, como `/sales-orders/quick-sale`.
-- `POST /quotes/{id}/accept` **se conserva**: no tiene consumidores, pero retirarlo no aporta y el requirement de `accept()` sigue vigente. Pasa a `CAN_QUOTE`. La UI no lo usa.
+- `POST /quotes/{id}/accept` **se retira**. No tiene consumidores y dejaría un presupuesto `accepted` (que en la UI significa "convertido en venta", D1) con una orden `draft` que ninguna pantalla muestra: el mismo hueco por el que se rechazó A2. La RPC `rpc_accept_quote` se conserva como wrapper del núcleo (D6), para su regresión SQL; `useAcceptQuote` desaparece con la reescritura de `use-quotes.ts`.
 
 **Frontend**:
 
 - `hooks/data/use-quotes.ts` se reescribe sobre el contrato nuevo: `useQuotes(filters)` paginado, `useQuote(id)`, `useCreateQuote`, `useUpdateQuote`, `useTransitionQuote`, `useDeleteQuote`, `useConvertQuote` (con `useIdempotencyKey`), `useQuoteSettings` y `useUpdateQuoteSettings`.
-- `useConvertQuote` invalida `quotes.*` más **la misma lista que invalida la venta rápida del POS** (`salesOrders`, `sales`, `branchStock`, `customerAccounts`, `receivables`, … en `hooks/data/use-sales-orders.ts:240-253` y `:320-329`, hoy repetida dos veces en ese archivo). Esa lista se extrae a un helper `invalidateAfterSale(queryClient)` en `lib/query-invalidation.ts`: lo consumen las dos mutaciones existentes y la de conversión, y no se copia por cuarta vez.
+- `useConvertQuote` invalida `quotes.*` más `invalidateAfterSale(queryClient)`, un helper nuevo en `lib/query-invalidation.ts` que es la **unión** de lo que toca una venta: `salesOrders`, `sales`, `branchStock`, `products` (el stock del catálogo que muestran `ProductPicker` y `QuoteForm`), `customerAccounts`, `receivables`, `cashSessions`, `cashMovements` y `bankAccounts`. Lo consumen también las dos mutaciones de `hooks/data/use-sales-orders.ts` (`:240-253` y `:320-329`), que hoy repiten una lista sin caja, banco ni productos: después de vender, el POS deja `/caja`, `/banco` y el stock del catálogo desactualizados (hallazgo; se corrige de paso).
+- La clave de idempotencia de la conversión la maneja el diálogo con `useIdempotencyKey("quote-convert:" + quoteId)`, y se resetea tras cada éxito, incluido el replay. Así una respuesta perdida de la conversión del presupuesto A no contamina la del B (un scope global devolvería `idempotency_key_conflict` en el botón "Venta").
 - **`components/quotes/QuoteForm.tsx`**: el editor de líneas se arma con las piezas compartidas que ya usa el formulario de venta:
   - `ProductPicker`, `CartItemList`, `ScrollableCartShell`, `BarcodeScannerInput` + `resolveScan` (incluye etiquetas de balanza), `useScaleSettings`, `useUnitsOfMeasure`, `compatibleUnits`, `convertUnitPrice` y `roundUnitPrice`;
   - `SaleCartItem`, `calcSaleSubtotal`, `unitPriceFromSubtotal`, `calcCartTotal` y `addScannedProductLine` de `lib/cart-utils`.
   
-  La lógica de "alta manual de la línea preparada" hoy vive embebida en `sale-form.tsx` (`handleAddToCart`). Se extrae a una función pura `addManualLineToCart(cart, staged, ctx)` en `lib/cart-utils.ts` (nace en capa canónica), con un parámetro `enforceStock: boolean`: el presupuesto pasa `false` y sólo muestra el disponible; la venta seguiría pasando `true`. **Esta tanda no migra `sale-form` ni el POS a esa función** (Non-Goal, candidato): se evita tocar el hot path de la venta sin necesidad.
-  - **Línea de servicio** (sin producto): "Agregar concepto" con descripción, cantidad y precio (el requirement "línea de servicio sin producto" ya existe en la spec).
-  - **Cliente**: `SearchableSelect` de clientes vivos + "Nuevo cliente", que abre `ClientForm` (`components/forms/client-form.tsx`) en un `ResponsiveModal` y lo preselecciona al crearlo. Muestra el teléfono y avisa si falta ("sin teléfono: WhatsApp abrirá el selector de contactos").
+  La lógica de carrito que hoy vive embebida en `sale-form.tsx` se extrae a funciones puras de `lib/cart-utils.ts`, y **`sale-form` se migra a ellas en el mismo PR** (sus tests son el safety net), para que haya una sola definición con dos consumidores:
+  - `addManualLineToCart(cart, staged, ctx, {enforceStock})` (hoy `handleAddToCart`);
+  - `applyScanToCart(cart, scanResult, ctx, {enforceStock})` (el despacho de `handleScan`: producto por unidades, medible con foco en la cantidad, etiqueta de balanza y chequeo acumulativo de stock), que devuelve las líneas o el feedback;
+  - los reductores de edición de línea (`updateLineQuantity`, `updateLineSubtotal`, `removeLine`; hoy `handleUpdateQty`/`handleUpdateSubtotal`).
+  
+  El presupuesto pasa `enforceStock: false` y sólo muestra el disponible. El POS conserva su copia de `handleScan` (duplicación preexistente); migrarlo queda como candidato (Non-Goal).
+  - **Línea de servicio** (sin producto): "Agregar concepto" con descripción, cantidad y precio (el requirement "línea de servicio sin producto" ya existe en la spec). No entra en `SaleCartItem`: su `productId` es obligatorio, y `exceedsStock` y la fusión se indexan por producto. Vive en un estado propio `QuoteServiceLine[]`, con sus helpers puros en `lib/quote-lines.ts` (alta, edición y el armado del payload `p_items`, que une las dos listas en el orden de carga).
+  - **Cliente**: `SearchableSelect` de clientes vivos + "Nuevo cliente", que abre `ClientForm` (`components/forms/client-form.tsx`) en un `ResponsiveModal` y lo preselecciona al crearlo. Para eso `ClientForm.onSuccess` pasa a `(client?: Client) => void` (retrocompatible: el caller existente, `app/(dashboard)/clientes/page.tsx`, ignora el argumento) y le entrega el cliente que devuelve `addClient`, que hoy descarta. Muestra el teléfono y avisa si falta ("sin teléfono: WhatsApp abrirá el selector de contactos").
   - **Validez**: fecha con el default de la cuenta; notas; sucursal opcional (`BranchSelect`).
-  - **Duplicar** (`?duplicar=<id>`): precarga cliente, notas y líneas. Las líneas con producto toman el **precio de hoy** del catálogo, reexpresado a la unidad de la línea con `convertUnitPrice`; las de servicio conservan el suyo. Muestra un aviso con las líneas cuyo precio cambió y la validez se recalcula desde hoy.
+  - **Precio y descuento**: igual que la venta, la línea persiste el precio unitario **efectivo** (`price = unitPriceFromSubtotal(subtotal, cantidad)`, sin redondear, RN-24-bis) y su `subtotal`; el descuento no se guarda aparte. Al editar, las líneas se rehidratan con ese precio y descuento 0, como `sale-form` (`sale-form.tsx:133-143`). Así precio × cantidad = subtotal en el PDF. La comparación "precio de catálogo actual" del detalle se hace contra el precio efectivo, así que una línea con descuento aparece como distinta, con la etiqueta "precio de lista hoy", sólo informativa.
+  - **Productos que ya no están**: al rehidratar (edición o duplicado), una línea cuyo producto ya no está en el catálogo vivo se marca "Producto no disponible — quitalo o reemplazalo" y bloquea el guardado con ese mensaje antes de llamar a la API. Sin esto, guardar sin tocar la línea fallaría con `product_not_found` y el mensaje de la conversión ("editá el presupuesto") no tendría salida.
+  - **Duplicar** (`?duplicar=<id>`): precarga cliente, notas y líneas. Las líneas con producto toman el **precio de hoy** del catálogo, reexpresado a la unidad de la línea con `convertUnitPrice`; las de servicio conservan el suyo. Muestra un aviso con las líneas cuyo precio cambió respecto del cotizado (el precio efectivo, así que incluye las que tenían descuento: el aviso dice que los descuentos no se copian). La validez se recalcula desde hoy.
   - Envío con `useCreateQuote`/`useUpdateQuote`. Al guardar navega al detalle.
 - **`components/quotes/ConvertQuoteDialog.tsx`**:
   - resumen de líneas y total en sólo lectura;
   - `BranchSelect` (default: sucursal del presupuesto o la de la cuenta);
   - `PaymentMethodSelect` (contexto `sale`) + `BankAccountDestinationSelect` cuando el `kind` lo requiere;
-  - opt-in de caja con `useCashOptin({kind, branchId, requiresDate: false, document: "venta"})` (la venta nace hoy, como en el POS);
+  - **caja con la semántica del POS, no con el opt-in del formulario de venta**: con `kind = 'cash'` el núcleo exige la sesión (`P0400 cash_requires_session`, D6). El diálogo resuelve la sesión abierta de la sucursal elegida con la misma consulta que usa el POS y la envía siempre, sin checkbox. Si no hay sesión abierta, "Venta" queda deshabilitada con "Abrí la caja de esta sucursal para cobrar en efectivo, o elegí otra forma de pago" y un enlace a `/caja` (el mismo bloqueo que el POS, `ventas/pos/page.tsx:351-362`);
   - si la forma de pago es `credit`, el saldo actual del cliente (`useCustomerAccount`).
   
-  Al confirmar llama a `useConvertQuote`. En éxito, el diálogo pasa a un estado final: "Venta registrada" + `EmitInvoiceButton` (el mismo que usa el POS) + "Ver en Ventas" + "Cerrar". En error, el mensaje de `humanizeOperationError`, y el presupuesto sigue abierto.
+  Al confirmar llama a `useConvertQuote`. En éxito (también con `replayed: true`, que se muestra igual), el diálogo pasa a un estado final: "Venta registrada" + `EmitInvoiceButton` (el de `/ventas/ordenes` y del listado de ventas; el POS no lo usa, muestra un enlace a `/ventas/ordenes`) + "Ver en Ventas" + "Cerrar". En error, el mensaje de `humanizeOperationError` dentro del diálogo, con `role="alert"`, y el presupuesto sigue abierto.
+  - **Accesibilidad**: el paso a éxito mueve el foco al título "Venta registrada"; los avisos de estado (cliente sin teléfono, marcado como enviado) usan `aria-live="polite"`; los diálogos se operan con teclado.
+  - **Composición pensando en los remitos**: los campos de cierre (sucursal, forma de pago, cuenta bancaria, caja, saldo del cliente) y el panel de éxito nacen en `components/ventas/SaleCheckoutFields.tsx` y `components/ventas/SaleCheckoutSuccess.tsx`, sin conocimiento del presupuesto; `ConvertQuoteDialog` sólo los compone con el resumen y `useConvertQuote`. No es un diálogo genérico (hay un solo consumidor, Regla de Tres), pero `remitos-venta` los reutiliza sin refactor.
 
 ### D13 — Sin gating de plan
 
@@ -406,6 +440,7 @@ Presupuestos, PDF, WhatsApp y conversión quedan disponibles en todos los tiers,
 - **Tanda A** — `20261067000001_presupuestos_modulo.sql` (idempotente por el auto-apply de Supabase GitHub):
   - verificación defensiva previa (0 filas con número duplicado);
   - columnas; `internal_document_sequences`, helper y disparador; `accounts.default_quote_validity_days`;
+  - las dos filas nuevas del catálogo de transiciones (`quote: expired → draft`, `rejected → draft`, D4);
   - las 5 RPCs de D2/D7 (`CREATE OR REPLACE` con firmas nuevas; no hay overload previo, así que no hay riesgo de `42725`);
   - `DROP POLICY IF EXISTS` de las 4 políticas de escritura;
   - barrido y cron;
@@ -418,16 +453,17 @@ Presupuestos, PDF, WhatsApp y conversión quedan disponibles en todos los tiers,
 - **Gates** (se ejecutan de verdad; regla del proyecto: "toda RPC que otras invocan necesita un gate que la EJECUTE"):
   - `supabase/tests/test_presupuestos_modulo.sql` (A):
     - dos cuentas, owner, seller y cashier reales, fixtures propios y cleanup asertado;
-    - numeración correlativa por cuenta, independiente entre cuentas; un alta que falla no consume número;
-    - alta sin cliente, con cliente ajeno o dado de baja, con producto ajeno, padre con variantes o unidad incompatible → cada uno con su código;
+    - numeración correlativa por cuenta, independiente entre cuentas; un alta que falla no consume número; un número explícito avanza la secuencia; `valid_until` NULL completado por el disparador;
+    - alta sin cliente, con cliente ajeno o dado de baja, con producto ajeno, padre con variantes, unidad incompatible o unidad de otra cuenta en una línea de servicio → cada uno con su código;
     - snapshot del producto propio y nunca del ajeno;
     - total calculado en el servidor;
     - crear no toca `branch_stock` ni caja;
-    - edición en `draft` y `sent` re-toma snapshots; edición en `accepted|expired|rejected` → `P0423`;
+    - edición en `draft` y `sent` re-toma snapshots y exige `valid_until` (`P0400 quote_valid_until_required`); edición de `expired` o `rejected` lo reabre a `draft` con historial; edición de `accepted` → `P0423 quote_locked_converted`;
     - `sent` idempotente; `rejected` con historial;
-    - el cashier no crea (`P0401`); PostgREST (`SET ROLE authenticated`) no puede `INSERT`/`UPDATE` directo;
-    - borrado sólo en `draft`;
-    - `_expire_overdue_quotes`: vence, registra historial con actor NULL, es idempotente y no toca `accepted`;
+    - el cashier no crea, no edita ni borra (`P0403 insufficient_role`); un no escritor → `P0401`; PostgREST (`SET ROLE authenticated`) no puede `INSERT`/`UPDATE` directo;
+    - borrado sólo en `draft` nunca enviado;
+    - regresiones que antes se daban por cubiertas con gates inexistentes: el guard de baja de producto sigue rechazando con `P0B04` si el producto está en un presupuesto `draft`, y el alta registra el historial `NULL → draft` con el creador;
+    - `_expire_overdue_quotes` ejecutado de verdad: vence, registra el historial con el actor uuid cero y el motivo (si la inserción del historial abortara, el gate falla), es idempotente y no toca `accepted`;
     - `rpc_set_default_quote_validity`: rango y rol.
   - `supabase/tests/test_presupuesto_a_venta.sql` (B), con **matriz de evasión**:
     - conversión feliz con `cash` (stock −, `cash_movements`, `SaleConfirmed`, quote `accepted`, orden `confirmed` con `source_quote_id`, historial de los dos documentos);
@@ -443,18 +479,30 @@ Presupuestos, PDF, WhatsApp y conversión quedan disponibles en todos los tiers,
     - la misma clave contra otro presupuesto → `P0409 idempotency_key_conflict`;
     - segunda conversión con otra clave → `P0409 quote_invalid_state`;
     - `rpc_accept_quote` sigue creando una orden `draft` idéntica a la de antes (regresión);
-    - cashier → rechazado.
-  - `supabase/tests/test_presupuesto_a_venta_race.sh`: dos sesiones `psql` convierten el mismo presupuesto a la vez. Exactamente una venta y un `accepted`; la otra recibe `quote_invalid_state` o replay. Molde: `test_ventas_unidades_conversion_race.sh`.
+    - cashier → `P0403`;
+    - `cash` sin sesión de caja → `P0400 cash_requires_session` y cero efectos;
+    - cliente dado de baja después de cotizar → `P0404 quote_client_unavailable`, sin cargo en `customer_account_movements`;
+    - producto al que se le agregaron variantes → `P0400 product_is_parent`;
+    - presupuesto con una línea de servicio: se convierte y la orden conserva la descripción en `sales_order_items.name_snapshot`;
+    - snapshots: precio del presupuesto en la venta, `unit_cost_snapshot` = costo vigente al convertir y `sales_order_items` con los snapshots del presupuesto.
+  - `supabase/tests/test_presupuesto_a_venta_race.sh` (molde: `test_ventas_unidades_conversion_race.sh`):
+    - dos sesiones `psql` convierten el mismo presupuesto a la vez → exactamente una venta y un `accepted`; la otra recibe `quote_invalid_state` o replay;
+    - la **misma clave** sobre **dos presupuestos distintos** en paralelo → una venta, un `P0409 idempotency_key_conflict`, el otro presupuesto intacto y 0 órdenes `draft`.
+  - `supabase/tests/test_internal_document_numbering_race.sh`: N sesiones crean a la vez el primer presupuesto de una cuenta sin fila de secuencia (ejercita el `INSERT` concurrente y el reintento) → números 1..N sin huecos ni repetidos.
   - `test_function_acl_gate.sql`: sin cambios de código si los nombres siguen la convención. Se verifica que las funciones nuevas quedan clasificadas.
+  - `test_document_status_transition_role_matrix.sql` **se actualiza en cada tanda**: exige el conjunto exacto de llamadores de `record_status_transition` (bloque 5b) y de pares producidos (bloque 5). Tanda A: suma `rpc_update_quote`, `rpc_transition_quote` y `_expire_overdue_quotes`, y los pares `quote:draft->sent`, `draft/sent->rejected`, `draft/sent->expired`, `expired->draft` y `rejected->draft`. Tanda B: `rpc_accept_quote` deja de ser llamador y entra `_quote_accept_core`.
+  - `test_operacion_party_guard.sql`, bloque (7), **se adapta en la tanda B**: su candado de cuerpo busca `client_not_found` antes de `INSERT INTO public.sales_orders` en `rpc_accept_quote`, que pasa a ser un wrapper sin ninguna de las dos cadenas. Se redirige a `_quote_accept_core(uuid, uuid)` (el guard sigue antes del `INSERT`) y se suma un assert de que `rpc_accept_quote` delega en el núcleo.
   - Todos cableados en `KPI_Validation.yml`, en el orden real del workflow, y las dos migraciones sumadas al final de la cadena de reaplicación de idempotencia.
 - **Apply en dos PRs** (A, luego B), cada uno con su CI verde. La tanda A ya entrega valor por sí sola: crear, editar, descargar y mandar por WhatsApp. El botón "Venta" aparece recién con B; en A, el detalle muestra la acción deshabilitada con la leyenda "Próximamente", o se oculta (decisión del apply, sin impacto en specs).
 
 ## Risks / Trade-offs
 
 - **[Doble conversión concurrente]** → `FOR UPDATE` sobre `quotes` antes de todo, idempotencia leída después del lock, gate de carrera con dos sesiones reales.
+- **[Misma clave de idempotencia sobre dos presupuestos en paralelo]** → el núcleo devolvería `replayed` con la venta ajena; la RPC lo convierte en `P0409` (D6, paso 6) y el gate de carrera lo cubre.
+- **[Barrido que aborta]** → el historial exige actor: el barrido usa el uuid cero (D7) y el gate lo ejecuta de verdad.
 - **[Clave de idempotencia reutilizada contra otro presupuesto]** devolvería la venta de otro documento → `P0409 idempotency_key_conflict`, con assert en el gate.
 - **[Reescribir `rpc_accept_quote` desde un cuerpo que no es el vivo]**, que es cómo se perdió el bloque `credit` en julio → checkpoint 0.3 con el `pg_get_functiondef` de prod comparado por líneas sin `\r` contra `20261045000001`; el diff del núcleo contra el cuerpo vivo tiene que ser exactamente los dos cambios de D6; `COMMENT` conservado.
-- **[Retirar las políticas de escritura rompe a un escritor no listado]** → checkpoint 0.4 (grep en las cuatro raíces + los gates SQL que insertan en `quotes`), gates existentes re-ejecutados (`test_v3_soft_delete*`, `test_document_status_history*`, `test_operacion_party_guard.sql`, `test_c29*`) y `backend/tests/test_c29_quote_salesorder.py` migrado.
+- **[Retirar las políticas de escritura rompe a un escritor no listado]** → checkpoint 0.4 (grep en las cuatro raíces + los gates SQL y los bloques `DO` de migración que insertan en `quotes`), gates existentes re-ejecutados (`test_operacion_party_guard.sql`, `test_ventas_unidades_conversion.sql`, `test_document_status_transition_role_matrix.sql`, `test_function_acl_gate.sql`, `test_accounts_privilege_columns.sql`) y `backend/tests/test_c29_quote_salesorder.py` migrado. `test_c29*`, `test_document_status_history*` y `test_v3_soft_delete*` no existen como archivos (son bloques `DO` de migraciones viejas): lo que este change necesita de ellos (el guard `P0B04` y el historial de creación) se re-verifica en bloques propios de `test_presupuestos_modulo.sql`.
 - **[Producto dado de baja entre el presupuesto y la venta]** → guard propio antes de escribir (D6.4) y mensaje accionable. El guard de baja de producto (`fn_guard_product_soft_delete`) sólo mira presupuestos en `draft` (OQ-P10).
 - **[Stock insuficiente al convertir]** → rollback total con el mensaje que ya traduce la UI. El diálogo lo muestra y el presupuesto sigue abierto para editar o esperar reposición.
 - **[El precio del presupuesto ya no es el del catálogo]** → es el comportamiento pedido (OQ-P3). El detalle muestra "precio de catálogo actual" junto a las líneas cuyo precio difiere, sólo como información.
@@ -500,7 +548,7 @@ Presupuestos, PDF, WhatsApp y conversión quedan disponibles en todos los tiers,
 - **OQ-P4 — Validez por defecto.**
   - *Recomendado*: **15 días**, configurable por cuenta (1–365) y editable en cada presupuesto (D7).
 - **OQ-P5 — ¿Se puede vender un presupuesto vencido?**
-  - *Recomendado*: **no directamente**. Mientras el barrido no lo marcó `expired`, se **amplía la validez** editándolo (D5.3). Ya `expired`, se **duplica** con los precios de hoy.
+  - *Recomendado*: **no directamente**. Se **amplía la validez** editándolo (D5), esté o no marcado `expired` por el barrido (si lo estaba, la edición lo reabre a `draft`), o se **duplica** con los precios de hoy.
   - *Alternativa*: permitir convertir vencidos con una confirmación explícita.
 - **OQ-P6 — Canales de envío v1.**
   - *Recomendado*: **sólo descarga/impresión y WhatsApp** (D9). El link público, la aceptación online y el email van en un change posterior con governance ALTA.
@@ -510,7 +558,7 @@ Presupuestos, PDF, WhatsApp y conversión quedan disponibles en todos los tiers,
   - *Recomendado*: **sin gate**, todos los tiers (D13).
 - **OQ-P9 — Dónde se configura la validez por defecto.**
   - *Recomendado*: tarjeta en la pestaña **Cobranzas** (condiciones comerciales hacia el cliente) + enlace desde `/presupuestos` (D7).
-  - *Alternativas*: una 13ª pestaña "Presupuestos", o un control dentro de `/presupuestos`.
+  - *Alternativas*: una 12ª pestaña "Presupuestos", o un control dentro de `/presupuestos`.
 - **OQ-P10 — Baja de un producto que está en un presupuesto enviado.**
   - Hoy el guard de baja sólo bloquea si el producto está en un presupuesto **`draft`**.
   - *Recomendado*: **no ampliarlo** en este change. La conversión lo detecta (`quote_product_unavailable`) y pide editar el presupuesto. Ampliar el guard a `sent` bloquearía bajas de catálogo por cotizaciones que quizás nunca se acepten.
@@ -524,3 +572,9 @@ Presupuestos, PDF, WhatsApp y conversión quedan disponibles en todos los tiers,
 - **OQ-P13 — "Ver / Imprimir" y el estado enviado.**
   - *Recomendado*: sólo **Descargar** y **WhatsApp** marcan el presupuesto como enviado; "Ver / Imprimir" no (D9). Hay además un botón explícito "Marcar como enviado".
   - *Alternativa*: que cualquier acción del menú lo marque.
+- **OQ-P14 — Estado al que reabre la edición de un vencido o rechazado.**
+  - *Recomendado*: **`draft`** (D5). La versión editada todavía no se mandó; la próxima descarga o envío la pasa a `sent`.
+  - *Alternativa*: volver al estado previo (`sent` si ya se había enviado). Exige dos filas más del catálogo (`expired|rejected → sent`) y deja un `sent` que el cliente todavía no vio.
+- **OQ-P15 — Descripción de las líneas de servicio en `/ventas`.**
+  - *Recomendado*: **convertirlas** y resolver su descripción en el read model desde `sales_order_items.name_snapshot`, emparejando por precio, cantidad, subtotal y unidad (D6). Si dos líneas de servicio de la misma venta coinciden en esos cuatro valores, las dos muestran la misma descripción; la factura no se ve afectada, porque usa `sales_order_items`.
+  - *Alternativa*: rechazar la conversión de un presupuesto con líneas de servicio (literal propio). Es más simple, pero el presupuesto no se podría vender "con todos sus ítems".

@@ -38,7 +38,7 @@ El sistema SHALL entregar el siguiente número de una secuencia interna mediante
 - **THEN** la ejecución es rechazada por permisos
 
 ### Requirement: Asignación obligatoria del número en el alta del documento
-El sistema SHALL asignar el número interno en la propia base de datos, mediante un disparador `BEFORE INSERT` sobre la tabla del documento, cuando la fila nueva no trae número, de modo que ningún camino de escritura (operación de negocio, backend, proceso o carga de datos) pueda crear un documento numerado sin número. El número SHALL ser único por cuenta (`UNIQUE (account_id, number)`). Un número explícito provisto por el escritor SHALL respetarse, y un duplicado SHALL rechazarse por la unicidad.
+El sistema SHALL asignar el número interno en la propia base de datos, mediante un disparador `BEFORE INSERT` sobre la tabla del documento, cuando la fila nueva no trae número, de modo que ningún camino de escritura con los disparadores activos (operación de negocio, backend, proceso o carga de datos) pueda crear un documento numerado sin número. El número SHALL ser único por cuenta (`UNIQUE (account_id, number)`). Un número explícito provisto por el escritor SHALL respetarse y SHALL avanzar la secuencia hasta él cuando es mayor que el último entregado, de modo que un alta posterior no choque con él; un duplicado SHALL rechazarse por la unicidad.
 
 #### Scenario: alta sin número
 - **WHEN** se inserta un presupuesto sin número por cualquier camino
@@ -48,6 +48,11 @@ El sistema SHALL asignar el número interno en la propia base de datos, mediante
 - **GIVEN** un presupuesto número 3 en la cuenta A
 - **WHEN** se inserta otro presupuesto de la cuenta A con número 3 explícito
 - **THEN** el INSERT falla por la unicidad
+
+#### Scenario: un número explícito avanza la secuencia
+- **GIVEN** una cuenta cuyo último número entregado es 2
+- **WHEN** se inserta un presupuesto con número 10 explícito y después uno sin número
+- **THEN** el segundo recibe el número 11
 
 ### Requirement: Formato visible del número interno
 El sistema SHALL mostrar el número interno con un prefijo por tipo de documento y el número rellenado a 8 dígitos: `P-` para presupuestos (`P-00000012`). El formato SHALL tener una única definición por lenguaje (frontend y backend), verificada contra un mismo conjunto de casos compartido. Toda superficie que muestre el número —listados, detalle, PDF, nombre de archivo y textos para compartir— SHALL usar esa definición. La búsqueda por número SHALL aceptar el formato con prefijo, el número sin ceros y el número con ceros.

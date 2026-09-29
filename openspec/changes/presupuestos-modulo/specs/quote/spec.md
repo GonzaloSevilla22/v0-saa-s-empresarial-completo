@@ -12,7 +12,7 @@ El sistema SHALL proveer un agregado `Quote` (tabla `quotes`) que representa un 
 - `updated_at` y `updated_by` (última edición);
 - `created_by` y `created_at`.
 
-Las transiciones válidas SHALL ser exactamente las del catálogo `document_status_transitions` para `quote`: `draft → sent`, `draft | sent → accepted`, `draft | sent → rejected` y `draft | sent → expired`. Un Quote en estado `accepted`, `expired` o `rejected` es terminal y MUST NOT volver a `draft` ni a `sent`. Editar un presupuesto NOT SHALL cambiar su estado. En la interfaz, `accepted` SHALL significar "convertido en venta".
+Las transiciones válidas SHALL ser exactamente las del catálogo `document_status_transitions` para `quote`: `draft → sent`, `draft | sent → accepted`, `draft | sent → rejected`, `draft | sent → expired` y `expired | rejected → draft`. Un Quote en `accepted` es terminal y MUST NOT volver a ningún otro estado. Un Quote en `expired` o `rejected` SHALL volver a `draft` sólo cuando se lo edita (reapertura), y ninguna otra operación SHALL reabrirlo. Editar un presupuesto en `draft` o `sent` NOT SHALL cambiar su estado. En la interfaz, `accepted` SHALL significar "convertido en venta".
 
 #### Scenario: crear un presupuesto en draft
 - **WHEN** un usuario con rol de vendedor, administrador o dueño crea un presupuesto con ítems para un cliente de su cuenta
@@ -34,6 +34,11 @@ Las transiciones válidas SHALL ser exactamente las del catálogo `document_stat
 - **GIVEN** un presupuesto en `sent`
 - **WHEN** se editan sus líneas
 - **THEN** su `status` sigue siendo `sent` y `updated_at` queda posterior a `sent_at`
+
+#### Scenario: editar un presupuesto rechazado lo reabre
+- **GIVEN** un presupuesto en `rejected`
+- **WHEN** se lo edita con una fecha de validez igual o posterior a hoy (ART)
+- **THEN** su `status` pasa a `draft` y el historial registra `rejected → draft` con el usuario que lo editó
 
 ### Requirement: Líneas de presupuesto en quote_items
 El sistema SHALL almacenar las líneas del presupuesto en `quote_items` con los campos:
@@ -64,9 +69,9 @@ La creación y la edición de un presupuesto NO SHALL tener ningún efecto sobre
 - **THEN** `branch_stock` y los movimientos de caja de la cuenta no cambian
 
 ### Requirement: Quote.accept() crea un SalesOrder con los mismos ítems
-El sistema SHALL proveer la operación `accept()` (RPC `rpc_accept_quote`, `SECURITY DEFINER`, firma `(p_quote_id uuid)`) que, en una sola transacción atómica, bloquea el presupuesto (`FOR UPDATE`), lo transiciona a `accepted` y crea un `SalesOrder` en `draft` (con sus `sales_order_items`). Las líneas del `SalesOrder` SHALL ser copia de las de `quote_items` (producto, cantidad, unidad, precio, subtotal y snapshots) y SHALL preservar `branch_id`, `client_id` y `total`. El `SalesOrder` resultante SHALL referenciar el Quote de origen (`source_quote_id`). `accept()` NO SHALL descontar stock ni registrar caja: sólo materializa la orden.
+El sistema SHALL proveer la operación `accept()` (RPC `rpc_accept_quote`, `SECURITY DEFINER`, firma `(p_quote_id uuid)`) que, en una sola transacción atómica, bloquea el presupuesto (`FOR UPDATE`), lo transiciona a `accepted` y crea un `SalesOrder` en `draft` (con sus `sales_order_items`). Las líneas del `SalesOrder` SHALL ser copia de las de `quote_items` (producto, cantidad, unidad, precio, subtotal y snapshots) y SHALL preservar `client_id` y `total`; la sucursal de la orden se resuelve con la precedencia del párrafo siguiente, que en `accept()` (sin sucursal indicada) equivale a preservar la del presupuesto. El `SalesOrder` resultante SHALL referenciar el Quote de origen (`source_quote_id`). `accept()` NO SHALL descontar stock ni registrar caja: sólo materializa la orden.
 
-La lógica de aceptación SHALL vivir en un único núcleo interno, sin permiso de ejecución para los roles de aplicación, que comparten `accept()` y la conversión a venta, de modo que las dos no puedan divergir. La sucursal de la orden SHALL ser, en este orden de precedencia, la indicada por la conversión, la del presupuesto o la sucursal por defecto de la cuenta. La interfaz NO SHALL invocar `accept()` por sí sola: el único camino de la UI hacia `accepted` es la conversión a venta.
+La lógica de aceptación SHALL vivir en un único núcleo interno, sin permiso de ejecución para los roles de aplicación, que comparten `accept()` y la conversión a venta, de modo que las dos no puedan divergir. La sucursal de la orden SHALL ser, en este orden de precedencia, la indicada por la conversión, la del presupuesto o la sucursal por defecto de la cuenta. Ni la interfaz ni la API HTTP SHALL exponer `accept()` por sí sola: fuera de la base de datos, el único camino hacia `accepted` es la conversión a venta. `rpc_accept_quote` se conserva sin endpoint, por compatibilidad y como regresión del núcleo.
 
 #### Scenario: accept genera la orden espejo
 - **WHEN** se acepta un presupuesto con dos líneas
@@ -89,7 +94,7 @@ La lógica de aceptación SHALL vivir en un único núcleo interno, sin permiso 
 - **THEN** el resultado, la orden `draft` creada y el historial registrado son los mismos que antes del cambio
 
 ### Requirement: Expiración de presupuesto
-El sistema SHALL vencer automáticamente los presupuestos abiertos (`draft` o `sent`) cuyo `valid_until` sea anterior al día de negocio argentino, mediante un barrido diario programado que registra la transición a `expired` como transición de sistema (sin actor, con motivo "vencimiento automático"), en la misma transacción que el cambio de estado.
+El sistema SHALL vencer automáticamente los presupuestos abiertos (`draft` o `sent`) cuyo `valid_until` sea anterior al día de negocio argentino, mediante un barrido diario programado que registra la transición a `expired` como transición de sistema (con el actor de sistema, el uuid cero, porque el historial exige un actor, y con el motivo "vencimiento automático"), en la misma transacción que el cambio de estado.
 
 El barrido SHALL:
 
@@ -102,7 +107,7 @@ Además, el sistema SHALL tratar como no aceptable, y la API SHALL informar como
 #### Scenario: el barrido vence un presupuesto
 - **GIVEN** un presupuesto en `sent` con `valid_until` = ayer (ART)
 - **WHEN** corre el barrido diario
-- **THEN** su `status` pasa a `expired` y el historial registra la transición sin actor y con el motivo "vencimiento automático"
+- **THEN** su `status` pasa a `expired` y el historial registra la transición con el actor de sistema (uuid cero) y el motivo "vencimiento automático"
 
 #### Scenario: el barrido es idempotente
 - **WHEN** el barrido corre dos veces el mismo día
@@ -130,7 +135,8 @@ El sistema SHALL registrar en `document_status_history` (con `document_type = 'q
 - el envío (`sent`);
 - el rechazo (`rejected`, con el motivo si se informó);
 - la aceptación (`accepted`, durante la aceptación o la conversión a venta);
-- el vencimiento (`expired`, sin actor).
+- el vencimiento (`expired`, con el actor de sistema);
+- la reapertura por edición (`expired | rejected → draft`, con el usuario que editó).
 
 Ningún camino de escritura SHALL cambiar el estado de un presupuesto sin registrar su historial.
 
@@ -194,7 +200,7 @@ El sistema SHALL permitir crear, editar, transicionar y borrar presupuestos úni
 
 - exigir un cliente vivo de la cuenta del presupuesto;
 - exigir que cada producto de línea exista, pertenezca a esa cuenta, esté vivo y no sea un padre con variantes;
-- validar que la unidad de cada línea sea compatible con su producto (RN-24);
+- validar que la unidad de cada línea sea compatible con su producto (RN-24) y que sea del sistema o de la cuenta, también en una línea de servicio;
 - validar que la sucursal indicada pertenezca a la cuenta y no esté cerrada;
 - congelar los snapshots de línea leyendo el maestro **filtrado por la cuenta del presupuesto**;
 - calcular el total en el servidor como la suma de los subtotales de línea, redondeada al centavo una sola vez.
@@ -217,6 +223,10 @@ Un cliente, producto o sucursal de otra cuenta SHALL rechazarse con el mismo err
 - **WHEN** se intenta presupuestar en gramos un producto cuya unidad base es la unidad
 - **THEN** la operación falla con el error de unidad incompatible
 
+#### Scenario: unidad de otra cuenta en una línea de servicio
+- **WHEN** se intenta crear un presupuesto con una línea de servicio cuya unidad pertenece a otra cuenta
+- **THEN** la operación falla con el mismo error que una unidad inexistente y no se persiste nada
+
 #### Scenario: el total lo calcula el servidor
 - **WHEN** se crea un presupuesto con dos líneas de subtotal 100,00 y 50,50 y el cliente informa un total de 1,00
 - **THEN** el presupuesto queda con `total = 150,50`
@@ -226,7 +236,7 @@ Un cliente, producto o sucursal de otra cuenta SHALL rechazarse con el mismo err
 - **THEN** la escritura es rechazada por las políticas de fila
 
 ### Requirement: Edición del presupuesto mientras no esté convertido
-El sistema SHALL permitir editar un presupuesto en `draft` o `sent`: su cliente, su sucursal, su fecha de validez, sus notas y sus líneas. La edición SHALL reemplazar las líneas de forma atómica, volviendo a congelar los snapshots desde el maestro, y SHALL registrar `updated_at` y `updated_by`. Un presupuesto en `accepted`, `expired` o `rejected` SHALL ser inmutable: toda edición SHALL rechazarse con `P0423` y un motivo que distinga "ya convertido en venta", "vencido" y "rechazado", sin modificar nada. Un presupuesto abierto cuyo `valid_until` ya pasó SHALL poder editarse sólo si la edición fija un `valid_until` igual o posterior al día de negocio argentino (ampliación de la validez).
+El sistema SHALL permitir editar un presupuesto en cualquier estado salvo `accepted`: su cliente, su sucursal, su fecha de validez, sus notas y sus líneas. La edición SHALL reemplazar las líneas de forma atómica, volviendo a congelar los snapshots desde el maestro, y SHALL registrar `updated_at` y `updated_by`. La fecha de validez SHALL ser obligatoria en la edición e igual o posterior al día de negocio argentino. Editar un presupuesto en `expired` o `rejected` SHALL reabrirlo a `draft`, registrando la transición en el historial en la misma transacción. Un presupuesto en `accepted` (convertido en venta) SHALL ser inmutable: toda edición SHALL rechazarse con `P0423` y el motivo "ya convertido en venta", sin modificar nada.
 
 #### Scenario: editar un presupuesto enviado
 - **GIVEN** un presupuesto en `sent` con dos líneas
@@ -243,9 +253,14 @@ El sistema SHALL permitir editar un presupuesto en `draft` o `sent`: su cliente,
 - **WHEN** se intenta editarlo
 - **THEN** la operación falla con `P0423` indicando que ya se convirtió en venta, y sus líneas no cambian
 
-#### Scenario: un presupuesto vencido o rechazado no se edita
-- **WHEN** se intenta editar un presupuesto en `expired` o en `rejected`
-- **THEN** la operación falla con `P0423` y el motivo correspondiente
+#### Scenario: editar un presupuesto vencido lo reabre
+- **GIVEN** un presupuesto en `expired`
+- **WHEN** se lo edita fijando `valid_until` = hoy + 10 días
+- **THEN** la edición se acepta, el presupuesto queda en `draft` y el historial registra `expired → draft`
+
+#### Scenario: la edición exige fecha de validez
+- **WHEN** se edita un presupuesto sin fecha de validez
+- **THEN** la operación falla con un error de payload inválido y el presupuesto no cambia
 
 #### Scenario: ampliar la validez de un presupuesto abierto vencido
 - **GIVEN** un presupuesto en `sent` con `valid_until` = ayer y el barrido todavía sin correr
@@ -262,7 +277,7 @@ El sistema SHALL permitir, en un presupuesto abierto (`draft` o `sent`):
 - marcarlo como **enviado** (`draft → sent`); en un presupuesto que ya está en `sent`, la operación SHALL ser un no-op idempotente;
 - **rechazarlo** (`→ rejected`), con un motivo opcional.
 
-La interfaz SHALL marcar automáticamente como enviado un presupuesto en `draft` cuando el usuario lo descarga o lo envía por WhatsApp; verlo o imprimirlo NOT SHALL cambiar su estado. El sistema SHALL permitir **eliminar** sólo un presupuesto en `draft` (borrado físico de sus líneas y de la cabecera; el historial de estados se conserva). Un presupuesto en cualquier otro estado SHALL rechazar el borrado con `quote_not_deletable`. La API NOT SHALL exponer la transición a `accepted` fuera de la conversión a venta, ni la transición a `expired`, que es exclusiva del barrido.
+La interfaz SHALL marcar automáticamente como enviado un presupuesto en `draft` cuando el usuario lo descarga o lo envía por WhatsApp; verlo o imprimirlo NOT SHALL cambiar su estado, ni tampoco cancelar el menú de compartir del dispositivo. La marca automática SHALL aplicarse sólo si el usuario tiene permiso para enviar presupuestos: la descarga de un rol de sólo lectura no cambia el estado. El sistema SHALL permitir **eliminar** sólo un presupuesto en `draft` que nunca se envió (borrado físico de sus líneas y de la cabecera; el historial de estados se conserva). Un presupuesto en cualquier otro estado SHALL rechazar el borrado con `quote_not_deletable`. La API NOT SHALL exponer la transición a `accepted` fuera de la conversión a venta, ni la transición a `expired`, que es exclusiva del barrido.
 
 #### Scenario: descargar marca como enviado
 - **GIVEN** un presupuesto en `draft`
@@ -286,6 +301,16 @@ La interfaz SHALL marcar automáticamente como enviado un presupuesto en `draft`
 - **WHEN** se intenta eliminar un presupuesto en `sent`
 - **THEN** la operación falla con `quote_not_deletable` y el presupuesto no cambia
 
+#### Scenario: cancelar el envío no marca enviado
+- **GIVEN** un presupuesto en `draft`, en un dispositivo con share nativo
+- **WHEN** el usuario elige "Enviar por WhatsApp" y cancela el menú de compartir
+- **THEN** el presupuesto sigue en `draft`
+
+#### Scenario: no se elimina un borrador reabierto que ya se envió
+- **GIVEN** un presupuesto que se envió, se rechazó y se reabrió a `draft` al editarlo
+- **WHEN** se intenta eliminarlo
+- **THEN** la operación falla con `quote_not_deletable`
+
 #### Scenario: la API no expone expirar
 - **WHEN** se pide por la API transicionar un presupuesto a `expired` o a `accepted`
 - **THEN** la API responde con un error de payload inválido
@@ -303,20 +328,23 @@ La venta resultante SHALL:
 - emitir `SaleConfirmed`;
 - quedar como una orden `confirmed` facturable por las acciones vigentes.
 
-Las líneas SHALL ser las del presupuesto, con su precio y sus snapshots, y nunca las del request.
+Las líneas SHALL ser las del presupuesto y nunca las del request: producto, cantidad, unidad, precio y subtotal vienen del presupuesto, y las líneas de la orden (`sales_order_items`) heredan sus snapshots sin volver a leer el maestro. Las filas legacy de la venta (`sales`/`sale_items`) y el costo de los movimientos de stock SHALL congelarse al confirmar desde el maestro vigente, igual que en una venta del POS: el costo de la venta es el del momento de la venta. Una línea de servicio SHALL convertirse con su descripción, y la venta SHALL mostrarla.
 
 La operación SHALL:
 
 - bloquear el presupuesto antes de cualquier otra lectura o escritura;
 - exigir una forma de pago del catálogo;
-- rechazar con `quote_product_unavailable` una línea cuyo producto fue dado de baja o no pertenece a la cuenta, antes de escribir.
+- rechazar con `quote_product_unavailable` una línea cuyo producto fue dado de baja o no pertenece a la cuenta, antes de escribir;
+- rechazar con `product_is_parent` una línea cuyo producto pasó a tener variantes;
+- rechazar con `quote_client_unavailable` un presupuesto cuyo cliente fue dado de baja, antes de escribir;
+- exigir, con una forma de pago de `kind = 'cash'`, una sesión de caja abierta de la sucursal (`cash_requires_session`), igual que el POS.
 
 Ante cualquier fallo —stock insuficiente (`P0409`), presupuesto vencido o no abierto, caja inválida, forma de pago inválida— NO SHALL quedar ningún efecto: ni presupuesto aceptado, ni orden, ni stock, ni caja, ni cuenta corriente, ni banco, ni eventos.
 
 Idempotencia:
 
 - una reinvocación con la misma clave SHALL devolver la venta original con `replayed = true` sin efectos nuevos;
-- una clave ya usada por otra operación SHALL rechazarse con `idempotency_key_conflict`.
+- una clave ya usada por otra operación SHALL rechazarse con `idempotency_key_conflict`, también cuando dos conversiones con la misma clave sobre presupuestos distintos corren en paralelo.
 
 La conversión SHALL estar permitida a los roles vendedor, administrador y dueño.
 
@@ -365,6 +393,29 @@ La conversión SHALL estar permitida a los roles vendedor, administrador y dueñ
 - **WHEN** dos sesiones convierten el mismo presupuesto al mismo tiempo con claves distintas
 - **THEN** exactamente una crea la venta y la otra falla con un error de estado inválido
 
+#### Scenario: misma clave en paralelo sobre dos presupuestos
+- **WHEN** dos sesiones convierten al mismo tiempo los presupuestos A y B con la misma `Idempotency-Key`
+- **THEN** exactamente una crea su venta, la otra falla con `idempotency_key_conflict`, su presupuesto conserva el estado y no queda ninguna orden `draft`
+
+#### Scenario: efectivo sin caja abierta
+- **WHEN** se convierte un presupuesto con una forma de pago de `kind = 'cash'` sin sesión de caja
+- **THEN** la operación falla con `cash_requires_session` y no queda ningún efecto
+
+#### Scenario: cliente dado de baja
+- **GIVEN** un presupuesto cuyo cliente se dio de baja después de cotizar
+- **WHEN** se intenta convertirlo a crédito
+- **THEN** la operación falla con `quote_client_unavailable` y no se postea ningún cargo en la cuenta corriente
+
+#### Scenario: el costo de la venta es el del día
+- **GIVEN** un presupuesto cotizado cuando el costo del producto era $500, y el costo actual es $600
+- **WHEN** se lo convierte
+- **THEN** la venta registra el precio del presupuesto y congela el costo en $600, y las líneas de la orden conservan los snapshots del presupuesto
+
+#### Scenario: línea de servicio en la venta
+- **GIVEN** un presupuesto con la línea de servicio "Instalación"
+- **WHEN** se lo convierte
+- **THEN** la venta incluye esa línea con su importe y la muestra con la descripción "Instalación"
+
 #### Scenario: la venta generada es facturable
 - **GIVEN** una venta generada por la conversión de un presupuesto
 - **WHEN** el usuario elige "Facturar"
@@ -375,7 +426,7 @@ La conversión SHALL estar permitida a los roles vendedor, administrador y dueñ
 - **THEN** la operación se rechaza por permisos insuficientes y no hay efectos
 
 ### Requirement: Permisos sobre presupuestos
-El sistema SHALL permitir leer presupuestos, su historial y su PDF a cualquier miembro de la cuenta. Crear, editar, enviar, rechazar, eliminar y convertir presupuestos SHALL estar permitido sólo a los roles vendedor, administrador y dueño —el mismo conjunto que el catálogo de transiciones declara para `quote`—, verificado en el backend y en la base de datos. La interfaz SHALL ocultar las acciones que el rol del usuario no permite.
+El sistema SHALL permitir leer presupuestos, su historial y su PDF a cualquier miembro de la cuenta. Crear, editar, enviar, rechazar, eliminar y convertir presupuestos SHALL estar permitido sólo a los roles vendedor, administrador y dueño —el mismo conjunto que el catálogo de transiciones declara para `quote`—, verificado en el backend y en la base de datos. La interfaz SHALL ocultar las acciones que el rol del usuario no permite, decidiendo sobre el conjunto completo de sus roles activos. Un rechazo por rol SHALL usar el código `P0403` (403 en la API).
 
 #### Scenario: un cajero consulta pero no crea
 - **GIVEN** un usuario cuyo único rol es cajero
@@ -386,6 +437,11 @@ El sistema SHALL permitir leer presupuestos, su historial y su PDF a cualquier m
 - **GIVEN** un usuario cuyo único rol es vendedor
 - **WHEN** crea un presupuesto y lo convierte en venta
 - **THEN** las dos operaciones se completan
+
+#### Scenario: un cajero descarga sin cambiar el estado
+- **GIVEN** un usuario cuyo único rol es cajero y un presupuesto en `draft`
+- **WHEN** descarga su PDF
+- **THEN** recibe el archivo y el presupuesto sigue en `draft`
 
 ### Requirement: PDF y envío del presupuesto
 El sistema SHALL generar el PDF del presupuesto según la capability `commercial-document-pdf`, desde `GET /quotes/{id}/pdf`, para un presupuesto de la cuenta del usuario en cualquier estado. El PDF SHALL contener:
@@ -427,10 +483,10 @@ El sistema SHALL exponer el módulo de presupuestos en `/presupuestos`, con entr
   - cliente obligatorio, con alta en el lugar;
   - validez y notas;
   - el stock disponible sólo informado, sin bloquear.
-- **Detalle** (`/presupuestos/[id]`): cabecera, líneas, total, notas, historial y las acciones permitidas por su estado y el rol del usuario (editar, compartir, Venta, rechazar, duplicar, eliminar).
-- **Diálogo "Convertir en venta"**: sucursal, forma de pago del catálogo, cuenta bancaria cuando corresponde, opt-in de caja y, si es a crédito, saldo del cliente. Al completarse ofrece "Facturar" y "Ver venta".
+- **Detalle** (`/presupuestos/[id]`): cabecera, líneas, total, notas, historial y las acciones permitidas por su estado y el rol del usuario (editar, compartir, Venta, rechazar, duplicar, eliminar). "Editar" SHALL estar disponible en todo estado salvo `accepted`.
+- **Diálogo "Convertir en venta"**: sucursal, forma de pago del catálogo, cuenta bancaria cuando corresponde, la sesión de caja abierta de la sucursal cuando el pago es en efectivo (obligatoria, como en el POS: sin caja abierta, la acción se deshabilita con el motivo y un acceso a Caja) y, si es a crédito, saldo del cliente. Al completarse ofrece "Facturar" y "Ver venta".
 
-La ficha del cliente SHALL ofrecer "Nuevo presupuesto" con el cliente preseleccionado y sus últimos presupuestos. Todas estas pantallas SHALL verse correctamente en escritorio y en móvil (375 px, sin desborde horizontal) y en tema claro y oscuro.
+La ficha del cliente SHALL ofrecer "Nuevo presupuesto" con el cliente preseleccionado, visible en todas sus pestañas, y una pestaña "Presupuestos" con sus últimos presupuestos. Todas estas pantallas SHALL verse correctamente en escritorio y en móvil (375 px, sin desborde horizontal) y en tema claro y oscuro.
 
 #### Scenario: llegar al módulo
 - **WHEN** un usuario abre el sidebar
@@ -453,6 +509,11 @@ La ficha del cliente SHALL ofrecer "Nuevo presupuesto" con el cliente preselecci
 #### Scenario: error de stock al convertir
 - **WHEN** la conversión falla por stock insuficiente
 - **THEN** el diálogo muestra qué producto no alcanza y el presupuesto sigue abierto
+
+#### Scenario: efectivo sin caja abierta en el diálogo
+- **GIVEN** una sucursal sin sesión de caja abierta
+- **WHEN** el usuario elige una forma de pago en efectivo en el diálogo de conversión
+- **THEN** "Venta" queda deshabilitada con el motivo y un acceso a Caja
 
 #### Scenario: venta generada visible desde el presupuesto
 - **GIVEN** un presupuesto convertido

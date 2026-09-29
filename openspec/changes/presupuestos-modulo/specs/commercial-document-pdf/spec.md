@@ -39,7 +39,7 @@ El sistema SHALL resolver los datos del emisor de un documento comercial desde l
 
 - **nombre visible**: nombre de fantasía del perfil fiscal, si no la razón social, si no el nombre del negocio del perfil del dueño de la cuenta y, en último término, "Mi Negocio";
 - **razón social, CUIT y domicilio comercial**, si están cargados en el perfil fiscal;
-- **teléfono y email** del perfil del dueño.
+- **teléfono** del perfil del dueño. El email no se imprime: el perfil no lo guarda, y el email de acceso del dueño no debe aparecer en un documento para terceros.
 
 A diferencia de la factura fiscal, un dato del emisor faltante NOT SHALL impedir generar el documento: se omite.
 
@@ -90,7 +90,7 @@ El frontend SHALL proveer un componente compartido de menú de documento con tre
   - si no puede, SHALL descargar el PDF y abrir WhatsApp dirigido al teléfono normalizado del destinatario, con un texto corto;
   - si el destinatario no tiene un teléfono válido, SHALL abrir WhatsApp sin destinatario (selector de contacto) y avisarlo.
 
-El componente SHALL notificar al consumidor cuando el documento se descargó o se compartió, y NOT SHALL hacerlo al sólo verlo. Los helpers de descarga, share y fetch binario SHALL vivir en la capa canónica (`lib/`) y ser los mismos que usan el comprobante de venta y la factura, sin copias. Una sesión vencida SHALL llevar al login sin mostrar un error.
+El componente SHALL notificar al consumidor cuando el documento se descargó o se compartió, y NOT SHALL hacerlo al sólo verlo ni cuando el usuario cancela el share nativo. El share nativo SHALL invocarse dentro del gesto del usuario con el PDF ya obtenido (precargado al abrir el menú), para que funcione en los navegadores que exigen ese gesto. Los helpers de descarga, share y fetch binario SHALL vivir en la capa canónica (`lib/`) y ser los mismos que usan el comprobante de venta y la factura, sin copias. Una sesión vencida SHALL llevar al login sin mostrar un error.
 
 #### Scenario: compartir desde el celular
 - **GIVEN** un dispositivo con share nativo de archivos
@@ -109,6 +109,10 @@ El componente SHALL notificar al consumidor cuando el documento se descargó o s
 #### Scenario: ver no notifica envío
 - **WHEN** el usuario elige "Ver / Imprimir"
 - **THEN** el PDF se abre y el consumidor no recibe la notificación de enviado
+
+#### Scenario: cancelar el share no notifica envío
+- **WHEN** el usuario elige "Enviar por WhatsApp" en un dispositivo con share nativo y cancela
+- **THEN** el consumidor no recibe la notificación de enviado
 
 #### Scenario: el comprobante de venta sigue igual
 - **WHEN** el usuario comparte el comprobante interno o la factura de una venta

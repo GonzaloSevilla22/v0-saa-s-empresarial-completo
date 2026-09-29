@@ -29,8 +29,8 @@ Falta cerrar el circuito completo: crear → descargar o mandar por WhatsApp →
   - **Cliente obligatorio.**
   - Crear o editar un presupuesto **nunca** toca stock, caja ni cuenta corriente. El stock insuficiente no bloquea: sólo se informa.
 - **Edición mientras no esté convertido** (requisito firmado):
-  - En `draft` y `sent` se pueden cambiar las líneas, el cliente, la validez y las notas. Las líneas se reemplazan de forma atómica y los snapshots se vuelven a tomar.
-  - Un presupuesto aceptado (convertido en venta), vencido o rechazado es **inmutable**: `P0423`, el mismo principio que la venta con comprobante o dinero posteado.
+  - Mientras no esté convertido se pueden cambiar las líneas, el cliente, la validez y las notas. Las líneas se reemplazan de forma atómica y los snapshots se vuelven a tomar.
+  - Un presupuesto aceptado (convertido en venta) es **inmutable**: `P0423`, el mismo principio que la venta con comprobante o dinero posteado. Uno vencido o rechazado se puede editar, y la edición lo **reabre** como borrador (dos filas nuevas en el catálogo de transiciones).
 - **Numeración interna visible** `P-00000001`, correlativa por cuenta. Nace la tabla genérica `internal_document_sequences`, que reusarán los remitos. La asigna un disparador, así que ningún escritor puede saltearla.
 - **Validez con vencimiento automático**:
   - Validez por defecto configurable por cuenta (`accounts.default_quote_validity_days`, 15 días), editable en cada presupuesto y ampliable mientras esté abierto.
@@ -57,7 +57,7 @@ Falta cerrar el circuito completo: crear → descargar o mandar por WhatsApp →
   - Usa el precio del presupuesto.
   - Si falta stock, falla con `P0409` y no escribe nada.
   - Es idempotente por `Idempotency-Key`.
-  - Diálogo de cierre con sucursal, forma de pago, cuenta bancaria y caja, reutilizando los selectores del POS y del formulario de venta. Al terminar ofrece "Facturar" (`EmitInvoiceButton`) y "Ver venta".
+  - Diálogo de cierre con sucursal, forma de pago, cuenta bancaria y caja (con efectivo, la caja abierta de la sucursal es obligatoria, como en el POS), reutilizando los selectores del POS y del formulario de venta. Al terminar ofrece "Facturar" (`EmitInvoiceButton`) y "Ver venta". Los campos de cierre nacen en `components/ventas/` para que los reutilicen los remitos.
 - **Otras acciones**:
   - **Rechazar**, con motivo opcional.
   - **Duplicar**: crea un presupuesto nuevo con los precios de hoy.
@@ -81,7 +81,7 @@ Falta cerrar el circuito completo: crear → descargar o mandar por WhatsApp →
   - validez por defecto configurable y vencimiento automático;
   - cliente obligatorio;
   - escritura sólo por RPC, con guards de tenencia e historial;
-  - edición en `draft`/`sent` e inmutabilidad posterior (`P0423`);
+  - edición mientras no esté convertido (la de un vencido o rechazado lo reabre) e inmutabilidad del convertido (`P0423`);
   - borrado de borradores y rechazo;
   - conversión atómica a venta (`rpc_convert_quote_to_sale`);
   - PDF y envío;
@@ -102,10 +102,10 @@ Falta cerrar el circuito completo: crear → descargar o mandar por WhatsApp →
   - `20261068000001_presupuestos_conversion_venta.sql` (tanda B, dinero):
     - núcleo interno `_quote_accept_core`, extraído del cuerpo **vivo** de `rpc_accept_quote`. `rpc_accept_quote` pasa a ser un wrapper con la misma firma, el mismo `COMMENT` y las mismas ACLs;
     - RPC `rpc_convert_quote_to_sale`.
-  - Gates SQL nuevos que **ejecutan** las RPCs, cableados en `KPI_Validation.yml`, y `test_function_acl_gate.sql` extendido.
+  - Gates SQL nuevos que **ejecutan** las RPCs (incluidos dos scripts de carrera: conversión y numeración), cableados en `KPI_Validation.yml`; `test_function_acl_gate.sql` extendido y `test_document_status_transition_role_matrix.sql` y el bloque (7) de `test_operacion_party_guard.sql` actualizados.
 - **Backend**:
   - `schemas/quotes.py`, `services/quotes.py`, `repositories/quote_repository.py` y `routers/quotes.py`, reescritos sobre las RPCs, con `require_account_role` y la capacidad nueva `CAN_QUOTE` en `core/rbac.py`.
-  - Endpoints nuevos: `PUT /quotes/{id}`, `DELETE /quotes/{id}`, `GET /quotes/{id}/pdf`, `POST /quotes/{id}/convert` (con `Idempotency-Key`) y `GET/PATCH /settings/quotes`. El listado pasa a ser paginado.
+  - Endpoints nuevos: `PUT /quotes/{id}`, `DELETE /quotes/{id}`, `GET /quotes/{id}/pdf`, `POST /quotes/{id}/convert` (con `Idempotency-Key`) y `GET/PATCH /settings/quotes`. El listado pasa a ser paginado. Se **retira** `POST /quotes/{id}/accept`, sin consumidores: dejaría un presupuesto aceptado con una orden `draft` invisible.
   - Módulo nuevo `services/commercial_documents/` (vista + PDF), que reutiliza `_latin1`, `_format_amount` y `_format_unit_price` de `services/receipts.py`.
   - Los read models de ventas y órdenes suman el número del presupuesto de origen.
 - **Frontend**:
@@ -113,7 +113,9 @@ Falta cerrar el circuito completo: crear → descargar o mandar por WhatsApp →
   - `components/quotes/*`: `QuoteForm`, `QuoteStatusBadge`, `ConvertQuoteDialog`, `QuoteSettingsCard`.
   - `components/shared/DocumentShareMenu.tsx`.
   - `lib/document-share.ts` y `lib/api/document-pdf.ts`, extraídos de `sale-receipt-button.tsx` y `lib/api/fiscal-invoice.ts`, que pasan a consumirlos.
-  - `lib/internal-document-number.ts`.
+  - `lib/internal-document-number.ts`, `lib/rbac-capabilities.ts` (espejo de `CAN_QUOTE`), `lib/quote-lines.ts` y `lib/query-invalidation.ts`.
+  - `lib/cart-utils.ts` gana las funciones de carrito extraídas de `sale-form.tsx` (alta manual, despacho del lector, edición de línea), y `sale-form` pasa a consumirlas.
+  - `components/ventas/SaleCheckoutFields.tsx` y `SaleCheckoutSuccess.tsx`; `ClientForm` devuelve el cliente creado; `ClientDetailHeader` suma la pestaña "Presupuestos".
   - `hooks/data/use-quotes.ts` (reescrito), `lib/query-keys.ts` y `lib/operation-errors.ts` (mensajes de presupuesto).
   - `components/app-sidebar.tsx`, `components/dashboard/breadcrumb-nav.tsx`, la ficha del cliente, la pestaña Cobranzas de `/configuracion` y el badge de origen en `/ventas`.
 - **Superficie frontend** (regla del PO 2026-08-02):

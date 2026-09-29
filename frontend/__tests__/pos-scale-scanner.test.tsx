@@ -199,6 +199,18 @@ describe("PosPage — lector de balanza (D6/D7/D8/D9/D10)", () => {
     expect(toastError).not.toHaveBeenCalled()
   })
 
+  // Fix F9 (revisión adversarial PR #599): `handleScan` devolvía
+  // `label: `✓ ${nombre}`` y el indicador (`BarcodeScannerInput`) ya antepone
+  // su propio "✓" en el estado `success` — el resultado real era "✓ ✓
+  // Tomate", un tilde duplicado.
+  it("el indicador de éxito NUNCA muestra el tilde duplicado (F9)", () => {
+    render(<PosPage />)
+    scan("2002610013638")
+    const status = screen.getByRole("status")
+    expect(status.textContent).not.toMatch(/✓\s*✓/)
+    expect(status).toHaveTextContent("Tomate")
+  })
+
   it("dos etiquetas del mismo PLU agregan DOS líneas (nunca se fusionan)", () => {
     render(<PosPage />)
     scan("2002610013638")

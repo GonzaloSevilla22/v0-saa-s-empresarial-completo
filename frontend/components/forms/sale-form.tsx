@@ -413,7 +413,10 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
         return { ok: true, label: `Ingresá la cantidad de «${result.product.name}»` }
       }
       setCartItems(addResult.items)
-      return { ok: true, label: `✓ ${result.product.name}` }
+      // Fix F9 (revisión adversarial PR #599): sólo el nombre — el
+      // indicador (BarcodeScannerInput) YA antepone su propio "✓ " en
+      // el estado success; devolver "✓ ${nombre}" acá duplicaba el tilde.
+      return { ok: true, label: result.product.name }
     }
 
     // result.kind === "scale_line" (D7): una línea nueva, nunca fusionada
@@ -428,7 +431,7 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
       }
     }
     setCartItems((prev) => [...prev, { id: crypto.randomUUID(), ...line }])
-    return { ok: true, label: `✓ ${line.productName}` }
+    return { ok: true, label: line.productName }
   }
 
   function handleProductChange(id: string) {

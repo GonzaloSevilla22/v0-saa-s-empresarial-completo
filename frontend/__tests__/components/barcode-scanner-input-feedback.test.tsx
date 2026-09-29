@@ -43,6 +43,19 @@ describe("BarcodeScannerInput — feedback (D9)", () => {
     expect(toast.error).toHaveBeenCalledWith(fullMessage)
   })
 
+  // Fix F9 (revisión adversarial PR #599): el POS y el formulario de venta
+  // devolvían `label: `✓ ${nombre}`` — el componente YA antepone su propio
+  // "✓ " en el estado `success`, así que el indicador terminaba mostrando
+  // "✓ ✓ Tomate" (tilde duplicado). El caller sólo debe devolver el nombre.
+  it("el caller NO debe anteponer su propio tilde — el indicador nunca muestra dos (F9)", () => {
+    const onScan = vi.fn(() => ({ ok: true, label: "Tomate" }))
+    render(<BarcodeScannerInput onScan={onScan} />)
+    dispatchScan("7791234567898")
+    const status = screen.getByRole("status")
+    expect(status).toHaveTextContent("✓ Tomate")
+    expect(status.textContent).not.toMatch(/✓\s*✓/)
+  })
+
   it("retrocompatible: un onScan sin feedback (purchase-form/sale-form) se trata como éxito silencioso", () => {
     const onScan = vi.fn() // no devuelve nada
     render(<BarcodeScannerInput onScan={onScan} />)

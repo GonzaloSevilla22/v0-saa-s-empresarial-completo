@@ -297,12 +297,25 @@ export function ScaleSettings() {
           ))}
           {saveError && <p className="text-xs text-destructive">{saveError}</p>}
 
-          <div className="flex items-center gap-2">
-            <Button type="button" onClick={handleSave} disabled={!isValid || !canConfigure || isPending}>
+          {/* Pasada visual 11.2: a 375 px la fila no entraba en el card —
+              apilada a ancho completo en móvil, en fila desde `sm`. */}
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+            <Button
+              type="button"
+              className="w-full sm:w-auto"
+              onClick={handleSave}
+              disabled={!isValid || !canConfigure || isPending}
+            >
               <Save className="h-3.5 w-3.5 mr-1.5" />
               {isPending ? "Guardando…" : "Guardar"}
             </Button>
-            <Button type="button" variant="outline" onClick={handleRestoreFactory} disabled={!canConfigure}>
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full sm:w-auto"
+              onClick={handleRestoreFactory}
+              disabled={!canConfigure}
+            >
               <RotateCcw className="h-3.5 w-3.5 mr-1.5" />
               Restaurar valores de fábrica
             </Button>
@@ -608,7 +621,7 @@ function ScaleGuideAccordion() {
   return (
     <Accordion type="multiple" defaultValue={GUIDE_ITEM_VALUES} className="w-full">
       <AccordionItem value="formato">
-        <AccordionTrigger className="text-sm">Formato del código de barras (págs. 134-135)</AccordionTrigger>
+        <AccordionTrigger className="text-left text-sm">Formato del código de barras (págs. 134-135)</AccordionTrigger>
         <AccordionContent className="text-xs text-muted-foreground flex flex-col gap-1.5">
           <p>
             En la balanza: Menú → usuario y contraseña → Aceptar → <strong>Configuración</strong> →{" "}
@@ -620,7 +633,7 @@ function ScaleGuideAccordion() {
       </AccordionItem>
 
       <AccordionItem value="decimales">
-        <AccordionTrigger className="text-sm">Decimales del importe (pág. 98)</AccordionTrigger>
+        <AccordionTrigger className="text-left text-sm">Decimales del importe (pág. 98)</AccordionTrigger>
         <AccordionContent className="text-xs text-muted-foreground flex flex-col gap-1.5">
           <p>
             Menú → <strong>Altas y bajas</strong> → <strong>Monedas</strong> → Buscar → <strong>Precisión precios</strong>{" "}
@@ -632,7 +645,7 @@ function ScaleGuideAccordion() {
       </AccordionItem>
 
       <AccordionItem value="plus">
-        <AccordionTrigger className="text-sm">PLUs (págs. 71-72)</AccordionTrigger>
+        <AccordionTrigger className="text-left text-sm">PLUs (págs. 71-72)</AccordionTrigger>
         <AccordionContent className="text-xs text-muted-foreground flex flex-col gap-1.5">
           <p>
             Menú → <strong>Altas y bajas</strong> → <strong>PLU&apos;s</strong> → <strong>Nuevo</strong> →{" "}
@@ -646,7 +659,7 @@ function ScaleGuideAccordion() {
       </AccordionItem>
 
       <AccordionItem value="papel">
-        <AccordionTrigger className="text-sm">Rollo de etiquetas, una etiqueta por pesada</AccordionTrigger>
+        <AccordionTrigger className="text-left text-sm">Rollo de etiquetas, una etiqueta por pesada</AccordionTrigger>
         <AccordionContent className="text-xs text-muted-foreground flex flex-col gap-1.5">
           <p>
             La acumulación de varios artículos en un comprobante ("Realice esta operación con el total de
@@ -659,7 +672,7 @@ function ScaleGuideAccordion() {
       </AccordionItem>
 
       <AccordionItem value="imprime">
-        <AccordionTrigger className="text-sm">Verificar que la etiqueta imprime el código de barras</AccordionTrigger>
+        <AccordionTrigger className="text-left text-sm">Verificar que la etiqueta imprime el código de barras</AccordionTrigger>
         <AccordionContent className="text-xs text-muted-foreground flex flex-col gap-1.5">
           <p>
             El EAN-13 se imprime sólo si está configurado. Menú → Configuración → <strong>Asignar formato</strong>{" "}
@@ -670,7 +683,7 @@ function ScaleGuideAccordion() {
       </AccordionItem>
 
       <AccordionItem value="genericos">
-        <AccordionTrigger className="text-sm">Restringir la venta de genéricos (págs. 34, 113)</AccordionTrigger>
+        <AccordionTrigger className="text-left text-sm">Restringir la venta de genéricos (págs. 34, 113)</AccordionTrigger>
         <AccordionContent className="text-xs text-muted-foreground flex flex-col gap-1.5">
           <p>
             El PLU 0 es el artículo genérico de fábrica: su etiqueta no identifica el producto. Recomendación:
@@ -680,7 +693,7 @@ function ScaleGuideAccordion() {
       </AccordionItem>
 
       <AccordionItem value="terceros">
-        <AccordionTrigger className="text-sm">Mercadería etiquetada por terceros</AccordionTrigger>
+        <AccordionTrigger className="text-left text-sm">Mercadería etiquetada por terceros</AccordionTrigger>
         <AccordionContent className="text-xs text-muted-foreground flex flex-col gap-1.5">
           <p>
             Si recibís productos pre-pesados con la etiqueta de la balanza de un proveedor (fiambre, queso),
@@ -691,7 +704,7 @@ function ScaleGuideAccordion() {
       </AccordionItem>
 
       <AccordionItem value="lector">
-        <AccordionTrigger className="text-sm">Lector de códigos</AccordionTrigger>
+        <AccordionTrigger className="text-left text-sm">Lector de códigos</AccordionTrigger>
         <AccordionContent className="text-xs text-muted-foreground flex flex-col gap-1.5">
           <p>
             Habilitá en el lector la <strong>transmisión del dígito verificador EAN-13</strong> y el sufijo{" "}
@@ -702,7 +715,7 @@ function ScaleGuideAccordion() {
       </AccordionItem>
 
       <AccordionItem value="archivo">
-        <AccordionTrigger className="text-sm">Cómo llega el archivo a la balanza (págs. 113, 118-119)</AccordionTrigger>
+        <AccordionTrigger className="text-left text-sm">Cómo llega el archivo a la balanza (págs. 113, 118-119)</AccordionTrigger>
         <AccordionContent className="text-xs text-muted-foreground flex flex-col gap-1.5">
           <p>
             Dos caminos, ninguno probado todavía con el equipo: (a) el <strong>Importador de Neo Basic Tools</strong>{" "}

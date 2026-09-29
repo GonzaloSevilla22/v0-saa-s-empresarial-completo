@@ -232,3 +232,32 @@ describe("ScaleSettings — seller en sólo lectura", () => {
     expect(screen.getByRole("button", { name: /exportar catálogo para la balanza/i })).not.toBeDisabled()
   })
 })
+
+// Pasada visual 11.2 (pantalla Balanza en móvil): a 375 px la fila
+// "Guardar" + "Restaurar valores de fábrica" no wrappeaba y el segundo botón
+// se salía del card (medido en Chromium: borde derecho en 393,7 px con el
+// card terminando en 359 px; `document.scrollWidth` no lo delataba porque el
+// contenedor del shell recorta). jsdom no mide layout: lo observable acá es
+// el contrato de clases; la medición real vive en la pasada de Chromium.
+describe("ScaleSettings — móvil (pasada visual 11.2)", () => {
+  it("Guardar y Restaurar se apilan a ancho completo por debajo de sm y vuelven a fila desde sm", () => {
+    render(<ScaleSettings />)
+    const save = screen.getByRole("button", { name: /^guardar$/i })
+    const restore = screen.getByRole("button", { name: /restaurar valores de fábrica/i })
+    const row = restore.parentElement as HTMLElement
+    expect(save.parentElement).toBe(row)
+    expect(row).toHaveClass("flex-col", "sm:flex-row")
+    expect(save).toHaveClass("w-full", "sm:w-auto")
+    expect(restore).toHaveClass("w-full", "sm:w-auto")
+  })
+
+  it("los títulos de la guía que ocupan dos líneas quedan alineados a la izquierda, como los de una línea", () => {
+    render(<ScaleSettings />)
+    // El trigger del acordeón es un <button>: sin `text-left`, un título que
+    // wrappea a 375 px ("Cómo llega el archivo a la balanza (págs. 113,
+    // 118-119)") se centraba y rompía la columna de los demás.
+    const triggers = screen.getAllByRole("button", { expanded: true })
+    expect(triggers.length).toBeGreaterThanOrEqual(8)
+    for (const t of triggers) expect(t).toHaveClass("text-left")
+  })
+})

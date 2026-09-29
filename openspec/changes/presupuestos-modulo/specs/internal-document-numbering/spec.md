@@ -40,6 +40,8 @@ El sistema SHALL entregar el siguiente número de una secuencia interna mediante
 ### Requirement: Asignación obligatoria del número en el alta del documento
 El sistema SHALL asignar el número interno en la propia base de datos, mediante un disparador `BEFORE INSERT` sobre la tabla del documento, cuando la fila nueva no trae número, de modo que ningún camino de escritura con los disparadores activos (operación de negocio, backend, proceso o carga de datos) pueda crear un documento numerado sin número. El número SHALL ser único por cuenta (`UNIQUE (account_id, number)`). Un número explícito provisto por el escritor SHALL respetarse y SHALL avanzar la secuencia hasta él cuando es mayor que el último entregado, de modo que un alta posterior no choque con él; un duplicado SHALL rechazarse por la unicidad.
 
+La regla de asignación (siguiente número o avance por número explícito) SHALL vivir en una función interna compartida, y el disparador SHALL ser una única función genérica parametrizada por el tipo de documento, de modo que un tipo nuevo se numere agregando sólo su disparador y su valor al conjunto cerrado, sin copiar la lógica. Las reglas propias de un tipo de documento (por ejemplo, la validez por defecto del presupuesto) NOT SHALL vivir en esa pieza compartida.
+
 #### Scenario: alta sin número
 - **WHEN** se inserta un presupuesto sin número por cualquier camino
 - **THEN** la fila queda con el siguiente número de la secuencia de su cuenta
@@ -48,6 +50,10 @@ El sistema SHALL asignar el número interno en la propia base de datos, mediante
 - **GIVEN** un presupuesto número 3 en la cuenta A
 - **WHEN** se inserta otro presupuesto de la cuenta A con número 3 explícito
 - **THEN** el INSERT falla por la unicidad
+
+#### Scenario: el disparador es el genérico del tipo
+- **WHEN** se inspeccionan los disparadores de `quotes`
+- **THEN** la numeración la asigna la función genérica con el tipo `quote` como argumento
 
 #### Scenario: un número explícito avanza la secuencia
 - **GIVEN** una cuenta cuyo último número entregado es 2

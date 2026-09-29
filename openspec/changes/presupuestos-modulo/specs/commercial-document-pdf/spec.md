@@ -43,10 +43,17 @@ El sistema SHALL resolver los datos del emisor de un documento comercial desde l
 
 A diferencia de la factura fiscal, un dato del emisor faltante NOT SHALL impedir generar el documento: se omite.
 
+Los datos del emisor SHALL ser los mismos para cualquier miembro de la cuenta que genere el documento, sea o no el dueño: su lectura NOT SHALL depender de las políticas de fila del perfil de quien descarga. Esa lectura SHALL exponer sólo los campos del emisor enumerados arriba y SHALL rechazarse para quien no es miembro de la cuenta.
+
 #### Scenario: cuenta con perfil fiscal completo
 - **GIVEN** una cuenta con nombre de fantasía, razón social, CUIT y domicilio comercial
 - **WHEN** se genera el PDF de uno de sus presupuestos
 - **THEN** el encabezado muestra el nombre de fantasía, la razón social, el CUIT y el domicilio
+
+#### Scenario: descarga un vendedor que no es el dueño
+- **GIVEN** una cuenta sin perfil fiscal cuyo dueño cargó el nombre del negocio "Almacén Don José" y un teléfono
+- **WHEN** un usuario con rol de vendedor de esa cuenta, que no es el dueño, descarga el PDF de un presupuesto
+- **THEN** el encabezado muestra "Almacén Don José" y el teléfono del dueño, y no "Mi Negocio"
 
 #### Scenario: cuenta sin perfil fiscal
 - **GIVEN** una cuenta sin perfil fiscal cuyo dueño tiene cargado el nombre del negocio

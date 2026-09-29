@@ -14,7 +14,7 @@
 
 ## 0. Sign-off y checkpoints previos (sólo lectura)
 
-- [ ] 0.1 **[PO]** Sign-off de OQ-P1..OQ-P15 (`design.md` §Open Questions). Registrar la respuesta textual en `design.md` §"Sign-off del PO" antes de escribir producción. Si no hay respuesta, el apply adopta la recomendación de cada OQ (default declarado). Si el PO elige una alternativa, actualizar en el mismo PR la decisión afectada, las specs y estas tareas.
+- [ ] 0.1 **[PO]** Sign-off de OQ-P1..OQ-P16 (`design.md` §Open Questions). Registrar la respuesta textual en `design.md` §"Sign-off del PO" antes de escribir producción. Si no hay respuesta, el apply adopta la recomendación de cada OQ (default declarado). Si el PO elige una alternativa, actualizar en el mismo PR la decisión afectada, las specs y estas tareas.
 - [ ] 0.2 Confirmar que `20261067000001` y `20261068000001` siguen libres (`ls supabase/migrations`, `gh pr list --state open`, `MAX(version)` de prod). Renumerar si no.
 - [ ] 0.3 Releer de prod, **inmediatamente antes** de escribir la tanda B:
   - `pg_get_functiondef('public.rpc_accept_quote(uuid)'::regprocedure)`, su `obj_description` y su ACL;
@@ -23,10 +23,10 @@
   Compararlos por líneas, sin `\r` (gotcha CRLF), contra `20261045000001:1677` y `20261062000001:1118`. Si difieren, partir del vivo y anotar el desvío acá.
 - [ ] 0.4 Grep de **todos** los escritores de `quotes`/`quote_items` en `backend/`, `frontend/`, `supabase/functions/`, `supabase/tests/` y `supabase/migrations/` (los bloques `DO` de gate dentro de migraciones). Listar cada uno con la decisión: migrar a RPC, o no le afecta porque corre como `postgres`/`session_replication_role`. Anotar la lista acá antes de retirar las políticas (D2).
 - [ ] 0.5 Confirmar en prod (SELECT) el punto de partida:
-  - 0 `quotes`;
+  - 0 `quotes` (y cuántos con `number`, `valid_until` o `client_id` NULL si aparecieron);
   - políticas vivas de `quotes`/`quote_items`;
   - disparadores vivos sobre `quotes` (`quotes_record_status_creation`, `quotes_enforce_status_transition`);
-  - filas de `document_status_transitions` para `quote` con sus `allowed_role`;
+  - filas de `document_status_transitions` para `quote` con sus `allowed_role` e `is_terminal_to`, y el conteo total del catálogo (20 filas / 14 con rol);
   - cuentas con `fiscal_profiles.nombre_fantasia`/`razon_social`;
   - jobs de `cron.job`.
 - [ ] 0.6 SAFETY NET — correr y registrar el baseline de:
@@ -38,38 +38,43 @@
 
 ## 1. DB tanda A: `20261067000001_presupuestos_modulo.sql` + gate
 
-- [ ] 1.1 RED — gate nuevo `supabase/tests/test_presupuestos_modulo.sql`, con fixtures propios (dos cuentas; usuarios owner, seller y cashier reales con roles en `account_roles`; cliente vivo, cliente dado de baja, productos simple / padre con variantes / de otra cuenta; unidades) y cleanup asertado. Bloques:
-  - (a) numeración correlativa por cuenta e independiente entre cuentas; un alta que falla no consume número; número explícito duplicado → `unique_violation`; un número explícito mayor avanza la secuencia (el alta siguiente recibe ese + 1); un `INSERT` sin `valid_until` sale con el default de la cuenta;
+- [ ] 1.1 RED — gate nuevo `supabase/tests/test_presupuestos_modulo.sql`, con fixtures propios (dos cuentas; usuarios owner, seller y cashier reales, con membresía en `account_members` y roles en `account_member_roles (account_id, member_id, role, assigned_at)` —molde de `test_document_status_transition_role_matrix.sql`—; cliente vivo, cliente dado de baja, productos simple / padre con variantes / de otra cuenta; unidades) y cleanup asertado. Bloques:
+  - (a) numeración correlativa por cuenta e independiente entre cuentas; un alta que falla no consume número; número explícito duplicado → `unique_violation`; un número explícito mayor avanza la secuencia (el alta siguiente recibe ese + 1); un `INSERT` sin `valid_until` sale con el default de la cuenta; el disparador de `quotes` es el genérico `trg_assign_internal_document_number('quote')` (introspección de `pg_trigger.tgargs`);
   - (b) alta: sin cliente → `P0400`; cliente ajeno o dado de baja → `P0404 client_not_found`; producto ajeno → `P0404 product_not_found` y **ningún** snapshot con datos ajenos; padre con variantes → `P0400 product_is_parent`; unidad incompatible → error de RN-24; unidad de otra cuenta en una línea de servicio → `P0404`; línea de servicio sin descripción → `P0400`; total calculado en el servidor; `valid_until` por defecto = hoy ART + validez; `valid_until` pasado → `P0400`;
   - (c) crear y editar **no** tocan `branch_stock`, `cash_movements`, `customer_account_movements` ni `bank_movements`;
-  - (d) edición en `draft` y `sent`: reemplazo de líneas, snapshots re-tomados, `updated_at`/`updated_by`, estado intacto; sin `valid_until` → `P0400 quote_valid_until_required`; en `expired` y en `rejected` la edición lo **reabre** a `draft` con la transición en el historial (con el editor como actor); en `accepted` → `P0423 quote_locked_converted`; ampliación de validez de un abierto vencido; atomicidad (una línea inválida no deja cambios);
+  - (d) edición en `draft` y `sent`: reemplazo de líneas, snapshots re-tomados, `updated_at`/`updated_by`, `revision` + 1, estado intacto; versión vieja → `P0409 quote_changed` sin cambios; sin `valid_until` → `P0400 quote_valid_until_required`; en `expired` y en `rejected` la edición lo **reabre** a `draft` con la transición en el historial (con el editor como actor); en `accepted` → `P0423 quote_locked_converted`; ampliación de validez de un abierto vencido; atomicidad (una línea inválida no deja cambios);
   - (e) `rpc_transition_quote`: `draft→sent` fija `sent_at` y registra historial; `sent→sent` es no-op sin historial nuevo; `→rejected` con motivo; `→accepted` y `→expired` → `P0400`;
-  - (f) `rpc_delete_quote`: `draft` nunca enviado se borra; `sent` → `P0409 quote_not_deletable`; `draft` reabierto con `sent_at` → `P0409 quote_not_deletable`;
+  - (f) `rpc_delete_quote`: `draft` nunca enviado se borra; `sent` → `P0409 quote_not_deletable`; `draft` reabierto con `sent_at` → `P0409 quote_not_deletable`; candado de cuerpo: la RPC toma `FOR UPDATE` y su `DELETE` lleva `status = 'draft' AND sent_at IS NULL` (la carrera con la conversión la ejercita 6.2);
   - (g) roles: el cashier no crea, no edita ni borra (`P0403 insufficient_role`, verificado por la RPC antes de escribir); un usuario sin rol de escritura → `P0401`; el seller sí;
   - (h) `SET ROLE authenticated` + claims: `INSERT`/`UPDATE` directo sobre `quotes`/`quote_items` rechazado;
   - (i) `_expire_overdue_quotes` **ejecutado**: vence `draft`/`sent` con `valid_until < hoy`, historial con `performed_by` = uuid cero y motivo, idempotente, no toca `accepted` (si la inserción del historial abortara con `23502`, el gate falla);
   - (j) `rpc_set_default_quote_validity`: 0 y 366 → `P0400`; seller → `P0403 insufficient_role`; owner → OK;
   - (k) ACLs: helpers internos sin `EXECUTE` para `authenticated`/`anon`; RPCs públicas sin `anon`.
-  - (l) regresiones que antes se citaban con gates inexistentes: la baja de un producto que está en un presupuesto `draft` sigue rechazándose con `P0B04` (`fn_guard_product_soft_delete`); el alta registra `NULL → draft` en el historial con el creador.
-- [ ] 1.2 GREEN — verificación defensiva y columnas: `quotes.number`/`notes` (`CHECK` de largo)/`sent_at`/`updated_at`/`updated_by`, `UNIQUE (account_id, number)` e `accounts.default_quote_validity_days` (`NOT NULL DEFAULT 15`, `CHECK 1..365`). Todo `IF NOT EXISTS` / con guarda. Confirmar que el gate `test_accounts_privilege_columns.sql` la deja sin `UPDATE` para `authenticated`.
-- [ ] 1.3 GREEN — `internal_document_sequences` (PK, `CHECK (document_type IN ('quote'))`, RLS `SELECT` para miembros, `REVOKE ALL … FROM anon`) + `_next_internal_document_number` (UPDATE-then-INSERT con reintento ante `unique_violation`, `SECURITY DEFINER`, `REVOKE EXECUTE … FROM PUBLIC, anon, authenticated`) + disparador `trg_quote_assign_number` (`BEFORE INSERT`: si `NEW.number IS NULL` asigna el siguiente; si viene explícito, `last_number = GREATEST(last_number, NEW.number)`; si `NEW.valid_until IS NULL`, lo completa con la validez por defecto de la cuenta). `COMMENT`s.
-- [ ] 1.4 GREEN — `rpc_create_quote`, `rpc_update_quote`, `rpc_transition_quote`, `rpc_delete_quote` y `rpc_set_default_quote_validity` (D2, D5, D7, D11), y las dos filas nuevas de `document_status_transitions` (`quote: expired → draft`, `rejected → draft`, `allowed_role = {seller, admin, owner}`, D4). Detalles obligatorios:
+  - (l) regresiones que antes se citaban con gates inexistentes: la baja de un producto que está en un presupuesto `draft` sigue rechazándose con `P0B04` (`fn_guard_product_soft_delete`); el alta registra `NULL → draft` en el historial con el creador;
+  - (m) catálogo: `is_terminal_status('quote','expired')` y `('quote','rejected')` falsos, `('quote','accepted')` verdadero, y ninguna fila del catálogo sale de un estado terminal (el invariante del gate (e) de `20260807000001`);
+  - (n) `rpc_commercial_issuer`, con `SET ROLE authenticated` + claims: un vendedor que **no** es el dueño recibe el `business_name` y el teléfono del dueño (con la lectura directa de `profiles` vendrían vacíos); un usuario de otra cuenta → `P0404`; la RPC no devuelve otras columnas de `profiles`;
+  - (o) backfill: un presupuesto insertado con los disparadores deshabilitados (sin número ni validez) queda numerado y con `valid_until` al re-ejecutar el bloque de backfill, y una segunda ejecución no cambia nada.
+- [ ] 1.2 GREEN — columnas: `quotes.number`/`notes` (`CHECK` de largo)/`sent_at`/`updated_at`/`updated_by`/`revision` (`integer NOT NULL DEFAULT 1`), `UNIQUE (account_id, number)` e `accounts.default_quote_validity_days` (`NOT NULL DEFAULT 15`, `CHECK 1..365`). Todo `IF NOT EXISTS` / con guarda. Confirmar que el gate `test_accounts_privilege_columns.sql` la deja sin `UPDATE` para `authenticated`. Después de 1.3, el **backfill defensivo** de D14 (número con un bucle en orden de `(account_id, created_at, id)` y `valid_until` desde `created_at` en hora ART; idempotente por `WHERE … IS NULL`), que reemplaza a la antigua "verificación defensiva" (sobre una columna nueva no puede haber duplicados).
+- [ ] 1.3 GREEN — `internal_document_sequences` (PK, `CHECK (document_type IN ('quote'))`, RLS `SELECT` para miembros, `REVOKE ALL … FROM anon`) + `_next_internal_document_number` (UPDATE-then-INSERT con reintento ante `unique_violation`, `SECURITY DEFINER`, `REVOKE EXECUTE … FROM PUBLIC, anon, authenticated`) + `_assign_internal_document_number(account, type, explicit)` (sin número → el siguiente; con número explícito → `last_number = GREATEST(last_number, explicit)`, creando la fila si falta; mismo régimen de ACL) + disparador **genérico** `trg_assign_internal_document_number()` parametrizado por `TG_ARGV[0]`, enganchado a `quotes` como `quotes_assign_number … ('quote')` + disparador propio `quotes_default_valid_until` (`trg_quote_default_valid_until()`: `valid_until` NULL → validez por defecto de la cuenta). `COMMENT`s.
+- [ ] 1.4 GREEN — `rpc_create_quote`, `rpc_update_quote`, `rpc_transition_quote`, `rpc_delete_quote`, `rpc_set_default_quote_validity` y `rpc_commercial_issuer` (D2, D5, D7, D8, D11); las dos filas nuevas de `document_status_transitions` (`quote: expired → draft`, `rejected → draft`, `allowed_role = {seller, admin, owner}`) y `UPDATE … SET is_terminal_to = false` en `quote: draft|sent → expired|rejected` (D4, idempotente). Detalles obligatorios:
   - el `INSERT … SELECT` de snapshots filtra `products.account_id`;
   - crear, editar y borrar verifican el rol con el mismo predicado del helper de transiciones (roles activos no vencidos) **antes** de escribir → `P0403 insufficient_role`;
   - toda línea con `unit_id` (también la de servicio) exige unidad del sistema o de la cuenta;
-  - la edición exige `p_valid_until` (`P0400 quote_valid_until_required`) y reabre `expired|rejected` a `draft` vía `record_status_transition`;
+  - la edición exige `p_valid_until` (`P0400 quote_valid_until_required`) y `p_expected_revision` (distinta de la vigente → `P0409 quote_changed`), incrementa `revision` y reabre `expired|rejected` a `draft` vía `record_status_transition`;
+  - el borrado toma `FOR UPDATE`, chequea bajo el lock y borra con `WHERE id = $1 AND status = 'draft' AND sent_at IS NULL`, verificando `ROW_COUNT`;
+  - `rpc_commercial_issuer(p_account_id)`: `STABLE`, guard de membresía por `current_account_ids()` (`P0404`), devuelve sólo los campos del emisor de D8;
   - `REVOKE ALL … FROM PUBLIC, anon` + `GRANT EXECUTE … TO authenticated`;
   - `COMMENT`s.
 - [ ] 1.5 GREEN — `DROP POLICY IF EXISTS` de `quotes_insert`, `quotes_update`, `quote_items_insert` y `quote_items_update`. Antes, migrar cada escritor listado en 0.4 que dependa de ellas.
 - [ ] 1.6 GREEN — `_expire_overdue_quotes()` (`FOR UPDATE SKIP LOCKED`, `record_status_transition` con actor = uuid cero `'00000000-0000-0000-0000-000000000000'` —`performed_by` es `NOT NULL`— y motivo "vencimiento automático", sin `EXECUTE` para roles de aplicación) + `cron.unschedule`/`cron.schedule('quotes-expire-sweep', '5 3 * * *', …)` (molde de `cobranzas-overdue-digest-sweep`).
-- [ ] 1.7 Bloque `DO` de introspección al final (sólo catálogo): columnas, `UNIQUE`, disparador, tabla de secuencias con RLS, las 4 políticas de escritura ausentes, las 2 filas nuevas del catálogo, ACLs, job de cron presente y una sola definición de cada función nueva.
+- [ ] 1.7 Bloque `DO` de introspección al final (sólo catálogo): columnas, `UNIQUE`, los dos disparadores, tabla de secuencias con RLS, las 4 políticas de escritura ausentes, las 2 filas nuevas del catálogo, `accepted` como único `is_terminal_to` de `quote`, 0 filas con `number` o `valid_until` NULL, ACLs, job de cron presente y una sola definición de cada función nueva.
 - [ ] 1.8 RED/GREEN — `supabase/tests/test_internal_document_numbering_race.sh` (molde `test_ventas_unidades_conversion_race.sh`): N sesiones crean a la vez el primer presupuesto de una cuenta sin fila de secuencia → números 1..N sin huecos ni repetidos. Cablear este script y el gate de 1.1 en `.github/workflows/KPI_Validation.yml`, en el orden real del workflow, y sumar `20261067000001` **al final** de la cadena de reaplicación de idempotencia.
-- [ ] 1.9 TRIANGULATE — `supabase/tests/test_document_status_transition_role_matrix.sql` actualizado: `v_expected_callers` suma `rpc_update_quote`, `rpc_transition_quote` y `_expire_overdue_quotes`; `v_expected_triples` suma `quote:draft->sent`, `quote:draft->rejected`, `quote:sent->rejected`, `quote:draft->expired`, `quote:sent->expired`, `quote:expired->draft` y `quote:rejected->draft`. Siguen verdes `test_function_acl_gate.sql` (las funciones nuevas quedan clasificadas por la convención `_*`; si el chequeo (4) necesita una entrada, se agrega con justificación), `test_accounts_privilege_columns.sql`, `test_operacion_party_guard.sql` y `test_ventas_unidades_conversion.sql` (usa `quote_items` y `SET LOCAL ROLE authenticated`).
+- [ ] 1.9 TRIANGULATE — `supabase/tests/test_document_status_transition_role_matrix.sql` actualizado: el bloque (1) pasa de 20 filas / 14 con rol a **22 / 16** (el conjunto de las 6 filas NULL no cambia: las dos nuevas no son de sistema), con su comentario y su NOTICE; `v_expected_callers` suma `rpc_update_quote`, `rpc_transition_quote` y `_expire_overdue_quotes`; `v_expected_triples` suma `quote:draft->sent`, `quote:draft->rejected`, `quote:sent->rejected`, `quote:draft->expired`, `quote:sent->expired`, `quote:expired->draft` y `quote:rejected->draft`. Siguen verdes `test_function_acl_gate.sql` (las funciones nuevas quedan clasificadas por la convención `_*`; si el chequeo (4) necesita una entrada, se agrega con justificación), `test_accounts_privilege_columns.sql`, `test_operacion_party_guard.sql` y `test_ventas_unidades_conversion.sql` (usa `quote_items` y `SET LOCAL ROLE authenticated`).
 
 ## 2. Backend tanda A: presupuestos sobre RPC (3 capas)
 
 - [ ] 2.1 RED — `backend/tests/test_quotes_module.py`:
-  - **schemas**: cliente obligatorio; `description` obligatoria sin producto; `notes` ≤ 2000; `action ∈ {send, reject}`; `QuoteUpdateIn` con `valid_until` requerido y no nulo.
+  - **schemas**: cliente obligatorio; `description` obligatoria sin producto; `notes` ≤ 2000; `action ∈ {send, reject}`; `QuoteUpdateIn` con `valid_until` requerido y no nulo, y con `revision` requerida; `QuoteOut` con `revision`.
   - **service**:
     - `require_account_role(CAN_QUOTE)` en crear, editar, transicionar y borrar; el cashier recibe 403 sin llamar a la RPC;
     - mapeo de `P0400/P0401/P0403/P0404/P0409/P0422/P0423` a RFC 7807, con `code` = literal estable (`quote_locked_converted`, `quote_not_deletable`, `insufficient_role`, …) y sin `HTTPException` crudo.
@@ -88,16 +93,20 @@
   Se retira `_VALID_TRANSITIONS` (la política vive en el catálogo) y `require_role(["user","admin"])`.
 - [ ] 2.4 GREEN — `GET/PATCH /settings/quotes` (molde `/settings/collections`, `CAN_CONFIGURE`; `PATCH` con 1..365 validado en el schema → 422 antes de la DB).
 - [ ] 2.5 GREEN — `backend/services/commercial_documents/numbering.py` (`format_internal_document_number`) + fixture compartido `backend/tests/fixtures/internal_document_number_cases.json` (con test pytest que lo recorre).
-- [ ] 2.6 TRIANGULATE — `backend/tests/test_c29_quote_salesorder.py` migrado al contrato nuevo, sin perder casos de tenencia y estado; los casos del endpoint `accept` se retiran con él (su regresión pasa a la de `rpc_accept_quote` en el gate 6.1) y un test verifica que `POST /quotes/{id}/accept` responde 404/405. `test_operacion_party_guard.py` verde. Un `client_id` ajeno sigue respondiendo `client_not_found`, ahora desde la RPC.
+- [ ] 2.6 TRIANGULATE — `backend/tests/test_c29_quote_salesorder.py` migrado al contrato nuevo, sin perder casos de tenencia y estado; los casos del endpoint `accept` se retiran con él (su regresión pasa a la de `rpc_accept_quote` en el gate 6.1) y un test verifica que `POST /quotes/{id}/accept` responde 404/405. Se retiran `QuoteRepository.client_belongs_to_account`, su uso en `services.quotes.create_quote` y sus tests (`test_c29_quote_salesorder.py:408-440`). `backend/tests/test_operacion_party_guard.py` se **reescribe** en dos bloques, porque prueban superficies que este change retira:
+  - bloque 5 (`TestAcceptQuotePartyGuardHttp`, sobre `svc.accept_quote`): pasa a `convert_quote` en la tanda B (6.5). `P0404 client_not_found` y `P0404 quote_client_unavailable` → 404 RFC 7807 con su `code`, más el control negativo (sqlstate sin mapear → 500). Hasta la tanda B, el bloque se retira junto con `accept_quote`;
+  - bloque 6 (`TestCreateQuotePartyGuard`, sobre el pre-chequeo Python): pasa a verificar que el `P0404 client_not_found` que devuelve `rpc_create_quote` se mapea a 404 `client_not_found`, con su control negativo.
+  
+  Anotar el retiro del pre-chequeo en `CHANGES.md`. Un `client_id` ajeno sigue respondiendo `client_not_found`, ahora desde la RPC.
 
 ## 3. PDF del documento comercial (tanda A)
 
 - [ ] 3.1 RED — `backend/tests/test_commercial_document_pdf.py`:
   - `build_quote_view` (puro): número, sellos por estado incluido `is_expired`, símbolo de unidad, leyenda con y sin `valid_until`;
-  - `resolve_commercial_issuer`: fantasía → razón social → `business_name` del dueño → "Mi Negocio", sin bloquear;
+  - `resolve_commercial_issuer`: fantasía → razón social → `business_name` del dueño → "Mi Negocio", sin bloquear. Lee **sólo** de `rpc_commercial_issuer` (test: el repositorio no consulta `profiles` directo) y un caso con un usuario que no es el dueño recibe el nombre del dueño;
   - `build_commercial_document_pdf`, leído con `pypdf`: "PRESUPUESTO", número, cliente, líneas, total, leyenda "no válido como factura", sello, paginado con 80 líneas y cabecera repetida, emoji sustituido, precio sub-centavo;
   - endpoint `GET /quotes/{id}/pdf`: 200 inline por defecto; `attachment` con `presupuesto-P-00000012.pdf`; 404 cross-tenant idéntico al inexistente; 422 con `disposition` inválido; 401 sin sesión.
-- [ ] 3.2 GREEN — `backend/services/commercial_documents/{__init__,view,issuer,pdf}.py`. Reutiliza `_latin1`, `_format_amount` y `_format_unit_price` de `services/receipts.py` por import (no copia) y la paleta de `receipts.py`. El repositorio del emisor filtra por `account_id`.
+- [ ] 3.2 GREEN — `backend/services/commercial_documents/{__init__,view,issuer,pdf}.py`. Reutiliza `_latin1`, `_format_amount` y `_format_unit_price` de `services/receipts.py` por import (no copia) y la paleta de `receipts.py`. El repositorio del emisor llama a `rpc_commercial_issuer(account_id)`; no lee `profiles` por la conexión del request (su RLS sólo deja ver el perfil propio).
 - [ ] 3.3 GREEN — ruta `GET /quotes/{id}/pdf` en `routers/quotes.py` (router sin lógica; service `get_quote_pdf`).
 - [ ] 3.4 TRIANGULATE — los tests existentes de `build_sales_receipt_pdf` y de la Factura C siguen verdes sin cambios.
 
@@ -118,8 +127,8 @@
   - fusión sólo sobre líneas sin `source`.
 - [ ] 4.5 RED/GREEN — `lib/query-invalidation.ts` `invalidateAfterSale(queryClient)`: la unión `salesOrders`, `sales`, `branchStock`, `products`, `customerAccounts`, `receivables`, `cashSessions`, `cashMovements` y `bankAccounts`, con un test que verifica cada clave. Reemplaza las dos listas de `hooks/data/use-sales-orders.ts:240-253` y `:320-329` (que hoy no invalidan caja, banco ni productos: se corrige de paso) y los tests existentes de `use-sales-orders*` siguen verdes.
 - [ ] 4.6 RED/GREEN — `hooks/data/use-quotes.ts` reescrito sobre el contrato nuevo (tipos explícitos, sin `any`): `useQuotes(filters)` paginado, `useQuote`, `useCreateQuote`, `useUpdateQuote`, `useTransitionQuote`, `useDeleteQuote`, `useQuoteSettings`, `useUpdateQuoteSettings` y `fetchQuotePdf`. Sin `useAcceptQuote` (el endpoint se retira). Claves en `lib/query-keys.ts` (`quotes.*`, `quoteSettings.*`). Invalidaciones verificadas por test.
-- [ ] 4.7 GREEN — `lib/operation-errors.ts`: traducciones accionables de `quote_locked_converted`, `quote_expired`, `quote_invalid_state`, `quote_product_unavailable`, `quote_client_unavailable`, `quote_not_deletable`, `quote_valid_until_in_past`, `quote_valid_until_required`, `product_not_found`, `product_is_parent`, `insufficient_role` / 403 ("Tu rol no permite …"), `cash_requires_session`, `idempotency_key_conflict` y `payment_method_required`, con test por literal.
-- [ ] 4.8 RED/GREEN — `frontend/lib/rbac-capabilities.ts`: `CAN_QUOTE = ["owner","admin","seller"]` y `hasCapability(roles, cap)` (fail-open mientras `roles` no resolvió, como `isWriter`). Test atado al conjunto de `backend/core/rbac.py` (lee el archivo, como los tests de contrato existentes) y casos: sólo `seller` → sí; sólo `cashier` → no.
+- [ ] 4.7 GREEN — `lib/operation-errors.ts`: traducciones accionables de `quote_locked_converted`, `quote_expired`, `quote_invalid_state`, `quote_product_unavailable`, `quote_client_unavailable`, `quote_not_deletable`, `quote_valid_until_in_past`, `quote_valid_until_required`, `product_not_found`, `product_is_parent`, `quote_changed`, `insufficient_role` / 403 ("Tu rol no permite …"), `cash_requires_session`, `idempotency_key_conflict` y `payment_method_required`, con test por literal.
+- [ ] 4.8 RED/GREEN — `hooks/useOrgRole.ts` expone `rolesResolved: boolean` (el `isSuccess` de la consulta del conjunto; hoy el hook no lo devuelve y `roles` vale `[role]` mientras carga, que para un vendedor es `["member"]`). `frontend/lib/rbac-capabilities.ts`: `CAN_QUOTE = ["owner","admin","seller"]` y `hasCapability(roles, cap, rolesResolved)`. Test atado al conjunto de `backend/core/rbac.py` (lee el archivo, como los tests de contrato existentes) y casos: conjunto sin resolver (`roles = ["member"]`, `rolesResolved = false`) → sí (fail-open, como `isWriter`); resuelto sólo `seller` → sí; resuelto sólo `cashier` → no. Los tests existentes de `useOrgRole` siguen verdes.
 
 ## 5. Pantallas tanda A
 
@@ -144,6 +153,7 @@
   - `?duplicar=` precarga con precios de hoy y aviso de cambio;
   - edición precarga las líneas persistidas con el precio efectivo y descuento 0; una línea cuyo producto ya no está vivo se marca "Producto no disponible" y bloquea el guardado;
   - edición de un `expired`/`rejected` avisa que se reabre como borrador y exige validez ≥ hoy;
+  - la edición manda la `revision` cargada; ante `quote_changed` avisa que otro usuario lo modificó y ofrece recargar;
   - envío con el payload esperado.
 - [ ] 5.4 GREEN — `components/quotes/QuoteForm.tsx` sobre `ProductPicker`, `CartItemList`, `ScrollableCartShell`, `BarcodeScannerInput`, `resolveScan`, `useScaleSettings`, `useUnitsOfMeasure`, `compatibleUnits`/`convertUnitPrice`/`roundUnitPrice`, `SearchableSelect`, `BranchSelect`, `addManualLineToCart`, `applyScanToCart`, los reductores de línea y `lib/quote-lines.ts`. Sin lógica de carrito propia fuera de `lib/`.
 - [ ] 5.5 RED/GREEN — `components/quotes/QuoteStatusBadge.tsx` (5 estados + "Vencido" derivado, con tokens semánticos y contraste AA vía el gate `token-contrast-aa`).
@@ -151,7 +161,7 @@
   - pestañas de estado, búsqueda, paginación;
   - tabla en desktop y tarjetas en móvil;
   - estado vacío con CTA;
-  - CTA oculto sin `CAN_QUOTE` (`hasCapability(roles, CAN_QUOTE)` sobre el conjunto `roles` de `useOrgRole`): test con un usuario sólo `seller` (lo ve) y uno sólo `cashier` (no lo ve);
+  - CTA oculto sin `CAN_QUOTE` (`hasCapability(roles, CAN_QUOTE, rolesResolved)` sobre el conjunto `roles` de `useOrgRole`): test con un usuario sólo `seller` (lo ve) y uno sólo `cashier` (no lo ve);
   - aviso "Validez por defecto: N días · Cambiar".
 - [ ] 5.7 RED/GREEN — `app/(dashboard)/presupuestos/nuevo/page.tsx` y `app/(dashboard)/presupuestos/[id]/editar/page.tsx`. La edición de un presupuesto convertido muestra el motivo (`P0423` traducido) y un enlace al detalle; la de un `expired`/`rejected` abre el editor con el aviso de reapertura.
 - [ ] 5.8 RED/GREEN — `app/(dashboard)/presupuestos/[id]/page.tsx` (detalle):
@@ -192,30 +202,37 @@
   - producto al que se le agregaron variantes → `P0400 product_is_parent`;
   - presupuesto con una línea de servicio: se convierte; la orden conserva la descripción en `sales_order_items.name_snapshot`;
   - snapshots: precio del presupuesto en `sales`/`sale_items`, `unit_cost_snapshot` = costo vigente al convertir, `sales_order_items` con los snapshots del presupuesto;
-  - regresión: `rpc_accept_quote` sigue creando la orden `draft` con las mismas columnas y el mismo historial que antes.
+  - regresión: `rpc_accept_quote` sigue creando la orden `draft` con las mismas columnas y el mismo historial que antes (ejecutada como `postgres` con claims);
+  - `SET ROLE authenticated` + claims → `rpc_accept_quote` rechazada por permisos (`42501`), sin orden nueva, y candado de su firma para el chequeo (3) del gate de ACLs;
+  - versión vieja (el presupuesto se editó después de abrir el diálogo) → `P0409 quote_changed` y cero efectos;
+  - presupuesto `accepted` con un producto dado de baja después, convertido con otra clave → `P0409 quote_invalid_state` (estado antes que los guards de convertibilidad), y un vencido con un producto dado de baja → `P0409 quote_expired`.
 - [ ] 6.2 RED — `supabase/tests/test_presupuesto_a_venta_race.sh` (molde `test_ventas_unidades_conversion_race.sh`):
   - dos sesiones convierten el mismo presupuesto a la vez → exactamente una venta, un `accepted` y un `QuoteAccepted`;
-  - dos sesiones convierten **presupuestos distintos con la misma clave** a la vez → una venta, un `P0409 idempotency_key_conflict`, el otro presupuesto en su estado y 0 órdenes `draft`.
+  - dos sesiones convierten **presupuestos distintos con la misma clave** a la vez → una venta, un `P0409 idempotency_key_conflict`, el otro presupuesto en su estado y 0 órdenes `draft`;
+  - una sesión borra y otra convierte el mismo `draft` nunca enviado → o venta con el presupuesto `accepted` y `source_quote_id` intacto (el borrado recibe `quote_not_deletable`), o presupuesto borrado y conversión con `quote_not_found`; nunca una orden con `source_quote_id` NULL.
 - [ ] 6.3 GREEN — `20261068000001_presupuestos_conversion_venta.sql`:
   - `_quote_accept_core(p_quote_id, p_branch_id)` desde el cuerpo **vivo** de 0.3, con **sólo** los dos cambios de D6 (`FOR UPDATE` y el parámetro de sucursal validado);
-  - `rpc_accept_quote` como wrapper (`CREATE OR REPLACE`, misma firma, `COMMENT` vivo re-declarado, ACLs verificadas);
-  - `rpc_convert_quote_to_sale` (D6, pasos 1-7), incluidos los guards de cliente vivo y producto no padre (paso 4) y el `RAISE 'idempotency_key_conflict'` cuando el núcleo devuelve `replayed = true` (paso 6);
+  - `rpc_accept_quote` como wrapper (`CREATE OR REPLACE`, misma firma, `COMMENT` vivo re-declarado) + `REVOKE EXECUTE … FROM PUBLIC, anon, authenticated` explícito (el `CREATE OR REPLACE` conservaría el `GRANT` de C-29; D6);
+  - `rpc_convert_quote_to_sale` (D6, pasos 1-7 y 3b), incluidos la validación de estado, vencimiento y `p_expected_revision` sobre la fila bloqueada (paso 3b, antes de los guards), los guards de cliente vivo y producto no padre (paso 4) y el `RAISE 'idempotency_key_conflict'` cuando el núcleo devuelve `replayed = true` (paso 6);
   - `REVOKE`/`GRANT`;
-  - bloque `DO` de introspección: una sola definición de cada función, el wrapper delega, el núcleo sin `authenticated` y la RPC sin `anon`.
+  - bloque `DO` de introspección: una sola definición de cada función, el wrapper delega, el núcleo y `rpc_accept_quote` sin `authenticated`, y la RPC sin `anon`.
   
   Anotar acá el diff del núcleo contra el cuerpo vivo, que debe limitarse a esos dos cambios.
 - [ ] 6.3b Adaptar gates existentes a la tanda B:
   - `test_operacion_party_guard.sql` bloque (7): el candado de cuerpo pasa de `rpc_accept_quote(uuid)` a `_quote_accept_core(uuid, uuid)` (`client_not_found` antes de `INSERT INTO public.sales_orders`) y se suma un assert de que `rpc_accept_quote` delega en el núcleo;
+  - `test_operacion_party_guard.sql` bloque (8): hoy exige `EXECUTE` de `authenticated` sobre `rpc_accept_quote`; se invierte para esa función (sin `anon` y sin `authenticated`), las otras tres siguen igual;
+  - `test_function_acl_gate.sql`: `public.rpc_accept_quote(uuid)` se suma al chequeo (3) (`v_internal_only_fns`), con su comentario de por qué nunca se re-otorga;
   - `test_document_status_transition_role_matrix.sql`: `v_expected_callers` cambia `rpc_accept_quote` por `_quote_accept_core` (más `rpc_convert_quote_to_sale` si llama directo al helper);
-  - anotar las dos adaptaciones en la entrada de `CHANGES.md`.
+  - anotar las cuatro adaptaciones en la entrada de `CHANGES.md`.
 - [ ] 6.4 Cablear los dos gates en `KPI_Validation.yml` y sumar `20261068000001` al final de la cadena de reaplicación de idempotencia.
 - [ ] 6.5 RED/GREEN — backend:
-  - `QuoteConvertIn/Out`;
+  - `QuoteConvertIn/Out` (`expected_revision` requerida; `quote_changed` → 409);
   - `QuoteRepository.convert_to_sale`;
   - `services.quotes.convert_quote` (`CAN_QUOTE`, mapeo `P0409` de stock/estado/conflicto a 409 con `code`);
   - `POST /quotes/{id}/convert` con `require_idempotency_key(request, payload.idempotency_key)`;
-  - tests con header y con fallback al body; sin clave → 422 `idempotency_key_required` (`require_idempotency_key`, spec `api-standards`).
-- [ ] 6.6 RED/GREEN — read models de ventas y órdenes: `source_quote_id` y `source_quote_number`, derivados de `sales_orders.source_quote_id → quotes`, sin columnas nuevas. Además, la fila de una línea de servicio (sin producto) muestra su descripción desde `sales_order_items.name_snapshot` de la misma orden, emparejando por precio, cantidad, subtotal y unidad (D6, OQ-P15). Tests de `test_factura_fiscal_read_models.py` y del listado de ventas extendidos, incluido el caso de la línea de servicio.
+  - tests con header y con fallback al body; sin clave → 422 `idempotency_key_required` (`require_idempotency_key`, spec `api-standards`);
+  - bloque 5 de `backend/tests/test_operacion_party_guard.py` reescrito sobre `convert_quote` (2.6): `client_not_found` y `quote_client_unavailable` → 404 con su `code`, más el control negativo.
+- [ ] 6.6 RED/GREEN — read models de ventas y órdenes: `source_quote_id` y `source_quote_number`, derivados de `sales_orders.source_quote_id → quotes`, sin columnas nuevas. Además, la fila de una línea de servicio (sin producto) muestra su descripción desde `sales_order_items.name_snapshot` de la misma orden, emparejando por precio, cantidad, subtotal y unidad (D6, OQ-P15). El read model de ventas expone además `has_service_lines` (derivado). Tests de `test_factura_fiscal_read_models.py` y del listado de ventas extendidos, incluidos el caso de la línea de servicio y `has_service_lines`.
 - [ ] 6.7 RED/GREEN — `useConvertQuote` (invalida `quotes.*` + `invalidateAfterSale`). La clave la maneja el diálogo con `useIdempotencyKey("quote-convert:" + quoteId)` y se resetea tras cada éxito, incluido el replay. Test: respuesta perdida en la conversión de A seguida de la conversión de B → sin conflicto.
 - [ ] 6.8 RED — `components/quotes/ConvertQuoteDialog`:
   - resumen en sólo lectura;
@@ -226,9 +243,10 @@
   - éxito (también con `replayed: true`) → "Venta registrada" + `EmitInvoiceButton` + "Ver en Ventas", con el foco en el título;
   - `P0409` de stock → mensaje con el producto, sin cerrar, en una región `role="alert"`;
   - `quote_product_unavailable` → "editá el presupuesto";
+  - manda `expected_revision` con la `revision` mostrada; `quote_changed` → recarga el resumen, avisa y no cierra;
   - doble clic → una sola request efectiva.
-- [ ] 6.9 GREEN — `components/ventas/SaleCheckoutFields.tsx` y `components/ventas/SaleCheckoutSuccess.tsx` (campos de cierre y panel de éxito, sin conocimiento del presupuesto, reutilizables por `remitos-venta`), `components/quotes/ConvertQuoteDialog.tsx` que los compone, y el botón **"Venta"** en el detalle, habilitado según el estado, `is_expired` y `hasCapability(roles, CAN_QUOTE)`.
-- [ ] 6.10 RED/GREEN — `/ventas`: badge "Desde presupuesto P-…" con enlace en `sale-operations-list.tsx`. En el detalle del presupuesto convertido: "Venta generada" con enlace a `/ventas/ordenes/<id>` y el estado del comprobante; "La venta generada fue eliminada" si la orden está `canceled` (OQ-P12).
+- [ ] 6.9 GREEN — `components/ventas/SaleCheckoutFields.tsx` y `components/ventas/SaleCheckoutSuccess.tsx` (campos de cierre y panel de éxito, sin conocimiento del presupuesto, reutilizables por `remitos-venta`), `components/quotes/ConvertQuoteDialog.tsx` que los compone, y el botón **"Venta"** en el detalle, habilitado según el estado, `is_expired` y `hasCapability(roles, CAN_QUOTE, rolesResolved)`.
+- [ ] 6.10 RED/GREEN — `/ventas`: badge "Desde presupuesto P-…" con enlace en `sale-operations-list.tsx`, y "Editar" deshabilitado con su motivo en una operación con `has_service_lines` (D6, OQ-P16; test con y sin líneas de servicio). En el detalle del presupuesto convertido: "Venta generada" con enlace a `/ventas/ordenes/<id>` y el estado del comprobante; "La venta generada fue eliminada" si la orden está `canceled` (OQ-P12).
 - [ ] 6.11 Revisión adversarial de la tanda B **antes del merge** (seguridad + correctitud):
   - tenencia de cada id del payload (quote, sucursal, forma de pago, cuenta bancaria, caja);
   - idempotencia contra otro documento;
@@ -260,13 +278,15 @@
   - el badge en `/ventas`.
   
   Sin desborde horizontal a 375 px y con el CTA visible en móvil. Chequeo de teclado y foco (diálogos, menú de compartir) en las 4 combinaciones. Capturas en el PR.
-- [ ] 7.4 Humo local de punta a punta: crear → descargar (queda `sent`) → editar → PDF con la leyenda y el número → WhatsApp en escritorio (descarga + `wa.me` con el número del cliente) → Venta en efectivo con caja abierta → la venta aparece en `/ventas` con el badge → Facturar → comprobante en trámite. Repetir la conversión con stock insuficiente y confirmar que no queda nada; intentar efectivo con la caja cerrada ("Venta" deshabilitada); convertir un presupuesto con una línea de servicio y ver su descripción en `/ventas`; rechazar uno y reabrirlo editándolo.
+- [ ] 7.4 Humo local de punta a punta: crear → descargar (queda `sent`) → editar → PDF con la leyenda y el número → WhatsApp en escritorio (descarga + `wa.me` con el número del cliente) → Venta en efectivo con caja abierta → la venta aparece en `/ventas` con el badge → Facturar → comprobante en trámite. Repetir la conversión con stock insuficiente y confirmar que no queda nada; intentar efectivo con la caja cerrada ("Venta" deshabilitada); convertir un presupuesto con una línea de servicio, ver su descripción en `/ventas` y que "Editar" esté deshabilitado con su motivo; editar un presupuesto en una pestaña y convertirlo desde otra abierta antes (`quote_changed`); rechazar uno y reabrirlo editándolo.
 - [ ] 7.5 Red-team de la tanda A, ítem por ítem:
   - producto ajeno en el alta (snapshot);
   - escritura directa por PostgREST;
   - PDF de otra cuenta;
   - numeración concurrente (además del script de 1.8);
   - edición de un `accepted`;
+  - edición con una versión vieja (`quote_changed`);
+  - PDF descargado por un vendedor que no es el dueño (emisor completo);
   - cashier contra cada endpoint de escritura.
 
 ## 8. Documentación
@@ -298,19 +318,20 @@
   - ACLs de las funciones nuevas;
   - `cron.job` con `quotes-expire-sweep`;
   - `default_quote_validity_days = 15` en todas las cuentas;
-  - las filas `quote: expired → draft` y `rejected → draft` en `document_status_transitions`.
+  - las filas `quote: expired → draft` y `rejected → draft` en `document_status_transitions`, y `accepted` como único `is_terminal_to` de `quote`;
+  - `count(*) FILTER (WHERE number IS NULL OR valid_until IS NULL) = 0` en `quotes`.
   
   Verificar el deploy de Render (`GET /deploys`) y dispararlo si no corrió.
 - [ ] 9.2 **[PO]** Humo de la tanda A en prod: crear un presupuesto para un cliente real con teléfono → descargarlo → enviarlo por WhatsApp desde el celular, en Android y en iPhone (llega el PDF adjunto) → editarlo → rechazar uno y reabrirlo editándolo → duplicar → eliminar un borrador.
 - [ ] 9.3 Tanda B, verificación en prod (sólo lectura):
   - `MAX(version) = 20261068000001`;
   - una sola definición de `rpc_accept_quote`, que delega en el núcleo;
-  - `_quote_accept_core` sin `authenticated`;
+  - `_quote_accept_core` y `rpc_accept_quote` sin `EXECUTE` para `authenticated`;
   - `rpc_convert_quote_to_sale` sin `anon`;
   - `COMMENT` de `rpc_accept_quote` conservado.
 - [ ] 9.4 **[PO]** Humo de la tanda B en prod: presupuesto → **Venta** en efectivo con caja abierta (el stock baja y aparece en caja, y `/caja` se actualiza sin recargar) → la venta aparece en `/ventas` con "Desde presupuesto" → **Facturar** → comprobante autorizado. Otra conversión a crédito (cargo en la cuenta corriente del cliente).
 - [ ] 9.5 Al día siguiente del merge de A, confirmar en `cron.job_run_details` que `quotes-expire-sweep` corrió sin error.
-- [ ] 9.6 Archivar el change (`/opsx:archive`) cuando 9.1–9.5 estén cerrados. Verificar en **HEAD** que los requirements se sincronizaron a `openspec/specs/{quote,sales-order,internal-document-numbering,commercial-document-pdf}` (gotchas de archive: diffear, no contar). Después, editar a mano la sección "Implementation Notes" de `openspec/specs/quote/spec.md`, que no forma parte de ningún delta y sigue diciendo "INSERT/UPDATE directo … con is_account_writer": pasa a escritura sólo por RPC, sin políticas de escritura, sin endpoint `accept`.
+- [ ] 9.6 Archivar el change (`/opsx:archive`) cuando 9.1–9.5 estén cerrados. Verificar en **HEAD** que los requirements se sincronizaron a `openspec/specs/{quote,sales-order,internal-document-numbering,commercial-document-pdf,document-status-history,document-snapshots}` (gotchas de archive: diffear, no contar). Después, editar a mano la sección "Implementation Notes" de `openspec/specs/quote/spec.md`, que no forma parte de ningún delta y sigue diciendo "INSERT/UPDATE directo … con is_account_writer": pasa a escritura sólo por RPC, sin políticas de escritura, sin endpoint `accept`.
 
 ---
 

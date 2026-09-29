@@ -17,7 +17,7 @@ El orden de bloqueo de esa transacción SHALL empezar por el presupuesto de orig
 
 #### Scenario: misma venta que el POS
 - **WHEN** se cobra la misma mercadería con la misma forma de pago de `kind = 'cash'`, una vez por venta rápida y otra por conversión de un presupuesto, en cuentas equivalentes
-- **THEN** las dos producen el mismo conjunto de efectos sobre stock, caja, filas legacy de `sales`, evento de outbox y transición de estado
+- **THEN** los efectos del lado de la venta son los mismos: stock, caja, filas legacy de `sales`, evento `SaleConfirmed` y transición `draft → confirmed` de la orden; la conversión suma además los efectos del presupuesto (evento `QuoteAccepted` y su transición a `accepted`)
 
 #### Scenario: un fallo de confirmación revierte la aceptación
 - **WHEN** la confirmación de la orden nacida de un presupuesto falla por stock insuficiente
@@ -34,3 +34,15 @@ El sistema SHALL exponer, en los read models de ventas y de órdenes de venta, e
 #### Scenario: venta del POS sin presupuesto
 - **WHEN** el usuario ve una venta hecha en el POS
 - **THEN** no aparece ningún indicador de presupuesto de origen
+
+### Requirement: Una venta con líneas de servicio no se edita desde el editor de ventas
+El sistema SHALL exponer en el read model de ventas si una operación incluye líneas sin producto (`has_service_lines`, derivado), y la interfaz de `/ventas` NOT SHALL ofrecer la edición de esa operación: la acción "Editar" SHALL mostrarse deshabilitada con el motivo y la salida (eliminar la venta y volver a venderla desde el presupuesto duplicado). La eliminación de la operación SHALL seguir funcionando con las reglas vigentes.
+
+#### Scenario: venta convertida con un concepto sin producto
+- **GIVEN** una venta generada al convertir un presupuesto con la línea de servicio "Instalación"
+- **WHEN** el usuario la ve en `/ventas`
+- **THEN** "Editar" está deshabilitado con el motivo, y "Eliminar" está disponible
+
+#### Scenario: venta sin líneas de servicio
+- **WHEN** el usuario ve una venta cuyas líneas tienen todas producto
+- **THEN** "Editar" funciona como hasta ahora

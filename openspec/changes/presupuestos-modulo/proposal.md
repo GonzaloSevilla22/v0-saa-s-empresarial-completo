@@ -30,8 +30,9 @@ Falta cerrar el circuito completo: crear → descargar o mandar por WhatsApp →
   - Crear o editar un presupuesto **nunca** toca stock, caja ni cuenta corriente. El stock insuficiente no bloquea: sólo se informa.
 - **Edición mientras no esté convertido** (requisito firmado):
   - Mientras no esté convertido se pueden cambiar las líneas, el cliente, la validez y las notas. Las líneas se reemplazan de forma atómica y los snapshots se vuelven a tomar.
-  - Un presupuesto aceptado (convertido en venta) es **inmutable**: `P0423`, el mismo principio que la venta con comprobante o dinero posteado. Uno vencido o rechazado se puede editar, y la edición lo **reabre** como borrador (dos filas nuevas en el catálogo de transiciones).
-- **Numeración interna visible** `P-00000001`, correlativa por cuenta. Nace la tabla genérica `internal_document_sequences`, que reusarán los remitos. La asigna un disparador, así que ningún escritor puede saltearla.
+  - Un presupuesto aceptado (convertido en venta) es **inmutable**: `P0423`, el mismo principio que la venta con comprobante o dinero posteado. Uno vencido o rechazado se puede editar, y la edición lo **reabre** como borrador (dos filas nuevas en el catálogo de transiciones; `expired` y `rejected` dejan de ser terminales y `accepted` queda como el único).
+  - La edición y la conversión llevan la **versión** del presupuesto que el usuario vio: si otro lo modificó mientras tanto, se rechaza (`quote_changed`) en vez de pisar una edición ajena o de cobrar un total que nadie confirmó.
+- **Numeración interna visible** `P-00000001`, correlativa por cuenta. Nace la tabla genérica `internal_document_sequences`, que reusarán los remitos. La asigna un disparador genérico parametrizado por tipo, así que ningún escritor puede saltearla y los remitos la reutilizan sin copiar lógica.
 - **Validez con vencimiento automático**:
   - Validez por defecto configurable por cuenta (`accounts.default_quote_validity_days`, 15 días), editable en cada presupuesto y ampliable mientras esté abierto.
   - Un barrido diario de `pg_cron` pasa a `expired` los vencidos, con la transición de sistema ya sembrada. La API, además, deriva `is_expired` al leer.
@@ -51,7 +52,7 @@ Falta cerrar el circuito completo: crear → descargar o mandar por WhatsApp →
   - Los helpers se extraen de `sale-receipt-button.tsx` a `lib/`.
   - Descargar o enviar un presupuesto en `draft` lo marca `sent`.
 - **Botón "Venta"** — RPC nueva `rpc_convert_quote_to_sale`, que acepta el presupuesto y confirma la venta en **una sola transacción**:
-  - Reutiliza la aceptación, extraída a un núcleo interno que comparte con `rpc_accept_quote` (esa RPC conserva su firma y su comportamiento).
+  - Reutiliza la aceptación, extraída a un núcleo interno que comparte con `rpc_accept_quote`. Esa RPC conserva su firma y su comportamiento, pero deja de ser ejecutable por los roles de aplicación: sin endpoint, seguiría siendo un camino por PostgREST a `accepted` fuera de la conversión.
   - Reutiliza `_c29_confirm_order_core` sin tocarlo.
   - La venta resultante descuenta stock, maneja caja, banco y cuenta corriente (con vencimiento), emite `SaleConfirmed` y **es facturable sin cambios**.
   - Usa el precio del presupuesto.
@@ -62,7 +63,7 @@ Falta cerrar el circuito completo: crear → descargar o mandar por WhatsApp →
   - **Rechazar**, con motivo opcional.
   - **Duplicar**: crea un presupuesto nuevo con los precios de hoy.
   - **Eliminar**, sólo borradores (la política de borrado permite el hard delete de un `draft`).
-- **Trazabilidad**: el detalle del presupuesto enlaza la venta, y la venta muestra "Desde presupuesto P-…".
+- **Trazabilidad**: el detalle del presupuesto enlaza la venta, y la venta muestra "Desde presupuesto P-…". Una venta nacida de un presupuesto con líneas de servicio no se edita desde `/ventas` (el editor de ventas no modela líneas sin producto): se corrige eliminándola y volviendo a vender desde el presupuesto duplicado (OQ-P16).
 
 ## Capabilities
 
@@ -87,26 +88,30 @@ Falta cerrar el circuito completo: crear → descargar o mandar por WhatsApp →
   - PDF y envío;
   - superficie `/presupuestos`.
   - Además se corrige el requirement del ciclo de vida para alinearlo con el catálogo vigente: `draft → accepted` y `draft → rejected` existen desde el seed.
-- `sales-order`: la orden nacida de un presupuesto se crea y se confirma en la misma transacción (nunca queda visible en `draft`), y la venta resultante expone su presupuesto de origen en los read models.
+- `sales-order`: la orden nacida de un presupuesto se crea y se confirma en la misma transacción (nunca queda visible en `draft`), y la venta resultante expone su presupuesto de origen en los read models. La venta con líneas de servicio no se edita desde `/ventas`.
+- `document-status-history`: el seed del catálogo suma la reapertura del presupuesto (`expired | rejected → draft`) y deja `accepted` como único estado terminal de `quote`.
+- `document-snapshots`: la política de snapshot al editar se acota a las operaciones de venta y compra; el presupuesto, que se edita por reemplazo completo antes de confirmarse, re-congela sus snapshots (excepción declarada en `quote`).
 
 ## Impact
 
 - **DB**: dos migraciones, una por tanda de apply (renumerar si otro PR toma los números).
   - `20261067000001_presupuestos_modulo.sql` (tanda A, sin dinero):
-    - columnas `number`, `notes`, `sent_at`, `updated_at` y `updated_by` en `quotes`;
+    - columnas `number`, `notes`, `sent_at`, `updated_at`, `updated_by` y `revision` en `quotes`, con backfill defensivo de número y validez;
     - `accounts.default_quote_validity_days`;
-    - tabla `internal_document_sequences`, helper `_next_internal_document_number` y disparador de numeración;
-    - RPCs `rpc_create_quote`, `rpc_update_quote`, `rpc_transition_quote`, `rpc_delete_quote` y `rpc_set_default_quote_validity`;
+    - tabla `internal_document_sequences`, helpers `_next_internal_document_number` y `_assign_internal_document_number` y disparador genérico de numeración;
+    - RPCs `rpc_create_quote`, `rpc_update_quote`, `rpc_transition_quote`, `rpc_delete_quote`, `rpc_set_default_quote_validity` y `rpc_commercial_issuer` (datos del emisor para el PDF, legibles por cualquier miembro aunque no sea el dueño);
+    - dos filas nuevas del catálogo de transiciones y `is_terminal_to = false` en `quote: draft|sent → expired|rejected`;
     - retiro de las políticas de escritura directa;
     - barrido `_expire_overdue_quotes` + `cron.schedule`.
   - `20261068000001_presupuestos_conversion_venta.sql` (tanda B, dinero):
-    - núcleo interno `_quote_accept_core`, extraído del cuerpo **vivo** de `rpc_accept_quote`. `rpc_accept_quote` pasa a ser un wrapper con la misma firma, el mismo `COMMENT` y las mismas ACLs;
+    - núcleo interno `_quote_accept_core`, extraído del cuerpo **vivo** de `rpc_accept_quote`. `rpc_accept_quote` pasa a ser un wrapper con la misma firma y el mismo `COMMENT`, y **sin** `EXECUTE` para los roles de aplicación (se revoca explícitamente);
     - RPC `rpc_convert_quote_to_sale`.
-  - Gates SQL nuevos que **ejecutan** las RPCs (incluidos dos scripts de carrera: conversión y numeración), cableados en `KPI_Validation.yml`; `test_function_acl_gate.sql` extendido y `test_document_status_transition_role_matrix.sql` y el bloque (7) de `test_operacion_party_guard.sql` actualizados.
+  - Gates SQL nuevos que **ejecutan** las RPCs (incluidos dos scripts de carrera: conversión y numeración), cableados en `KPI_Validation.yml`; `test_function_acl_gate.sql` extendido (chequeo (3) con `rpc_accept_quote`); `test_document_status_transition_role_matrix.sql` (bloque (1): 22 filas / 16 con rol; bloques (5) y (5b)) y los bloques (7) y (8) de `test_operacion_party_guard.sql` actualizados.
 - **Backend**:
   - `schemas/quotes.py`, `services/quotes.py`, `repositories/quote_repository.py` y `routers/quotes.py`, reescritos sobre las RPCs, con `require_account_role` y la capacidad nueva `CAN_QUOTE` en `core/rbac.py`.
   - Endpoints nuevos: `PUT /quotes/{id}`, `DELETE /quotes/{id}`, `GET /quotes/{id}/pdf`, `POST /quotes/{id}/convert` (con `Idempotency-Key`) y `GET/PATCH /settings/quotes`. El listado pasa a ser paginado. Se **retira** `POST /quotes/{id}/accept`, sin consumidores: dejaría un presupuesto aceptado con una orden `draft` invisible.
   - Módulo nuevo `services/commercial_documents/` (vista + PDF), que reutiliza `_latin1`, `_format_amount` y `_format_unit_price` de `services/receipts.py`.
+  - Se retira el pre-chequeo Python `client_belongs_to_account` (la tenencia del cliente la resuelve la RPC), y los bloques 5 y 6 de `backend/tests/test_operacion_party_guard.py` se reescriben sobre el contrato nuevo.
   - Los read models de ventas y órdenes suman el número del presupuesto de origen.
 - **Frontend**:
   - `app/(dashboard)/presupuestos/**` (4 rutas).
@@ -114,6 +119,7 @@ Falta cerrar el circuito completo: crear → descargar o mandar por WhatsApp →
   - `components/shared/DocumentShareMenu.tsx`.
   - `lib/document-share.ts` y `lib/api/document-pdf.ts`, extraídos de `sale-receipt-button.tsx` y `lib/api/fiscal-invoice.ts`, que pasan a consumirlos.
   - `lib/internal-document-number.ts`, `lib/rbac-capabilities.ts` (espejo de `CAN_QUOTE`), `lib/quote-lines.ts` y `lib/query-invalidation.ts`.
+  - `hooks/useOrgRole.ts` expone `rolesResolved`, para que la capacidad sea fail-open mientras el conjunto de roles carga.
   - `lib/cart-utils.ts` gana las funciones de carrito extraídas de `sale-form.tsx` (alta manual, despacho del lector, edición de línea), y `sale-form` pasa a consumirlas.
   - `components/ventas/SaleCheckoutFields.tsx` y `SaleCheckoutSuccess.tsx`; `ClientForm` devuelve el cliente creado; `ClientDetailHeader` suma la pestaña "Presupuestos".
   - `hooks/data/use-quotes.ts` (reescrito), `lib/query-keys.ts` y `lib/operation-errors.ts` (mensajes de presupuesto).
@@ -130,6 +136,7 @@ Falta cerrar el circuito completo: crear → descargar o mandar por WhatsApp →
 - **Plan**: sin gate; disponible en todos los tiers, igual que ventas y compras.
 - **Riesgos principales** (detalle en `design.md`):
   - doble conversión concurrente;
+  - edición o conversión sobre una versión vieja del presupuesto, y borrado concurrente con la conversión;
   - replay de la clave de idempotencia contra otro presupuesto;
   - orden de locks: `quotes` antes de `sales` → `sales_orders` → `fiscal_documents`;
   - producto dado de baja o sin stock al convertir;

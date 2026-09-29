@@ -10,9 +10,10 @@ El sistema SHALL proveer un agregado `Quote` (tabla `quotes`) que representa un 
 - `total numeric(15,2)` y `notes` (texto opcional, hasta 2.000 caracteres);
 - `sent_at` (primera vez que pasó a `sent`);
 - `updated_at` y `updated_by` (última edición);
+- `revision` (versión del contenido: empieza en 1 y cada edición la incrementa);
 - `created_by` y `created_at`.
 
-Las transiciones válidas SHALL ser exactamente las del catálogo `document_status_transitions` para `quote`: `draft → sent`, `draft | sent → accepted`, `draft | sent → rejected`, `draft | sent → expired` y `expired | rejected → draft`. Un Quote en `accepted` es terminal y MUST NOT volver a ningún otro estado. Un Quote en `expired` o `rejected` SHALL volver a `draft` sólo cuando se lo edita (reapertura), y ninguna otra operación SHALL reabrirlo. Editar un presupuesto en `draft` o `sent` NOT SHALL cambiar su estado. En la interfaz, `accepted` SHALL significar "convertido en venta".
+Las transiciones válidas SHALL ser exactamente las del catálogo `document_status_transitions` para `quote`: `draft → sent`, `draft | sent → accepted`, `draft | sent → rejected`, `draft | sent → expired` y `expired | rejected → draft`. Un Quote en `accepted` es terminal y MUST NOT volver a ningún otro estado; es el único estado terminal de `quote` en el catálogo, y `expired` y `rejected` NOT SHALL estar marcados como terminales. Un Quote en `expired` o `rejected` SHALL volver a `draft` sólo cuando se lo edita (reapertura), y ninguna otra operación SHALL reabrirlo. Editar un presupuesto en `draft` o `sent` NOT SHALL cambiar su estado. En la interfaz, `accepted` SHALL significar "convertido en venta".
 
 #### Scenario: crear un presupuesto en draft
 - **WHEN** un usuario con rol de vendedor, administrador o dueño crea un presupuesto con ítems para un cliente de su cuenta
@@ -71,7 +72,11 @@ La creación y la edición de un presupuesto NO SHALL tener ningún efecto sobre
 ### Requirement: Quote.accept() crea un SalesOrder con los mismos ítems
 El sistema SHALL proveer la operación `accept()` (RPC `rpc_accept_quote`, `SECURITY DEFINER`, firma `(p_quote_id uuid)`) que, en una sola transacción atómica, bloquea el presupuesto (`FOR UPDATE`), lo transiciona a `accepted` y crea un `SalesOrder` en `draft` (con sus `sales_order_items`). Las líneas del `SalesOrder` SHALL ser copia de las de `quote_items` (producto, cantidad, unidad, precio, subtotal y snapshots) y SHALL preservar `client_id` y `total`; la sucursal de la orden se resuelve con la precedencia del párrafo siguiente, que en `accept()` (sin sucursal indicada) equivale a preservar la del presupuesto. El `SalesOrder` resultante SHALL referenciar el Quote de origen (`source_quote_id`). `accept()` NO SHALL descontar stock ni registrar caja: sólo materializa la orden.
 
-La lógica de aceptación SHALL vivir en un único núcleo interno, sin permiso de ejecución para los roles de aplicación, que comparten `accept()` y la conversión a venta, de modo que las dos no puedan divergir. La sucursal de la orden SHALL ser, en este orden de precedencia, la indicada por la conversión, la del presupuesto o la sucursal por defecto de la cuenta. Ni la interfaz ni la API HTTP SHALL exponer `accept()` por sí sola: fuera de la base de datos, el único camino hacia `accepted` es la conversión a venta. `rpc_accept_quote` se conserva sin endpoint, por compatibilidad y como regresión del núcleo.
+La lógica de aceptación SHALL vivir en un único núcleo interno, sin permiso de ejecución para los roles de aplicación, que comparten `accept()` y la conversión a venta, de modo que las dos no puedan divergir. La sucursal de la orden SHALL ser, en este orden de precedencia, la indicada por la conversión, la del presupuesto o la sucursal por defecto de la cuenta. Ni la interfaz ni la API HTTP SHALL exponer `accept()` por sí sola: fuera de la base de datos, el único camino hacia `accepted` es la conversión a venta. `rpc_accept_quote` se conserva sin endpoint y sin permiso de ejecución para los roles de aplicación, de modo que tampoco sea invocable por la API de datos, por compatibilidad y como regresión del núcleo.
+
+#### Scenario: accept no es invocable por la API de datos
+- **WHEN** un usuario autenticado invoca `rpc_accept_quote` por la API de datos sobre un presupuesto de su cuenta
+- **THEN** la invocación se rechaza por permisos, el presupuesto conserva su estado y no se crea ninguna orden
 
 #### Scenario: accept genera la orden espejo
 - **WHEN** se acepta un presupuesto con dos líneas
@@ -238,6 +243,10 @@ Un cliente, producto o sucursal de otra cuenta SHALL rechazarse con el mismo err
 ### Requirement: Edición del presupuesto mientras no esté convertido
 El sistema SHALL permitir editar un presupuesto en cualquier estado salvo `accepted`: su cliente, su sucursal, su fecha de validez, sus notas y sus líneas. La edición SHALL reemplazar las líneas de forma atómica, volviendo a congelar los snapshots desde el maestro, y SHALL registrar `updated_at` y `updated_by`. La fecha de validez SHALL ser obligatoria en la edición e igual o posterior al día de negocio argentino. Editar un presupuesto en `expired` o `rejected` SHALL reabrirlo a `draft`, registrando la transición en el historial en la misma transacción. Un presupuesto en `accepted` (convertido en venta) SHALL ser inmutable: toda edición SHALL rechazarse con `P0423` y el motivo "ya convertido en venta", sin modificar nada.
 
+La edición SHALL indicar la versión (`revision`) del presupuesto sobre la que se hizo; si no coincide con la vigente, SHALL rechazarse con `quote_changed` sin modificar nada, de modo que dos editores simultáneos no se pisen en silencio. Cada edición aceptada SHALL incrementar la versión.
+
+La edición de un presupuesto SHALL volver a congelar los snapshots de **todas** sus líneas desde el maestro vigente, aunque el producto de la línea no cambie. La política de preservación de snapshots al editar de `document-snapshots` rige para las operaciones de venta y compra, NOT para el presupuesto: un documento todavía no confirmado no tiene costo histórico que proteger, y el precio prometido viaja en la propia línea.
+
 #### Scenario: editar un presupuesto enviado
 - **GIVEN** un presupuesto en `sent` con dos líneas
 - **WHEN** se edita quitando una línea y cambiando la cantidad de la otra
@@ -267,6 +276,16 @@ El sistema SHALL permitir editar un presupuesto en cualquier estado salvo `accep
 - **WHEN** se lo edita fijando `valid_until` = hoy + 10 días
 - **THEN** la edición se acepta y el presupuesto deja de informarse como vencido
 
+#### Scenario: la edición re-congela aunque el producto no cambie
+- **GIVEN** un presupuesto con una línea de un producto cuyo costo al cotizar era $500 y hoy es $600
+- **WHEN** se edita el presupuesto cambiando sólo la cantidad de esa línea
+- **THEN** la línea queda con `unit_cost_snapshot = 600`
+
+#### Scenario: dos editores simultáneos
+- **GIVEN** dos usuarios que abrieron la edición del mismo presupuesto en la versión 3
+- **WHEN** el primero guarda y después guarda el segundo
+- **THEN** la edición del primero se acepta y deja la versión 4, y la del segundo falla con `quote_changed` sin modificar nada
+
 #### Scenario: edición atómica
 - **WHEN** la edición falla en la validación de la tercera línea
 - **THEN** el presupuesto conserva todas sus líneas y datos anteriores
@@ -277,7 +296,7 @@ El sistema SHALL permitir, en un presupuesto abierto (`draft` o `sent`):
 - marcarlo como **enviado** (`draft → sent`); en un presupuesto que ya está en `sent`, la operación SHALL ser un no-op idempotente;
 - **rechazarlo** (`→ rejected`), con un motivo opcional.
 
-La interfaz SHALL marcar automáticamente como enviado un presupuesto en `draft` cuando el usuario lo descarga o lo envía por WhatsApp; verlo o imprimirlo NOT SHALL cambiar su estado, ni tampoco cancelar el menú de compartir del dispositivo. La marca automática SHALL aplicarse sólo si el usuario tiene permiso para enviar presupuestos: la descarga de un rol de sólo lectura no cambia el estado. El sistema SHALL permitir **eliminar** sólo un presupuesto en `draft` que nunca se envió (borrado físico de sus líneas y de la cabecera; el historial de estados se conserva). Un presupuesto en cualquier otro estado SHALL rechazar el borrado con `quote_not_deletable`. La API NOT SHALL exponer la transición a `accepted` fuera de la conversión a venta, ni la transición a `expired`, que es exclusiva del barrido.
+La interfaz SHALL marcar automáticamente como enviado un presupuesto en `draft` cuando el usuario lo descarga o lo envía por WhatsApp; verlo o imprimirlo NOT SHALL cambiar su estado, ni tampoco cancelar el menú de compartir del dispositivo. La marca automática SHALL aplicarse sólo si el usuario tiene permiso para enviar presupuestos: la descarga de un rol de sólo lectura no cambia el estado. El sistema SHALL permitir **eliminar** sólo un presupuesto en `draft` que nunca se envió (borrado físico de sus líneas y de la cabecera; el historial de estados se conserva). El borrado SHALL decidirse bajo bloqueo del presupuesto y con el estado como condición de la propia eliminación, de modo que nunca borre un presupuesto que otra operación concurrente convirtió en venta. Un presupuesto en cualquier otro estado SHALL rechazar el borrado con `quote_not_deletable`. La API NOT SHALL exponer la transición a `accepted` fuera de la conversión a venta, ni la transición a `expired`, que es exclusiva del barrido.
 
 #### Scenario: descargar marca como enviado
 - **GIVEN** un presupuesto en `draft`
@@ -311,6 +330,10 @@ La interfaz SHALL marcar automáticamente como enviado un presupuesto en `draft`
 - **WHEN** se intenta eliminarlo
 - **THEN** la operación falla con `quote_not_deletable`
 
+#### Scenario: borrado concurrente con la conversión
+- **WHEN** una sesión elimina un presupuesto en `draft` nunca enviado mientras otra lo convierte en venta
+- **THEN** gana una sola: o la venta queda con el presupuesto `accepted` y enlazado, y el borrado falla con `quote_not_deletable`, o el presupuesto se elimina y la conversión falla con `quote_not_found`; nunca queda una venta sin su presupuesto de origen
+
 #### Scenario: la API no expone expirar
 - **WHEN** se pide por la API transicionar un presupuesto a `expired` o a `accepted`
 - **THEN** la API responde con un error de payload inválido
@@ -333,6 +356,7 @@ Las líneas SHALL ser las del presupuesto y nunca las del request: producto, can
 La operación SHALL:
 
 - bloquear el presupuesto antes de cualquier otra lectura o escritura;
+- validar sobre el presupuesto bloqueado, antes de los guards de convertibilidad, que esté abierto (`quote_invalid_state`), que no esté vencido (`quote_expired`) y que su versión sea la que el usuario confirmó (`quote_changed`), para no cobrar líneas o un total distintos de los que se mostraron;
 - exigir una forma de pago del catálogo;
 - rechazar con `quote_product_unavailable` una línea cuyo producto fue dado de baja o no pertenece a la cuenta, antes de escribir;
 - rechazar con `product_is_parent` una línea cuyo producto pasó a tener variantes;
@@ -396,6 +420,16 @@ La conversión SHALL estar permitida a los roles vendedor, administrador y dueñ
 #### Scenario: misma clave en paralelo sobre dos presupuestos
 - **WHEN** dos sesiones convierten al mismo tiempo los presupuestos A y B con la misma `Idempotency-Key`
 - **THEN** exactamente una crea su venta, la otra falla con `idempotency_key_conflict`, su presupuesto conserva el estado y no queda ninguna orden `draft`
+
+#### Scenario: el presupuesto cambió mientras se confirmaba la venta
+- **GIVEN** un usuario que abrió "Convertir en venta" sobre la versión 2 de un presupuesto, y otro usuario que después le agregó una línea (versión 3)
+- **WHEN** el primero confirma la conversión
+- **THEN** la operación falla con `quote_changed` y no queda ningún efecto
+
+#### Scenario: el estado se informa antes que un producto dado de baja
+- **GIVEN** un presupuesto ya convertido cuyo producto se dio de baja después
+- **WHEN** se intenta convertirlo otra vez con otra clave
+- **THEN** la operación falla con el error de estado inválido y no con `quote_product_unavailable`
 
 #### Scenario: efectivo sin caja abierta
 - **WHEN** se convierte un presupuesto con una forma de pago de `kind = 'cash'` sin sesión de caja

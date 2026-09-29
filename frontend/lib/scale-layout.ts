@@ -219,35 +219,33 @@ export function isValidScaleSettings(settings: ScaleSettings): boolean {
 
 /**
  * Letra que la pestaña Balanza muestra para un campo, en la línea "Resultado"
- * que el comercio compara a ojo contra la pantalla de la balanza:
- * - `fixed` no pasa por acá — su valor se imprime literal.
- * - `plu` → "B", `amount`/`quantity` → "C" (los campos con nombre propio en
- *   la pantalla de la balanza, pág. 135).
- * - `ignored` → "C" salvo que sea el ÚLTIMO campo del formato, en cuyo caso
- *   "I" — el manual dibuja el formato Varios como `2 2 A A I I I I I I I I X`
- *   (pág. 134): un campo "otro" intermedio (sección/n.º de balanza) comparte
- *   la letra de un campo con nombre, y sólo el tramo final — el que D3
- *   describe como "contenido NO interpretado" — se marca distinto ("I").
+ * que el comercio compara a ojo contra la pantalla de la balanza.
+ *
+ * Fix F5 (revisión adversarial PR #599): la letra es la de la POSICIÓN del
+ * campo en la pantalla de la balanza (A/B/C/D, pág. 135: "cuatro campos
+ * ordenados A/B/C/D", cada uno con un tipo elegible por desplegable) — NO el
+ * TIPO de campo que se le asignó. La balanza rotula la posición, no el
+ * contenido: reordenar los campos (D4.2 lo admite) cambia qué tipo vive en
+ * cada posición, pero la posición sigue mostrándose con la MISMA letra. Con
+ * la letra por tipo (versión anterior), un formato con Importe en la
+ * posición B y Código en la C dibujaba una línea (`CCCCCCBBBB…`) que la
+ * balanza jamás mostraría (`BBBBBBCCCC…`), justo en la comparación que D3/D11
+ * usan para validar que el comercio copió bien la configuración.
+ *
+ * `fixed` no pasa por acá — su valor se imprime literal (siempre el campo A,
+ * D4.2). El índice 0-based del segmento en `layout.segments` ES la posición
+ * A/B/C/D (`String.fromCharCode(65 + index)`).
  */
-function letterFor(segment: ScaleSegment, isLastSegment: boolean): string {
-  switch (segment.field) {
-    case "plu":
-      return "B"
-    case "amount":
-    case "quantity":
-      return "C"
-    case "ignored":
-      return isLastSegment ? "I" : "C"
-    case "fixed":
-      return "" // se maneja aparte: se imprime el valor literal
-  }
+function letterFor(index: number): string {
+  return String.fromCharCode(65 + index)
 }
 
 /**
  * La línea "Resultado" que la pestaña Balanza muestra junto al editor de
  * formato, para compararla a ojo con la de la balanza (D11, D4): el valor
- * literal del campo A seguido de la letra de cada campo repetida por su
- * cantidad de dígitos, y una `X` final para el dígito verificador del EAN-13.
+ * literal del campo A seguido de la letra de POSICIÓN de cada campo
+ * repetida por su cantidad de dígitos (F5), y una `X` final para el dígito
+ * verificador del EAN-13.
  *
  * @example
  * layoutResultPattern(FACTORY_SCALE_SETTINGS.layouts[0]) // "20BBBBCCCCCCX"
@@ -260,7 +258,7 @@ export function layoutResultPattern(layout: ScaleLayout): string {
       out += seg.value ?? ""
       return
     }
-    out += letterFor(seg, i === segs.length - 1).repeat(seg.digits)
+    out += letterFor(i).repeat(seg.digits)
   })
   return out + "X"
 }

@@ -5,7 +5,8 @@
     "Un layout ausente en el caso se completa con el de fábrica DESHABILITADO (enabled=false) para no interferir con la regla 5 (cabeceras que se pisan).",
     "`layoutUnderTest` indica el índice (0=weighed,1=unit,2=multi) al que aplican `error_code` y `expected` cuando el caso ejercita un solo formato.",
     "Ambigüedad D4 resuelta según la spec scale-label-integration: 'plu_zero_digits' se trata como PLU ausente (regla 3, 'exactamente un campo de código PLU'), no como campo ignorado (a diferencia de un campo Tara/ignored con digits=0, que sí se permite y se ignora, ver 'factory_weighed_valid').",
-    "error_code es un nombre descriptivo interno de este fixture (no está fijado por el design; el schema real puede usar sus propios códigos) — lo que importa para el contrato compartido es el booleano `valid`."
+    "error_code es un nombre descriptivo interno de este fixture (no está fijado por el design; el schema real puede usar sus propios códigos) — lo que importa para el contrato compartido es el booleano `valid`.",
+    "Fix F5 (revisión adversarial PR #599): 'factory_multi_valid' tenía 'resultPattern': '22CCIIIIIIIIX' (letra por TIPO de campo) — no reproducía lo que la balanza muestra (posición A/B/C/D, pág. 135) y difería del propio ejemplo de la tabla D3 del design ('22BBCCCCCCCCX'). Corregido a la letra por POSICIÓN, que coincide con las 4 filas ya existentes del fixture (canónicas: A/B/C/D en orden) y con D3. Ver 'reordered_fields_result_pattern' y 'tara_nonzero_result_pattern' abajo."
   ],
   "factory_disabled_layout": {
     "kind": "multi",
@@ -81,7 +82,56 @@
       },
       "valid": true,
       "error_code": null,
-      "expected": { "resultPattern": "22CCIIIIIIIIX" }
+      "expected": { "resultPattern": "22BBCCCCCCCCX" }
+    },
+    {
+      "name": "reordered_fields_result_pattern",
+      "notes": "Fix F5 (revision adversarial PR #599): campos reordenados (Importe en B, Codigo en C) -- la balanza sigue rotulando por POSICION (20BBBBBBCCCCX), nunca por tipo de campo (que hubiera dado 20CCCCCCBBBBX con la version anterior de letterFor).",
+      "layoutUnderTest": 0,
+      "settings": {
+        "enabled": true,
+        "layouts": [
+          {
+            "kind": "weighed",
+            "enabled": true,
+            "segments": [
+              { "field": "fixed", "digits": 2, "value": "20" },
+              { "field": "amount", "digits": 6, "decimals": 2 },
+              { "field": "plu", "digits": 4 }
+            ]
+          },
+          { "kind": "unit", "enabled": false, "segments": [] },
+          { "kind": "multi", "enabled": false, "segments": [] }
+        ]
+      },
+      "valid": true,
+      "error_code": null,
+      "expected": { "resultPattern": "20BBBBBBCCCCX", "maxAmount": 9999.99 }
+    },
+    {
+      "name": "tara_nonzero_result_pattern",
+      "notes": "Fix F5: una Tara con digits > 0 (D) tambien se rotula por posicion, no se salta ni comparte letra con el campo de importe.",
+      "layoutUnderTest": 0,
+      "settings": {
+        "enabled": true,
+        "layouts": [
+          {
+            "kind": "weighed",
+            "enabled": true,
+            "segments": [
+              { "field": "fixed", "digits": 2, "value": "20" },
+              { "field": "plu", "digits": 4 },
+              { "field": "amount", "digits": 4, "decimals": 2 },
+              { "field": "ignored", "digits": 2 }
+            ]
+          },
+          { "kind": "unit", "enabled": false, "segments": [] },
+          { "kind": "multi", "enabled": false, "segments": [] }
+        ]
+      },
+      "valid": true,
+      "error_code": null,
+      "expected": { "resultPattern": "20BBBBCCCCDDX", "maxAmount": 99.99 }
     },
     {
       "name": "digits_sum_not_12_importe_5",

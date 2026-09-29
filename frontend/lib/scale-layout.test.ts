@@ -85,8 +85,20 @@ describe("layoutResultPattern", () => {
     expect(layoutResultPattern(layout)).toBe(expected)
   })
 
-  it("TRIANGULATE: formato Varios de fábrica → 22CCIIIIIIIIX", () => {
+  it("TRIANGULATE: formato Varios de fábrica → 22BBCCCCCCCCX", () => {
     const { layout, expected } = fromFixture("factory_multi_valid")
+    expect(layoutResultPattern(layout)).toBe(expected)
+  })
+
+  // Fix F5 (revisión adversarial PR #599): la letra es por POSICIÓN
+  // (A/B/C/D, la pantalla de la balanza), no por TIPO de campo.
+  it("F5: campos reordenados (Importe en B, Código en C) → 20BBBBBBCCCCX", () => {
+    const { layout, expected } = fromFixture("reordered_fields_result_pattern")
+    expect(layoutResultPattern(layout)).toBe(expected)
+  })
+
+  it("F5: Tara con dígitos > 0 se rotula por posición (D), no se salta", () => {
+    const { layout, expected } = fromFixture("tara_nonzero_result_pattern")
     expect(layoutResultPattern(layout)).toBe(expected)
   })
 

@@ -187,6 +187,55 @@ describe("useDashboardFinancials", () => {
     expect(result.current.isLoading).toBe(false)
   })
 
+  // Ronda 2 de revisión — el consumidor registra el detalle del error de
+  // PostgREST (p. ej. "permission denied for function …"), como hacía main.
+  it("si el RPC falla expone el error con su mensaje", async () => {
+    rpcMock.mockResolvedValueOnce({
+      data: null,
+      error: { message: "permission denied for function get_dashboard_financials" },
+    })
+    const { wrapper } = makeWrapperAndClient()
+
+    const { result } = renderHook(() => useDashboardFinancials(SEPTEMBER), { wrapper })
+
+    await waitFor(() => expect(result.current.isError).toBe(true))
+    expect(result.current.error?.message).toBe(
+      "permission denied for function get_dashboard_financials",
+    )
+  })
+
+  it("sin error, error es null", async () => {
+    rpcMock.mockResolvedValueOnce({ data: [mockRpcRow], error: null })
+    const { wrapper } = makeWrapperAndClient()
+
+    const { result } = renderHook(() => useDashboardFinancials(SEPTEMBER), { wrapper })
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+    expect(result.current.error).toBeNull()
+  })
+
+  // Ronda 2 — fija el estado que la página tiene que manejar: un refresco
+  // fallido de un remontaje conserva la lectura anterior en `data` junto con
+  // isError = true. La degradación a $0 de las tarjetas del mes es decisión
+  // de la página (D3); el hook no descarta el valor, porque la celebración de
+  // meta del día lo necesita estable.
+  it("si el refresco de un remontaje falla, conserva la lectura anterior con isError", async () => {
+    rpcMock.mockResolvedValueOnce({ data: [mockRpcRow], error: null })
+    const { wrapper } = makeWrapperAndClient()
+
+    const first = renderHook(() => useDashboardFinancials(SEPTEMBER), { wrapper })
+    await waitFor(() => expect(first.result.current.isLoading).toBe(false))
+    first.unmount()
+
+    rpcMock.mockResolvedValueOnce({ data: null, error: { message: "boom" } })
+    const second = renderHook(() => useDashboardFinancials(SEPTEMBER), { wrapper })
+
+    await waitFor(() => expect(second.result.current.isError).toBe(true))
+    expect(second.result.current.data?.totalIncome).toBe(250000)
+    expect(second.result.current.isLoading).toBe(false)
+    expect(second.result.current.error?.message).toBe("boom")
+  })
+
   // Ronda 1 de revisión — regresión de frescura: antes el fetch vivía en un
   // useEffect de la página y corría en CADA montaje del Tablero. La venta del
   // POS (useQuickSale), la confirmación de una orden y los gastos no invalidan

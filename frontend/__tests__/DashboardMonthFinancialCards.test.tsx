@@ -30,6 +30,7 @@ interface FinancialsHookState {
   isLoading: boolean
   isFetching?: boolean
   isError?: boolean
+  error?: Error | null
 }
 
 interface HookRange {
@@ -284,7 +285,8 @@ describe("Tablero — tarjetas financieras del mes vigente", () => {
 
     it("si el read-model falla, muestra $0, lo registra y el resto del Tablero renderiza", () => {
       const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {})
-      monthState = { data: null, isLoading: false, isError: true }
+      // En React Query isError implica error ≠ null (el hook lo expone tal cual).
+      monthState = { data: null, isLoading: false, isError: true, error: new Error("boom") }
       render(<DashboardPage />)
 
       expect(screen.getByTestId("kpi-card-Ventas del mes")).toHaveTextContent("$0")
@@ -292,6 +294,58 @@ describe("Tablero — tarjetas financieras del mes vigente", () => {
       expect(screen.getByTestId("kpi-card-Ganancia neta del mes")).toHaveTextContent("$0")
       expect(errorSpy).toHaveBeenCalled()
       expect(screen.getByTestId("kpi-card-Productos en alerta")).toHaveTextContent("2")
+    })
+
+    // Ronda 2 de revisión — el estado REAL de React Query cuando falla el
+    // refresco de un remontaje (refetchOnMount: "always") con datos en caché:
+    // isError = true y data = la lectura anterior. D3 y el escenario "Falla del
+    // read-model" piden $0: no se sigue mostrando un total que no se pudo
+    // confirmar (paridad con main, cuyo useEffect arrancaba cada montaje en null).
+    it("si el refresco falla con una lectura previa en caché, muestra $0 y no el total viejo", () => {
+      vi.spyOn(console, "error").mockImplementation(() => {})
+      monthState = {
+        data: MONTH_DATA,
+        isLoading: false,
+        isError: true,
+        error: new Error("boom"),
+      }
+      render(<DashboardPage />)
+
+      expect(screen.getByTestId("kpi-card-Ventas del mes")).toHaveTextContent("$0")
+      expect(screen.getByTestId("kpi-card-Gastos del mes")).toHaveTextContent("$0")
+      expect(screen.getByTestId("kpi-card-Ganancia neta del mes")).toHaveTextContent("$0")
+    })
+
+    // Ronda 2 — el log conserva el detalle del error de PostgREST que main
+    // registraba (p. ej. "permission denied for function …", el síntoma de H-5).
+    it("el error registrado incluye el mensaje del read-model", () => {
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+      monthState = {
+        data: null,
+        isLoading: false,
+        isError: true,
+        error: new Error("permission denied for function get_dashboard_financials"),
+      }
+      render(<DashboardPage />)
+
+      const logged = errorSpy.mock.calls.map((args) => args.map(String).join(" "))
+      expect(
+        logged.some((line) =>
+          line.includes("permission denied for function get_dashboard_financials"),
+        ),
+      ).toBe(true)
+    })
+
+    // Ronda 2 — el "—" depende SÓLO de isLoading: un refresco en curso con un
+    // valor en caché (volver al Tablero) sigue mostrando ese valor, sin parpadeo
+    // (escenario "Volver al Tablero trae los totales vigentes").
+    it("mientras el mes se refresca con un valor en caché, las tarjetas lo muestran (no —)", () => {
+      monthState = { data: MONTH_DATA, isLoading: false, isFetching: true, isError: false }
+      render(<DashboardPage />)
+
+      expect(screen.getByTestId("kpi-card-Ventas del mes")).toHaveTextContent("$750")
+      expect(screen.getByTestId("kpi-card-Gastos del mes")).toHaveTextContent("$120")
+      expect(screen.getByTestId("kpi-card-Ganancia neta del mes")).toHaveTextContent("$430")
     })
   })
 
@@ -417,11 +471,20 @@ describe("Tablero — tarjetas financieras del mes vigente", () => {
     })
 
     it("sin datos del día, el Resumen AI recibe 0 (degradación, no NaN)", () => {
-      dayState = { data: null, isLoading: false, isError: true }
+      dayState = { data: null, isLoading: false, isError: true, error: new Error("boom") }
       vi.spyOn(console, "error").mockImplementation(() => {})
       render(<DashboardPage />)
 
       expect(screen.getByTestId("ai-summary-card")).toHaveAttribute("data-today-sales", "0")
+    })
+
+    it("un fallo de la ventana del día registra el mensaje del read-model", () => {
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+      dayState = { data: null, isLoading: false, isError: true, error: new Error("day boom") }
+      render(<DashboardPage />)
+
+      const logged = errorSpy.mock.calls.map((args) => args.map(String).join(" "))
+      expect(logged.some((line) => line.includes("day boom"))).toBe(true)
     })
   })
 })

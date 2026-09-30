@@ -33,6 +33,12 @@ export type { DashboardFinancials }
  *
  * `isFetching` distingue "hay un valor, pero está por cambiar": la celebración
  * de meta no debe tomar como línea base el valor cacheado de un remontaje.
+ *
+ * Si el refresco de un remontaje falla, React Query conserva la lectura
+ * anterior en `data` junto con `isError`: el hook no la descarta (la
+ * celebración la necesita estable) y cada consumidor decide cómo degradar — las
+ * tarjetas del mes muestran `$0` (D3). `error` expone el detalle de PostgREST
+ * para el registro.
  */
 export function useDashboardFinancials(range: IsoRange, branchId: string | null = null) {
   const { user } = useAuth()
@@ -54,6 +60,7 @@ export function useDashboardFinancials(range: IsoRange, branchId: string | null 
     isLoading: query.isLoading,
     isFetching: query.isFetching,
     isError: query.isError,
+    error: query.error,
     refetch: query.refetch,
   }
 }

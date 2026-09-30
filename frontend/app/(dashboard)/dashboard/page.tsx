@@ -64,6 +64,7 @@ export default function DashboardPage() {
     data: monthFinancials,
     isLoading: loadingMonth,
     isError: monthError,
+    error: monthErr,
   } = useDashboardFinancials(monthRange, branchId)
 
   // ── "Hoy" (D4) ──────────────────────────────────────────────────────────────
@@ -74,17 +75,23 @@ export default function DashboardPage() {
     data: dayFinancials,
     isLoading: loadingDay,
     isFetching: fetchingDay,
-    isError: dayError,
+    error: dayErr,
   } = useDashboardFinancials(utcDayRange(), branchId)
 
   // Un fallo del read-model degrada a $0 (paridad con la tarjeta de stock
-  // crítico) y no rompe el resto del Tablero; queda registrado.
+  // crítico) y no rompe el resto del Tablero; queda registrado con el detalle
+  // de PostgREST (p. ej. "permission denied for function …"). Dependen del
+  // objeto de error: se registra una vez por fallo, no en cada render.
   useEffect(() => {
-    if (monthError) console.error("[Dashboard] get_dashboard_financials (mes del período) falló")
-  }, [monthError])
+    if (monthErr) {
+      console.error("[Dashboard] get_dashboard_financials (mes del período) falló:", monthErr.message)
+    }
+  }, [monthErr])
   useEffect(() => {
-    if (dayError) console.error("[Dashboard] get_dashboard_financials (día) falló")
-  }, [dayError])
+    if (dayErr) {
+      console.error("[Dashboard] get_dashboard_financials (día) falló:", dayErr.message)
+    }
+  }, [dayErr])
 
   // ── Auto-generate AI insights if none exist for today ────────────────────────
   // Guard ref prevents double-execution (StrictMode) and error-retry loops.
@@ -109,9 +116,12 @@ export default function DashboardPage() {
   }, [])  // intentionally empty — one-time check on mount after initial data load
 
   // ── Derived display values ───────────────────────────────────────────────────
-  const monthSales     = monthFinancials?.totalIncome ?? 0
-  const monthExpenses  = monthFinancials?.totalExpenses ?? 0
-  const monthNetProfit = monthFinancials?.netProfit ?? 0
+  // En error → $0 aunque haya una lectura anterior en caché (D3): si el refresco
+  // de un remontaje falla, React Query conserva el `data` viejo con isError, y
+  // la fila no sigue mostrando un total que no se pudo confirmar.
+  const monthSales     = monthError ? 0 : monthFinancials?.totalIncome ?? 0
+  const monthExpenses  = monthError ? 0 : monthFinancials?.totalExpenses ?? 0
+  const monthNetProfit = monthError ? 0 : monthFinancials?.netProfit ?? 0
   const todaySales     = dayFinancials?.totalIncome ?? 0
 
   // ── Celebración "meta alcanzada" (v4-visual-3d-refresh 3.6) ───────────────────

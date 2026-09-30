@@ -153,7 +153,7 @@ La regla de notas de crédito NOT SHALL reimplementarse en esta superficie: `get
 
 #### Scenario: Volver al Tablero trae los totales vigentes
 - **WHEN** el usuario opera en otra pantalla (por ejemplo, vende por el POS o carga un gasto) y vuelve al Tablero
-- **THEN** las tres tarjetas del mes, las ventas de hoy que recibe el Resumen AI del día y el Bloque Resumen se vuelven a consultar al montar la página, aunque la lectura anterior sea reciente
+- **THEN** las tres tarjetas del mes, las ventas de hoy que recibe el Resumen AI del día y las cuatro tarjetas del Bloque Resumen que calcula `rpc_dashboard_kpi_summary` (Ganancia Neta, Stock sin Rotación, Costo por Venta y Ticket Promedio) se vuelven a consultar al montar la página, aunque la lectura anterior sea reciente
 - **AND** mientras llega la lectura nueva se sigue viendo la anterior (sin volver a `—`), y la celebración de meta alcanzada no toma esa lectura anterior como punto de partida
 
 #### Scenario: Período sin datos
@@ -166,7 +166,8 @@ La regla de notas de crédito NOT SHALL reimplementarse en esta superficie: `get
 
 #### Scenario: Falla del read-model
 - **WHEN** el read-model falla
-- **THEN** las tres tarjetas muestran `$0` y el error queda registrado
+- **THEN** las tres tarjetas muestran `$0` y el error queda registrado con el mensaje que devolvió el read-model
+- **AND** también cuando había una lectura anterior visible (falla el refresco al volver al Tablero): la fila no sigue mostrando un total que no se pudo confirmar
 - **AND** el resto del Tablero sigue renderizando
 
 #### Scenario: Lo que sigue siendo del día

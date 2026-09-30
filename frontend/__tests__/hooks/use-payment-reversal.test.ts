@@ -96,8 +96,9 @@ describe("useReversePaymentReceived", () => {
         JSON.stringify(["cashMovements"]),
         JSON.stringify(["bankAccounts"]),
         JSON.stringify(["dashboardKpiSummary"]),
-        // tablero-kpis-mes-vigente: las tarjetas Ventas/Gastos/Ganancia neta del mes
-        // leen get_dashboard_financials — anular un cobro/pago las deja stale igual.
+        // tablero-kpis-mes-vigente (D5): paridad — las dos claves del Tablero se
+        // invalidan juntas. La anulación no cambia get_dashboard_financials (lee
+        // ventas, NC, gastos y compras); el motivo de la de arriba es "Cobrado".
         JSON.stringify(["dashboardFinancials"]),
       ]),
     )
@@ -155,8 +156,8 @@ describe("useReversePaymentMade", () => {
         JSON.stringify(["cashMovements"]),
         JSON.stringify(["bankAccounts"]),
         JSON.stringify(["dashboardKpiSummary"]),
-        // tablero-kpis-mes-vigente: las tarjetas Ventas/Gastos/Ganancia neta del mes
-        // leen get_dashboard_financials — anular un cobro/pago las deja stale igual.
+        // tablero-kpis-mes-vigente (D5): paridad — las dos claves del Tablero se
+        // invalidan juntas. Anular un pago no cambia get_dashboard_financials.
         JSON.stringify(["dashboardFinancials"]),
       ]),
     )

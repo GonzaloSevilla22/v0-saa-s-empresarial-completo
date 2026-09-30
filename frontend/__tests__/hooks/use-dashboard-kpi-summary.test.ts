@@ -201,4 +201,31 @@ describe("useDashboardKpiSummary", () => {
     expect(result.current.data?.costPerSale).toBeNull()
     expect(result.current.data?.salesCount).toBe(0)
   })
+
+  // tablero-kpis-mes-vigente (ronda 1): la "Ganancia Neta" del bloque se muestra
+  // al lado de la "Ganancia neta del mes" de la fila (use-dashboard-financials),
+  // que se refresca en cada montaje. Si el bloque no lo hiciera, tras una venta
+  // por el POS las dos cifras del mismo mes divergirían hasta 5 minutos.
+  it("al volver a montar dentro del staleTime vuelve a consultar, mostrando mientras tanto el valor cacheado", async () => {
+    rpcMock.mockResolvedValueOnce({ data: [mockRpcRow], error: null })
+    const wrapper = makeWrapper()
+
+    const first = renderHook(() => useDashboardKpiSummary(new Date(2026, 5, 15)), { wrapper })
+    await waitFor(() => expect(first.result.current.isLoading).toBe(false))
+    first.unmount()
+
+    rpcMock.mockResolvedValueOnce({
+      data: [{ ...mockRpcRow, net_profit: "200000" }],
+      error: null,
+    })
+    const second = renderHook(() => useDashboardKpiSummary(new Date(2026, 5, 15)), { wrapper })
+
+    // El valor cacheado queda visible mientras se refresca (el bloque no
+    // parpadea a "—").
+    expect(second.result.current.data?.netProfit).toBe(184200)
+    expect(second.result.current.isLoading).toBe(false)
+
+    await waitFor(() => expect(second.result.current.data?.netProfit).toBe(200000))
+    expect(rpcMock).toHaveBeenCalledTimes(2)
+  })
 })

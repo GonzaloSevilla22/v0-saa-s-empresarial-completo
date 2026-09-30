@@ -13,6 +13,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import { render, screen } from "@testing-library/react"
 import DashboardPage from "@/app/(dashboard)/dashboard/page"
 import type { DashboardFinancials } from "@/lib/reporting/dashboard-financials"
+import { utcMonthRange } from "@/lib/date-range"
 
 // ── Mock de next/navigation (?period= / ?branch=) ───────────────────────────
 
@@ -27,6 +28,7 @@ vi.mock("next/navigation", () => ({
 interface FinancialsHookState {
   data: DashboardFinancials | null
   isLoading: boolean
+  isFetching?: boolean
   isError?: boolean
 }
 
@@ -106,7 +108,17 @@ vi.mock("@/components/dashboard/recent-activity", () => ({ RecentActivity: () =>
 vi.mock("@/components/dashboard/ai-alerts", () => ({ AiAlerts: () => null }))
 vi.mock("@/components/dashboard/TrialBanner", () => ({ TrialBanner: () => null }))
 vi.mock("@/components/branches/BranchFilter", () => ({ BranchFilter: () => null }))
-vi.mock("@/components/dashboard/KpiSummaryBlock", () => ({ KpiSummaryBlock: () => null }))
+// El bloque se reemplaza por un espía de props: la fila y el bloque tienen que
+// recibir la misma ventana y la misma sucursal (escenario "La ganancia neta del
+// mes coincide con la del Bloque Resumen").
+interface KpiSummaryBlockProps {
+  periodDate: Date
+  branchId: string | null
+}
+const kpiSummaryBlockMock = vi.fn((_props: KpiSummaryBlockProps) => null)
+vi.mock("@/components/dashboard/KpiSummaryBlock", () => ({
+  KpiSummaryBlock: (props: KpiSummaryBlockProps) => kpiSummaryBlockMock(props),
+}))
 vi.mock("@/components/dashboard/PeriodFilter", () => ({ PeriodFilter: () => null }))
 
 vi.mock("@/lib/services/aiInsightService", () => ({
@@ -142,6 +154,22 @@ const DAY_DATA: DashboardFinancials = {
 const cardTestIds = (): string[] =>
   screen.getAllByTestId(/^kpi-card-/).map((el) => el.getAttribute("data-testid") as string)
 
+/** Última llamada al hook con la ventana del MES (no la del día). */
+function lastMonthCall(): [HookRange, string | null] {
+  const monthCalls = useDashboardFinancialsMock.mock.calls.filter(([range]) => !isDayRange(range))
+  const last = monthCalls[monthCalls.length - 1]
+  if (!last) throw new Error("useDashboardFinancials no se llamó con la ventana del mes")
+  return last
+}
+
+/** Props del último render del Bloque Resumen KPI. */
+function lastBlockProps(): KpiSummaryBlockProps {
+  const calls = kpiSummaryBlockMock.mock.calls
+  const last = calls[calls.length - 1]
+  if (!last) throw new Error("KpiSummaryBlock no se renderizó")
+  return last[0]
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe("Tablero — tarjetas financieras del mes vigente", () => {
@@ -153,6 +181,7 @@ describe("Tablero — tarjetas financieras del mes vigente", () => {
     dayState = { data: DAY_DATA, isLoading: false, isError: false }
     useDashboardFinancialsMock.mockClear()
     useGoalMilestoneMock.mockClear()
+    kpiSummaryBlockMock.mockClear()
   })
 
   afterEach(() => {
@@ -310,6 +339,33 @@ describe("Tablero — tarjetas financieras del mes vigente", () => {
 
       expect(useDashboardFinancialsMock).toHaveBeenCalledWith(SEPTEMBER, "branch-9")
     })
+
+    // Escenario de spec "La ganancia neta del mes coincide con la del Bloque
+    // Resumen": la igualdad de importes la fija el gate SQL
+    // (test_kpis_edge_cases.sql); lo que fija este test es que la página le
+    // pase a las dos superficies la MISMA ventana y la MISMA sucursal.
+    it("el Bloque Resumen y las tarjetas del mes reciben la misma ventana y sucursal (mes en curso)", () => {
+      render(<DashboardPage />)
+
+      const [monthRange, monthBranch] = lastMonthCall()
+      const block = lastBlockProps()
+      expect(monthRange).toEqual(SEPTEMBER)
+      expect(utcMonthRange(block.periodDate)).toEqual(monthRange)
+      expect(block.branchId).toBeNull()
+      expect(monthBranch).toBeNull()
+    })
+
+    it("con ?period=2026-08&branch=b1 el Bloque Resumen y las tarjetas del mes siguen sincronizados", () => {
+      searchParamsString = "period=2026-08&branch=b1"
+      render(<DashboardPage />)
+
+      const [monthRange, monthBranch] = lastMonthCall()
+      const block = lastBlockProps()
+      expect(monthRange).toEqual(AUGUST)
+      expect(utcMonthRange(block.periodDate)).toEqual(monthRange)
+      expect(block.branchId).toBe("b1")
+      expect(monthBranch).toBe("b1")
+    })
   })
 
   describe("lo que sigue siendo hoy (D4)", () => {
@@ -337,6 +393,27 @@ describe("Tablero — tarjetas financieras del mes vigente", () => {
       expect(value).toBe(90)
       expect(thresholds).toEqual([50_000, 100_000, 250_000, 500_000, 1_000_000])
       expect(isLoading).toBe(true)
+    })
+
+    it("si la ventana del día se está refrescando (valor cacheado a punto de cambiar), la celebración espera", () => {
+      // Remontaje del Tablero con datos en caché: isLoading es false pero la
+      // consulta está en curso. Tomar ese valor viejo como línea base haría
+      // "festejar" al entrar una venta hecha en el POS mientras tanto
+      // (useGoalMilestone nunca reporta la primera lectura).
+      dayState = { data: DAY_DATA, isLoading: false, isFetching: true, isError: false }
+      render(<DashboardPage />)
+
+      const [value, , isLoading] = useGoalMilestoneMock.mock.calls[0]
+      expect(value).toBe(90)
+      expect(isLoading).toBe(true)
+    })
+
+    it("con la ventana del día resuelta y sin refresco en curso, la celebración queda habilitada", () => {
+      dayState = { data: DAY_DATA, isLoading: false, isFetching: false, isError: false }
+      render(<DashboardPage />)
+
+      const [, , isLoading] = useGoalMilestoneMock.mock.calls[0]
+      expect(isLoading).toBe(false)
     })
 
     it("sin datos del día, el Resumen AI recibe 0 (degradación, no NaN)", () => {

@@ -112,7 +112,7 @@ Cada tarjeta SHALL mostrar un badge de variación comparando el valor del perío
 - **THEN** el badge se muestra en amarillo (#FBBF24)
 
 ### Requirement: Selector de período en el Tablero
-El Tablero SHALL ofrecer un selector de período (mes en curso por defecto) que afecta el bloque KPI; la selección se refleja en la URL y convive con el filtro de sucursal existente.
+El Tablero SHALL ofrecer un selector de período (mes en curso por defecto) que afecta el bloque KPI y las tres tarjetas financieras del mes (requirement "Tarjetas financieras del período seleccionado"); la selección se refleja en la URL y convive con el filtro de sucursal existente.
 
 #### Scenario: Mes en curso por defecto
 - **WHEN** el usuario entra al Tablero sin período seleccionado
@@ -124,7 +124,8 @@ El Tablero SHALL ofrecer un selector de período (mes en curso por defecto) que 
 
 #### Scenario: Período sin datos
 - **WHEN** no hay datos para el período seleccionado
-- **THEN** las tarjetas muestran `—` en lugar del valor
+- **THEN** las 5 tarjetas del bloque muestran `—` en lugar del valor
+- **AND** las tres tarjetas financieras del mes muestran `$0` (su propio escenario "Período sin datos"): la diferencia es deliberada — el bloque no informa un KPI sin actividad, la fila informa un total que es cero
 
 ### Requirement: Tarjetas financieras del período seleccionado
 El Tablero SHALL mostrar, debajo del Bloque Resumen KPI, tres tarjetas financieras con los títulos "Ventas del mes", "Gastos del mes" y "Ganancia neta del mes", calculadas por `get_dashboard_financials` sobre la ventana del mes calendario del selector de período (mes en curso por defecto) y la sucursal del filtro de sucursal activo. Las tarjetas NOT SHALL presentarse como valores del día ("hoy"): el pedido del producto es que un negocio vea cómo va su mes, no cómo va su última hora. La ventana del mes SHALL materializarse con el mismo helper de rangos que el Bloque Resumen (`utcMonthRange`, anclado al día argentino), y las tres tarjetas SHALL mostrar lo que devuelve el read-model —en particular "Ganancia neta del mes" es el `net_profit` del RPC, que resta también las compras— sin recomputarlo en el cliente.
@@ -145,9 +146,15 @@ La regla de notas de crédito NOT SHALL reimplementarse en esta superficie: `get
 - **THEN** las tres tarjetas se calculan sólo para esa sucursal
 
 #### Scenario: La ganancia neta del mes coincide con la del Bloque Resumen
-- **GIVEN** un mes con ventas, gastos, compras y una nota de crédito emitida dentro del mes
-- **WHEN** se renderizan el Bloque Resumen KPI y la tarjeta "Ganancia neta del mes" con la misma cuenta, el mismo período y el mismo filtro de sucursal
-- **THEN** el valor de "Ganancia neta del mes" es igual al de la tarjeta "Ganancia Neta" del bloque
+- **GIVEN** un usuario con una única membresía de cuenta y un mes con ventas, gastos, compras y una nota de crédito emitida dentro del mes
+- **WHEN** se renderizan el Bloque Resumen KPI y la tarjeta "Ganancia neta del mes" con el mismo período y el mismo filtro de sucursal
+- **THEN** el importe de "Ganancia neta del mes" (el `net_profit` de `get_dashboard_financials`) es igual al de la tarjeta "Ganancia Neta" del bloque (el `net_profit` de `rpc_dashboard_kpi_summary`)
+- **AND** la igualdad es del importe, no del texto: la fila presenta el valor con el formato de siempre de esas tarjetas (`toLocaleString` del navegador, con decimales si los hay) y el bloque con `formatKpiCurrency` (redondeado, signo antes del `$`)
+
+#### Scenario: Volver al Tablero trae los totales vigentes
+- **WHEN** el usuario opera en otra pantalla (por ejemplo, vende por el POS o carga un gasto) y vuelve al Tablero
+- **THEN** las tres tarjetas del mes, las ventas de hoy que recibe el Resumen AI del día y el Bloque Resumen se vuelven a consultar al montar la página, aunque la lectura anterior sea reciente
+- **AND** mientras llega la lectura nueva se sigue viendo la anterior (sin volver a `—`), y la celebración de meta alcanzada no toma esa lectura anterior como punto de partida
 
 #### Scenario: Período sin datos
 - **WHEN** no hay ventas, gastos ni compras en el período seleccionado

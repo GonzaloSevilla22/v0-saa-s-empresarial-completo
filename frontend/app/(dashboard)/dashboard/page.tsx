@@ -73,6 +73,7 @@ export default function DashboardPage() {
   const {
     data: dayFinancials,
     isLoading: loadingDay,
+    isFetching: fetchingDay,
     isError: dayError,
   } = useDashboardFinancials(utcDayRange(), branchId)
 
@@ -114,12 +115,18 @@ export default function DashboardPage() {
   const todaySales     = dayFinancials?.totalIncome ?? 0
 
   // ── Celebración "meta alcanzada" (v4-visual-3d-refresh 3.6) ───────────────────
-  // Puramente presentacional: deriva de `todaySales`/`loadingDay` (la ventana del
-  // DÍA, D4 — los umbrales son de "ventas hoy", no del mes). `useGoalMilestone`
-  // nunca celebra la primera lectura tras cargar (evita "festejar" en cada
-  // reload); solo un incremento posterior que cruce un umbral, dentro de la
-  // misma sesión de página.
-  const crossedMilestone = useGoalMilestone(todaySales, GOAL_MILESTONES, loadingDay)
+  // Puramente presentacional: deriva de `todaySales` (la ventana del DÍA, D4 —
+  // los umbrales son de "ventas hoy", no del mes). `useGoalMilestone` nunca
+  // celebra la primera lectura tras cargar (evita "festejar" en cada reload);
+  // solo un incremento posterior que cruce un umbral, dentro de la misma sesión
+  // de página. "Cargando" incluye el refresco en curso: al volver al Tablero la
+  // consulta muestra el valor cacheado (isLoading=false) mientras trae el nuevo
+  // (refetchOnMount), y ese valor viejo no puede ser la línea base.
+  const crossedMilestone = useGoalMilestone(
+    todaySales,
+    GOAL_MILESTONES,
+    loadingDay || fetchingDay,
+  )
 
   return (
     <div className="flex flex-col gap-6">

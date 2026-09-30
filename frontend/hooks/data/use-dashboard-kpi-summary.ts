@@ -14,6 +14,12 @@ export type { DashboardKpiSummary }
 /**
  * KPIs mensuales del Bloque Resumen (Fase A): período del mes que contiene
  * `periodDate` + el mes anterior, en una sola llamada al RPC agregador.
+ *
+ * `refetchOnMount: "always"` (tablero-kpis-mes-vigente, ronda 1): la
+ * "Ganancia Neta" del bloque convive con la "Ganancia neta del mes" de la fila
+ * (`use-dashboard-financials.ts`, que se refresca en cada montaje). Sin esta
+ * opción, tras una venta por el POS o un gasto —que no invalidan esta clave—
+ * las dos cifras del mismo mes divergirían hasta que venza el `staleTime`.
  */
 export function useDashboardKpiSummary(periodDate: Date, branchId: string | null = null) {
   const { user } = useAuth()
@@ -27,6 +33,7 @@ export function useDashboardKpiSummary(periodDate: Date, branchId: string | null
     queryFn: (): Promise<DashboardKpiSummary | null> =>
       fetchKpiSummary(supabase, { from, to, prevFrom, prevTo, branchId }),
     staleTime: 5 * 60_000,
+    refetchOnMount: "always",
     enabled: !!user,
   })
 

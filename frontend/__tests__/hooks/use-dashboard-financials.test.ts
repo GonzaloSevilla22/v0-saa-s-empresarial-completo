@@ -186,4 +186,35 @@ describe("useDashboardFinancials", () => {
     expect(result.current.data).toBeNull()
     expect(result.current.isLoading).toBe(false)
   })
+
+  // Ronda 1 de revisión — regresión de frescura: antes el fetch vivía en un
+  // useEffect de la página y corría en CADA montaje del Tablero. La venta del
+  // POS (useQuickSale), la confirmación de una orden y los gastos no invalidan
+  // esta clave: volver al Tablero tiene que traer el total nuevo aunque la
+  // lectura anterior tenga menos de staleTime.
+  it("al volver a montar dentro del staleTime vuelve a consultar, mostrando mientras tanto el valor cacheado", async () => {
+    rpcMock.mockResolvedValueOnce({ data: [mockRpcRow], error: null })
+    const { wrapper } = makeWrapperAndClient()
+
+    const first = renderHook(() => useDashboardFinancials(SEPTEMBER), { wrapper })
+    await waitFor(() => expect(first.result.current.isLoading).toBe(false))
+    first.unmount()
+
+    rpcMock.mockResolvedValueOnce({
+      data: [{ ...mockRpcRow, total_income: "260000", net_profit: "129999.5" }],
+      error: null,
+    })
+    const second = renderHook(() => useDashboardFinancials(SEPTEMBER), { wrapper })
+
+    // Primer render del remontaje: el valor cacheado queda visible (no "—") y
+    // la consulta ya figura en curso — la señal que usa la celebración de meta
+    // para no tomar como línea base un valor que está por cambiar.
+    expect(second.result.current.data?.totalIncome).toBe(250000)
+    expect(second.result.current.isLoading).toBe(false)
+    expect(second.result.current.isFetching).toBe(true)
+
+    await waitFor(() => expect(second.result.current.data?.totalIncome).toBe(260000))
+    expect(rpcMock).toHaveBeenCalledTimes(2)
+    expect(second.result.current.isFetching).toBe(false)
+  })
 })

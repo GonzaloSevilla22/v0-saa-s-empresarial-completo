@@ -22,6 +22,17 @@ export type { DashboardFinancials }
  * `range` se recibe ya materializado (`utcMonthRange`/`utcDayRange` devuelven
  * strings) para que la query key dependa de valores primitivos estables, nunca
  * de un `Date` que se recrea en cada render.
+ *
+ * `refetchOnMount: "always"`: cada montaje del Tablero vuelve a consultar
+ * (paridad con el `useEffect` que reemplaza). La venta del POS, la confirmación
+ * de una orden y los gastos NO invalidan esta clave; con sólo `staleTime`,
+ * volver al Tablero dentro de los 5 minutos mostraba el total anterior. El
+ * valor cacheado queda visible mientras se refresca (sin parpadeo a "—").
+ * `useDashboardKpiSummary` lleva la misma opción, para que la "Ganancia Neta"
+ * del bloque y la "Ganancia neta del mes" de la fila nunca diverjan.
+ *
+ * `isFetching` distingue "hay un valor, pero está por cambiar": la celebración
+ * de meta no debe tomar como línea base el valor cacheado de un remontaje.
  */
 export function useDashboardFinancials(range: IsoRange, branchId: string | null = null) {
   const { user } = useAuth()
@@ -34,12 +45,14 @@ export function useDashboardFinancials(range: IsoRange, branchId: string | null 
     queryFn: (): Promise<DashboardFinancials> =>
       fetchDashboardFinancials(supabase, { from, to, branchId }),
     staleTime: 5 * 60_000,
+    refetchOnMount: "always",
     enabled: !!user,
   })
 
   return {
     data: query.data ?? null,
     isLoading: query.isLoading,
+    isFetching: query.isFetching,
     isError: query.isError,
     refetch: query.refetch,
   }

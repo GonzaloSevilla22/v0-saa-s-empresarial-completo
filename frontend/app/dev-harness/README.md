@@ -71,3 +71,17 @@ layout ni scroll ante `wheel`/`touchmove` (RED de `tasks.md` 1.1/2.1).
   `/products` traen `stock`/`min_stock` como string decimal ("0.5000"), como
   las serializa FastAPI: con números el arnés escondía el crash de `/stock`
   (corrección del PR #584).
+- `/dev-harness/sidebar` — sidebar-menu-grupos: el `AppSidebar` REAL (no una
+  réplica como `/dev-harness/shell`) dentro de un `SidebarProvider`, sin sesión ni
+  datos: el `AuthProvider` del layout raíz resuelve "sin sesión" (plan gratis, sin
+  módulo de sucursales), que alcanza para ver las seis categorías plegadas. Para
+  la pasada visual de las 4 combinaciones (escritorio 1440 / móvil 390 × claro /
+  oscuro): categorías cerradas al cargar, Operaciones abierta, riel colapsado con
+  el desplegable a la derecha y drawer móvil. `Sucursales`/`Por Sucursal` y la
+  sección Administración dependen del contexto de auth (no se toca para un
+  arnés) y se cubren en jsdom (`__tests__/components/AppSidebarGroups.test.tsx`).
+  Gotchas aprendidos en su spec: los links reales rebotan sin sesión, así que el
+  cierre "al tocar un módulo" se asserta cancelando la navegación con un
+  listener de captura (next/link respeta `defaultPrevented`); y hay que esperar
+  a que termine la animación/transición del desplegable antes de capturar (los
+  ítems llevan `transition-colors` y el cambio de tema sale a mitad de color).

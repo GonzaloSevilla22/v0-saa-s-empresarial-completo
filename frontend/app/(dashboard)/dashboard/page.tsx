@@ -1,9 +1,10 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useRef } from "react"
 import { useSearchParams } from "next/navigation"
 import { useInsights } from "@/hooks/data/use-insights"
 import { useCriticalStock } from "@/hooks/data/use-critical-stock"
+import { useDashboardFinancials } from "@/hooks/data/use-dashboard-financials"
 import { useGreeting } from "@/hooks/use-greeting"
 import { useGoalMilestone } from "@/hooks/three/useGoalMilestone"
 import { Celebration3D } from "@/components/three/Celebration3D"
@@ -15,21 +16,11 @@ import { AiAlerts } from "@/components/dashboard/ai-alerts"
 import { DollarSign, TrendingDown, TrendingUp, AlertTriangle, HandCoins } from "lucide-react"
 import { useReceivablesSummary } from "@/hooks/data/use-receivables"
 import { aiInsightService } from "@/lib/services/aiInsightService"
-import { createClient } from "@/lib/supabase/client"
 import { TrialBanner } from "@/components/dashboard/TrialBanner"
 import { BranchFilter } from "@/components/branches/BranchFilter"
 import { KpiSummaryBlock } from "@/components/dashboard/KpiSummaryBlock"
 import { PeriodFilter } from "@/components/dashboard/PeriodFilter"
-import { utcDayRange, parseMonthKey, argentinaToday } from "@/lib/date-range"
-
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-interface DashboardFinancials {
-  total_income:    number
-  total_expenses:  number
-  total_purchases: number
-  net_profit:      number
-}
+import { utcDayRange, utcMonthRange, parseMonthKey, argentinaToday } from "@/lib/date-range"
 
 // Celebración "meta alcanzada" (v4-visual-3d-refresh 3.6) — umbrales redondos
 // de "ventas hoy". Referencia estable a nivel de módulo (useGoalMilestone la
@@ -59,53 +50,40 @@ export default function DashboardPage() {
   // Período del Bloque Resumen KPI (?period=YYYY-MM, mes en curso por defecto).
   const periodDate = parseMonthKey(searchParams.get("period"))
 
-  const [financials, setFinancials]     = useState<DashboardFinancials | null>(null)
-  const [loadingKpis, setLoadingKpis]   = useState(true)
+  // ── Tarjetas financieras del MES (tablero-kpis-mes-vigente, D3) ─────────────
+  // "Ventas / Gastos / Ganancia neta del mes": get_dashboard_financials sobre la
+  // ventana del mes del selector de período y la sucursal activa — la misma
+  // ventana, cuenta y sucursal que el Bloque Resumen de arriba, así que la
+  // "Ganancia neta del mes" coincide con su "Ganancia Neta" (spec
+  // reporting-invariants). `monthRange` son strings (utcMonthRange): la query
+  // key nunca depende del `Date` de `periodDate`, que se recrea en cada render.
+  // Ventana UTC del mes calendario, NO medianoche local del navegador: las filas
+  // de ventas/gastos/compras se guardan a medianoche UTC. Ver lib/date-range.ts.
+  const monthRange = utcMonthRange(periodDate)
+  const {
+    data: monthFinancials,
+    isLoading: loadingMonth,
+    isError: monthError,
+  } = useDashboardFinancials(monthRange, branchId)
 
-  // ── Server-side financial KPIs (no p_user_id — uses auth.uid() internally) ──
+  // ── "Hoy" (D4) ──────────────────────────────────────────────────────────────
+  // Lo único del Tablero que sigue siendo del DÍA: el footer "Ventas hoy" del
+  // Resumen AI del día y la celebración de meta (umbrales de ventas del día).
+  // Ventana del día argentino materializada a medianoche UTC (utcDayRange).
+  const {
+    data: dayFinancials,
+    isLoading: loadingDay,
+    isError: dayError,
+  } = useDashboardFinancials(utcDayRange(), branchId)
+
+  // Un fallo del read-model degrada a $0 (paridad con la tarjeta de stock
+  // crítico) y no rompe el resto del Tablero; queda registrado.
   useEffect(() => {
-    const supabase = createClient()
-
-    async function fetchFinancials() {
-      setLoadingKpis(true)
-      try {
-        // Today's window — UTC calendar day, NOT browser-local midnight.
-        // Sale/expense/purchase `date` rows are stored at midnight UTC keyed to a
-        // calendar date; a local-midnight window (UTC-3 → 03:00Z) pushes every row
-        // into the previous day's bucket and "ventas hoy" reads $0. See lib/date-range.ts.
-        const { from: dateFrom, to: dateTo } = utcDayRange()
-
-        const rpcParams: Record<string, string | null> = {
-          p_date_from: dateFrom,
-          p_date_to:   dateTo,
-        }
-        if (branchId) rpcParams.p_branch_id = branchId
-
-        const { data, error } = await supabase.rpc('get_dashboard_financials', rpcParams)
-
-        if (error) {
-          console.error('[Dashboard] get_dashboard_financials error:', error.message)
-        } else if (Array.isArray(data) && data.length > 0) {
-          const row = data[0]
-          setFinancials({
-            total_income:    Number(row.total_income    ?? 0),
-            total_expenses:  Number(row.total_expenses  ?? 0),
-            total_purchases: Number(row.total_purchases ?? 0),
-            net_profit:      Number(row.net_profit      ?? 0),
-          })
-        } else {
-          // RPC returned empty (no data for today yet) — show zeros
-          setFinancials({ total_income: 0, total_expenses: 0, total_purchases: 0, net_profit: 0 })
-        }
-      } catch (err) {
-        console.error('[Dashboard] Unexpected KPI fetch error:', err)
-      } finally {
-        setLoadingKpis(false)
-      }
-    }
-
-    fetchFinancials()
-  }, [branchId])  // re-fetch when branch filter changes
+    if (monthError) console.error("[Dashboard] get_dashboard_financials (mes del período) falló")
+  }, [monthError])
+  useEffect(() => {
+    if (dayError) console.error("[Dashboard] get_dashboard_financials (día) falló")
+  }, [dayError])
 
   // ── Auto-generate AI insights if none exist for today ────────────────────────
   // Guard ref prevents double-execution (StrictMode) and error-retry loops.
@@ -130,16 +108,18 @@ export default function DashboardPage() {
   }, [])  // intentionally empty — one-time check on mount after initial data load
 
   // ── Derived display values ───────────────────────────────────────────────────
-  const todaySales    = financials?.total_income   ?? 0
-  const todayExpenses = financials?.total_expenses ?? 0
-  const netProfit     = financials?.net_profit     ?? 0
+  const monthSales     = monthFinancials?.totalIncome ?? 0
+  const monthExpenses  = monthFinancials?.totalExpenses ?? 0
+  const monthNetProfit = monthFinancials?.netProfit ?? 0
+  const todaySales     = dayFinancials?.totalIncome ?? 0
 
   // ── Celebración "meta alcanzada" (v4-visual-3d-refresh 3.6) ───────────────────
-  // Puramente presentacional: deriva de `todaySales`/`loadingKpis`, que YA existen
-  // (no toca el fetch ni las queries). `useGoalMilestone` nunca celebra la
-  // primera lectura tras cargar (evita "festejar" en cada reload); solo un
-  // incremento posterior que cruce un umbral, dentro de la misma sesión de página.
-  const crossedMilestone = useGoalMilestone(todaySales, GOAL_MILESTONES, loadingKpis)
+  // Puramente presentacional: deriva de `todaySales`/`loadingDay` (la ventana del
+  // DÍA, D4 — los umbrales son de "ventas hoy", no del mes). `useGoalMilestone`
+  // nunca celebra la primera lectura tras cargar (evita "festejar" en cada
+  // reload); solo un incremento posterior que cruce un umbral, dentro de la
+  // misma sesión de página.
+  const crossedMilestone = useGoalMilestone(todaySales, GOAL_MILESTONES, loadingDay)
 
   return (
     <div className="flex flex-col gap-6">
@@ -175,19 +155,19 @@ export default function DashboardPage() {
           ilegibles. */}
       <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         <KpiCard
-          title="Ventas hoy"
-          value={loadingKpis ? "—" : `$${todaySales.toLocaleString()}`}
+          title="Ventas del mes"
+          value={loadingMonth ? "—" : `$${monthSales.toLocaleString()}`}
           icon={DollarSign}
         />
         <KpiCard
-          title="Gastos hoy"
-          value={loadingKpis ? "—" : `$${todayExpenses.toLocaleString()}`}
+          title="Gastos del mes"
+          value={loadingMonth ? "—" : `$${monthExpenses.toLocaleString()}`}
           icon={TrendingDown}
           iconColor="text-destructive"
         />
         <KpiCard
-          title="Ganancia neta hoy"
-          value={loadingKpis ? "—" : `$${netProfit.toLocaleString()}`}
+          title="Ganancia neta del mes"
+          value={loadingMonth ? "—" : `$${monthNetProfit.toLocaleString()}`}
           icon={TrendingUp}
         />
         <KpiCard

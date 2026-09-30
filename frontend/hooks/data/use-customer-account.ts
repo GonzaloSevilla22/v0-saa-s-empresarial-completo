@@ -307,6 +307,10 @@ export function useReversePaymentReceived(clientId: string) {
       // stale. use-dashboard-kpi-summary.ts no pasa por queryKeys.ts (clave
       // literal): se invalida por el prefijo del array.
       queryClient.invalidateQueries({ queryKey: ["dashboardKpiSummary"] })
+      // tablero-kpis-mes-vigente: las tarjetas Ventas/Gastos/Ganancia neta del
+      // mes (use-dashboard-financials.ts, tampoco pasa por queryKeys.ts) salen
+      // del mismo read-model de ingresos — mismo prefijo literal.
+      queryClient.invalidateQueries({ queryKey: ["dashboardFinancials"] })
       // cobranzas-panel (D8): la anulación repone la deuda — el deudor
       // vuelve a aparecer en /cobranzas y el KPI del Tablero sube.
       queryClient.invalidateQueries({ queryKey: queryKeys.receivables.all() })

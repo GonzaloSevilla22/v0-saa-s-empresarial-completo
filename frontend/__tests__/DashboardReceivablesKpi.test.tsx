@@ -56,9 +56,13 @@ vi.mock("@/components/dashboard/ai-alerts", () => ({
 vi.mock("@/lib/services/aiInsightService", () => ({
   aiInsightService: { generateInsights: vi.fn().mockResolvedValue(undefined) },
 }))
-vi.mock("@/lib/supabase/client", () => ({
-  createClient: () => ({
-    rpc: vi.fn().mockResolvedValue({ data: [], error: null }),
+// tablero-kpis-mes-vigente: las tarjetas financieras se alimentan de
+// useDashboardFinancials (React Query + useAuth); acá no son el objeto bajo prueba.
+vi.mock("@/hooks/data/use-dashboard-financials", () => ({
+  useDashboardFinancials: () => ({
+    data: { totalIncome: 0, totalExpenses: 0, totalPurchases: 0, netProfit: 0 },
+    isLoading: false,
+    isError: false,
   }),
 }))
 vi.mock("@/components/dashboard/TrialBanner", () => ({

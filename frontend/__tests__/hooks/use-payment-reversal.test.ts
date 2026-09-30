@@ -96,6 +96,9 @@ describe("useReversePaymentReceived", () => {
         JSON.stringify(["cashMovements"]),
         JSON.stringify(["bankAccounts"]),
         JSON.stringify(["dashboardKpiSummary"]),
+        // tablero-kpis-mes-vigente: las tarjetas Ventas/Gastos/Ganancia neta del mes
+        // leen get_dashboard_financials — anular un cobro/pago las deja stale igual.
+        JSON.stringify(["dashboardFinancials"]),
       ]),
     )
   })
@@ -152,6 +155,9 @@ describe("useReversePaymentMade", () => {
         JSON.stringify(["cashMovements"]),
         JSON.stringify(["bankAccounts"]),
         JSON.stringify(["dashboardKpiSummary"]),
+        // tablero-kpis-mes-vigente: las tarjetas Ventas/Gastos/Ganancia neta del mes
+        // leen get_dashboard_financials — anular un cobro/pago las deja stale igual.
+        JSON.stringify(["dashboardFinancials"]),
       ]),
     )
   })

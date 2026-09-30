@@ -163,10 +163,6 @@ const HREFS_DEL_MENU_VIEJO = [
 describe("app-sidebar — las rutas no se rompen", () => {
   const hrefsNuevos = [dashboardItem.href, ...navGroups.flatMap((g) => g.items.map((i) => i.href))]
 
-  it("la lista de referencia del menú viejo tiene 30 rutas", () => {
-    expect(HREFS_DEL_MENU_VIEJO).toHaveLength(30)
-  })
-
   it("el menú nuevo expone las mismas 30 rutas, sin perder ni inventar ninguna", () => {
     expect(hrefsNuevos).toHaveLength(30)
     expect([...hrefsNuevos].sort()).toEqual([...HREFS_DEL_MENU_VIEJO].sort())
@@ -216,9 +212,11 @@ describe("app-sidebar — cada módulo conserva su ícono y sus gates de plan", 
     ["Mi Cuenta", "Exportaciones", FolderDown, false, false],
   ]
 
-  it("el mapa cubre los 29 módulos de los grupos (el Tablero se testea aparte)", () => {
-    expect(MAPA).toHaveLength(29)
-    expect(navGroups.flatMap((g) => g.items)).toHaveLength(29)
+  it("el mapa cubre exactamente los 29 módulos de los grupos (el Tablero se testea aparte)", () => {
+    const enElMapa = MAPA.map(([grupo, titulo]) => `${grupo} › ${titulo}`)
+    const enElMenu = navGroups.flatMap((g) => g.items.map((i) => `${g.label} › ${i.title}`))
+    expect(enElMenu).toHaveLength(29)
+    expect([...enElMapa].sort()).toEqual([...enElMenu].sort())
   })
 
   it.each(MAPA)("%s › %s", (grupo, titulo, icono, pro, proOnly) => {

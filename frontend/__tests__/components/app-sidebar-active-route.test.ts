@@ -55,7 +55,7 @@ describe("getActiveHref — prefijo más largo", () => {
     expect(getActiveHref("/ventas", [])).toBeNull()
   })
 
-  it("tolera la barra final", () => {
+  it("tolera la barra final (la regla del prefijo ya la cubre, sin normalizar)", () => {
     expect(getActiveHref("/ventas/", HREFS)).toBe("/ventas")
     expect(getActiveHref("/ventas/pos/", HREFS)).toBe("/ventas/pos")
   })

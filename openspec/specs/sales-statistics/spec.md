@@ -217,7 +217,7 @@ La resolución del plan SHALL ser fail-closed: una cuenta cuyo plan no se pueda 
 
 ### Requirement: Superficie del módulo de estadísticas
 
-El sistema SHALL proveer la pantalla `/estadisticas`, alcanzable desde una entrada propia en el grupo "Inteligencia" del menú lateral, sin gate de plan.
+El sistema SHALL proveer la pantalla `/estadisticas`, alcanzable desde una entrada propia en la categoría "Estadísticas" del menú lateral (desde `sidebar-menu-grupos`, 2026-09-30; antes colgaba de "Inteligencia"), sin gate de plan.
 
 La pantalla SHALL permitir elegir el rango de fechas y la granularidad temporal, y SHALL presentar la evolución, los desgloses por dimensión y el top de clientes. SHALL declarar al pie qué queda excluido de cada agregado (notas de crédito en los desgloses, ventas sin cliente en el top).
 
@@ -226,8 +226,8 @@ La superficie SHALL funcionar en tema claro y oscuro, en escritorio y móvil, us
 #### Scenario: La pantalla es alcanzable desde el menú
 
 - **GIVEN** un usuario autenticado de cualquier plan
-- **WHEN** abre el menú lateral
-- **THEN** existe una entrada al módulo de estadísticas en el grupo "Inteligencia" que lleva a `/estadisticas`
+- **WHEN** abre el menú lateral y despliega la categoría "Estadísticas"
+- **THEN** existe una entrada al módulo de estadísticas en esa categoría que lleva a `/estadisticas`
 
 #### Scenario: Período sin ventas
 

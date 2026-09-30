@@ -216,6 +216,35 @@ describe("AppSidebar — abrir y cerrar categorías", () => {
     expect(queryLink("Ventas")).toBeNull()
   })
 
+  // Revisión ronda 1: el grupo se cierra y DESMONTA el enlace que tenía el foco;
+  // sin devolverlo al disparador, el foco caía a <body> (WCAG 2.4.3).
+  it("activar un módulo con el teclado deja el foco en el disparador de su categoría, no en <body>", async () => {
+    const user = userEvent.setup()
+    renderSidebar()
+
+    await user.click(trigger("Operaciones"))
+    await act(async () => {
+      link("Ventas").focus()
+    })
+    expect(link("Ventas")).toHaveFocus()
+
+    await user.keyboard("{Enter}")
+
+    expect(queryLink("Ventas")).toBeNull()
+    expect(trigger("Operaciones")).toHaveFocus()
+  })
+
+  it("lo mismo al tocar el módulo con el mouse: el foco queda en el disparador de Estadísticas", async () => {
+    const user = userEvent.setup()
+    renderSidebar()
+
+    await user.click(trigger("Estadísticas"))
+    await user.click(link("Libro diario"))
+
+    expect(queryLink("Libro diario")).toBeNull()
+    expect(trigger("Estadísticas")).toHaveFocus()
+  })
+
   it("lo mismo en otra categoría: tocar Productos cierra Catálogo", async () => {
     const user = userEvent.setup()
     renderSidebar()
@@ -378,6 +407,28 @@ describe("AppSidebar — visibilidad por rol y plan", () => {
     expect(link("Centros de costo")).toBeInTheDocument()
   })
 
+  // D4: el grupo se marca por sus módulos VISIBLES. Sin módulo de sucursales,
+  // estar en una de sus pantallas no puede marcar una categoría que no muestra
+  // ningún ítem que lo justifique.
+  it.each(["/sucursales", "/reportes/sucursal"])(
+    "sin módulo de sucursales, %s no marca ninguna categoría",
+    (pathname) => {
+      renderSidebar({ pathname })
+      for (const label of GRUPOS) {
+        expect(trigger(label)).toHaveAttribute("data-active", "false")
+      }
+    },
+  )
+
+  it.each([
+    ["/sucursales", "Catálogo"],
+    ["/reportes/sucursal", "Estadísticas"],
+  ])("con módulo de sucursales, %s sí marca %s", (pathname, grupo) => {
+    h.hasBranchesModule = true
+    renderSidebar({ pathname })
+    expect(trigger(grupo)).toHaveAttribute("data-active", "true")
+  })
+
   it("con módulo de sucursales aparecen Sucursales y Por Sucursal", async () => {
     h.hasBranchesModule = true
     const user = userEvent.setup()
@@ -490,6 +541,48 @@ describe("AppSidebar — riel colapsado de escritorio", () => {
     const menu = await screen.findByRole("menu")
     expect(within(menu).getByRole("menuitem", { name: "Rentabilidad" }).querySelector("svg.lucide-crown")).not.toBeNull()
     expect(within(menu).getByRole("menuitem", { name: "Libro diario" }).querySelector("svg.lucide-crown")).toBeNull()
+  })
+
+  // responsive-shell: con el riel colapsado el tooltip es la única forma de leer
+  // el nombre de la categoría (o del Tablero) antes de abrirla.
+  it.each(GRUPOS)("con el riel colapsado, pasar el mouse por %s muestra su nombre en un tooltip", async (label) => {
+    const user = userEvent.setup()
+    renderSidebar({ defaultOpen: false })
+
+    await user.hover(trigger(label))
+
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(label)
+  })
+
+  it("con el riel colapsado, el Tablero también muestra su nombre en un tooltip", async () => {
+    const user = userEvent.setup()
+    renderSidebar({ defaultOpen: false })
+
+    await user.hover(link("Tablero"))
+
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Tablero")
+  })
+
+  // D2: "cerrado salvo que lo toquen" — colapsar el riel reinicia el menú, así
+  // que al volver a expandirlo no reaparece abierto el grupo de antes.
+  it("colapsar el riel y volver a expandirlo deja la categoría cerrada", async () => {
+    const user = userEvent.setup()
+    render(
+      <SidebarProvider>
+        <AppSidebar />
+        <SidebarTrigger data-testid="trigger-menu" />
+      </SidebarProvider>,
+    )
+
+    await user.click(trigger("Operaciones"))
+    expect(link("Compras")).toBeInTheDocument()
+
+    await user.click(screen.getByTestId("trigger-menu"))
+    expect(trigger("Operaciones")).toHaveAttribute("aria-haspopup", "menu")
+    await user.click(screen.getByTestId("trigger-menu"))
+
+    expect(trigger("Operaciones")).toHaveAttribute("aria-expanded", "false")
+    expect(queryLink("Compras")).toBeNull()
   })
 
   it("con el riel colapsado el grupo de la pantalla actual también se ve marcado", () => {

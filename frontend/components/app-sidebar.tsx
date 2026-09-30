@@ -1,7 +1,7 @@
 ﻿"use client"
 
 import Link from "next/link"
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { usePathname } from "next/navigation"
 import { useAuth } from "@/contexts/auth-context"
 import { planHasAccess, PLAN_DISPLAY_NAMES } from "@/lib/plan-utils"
@@ -211,8 +211,6 @@ export function getVisibleGroups(
     .filter((group) => group.items.length > 0)
 }
 
-const sinBarraFinal = (path: string) => (path.length > 1 && path.endsWith("/") ? path.slice(0, -1) : path)
-
 /**
  * El href del menú que corresponde a `pathname`: el coincidente MÁS LARGO.
  *
@@ -220,13 +218,13 @@ const sinBarraFinal = (path: string) => (path.length > 1 && path.endsWith("/") ?
  * hasta un separador (`/estadisticas/productos/abc` → `/estadisticas`, pero
  * `/ventas-archivo` NO coincide con `/ventas`). Y si dos ítems coinciden gana
  * el más específico: `/ventas/pos` marca POS y no Ventas. `null` si ninguno
- * coincide (Configuración, Administración, rutas fuera del menú).
+ * coincide (Configuración, Administración, rutas fuera del menú). La barra
+ * final no necesita normalizarse: `/ventas/` ya tiene a `/ventas/` como prefijo.
  */
 export function getActiveHref(pathname: string, hrefs: readonly string[]): string | null {
-  const path = sinBarraFinal(pathname)
   let activo: string | null = null
   for (const href of hrefs) {
-    const coincide = path === href || path.startsWith(`${href}/`)
+    const coincide = pathname === href || pathname.startsWith(`${href}/`)
     if (coincide && (activo === null || href.length > activo.length)) activo = href
   }
   return activo
@@ -262,6 +260,14 @@ interface NavGroupMenuProps {
   showProBadge: boolean
 }
 
+/**
+ * Alto de una fila del menú (Tablero, disparador de categoría y módulo): 44 px
+ * de objetivo táctil en el drawer móvil (por debajo de `md`, que es donde
+ * existe el drawer) y los 32 px de siempre en escritorio. El riel colapsado lo
+ * pisa la primitiva con `!size-8`.
+ */
+const FILA_MENU = "h-11 md:h-8"
+
 function ProCrown({ className }: { className?: string }) {
   return <Crown aria-hidden="true" className={className ?? "h-3 w-3 text-yellow-500"} />
 }
@@ -279,11 +285,21 @@ function NavGroupCollapsible({
   onOpenChange: (open: boolean) => void
   onNavigate: () => void
 }) {
+  // Tocar un módulo cierra el grupo y DESMONTA el enlace que tenía el foco: sin
+  // devolverlo al disparador, el foco caería a <body> y el usuario de teclado o
+  // de lector de pantalla perdería su lugar en el menú (WCAG 2.4.3). Tras un
+  // click de mouse `:focus-visible` no se activa, así que no aparece anillo.
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const handleNavigate = () => {
+    triggerRef.current?.focus()
+    onNavigate()
+  }
+
   return (
     <SidebarMenuItem>
       <Collapsible open={open} onOpenChange={onOpenChange} className="group/collapsible">
         <CollapsibleTrigger asChild>
-          <SidebarMenuButton tooltip={group.label} isActive={groupActive}>
+          <SidebarMenuButton ref={triggerRef} tooltip={group.label} isActive={groupActive} className={FILA_MENU}>
             <group.icon className="h-4 w-4" />
             <span className="truncate">{group.label}</span>
             <ChevronRight className="ml-auto h-4 w-4 transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
@@ -295,13 +311,13 @@ function NavGroupCollapsible({
               const active = isItemActive(pathname, item.href, hrefs)
               return (
                 <SidebarMenuSubItem key={item.href}>
-                  {/* h-8: la misma altura que los ítems de primer nivel de siempre
-                      (el h-7 de la primitiva los dejaba más chicos que el resto). */}
-                  <SidebarMenuSubButton asChild isActive={active} className="h-8">
+                  {/* FILA_MENU: 32 px en escritorio, como los ítems de primer nivel de
+                      siempre (el h-7 de la primitiva los dejaba más chicos), 44 px en móvil. */}
+                  <SidebarMenuSubButton asChild isActive={active} className={FILA_MENU}>
                     <Link
                       href={item.href}
                       aria-current={active ? "page" : undefined}
-                      onClick={onNavigate}
+                      onClick={handleNavigate}
                     >
                       <item.icon />
                       <span className="truncate">{item.title}</span>
@@ -425,7 +441,7 @@ export function AppSidebar() {
           <SidebarGroupContent>
             <SidebarMenu>
               <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={tableroActive} tooltip={dashboardItem.title}>
+                <SidebarMenuButton asChild isActive={tableroActive} tooltip={dashboardItem.title} className={FILA_MENU}>
                   <Link href={dashboardItem.href} aria-current={tableroActive ? "page" : undefined}>
                     <dashboardItem.icon className="h-4 w-4" />
                     <span>{dashboardItem.title}</span>

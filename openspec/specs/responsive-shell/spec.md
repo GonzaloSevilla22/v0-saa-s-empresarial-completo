@@ -122,7 +122,7 @@ El sistema SHALL mostrar en el breadcrumb de la barra superior el nombre de la p
 
 ### Requirement: Navegación agrupada del menú lateral
 
-El sistema SHALL presentar el menú lateral con el Tablero suelto arriba (sin rótulo de categoría) y el resto de las pantallas agrupadas en seis categorías plegables, en este orden: Operaciones, Catálogo, Inteligencia, Estadísticas, Ecosistema y Mi Cuenta. Cada categoría SHALL ser un único control que arranca CERRADO y despliega sus módulos al tocarlo; SHALL haber a lo sumo una categoría abierta a la vez, y tocar un módulo SHALL navegar y cerrar la categoría sola (igual que cualquier cambio de ruta: breadcrumb, atrás, adelante). La categoría que contiene la pantalla actual SHALL verse marcada aun cerrada, y el módulo activo SHALL ser el de href coincidente más largo (`/ventas/pos` marca POS y no Ventas; `/estadisticas/productos/:id` marca Estadísticas). Con el riel colapsado de escritorio cada categoría SHALL abrir un desplegable con sus módulos —los sub-ítems plegados no se ven en el riel, así que sin él quedarían rutas inalcanzables—, y en el drawer móvil las categorías SHALL comportarse como en el riel expandido y volver a estar cerradas al reabrirlo. La reorganización SHALL NOT quitar, renombrar ni duplicar ninguna ruta del menú, ni alterar los gates de plan (corona `pro`, módulos `proOnly`) ni la visibilidad por rol (el admin no ve Operaciones ni Catálogo; la sección Administración no cambia).
+El sistema SHALL presentar el menú lateral con el Tablero suelto arriba (sin rótulo de categoría) y el resto de las pantallas agrupadas en seis categorías plegables, en este orden: Operaciones, Catálogo, Inteligencia, Estadísticas, Ecosistema y Mi Cuenta. Cada categoría SHALL ser un único control que arranca CERRADO y despliega sus módulos al tocarlo; SHALL haber a lo sumo una categoría abierta a la vez, y tocar un módulo SHALL navegar y cerrar la categoría sola, devolviendo el foco al control de la categoría (igual que cualquier cambio de ruta: breadcrumb, atrás, adelante, cierra la categoría abierta). En el drawer móvil cada fila del menú SHALL medir al menos 44 px de alto. La categoría que contiene la pantalla actual SHALL verse marcada aun cerrada, y el módulo activo SHALL ser el de href coincidente más largo (`/ventas/pos` marca POS y no Ventas; `/estadisticas/productos/:id` marca Estadísticas). Con el riel colapsado de escritorio cada categoría SHALL abrir un desplegable con sus módulos —los sub-ítems plegados no se ven en el riel, así que sin él quedarían rutas inalcanzables—, y en el drawer móvil las categorías SHALL comportarse como en el riel expandido y volver a estar cerradas al reabrirlo. La reorganización SHALL NOT quitar, renombrar ni duplicar ninguna ruta del menú, ni alterar los gates de plan (corona `pro`, módulos `proOnly`) ni la visibilidad por rol (el admin no ve Operaciones ni Catálogo; la sección Administración no cambia).
 
 #### Scenario: Tablero suelto y seis categorías en orden
 
@@ -131,6 +131,7 @@ El sistema SHALL presentar el menú lateral con el Tablero suelto arriba (sin r�
 
 #### Scenario: Composición de las categorías
 
+- **WHEN** el usuario despliega cada categoría
 - **THEN** Operaciones contiene Ventas, POS — Venta Rápida, Compras, Gastos, Caja, Banco y Cobranzas
 - **AND** Catálogo contiene Productos, Stock, Clientes, Proveedores y Sucursales
 - **AND** Inteligencia contiene Copiloto IA, Consejos AI, Feria AI y Simulador
@@ -154,6 +155,7 @@ El sistema SHALL presentar el menú lateral con el Tablero suelto arriba (sin r�
 - **GIVEN** la categoría Operaciones abierta
 - **WHEN** el usuario toca Ventas
 - **THEN** navega a `/ventas` y la categoría Operaciones queda cerrada
+- **AND** el foco queda en el control de Operaciones, no se pierde al desmontarse el módulo tocado
 
 #### Scenario: Un cambio de ruta cierra la categoría abierta
 
@@ -177,7 +179,9 @@ El sistema SHALL presentar el menú lateral con el Tablero suelto arriba (sin r�
 - **GIVEN** el menú lateral de escritorio colapsado al riel de íconos
 - **WHEN** el usuario toca el ícono de una categoría
 - **THEN** se abre a la derecha un desplegable con los módulos de esa categoría como enlaces
-- **AND** entre los seis desplegables se alcanzan todas las rutas del menú
+- **AND** entre los desplegables se alcanzan todos los módulos visibles de las categorías (el Tablero sigue siendo un ítem directo del riel)
+- **AND** al pasar el mouse por el ícono de una categoría o del Tablero se ve su nombre en un tooltip
+- **AND** al volver a expandir el riel todas las categorías están cerradas
 
 #### Scenario: Drawer móvil
 
@@ -185,9 +189,11 @@ El sistema SHALL presentar el menú lateral con el Tablero suelto arriba (sin r�
 - **THEN** las categorías están cerradas y se despliegan en su lugar, sin desplegables de riel
 - **AND** Escape cierra el drawer aunque el foco esté en una categoría
 - **AND** al reabrirlo las categorías vuelven a estar cerradas
+- **AND** cada fila del menú (Tablero, categoría y módulo) mide al menos 44 px de alto; en escritorio conservan sus 32 px
 
 #### Scenario: Ninguna ruta se rompe
 
+- **WHEN** se compara la configuración del menú lateral nuevo con la del anterior
 - **THEN** las 30 rutas del menú anterior (`/dashboard` y los 29 módulos) siguen presentes exactamente una vez, y cada una tiene su página en `app/(dashboard)`
 
 #### Scenario: Visibilidad por rol y plan conservada

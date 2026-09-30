@@ -21,7 +21,7 @@
  * Operaciones abierto, riel colapsado con el desplegable abierto y drawer móvil.
  * Destino: SIDEBAR_SHOT_DIR (por defecto ./test-results/sidebar-shots).
  */
-import { test, expect, type Page } from '@playwright/test'
+import { test, expect, type Locator, type Page } from '@playwright/test'
 import { mkdirSync } from 'node:fs'
 
 const HARNESS = '/dev-harness/sidebar'
@@ -89,8 +89,9 @@ test.describe('menú por grupos — escritorio 1440x900', () => {
     expect(operaciones).not.toBeNull()
     expect(tablero!.y).toBeLessThan(operaciones!.y)
 
-    // Objetivo de toque de una fila del menú: la misma altura que siempre (32 px).
-    expect(operaciones!.height).toBeGreaterThanOrEqual(32)
+    // En escritorio una fila del menú mide lo mismo que siempre (32 px); los
+    // 44 px de objetivo táctil son sólo del drawer móvil (ver el caso móvil).
+    expect(operaciones!.height).toBe(32)
 
     for (const theme of THEMES) {
       await setTheme(page, theme)
@@ -108,7 +109,7 @@ test.describe('menú por grupos — escritorio 1440x900', () => {
     }
     // Un módulo de fila mide lo mismo que los ítems de primer nivel de siempre.
     const fila = await page.getByRole('link', { name: 'Ventas', exact: true }).boundingBox()
-    expect(fila!.height).toBeGreaterThanOrEqual(32)
+    expect(fila!.height).toBe(32)
 
     for (const theme of THEMES) {
       await setTheme(page, theme)
@@ -189,10 +190,17 @@ test.describe('menú por grupos — móvil 390x844', () => {
     }
     await expect(drawer.getByRole('link', { name: 'Ventas', exact: true })).toHaveCount(0)
 
+    // Objetivo táctil de las filas del menú en móvil: 44 px (D5; objetivo de
+    // diseño de responsive-shell para controles de fila). En escritorio siguen en 32.
+    const alto = async (fila: Locator) => (await fila.boundingBox())?.height ?? 0
+    expect(await alto(drawer.getByRole('link', { name: 'Tablero', exact: true }))).toBeGreaterThanOrEqual(44)
+    expect(await alto(drawer.getByRole('button', { name: 'Operaciones', exact: true }))).toBeGreaterThanOrEqual(44)
+
     await drawer.getByRole('button', { name: 'Operaciones', exact: true }).tap()
     for (const nombre of MODULOS_OPERACIONES) {
       await expect(drawer.getByRole('link', { name: nombre, exact: true })).toBeVisible()
     }
+    expect(await alto(drawer.getByRole('link', { name: 'Ventas', exact: true }))).toBeGreaterThanOrEqual(44)
     // En móvil no hay desplegables de riel.
     await expect(drawer.getByRole('button', { name: 'Operaciones', exact: true })).not.toHaveAttribute('aria-haspopup', 'menu')
 

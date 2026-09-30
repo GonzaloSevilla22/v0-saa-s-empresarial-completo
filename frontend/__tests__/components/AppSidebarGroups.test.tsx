@@ -10,7 +10,9 @@
  *  - tocar un módulo navega y el grupo se cierra solo;
  *  - con el menú plegado, el grupo de la pantalla actual se ve marcado;
  *  - con el riel colapsado de escritorio cada grupo abre un desplegable (ninguna
- *    ruta queda inalcanzable porque los sub-ítems los oculta la primitiva);
+ *    ruta queda inalcanzable porque los sub-ítems los oculta la primitiva), y
+ *    elegir un módulo ahí no deja el tooltip de la categoría abierto;
+ *  - alternar el riel no le hace perder el foco del teclado a la categoría;
  *  - el drawer móvil sigue cerrándose con Escape aunque el foco esté en un grupo.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
@@ -590,6 +592,188 @@ describe("AppSidebar — riel colapsado de escritorio", () => {
     expect(trigger("Estadísticas")).toHaveAttribute("data-active", "true")
     expect(trigger("Operaciones")).toHaveAttribute("data-active", "false")
   })
+  // Revisión ronda 2: la corona tiene dos caminos (plegable y desplegable del
+  // riel) y el del riel también tiene que mirar el plan efectivo.
+  it("con plan avanzado el desplegable del riel tampoco muestra corona", async () => {
+    h.auth.effectivePlan = "avanzado"
+    const user = userEvent.setup()
+    renderSidebar({ defaultOpen: false })
+
+    await user.click(trigger("Estadísticas"))
+
+    const menu = await screen.findByRole("menu")
+    expect(within(menu).getByRole("menuitem", { name: "Rentabilidad" }).querySelector("svg.lucide-crown")).toBeNull()
+    expect(within(menu).getByRole("menuitem", { name: "Comparativo" }).querySelector("svg.lucide-crown")).toBeNull()
+  })
+
+  // Revisión ronda 2: la regla del prefijo más largo también vale dentro del
+  // desplegable — /ventas/pos marca POS y no Ventas.
+  it("en el desplegable, /ventas/pos marca POS como página actual y NO Ventas", async () => {
+    const user = userEvent.setup()
+    renderSidebar({ pathname: "/ventas/pos", defaultOpen: false })
+
+    await user.click(trigger("Operaciones"))
+
+    const menu = await screen.findByRole("menu")
+    const pos = within(menu).getByRole("menuitem", { name: "POS — Venta Rápida" })
+    const ventas = within(menu).getByRole("menuitem", { name: "Ventas" })
+    expect(pos).toHaveAttribute("aria-current", "page")
+    expect(pos.className).toContain("aria-[current=page]:bg-accent")
+    expect(ventas).not.toHaveAttribute("aria-current")
+  })
+
+  // Revisión ronda 2: al elegir un módulo el desplegable devuelve el foco al
+  // disparador (bien, WCAG 2.4.3), pero ese foco no puede abrir el tooltip de la
+  // categoría: el sidebar sigue montado entre páginas y el rótulo quedaría
+  // flotando junto al riel sobre la pantalla nueva.
+  it("elegir un módulo del desplegable con el mouse no deja abierto el tooltip de la categoría", async () => {
+    const user = userEvent.setup()
+    renderSidebar({ defaultOpen: false })
+
+    await user.click(trigger("Operaciones"))
+    const menu = await screen.findByRole("menu")
+    await user.click(within(menu).getByRole("menuitem", { name: "Compras" }))
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 60))
+    })
+
+    expect(screen.queryByRole("menu")).toBeNull()
+    expect(trigger("Operaciones")).toHaveFocus()
+    expect(screen.queryByRole("tooltip")).toBeNull()
+  })
+
+  it("lo mismo al elegirlo con el teclado (Enter)", async () => {
+    const user = userEvent.setup()
+    renderSidebar({ defaultOpen: false })
+
+    await act(async () => {
+      trigger("Estadísticas").focus()
+    })
+    await user.keyboard("{Enter}")
+    await screen.findByRole("menu")
+    await user.keyboard("{Enter}")
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 60))
+    })
+
+    expect(screen.queryByRole("menu")).toBeNull()
+    expect(trigger("Estadísticas")).toHaveFocus()
+    expect(screen.queryByRole("tooltip")).toBeNull()
+  })
+
+  // Control: la supresión es sólo para la elección de un módulo. Cerrar el
+  // desplegable con Escape devuelve el foco por teclado y ahí el nombre sí se
+  // anuncia, como con Tab.
+  it("cerrar el desplegable con Escape devuelve el foco y ahí sí muestra el nombre", async () => {
+    const user = userEvent.setup()
+    renderSidebar({ defaultOpen: false })
+
+    await user.click(trigger("Operaciones"))
+    await screen.findByRole("menu")
+    await user.keyboard("{Escape}")
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 60))
+    })
+
+    expect(screen.queryByRole("menu")).toBeNull()
+    expect(trigger("Operaciones")).toHaveFocus()
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Operaciones")
+  })
+
+  // Revisión ronda 2: expandido y riel usan componentes distintos para cada
+  // categoría, así que alternar el riel remonta su botón. El foco del teclado no
+  // puede caer a <body> (en main el ítem era el mismo en los dos modos).
+  it("alternar el riel con Ctrl+B conserva el foco en la categoría, en los dos sentidos", async () => {
+    const user = userEvent.setup()
+    render(
+      <SidebarProvider>
+        <AppSidebar />
+      </SidebarProvider>,
+    )
+
+    await act(async () => {
+      trigger("Operaciones").focus()
+    })
+    expect(trigger("Operaciones")).toHaveFocus()
+
+    await user.keyboard("{Control>}b{/Control}")
+    expect(trigger("Operaciones")).toHaveAttribute("aria-haspopup", "menu")
+    expect(trigger("Operaciones")).toHaveFocus()
+
+    await user.keyboard("{Control>}b{/Control}")
+    expect(trigger("Operaciones")).not.toHaveAttribute("aria-haspopup")
+    expect(trigger("Operaciones")).toHaveFocus()
+  })
+
+  it("con el foco en un módulo de la categoría abierta, colapsar el riel lo deja en el ícono de su categoría", async () => {
+    const user = userEvent.setup()
+    render(
+      <SidebarProvider>
+        <AppSidebar />
+      </SidebarProvider>,
+    )
+
+    await user.click(trigger("Catálogo"))
+    await act(async () => {
+      link("Stock").focus()
+    })
+
+    await user.keyboard("{Control>}b{/Control}")
+
+    expect(queryLink("Stock")).toBeNull()
+    expect(trigger("Catálogo")).toHaveAttribute("aria-haspopup", "menu")
+    expect(trigger("Catálogo")).toHaveFocus()
+  })
+
+  it("alternar el riel sin el foco en el menú no se lo roba a nadie", async () => {
+    const user = userEvent.setup()
+    render(
+      <SidebarProvider>
+        <AppSidebar />
+        <button type="button">fuera del menú</button>
+      </SidebarProvider>,
+    )
+    const fuera = screen.getByRole("button", { name: "fuera del menú" })
+    await act(async () => {
+      fuera.focus()
+    })
+
+    await user.keyboard("{Control>}b{/Control}")
+    expect(fuera).toHaveFocus()
+    await user.keyboard("{Control>}b{/Control}")
+    expect(fuera).toHaveFocus()
+  })
+  // El relevo vive un solo commit: si la categoría con el foco desaparece sin
+  // que otra la reemplace (acá, la cuenta pasa a admin), al reaparecer más tarde
+  // no puede robarle el foco a lo que el usuario esté usando.
+  it("un relevo que nadie retomó no roba el foco cuando la categoría reaparece después", async () => {
+    const tree = () => (
+      <SidebarProvider>
+        <AppSidebar />
+        <button type="button">fuera del menú</button>
+      </SidebarProvider>
+    )
+    const { rerender } = render(tree())
+
+    await act(async () => {
+      trigger("Operaciones").focus()
+    })
+    h.auth.isAdmin = true
+    rerender(tree())
+    expect(screen.queryByRole("button", { name: "Operaciones" })).toBeNull()
+
+    const fuera = screen.getByRole("button", { name: "fuera del menú" })
+    await act(async () => {
+      fuera.focus()
+    })
+    h.auth.isAdmin = false
+    rerender(tree())
+
+    expect(trigger("Operaciones")).toBeInTheDocument()
+    expect(fuera).toHaveFocus()
+  })
+
+
 })
 
 describe("AppSidebar — drawer móvil", () => {

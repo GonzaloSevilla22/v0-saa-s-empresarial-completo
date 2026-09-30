@@ -8,7 +8,9 @@
  *   - el plegado/desplegado visible de verdad (el contenido no ocupa lugar
  *     cerrado, sí abierto);
  *   - con el riel colapsado, el desplegable a la derecha (un portal fuera del
- *     árbol del sidebar) con los módulos del grupo;
+ *     árbol del sidebar) con los módulos del grupo, y que elegir uno no deje
+ *     el tooltip de la categoría abierto;
+ *   - alternar el riel con Ctrl+B sin que el foco del teclado caiga a <body>;
  *   - en móvil, el drawer con las categorías plegadas y su cierre con Escape.
  *
  * La navegación real rebota sin sesión, así que el cierre "al tocar un módulo"
@@ -173,6 +175,53 @@ test.describe('menú por grupos — escritorio 1440x900', () => {
       await expect(page.getByRole('menu')).toHaveCount(0)
     }
   })
+  // Revisión ronda 2: elegir un módulo del desplegable devuelve el foco al ícono
+  // de la categoría, y ese foco abría el tooltip con su nombre, que quedaba
+  // flotando junto al riel sobre la pantalla nueva (el sidebar no se desmonta
+  // entre páginas). Acá el clic tiene que llegar entero a Radix —es quien cierra
+  // el desplegable—, así que en vez de cancelarlo se deja colgada la navegación
+  // a /compras: la página del arnés sigue a la vista.
+  test('riel colapsado: elegir un módulo con el mouse no deja abierto el tooltip de la categoría', async ({ page }) => {
+    await page.route(/\/compras(\?|$)/, () => {
+      // Sin responder: la navegación queda en curso y el arnés no se va.
+    })
+    await page.goto(HARNESS)
+    await expect(page.getByTestId('trigger-menu')).toBeVisible({ timeout: 150_000 })
+
+    await page.getByTestId('trigger-menu').click()
+    await expect(grupo(page, 'Operaciones')).toHaveAttribute('aria-haspopup', 'menu')
+
+    await grupo(page, 'Operaciones').click()
+    const menu = page.getByRole('menu')
+    await expect(menu).toBeVisible()
+    await menu.getByRole('menuitem', { name: 'Compras', exact: true }).click()
+
+    await expect(menu).toHaveCount(0)
+    await expect(grupo(page, 'Operaciones')).toBeFocused()
+    // El tooltip del riel abre sin demora (delayDuration 0): medio segundo
+    // alcanza para que aparezca si fuera a aparecer.
+    await page.waitForTimeout(500)
+    await expect(page.getByRole('tooltip')).toHaveCount(0)
+  })
+
+  // Revisión ronda 2: expandido y riel usan componentes distintos por categoría,
+  // así que alternar el riel remonta su botón; el foco del teclado no puede caer
+  // a <body>.
+  test('alternar el riel con Ctrl+B conserva el foco del teclado en la categoría', async ({ page }) => {
+    await abrir(page)
+
+    await grupo(page, 'Operaciones').focus()
+    await expect(grupo(page, 'Operaciones')).toBeFocused()
+
+    await page.keyboard.press('Control+b')
+    await expect(grupo(page, 'Operaciones')).toHaveAttribute('aria-haspopup', 'menu')
+    await expect(grupo(page, 'Operaciones')).toBeFocused()
+
+    await page.keyboard.press('Control+b')
+    await expect(grupo(page, 'Operaciones')).not.toHaveAttribute('aria-haspopup', 'menu')
+    await expect(grupo(page, 'Operaciones')).toBeFocused()
+  })
+
 })
 
 test.describe('menú por grupos — móvil 390x844', () => {

@@ -1,7 +1,7 @@
 ﻿"use client"
 
 import Link from "next/link"
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react"
 import { usePathname } from "next/navigation"
 import { useAuth } from "@/contexts/auth-context"
 import { planHasAccess, PLAN_DISPLAY_NAMES } from "@/lib/plan-utils"
@@ -251,6 +251,8 @@ export function findActiveGroupLabel(pathname: string, groups: readonly NavGroup
 
 interface NavGroupMenuProps {
   group: NavGroup
+  /** Relevo del foco entre el botón plegable y el del riel (ver {@link useGroupFocusHandoff}). */
+  focusHandoff: RefObject<string | null>
   /** El grupo contiene la pantalla actual (se marca aun plegado). */
   groupActive: boolean
   /** Los hrefs visibles: la regla del prefijo más largo compite entre ellos. */
@@ -268,6 +270,37 @@ interface NavGroupMenuProps {
  */
 const FILA_MENU = "h-11 md:h-8"
 
+/**
+ * Relevo del foco al alternar el riel (Ctrl+B o el botón del menú).
+ *
+ * Expandido y riel usan componentes distintos para cada categoría (plegable y
+ * desplegable), así que alternar el riel DESMONTA el botón de la categoría y
+ * monta otro: sin relevo, el foco del teclado caía a <body> (WCAG 2.4.3; con
+ * los ítems planos de antes el botón era el mismo en los dos modos).
+ *
+ * El que se desmonta anota su categoría si el foco estaba dentro de su fila
+ * (disparador o un módulo abierto): la limpieza de un efecto de layout corre
+ * ANTES de que su DOM salga del documento. El que se monta en el mismo commit
+ * la retoma y enfoca su disparador. AppSidebar descarta lo que nadie retomó.
+ */
+function useGroupFocusHandoff(
+  label: string,
+  handoff: RefObject<string | null>,
+  itemRef: RefObject<HTMLLIElement | null>,
+  triggerRef: RefObject<HTMLButtonElement | null>,
+) {
+  useLayoutEffect(() => {
+    if (handoff.current === label) {
+      handoff.current = null
+      triggerRef.current?.focus()
+    }
+    const item = itemRef.current
+    return () => {
+      if (item?.contains(document.activeElement)) handoff.current = label
+    }
+  }, [label, handoff, itemRef, triggerRef])
+}
+
 function ProCrown({ className }: { className?: string }) {
   return <Crown aria-hidden="true" className={className ?? "h-3 w-3 text-yellow-500"} />
 }
@@ -279,7 +312,7 @@ function ProCrown({ className }: { className?: string }) {
  * cerrado hasta que lo tocan. Tocar un módulo lo cierra (`onNavigate`).
  */
 function NavGroupCollapsible({
-  group, groupActive, hrefs, pathname, showProBadge, open, onOpenChange, onNavigate,
+  group, groupActive, hrefs, pathname, showProBadge, focusHandoff, open, onOpenChange, onNavigate,
 }: NavGroupMenuProps & {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -290,13 +323,15 @@ function NavGroupCollapsible({
   // de lector de pantalla perdería su lugar en el menú (WCAG 2.4.3). Tras un
   // click de mouse `:focus-visible` no se activa, así que no aparece anillo.
   const triggerRef = useRef<HTMLButtonElement>(null)
+  const itemRef = useRef<HTMLLIElement>(null)
+  useGroupFocusHandoff(group.label, focusHandoff, itemRef, triggerRef)
   const handleNavigate = () => {
     triggerRef.current?.focus()
     onNavigate()
   }
 
   return (
-    <SidebarMenuItem>
+    <SidebarMenuItem ref={itemRef}>
       <Collapsible open={open} onOpenChange={onOpenChange} className="group/collapsible">
         <CollapsibleTrigger asChild>
           <SidebarMenuButton ref={triggerRef} tooltip={group.label} isActive={groupActive} className={FILA_MENU}>
@@ -346,12 +381,35 @@ function NavGroupCollapsible({
  * disparador (sólo ícono, nombre en el tooltip) abre un desplegable a la
  * derecha con los módulos del grupo como enlaces.
  */
-function NavGroupRail({ group, groupActive, hrefs, pathname, showProBadge }: NavGroupMenuProps) {
+function NavGroupRail({ group, groupActive, hrefs, pathname, showProBadge, focusHandoff }: NavGroupMenuProps) {
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const itemRef = useRef<HTMLLIElement>(null)
+  useGroupFocusHandoff(group.label, focusHandoff, itemRef, triggerRef)
+
+  // Al elegir un módulo el desplegable devuelve el foco al disparador (bien,
+  // WCAG 2.4.3), pero Radix Tooltip abre ante ese foco porque el puntero no se
+  // presionó sobre el disparador: el rótulo de la categoría quedaba flotando
+  // junto al riel sobre la pantalla nueva (el sidebar no se desmonta entre
+  // páginas). La marca hace que ESE foco no abra el tooltip: el `onFocus` del
+  // botón corre antes que el del tooltip (Slot) y éste se saltea si el evento
+  // viene con `defaultPrevented`. Escape no marca nada: ahí el foco vuelve por
+  // teclado y el nombre se anuncia como con Tab.
+  const eligioModuloRef = useRef(false)
+
   return (
-    <SidebarMenuItem>
+    <SidebarMenuItem ref={itemRef}>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <SidebarMenuButton tooltip={group.label} isActive={groupActive}>
+          <SidebarMenuButton
+            ref={triggerRef}
+            tooltip={group.label}
+            isActive={groupActive}
+            onFocus={(event) => {
+              if (!eligioModuloRef.current) return
+              eligioModuloRef.current = false
+              event.preventDefault()
+            }}
+          >
             <group.icon className="h-4 w-4" />
             <span>{group.label}</span>
           </SidebarMenuButton>
@@ -361,7 +419,13 @@ function NavGroupRail({ group, groupActive, hrefs, pathname, showProBadge }: Nav
           {group.items.map((item) => {
             const active = isItemActive(pathname, item.href, hrefs)
             return (
-              <DropdownMenuItem key={item.href} asChild>
+              <DropdownMenuItem
+                key={item.href}
+                asChild
+                onSelect={() => {
+                  eligioModuloRef.current = true
+                }}
+              >
                 <Link
                   href={item.href}
                   aria-current={active ? "page" : undefined}
@@ -394,6 +458,14 @@ export function AppSidebar() {
   // Un solo grupo abierto a la vez; `null` = todos cerrados (estado inicial:
   // el menú está cerrado hasta que lo tocan).
   const [openGroup, setOpenGroup] = useState<string | null>(null)
+
+  // Relevo del foco al alternar el riel (useGroupFocusHandoff). Los efectos de
+  // layout de los hijos corren antes que éste: lo que ningún grupo retomó en
+  // este commit se descarta, así una anotación nunca sobrevive a su commit.
+  const focusHandoffRef = useRef<string | null>(null)
+  useLayoutEffect(() => {
+    focusHandoffRef.current = null
+  })
 
   const visibleGroups = getVisibleGroups(navGroups, { isAdmin, hasBranchesModule })
   const visibleHrefs = [dashboardItem.href, ...visibleGroups.flatMap((group) => group.items.map((item) => item.href))]
@@ -458,6 +530,7 @@ export function AppSidebar() {
                     hrefs={visibleHrefs}
                     pathname={pathname}
                     showProBadge={showProBadge}
+                    focusHandoff={focusHandoffRef}
                   />
                 ) : (
                   <NavGroupCollapsible
@@ -467,6 +540,7 @@ export function AppSidebar() {
                     hrefs={visibleHrefs}
                     pathname={pathname}
                     showProBadge={showProBadge}
+                    focusHandoff={focusHandoffRef}
                     open={openGroup === group.label}
                     onOpenChange={(open) => setOpenGroup(open ? group.label : null)}
                     onNavigate={() => setOpenGroup(null)}

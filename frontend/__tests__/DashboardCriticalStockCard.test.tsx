@@ -75,9 +75,14 @@ vi.mock("@/lib/services/aiInsightService", () => ({
   aiInsightService: { generateInsights: vi.fn().mockResolvedValue(undefined) },
 }))
 
-vi.mock("@/lib/supabase/client", () => ({
-  createClient: () => ({
-    rpc: vi.fn().mockResolvedValue({ data: [], error: null }),
+// tablero-kpis-mes-vigente: las tarjetas financieras ya no hacen el fetch en la
+// página; consumen useDashboardFinancials (React Query + useAuth), fuera del
+// alcance de este test — se mockea como el resto de los hooks de datos.
+vi.mock("@/hooks/data/use-dashboard-financials", () => ({
+  useDashboardFinancials: () => ({
+    data: { totalIncome: 0, totalExpenses: 0, totalPurchases: 0, netProfit: 0 },
+    isLoading: false,
+    isError: false,
   }),
 }))
 
@@ -131,7 +136,7 @@ describe("Tablero — tarjeta Productos en alerta", () => {
     render(<DashboardPage />)
 
     expect(screen.getByTestId("kpi-card-Productos en alerta")).toHaveTextContent("0")
-    expect(screen.getByTestId("kpi-card-Ventas hoy")).toBeInTheDocument()
+    expect(screen.getByTestId("kpi-card-Ventas del mes")).toBeInTheDocument()
   })
 
   it("no reimplementa el predicado de criticidad (grep de regresión sobre el código fuente)", () => {

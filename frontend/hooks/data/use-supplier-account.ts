@@ -299,6 +299,8 @@ export function useReversePaymentMade(supplierId: string) {
       queryClient.invalidateQueries({ queryKey: queryKeys.cashMovements.all() })
       queryClient.invalidateQueries({ queryKey: queryKeys.bankAccounts.all() })
       queryClient.invalidateQueries({ queryKey: ["dashboardKpiSummary"] })
+      // tablero-kpis-mes-vigente: espejo de use-customer-account.ts.
+      queryClient.invalidateQueries({ queryKey: ["dashboardFinancials"] })
       // cobranzas-vencimientos (task 8.7): anular un pago repone la deuda.
       queryClient.invalidateQueries({ queryKey: queryKeys.payables.all() })
     },

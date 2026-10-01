@@ -6,9 +6,9 @@ import { findCrossedMilestone } from "@/lib/three/goalMilestone"
 /**
  * Wires `findCrossedMilestone` to a component's already-fetched KPI value —
  * "meta alcanzada" (task 3.6). Purely presentational: the caller owns the
- * value and its fetch (e.g. `app/(dashboard)/dashboard/page.tsx`'s existing
- * `financials`/`loadingKpis` state) — this hook only derives a UI trigger,
- * never fetches or mutates anything itself.
+ * value and its fetch (e.g. `app/(dashboard)/dashboard/page.tsx`'s day-window
+ * `useDashboardFinancials` result — today's sales, not the month's) — this hook
+ * only derives a UI trigger, never fetches or mutates anything itself.
  *
  * Policy: the FIRST value received once `isLoading` turns `false` becomes
  * the baseline and is NEVER itself reported as a crossing. Reasoning: a

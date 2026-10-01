@@ -15,6 +15,8 @@ const h = vi.hoisted(() => ({
   activas: [] as Branch[],
   inactivas: [] as Branch[],
   directorio: [] as MemberRow[],
+  directorioCargando: false,
+  directorioConError: false,
   useMembersCalls: [] as Array<string | null>,
 }))
 
@@ -40,7 +42,11 @@ vi.mock("@/hooks/data/use-members", async (importOriginal) => {
     ...actual,
     useMembers: (accountId: string | null) => {
       h.useMembersCalls.push(accountId)
-      return { members: h.directorio, isLoading: false, isError: false }
+      return {
+        members: h.directorio,
+        isLoading: h.directorioCargando,
+        isError: h.directorioConError,
+      }
     },
   }
 })
@@ -89,6 +95,8 @@ function miembro(user_id: string, name: string | null, email: string | null): Me
 
 beforeEach(() => {
   h.useMembersCalls = []
+  h.directorioCargando = false
+  h.directorioConError = false
   h.directorio = [
     miembro("user-1", "Gonzalo", "g@test.local"),
     miembro("user-2", "Lucía", "l@test.local"),
@@ -134,5 +142,42 @@ describe("BranchList — autoría de compañeros (tablero-menu-pulido P4)", () =
     render(<BranchList limits={LIMITS} />)
     expect(h.useMembersCalls.length).toBeGreaterThan(0)
     expect(h.useMembersCalls.every((id) => id === "acct-1")).toBe(true)
+  })
+})
+
+// Ronda 2 de revisión: `useMembers` devuelve `members: []` mientras /members
+// carga (FastAPI en Render free: cold start de ~50 s) o si falla, y
+// `resolveMemberName([], id)` es "no registrado". Una autoría CONOCIDA no puede
+// mostrarse como "no registrado" — la spec `branches` reserva ese texto para la
+// autoría nula — sólo porque el directorio todavía no llegó.
+describe("BranchList — autoría mientras el directorio de /members no está disponible", () => {
+  it("cargando: la autoría conocida queda pendiente y 'no registrado' sigue sólo para la nula", () => {
+    h.directorio = []
+    h.directorioCargando = true
+    render(<BranchList limits={LIMITS} />)
+
+    expect(screen.getAllByText("Creada por no registrado")).toHaveLength(1)
+    expect(screen.getAllByText("Creada por …")).toHaveLength(2)
+    expect(screen.getByText(/^Desactivada por …/)).toBeInTheDocument()
+    expect(screen.queryByText(/^Desactivada por no registrado/)).not.toBeInTheDocument()
+  })
+
+  it("con error y sin datos: tampoco se afirma 'no registrado' para una autoría conocida", () => {
+    h.directorio = []
+    h.directorioConError = true
+    render(<BranchList limits={LIMITS} />)
+
+    expect(screen.getAllByText("Creada por no registrado")).toHaveLength(1)
+    expect(screen.getAllByText("Creada por …")).toHaveLength(2)
+    expect(screen.getByText(/^Desactivada por …/)).toBeInTheDocument()
+  })
+
+  it("si un refresco falla pero hay datos previos, se siguen usando: muestra los nombres", () => {
+    h.directorioConError = true
+    render(<BranchList limits={LIMITS} />)
+
+    expect(screen.getByText("Creada por Lucía")).toBeInTheDocument()
+    expect(screen.getByText(/^Desactivada por Lucía/)).toBeInTheDocument()
+    expect(screen.queryByText("Creada por …")).not.toBeInTheDocument()
   })
 })

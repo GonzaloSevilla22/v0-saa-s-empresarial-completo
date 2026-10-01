@@ -152,18 +152,36 @@ describe("AppSidebar — módulos de sucursales mientras `plan_limits` carga (P6
 // ("If you change a limit, update BOTH this object AND the migration seed",
 // lib/constants.ts). Guard de paridad sobre la columna que decide estos ítems.
 describe("PLAN_LIMITS.hasBranchesModule coincide con el seed de plan_limits", () => {
-  const seed = readFileSync(
+  const migration = readFileSync(
     path.resolve(__dirname, "../../../supabase/migrations/20260605000001_billing_schema.sql"),
     "utf8",
   )
+  // Sólo las tuplas del INSERT: antes, la PRIMERA aparición de "('gratis'," es
+  // el CHECK de billing_plan (`IN ('gratis', 'inicial', ...)`), no la fila del
+  // seed — la búsqueda sobre el archivo entero leía ahí y el plan gratis pasaba
+  // en vacío (tablero-menu-pulido, ronda 2 de revisión).
+  const insertAt = migration.indexOf("INSERT INTO public.plan_limits")
+  const valuesAt = migration.indexOf("VALUES", insertAt)
+  if (insertAt < 0 || valuesAt < 0) {
+    throw new Error("no encontré el INSERT ... VALUES de plan_limits en el seed")
+  }
+  const seed = migration.slice(valuesAt)
   // Fila del seed: ('pro', 69900, 10, ..., true, true, 'advanced') — la columna
   // has_branches_module es la 16ª del INSERT (índice 15).
   const HAS_BRANCHES_MODULE_INDEX = 15
+  // Columnas del INSERT de plan_limits (plan + 17 valores). Una tupla con otra
+  // cantidad no es una fila del seed: falla en vez de leer `false`.
+  const SEED_ROW_CELLS = 18
 
   function seedHasBranchesModule(plan: Plan): boolean {
     const row = new RegExp(`\\('${plan}',([^)]*)\\)`).exec(seed)
     if (!row) throw new Error(`no encontré la fila de '${plan}' en el seed de plan_limits`)
     const cells = `'${plan}',${row[1]}`.split(",").map((c) => c.trim())
+    if (cells.length !== SEED_ROW_CELLS) {
+      throw new Error(
+        `la tupla de '${plan}' tiene ${cells.length} celdas, no ${SEED_ROW_CELLS}: no es la fila del INSERT (${row[0]})`,
+      )
+    }
     return cells[HAS_BRANCHES_MODULE_INDEX] === "true"
   }
 

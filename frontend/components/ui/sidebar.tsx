@@ -10,7 +10,7 @@ import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Separator } from '@/components/ui/separator'
-import { Sheet, SheetContent } from '@/components/ui/sheet'
+import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   Tooltip,
@@ -218,6 +218,14 @@ const Sidebar = React.forwardRef<
             }
             side={side}
           >
+            {/* Radix exige un título (y avisa si falta la descripción): sin ellos
+                el drawer era un diálogo sin nombre para un lector de pantalla y el
+                overlay de desarrollo de Next marcaba "1 Issue" al abrirlo. Ocultos
+                a la vista: el menú ya se presenta solo. */}
+            <SheetTitle className="sr-only">Menú de navegación</SheetTitle>
+            <SheetDescription className="sr-only">
+              Categorías y módulos de la aplicación.
+            </SheetDescription>
             <div className="flex h-full w-full flex-col">{children}</div>
           </SheetContent>
         </Sheet>

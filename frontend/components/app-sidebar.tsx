@@ -1,7 +1,7 @@
 ﻿"use client"
 
 import Link from "next/link"
-import { useEffect } from "react"
+import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react"
 import { usePathname } from "next/navigation"
 import { useAuth } from "@/contexts/auth-context"
 import { planHasAccess, PLAN_DISPLAY_NAMES } from "@/lib/plan-utils"
@@ -11,23 +11,27 @@ import {
   Package, Warehouse, Users, Sparkles, Calculator,
   MessageSquare, GraduationCap, Settings, LogOut, Zap, Crown,
   ShieldCheck, BarChart3, LayoutGrid, Bot, TrendingUp, GitCompare, MapPin,
-  CreditCard, FolderDown, Leaf, Scan, Landmark, ShieldAlert, Tags, Wallet, Banknote, Truck, HandCoins, BookOpen
+  CreditCard, FolderDown, Leaf, Scan, Landmark, ShieldAlert, Tags, Wallet, Banknote, Truck, HandCoins, BookOpen,
+  Briefcase, Boxes, Brain, ChartPie, Globe, CircleUser, ChevronRight,
+  type LucideIcon,
 } from "lucide-react"
 import {
   Sidebar, SidebarContent, SidebarFooter, SidebarGroup,
   SidebarGroupContent, SidebarGroupLabel, SidebarHeader,
-  SidebarMenu, SidebarMenuBadge, SidebarMenuButton, SidebarMenuItem,
+  SidebarMenu, SidebarMenuButton, SidebarMenuItem,
+  SidebarMenuSub, SidebarMenuSubButton, SidebarMenuSubItem,
   SidebarSeparator, useSidebar,
 } from "@/components/ui/sidebar"
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem,
+  DropdownMenuLabel, DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { ModeToggle } from "@/components/mode-toggle"
 import { getFirstName, capitalizeName } from "@/lib/helpers/user-helpers"
 
-// compras-proveedor-cuenta-corriente (task 11.4): exportado para testear la
-// posición/href/icono de la entrada "Proveedores" sin montar el árbol
-// completo de Sidebar (que requiere SidebarProvider) — ver
-// __tests__/components/app-sidebar-nav-groups.test.ts.
 /**
  * Cierre de sesión del botón del riel.
  *
@@ -58,15 +62,43 @@ export async function handleSidebarLogout(
   navigate("/")
 }
 
-export const navGroups = [
-  {
-    label: "Principal",
-    items: [
-      { title: "Tablero", href: "/dashboard", icon: LayoutDashboard, pro: false, proOnly: false },
-    ],
-  },
+// sidebar-menu-grupos (2026-09-30): la forma del menú se tipa explícita para
+// que las funciones puras de abajo (visibilidad, ítem/grupo activo) y los tests
+// compartan el mismo contrato que el render.
+export interface NavItem {
+  title: string
+  href: string
+  icon: LucideIcon
+  /** Se muestra la corona mientras el plan efectivo no llegue a "avanzado". */
+  pro: boolean
+  /** Sólo se renderiza para cuentas con `hasBranchesModule`. */
+  proOnly: boolean
+}
+
+export interface NavGroup {
+  label: string
+  /** Ícono del disparador: es lo único que distingue al grupo con el riel colapsado. */
+  icon: LucideIcon
+  items: NavItem[]
+}
+
+// El Tablero vive suelto arriba del menú, sin categoría ni rótulo "Principal"
+// (pedido del PO, 2026-09-30).
+export const dashboardItem: NavItem = {
+  title: "Tablero",
+  href: "/dashboard",
+  icon: LayoutDashboard,
+  pro: false,
+  proOnly: false,
+}
+
+// Exportado para testear la posición/href/icono de cada entrada sin montar el
+// árbol completo de Sidebar (que requiere SidebarProvider) — ver
+// __tests__/components/app-sidebar-nav-groups.test.ts.
+export const navGroups: NavGroup[] = [
   {
     label: "Operaciones",
+    icon: Briefcase,
     items: [
       { title: "Ventas", href: "/ventas", icon: ShoppingCart, pro: false, proOnly: false },
       { title: "POS — Venta Rápida", href: "/ventas/pos", icon: Scan, pro: false, proOnly: false },
@@ -86,6 +118,7 @@ export const navGroups = [
   },
   {
     label: "Catálogo",
+    icon: Boxes,
     items: [
       { title: "Productos", href: "/productos", icon: Package, pro: false, proOnly: false },
       { title: "Stock", href: "/stock", icon: Warehouse, pro: false, proOnly: false },
@@ -98,9 +131,21 @@ export const navGroups = [
   },
   {
     label: "Inteligencia",
+    icon: Brain,
     items: [
       { title: "Copiloto IA", href: "/copiloto-ia", icon: Zap, pro: true, proOnly: false },
-      { title: "Consejos AI", href: "/insights", icon: Sparkles, pro: false, proOnly: false },
+      { title: "Consejos IA", href: "/insights", icon: Sparkles, pro: false, proOnly: false },
+      { title: "Feria IA", href: "/ferias/ia", icon: LayoutGrid, pro: false, proOnly: false },
+      { title: "Simulador", href: "/simulador", icon: Calculator, pro: false, proOnly: false },
+    ],
+  },
+  // sidebar-menu-grupos: categoría nueva. Reúne lo que antes colgaba de
+  // Inteligencia y es lectura de datos del negocio (qué se vende, qué deja
+  // margen, cómo se reparte), separado de las herramientas de IA.
+  {
+    label: "Estadísticas",
+    icon: ChartPie,
+    items: [
       // estadisticas-ventas E1 (task 4.9): "qué se vende y cuándo". Sin gate de
       // plan — disponible en todos los planes; el historial consultable lo
       // recorta el servidor (D8), no un candado de entrada.
@@ -119,13 +164,14 @@ export const navGroups = [
       // Centros de costo y Formas de pago — es lectura de datos que el
       // propio usuario generó, sin gate de plan. GET /journal-entries existe
       // desde journal-entry-outbox y no tenía consumidor en el frontend.
+      // sidebar-menu-grupos: el PO no lo nombró en su lista; vive bajo
+      // /reportes/ como los demás de esta categoría, así que va al final.
       { title: "Libro diario", href: "/reportes/libro-diario", icon: BookOpen, pro: false, proOnly: false },
-      { title: "Feria AI", href: "/ferias/ia", icon: LayoutGrid, pro: false, proOnly: false },
-      { title: "Simulador", href: "/simulador", icon: Calculator, pro: false, proOnly: false },
     ],
   },
   {
     label: "Ecosistema",
+    icon: Globe,
     items: [
       { title: "Comunidad", href: "/comunidad", icon: MessageSquare, pro: false, proOnly: false },
       { title: "Cursos", href: "/cursos", icon: GraduationCap, pro: false, proOnly: false },
@@ -134,6 +180,7 @@ export const navGroups = [
   },
   {
     label: "Mi Cuenta",
+    icon: CircleUser,
     items: [
       { title: "Planes", href: "/planes", icon: Crown, pro: false, proOnly: false },
       { title: "Facturación", href: "/facturacion", icon: CreditCard, pro: false, proOnly: false },
@@ -142,6 +189,261 @@ export const navGroups = [
   },
 ]
 
+/** Categorías operativas que el admin de plataforma no ve (pedido previo, sin cambio). */
+const ADMIN_HIDDEN_GROUPS: readonly string[] = ["Operaciones", "Catálogo"]
+
+/**
+ * Los grupos (y, dentro de ellos, los módulos) que el usuario actual ve:
+ *  - el admin no ve Operaciones ni Catálogo;
+ *  - los módulos `proOnly` sólo existen para cuentas con módulo de sucursales;
+ *  - un grupo que se queda sin ningún módulo visible no se renderiza.
+ */
+export function getVisibleGroups(
+  groups: readonly NavGroup[],
+  { isAdmin, hasBranchesModule }: { isAdmin: boolean; hasBranchesModule: boolean },
+): NavGroup[] {
+  return groups
+    .filter((group) => !(isAdmin && ADMIN_HIDDEN_GROUPS.includes(group.label)))
+    .map((group) => ({
+      ...group,
+      items: group.items.filter((item) => !item.proOnly || hasBranchesModule),
+    }))
+    .filter((group) => group.items.length > 0)
+}
+
+/**
+ * El href del menú que corresponde a `pathname`: el coincidente MÁS LARGO.
+ *
+ * Un ítem coincide si `pathname` es igual a su href o lo tiene como prefijo
+ * hasta un separador (`/estadisticas/productos/abc` → `/estadisticas`, pero
+ * `/ventas-archivo` NO coincide con `/ventas`). Y si dos ítems coinciden gana
+ * el más específico: `/ventas/pos` marca POS y no Ventas. `null` si ninguno
+ * coincide (Configuración, Administración, rutas fuera del menú). La barra
+ * final no necesita normalizarse: `/ventas/` ya tiene a `/ventas/` como prefijo.
+ */
+export function getActiveHref(pathname: string, hrefs: readonly string[]): string | null {
+  let activo: string | null = null
+  for (const href of hrefs) {
+    const coincide = pathname === href || pathname.startsWith(`${href}/`)
+    if (coincide && (activo === null || href.length > activo.length)) activo = href
+  }
+  return activo
+}
+
+/** `true` sólo para el ganador de {@link getActiveHref} entre `hrefs`. */
+export function isItemActive(pathname: string, href: string, hrefs: readonly string[]): boolean {
+  return getActiveHref(pathname, hrefs) === href
+}
+
+/**
+ * Etiqueta del grupo que contiene la pantalla actual, o `null` (Tablero, rutas
+ * fuera del menú). Con el menú plegado es lo único que le dice al usuario
+ * dónde está, así que el disparador del grupo se marca con esto.
+ *
+ * Sólo compiten los grupos que recibe (pasar los VISIBLES): un grupo oculto
+ * nunca se marca. El Tablero compite por el href pero no pertenece a ningún grupo.
+ */
+export function findActiveGroupLabel(pathname: string, groups: readonly NavGroup[]): string | null {
+  const activo = getActiveHref(pathname, [dashboardItem.href, ...groups.flatMap((g) => g.items.map((i) => i.href))])
+  if (activo === null) return null
+  return groups.find((group) => group.items.some((item) => item.href === activo))?.label ?? null
+}
+
+interface NavGroupMenuProps {
+  group: NavGroup
+  /** Relevo del foco entre el botón plegable y el del riel (ver {@link useGroupFocusHandoff}). */
+  focusHandoff: RefObject<string | null>
+  /** El grupo contiene la pantalla actual (se marca aun plegado). */
+  groupActive: boolean
+  /** Los hrefs visibles: la regla del prefijo más largo compite entre ellos. */
+  hrefs: readonly string[]
+  pathname: string
+  /** Muestra la corona en los módulos `pro` (plan efectivo por debajo de "avanzado"). */
+  showProBadge: boolean
+}
+
+/**
+ * Alto de una fila del menú (Tablero, disparador de categoría y módulo): 44 px
+ * de objetivo táctil en el drawer móvil (por debajo de `md`, que es donde
+ * existe el drawer) y los 32 px de siempre en escritorio. El riel colapsado lo
+ * pisa la primitiva con `!size-8`.
+ */
+const FILA_MENU = "h-11 md:h-8"
+
+/**
+ * Relevo del foco al alternar el riel (Ctrl+B o el botón del menú).
+ *
+ * Expandido y riel usan componentes distintos para cada categoría (plegable y
+ * desplegable), así que alternar el riel DESMONTA el botón de la categoría y
+ * monta otro: sin relevo, el foco del teclado caía a <body> (WCAG 2.4.3; con
+ * los ítems planos de antes el botón era el mismo en los dos modos).
+ *
+ * El que se desmonta anota su categoría si el foco estaba dentro de su fila
+ * (disparador o un módulo abierto): la limpieza de un efecto de layout corre
+ * ANTES de que su DOM salga del documento. El que se monta en el mismo commit
+ * la retoma y enfoca su disparador. AppSidebar descarta lo que nadie retomó.
+ */
+function useGroupFocusHandoff(
+  label: string,
+  handoff: RefObject<string | null>,
+  itemRef: RefObject<HTMLLIElement | null>,
+  triggerRef: RefObject<HTMLButtonElement | null>,
+) {
+  useLayoutEffect(() => {
+    if (handoff.current === label) {
+      handoff.current = null
+      triggerRef.current?.focus()
+    }
+    const item = itemRef.current
+    return () => {
+      if (item?.contains(document.activeElement)) handoff.current = label
+    }
+  }, [label, handoff, itemRef, triggerRef])
+}
+
+function ProCrown({ className }: { className?: string }) {
+  return <Crown aria-hidden="true" className={className ?? "h-3 w-3 text-yellow-500"} />
+}
+
+/**
+ * Grupo plegable (riel expandido de escritorio y drawer móvil).
+ *
+ * El estado abierto vive en AppSidebar (`openGroup`): sólo un grupo a la vez, y
+ * cerrado hasta que lo tocan. Tocar un módulo lo cierra (`onNavigate`).
+ */
+function NavGroupCollapsible({
+  group, groupActive, hrefs, pathname, showProBadge, focusHandoff, open, onOpenChange, onNavigate,
+}: NavGroupMenuProps & {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  onNavigate: () => void
+}) {
+  // Tocar un módulo cierra el grupo y DESMONTA el enlace que tenía el foco: sin
+  // devolverlo al disparador, el foco caería a <body> y el usuario de teclado o
+  // de lector de pantalla perdería su lugar en el menú (WCAG 2.4.3). Tras un
+  // click de mouse `:focus-visible` no se activa, así que no aparece anillo.
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const itemRef = useRef<HTMLLIElement>(null)
+  useGroupFocusHandoff(group.label, focusHandoff, itemRef, triggerRef)
+  const handleNavigate = () => {
+    triggerRef.current?.focus()
+    onNavigate()
+  }
+
+  return (
+    <SidebarMenuItem ref={itemRef}>
+      <Collapsible open={open} onOpenChange={onOpenChange} className="group/collapsible">
+        <CollapsibleTrigger asChild>
+          <SidebarMenuButton ref={triggerRef} tooltip={group.label} isActive={groupActive} className={FILA_MENU}>
+            <group.icon className="h-4 w-4" />
+            <span className="truncate">{group.label}</span>
+            <ChevronRight className="ml-auto h-4 w-4 transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
+          </SidebarMenuButton>
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <SidebarMenuSub>
+            {group.items.map((item) => {
+              const active = isItemActive(pathname, item.href, hrefs)
+              return (
+                <SidebarMenuSubItem key={item.href}>
+                  {/* FILA_MENU: 32 px en escritorio, como los ítems de primer nivel de
+                      siempre (el h-7 de la primitiva los dejaba más chicos), 44 px en móvil. */}
+                  <SidebarMenuSubButton asChild isActive={active} className={FILA_MENU}>
+                    <Link
+                      href={item.href}
+                      aria-current={active ? "page" : undefined}
+                      onClick={handleNavigate}
+                    >
+                      <item.icon />
+                      <span className="truncate">{item.title}</span>
+                      {item.pro && showProBadge && (
+                        <span className="ml-auto shrink-0">
+                          <ProCrown />
+                        </span>
+                      )}
+                    </Link>
+                  </SidebarMenuSubButton>
+                </SidebarMenuSubItem>
+              )
+            })}
+          </SidebarMenuSub>
+        </CollapsibleContent>
+      </Collapsible>
+    </SidebarMenuItem>
+  )
+}
+
+/**
+ * Grupo con el riel COLAPSADO de escritorio.
+ *
+ * `SidebarMenuSub` se oculta con el riel colapsado (`group-data-[collapsible=icon]:hidden`),
+ * así que un grupo plegable dejaría sus módulos inalcanzables. En su lugar el
+ * disparador (sólo ícono, nombre en el tooltip) abre un desplegable a la
+ * derecha con los módulos del grupo como enlaces.
+ */
+function NavGroupRail({ group, groupActive, hrefs, pathname, showProBadge, focusHandoff }: NavGroupMenuProps) {
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const itemRef = useRef<HTMLLIElement>(null)
+  useGroupFocusHandoff(group.label, focusHandoff, itemRef, triggerRef)
+
+  // Al elegir un módulo el desplegable devuelve el foco al disparador (bien,
+  // WCAG 2.4.3), pero Radix Tooltip abre ante ese foco porque el puntero no se
+  // presionó sobre el disparador: el rótulo de la categoría quedaba flotando
+  // junto al riel sobre la pantalla nueva (el sidebar no se desmonta entre
+  // páginas). La marca hace que ESE foco no abra el tooltip: el `onFocus` del
+  // botón corre antes que el del tooltip (Slot) y éste se saltea si el evento
+  // viene con `defaultPrevented`. Escape no marca nada: ahí el foco vuelve por
+  // teclado y el nombre se anuncia como con Tab.
+  const eligioModuloRef = useRef(false)
+
+  return (
+    <SidebarMenuItem ref={itemRef}>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <SidebarMenuButton
+            ref={triggerRef}
+            tooltip={group.label}
+            isActive={groupActive}
+            onFocus={(event) => {
+              if (!eligioModuloRef.current) return
+              eligioModuloRef.current = false
+              event.preventDefault()
+            }}
+          >
+            <group.icon className="h-4 w-4" />
+            <span>{group.label}</span>
+          </SidebarMenuButton>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent side="right" align="start" sideOffset={8} className="min-w-52">
+          <DropdownMenuLabel>{group.label}</DropdownMenuLabel>
+          {group.items.map((item) => {
+            const active = isItemActive(pathname, item.href, hrefs)
+            return (
+              <DropdownMenuItem
+                key={item.href}
+                asChild
+                onSelect={() => {
+                  eligioModuloRef.current = true
+                }}
+              >
+                <Link
+                  href={item.href}
+                  aria-current={active ? "page" : undefined}
+                  className="aria-[current=page]:bg-accent aria-[current=page]:font-medium"
+                >
+                  <item.icon />
+                  <span>{item.title}</span>
+                  {item.pro && showProBadge && <ProCrown className="ml-auto text-yellow-500" />}
+                </Link>
+              </DropdownMenuItem>
+            )
+          })}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </SidebarMenuItem>
+  )
+}
+
 export function AppSidebar() {
   const pathname = usePathname()
   const { user, logout, isAdmin, effectivePlan } = useAuth()
@@ -149,7 +451,26 @@ export function AppSidebar() {
   // "pro" menu items are gated at avanzado+; show the crown when locked.
   const showProBadge = !planHasAccess(effectivePlan, "avanzado")
   const hasBranchesModule = limits?.hasBranchesModule ?? false
-  const { isMobile, setOpenMobile } = useSidebar()
+  const { isMobile, openMobile, setOpenMobile, state } = useSidebar()
+  // Riel colapsado de escritorio: los sub-ítems no se ven, cada grupo abre un desplegable.
+  const isRail = state === "collapsed" && !isMobile
+
+  // Un solo grupo abierto a la vez; `null` = todos cerrados (estado inicial:
+  // el menú está cerrado hasta que lo tocan).
+  const [openGroup, setOpenGroup] = useState<string | null>(null)
+
+  // Relevo del foco al alternar el riel (useGroupFocusHandoff). Los efectos de
+  // layout de los hijos corren antes que éste: lo que ningún grupo retomó en
+  // este commit se descarta, así una anotación nunca sobrevive a su commit.
+  const focusHandoffRef = useRef<string | null>(null)
+  useLayoutEffect(() => {
+    focusHandoffRef.current = null
+  })
+
+  const visibleGroups = getVisibleGroups(navGroups, { isAdmin, hasBranchesModule })
+  const visibleHrefs = [dashboardItem.href, ...visibleGroups.flatMap((group) => group.items.map((item) => item.href))]
+  const activeGroupLabel = findActiveGroupLabel(pathname, visibleGroups)
+  const tableroActive = isItemActive(pathname, dashboardItem.href, visibleHrefs)
 
   // Close the mobile drawer whenever the user navigates to a new route
   useEffect(() => {
@@ -157,6 +478,19 @@ export function AppSidebar() {
       setOpenMobile(false)
     }
   }, [pathname, isMobile, setOpenMobile])
+
+  // Invariante "cerrado salvo que lo toquen": cualquier navegación (módulo
+  // tocado, breadcrumb, atrás/adelante) deja el menú plegado…
+  useEffect(() => {
+    setOpenGroup(null)
+  }, [pathname])
+
+  // …y también cuando el menú deja de verse: drawer móvil cerrado o riel
+  // colapsado (ahí los grupos son desplegables, no hay nada "abierto").
+  const menuHidden = isRail || (isMobile && !openMobile)
+  useEffect(() => {
+    if (menuHidden) setOpenGroup(null)
+  }, [menuHidden])
 
   return (
     <Sidebar collapsible="icon" className="border-r border-sidebar-border">
@@ -175,48 +509,47 @@ export function AppSidebar() {
       <SidebarSeparator />
 
       <SidebarContent>
-        {navGroups.map((group) => {
-          // Hide operative modules for admins as requested
-          if (isAdmin && (group.label === "Operaciones" || group.label === "Catálogo")) {
-            return null
-          }
+        <SidebarGroup>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild isActive={tableroActive} tooltip={dashboardItem.title} className={FILA_MENU}>
+                  <Link href={dashboardItem.href} aria-current={tableroActive ? "page" : undefined}>
+                    <dashboardItem.icon className="h-4 w-4" />
+                    <span>{dashboardItem.title}</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
 
-          return (
-            <SidebarGroup key={group.label}>
-              <SidebarGroupLabel className="text-sidebar-foreground/50 uppercase text-[10px] tracking-wider">
-                {group.label}
-              </SidebarGroupLabel>
-              <SidebarGroupContent>
-                <SidebarMenu>
-                  {group.items.map((item) => {
-                    // proOnly items are only rendered for accounts with hasBranchesModule
-                    if (item.proOnly && !hasBranchesModule) return null
-                    const isActive = pathname === item.href
-                    return (
-                      <SidebarMenuItem key={item.href}>
-                        <SidebarMenuButton
-                          asChild
-                          isActive={isActive}
-                          tooltip={item.title}
-                        >
-                          <Link href={item.href}>
-                            <item.icon className="h-4 w-4" />
-                            <span>{item.title}</span>
-                          </Link>
-                        </SidebarMenuButton>
-                        {item.pro && showProBadge && (
-                          <SidebarMenuBadge>
-                            <Crown className="h-3 w-3 text-yellow-500" />
-                          </SidebarMenuBadge>
-                        )}
-                      </SidebarMenuItem>
-                    )
-                  })}
-                </SidebarMenu>
-              </SidebarGroupContent>
-            </SidebarGroup>
-          )
-        })}
+              {visibleGroups.map((group) =>
+                isRail ? (
+                  <NavGroupRail
+                    key={group.label}
+                    group={group}
+                    groupActive={activeGroupLabel === group.label}
+                    hrefs={visibleHrefs}
+                    pathname={pathname}
+                    showProBadge={showProBadge}
+                    focusHandoff={focusHandoffRef}
+                  />
+                ) : (
+                  <NavGroupCollapsible
+                    key={group.label}
+                    group={group}
+                    groupActive={activeGroupLabel === group.label}
+                    hrefs={visibleHrefs}
+                    pathname={pathname}
+                    showProBadge={showProBadge}
+                    focusHandoff={focusHandoffRef}
+                    open={openGroup === group.label}
+                    onOpenChange={(open) => setOpenGroup(open ? group.label : null)}
+                    onNavigate={() => setOpenGroup(null)}
+                  />
+                ),
+              )}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
 
         {isAdmin && (
           <SidebarGroup>

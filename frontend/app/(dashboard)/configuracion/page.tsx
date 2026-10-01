@@ -29,7 +29,7 @@ import { ScaleSettings } from "@/components/settings/ScaleSettings"
 const features = [
   { name: "Productos",          free: `Hasta ${MAX_PRODUCTS_FREE}`,       pro: "Ilimitados" },
   { name: "Clientes",           free: `Hasta ${MAX_CLIENTS_FREE}`,        pro: "Ilimitados" },
-  { name: "Consejos AI",        free: `${MAX_INSIGHTS_FREE} por sesión`,  pro: "Ilimitados" },
+  { name: "Consejos IA",        free: `${MAX_INSIGHTS_FREE} por sesión`,  pro: "Ilimitados" },
   { name: "Simulador AI",       free: "Limitado",                         pro: "Completo" },
   { name: "Comunidad",          free: "Solo lectura",                     pro: "Completo" },
   { name: "Cursos",             free: "Básicos",                          pro: "Todos" },

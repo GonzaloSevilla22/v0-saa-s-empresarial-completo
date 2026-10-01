@@ -1,7 +1,7 @@
 # responsive-shell Specification
 
 ## Purpose
-Define el contrato estructural del shell del dashboard (sidebar + contenedor de contenido) a través de los distintos tamaños de viewport: contención del ancho sin desborde horizontal, comportamiento de scroll de los overlays que viven dentro de un modal o de un panel acotado (popovers, desplegable de notificaciones), objetivos táctiles mínimos, las vías estándar de cierre del menú lateral móvil, y el nombrado de cada ruta en el breadcrumb. Nace de `qa-integral-modulos` (QA integral del 2026-08-30): dos componentes compartidos —el popover portalizado fuera del shard de scroll del modal, y el `<main>` de `SidebarInset` sin `min-w-0`— explicaban 17 de los 27 hallazgos de esa corrida, así que el shell pasa a tener su propia capability en vez de que cada pantalla repita la corrección por separado.
+Define el contrato estructural del shell del dashboard (sidebar + contenedor de contenido) a través de los distintos tamaños de viewport: contención del ancho sin desborde horizontal, comportamiento de scroll de los overlays que viven dentro de un modal o de un panel acotado (popovers, desplegable de notificaciones), objetivos táctiles mínimos, las vías estándar de cierre del menú lateral móvil, la navegación agrupada del menú lateral (categorías plegables, riel colapsado y drawer móvil), y el nombrado de cada ruta en el breadcrumb. Nace de `qa-integral-modulos` (QA integral del 2026-08-30): dos componentes compartidos —el popover portalizado fuera del shard de scroll del modal, y el `<main>` de `SidebarInset` sin `min-w-0`— explicaban 17 de los 27 hallazgos de esa corrida, así que el shell pasa a tener su propia capability en vez de que cada pantalla repita la corrección por separado.
 ## Requirements
 ### Requirement: El shell del dashboard nunca desborda horizontalmente el viewport
 
@@ -120,3 +120,88 @@ El sistema SHALL mostrar en el breadcrumb de la barra superior el nombre de la p
 - **WHEN** una ruta del dashboard no tiene nombre en el mapa del breadcrumb
 - **THEN** se deriva un nombre legible del último segmento de la ruta en lugar de mostrar solo la marca
 
+### Requirement: Navegación agrupada del menú lateral
+
+El sistema SHALL presentar el menú lateral con el Tablero suelto arriba (sin rótulo de categoría) y el resto de las pantallas agrupadas en seis categorías plegables, en este orden: Operaciones, Catálogo, Inteligencia, Estadísticas, Ecosistema y Mi Cuenta. Cada categoría SHALL ser un único control que arranca CERRADO y despliega sus módulos al tocarlo; SHALL haber a lo sumo una categoría abierta a la vez, y tocar un módulo SHALL navegar y cerrar la categoría sola, devolviendo el foco al control de la categoría (igual que cualquier cambio de ruta: breadcrumb, atrás, adelante, cierra la categoría abierta). En el drawer móvil cada fila de la navegación agrupada (Tablero, disparador de categoría y módulo) SHALL medir al menos 44 px de alto. La categoría que contiene la pantalla actual SHALL verse marcada aun cerrada, y el módulo activo SHALL ser el de href coincidente más largo (`/ventas/pos` marca POS y no Ventas; `/estadisticas/productos/:id` marca Estadísticas). Con el riel colapsado de escritorio cada categoría SHALL abrir un desplegable con sus módulos —los sub-ítems plegados no se ven en el riel, así que sin él quedarían rutas inalcanzables—, y en el drawer móvil las categorías SHALL comportarse como en el riel expandido y volver a estar cerradas al reabrirlo. La reorganización SHALL NOT quitar, renombrar ni duplicar ninguna ruta del menú, ni alterar los gates de plan (corona `pro`, módulos `proOnly`) ni la visibilidad por rol (el admin no ve Operaciones ni Catálogo; la sección Administración no cambia).
+
+#### Scenario: Tablero suelto y seis categorías en orden
+
+- **WHEN** el usuario abre la aplicación
+- **THEN** el menú muestra el Tablero como ítem suelto, sin rótulo "Principal", seguido de las categorías Operaciones, Catálogo, Inteligencia, Estadísticas, Ecosistema y Mi Cuenta, cada una con su ícono
+
+#### Scenario: Composición de las categorías
+
+- **WHEN** el usuario despliega cada categoría
+- **THEN** Operaciones contiene Ventas, POS — Venta Rápida, Compras, Gastos, Caja, Banco y Cobranzas
+- **AND** Catálogo contiene Productos, Stock, Clientes, Proveedores y Sucursales
+- **AND** Inteligencia contiene Copiloto IA, Consejos IA, Feria IA y Simulador
+- **AND** Estadísticas contiene Estadísticas, Rentabilidad, Comparativo, Por Sucursal, Centros de costo, Formas de pago y Libro diario
+- **AND** Ecosistema contiene Comunidad, Cursos y Seguros
+- **AND** Mi Cuenta contiene Planes, Facturación y Exportaciones
+
+#### Scenario: Cerradas hasta que las tocan
+
+- **WHEN** el usuario carga cualquier pantalla del dashboard
+- **THEN** las seis categorías están cerradas y ningún módulo de categoría está en el DOM
+
+#### Scenario: Tocar una categoría la abre y cierra las demás
+
+- **GIVEN** la categoría Operaciones abierta
+- **WHEN** el usuario toca Catálogo
+- **THEN** Catálogo se abre con sus módulos y Operaciones se cierra
+
+#### Scenario: Tocar un módulo navega y cierra la categoría
+
+- **GIVEN** la categoría Operaciones abierta
+- **WHEN** el usuario toca Ventas
+- **THEN** navega a `/ventas` y la categoría Operaciones queda cerrada
+- **AND** el foco queda en el control de Operaciones, no se pierde al desmontarse el módulo tocado
+
+#### Scenario: Un cambio de ruta cierra la categoría abierta
+
+- **GIVEN** una categoría abierta
+- **WHEN** la ruta cambia por cualquier vía (breadcrumb, atrás, adelante)
+- **THEN** la categoría se cierra
+
+#### Scenario: La categoría activa se ve aun cerrada
+
+- **GIVEN** el usuario en `/ventas/pos` con todas las categorías cerradas
+- **THEN** el control de Operaciones se ve marcado como activo y ningún otro
+- **AND** al abrir Operaciones, POS — Venta Rápida está marcado y Ventas no
+
+#### Scenario: El Tablero no marca ninguna categoría
+
+- **GIVEN** el usuario en `/dashboard`
+- **THEN** el Tablero se ve marcado y ninguna categoría lo está
+
+#### Scenario: Riel colapsado con desplegables
+
+- **GIVEN** el menú lateral de escritorio colapsado al riel de íconos
+- **WHEN** el usuario toca el ícono de una categoría
+- **THEN** se abre a la derecha un desplegable con los módulos de esa categoría como enlaces
+- **AND** entre los desplegables se alcanzan todos los módulos visibles de las categorías (el Tablero sigue siendo un ítem directo del riel)
+- **AND** al pasar el mouse por el ícono de una categoría o del Tablero se ve su nombre en un tooltip
+- **AND** al elegir un módulo del desplegable el foco vuelve al ícono de su categoría sin dejar abierto el tooltip con su nombre
+- **AND** al volver a expandir el riel todas las categorías están cerradas
+- **AND** alternar entre el riel y el menú expandido con el foco del teclado en una categoría (o, con el menú expandido, en uno de sus módulos abiertos) deja el foco en el control de esa categoría
+
+#### Scenario: Drawer móvil
+
+- **WHEN** el usuario abre el menú lateral en móvil
+- **THEN** las categorías están cerradas y se despliegan en su lugar, sin desplegables de riel
+- **AND** Escape cierra el drawer aunque el foco esté en una categoría
+- **AND** al reabrirlo las categorías vuelven a estar cerradas
+- **AND** cada fila del menú (Tablero, categoría y módulo) mide al menos 44 px de alto; en escritorio conservan sus 32 px
+- **AND** el drawer es un diálogo con nombre accesible "Menú de navegación" (título y descripción ocultos a la vista), de modo que abrirlo no dispara el aviso de Radix por falta de título
+
+#### Scenario: Ninguna ruta se rompe
+
+- **WHEN** se compara la configuración del menú lateral nuevo con la del anterior
+- **THEN** las 30 rutas del menú anterior (`/dashboard` y los 29 módulos) siguen presentes exactamente una vez, y cada una tiene su página en `app/(dashboard)`
+
+#### Scenario: Visibilidad por rol y plan conservada
+
+- **WHEN** la cuenta no tiene módulo de sucursales
+- **THEN** no aparecen Sucursales ni Por Sucursal
+- **AND** los módulos `pro` siguen mostrando la corona mientras el plan efectivo esté por debajo de "avanzado"
+- **AND** un usuario admin no ve Operaciones ni Catálogo y conserva la sección Administración plana

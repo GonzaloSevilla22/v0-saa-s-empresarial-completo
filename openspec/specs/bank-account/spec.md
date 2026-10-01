@@ -1,7 +1,7 @@
 # bank-account Specification
 
 ## Purpose
-Cuenta bancaria a nivel organización (`BankAccount`): registro, edición, soft-deactivate y aislamiento RLS por tenencia directa (`account_id`). Entregado en `bank-account-ledger` (V2.5 #3, BankReconciliation C1/3, 2026-06-27). Capa HTTP/UI (endpoint `POST /bank-accounts`, formulario de alta desde conciliación y etiqueta de navegación "Bancos") agregada en `bank-account-crud`.
+Cuenta bancaria a nivel organización (`BankAccount`): registro, edición, soft-deactivate y aislamiento RLS por tenencia directa (`account_id`). Entregado en `bank-account-ledger` (V2.5 #3, BankReconciliation C1/3, 2026-06-27). Capa HTTP/UI (endpoint `POST /bank-accounts`, formulario de alta desde conciliación y etiqueta de navegación "Bancos", hoy "Banco" → `/banco`) agregada en `bank-account-crud`.
 ## Requirements
 ### Requirement: Cuenta bancaria (BankAccount) a nivel organización
 El sistema SHALL permitir registrar una o más cuentas bancarias (`BankAccount`) por organización, cada una con `name`, `account_kind` (`'bank' | 'wallet'`, default `'bank'`), `bank_name`, `cbu` (opcional), `alias` (alias CBU/CVU, opcional), `currency` (default `'ARS'`), `opening_balance` (default `0`), `opening_date` (opcional) e `is_active` (default `true`). El aislamiento por cuenta (RLS) SHALL resolverse por tenencia **directa** vía `bank_accounts.account_id → accounts(id)` — NO scoped a sucursal (a diferencia de `cashboxes`), porque el banco pertenece a la organización, no a una sucursal. La RLS de SELECT SHALL ser `account_id IN (SELECT current_account_ids())`.
@@ -114,14 +114,14 @@ El sistema SHALL permitir crear una cuenta bancaria desde la pantalla de banco (
 - **WHEN** el usuario ingresa un `cbu` que no tiene 22 dígitos numéricos
 - **THEN** el formulario muestra un error de validación (Zod) y no envía la petición
 
-### Requirement: Etiqueta de navegación "Bancos"
+### Requirement: Etiqueta de navegación "Banco"
 
-El sistema SHALL mostrar el ítem de navegación que enlaza a `/finanzas/conciliacion` con la etiqueta "Bancos" en la barra lateral. El título interno de la página (`<h1>`) PUEDE seguir siendo "Conciliación bancaria".
+El sistema SHALL mostrar en la barra lateral, dentro de la categoría Operaciones, el ítem de navegación del banco con la etiqueta "Banco", enlazando a `/banco` (el módulo con las pestañas Movimientos y Conciliación, ver `cash-book-module`); la ruta previa `/finanzas/conciliacion` redirige a la pestaña de conciliación de `/banco`. El título interno de la conciliación PUEDE seguir siendo "Conciliación bancaria". (`bank-account-crud` lo había titulado "Bancos" apuntando a `/finanzas/conciliacion`; `banco-caja-historial-ajustes` lo pasó a "Banco" → `/banco`.)
 
-#### Scenario: El sidebar muestra "Bancos"
+#### Scenario: El sidebar muestra "Banco"
 
-- **WHEN** un usuario ve la barra lateral del panel
-- **THEN** el ítem que enlaza a `/finanzas/conciliacion` se muestra con el texto "Bancos" (no "Conciliación bancaria")
+- **WHEN** un usuario despliega la categoría Operaciones de la barra lateral del panel
+- **THEN** el ítem que enlaza a `/banco` se muestra con el texto "Banco" (no "Conciliación bancaria")
 
 ### Requirement: Tipo de cuenta — banco o billetera virtual
 

@@ -26,13 +26,16 @@ const PAGE_NAMES: Record<string, string> = {
   "/stock":            "Stock",
   "/clientes":         "Clientes",
   "/proveedores":      "Proveedores",
-  "/insights":         "Consejos AI",
+  "/insights":         "Consejos IA",
   "/simulador":        "Simulador de Precios",
   "/comunidad":        "Comunidad",
   "/cursos":           "Cursos",
   "/configuracion":    "Configuración",
   "/copiloto-ia":      "Copiloto IA",
   "/ferias":           "Ferias",
+  // Mismo nombre que la entrada del menú lateral; sin esta fila el nombre
+  // derivado del último segmento era «Ia».
+  "/ferias/ia":        "Feria IA",
   "/seguros":          "Seguros",
   "/admin/cursos":     "Gestión de Cursos",
   "/admin/metricas":   "Métricas Globales",

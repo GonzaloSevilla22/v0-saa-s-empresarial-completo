@@ -19,7 +19,7 @@ vi.mock("@/lib/api/python-client", () => ({
 }))
 
 import { pythonClient } from "@/lib/api/python-client"
-import { useMembers } from "@/hooks/data/use-members"
+import { useMembers, resolveMemberName, type MemberRow } from "@/hooks/data/use-members"
 import { queryKeys } from "@/lib/query-keys"
 
 const ACCOUNT_ID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
@@ -177,5 +177,47 @@ describe("useMembers", () => {
     // Ronda 2 adversarial (finding MINOR): mismo criterio que assignRole
     // arriba -- espejo del lado revoke.
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["orgActiveRoles", ACCOUNT_ID] })
+  })
+})
+
+// tablero-menu-pulido (P4, ronda 1 de revisión): la autoría de /sucursales
+// ("Creada por X") se resolvía con `profiles`, cuya RLS sólo deja leer el
+// perfil PROPIO — los compañeros quedaban "no registrado". El directorio de
+// /members (rpc_list_account_members, SECURITY DEFINER) trae nombre y email de
+// todos los miembros: el resolver vive acá, sobre esas filas.
+describe("resolveMemberName — nombre visible desde el directorio de /members", () => {
+  function fila(user_id: string, name: string | null, email: string | null): MemberRow {
+    return {
+      member_id: `m-${user_id}`,
+      user_id,
+      legacy_role: "member",
+      created_at: "2026-09-01T10:00:00+00:00",
+      name,
+      email,
+      roles: [],
+    }
+  }
+  const directorio: MemberRow[] = [
+    fila("user-1", "Gonzalo", "g@test.local"),
+    fila("user-2", "Lucía", "l@test.local"),
+    fila("user-3", null, "sin-nombre@test.local"),
+    fila("user-4", null, null),
+  ]
+
+  it("resuelve el nombre de un compañero, no sólo el propio", () => {
+    expect(resolveMemberName(directorio, "user-2")).toBe("Lucía")
+    expect(resolveMemberName(directorio, "user-1")).toBe("Gonzalo")
+  })
+
+  it("un miembro sin nombre de perfil se identifica por su email, no como autoría nula", () => {
+    expect(resolveMemberName(directorio, "user-3")).toBe("sin-nombre@test.local")
+  })
+
+  it("'no registrado' queda para la autoría nula y para quien no se puede identificar", () => {
+    expect(resolveMemberName(directorio, null)).toBe("no registrado")
+    expect(resolveMemberName(directorio, undefined)).toBe("no registrado")
+    expect(resolveMemberName(directorio, "user-4")).toBe("no registrado")
+    expect(resolveMemberName(directorio, "user-x")).toBe("no registrado")
+    expect(resolveMemberName([], "user-2")).toBe("no registrado")
   })
 })

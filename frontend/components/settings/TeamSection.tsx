@@ -24,6 +24,7 @@ import { createClient } from "@/lib/supabase/client"
 import { useAuth } from "@/contexts/auth-context"
 import { usePlanLimits } from "@/hooks/auth/use-plan-limits"
 import { useTeamMembers, type TeamMemberRow } from "@/hooks/data/use-team-members"
+import { useMembers } from "@/hooks/data/use-members"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -52,6 +53,14 @@ export function TeamSection() {
   const isOwner     = accountRole === "owner"
 
   const { data: members = [], isLoading: membersLoading } = useTeamMembers(accountId)
+  // Nombre y email de cada miembro salen de /members (rpc_list_account_members,
+  // SECURITY DEFINER), cruzado por user_id: el email no está en profiles (vive
+  // en auth.users) y la RLS de profiles sólo deja leer el perfil PROPIO, así que
+  // el nombre de un compañero tampoco llega por useTeamMembers. El perfil queda
+  // de respaldo del nombre propio mientras /members no responde; sin email
+  // resuelto la fila conserva el fallback al user_id.
+  const { members: directory } = useMembers(accountId || null)
+  const directoryByUserId = new Map(directory.map((row) => [row.user_id, row]))
 
   const maxUsers   = limits?.maxUsers ?? 1
   const curUsers   = members.length
@@ -139,10 +148,10 @@ export function TeamSection() {
                 <div className="flex items-center justify-between py-0.5">
                   <div className="flex flex-col gap-0.5">
                     <span className="text-sm text-foreground font-medium">
-                      {m.profiles?.name ?? "Usuario"}
+                      {directoryByUserId.get(m.user_id)?.name ?? m.profiles?.name ?? "Usuario"}
                     </span>
                     <span className="text-xs text-muted-foreground">
-                      {m.profiles?.email ?? m.user_id}
+                      {directoryByUserId.get(m.user_id)?.email ?? m.user_id}
                     </span>
                   </div>
                   <RoleBadge role={m.role} />

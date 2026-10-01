@@ -21,6 +21,7 @@ import { BranchFilter } from "@/components/branches/BranchFilter"
 import { KpiSummaryBlock } from "@/components/dashboard/KpiSummaryBlock"
 import { PeriodFilter } from "@/components/dashboard/PeriodFilter"
 import { utcDayRange, utcMonthRange, parseMonthKey, argentinaToday } from "@/lib/date-range"
+import { formatKpiCurrency } from "@/lib/kpi-format"
 
 // Celebración "meta alcanzada" (v4-visual-3d-refresh 3.6) — umbrales redondos
 // de "ventas hoy". Referencia estable a nivel de módulo (useGoalMilestone la
@@ -173,18 +174,18 @@ export default function DashboardPage() {
       <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         <KpiCard
           title="Ventas del mes"
-          value={loadingMonth ? "—" : `$${monthSales.toLocaleString()}`}
+          value={loadingMonth ? "—" : formatKpiCurrency(monthSales)}
           icon={DollarSign}
         />
         <KpiCard
           title="Gastos del mes"
-          value={loadingMonth ? "—" : `$${monthExpenses.toLocaleString()}`}
+          value={loadingMonth ? "—" : formatKpiCurrency(monthExpenses)}
           icon={TrendingDown}
           iconColor="text-destructive"
         />
         <KpiCard
           title="Ganancia neta del mes"
-          value={loadingMonth ? "—" : `$${monthNetProfit.toLocaleString()}`}
+          value={loadingMonth ? "—" : formatKpiCurrency(monthNetProfit)}
           icon={TrendingUp}
         />
         <KpiCard
@@ -200,7 +201,7 @@ export default function DashboardPage() {
           value={
             loadingReceivables
               ? "—"
-              : `$${(receivablesSummary?.totalReceivable ?? 0).toLocaleString("es-AR")}`
+              : formatKpiCurrency(receivablesSummary?.totalReceivable ?? 0)
           }
           icon={HandCoins}
           iconColor="text-warning"

@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { useSales } from "@/hooks/data/use-sales"
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts"
 import { argentinaDaysAgo } from "@/lib/date-range"
+import { formatCalendarDay } from "@/lib/format"
 
 export function SalesChart() {
   const { sales } = useSales()
@@ -21,8 +22,11 @@ export function SalesChart() {
     return result
   })()
 
+  // El rótulo es el día CALENDARIO de la clave (formatCalendarDay): pasar la
+  // clave por `new Date(...)` la leía como medianoche UTC y, con huso negativo,
+  // rotulaba cada punto un día atrás.
   const chartData = data.map((d) => ({
-    date: new Date(d.date).toLocaleDateString("es-AR", { weekday: "short", day: "numeric" }),
+    date: formatCalendarDay(d.date, { weekday: "short", day: "numeric" }),
     ventas: d.total,
   }))
 

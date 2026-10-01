@@ -8,7 +8,7 @@
  */
 
 import React from "react"
-import { describe, it, expect, vi, beforeEach } from "vitest"
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import { render, screen } from "@testing-library/react"
 import "@testing-library/jest-dom"
 
@@ -86,6 +86,10 @@ vi.mock("@/hooks/data/use-receivables", () => ({
 import DashboardPage from "@/app/(dashboard)/dashboard/page"
 
 describe("DashboardPage — KPI Por cobrar", () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
   beforeEach(() => {
     searchParams = new URLSearchParams("")
     useReceivablesSummaryMock.mockReset()
@@ -100,6 +104,33 @@ describe("DashboardPage — KPI Por cobrar", () => {
     render(<DashboardPage />)
     expect(screen.getByText("Por cobrar")).toBeInTheDocument()
     expect(screen.getAllByText(/567\.000/).length).toBeGreaterThan(0)
+  })
+
+  // tablero-menu-pulido (P2): "Por cobrar" usa el formateador compartido del
+  // Bloque Resumen (formatKpiCurrency) — no depende del idioma del navegador.
+  it("el total se formatea es-AR con el formateador compartido, sin pasar por toLocaleString", () => {
+    vi.spyOn(Number.prototype, "toLocaleString").mockImplementation(() => "CENTINELA")
+    render(<DashboardPage />)
+
+    const link = screen.getAllByRole("link").find((l) => l.getAttribute("href") === "/cobranzas")
+    expect(link).toHaveTextContent("$567.000")
+    expect(link?.textContent).not.toContain("CENTINELA")
+  })
+
+  // Decisión asentada en la ronda 1 de revisión (spec receivables-panel): el
+  // indicador resume al peso, como el resto de la fila; /cobranzas conserva los
+  // centavos. Con centavos (balanza, #599) puede diferir del panel en < $1.
+  it("redondea al peso como el resto de la fila: 1234,50 se lee $1.235", () => {
+    useReceivablesSummaryMock.mockReturnValue({
+      data: { totalReceivable: 1234.5, debtorCount: 1 },
+      isLoading: false,
+      isError: false,
+    })
+    render(<DashboardPage />)
+
+    const link = screen.getAllByRole("link").find((l) => l.getAttribute("href") === "/cobranzas")
+    expect(link).toHaveTextContent("$1.235")
+    expect(link?.textContent).not.toMatch(/1\.234,5/)
   })
 
   it("la tarjeta enlaza a /cobranzas (D7)", () => {

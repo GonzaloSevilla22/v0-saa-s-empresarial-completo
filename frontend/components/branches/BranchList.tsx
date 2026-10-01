@@ -4,7 +4,7 @@ import Link from "next/link"
 import {
   useBranches, useInactiveBranches, useCloseBranch, useDeactivateBranch, useOpenBranch,
 } from "@/hooks/data/use-branches"
-import { useTeamMembers, resolveMemberName } from "@/hooks/data/use-team-members"
+import { useMembers, resolveMemberName } from "@/hooks/data/use-members"
 import { useAuth } from "@/contexts/auth-context"
 import { useOrgRole } from "@/hooks/useOrgRole"
 import { DeactivateBranchDialog } from "@/components/branches/DeactivateBranchDialog"
@@ -23,7 +23,20 @@ export function BranchList({ limits }: BranchListProps) {
   const { user } = useAuth()
   const { branches, isLoading } = useBranches()
   const { branches: inactiveBranches, isLoading: inactiveLoading } = useInactiveBranches()
-  const { data: members = [] } = useTeamMembers(user?.accountId)
+  // Autoría con el directorio de /members (nombre y email de TODOS los
+  // miembros): la RLS de profiles sólo deja leer el perfil propio y cada
+  // compañero quedaba "no registrado" (tablero-menu-pulido P4).
+  const {
+    members, isLoading: membersLoading, isError: membersError,
+  } = useMembers(user?.accountId ?? null)
+  // Mientras /members carga (cold start del backend) o si falló sin datos
+  // previos, el directorio llega vacío y resolveMemberName diría "no
+  // registrado" de una autoría CONOCIDA. Ese texto es sólo para la autoría
+  // nula (spec `branches`): la conocida queda pendiente ("…") hasta poder
+  // resolverla (tablero-menu-pulido, ronda 2 de revisión).
+  const directoryPending = members.length === 0 && (membersLoading || membersError)
+  const authorName = (userId: string | null) =>
+    userId && directoryPending ? "…" : resolveMemberName(members, userId)
   const { role } = useOrgRole()
   const { mutateAsync: deactivate, isPending } = useDeactivateBranch()
   const { mutateAsync: openBranch,  isPending: isOpening } = useOpenBranch()
@@ -99,7 +112,7 @@ export function BranchList({ limits }: BranchListProps) {
                   {/* sucursal-guard-vaciado-auditoria (G2, OQ-4): autoría de
                       alta visible para TODOS los miembros de la cuenta. */}
                   <p className="text-[11px] text-muted-foreground/80 mt-0.5">
-                    Creada por {resolveMemberName(members, branch.createdBy)}
+                    Creada por {authorName(branch.createdBy)}
                   </p>
                 </div>
               </div>
@@ -166,7 +179,7 @@ export function BranchList({ limits }: BranchListProps) {
                   <div>
                     <p className="text-sm font-medium">{branch.name}</p>
                     <p className="text-[11px] text-muted-foreground/80 mt-0.5">
-                      Desactivada por {resolveMemberName(members, branch.deactivatedBy)}
+                      Desactivada por {authorName(branch.deactivatedBy)}
                       {branch.deactivatedAt && (
                         <> el {new Date(branch.deactivatedAt).toLocaleDateString("es-AR")}</>
                       )}

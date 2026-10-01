@@ -7,6 +7,7 @@ import { Sparkles, RefreshCw } from "lucide-react"
 import { useCriticalStock } from "@/hooks/data/use-critical-stock"
 import { createClient } from "@/lib/supabase/client"
 import { utcDayRange } from "@/lib/date-range"
+import { formatKpiCurrency } from "@/lib/kpi-format"
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
@@ -95,7 +96,7 @@ export function AiSummaryCard({ todaySales = 0, branchId = null }: AiSummaryCard
           {summary}
         </p>
         <div className="mt-3 flex items-center gap-4 text-xs text-muted-foreground/70">
-          <span>Ventas hoy: <span className="text-primary font-medium">${todaySales.toLocaleString()}</span></span>
+          <span>Ventas hoy: <span className="text-primary font-medium">{formatKpiCurrency(todaySales)}</span></span>
           <span>Stock bajo: <span className={`font-medium ${criticalStockCount > 0 ? "text-destructive" : "text-success"}`}>{criticalStockCount} productos</span></span>
         </div>
       </CardContent>

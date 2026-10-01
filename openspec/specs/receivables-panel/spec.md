@@ -270,6 +270,15 @@ El indicador NO SHALL incorporarse al bloque de resumen mensual con variación c
 
 El indicador SHALL alimentarse del resumen agregado y NO SHALL requerir traer filas de deudores que no se van a mostrar. NO SHALL verse afectado por el filtro de sucursal del Tablero: la cuenta corriente no referencia sucursal, y filtrarla exigiría repartir el saldo entre las ventas que lo formaron.
 
+El total del indicador SHALL presentarse con el formateador de importes de la fila de tarjetas del Tablero (`formatKpiCurrency`: punto de miles es-AR, redondeado al peso, signo antes del `$`), sin depender del idioma del navegador. Es una decisión deliberada (`tablero-menu-pulido`, 2026-10-01): el indicador resume como el resto de la fila y la pantalla de cobranzas es el detalle, así que con saldos con centavos el indicador puede diferir en menos de un peso del total de `/cobranzas`, que conserva los centavos.
+
+#### Scenario: El total se formatea como el resto de la fila
+
+- **GIVEN** una cuenta con 1234,50 por cobrar
+- **WHEN** el usuario abre el Tablero
+- **THEN** el indicador muestra `$1.235` (punto de miles, redondeado al peso), cualquiera sea el idioma del navegador
+- **AND** `/cobranzas` sigue mostrando el total con sus centavos
+
 #### Scenario: Total visible en el Tablero
 
 - **GIVEN** una cuenta con 3900 por cobrar

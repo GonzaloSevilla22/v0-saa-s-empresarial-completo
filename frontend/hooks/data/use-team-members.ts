@@ -6,15 +6,18 @@
  * El email NO sale de acá: `public.profiles` no tiene esa columna (vive en
  * auth.users) y pedirla hacía que PostgREST respondiera 400 en cada carga, con
  * lo que TODOS los perfiles caían a null en silencio (tablero-menu-pulido P4).
- * Quien necesite el email lo lee de `useMembers` (hooks/data/use-members.ts:
- * GET /members -> rpc_list_account_members, que lo resuelve desde auth.users).
+ *
+ * Y el nombre que devuelve es, para un miembro común, sólo el PROPIO: la RLS de
+ * `profiles` deja leer la fila de `auth.uid()` (y todas, sólo al admin de
+ * PLATAFORMA), así que el perfil de un compañero vuelve null. Nombre y email de
+ * todos los miembros los da el directorio de `useMembers` (GET /members ->
+ * rpc_list_account_members, SECURITY DEFINER), con `resolveMemberName`.
  *
  * Extraído de TeamSection.tsx (C-05 Bloque G) a la capa canónica cuando
  * sucursal-guard-vaciado-auditoria (G2) necesitó el MISMO dato para resolver
- * "creada por X" / "desactivada por X" en BranchList.tsx — regla del
- * proyecto: reutilización antes que repetición, lo reusable nace en
- * hooks/data/. TeamSection.tsx pasa a importarlo de acá; su lógica no
- * cambia una línea.
+ * "creada por X" / "desactivada por X" en BranchList.tsx; desde
+ * tablero-menu-pulido BranchList resuelve la autoría con el directorio de
+ * /members y este hook queda para la lista del Equipo (TeamSection.tsx).
  */
 
 import { useQuery } from "@tanstack/react-query"
@@ -74,18 +77,4 @@ export function useTeamMembers(accountId: string | null | undefined) {
     enabled: !!accountId,
     staleTime: 60_000, // 1 minute
   })
-}
-
-/**
- * Resuelve el nombre visible de un miembro a partir de su user_id, con
- * fallback a "no registrado" — usado por BranchList.tsx (G2, OQ-4: autoría
- * visible para todos los miembros de la cuenta).
- */
-export function resolveMemberName(
-  members: TeamMemberRow[],
-  userId: string | null | undefined,
-): string {
-  if (!userId) return "no registrado"
-  const member = members.find((m) => m.user_id === userId)
-  return member?.profiles?.name ?? "no registrado"
 }

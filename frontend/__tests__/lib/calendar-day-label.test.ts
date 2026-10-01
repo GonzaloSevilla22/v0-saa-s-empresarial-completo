@@ -51,9 +51,18 @@ describe("formatCalendarDay", () => {
     expect(formatCalendarDay("2026-10-01", { month: "long" }, "en-US")).toBe("October")
   })
 
-  it("acepta un timestamp ISO y toma sólo su día calendario", () => {
+  // Ronda 1 de revisión: sólo acepta FECHAS DE NEGOCIO. Un timestamp es un
+  // instante: su día es el día argentino de ese instante (spec
+  // business-day-timezone), no el prefijo UTC de la cadena — tomar el prefijo
+  // corría de día todo `created_at` posterior a las 21:00 ART ("jue 1" para el
+  // miércoles 30 a las 21:00). Se devuelve tal cual, nunca un día silencioso;
+  // quien rotule instantes los lleva antes al día argentino (lib/date-range).
+  it("un timestamp ISO NO se reinterpreta como fecha: vuelve tal cual", () => {
     process.env.TZ = "America/Argentina/Buenos_Aires"
-    expect(formatCalendarDay("2026-10-01T00:00:00.000Z", { weekday: "short", day: "numeric" })).toBe("jue 1")
+    const opts = { weekday: "short", day: "numeric" } as const
+    expect(formatCalendarDay("2026-10-01T00:00:00.000Z", opts)).toBe("2026-10-01T00:00:00.000Z")
+    expect(formatCalendarDay("2026-10-01T02:00:00-03:00", opts)).toBe("2026-10-01T02:00:00-03:00")
+    expect(formatCalendarDay("2026-10-01 ", opts)).toBe("2026-10-01 ")
   })
 
   it("una clave que no es fecha vuelve tal cual (nunca 'Invalid Date')", () => {

@@ -8,6 +8,10 @@ import type { ReactNode } from "react"
 // miembro aparecía con su UUID crudo. El email ahora sale de `useMembers`
 // (GET /members -> rpc_list_account_members, que lo resuelve desde auth.users),
 // cruzado por user_id; sin email resuelto se conserva el fallback al user_id.
+//
+// Ronda 1 de revisión: el NOMBRE de un compañero tampoco llega por `profiles`
+// (su RLS sólo deja leer el perfil propio), así que también sale de /members;
+// `profiles` queda como respaldo del nombre propio mientras /members no responde.
 
 const h = vi.hoisted(() => ({
   teamMembers: [] as Array<{
@@ -17,7 +21,7 @@ const h = vi.hoisted(() => ({
     created_at: string
     profiles: { name: string | null } | null
   }>,
-  memberRows: [] as Array<{ user_id: string; email: string | null }>,
+  memberRows: [] as Array<{ user_id: string; email: string | null; name?: string | null }>,
   useMembersCalls: [] as Array<string | null>,
 }))
 
@@ -91,5 +95,26 @@ describe("TeamSection — email real del miembro (tablero-menu-pulido P4)", () =
 
     expect(h.useMembersCalls.length).toBeGreaterThan(0)
     expect(h.useMembersCalls.every((id) => id === "acct-1")).toBe(true)
+  })
+
+  it("el nombre de un compañero sale de /members (profiles, por RLS, sólo trae el propio)", () => {
+    // Lo que de verdad entrega el transporte: el perfil de user-2 vuelve null.
+    h.memberRows = [
+      { user_id: "user-1", email: "g@test.com", name: "Gonzalo" },
+      { user_id: "user-2", email: "l@test.com", name: "Lucía" },
+    ]
+    render(<TeamSection />, { wrapper })
+
+    expect(screen.getByText("Lucía")).toBeInTheDocument()
+    expect(screen.getByText("l@test.com")).toBeInTheDocument()
+    expect(screen.queryByText("Usuario")).toBeNull()
+  })
+
+  it("si /members trae otro nombre que profiles, manda /members (misma fuente para todos)", () => {
+    h.memberRows = [{ user_id: "user-1", email: "g@test.com", name: "Gonzalo Sevilla" }]
+    render(<TeamSection />, { wrapper })
+
+    expect(screen.getByText("Gonzalo Sevilla")).toBeInTheDocument()
+    expect(screen.queryByText("Gonzalo")).toBeNull()
   })
 })

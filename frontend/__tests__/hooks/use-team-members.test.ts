@@ -20,6 +20,12 @@
  * null — las pantallas perdían hasta el nombre ("Creada por no registrado").
  * El mock replica ese transporte: un select de `profiles` con una columna que la
  * tabla no tiene devuelve el 42703 tal cual lo devuelve prod.
+ *
+ * Ronda 1 de revisión: el mock aplica además la RLS real de `profiles` — las
+ * únicas policies SELECT vivas son "Users can view own profile" (`auth.uid() =
+ * id`) y la de admin de PLATAFORMA. Un miembro común recibe SÓLO su propia
+ * fila: el nombre de un compañero nunca llega por acá (lo resuelve el
+ * directorio de /members, `resolveMemberName` en hooks/data/use-members.ts).
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest"
@@ -36,7 +42,10 @@ interface MockResult {
 
 const state = {
   memberRows: [] as unknown[],
-  profileRows: [] as unknown[],
+  // La TABLA profiles completa; lo que vuelve lo recorta la RLS (ver `then`).
+  profileRows: [] as { id: string; name: string | null }[],
+  // auth.uid() de la sesión simulada (miembro común, no admin de plataforma).
+  authUid: "user-1",
   profilesError: null as MockResult["error"],
   calls: [] as { table: string; select: string }[],
 }
@@ -81,9 +90,11 @@ function makeBuilder(table: string) {
             error: { code: "42703", message: `column profiles.${unknown[0]} does not exist` },
           }
         } else {
+          // RLS real: "Users can view own profile" (auth.uid() = id) — sin
+          // error, el resto de las filas simplemente no vuelve.
           result = state.profilesError
             ? { data: null, error: state.profilesError }
-            : { data: state.profileRows, error: null }
+            : { data: state.profileRows.filter((p) => p.id === state.authUid), error: null }
         }
       } else {
         result = { data: [], error: null }
@@ -100,7 +111,7 @@ vi.mock("@/lib/supabase/client", () => ({
   })),
 }))
 
-import { useTeamMembers, resolveMemberName, type TeamMemberRow } from "@/hooks/data/use-team-members"
+import { useTeamMembers } from "@/hooks/data/use-team-members"
 
 function makeWrapper() {
   const queryClient = new QueryClient({
@@ -119,7 +130,9 @@ describe("useTeamMembers — sin el embed roto (PGRST200)", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     state.memberRows = [...MEMBERS]
-    state.profileRows = [{ id: "user-1", name: "Gonzalo" }]
+    // La fila de Lucía EXISTE en la tabla: si vuelve null es por la RLS.
+    state.profileRows = [{ id: "user-1", name: "Gonzalo" }, { id: "user-2", name: "Lucía" }]
+    state.authUid = "user-1"
     state.profilesError = null
     state.calls = []
   })
@@ -198,6 +211,7 @@ describe("useTeamMembers — la query de perfiles pide sólo columnas que existe
     vi.clearAllMocks()
     state.memberRows = [...MEMBERS]
     state.profileRows = [{ id: "user-1", name: "Gonzalo" }, { id: "user-2", name: "Lucía" }]
+    state.authUid = "user-1"
     state.profilesError = null
     state.calls = []
   })
@@ -210,41 +224,23 @@ describe("useTeamMembers — la query de perfiles pide sólo columnas que existe
     expect(profileSelects.map((c) => c.select)).toEqual(["id, name"])
   })
 
-  it("cada miembro recibe SU nombre (el 400 por columna inexistente ya no tira todos los perfiles a null)", async () => {
+  it("el nombre PROPIO vuelve a resolverse (el 400 por columna inexistente ya no tira todos los perfiles a null)", async () => {
     const { result } = renderHook(() => useTeamMembers("acct-1"), { wrapper: makeWrapper() })
     await waitFor(() => expect(result.current.data).toBeDefined())
 
-    expect(result.current.data?.map((m) => [m.user_id, m.profiles?.name])).toEqual([
-      ["user-1", "Gonzalo"],
-      ["user-2", "Lucía"],
-    ])
-    // Ya no hay un email de profiles: el tipo no promete lo que la tabla no tiene.
-    expect(result.current.data?.every((m) => m.profiles !== null && !("email" in m.profiles))).toBe(true)
+    const propio = result.current.data?.find((m) => m.user_id === "user-1")
+    // Estricto: ni siquiera una clave `email` (el tipo no promete lo que la
+    // tabla no tiene).
+    expect(propio?.profiles).toStrictEqual({ name: "Gonzalo" })
   })
-})
 
-describe("resolveMemberName — fallback existente (sano, no cambia)", () => {
-  const members: TeamMemberRow[] = [
-    {
-      id: "m-1",
-      user_id: "user-1",
-      role: "owner",
-      created_at: "2026-01-01T00:00:00Z",
-      profiles: { name: null },
-    },
-    {
-      id: "m-2",
-      user_id: "user-2",
-      role: "member",
-      created_at: "2026-02-01T00:00:00Z",
-      profiles: { name: "Lucía" },
-    },
-  ]
+  it("el nombre de un COMPAÑERO no llega por profiles (RLS: sólo el propio) — lo resuelve /members", async () => {
+    const { result } = renderHook(() => useTeamMembers("acct-1"), { wrapper: makeWrapper() })
+    await waitFor(() => expect(result.current.data).toBeDefined())
 
-  it("devuelve el nombre; sin nombre, sin perfil o sin id cae a 'no registrado'", () => {
-    expect(resolveMemberName(members, "user-2")).toBe("Lucía")
-    expect(resolveMemberName(members, "user-1")).toBe("no registrado")
-    expect(resolveMemberName(members, "user-x")).toBe("no registrado")
-    expect(resolveMemberName(members, null)).toBe("no registrado")
+    expect(result.current.data?.map((m) => [m.user_id, m.profiles?.name ?? null])).toEqual([
+      ["user-1", "Gonzalo"],
+      ["user-2", null],
+    ])
   })
 })

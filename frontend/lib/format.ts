@@ -123,8 +123,8 @@ export function formatDate(dateStr: string): string {
   })
 }
 
-/** Rotula el día CALENDARIO de una clave "YYYY-MM-DD" (o de un timestamp ISO,
- *  del que sólo se toma el día) con las opciones de `Intl` recibidas.
+/** Rotula el día CALENDARIO de una clave "YYYY-MM-DD" (una fecha de negocio,
+ *  sin hora) con las opciones de `Intl` recibidas.
  *
  *  La clave NUNCA se interpreta como un instante: `new Date("YYYY-MM-DD")` es
  *  medianoche UTC y `toLocaleDateString` la lee en la zona LOCAL, así que en un
@@ -133,6 +133,11 @@ export function formatDate(dateStr: string): string {
  *  formatea con `timeZone: "UTC"` — independiente del huso del runtime y sin
  *  un offset fijo. Una clave que no es fecha se devuelve tal cual.
  *
+ *  Sólo fechas de negocio: un timestamp (`created_at`) es un instante y su día
+ *  es el día ARGENTINO de ese instante, no el prefijo UTC de la cadena — por eso
+ *  también se devuelve tal cual, en vez de rotular en silencio un día corrido.
+ *  Para rotular un instante, llevalo antes al día argentino (`lib/date-range`).
+ *
  *  Hermana de `formatDate` (dd/mm/aaaa fijo): esta acepta las opciones de `Intl`
  *  (rótulos de ejes de gráficos: "jue 1", "1 oct"). */
 export function formatCalendarDay(
@@ -140,7 +145,7 @@ export function formatCalendarDay(
   options: Intl.DateTimeFormatOptions,
   locale: string = "es-AR",
 ): string {
-  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(key)
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(key)
   if (!match) return key
   const [, y, m, day] = match
   return new Date(Date.UTC(Number(y), Number(m) - 1, Number(day))).toLocaleDateString(locale, {

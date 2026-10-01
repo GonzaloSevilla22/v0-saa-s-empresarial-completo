@@ -29,6 +29,30 @@ export interface MemberRow {
   roles: MemberRoleAssignment[]
 }
 
+/**
+ * Nombre visible de un miembro de la cuenta a partir de su user_id, sobre el
+ * directorio de /members — usado por BranchList.tsx para la autoría ("Creada
+ * por X" / "Desactivada por X", sucursal-guard-vaciado-auditoria G2, OQ-4).
+ *
+ * El directorio es la fuente porque `rpc_list_account_members` (SECURITY
+ * DEFINER) resuelve el nombre Y el email de TODOS los miembros, mientras que la
+ * RLS de `public.profiles` sólo deja leer el perfil PROPIO: resolver la autoría
+ * con profiles dejaba a cada compañero como "no registrado"
+ * (tablero-menu-pulido P4).
+ *
+ * Cascada: nombre de perfil → email → "no registrado". "no registrado" es la
+ * autoría nula de la spec `branches`; también cae ahí quien no se puede
+ * identificar (sin nombre ni email, o que ya no figura en la cuenta).
+ */
+export function resolveMemberName(
+  members: ReadonlyArray<Pick<MemberRow, "user_id" | "name" | "email">>,
+  userId: string | null | undefined,
+): string {
+  if (!userId) return "no registrado"
+  const member = members.find((m) => m.user_id === userId)
+  return member?.name ?? member?.email ?? "no registrado"
+}
+
 export function useMembers(accountId: string | null) {
   const queryClient = useQueryClient()
   const queryKey = queryKeys.members.list(accountId)

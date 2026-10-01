@@ -117,6 +117,22 @@ describe("DashboardPage — KPI Por cobrar", () => {
     expect(link?.textContent).not.toContain("CENTINELA")
   })
 
+  // Decisión asentada en la ronda 1 de revisión (spec receivables-panel): el
+  // indicador resume al peso, como el resto de la fila; /cobranzas conserva los
+  // centavos. Con centavos (balanza, #599) puede diferir del panel en < $1.
+  it("redondea al peso como el resto de la fila: 1234,50 se lee $1.235", () => {
+    useReceivablesSummaryMock.mockReturnValue({
+      data: { totalReceivable: 1234.5, debtorCount: 1 },
+      isLoading: false,
+      isError: false,
+    })
+    render(<DashboardPage />)
+
+    const link = screen.getAllByRole("link").find((l) => l.getAttribute("href") === "/cobranzas")
+    expect(link).toHaveTextContent("$1.235")
+    expect(link?.textContent).not.toMatch(/1\.234,5/)
+  })
+
   it("la tarjeta enlaza a /cobranzas (D7)", () => {
     render(<DashboardPage />)
     const links = screen.getAllByRole("link")

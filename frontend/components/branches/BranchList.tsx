@@ -4,7 +4,7 @@ import Link from "next/link"
 import {
   useBranches, useInactiveBranches, useCloseBranch, useDeactivateBranch, useOpenBranch,
 } from "@/hooks/data/use-branches"
-import { useTeamMembers, resolveMemberName } from "@/hooks/data/use-team-members"
+import { useMembers, resolveMemberName } from "@/hooks/data/use-members"
 import { useAuth } from "@/contexts/auth-context"
 import { useOrgRole } from "@/hooks/useOrgRole"
 import { DeactivateBranchDialog } from "@/components/branches/DeactivateBranchDialog"
@@ -23,7 +23,10 @@ export function BranchList({ limits }: BranchListProps) {
   const { user } = useAuth()
   const { branches, isLoading } = useBranches()
   const { branches: inactiveBranches, isLoading: inactiveLoading } = useInactiveBranches()
-  const { data: members = [] } = useTeamMembers(user?.accountId)
+  // Autoría con el directorio de /members (nombre y email de TODOS los
+  // miembros): la RLS de profiles sólo deja leer el perfil propio y cada
+  // compañero quedaba "no registrado" (tablero-menu-pulido P4).
+  const { members } = useMembers(user?.accountId ?? null)
   const { role } = useOrgRole()
   const { mutateAsync: deactivate, isPending } = useDeactivateBranch()
   const { mutateAsync: openBranch,  isPending: isOpening } = useOpenBranch()

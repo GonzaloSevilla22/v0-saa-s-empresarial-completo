@@ -1,6 +1,7 @@
 "use client"
 
 import { useAuth } from "@/contexts/auth-context"
+import { PLAN_DISPLAY_NAMES, PLAN_HIERARCHY } from "@/lib/plan-utils"
 import { AlertTriangle, X } from "lucide-react"
 import Link from "next/link"
 import { useState } from "react"
@@ -15,6 +16,9 @@ import { useState } from "react"
  *   becomes 'expired' via expire_trials(), so this guard is a safety net).
  * - Beta users (trial_expires_at = null) never see the banner.
  * - Dismissible for the current browser session (does NOT write to DB).
+ * - Nombra el plan REAL de la prueba (`user.trialPlan`, con PLAN_DISPLAY_NAMES);
+ *   si la cuenta no trae un plan de prueba válido dice sólo "de prueba", sin
+ *   inventar uno (antes el texto fijo decía siempre "plan Avanzado").
  */
 export function TrialBanner() {
   const { user } = useAuth()
@@ -33,10 +37,18 @@ export function TrialBanner() {
   const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24))
 
   const isUrgent = diffDays <= 3
+  // PLAN_HIERARCHY.includes: trialPlan viene de la base y puede traer cualquier
+  // string; sólo un plan del catálogo se nombra (nunca una clave heredada del
+  // objeto, ni "undefined").
+  const planName =
+    user.trialPlan && PLAN_HIERARCHY.includes(user.trialPlan)
+      ? PLAN_DISPLAY_NAMES[user.trialPlan]
+      : null
+  const planSuffix = planName ? ` del plan ${planName}` : ""
   const label =
     diffDays === 1
-      ? "Te queda 1 día de prueba del plan Avanzado"
-      : `Te quedan ${diffDays} días de prueba del plan Avanzado`
+      ? `Te queda 1 día de prueba${planSuffix}`
+      : `Te quedan ${diffDays} días de prueba${planSuffix}`
 
   return (
     <div

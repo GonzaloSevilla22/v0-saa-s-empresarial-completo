@@ -814,6 +814,28 @@ describe("AppSidebar — drawer móvil", () => {
     expect(within(drawer).getByRole("button", { name: "Operaciones" })).not.toHaveAttribute("aria-haspopup")
   })
 
+  // Hallazgo del arnés de navegador: al abrir el drawer, Radix emitía en consola
+  // «DialogContent requires a DialogTitle» (el aviso "1 Issue" del overlay de
+  // desarrollo de Next). No es sólo ruido de desarrollo: el drawer era un diálogo
+  // SIN nombre para un lector de pantalla.
+  it("el drawer es un diálogo con nombre accesible «Menú de navegación»", async () => {
+    await abrirDrawer()
+    expect(screen.getByRole("dialog", { name: "Menú de navegación" })).toHaveAttribute("data-mobile", "true")
+  })
+
+  it("abrir el drawer no dispara el aviso de Radix por falta de título o descripción", async () => {
+    const errores = vi.spyOn(console, "error").mockImplementation(() => {})
+    const avisos = vi.spyOn(console, "warn").mockImplementation(() => {})
+    try {
+      await abrirDrawer()
+      const mensajes = [...errores.mock.calls, ...avisos.mock.calls].map((args) => args.map(String).join(" "))
+      expect(mensajes.filter((m) => /DialogTitle|Description|aria-describedby/.test(m))).toEqual([])
+    } finally {
+      errores.mockRestore()
+      avisos.mockRestore()
+    }
+  })
+
   it("Escape cierra el drawer aunque el foco esté en una categoría (no se rompe G13/H19)", async () => {
     const { user, drawer } = await abrirDrawer()
     const grupo = within(drawer).getByRole("button", { name: "Catálogo" })

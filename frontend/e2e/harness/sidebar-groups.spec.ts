@@ -228,6 +228,14 @@ test.describe('menú por grupos — móvil 390x844', () => {
   test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
 
   test('el drawer abre con las categorías cerradas, se despliegan y Escape lo cierra', async ({ page }) => {
+    // Radix avisa por consola si el drawer no tiene título/descripción (el
+    // "1 Issue" del overlay de desarrollo de Next): abrirlo no debe emitir errores.
+    const errores: string[] = []
+    page.on('console', (m) => {
+      if (m.type() === 'error') errores.push(m.text())
+    })
+    page.on('pageerror', (e) => errores.push(e.message))
+
     await abrir(page)
 
     await page.getByTestId('trigger-menu').tap()
@@ -272,5 +280,9 @@ test.describe('menú por grupos — móvil 390x844', () => {
     await expect(drawer).toBeVisible()
     await expect(drawer.getByRole('button', { name: 'Operaciones', exact: true })).toHaveAttribute('aria-expanded', 'false')
     await expect(drawer.getByRole('link', { name: 'Compras', exact: true })).toHaveCount(0)
+
+    // El drawer tiene nombre accesible y su apertura no dejó errores en consola.
+    await expect(page.getByRole('dialog', { name: 'Menú de navegación' })).toBeVisible()
+    expect(errores).toEqual([])
   })
 })

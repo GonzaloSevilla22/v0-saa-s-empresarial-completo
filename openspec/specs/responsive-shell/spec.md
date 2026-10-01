@@ -192,6 +192,7 @@ El sistema SHALL presentar el menú lateral con el Tablero suelto arriba (sin r�
 - **AND** Escape cierra el drawer aunque el foco esté en una categoría
 - **AND** al reabrirlo las categorías vuelven a estar cerradas
 - **AND** cada fila del menú (Tablero, categoría y módulo) mide al menos 44 px de alto; en escritorio conservan sus 32 px
+- **AND** el drawer es un diálogo con nombre accesible "Menú de navegación" (título y descripción ocultos a la vista), de modo que abrirlo no dispara el aviso de Radix por falta de título
 
 #### Scenario: Ninguna ruta se rompe
 

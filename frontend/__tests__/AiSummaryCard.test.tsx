@@ -4,7 +4,7 @@
  * confundiendo un límite del plan con una falla técnica.
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest"
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import { render, screen, waitFor } from "@testing-library/react"
 import { AiSummaryCard } from "@/components/dashboard/ai-summary-card"
 
@@ -36,6 +36,40 @@ describe("AiSummaryCard — título (etiqueta «IA»)", () => {
     expect(screen.queryByText(/Resumen AI/)).toBeNull()
     // Deja resolver el efecto de montaje (invoke) para no filtrar estado a otros tests.
     await waitFor(() => expect(screen.getByText("Resumen")).toBeInTheDocument())
+  })
+})
+
+describe("AiSummaryCard — footer «Ventas hoy» (tablero-menu-pulido P2)", () => {
+  // El footer usaba `$${todaySales.toLocaleString()}`: el separador dependía del
+  // idioma del navegador y un negativo salía "$-2.066". Ahora usa el mismo
+  // formateador es-AR del Bloque Resumen y de la fila de tarjetas.
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  async function ventasHoy(todaySales: number): Promise<string> {
+    invokeMock.mockResolvedValue({ data: { ok: true, data: "Resumen" }, error: null })
+    render(<AiSummaryCard todaySales={todaySales} />)
+    const texto = screen.getByText(/Ventas hoy/).textContent ?? ""
+    await waitFor(() => expect(screen.getByText("Resumen")).toBeInTheDocument())
+    return texto
+  }
+
+  it("formatea miles con punto (es-AR): 1234567 -> $1.234.567", async () => {
+    expect(await ventasHoy(1234567)).toBe("Ventas hoy: $1.234.567")
+  })
+
+  it("cero se muestra $0 (no —) y un importe chico queda sin separador", async () => {
+    expect(await ventasHoy(0)).toBe("Ventas hoy: $0")
+  })
+
+  it("un importe negativo lleva el signo antes del $: -2066 -> -$2.066", async () => {
+    expect(await ventasHoy(-2066)).toBe("Ventas hoy: -$2.066")
+  })
+
+  it("no depende del idioma del navegador: no pasa por toLocaleString", async () => {
+    vi.spyOn(Number.prototype, "toLocaleString").mockImplementation(() => "CENTINELA")
+    expect(await ventasHoy(12222)).toBe("Ventas hoy: $12.222")
   })
 })
 

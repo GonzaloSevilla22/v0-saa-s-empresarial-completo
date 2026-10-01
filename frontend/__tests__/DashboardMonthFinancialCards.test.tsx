@@ -240,7 +240,10 @@ describe("Tablero — tarjetas financieras del mes vigente", () => {
       expect(screen.getByTestId("kpi-card-Ganancia neta del mes")).toHaveTextContent("$430")
     })
 
-    it("formatea miles con toLocaleString, igual que antes", () => {
+    // tablero-menu-pulido (P2): la fila usa el MISMO formateador que el Bloque
+    // Resumen (formatKpiCurrency, es-AR con punto de miles) — antes armaba
+    // `$${x.toLocaleString()}` y el separador dependía del idioma del navegador.
+    it("formatea miles con punto (es-AR), igual que el Bloque Resumen", () => {
       monthState = {
         data: { totalIncome: 1234567, totalExpenses: 4321, totalPurchases: 0, netProfit: 99000 },
         isLoading: false,
@@ -248,15 +251,39 @@ describe("Tablero — tarjetas financieras del mes vigente", () => {
       }
       render(<DashboardPage />)
 
-      expect(screen.getByTestId("kpi-card-Ventas del mes")).toHaveTextContent(
-        `$${(1234567).toLocaleString()}`,
-      )
-      expect(screen.getByTestId("kpi-card-Gastos del mes")).toHaveTextContent(
-        `$${(4321).toLocaleString()}`,
-      )
-      expect(screen.getByTestId("kpi-card-Ganancia neta del mes")).toHaveTextContent(
-        `$${(99000).toLocaleString()}`,
-      )
+      expect(screen.getByTestId("kpi-card-Ventas del mes").textContent).toBe("$1.234.567")
+      expect(screen.getByTestId("kpi-card-Gastos del mes").textContent).toBe("$4.321")
+      expect(screen.getByTestId("kpi-card-Ganancia neta del mes").textContent).toBe("$99.000")
+    })
+
+    it("redondea a entero como el Bloque Resumen: 12221.6 -> $12.222", () => {
+      monthState = {
+        data: { totalIncome: 12221.6, totalExpenses: 999.4, totalPurchases: 0, netProfit: 0.4 },
+        isLoading: false,
+        isError: false,
+      }
+      render(<DashboardPage />)
+
+      expect(screen.getByTestId("kpi-card-Ventas del mes").textContent).toBe("$12.222")
+      expect(screen.getByTestId("kpi-card-Gastos del mes").textContent).toBe("$999")
+      expect(screen.getByTestId("kpi-card-Ganancia neta del mes").textContent).toBe("$0")
+    })
+
+    it("el formato no depende del idioma del navegador: no pasa por toLocaleString", () => {
+      // Si el código volviera a `x.toLocaleString()`, el centinela se filtraría
+      // al texto de las tarjetas, sea cual sea el idioma de la máquina del dev.
+      vi.spyOn(Number.prototype, "toLocaleString").mockImplementation(() => "CENTINELA")
+      monthState = {
+        data: { totalIncome: 1234567, totalExpenses: 4321, totalPurchases: 0, netProfit: -2066 },
+        isLoading: false,
+        isError: false,
+      }
+      render(<DashboardPage />)
+
+      expect(screen.getByTestId("kpi-card-Ventas del mes").textContent).toBe("$1.234.567")
+      expect(screen.getByTestId("kpi-card-Gastos del mes").textContent).toBe("$4.321")
+      expect(screen.getByTestId("kpi-card-Ganancia neta del mes").textContent).toBe("-$2.066")
+      expect(screen.getByTestId("kpi-card-Por cobrar").textContent).toBe("$21.000")
     })
 
     it("período sin datos muestra $0", () => {
@@ -272,7 +299,9 @@ describe("Tablero — tarjetas financieras del mes vigente", () => {
       expect(screen.getByTestId("kpi-card-Ganancia neta del mes")).toHaveTextContent("$0")
     })
 
-    it("una ganancia neta negativa se muestra con su signo", () => {
+    // El signo va ANTES del "$" ("-$2.066"), igual que en el Bloque Resumen —
+    // antes salía "$-2.066" mientras el bloque de arriba decía "-$2.066".
+    it("una ganancia neta negativa se muestra con su signo antes del $", () => {
       monthState = {
         data: { totalIncome: 100, totalExpenses: 300, totalPurchases: 0, netProfit: -200 },
         isLoading: false,
@@ -280,9 +309,19 @@ describe("Tablero — tarjetas financieras del mes vigente", () => {
       }
       render(<DashboardPage />)
 
-      expect(screen.getByTestId("kpi-card-Ganancia neta del mes")).toHaveTextContent(
-        `$${(-200).toLocaleString()}`,
-      )
+      expect(screen.getByTestId("kpi-card-Ganancia neta del mes").textContent).toBe("-$200")
+    })
+
+    it("negativo con miles: -2066 -> -$2.066 y -1234567 -> -$1.234.567", () => {
+      monthState = {
+        data: { totalIncome: 0, totalExpenses: 1234567, totalPurchases: 0, netProfit: -2066 },
+        isLoading: false,
+        isError: false,
+      }
+      render(<DashboardPage />)
+
+      expect(screen.getByTestId("kpi-card-Ganancia neta del mes").textContent).toBe("-$2.066")
+      expect(screen.getByTestId("kpi-card-Gastos del mes").textContent).toBe("$1.234.567")
     })
 
     it("mientras el mes carga, las tres tarjetas muestran —", () => {

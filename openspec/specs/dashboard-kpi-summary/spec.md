@@ -128,7 +128,7 @@ El Tablero SHALL ofrecer un selector de período (mes en curso por defecto) que 
 - **AND** las tres tarjetas financieras del mes muestran `$0` (su propio escenario "Período sin datos"): la diferencia es deliberada — el bloque no informa un KPI sin actividad, la fila informa un total que es cero
 
 ### Requirement: Tarjetas financieras del período seleccionado
-El Tablero SHALL mostrar, debajo del Bloque Resumen KPI, tres tarjetas financieras con los títulos "Ventas del mes", "Gastos del mes" y "Ganancia neta del mes", calculadas por `get_dashboard_financials` sobre la ventana del mes calendario del selector de período (mes en curso por defecto) y la sucursal del filtro de sucursal activo. Las tarjetas NOT SHALL presentarse como valores del día ("hoy"): el pedido del producto es que un negocio vea cómo va su mes, no cómo va su última hora. La ventana del mes SHALL materializarse con el mismo helper de rangos que el Bloque Resumen (`utcMonthRange`, anclado al día argentino), y las tres tarjetas SHALL mostrar lo que devuelve el read-model —en particular "Ganancia neta del mes" es el `net_profit` del RPC, que resta también las compras— sin recomputarlo en el cliente.
+El Tablero SHALL mostrar, debajo del Bloque Resumen KPI, tres tarjetas financieras con los títulos "Ventas del mes", "Gastos del mes" y "Ganancia neta del mes", calculadas por `get_dashboard_financials` sobre la ventana del mes calendario del selector de período (mes en curso por defecto) y la sucursal del filtro de sucursal activo. Las tarjetas NOT SHALL presentarse como valores del día ("hoy"): el pedido del producto es que un negocio vea cómo va su mes, no cómo va su última hora. La ventana del mes SHALL materializarse con el mismo helper de rangos que el Bloque Resumen (`utcMonthRange`, anclado al día argentino), y las tres tarjetas SHALL mostrar lo que devuelve el read-model —en particular "Ganancia neta del mes" es el `net_profit` del RPC, que resta también las compras— sin recomputarlo en el cliente. Los importes de la fila (y el total de "Por cobrar") SHALL presentarse con el mismo formateador del Bloque Resumen (`formatKpiCurrency`: punto de miles es-AR, sin decimales, signo antes del `$`), sin depender del idioma del navegador.
 
 La regla de notas de crédito NOT SHALL reimplementarse en esta superficie: `get_dashboard_financials` la resuelve con el mismo helper de base de datos que `rpc_dashboard_kpi_summary` (capability `reporting-invariants`), de modo que ambas superficies informan el mismo resultado sobre la misma ventana, cuenta y sucursal.
 
@@ -149,7 +149,12 @@ La regla de notas de crédito NOT SHALL reimplementarse en esta superficie: `get
 - **GIVEN** un usuario con una única membresía de cuenta y un mes con ventas, gastos, compras y una nota de crédito emitida dentro del mes
 - **WHEN** se renderizan el Bloque Resumen KPI y la tarjeta "Ganancia neta del mes" con el mismo período y el mismo filtro de sucursal
 - **THEN** el importe de "Ganancia neta del mes" (el `net_profit` de `get_dashboard_financials`) es igual al de la tarjeta "Ganancia Neta" del bloque (el `net_profit` de `rpc_dashboard_kpi_summary`)
-- **AND** la igualdad es del importe, no del texto: la fila presenta el valor con el formato de siempre de esas tarjetas (`toLocaleString` del navegador, con decimales si los hay) y el bloque con `formatKpiCurrency` (redondeado, signo antes del `$`)
+- **AND** la fila y el bloque presentan el importe con el mismo formateador (`formatKpiCurrency`: redondeado a entero, signo antes del `$`), de modo que una ganancia negativa se lee `-$2.066` en las dos superficies
+
+#### Scenario: Los importes se formatean igual que en el Bloque Resumen
+- **WHEN** las tarjetas de la fila muestran 12222, 0 y -2066
+- **THEN** se leen `$12.222`, `$0` y `-$2.066` (nunca `$-2.066`), con punto de miles, cualquiera sea el idioma del navegador
+- **AND** el total de "Por cobrar" y el pie "Ventas hoy" del Resumen IA del día usan ese mismo formateador
 
 #### Scenario: Volver al Tablero trae los totales vigentes
 - **WHEN** el usuario opera en otra pantalla (por ejemplo, vende por el POS o carga un gasto) y vuelve al Tablero

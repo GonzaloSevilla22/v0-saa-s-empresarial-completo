@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest"
-import { formatCalendarDay } from "@/lib/date-range"
+import { formatCalendarDay } from "@/lib/format"
 
 // tablero-menu-pulido (P1): `formatCalendarDay` rotula el día CALENDARIO de una
 // clave "YYYY-MM-DD" sin que el huso del navegador lo corra. La clave nunca se

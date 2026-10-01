@@ -3,7 +3,8 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { useSales } from "@/hooks/data/use-sales"
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts"
-import { argentinaDaysAgo, formatCalendarDay } from "@/lib/date-range"
+import { argentinaDaysAgo } from "@/lib/date-range"
+import { formatCalendarDay } from "@/lib/format"
 
 export function SalesChart() {
   const { sales } = useSales()

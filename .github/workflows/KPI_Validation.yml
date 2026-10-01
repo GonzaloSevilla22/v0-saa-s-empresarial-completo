@@ -2618,3 +2618,24 @@ jobs:
       # (509), fila Padre con PLU -> error de fila; (z) residuo cero.
       - name: Run balanza etiquetas POS gate
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_balanza_etiquetas_pos.sql
+
+      # ventas-formulario-sucursal (fix ad-hoc, 2026-10-01, governance MEDIA; SIN
+      # migración: el defecto era de la capa de aplicación, que descartaba la
+      # sucursal elegida en el alta). Este gate fija el contrato de base que el fix
+      # empieza a usar — ningún gate lo EJECUTABA: los bloques de runtime de
+      # test_branch_stock.sql están comentados y los demás pasan p_branch_id con una
+      # sola sucursal o sin mirar sales.branch_id / stock_movements.branch_id.
+      # Llama a rpc_create_sale_operation como el backend: (1) alta en una sucursal
+      # NO default, 2 líneas -> sales.branch_id y stock_movements.branch_id = la
+      # elegida, branch_stock baja en la elegida y la default queda intacta; (2) sin
+      # sucursal -> branch_id NULL y stock de la default (contrato vigente, el fix NO
+      # lo cambia); (3) la elegida sin stock aunque la default alcance -> P0409
+      # insufficient_branch_stock sin nada persistido, y la misma venta sin sucursal
+      # pasa; (4) sucursal ajena/inactiva -> P0404, cerrada -> P0422; (5) caja: el
+      # opt-in exige la sesión de la sucursal elegida (la de la default -> P0422) y
+      # el movimiento aterriza ahí; (6) banco: el movimiento lleva la elegida (y la
+      # default si no se eligió ninguna). created_at explícito y estrictamente
+      # posterior en las sucursales sintéticas (c26_default_branch no desempata) y
+      # limpieza completa de las filas sembradas por handle_new_user.
+      - name: Run ventas formulario sucursal gate
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_ventas_formulario_sucursal.sql

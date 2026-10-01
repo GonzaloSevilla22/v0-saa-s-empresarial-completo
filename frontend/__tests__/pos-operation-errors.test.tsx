@@ -150,7 +150,25 @@ describe("PosPage — error de stock insuficiente muestra el mensaje canónico",
     expect(routerPush).toHaveBeenCalledWith(`/stock?product=${PRODUCT_ID}`)
   })
 
+  // ventas-formulario-sucursal (ronda 1): `branch_closed` pasó a traducirlo
+  // humanizeOperationError (el formulario de venta ya puede recibirlo), así que
+  // dejó de servir como ejemplo de "no reconocido". Este caso usa un token que
+  // SÓLO conoce friendlyError, para seguir ejercitando el fallback.
   it("un error genérico no reconocido conserva su propio texto amigable, sin acción", async () => {
+    quickSaleMutateAsync.mockRejectedValue(new Error("no_active_point_of_sale: la cuenta no tiene puntos de venta"))
+
+    render(<PosPage />)
+    addProductToCart()
+    fireEvent.click(screen.getByRole("button", { name: /^cobrar/i }))
+
+    await waitFor(() => expect(toastError).toHaveBeenCalled())
+
+    const [message, options] = toastError.mock.calls[0]
+    expect(message).toBe("La cuenta no tiene puntos de venta activos. Configurá uno en Perfil Fiscal.")
+    expect(options).toBeUndefined()
+  })
+
+  it("branch_closed usa el texto del helper canónico (con la salida), sin acción", async () => {
     quickSaleMutateAsync.mockRejectedValue(new Error("branch_closed: la sucursal está cerrada"))
 
     render(<PosPage />)
@@ -161,6 +179,8 @@ describe("PosPage — error de stock insuficiente muestra el mensaje canónico",
 
     const [message, options] = toastError.mock.calls[0]
     expect(message).toMatch(/sucursal está cerrada/i)
+    expect(message).toMatch(/reabrila desde Sucursales/i)
+    expect(message).not.toContain("branch_closed")
     expect(options).toBeUndefined()
   })
 

@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from backend.tests.conftest import make_token
+from backend.tests.conftest import make_token, named_rpc_arg
 
 OPERATION_ROW = {
     "operation_id": "66666666-6666-6666-6666-666666666666",
@@ -96,11 +96,13 @@ async def test_create_sale_passes_canal_to_rpc(async_client, mock_pool):
 async def test_create_sale_without_canal_passes_none(async_client, mock_pool):
     """Sin canal en el payload, el RPC recibe NULL (ventas legacy = 'Sin canal').
 
-    metodos-pago-operaciones agregó payment_method_id después de canal;
-    pagos-cableados-restantes (OQ-C) agrega cash_session_id trailing después
-    de payment_method_id; pos-banco-movimientos agrega bank_account_id
-    trailing después de cash_session_id — se verifica canal/payment_method_id/
-    cash_session_id/bank_account_id por posición (-4/-3/-2/-1), no por "último".
+    Cada parámetro opcional se verifica por su NOMBRE (`p_canal`,
+    `p_payment_method_id`, ...), no por posición: la RPC fue sumando
+    parámetros trailing (payment_method_id, cash_session_id, bank_account_id,
+    due_date, branch_id): los índices `args[-k]` que usaba este test ya habían
+    quedado desactualizados al sumarse `due_date` sin que el test fallara —
+    todo era None, así que pasaba verificando otro parámetro del que decía
+    (ventas-formulario-sucursal).
     """
     pool, conn = mock_pool
     owner_token = make_token({"role": "user"})
@@ -109,6 +111,7 @@ async def test_create_sale_without_canal_passes_none(async_client, mock_pool):
     async def fetchrow_side_effect(query, *args):
         if "operation_idempotency" in query:
             return None
+        captured["query"] = query
         captured["args"] = args
         return OPERATION_ROW
 
@@ -120,10 +123,15 @@ async def test_create_sale_without_canal_passes_none(async_client, mock_pool):
             headers={"Authorization": f"Bearer {owner_token}"},
         )
     assert resp.status_code == 201
-    assert captured["args"][-4] is None  # canal
-    assert captured["args"][-3] is None  # payment_method_id
-    assert captured["args"][-2] is None  # cash_session_id
-    assert captured["args"][-1] is None  # bank_account_id
+    for name in (
+        "p_canal",
+        "p_payment_method_id",
+        "p_cash_session_id",
+        "p_bank_account_id",
+        "p_due_date",
+        "p_branch_id",
+    ):
+        assert named_rpc_arg(captured, name) is None, name
 
 
 async def test_create_sale_passes_bank_account_id_to_rpc(async_client, mock_pool):

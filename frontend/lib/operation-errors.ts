@@ -78,6 +78,25 @@ const JOURNAL_ENTRY_ORIGINAL_NOT_FOUND_ERROR = /journal_entry_original_not_found
 const CLIENT_NOT_FOUND_ERROR = /client_not_found/
 const SUPPLIER_NOT_FOUND_ERROR = /supplier_not_found/
 
+// ventas-formulario-sucursal (ronda 1 de revisión): desde que el alta del
+// formulario entrega la sucursal elegida a la RPC, los rechazos por sucursal
+// son alcanzables. El selector (useBranches) lista `is_active = true`, y una
+// sucursal CERRADA (rpc_close_branch: status = 'closed', is_active intacto)
+// sigue apareciendo ahí. Tres literales vivos:
+//   - `branch_closed: …` (P0422) — alta (rpc_create_sale_operation_v2) y
+//     borrado/reverso de stock (rpc_apply_product_stock_delta);
+//   - `branch_not_found or not active for this account` (P0404) — alta con una
+//     sucursal ajena o desactivada (p.ej. el caché del selector quedó viejo);
+//   - `branch_invalid: …` (P0422) — edición (rpc_atomic_update_sale_operation)
+//     con la sucursal ya cerrada o desactivada.
+// `no_branch_found` (POS: la cuenta no tiene NINGUNA sucursal activa) es otra
+// cosa y NO lo atrapa BRANCH_NOT_FOUND — sigue en el friendlyError del POS.
+// Sin acción (botón): reabrir una sucursal es una decisión de administración,
+// no un paso más del alta; el texto nombra la salida.
+const BRANCH_CLOSED_ERROR = /branch_closed/
+const BRANCH_NOT_FOUND_ERROR = /branch_not_found/
+const BRANCH_INVALID_ERROR = /branch_invalid/
+
 // ventas-unidades-conversion (D1/D3): los tres tokens P0400 que emite
 // _uom_normalize_quantity, la ÚNICA definición de "cantidad de una línea en la
 // unidad en que se lleva el stock del producto", consumida por los cinco
@@ -211,6 +230,27 @@ export function humanizeOperationError(
     return {
       message:
         "El proveedor seleccionado no existe o no pertenece a esta cuenta. Elegí un proveedor del listado o dejá el campo vacío.",
+    }
+  }
+
+  if (BRANCH_CLOSED_ERROR.test(message)) {
+    return {
+      message:
+        "La sucursal está cerrada y no admite operaciones: no se guardó nada. Elegí otra sucursal o reabrila desde Sucursales.",
+    }
+  }
+
+  if (BRANCH_NOT_FOUND_ERROR.test(message)) {
+    return {
+      message:
+        "La sucursal elegida no existe, está desactivada o no pertenece a esta cuenta: no se guardó nada. Elegí otra sucursal del listado.",
+    }
+  }
+
+  if (BRANCH_INVALID_ERROR.test(message)) {
+    return {
+      message:
+        "La sucursal de esta operación ya no está operativa (está cerrada o desactivada): no se guardó ningún cambio. Elegí otra sucursal o reabrila desde Sucursales.",
     }
   }
 

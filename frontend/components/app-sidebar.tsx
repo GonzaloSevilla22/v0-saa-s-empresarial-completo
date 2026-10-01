@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation"
 import { useAuth } from "@/contexts/auth-context"
 import { planHasAccess, PLAN_DISPLAY_NAMES } from "@/lib/plan-utils"
 import { usePlanLimits } from "@/hooks/auth/use-plan-limits"
+import { PLAN_LIMITS } from "@/lib/constants"
 import {
   LayoutDashboard, ShoppingCart, ShoppingBag, Receipt,
   Package, Warehouse, Users, Sparkles, Calculator,
@@ -450,7 +451,14 @@ export function AppSidebar() {
   const { limits } = usePlanLimits()
   // "pro" menu items are gated at avanzado+; show the crown when locked.
   const showProBadge = !planHasAccess(effectivePlan, "avanzado")
-  const hasBranchesModule = limits?.hasBranchesModule ?? false
+  // Mientras la consulta a plan_limits no respondió (`limits` undefined) se usa el
+  // valor estático del plan EFECTIVO — ya resuelto: el AuthProvider no monta el
+  // layout hasta tener la sesión — en vez de esconder Sucursales / Por Sucursal
+  // hasta que llegue la red (tablero-menu-pulido P6). Una cuenta sin el módulo
+  // sigue sin verlos nunca: el estático es el mismo seed que el fallback del
+  // hook. Cuando llega el valor de la base, ése manda.
+  const hasBranchesModule =
+    limits?.hasBranchesModule ?? PLAN_LIMITS[effectivePlan]?.hasBranchesModule ?? false
   const { isMobile, openMobile, setOpenMobile, state } = useSidebar()
   // Riel colapsado de escritorio: los sub-ítems no se ven, cada grupo abre un desplegable.
   const isRail = state === "collapsed" && !isMobile

@@ -1,7 +1,13 @@
 "use client"
 
 /**
- * useTeamMembers — miembros de una cuenta con su rol y perfil (name/email).
+ * useTeamMembers — miembros de una cuenta con su rol y su nombre de perfil.
+ *
+ * El email NO sale de acá: `public.profiles` no tiene esa columna (vive en
+ * auth.users) y pedirla hacía que PostgREST respondiera 400 en cada carga, con
+ * lo que TODOS los perfiles caían a null en silencio (tablero-menu-pulido P4).
+ * Quien necesite el email lo lee de `useMembers` (hooks/data/use-members.ts:
+ * GET /members -> rpc_list_account_members, que lo resuelve desde auth.users).
  *
  * Extraído de TeamSection.tsx (C-05 Bloque G) a la capa canónica cuando
  * sucursal-guard-vaciado-auditoria (G2) necesitó el MISMO dato para resolver
@@ -21,7 +27,6 @@ export interface TeamMemberRow {
   created_at: string
   profiles: {
     name: string | null
-    email: string | null
   } | null
 }
 
@@ -51,13 +56,13 @@ export function useTeamMembers(accountId: string | null | undefined) {
       const userIds = [...new Set(members.map((m) => m.user_id))]
       const { data: profileRows, error: profilesError } = await supabase
         .from("profiles")
-        .select("id, name, email")
+        .select("id, name")
         .in("id", userIds)
 
       const profilesById = new Map<string, TeamMemberRow["profiles"]>()
       if (!profilesError) {
-        for (const p of (profileRows ?? []) as { id: string; name: string | null; email: string | null }[]) {
-          profilesById.set(p.id, { name: p.name, email: p.email })
+        for (const p of (profileRows ?? []) as { id: string; name: string | null }[]) {
+          profilesById.set(p.id, { name: p.name })
         }
       }
 
@@ -73,8 +78,8 @@ export function useTeamMembers(accountId: string | null | undefined) {
 
 /**
  * Resuelve el nombre visible de un miembro a partir de su user_id, con
- * fallback a email y luego a "no registrado" — usado por BranchList.tsx
- * (G2, OQ-4: autoría visible para todos los miembros de la cuenta).
+ * fallback a "no registrado" — usado por BranchList.tsx (G2, OQ-4: autoría
+ * visible para todos los miembros de la cuenta).
  */
 export function resolveMemberName(
   members: TeamMemberRow[],
@@ -82,5 +87,5 @@ export function resolveMemberName(
 ): string {
   if (!userId) return "no registrado"
   const member = members.find((m) => m.user_id === userId)
-  return member?.profiles?.name ?? member?.profiles?.email ?? "no registrado"
+  return member?.profiles?.name ?? "no registrado"
 }

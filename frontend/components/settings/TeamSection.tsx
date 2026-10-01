@@ -24,6 +24,7 @@ import { createClient } from "@/lib/supabase/client"
 import { useAuth } from "@/contexts/auth-context"
 import { usePlanLimits } from "@/hooks/auth/use-plan-limits"
 import { useTeamMembers, type TeamMemberRow } from "@/hooks/data/use-team-members"
+import { useMembers } from "@/hooks/data/use-members"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -52,6 +53,11 @@ export function TeamSection() {
   const isOwner     = accountRole === "owner"
 
   const { data: members = [], isLoading: membersLoading } = useTeamMembers(accountId)
+  // El email NO está en profiles (vive en auth.users): sale de /members
+  // (rpc_list_account_members), cruzado por user_id. Sin email resuelto la fila
+  // conserva el fallback al user_id.
+  const { members: memberEmails } = useMembers(accountId || null)
+  const emailByUserId = new Map(memberEmails.map((row) => [row.user_id, row.email]))
 
   const maxUsers   = limits?.maxUsers ?? 1
   const curUsers   = members.length
@@ -142,7 +148,7 @@ export function TeamSection() {
                       {m.profiles?.name ?? "Usuario"}
                     </span>
                     <span className="text-xs text-muted-foreground">
-                      {m.profiles?.email ?? m.user_id}
+                      {emailByUserId.get(m.user_id) ?? m.user_id}
                     </span>
                   </div>
                   <RoleBadge role={m.role} />

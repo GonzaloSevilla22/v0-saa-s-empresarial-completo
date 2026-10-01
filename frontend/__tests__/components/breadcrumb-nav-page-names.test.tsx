@@ -88,6 +88,14 @@ describe("BreadcrumbNav — nombres de página (H17)", () => {
     expect(screen.getByText(nombre)).toBeInTheDocument()
   })
 
+  // Decisión del PO 2026-09-30: la etiqueta es "IA" (español) — igual que
+  // la entrada del menú lateral "Consejos IA".
+  it("/insights muestra «Consejos IA»", () => {
+    renderAt("/insights")
+    expect(screen.getByText("Consejos IA")).toBeInTheDocument()
+    expect(screen.queryByText("ALIADATA")).not.toBeInTheDocument()
+  })
+
   // TRIANGULATE: fallback legible — nunca el literal de marca
   it("una ruta no mapeada deriva un nombre legible del último segmento", () => {
     renderAt("/modulo-nuevo/detalle-final")

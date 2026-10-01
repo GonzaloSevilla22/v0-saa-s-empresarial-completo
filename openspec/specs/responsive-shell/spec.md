@@ -134,7 +134,7 @@ El sistema SHALL presentar el menú lateral con el Tablero suelto arriba (sin r�
 - **WHEN** el usuario despliega cada categoría
 - **THEN** Operaciones contiene Ventas, POS — Venta Rápida, Compras, Gastos, Caja, Banco y Cobranzas
 - **AND** Catálogo contiene Productos, Stock, Clientes, Proveedores y Sucursales
-- **AND** Inteligencia contiene Copiloto IA, Consejos AI, Feria AI y Simulador
+- **AND** Inteligencia contiene Copiloto IA, Consejos IA, Feria IA y Simulador
 - **AND** Estadísticas contiene Estadísticas, Rentabilidad, Comparativo, Por Sucursal, Centros de costo, Formas de pago y Libro diario
 - **AND** Ecosistema contiene Comunidad, Cursos y Seguros
 - **AND** Mi Cuenta contiene Planes, Facturación y Exportaciones

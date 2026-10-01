@@ -47,7 +47,7 @@ export default function InsightsPage() {
     <div className="flex flex-col gap-6">
       <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-foreground tracking-tight">Consejos AI</h1>
+          <h1 className="text-2xl font-bold text-foreground tracking-tight">Consejos IA</h1>
           <p className="text-sm text-muted-foreground mt-1">
             Recomendaciones inteligentes basadas en tus datos
           </p>

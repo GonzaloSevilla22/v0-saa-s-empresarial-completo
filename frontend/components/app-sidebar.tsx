@@ -134,8 +134,8 @@ export const navGroups: NavGroup[] = [
     icon: Brain,
     items: [
       { title: "Copiloto IA", href: "/copiloto-ia", icon: Zap, pro: true, proOnly: false },
-      { title: "Consejos AI", href: "/insights", icon: Sparkles, pro: false, proOnly: false },
-      { title: "Feria AI", href: "/ferias/ia", icon: LayoutGrid, pro: false, proOnly: false },
+      { title: "Consejos IA", href: "/insights", icon: Sparkles, pro: false, proOnly: false },
+      { title: "Feria IA", href: "/ferias/ia", icon: LayoutGrid, pro: false, proOnly: false },
       { title: "Simulador", href: "/simulador", icon: Calculator, pro: false, proOnly: false },
     ],
   },

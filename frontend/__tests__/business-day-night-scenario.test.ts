@@ -9,7 +9,7 @@
  *   1. El default de fecha del formulario de venta (`argentinaToday()`,
  *      mismo helper que usa `sale-form.tsx`) resuelve al día D.
  *   2. La ventana "ventas hoy" del dashboard (`utcDayRange()`, mismo helper
- *      que usa `dashboard/page.tsx` para el Resumen AI del día y la
+ *      que usa `dashboard/page.tsx` para el Resumen IA del día y la
  *      celebración de meta, y `ai-summary-card.tsx` al regenerar) incluye ese
  *      mismo día D — una venta guardada con `date = argentinaToday()` cae
  *      dentro de esa ventana. (tablero-kpis-mes-vigente: las tarjetas
@@ -47,7 +47,7 @@ describe("Escenario nocturno 21:00-24:00 ART (app-timezone-argentina)", () => {
     // (ver comentario de storage en lib/date-range.ts).
     const saleStoredAtUtcMidnight = `${saleDefaultDate}T00:00:00.000Z`
 
-    // 2. Ventana "ventas hoy" del dashboard (dashboard/page.tsx: Resumen AI del día
+    // 2. Ventana "ventas hoy" del dashboard (dashboard/page.tsx: Resumen IA del día
     //    + celebración de meta; ai-summary-card.tsx).
     const { from: todayFrom, to: todayTo } = utcDayRange()
 

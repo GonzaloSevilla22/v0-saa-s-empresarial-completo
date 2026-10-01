@@ -76,7 +76,7 @@ export function AiSummaryCard({ todaySales = 0, branchId = null }: AiSummaryCard
             <Sparkles className="h-4 w-4 text-primary" />
           </div>
           <CardTitle className="text-sm font-medium text-card-foreground">
-            Resumen AI del día
+            Resumen IA del día
           </CardTitle>
         </div>
         <Button

@@ -83,7 +83,7 @@ export default function FeriaIAPage() {
                 <CardHeader className="pb-3">
                   <div className="flex justify-between items-start mb-2">
                     <Badge variant="secondary" className="bg-primary/10 text-primary border-primary/20">
-                      Sugerencia AI
+                      Sugerencia IA
                     </Badge>
                     <TrendingUp className="h-5 w-5 text-emerald-500" />
                   </div>

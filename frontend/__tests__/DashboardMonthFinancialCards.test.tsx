@@ -6,7 +6,7 @@
  * pasan a calcularse y mostrarse sobre el MES vigente. Siguen el selector de
  * período (?period=YYYY-MM) y de sucursal (?branch=), igual que el Bloque
  * Resumen KPI de arriba. La ventana del DÍA se conserva sólo para lo que sigue
- * siendo "hoy": el footer del Resumen AI del día y la celebración de meta.
+ * siendo "hoy": el footer del Resumen IA del día y la celebración de meta.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
@@ -188,6 +188,17 @@ describe("Tablero — tarjetas financieras del mes vigente", () => {
   afterEach(() => {
     vi.useRealTimers()
     vi.restoreAllMocks()
+  })
+
+  describe("subtítulo", () => {
+    // Pedido del PO (2026-10-01): con el Tablero en el mes vigente, "hoy" en el
+    // subtítulo del encabezado confundía; queda sólo «Así está tu negocio».
+    it("el subtítulo del encabezado es «Así está tu negocio», sin 'hoy'", () => {
+      render(<DashboardPage />)
+
+      expect(screen.getByText("Así está tu negocio")).toBeInTheDocument()
+      expect(screen.queryByText(/tu negocio hoy/i)).toBeNull()
+    })
   })
 
   describe("títulos", () => {
@@ -423,14 +434,14 @@ describe("Tablero — tarjetas financieras del mes vigente", () => {
   })
 
   describe("lo que sigue siendo hoy (D4)", () => {
-    it("el Resumen AI del día recibe las ventas de HOY, no las del mes", () => {
+    it("el Resumen IA del día recibe las ventas de HOY, no las del mes", () => {
       render(<DashboardPage />)
 
       expect(useDashboardFinancialsMock).toHaveBeenCalledWith(TODAY, null)
       expect(screen.getByTestId("ai-summary-card")).toHaveAttribute("data-today-sales", "90")
     })
 
-    it("el Resumen AI sigue la sucursal, y NO cambia con el selector de período", () => {
+    it("el Resumen IA sigue la sucursal, y NO cambia con el selector de período", () => {
       searchParamsString = "period=2026-07&branch=b1"
       render(<DashboardPage />)
 
@@ -470,7 +481,7 @@ describe("Tablero — tarjetas financieras del mes vigente", () => {
       expect(isLoading).toBe(false)
     })
 
-    it("sin datos del día, el Resumen AI recibe 0 (degradación, no NaN)", () => {
+    it("sin datos del día, el Resumen IA recibe 0 (degradación, no NaN)", () => {
       dayState = { data: null, isLoading: false, isError: true, error: new Error("boom") }
       vi.spyOn(console, "error").mockImplementation(() => {})
       render(<DashboardPage />)

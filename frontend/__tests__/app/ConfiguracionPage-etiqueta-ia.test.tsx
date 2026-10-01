@@ -40,4 +40,11 @@ describe("ConfiguracionPage — comparativo de planes (etiqueta «IA»)", () => 
     render(<ConfiguracionPage />)
     expect(screen.getAllByText("Consejos IA")).toHaveLength(2)
   })
+
+  // Decisión del PO (2026-10-01): lo que quedaba con "AI" pasa a "IA".
+  it("la fila del simulador se llama «Simulador IA» en las dos tarjetas y no queda «Simulador AI»", () => {
+    render(<ConfiguracionPage />)
+    expect(screen.getAllByText("Simulador IA")).toHaveLength(2)
+    expect(screen.queryByText("Simulador AI")).toBeNull()
+  })
 })

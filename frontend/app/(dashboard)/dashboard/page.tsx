@@ -69,7 +69,7 @@ export default function DashboardPage() {
 
   // ── "Hoy" (D4) ──────────────────────────────────────────────────────────────
   // Lo único del Tablero que sigue siendo del DÍA: el footer "Ventas hoy" del
-  // Resumen AI del día y la celebración de meta (umbrales de ventas del día).
+  // Resumen IA del día y la celebración de meta (umbrales de ventas del día).
   // Ventana del día argentino materializada a medianoche UTC (utcDayRange).
   const {
     data: dayFinancials,
@@ -154,7 +154,7 @@ export default function DashboardPage() {
             {greeting}
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Así está tu negocio hoy
+            Así está tu negocio
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">

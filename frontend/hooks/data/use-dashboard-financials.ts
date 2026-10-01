@@ -17,7 +17,7 @@ export type { DashboardFinancials }
  *
  * El Tablero lo usa dos veces: con la ventana del MES del selector de período
  * (las tarjetas "Ventas/Gastos/Ganancia neta del mes") y con la del DÍA
- * (Resumen AI del día y celebración de meta, que siguen siendo "hoy").
+ * (Resumen IA del día y celebración de meta, que siguen siendo "hoy").
  *
  * `range` se recibe ya materializado (`utcMonthRange`/`utcDayRange` devuelven
  * strings) para que la query key dependa de valores primitivos estables, nunca

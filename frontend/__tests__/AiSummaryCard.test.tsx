@@ -1,5 +1,5 @@
 /**
- * Tests del Resumen AI del día — manejo de errores del Edge Function ai-resumen.
+ * Tests del Resumen IA del día — manejo de errores del Edge Function ai-resumen.
  * Bug: el 429 (cuota IA del plan agotada) se mostraba como "Error al conectar",
  * confundiendo un límite del plan con una falla técnica.
  */
@@ -23,6 +23,20 @@ beforeEach(() => {
   invokeMock.mockReset()
   useCriticalStockMock.mockReset()
   useCriticalStockMock.mockReturnValue({ data: 2, isLoading: false })
+})
+
+describe("AiSummaryCard — título (etiqueta «IA»)", () => {
+  // Decisión del PO (2026-10-01): la etiqueta en español es "IA", no "AI".
+  it("la tarjeta se titula «Resumen IA del día» y no conserva la etiqueta «AI»", async () => {
+    invokeMock.mockResolvedValue({ data: { ok: true, data: "Resumen" }, error: null })
+
+    render(<AiSummaryCard todaySales={1000} />)
+
+    expect(screen.getByText("Resumen IA del día")).toBeInTheDocument()
+    expect(screen.queryByText(/Resumen AI/)).toBeNull()
+    // Deja resolver el efecto de montaje (invoke) para no filtrar estado a otros tests.
+    await waitFor(() => expect(screen.getByText("Resumen")).toBeInTheDocument())
+  })
 })
 
 describe("AiSummaryCard — errores", () => {

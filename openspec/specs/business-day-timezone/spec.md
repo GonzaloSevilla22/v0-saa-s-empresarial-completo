@@ -32,7 +32,7 @@ Los formularios de alta de ventas, compras y gastos SHALL usar el día calendari
 Los helpers de rangos (`frontend/lib/date-range.ts`, `supabase/functions/_shared/argentina-time.ts`) SHALL derivar el día/mes calendario del día argentino y materializar las ventanas a medianoche UTC, conservando el esquema de almacenamiento vigente.
 
 #### Scenario: Ventana "hoy" del dashboard en la franja nocturna
-- **WHEN** el dashboard consulta "ventas hoy" (el footer del Resumen AI del día y la celebración de meta alcanzada) a las 23:00 hora argentina del día D
+- **WHEN** el dashboard consulta "ventas hoy" (el footer del Resumen IA del día y la celebración de meta alcanzada) a las 23:00 hora argentina del día D
 - **THEN** la ventana enviada es [D 00:00:00Z, D 23:59:59.999Z]
 
 #### Scenario: Las tarjetas financieras del Tablero usan la ventana del mes

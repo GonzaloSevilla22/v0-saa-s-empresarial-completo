@@ -5,7 +5,7 @@
  * El mapeo de la fila del RPC vivía embebido (y duplicado como interfaz local
  * con nombres snake_case) en `app/(dashboard)/dashboard/page.tsx`. Nace acá,
  * en `lib/reporting/`, para que las tarjetas del Tablero (mes vigente) y el
- * Resumen AI (día) consuman UN solo mapeo vía `useDashboardFinancials`.
+ * Resumen IA (día) consuman UN solo mapeo vía `useDashboardFinancials`.
  */
 
 import { describe, it, expect, vi } from "vitest"

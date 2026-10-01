@@ -153,7 +153,7 @@ La regla de notas de crédito NOT SHALL reimplementarse en esta superficie: `get
 
 #### Scenario: Volver al Tablero trae los totales vigentes
 - **WHEN** el usuario opera en otra pantalla (por ejemplo, vende por el POS o carga un gasto) y vuelve al Tablero
-- **THEN** las tres tarjetas del mes, las ventas de hoy que recibe el Resumen AI del día y las cuatro tarjetas del Bloque Resumen que calcula `rpc_dashboard_kpi_summary` (Ganancia Neta, Stock sin Rotación, Costo por Venta y Ticket Promedio) se vuelven a consultar al montar la página, aunque la lectura anterior sea reciente
+- **THEN** las tres tarjetas del mes, las ventas de hoy que recibe el Resumen IA del día y las cuatro tarjetas del Bloque Resumen que calcula `rpc_dashboard_kpi_summary` (Ganancia Neta, Stock sin Rotación, Costo por Venta y Ticket Promedio) se vuelven a consultar al montar la página, aunque la lectura anterior sea reciente
 - **AND** mientras llega la lectura nueva se sigue viendo la anterior (sin volver a `—`), y la celebración de meta alcanzada no toma esa lectura anterior como punto de partida
 
 #### Scenario: Período sin datos
@@ -172,7 +172,7 @@ La regla de notas de crédito NOT SHALL reimplementarse en esta superficie: `get
 
 #### Scenario: Lo que sigue siendo del día
 - **WHEN** el Tablero se renderiza
-- **THEN** el Resumen AI del día recibe las ventas de HOY (ventana del día argentino, sucursal activa) y NO cambia con el selector de período
+- **THEN** el Resumen IA del día recibe las ventas de HOY (ventana del día argentino, sucursal activa) y NO cambia con el selector de período
 - **AND** la celebración de meta alcanzada se evalúa contra las ventas de HOY
 
 ### Requirement: Comportamiento responsive del bloque

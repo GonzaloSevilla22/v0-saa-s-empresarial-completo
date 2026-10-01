@@ -6,7 +6,7 @@
  * `app/(dashboard)/dashboard/page.tsx` (con una interfaz local snake_case).
  * Nace acá, en la capa canónica, para que el Tablero lo consuma desde un único
  * hook (`hooks/data/use-dashboard-financials.ts`) tanto para las tarjetas del
- * mes vigente como para el "hoy" del Resumen AI — nunca dos copias.
+ * mes vigente como para el "hoy" del Resumen IA — nunca dos copias.
  *
  * La regla de notas de crédito NO se reimplementa acá: `get_dashboard_financials`
  * resta las NC con el mismo helper de base de datos que

@@ -30,7 +30,7 @@ const features = [
   { name: "Productos",          free: `Hasta ${MAX_PRODUCTS_FREE}`,       pro: "Ilimitados" },
   { name: "Clientes",           free: `Hasta ${MAX_CLIENTS_FREE}`,        pro: "Ilimitados" },
   { name: "Consejos IA",        free: `${MAX_INSIGHTS_FREE} por sesión`,  pro: "Ilimitados" },
-  { name: "Simulador AI",       free: "Limitado",                         pro: "Completo" },
+  { name: "Simulador IA",       free: "Limitado",                         pro: "Completo" },
   { name: "Comunidad",          free: "Solo lectura",                     pro: "Completo" },
   { name: "Cursos",             free: "Básicos",                          pro: "Todos" },
   { name: "Predicción de stock",free: false,                              pro: true },

@@ -37,6 +37,34 @@ El sistema SHALL mantener el inventario por combinación `(product_id, branch_id
 - **WHEN** se borra la compra y la reversa de −5 dejaría la sucursal en negativo
 - **THEN** la cantidad queda en 0 y se registra un `stock_movement` de ajuste con reason `floor_on_purchase_delete` por la diferencia (trazabilidad en lugar de negativo)
 
+### Requirement: El alta de una venta desde el formulario opera sobre la sucursal elegida
+El sistema SHALL entregar a la operación de alta de venta la sucursal que el usuario eligió en el formulario, de punta a punta (cliente, API y RPC), de modo que la venta y su movimiento de stock queden registrados en ESA sucursal y que el stock, la caja y el movimiento bancario se resuelvan contra ella. Cuando el usuario no elige ninguna (cuenta sin módulo de sucursales u opción "Sin sucursal (general)"), el sistema SHALL conservar el comportamiento sin sucursal: la venta queda con `branch_id = NULL` y el stock se descuenta de la sucursal por defecto.
+
+#### Scenario: Venta del formulario en una sucursal que no es la default
+- **GIVEN** una cuenta con las sucursales A (default) y B, y un producto con 10 unidades en cada una
+- **WHEN** el usuario elige la sucursal B en el formulario y registra una venta de 3 unidades
+- **THEN** la fila en `sales` y el `stock_movement` de la venta tienen `branch_id = B`, `branch_stock` de B pasa a 7 y `branch_stock` de A permanece en 10
+
+#### Scenario: La sucursal elegida no tiene stock aunque la default sí
+- **GIVEN** un producto con 10 unidades en la sucursal default A y ninguna en la sucursal B
+- **WHEN** el usuario elige B en el formulario y registra una venta de 2 unidades
+- **THEN** el alta es rechazada con `P0409 insufficient_branch_stock` (HTTP 409), no se persiste ninguna fila y el stock de A no se toca
+
+#### Scenario: Sucursal ajena, inactiva o cerrada
+- **GIVEN** una sucursal que pertenece a otra cuenta, que está inactiva o que está cerrada
+- **WHEN** una venta se registra indicando esa sucursal
+- **THEN** la sucursal ajena o inactiva se rechaza con `P0404` (HTTP 404) y la cerrada con `P0422` (HTTP 422), sin persistir nada
+
+#### Scenario: Venta sin sucursal elegida
+- **GIVEN** un formulario de venta sin sucursal elegida
+- **WHEN** el usuario registra la venta
+- **THEN** la fila en `sales` tiene `branch_id = NULL` y el stock se descuenta de la sucursal por defecto de la cuenta
+
+#### Scenario: Caja y banco siguen a la sucursal elegida
+- **GIVEN** el usuario eligió la sucursal B y una forma de pago en efectivo con la casilla "Registrar en caja" tildada
+- **WHEN** registra la venta
+- **THEN** el movimiento de caja se registra sólo si la sesión abierta es la de B (con la sesión de otra sucursal el alta se rechaza con `P0422`), y el movimiento bancario de una venta por transferencia lleva `branch_id = B`
+
 ### Requirement: Ajuste manual de stock por sucursal
 
 El sistema SHALL permitir a `owner` y `admin` ajustar manualmente la cantidad de stock en una sucursal mediante `rpc_adjust_branch_stock`, generando un `stock_movements` de tipo `adjustment`.

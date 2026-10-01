@@ -87,6 +87,7 @@ vi.mock("@/components/shared/scrollable-cart-shell", () => ({
 }))
 
 const { SaleForm } = await import("@/components/forms/sale-form")
+const { toast } = await import("sonner")
 
 type AltaCall = { meta: { branchId: string | null; clientId: string; orgId: string } }
 
@@ -136,5 +137,22 @@ describe("SaleForm (alta) — la sucursal elegida viaja en el meta", () => {
     })
 
     expect(call.meta.branchId).toBeNull()
+  })
+
+  // Ronda 1 de revisión: el selector lista `is_active = true` y una sucursal
+  // CERRADA conserva `is_active = true`, así que se puede elegir. Desde este
+  // fix la RPC la rechaza (P0422 `branch_closed`); antes se descartaba y la
+  // venta salía de la sucursal por defecto. El usuario tiene que ver la salida,
+  // no el token interno.
+  it("si la RPC rechaza la sucursal elegida por cerrada, el toast explica la salida sin el token crudo", async () => {
+    addSaleOperationMock.mockRejectedValueOnce(new Error("branch_closed: la sucursal está cerrada"))
+
+    await confirmSale(clickBranch(/elegir sucursal A/i))
+
+    await waitFor(() => expect(vi.mocked(toast.error)).toHaveBeenCalled())
+    const [shown] = vi.mocked(toast.error).mock.calls[0]
+    expect(shown).toMatch(/^Error al registrar la venta: La sucursal está cerrada/)
+    expect(shown).toMatch(/Elegí otra sucursal o reabrila desde Sucursales/)
+    expect(shown).not.toContain("branch_closed")
   })
 })

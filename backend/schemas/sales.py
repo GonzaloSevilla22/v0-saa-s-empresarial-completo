@@ -46,6 +46,14 @@ class SaleOperationIn(BaseModel):
     # _pay_register_party_charge, NUNCA acá ni en el service. Un vencimiento
     # anterior a la fecha de la operación aborta con P0400 en la RPC.
     due_date: datetime.date | None = None
+    # ventas-formulario-sucursal: sucursal que el usuario eligió en el
+    # formulario. La RPC ya la aceptaba (p_branch_id) pero este esquema la
+    # descartaba — la venta quedaba con branch_id NULL y el stock, la caja y el
+    # banco se resolvían contra la sucursal por defecto. None = sin sucursal
+    # elegida (cuenta sin módulo de sucursales, o "Sin sucursal (general)"): la
+    # RPC conserva NULL, nunca se inventa una acá. Pertenencia a la cuenta,
+    # sucursal activa y no cerrada las valida la RPC (P0404/P0422).
+    branch_id: uuid.UUID | None = None
 
 
 class SaleOperationOut(BaseModel):

@@ -142,6 +142,11 @@ async def create_sale_operation(
     bank_account_id = (
         str(payload.bank_account_id) if payload.bank_account_id is not None else None
     )
+    # ventas-formulario-sucursal: passthrough de la sucursal elegida — la RPC
+    # valida pertenencia a la cuenta (P0404), sucursal cerrada (P0422) y stock
+    # de ESA sucursal (P0409); None conserva branch_id NULL (cuenta sin módulo
+    # de sucursales o "Sin sucursal (general)").
+    branch_id = str(payload.branch_id) if payload.branch_id is not None else None
     record = await repo.create_operation(
         auth["user_id"],
         account_id,
@@ -155,6 +160,7 @@ async def create_sale_operation(
         cash_session_id=cash_session_id,
         bank_account_id=bank_account_id,
         due_date=payload.due_date,
+        branch_id=branch_id,
     )
     if record is None:
         raise HTTPException(status_code=500, detail="Error al crear la operación de venta")

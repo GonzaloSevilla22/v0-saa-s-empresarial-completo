@@ -233,6 +233,12 @@ export function useSales() {
         date:            opMeta.date,
         client_id:       opMeta.clientId ?? null,
         currency:        opMeta.currency,
+        // ventas-formulario-sucursal: la sucursal elegida en el formulario
+        // viaja SIEMPRE (null = "Sin sucursal (general)" o cuenta sin módulo).
+        // El tipo del `meta` ya la aceptaba, pero el alta no la incluía: la
+        // venta quedaba con branch_id NULL y el stock/caja/banco se resolvían
+        // contra la sucursal por defecto. Misma convención que compras.
+        branch_id:       opMeta.branchId ?? null,
         canal:           opMeta.canal ?? null,
         payment_method_id: opMeta.paymentMethodId ?? null,
         cash_session_id: opMeta.cashSessionId ?? null,

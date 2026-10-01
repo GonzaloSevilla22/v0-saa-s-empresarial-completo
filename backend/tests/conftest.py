@@ -19,6 +19,7 @@ import os
 
 os.environ.setdefault("AUTH_ALLOW_HS256_FALLBACK", "true")
 
+import re
 import time
 import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -116,6 +117,20 @@ def account_roles_fetchval(roles, *, otherwise=None):
         return next(rest) if rest is not None else otherwise
 
     return AsyncMock(side_effect=_fetchval)
+
+
+def named_rpc_arg(captured: dict, name: str):
+    """Valor ligado al argumento NOMBRADO `name` de una llamada a una RPC.
+
+    `captured` es `{"query": <sql>, "args": <args de asyncpg>}`. Parsea
+    `name => $N` del SQL y devuelve `args[N-1]`: el test queda independiente del
+    ORDEN en que el repositorio emite los parámetros. `rpc_create_sale_operation`
+    acumuló cinco parámetros opcionales con el tiempo y cada uno corrió los
+    índices de los tests que miraban `args[-k]` (ventas-formulario-sucursal).
+    """
+    match = re.search(rf"\b{name}\s*=>\s*\$(\d+)", captured["query"])
+    assert match is not None, f"{name} no viaja como argumento nombrado en la RPC"
+    return captured["args"][int(match.group(1)) - 1]
 
 
 @pytest.fixture

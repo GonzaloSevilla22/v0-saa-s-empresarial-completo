@@ -21,6 +21,11 @@ vi.mock("@/hooks/data/use-clients", () => ({
   useClient: (id: string | null) => useClientMock(id),
 }))
 
+// presupuestos-modulo (D10): la cabecera decide el botón "Nuevo presupuesto" por rol.
+vi.mock("@/hooks/useOrgRole", () => ({
+  useOrgRole: () => ({ role: "owner", roles: ["owner"], rolesResolved: true, isWriter: true, isLoading: false }),
+}))
+
 import ClienteDetailLayout from "@/app/(dashboard)/clientes/[id]/layout"
 
 describe("ClienteDetailLayout", () => {
@@ -40,6 +45,16 @@ describe("ClienteDetailLayout", () => {
       } as any)
     )
     expect(screen.getByText("Acme Corp")).toBeInTheDocument()
+  })
+
+  it("renders the third tab linking to the client's quotes (presupuestos-modulo)", async () => {
+    render(
+      await ClienteDetailLayout({
+        params: Promise.resolve({ id: "client-1" }),
+        children: <div>contenido</div>,
+      } as any)
+    )
+    expect(screen.getByRole("link", { name: "Presupuestos" })).toHaveAttribute("href", "/clientes/client-1/presupuestos")
   })
 
   it("renders both tabs linking to the historial and cuenta corriente routes", async () => {

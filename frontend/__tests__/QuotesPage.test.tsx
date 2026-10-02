@@ -19,11 +19,13 @@ import "@testing-library/jest-dom"
 import type { QuoteListItem } from "@/lib/quote-types"
 
 const mocks = vi.hoisted(() => ({
+  searchParams: { value: new URLSearchParams() },
   useQuotes: vi.fn(),
   useOrgRole: vi.fn(),
   validityDays: { value: 15 as number | undefined },
 }))
 
+vi.mock("next/navigation", () => ({ useSearchParams: () => mocks.searchParams.value }))
 vi.mock("@/hooks/data/use-quotes", () => ({
   useQuotes: (filters: unknown) => mocks.useQuotes(filters),
   useQuoteSettings: () => ({
@@ -68,6 +70,7 @@ function lastFilters(): Record<string, unknown> {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  mocks.searchParams.value = new URLSearchParams()
   mocks.validityDays.value = 15
   mocks.useOrgRole.mockReturnValue({ role: "owner", roles: ["owner"], rolesResolved: true, isWriter: true, isLoading: false })
   mocks.useQuotes.mockReturnValue(listResult([row({ id: "q-1" })]))
@@ -333,5 +336,46 @@ describe("QuotesPage — validez por defecto", () => {
     render(<QuotesPage />)
 
     expect(screen.queryByTestId("quote-validity-notice")).not.toBeInTheDocument()
+  })
+})
+
+describe("QuotesPage — filtro por cliente (?cliente=, viene de la ficha del cliente)", () => {
+  it("sin ?cliente= no filtra por cliente ni muestra el aviso", () => {
+    render(<QuotesPage />)
+
+    expect(lastFilters().clientId).toBeUndefined()
+    expect(screen.queryByTestId("quote-client-filter")).not.toBeInTheDocument()
+  })
+
+  it("con ?cliente= pide sólo los presupuestos de ese cliente y lo avisa con una salida", () => {
+    mocks.searchParams.value = new URLSearchParams("cliente=c-9")
+    render(<QuotesPage />)
+
+    expect(lastFilters()).toMatchObject({ clientId: "c-9", page: 0 })
+    const chip = screen.getByTestId("quote-client-filter")
+    expect(chip).toHaveTextContent(/filtrado por cliente/i)
+    expect(within(chip).getByRole("link", { name: /quitar filtro/i })).toHaveAttribute("href", "/presupuestos")
+  })
+
+  it("el filtro de cliente convive con la pestaña de estado y la búsqueda", () => {
+    mocks.searchParams.value = new URLSearchParams("cliente=c-9")
+    render(<QuotesPage />)
+
+    fireEvent.click(screen.getByRole("button", { name: "Enviados" }))
+
+    expect(lastFilters()).toMatchObject({ clientId: "c-9", status: "sent" })
+  })
+
+  it("vacío con filtro de cliente: lo dice por el cliente (no invita a crear uno genérico)", () => {
+    mocks.searchParams.value = new URLSearchParams("cliente=c-9")
+    mocks.useQuotes.mockReturnValue(listResult([]))
+    render(<QuotesPage />)
+
+    const empty = screen.getByTestId("quotes-empty")
+    expect(empty).toHaveTextContent(/este cliente todavía no tiene presupuestos/i)
+    expect(within(empty).getByRole("link", { name: /nuevo presupuesto|crear el primero/i })).toHaveAttribute(
+      "href",
+      "/presupuestos/nuevo?cliente=c-9",
+    )
   })
 })

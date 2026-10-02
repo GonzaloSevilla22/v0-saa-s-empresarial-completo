@@ -9,12 +9,14 @@
  * pasada se muestra vencido aunque el barrido diario todavía no lo haya marcado.
  *
  * Tabla en escritorio y tarjetas en móvil, con el mismo contenido. El CTA
+ * `?cliente=<id>` (viene de la ficha del cliente) filtra por ese cliente.
  * "Nuevo presupuesto" aparece sólo con `CAN_QUOTE`, evaluado sobre el CONJUNTO de
  * roles (el `role` singular colapsa a `member` a quien sólo es vendedor); el
  * backend es la barrera real.
  */
 import { useState } from "react"
 import Link from "next/link"
+import { useSearchParams } from "next/navigation"
 import { ChevronLeft, ChevronRight, FileText, Plus, Search, Settings2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -46,6 +48,7 @@ export default function QuotesPage() {
   const [searchInput, setSearchInput] = useState("")
   const [page, setPage] = useState(0)
   const search = useDebounce(searchInput.trim(), SEARCH_DEBOUNCE_MS)
+  const clientFilter = useSearchParams().get("cliente") ?? undefined
 
   const { roles, rolesResolved } = useOrgRole()
   const canQuote = hasCapability(roles, CAN_QUOTE, rolesResolved)
@@ -53,6 +56,7 @@ export default function QuotesPage() {
 
   const { data, isLoading, isError } = useQuotes({
     status: tab === "all" ? undefined : tab,
+    clientId: clientFilter,
     q: search || undefined,
     page,
     pageSize: PAGE_SIZE,
@@ -77,6 +81,12 @@ export default function QuotesPage() {
       const noun = QUOTE_LIST_TABS.find((t) => t.value === tab)?.noun ?? ""
       return { title: `No hay presupuestos ${noun}`, body: "Cuando algún presupuesto llegue a este estado, va a aparecer acá." }
     }
+    if (clientFilter) {
+      return {
+        title: "Este cliente todavía no tiene presupuestos",
+        body: "Cuando le armes uno, va a aparecer acá.",
+      }
+    }
     return {
       title: "Todavía no hay presupuestos",
       body: "Un presupuesto es la cotización que le mandás a un cliente antes de vender. Lo descargás en PDF o lo mandás por WhatsApp, y cuando lo acepta lo pasás a venta con un toque.",
@@ -85,6 +95,7 @@ export default function QuotesPage() {
   const showEmptyCta = canQuote && tab === "all" && !search
 
   const validityDays = settings?.defaultQuoteValidityDays
+  const newQuoteHref = clientFilter ? `/presupuestos/nuevo?cliente=${encodeURIComponent(clientFilter)}` : "/presupuestos/nuevo"
 
   return (
     <div className="flex flex-col gap-6 min-w-0">
@@ -98,7 +109,7 @@ export default function QuotesPage() {
         </div>
         {canQuote && (
           <Button asChild className="gap-2 shrink-0">
-            <Link href="/presupuestos/nuevo">
+            <Link href={newQuoteHref}>
               <Plus className="h-4 w-4" aria-hidden="true" />
               Nuevo presupuesto
             </Link>
@@ -121,6 +132,19 @@ export default function QuotesPage() {
           >
             <Settings2 className="h-3 w-3" aria-hidden="true" />
             Cambiar
+          </Link>
+        </p>
+      )}
+
+      {clientFilter && (
+        <p
+          data-testid="quote-client-filter"
+          className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border border-border bg-accent/20 px-3 py-2 text-xs text-muted-foreground"
+        >
+          <span>Filtrado por cliente</span>
+          <span aria-hidden="true">·</span>
+          <Link href="/presupuestos" className="text-primary underline-offset-2 hover:underline">
+            Quitar filtro
           </Link>
         </p>
       )}
@@ -178,7 +202,7 @@ export default function QuotesPage() {
             <p className="max-w-md text-xs">{emptyText.body}</p>
             {showEmptyCta && (
               <Button asChild size="sm" className="gap-2">
-                <Link href="/presupuestos/nuevo">
+                <Link href={newQuoteHref}>
                   <Plus className="h-4 w-4" aria-hidden="true" />
                   Crear el primero
                 </Link>

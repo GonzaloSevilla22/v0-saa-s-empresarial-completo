@@ -7,7 +7,7 @@
  *    Un bloqueo fiscal o de pago (duro, del servidor) gana al de servicio.
  */
 import { describe, it, expect, vi } from "vitest"
-import { render, screen } from "@testing-library/react"
+import { render, screen, within } from "@testing-library/react"
 import "@testing-library/jest-dom"
 import { SaleOperationsList } from "@/components/ventas/sale-operations-list"
 import type { Sale } from "@/lib/types"
@@ -81,6 +81,20 @@ describe("SaleOperationsList — badge 'Desde presupuesto'", () => {
     const links = screen.getAllByRole("link", { name: /^desde presupuesto$/i })
     expect(links.length).toBeGreaterThan(0)
     expect(links[0]).toHaveAttribute("href", "/presupuestos/q-old")
+  })
+
+  it("en escritorio el badge va en su propia línea, fuera de la celda que trunca el nombre del producto (si no, se corta antes del número)", () => {
+    render(<SaleOperationsList {...baseProps([makeSale({ sourceQuoteId: "q-9", sourceQuoteNumber: 12 })])} />)
+
+    const desktop = document.querySelector('[class*="sm:grid"][class*="items-center"]') as HTMLElement
+    expect(desktop).not.toBeNull()
+    const badge = within(desktop).getByRole("link", { name: /desde presupuesto p-00000012/i })
+    const productName = within(desktop).getByText(/Remera/)
+    const nameCell = productName.closest(".truncate") as HTMLElement
+    expect(nameCell).not.toBeNull()
+    expect(nameCell.contains(badge)).toBe(false)
+    // La fila del nombre (producto + forma de pago) y el badge son hermanos, no la misma fila.
+    expect(nameCell.parentElement).not.toBe(badge.parentElement)
   })
 
   it("el enlace del badge no expande ni colapsa la fila", () => {

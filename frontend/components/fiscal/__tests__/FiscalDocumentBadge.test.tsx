@@ -47,6 +47,30 @@ describe("FiscalDocumentBadge", () => {
     channelMock.mockReturnValue({ on: channelOnMock })
   })
 
+  it("dos badges montados a la vez para el MISMO comprobante usan canales distintos (el cliente devuelve el canal existente y .on() tras subscribe() revienta la pantalla)", () => {
+    // Caso real de presupuestos-modulo: el panel "Venta registrada" (EmitInvoiceButton
+    // dentro del diálogo) y la sección "Venta generada" del detalle muestran el mismo
+    // comprobante en trámite a la vez.
+    render(
+      <>
+        <FiscalDocumentBadge documentId="doc-dup" initialStatus="pending_cae" />
+        <FiscalDocumentBadge documentId="doc-dup" initialStatus="pending_cae" />
+      </>,
+    )
+
+    expect(channelMock).toHaveBeenCalledTimes(2)
+    const [first, second] = channelMock.mock.calls.map((c) => String(c[0]))
+    expect(first).not.toBe(second)
+    expect(first).toContain("doc-dup")
+    expect(second).toContain("doc-dup")
+  })
+
+  it("al desmontar cada badge se quita SU canal", () => {
+    const { unmount } = render(<FiscalDocumentBadge documentId="doc-rm" initialStatus="pending_cae" />)
+    unmount()
+    expect(removeChannelMock).toHaveBeenCalledTimes(1)
+  })
+
   it("muestra 'En trámite' por defecto para un pending_cae normal (no regresión)", () => {
     render(<FiscalDocumentBadge documentId="doc-1" initialStatus="pending_cae" />)
 

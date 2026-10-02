@@ -531,18 +531,22 @@ export function SaleOperationsList({
                 {/* Desktop */}
                 <div className="hidden sm:grid grid-cols-[120px_1fr_180px_80px_120px_48px_48px] gap-3 px-4 py-3 items-center">
                   <span className="text-sm text-muted-foreground tabular-nums">{formatDate(op.date)}</span>
-                  <div className="flex items-center gap-2 min-w-0">
-                    {isExpanded ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                      : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0 group-hover:text-foreground" />}
-                    <span className="text-sm font-medium text-foreground truncate">
-                      {op.items[0].productName}
-                      {op.items.length > 1 && (
-                        <span className="text-muted-foreground font-normal"> · +{op.items.length - 1} más</span>
-                      )}
-                    </span>
-                    <PaymentMethodBadge name={op.items[0]?.paymentMethodName} layout="inline" />
+                  {/* El badge de origen va en su propia línea: en la misma fila que el
+                      producto y la forma de pago, la celda lo cortaba antes del número. */}
+                  <div className="flex min-w-0 flex-col gap-1">
+                    <div className="flex items-center gap-2 min-w-0">
+                      {isExpanded ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                        : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0 group-hover:text-foreground" />}
+                      <span className="text-sm font-medium text-foreground truncate">
+                        {op.items[0].productName}
+                        {op.items.length > 1 && (
+                          <span className="text-muted-foreground font-normal"> · +{op.items.length - 1} más</span>
+                        )}
+                      </span>
+                      <PaymentMethodBadge name={op.items[0]?.paymentMethodName} layout="inline" />
+                    </div>
                     {op.sourceQuoteId && (
-                      <SourceQuoteBadge quoteId={op.sourceQuoteId} quoteNumber={op.sourceQuoteNumber} />
+                      <SourceQuoteBadge quoteId={op.sourceQuoteId} quoteNumber={op.sourceQuoteNumber} className="ml-[1.375rem]" />
                     )}
                   </div>
                   <span className="text-sm text-muted-foreground truncate">{op.clientName}</span>

@@ -40,7 +40,7 @@ Este change es el segundo del split del explore (`openspec/changes/presupuestos-
   - Endpoint `GET /delivery-notes/{id}/pdf`.
 - **Envío**: `DocumentShareMenu` (ver, descargar, WhatsApp), sin link público ni email.
 - **Guards de unidad**: `delivery_note_items` se suma a los guards de unidad base y de unidad en uso. Sin esto, un remito de 12 unidades de un producto sin unidad base quedaría reinterpretado como 12 kg al asignarle "Kilogramo".
-- **Baja de sucursal**: un remito pendiente bloquea la baja de su sucursal (cuarta condición del predicado único de baja, `_branch_blocking_content`/`_branch_assert_empty`, `P0428` con token propio). Una sucursal dada de baja dejaría el remito sin forma de convertirse ni de anularse sin devolver stock a una sucursal muerta. El diálogo de desactivación lo detecta antes y enlaza a los remitos pendientes.
+- **Baja de sucursal**: un remito pendiente bloquea la baja de su sucursal (cuarta condición en el único punto de decisión de la baja, `_branch_assert_empty`, contada por una función nueva `_branch_pending_delivery_notes` agnóstica del sentido, `P0428` con token propio; `_branch_blocking_content` no cambia de firma). Una sucursal dada de baja dejaría el remito sin forma de convertirse ni de anularse sin devolver stock a una sucursal muerta. El diálogo de desactivación lo detecta antes y enlaza a los remitos pendientes. Por la misma razón, borrar la venta nacida de un remito, anular el remito o editarlo exige que su sucursal siga activa (`P0422 delivery_note_branch_inactive`).
 - **Superficie frontend**:
   - **`/remitos`**: listado con filtros por estado, búsqueda por cliente o número y resumen de pendientes.
   - **`/remitos/nuevo`**: alta con el editor de líneas compartido (`StagedProductLine`/`ProductPicker`, `CartItemList`, lector de códigos y balanza), mostrando y **haciendo cumplir** el stock de la sucursal elegida, con la sucursal obligatoria y visible en todos los planes, y avisos de cuándo se mueve el stock.
@@ -53,7 +53,7 @@ Este change es el segundo del split del explore (`openspec/changes/presupuestos-
   - **Pestañas De venta / De compra: no se construyen en este change.** La de compra la suma `remitos-compra`, cuando tenga contenido (D11).
 - **Sin gate de plan** (todos los tiers).
 
-**BREAKING** (interno): ninguno para clientes de la API. Las reescrituras de `_c29_confirm_order_core`, `rpc_delete_sale_operation`, `rpc_atomic_update_sale_operation`, `fn_product_base_unit_guard`, `fn_uom_in_use_guard`, `_branch_assert_empty` y `_quote_validate_items` conservan firma y comportamiento para todo lo que no es un remito. `_branch_blocking_content` (interna, sin `EXECUTE` para roles de aplicación) suma una columna a su `RETURNS TABLE`.
+**BREAKING** (interno): ninguno para clientes de la API. Las reescrituras de `_c29_confirm_order_core`, `rpc_delete_sale_operation`, `rpc_atomic_update_sale_operation`, `fn_product_base_unit_guard`, `fn_uom_in_use_guard`, `_branch_assert_empty` y `_quote_validate_items` conservan firma y comportamiento para todo lo que no es un remito. `_branch_blocking_content` no se toca: cambiarle el `RETURNS TABLE` rompería la reaplicación de `20261014000001` en CI.
 
 ## Decisiones firmadas por el PO (2026-09-29)
 
@@ -108,7 +108,7 @@ Este change es el segundo del split del explore (`openspec/changes/presupuestos-
 - `operation-delete-compensation`: borrar una venta nacida de un remito compensa el dinero, no toca stock y devuelve el remito a pendiente. El diálogo lo explica.
 - `operation-edit-context`: la venta nacida de un remito es inmutable (`P0423`) y el listado lo expone.
 - `units-of-measure`: las líneas de remito usan la definición única de normalización y participan de los guards de unidad base y de unidad en uso.
-- `branch-decommission-guard`: un remito de venta pendiente es contenido operativo que bloquea la baja de su sucursal.
+- `branch-decommission-guard`: un remito pendiente (de cualquier sentido) es contenido operativo que bloquea la baja de su sucursal.
 - `document-status-history`: tipo de documento `delivery_note_sale` y su máquina de estados en el catálogo (requirement nuevo, sin tocar el del seed que modifica `presupuestos-modulo`).
 
 ## Impact
@@ -117,7 +117,7 @@ Este change es el segundo del split del explore (`openspec/changes/presupuestos-
   - Tablas nuevas y columna `sales_orders.source_delivery_note_id`.
   - `CHECK` ampliados: `internal_document_sequences.document_type`, `document_status_history.document_type`, `document_status_transitions.document_type`, `stock_movements.reference_type` y `operation_idempotency.operation_kind`.
   - Funciones nuevas, en todos los casos `SECURITY DEFINER` con guards: emisión, edición, anulación, conversión y payload.
-  - Reescrituras desde el `pg_get_functiondef` **vivo**: `_c29_confirm_order_core` (hot path del POS), `rpc_delete_sale_operation`, `rpc_atomic_update_sale_operation`, `fn_product_base_unit_guard`, `fn_uom_in_use_guard`, `_branch_blocking_content`, `_branch_assert_empty` y `_quote_validate_items` (extracción del guard de producto compartido).
+  - Reescrituras desde el `pg_get_functiondef` **vivo**: `_c29_confirm_order_core` (hot path del POS), `rpc_delete_sale_operation`, `rpc_atomic_update_sale_operation`, `fn_product_base_unit_guard`, `fn_uom_in_use_guard`, `_branch_assert_empty` y `_quote_validate_items` (extracción del guard de producto compartido).
 - **Coordinación**: el PR abierto **#607 `ventas-sucursal-por-defecto`** reescribirá `rpc_create_sale_operation_v2`, la rama legacy de `rpc_create_sale_operation` y `rpc_atomic_update_sale_operation`. **Quien llegue segundo parte del cuerpo vivo** de la que llegó primero; este change no toca las dos primeras. La tanda B depende de que la tanda B de `presupuestos-modulo` (`SaleCheckoutFields`/`SaleCheckoutSuccess`, `20261068000001`) esté mergeada.
 - **Backend**:
   - Router, service, repository y schemas nuevos: `delivery_notes` (emisión con `Idempotency-Key`; `40P01` mapeado a `409` reintentable).
@@ -134,12 +134,12 @@ Este change es el segundo del split del explore (`openspec/changes/presupuestos-
   - Piezas compartidas extendidas sin romper a sus usuarios: `BranchSelect` (`required`/`alwaysVisible`), `lib/cart-utils.ts` (`availableFor`), `lib/operation-errors.ts` (contexto `documentLabel`), `QuotePageStates` → `components/shared/DocumentPageStates`, `lib/query-invalidation.ts` (`invalidateAfterSaleDelete` incluye remitos).
   - Nuevo hook `hooks/data/use-client-addresses.ts` (domicilio de entrega).
   - `use-branches.ts` (token de baja) y `DeactivateBranchDialog` (remitos pendientes).
-  - `stock-movements-panel.tsx`.
+  - `stock-movements-panel.tsx` (rótulo del remito en la fila y en la exportación CSV).
   - `SaleCheckoutFields`: prop aditiva para sucursal fija.
 - **Gates y CI**:
   - Nuevos: `test_remitos_venta.sql` (A), `test_remito_a_venta.sql` (B) y `test_remitos_venta_race.sh`.
   - Actualizados: `test_function_acl_gate.sql`, `test_document_status_transition_role_matrix.sql` (en cada tanda) y los gates de unidades y de baja de sucursal.
-  - Todos cableados en `KPI_Validation.yml`, junto con la cadena de reaplicación.
+  - Todos cableados en `KPI_Validation.yml`, junto con la cadena de reaplicación (la migración de A, después de los eslabones que reescriben las mismas funciones). La tanda B retira el bloque de reaplicación de `20261062000001` si sigue ahí, porque reescribe dos de las diez funciones que ese bloque exige intactas.
 - **Governance: MEDIA con tramo ALTO.** Escribe el ledger de stock en tres caminos nuevos y reescribe el núcleo de confirmación de venta, que comparten el POS y la conversión de presupuestos. Hacen falta checkpoints de cuerpo vivo, un gate de matriz de evasión contra el doble descuento y revisión adversarial antes de cada merge.
 - **Riesgos principales**:
   - **doble descuento de stock**: mitigado porque el origen se decide por la columna persistida y el núcleo revalida el remito y sus líneas;

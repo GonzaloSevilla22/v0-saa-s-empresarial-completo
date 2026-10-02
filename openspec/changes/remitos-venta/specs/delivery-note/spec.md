@@ -45,7 +45,7 @@ La cuenta del remito SHALL resolverse desde la contraparte entre las cuentas del
 ### Requirement: Emitir el remito descuenta stock con la misma regla que la venta
 El sistema SHALL descontar el stock de la sucursal de origen en la misma transacción en que emite un remito de venta. Para eso SHALL:
 
-1. tomar con bloqueo los productos involucrados, en orden ascendente de id;
+1. tomar con bloqueo los productos involucrados, en orden ascendente de id, **antes** de validarlos, de modo que la validación (producto vivo, de la cuenta, no padre) se haga sobre filas ya bloqueadas y una baja concurrente del producto no pueda colarse entre el chequeo y el descuento;
 2. normalizar la cantidad de cada línea a la unidad base efectiva del producto con la definición única de normalización (después del bloqueo) y guardarla en la línea, en el mismo alta de la línea, como la cantidad base que la línea retiene;
 3. agrupar por producto y sucursal;
 4. exigir que el stock de la sucursal cubra lo requerido.
@@ -54,7 +54,7 @@ Si el stock no cubre lo requerido, SHALL fallar con `P0409` y el mismo literal d
 
 Por cada par producto-sucursal SHALL registrar en el ledger un movimiento con `type = 'sale'`, `reference_type = 'delivery_note'`, `reference_id` = id del remito, el delta negativo normalizado, las cantidades antes y después, la sucursal, el nombre del producto, el usuario y el costo unitario congelado de la línea.
 
-La emisión SHALL ser idempotente: exige una clave de idempotencia (header `Idempotency-Key` en la API) y, ante la misma clave del mismo usuario, SHALL devolver el remito original marcado como repetido, sin crear otro remito ni volver a descontar stock.
+La emisión SHALL ser idempotente: exige una clave de idempotencia (header `Idempotency-Key` en la API) y, ante la misma clave del mismo usuario, SHALL devolver el remito original marcado como repetido, sin crear otro remito ni volver a descontar stock. Dos envíos concurrentes con la misma clave SHALL resolverse igual (el segundo recibe el remito del primero marcado como repetido), nunca con un error interno.
 
 #### Scenario: Remito en gramos de un producto en kilogramos
 - **GIVEN** un producto con unidad base Kilogramo y stock `1` en la sucursal
@@ -77,6 +77,10 @@ La emisión SHALL ser idempotente: exige una clave de idempotencia (header `Idem
 - **WHEN** el mismo usuario envía dos veces la emisión de un remito de `2` unidades con la misma clave de idempotencia
 - **THEN** existe un solo remito, el stock queda en `3` y la segunda respuesta devuelve el mismo remito marcado como repetido
 
+#### Scenario: Baja concurrente del producto
+- **WHEN** se emite un remito de un producto mientras otro usuario lo da de baja
+- **THEN** o la emisión se rechaza con `P0404 product_not_found` sin efectos, o el remito se emite con el producto vivo al momento del bloqueo; nunca se emite un remito con un producto que ya estaba dado de baja al validarlo
+
 #### Scenario: Crear un remito no toca caja, banco ni cuenta corriente
 - **WHEN** se emite un remito
 - **THEN** no se escribe ningún movimiento de caja, de banco ni de cuenta corriente, ni ningún evento de venta
@@ -84,17 +88,17 @@ La emisión SHALL ser idempotente: exige una clave de idempotencia (header `Idem
 ### Requirement: Edición del remito mientras no esté convertido, con par espejo en el ledger
 El sistema SHALL permitir editar un remito `issued` (líneas, cantidades, precios, cliente, sucursal, domicilio y notas) como un reemplazo completo y atómico, tomando el remito con bloqueo y exigiendo la versión que el usuario vio.
 
-Si la versión no coincide, SHALL fallar con `P0409 delivery_note_changed` sin cambiar nada. Un remito `converted` SHALL rechazar la edición con `P0423 delivery_note_locked_converted`, y uno `canceled` con `P0409 delivery_note_invalid_state`.
+Si la versión no coincide, SHALL fallar con `P0409 delivery_note_changed` sin cambiar nada. Si la sucursal vigente del remito está desactivada o cerrada, SHALL fallar con `P0422 delivery_note_branch_inactive` sin cambiar nada. Un remito `converted` SHALL rechazar la edición con `P0423 delivery_note_locked_converted`, y uno `canceled` con `P0409 delivery_note_invalid_state`.
 
-Para cada par producto-sucursal SHALL calcular lo que el remito retiene hoy y lo que requieren las líneas nuevas, normalizado. Lo retenido SHALL ser la suma de las cantidades base guardadas en las líneas vigentes del remito para ese producto, en la sucursal vigente del remito (cero en cualquier otra), y NO SHALL calcularse sumando movimientos del ledger, que los roles de aplicación pueden insertar. Si los dos valores difieren, SHALL registrar:
+Para cada par producto-sucursal SHALL calcular lo que el remito retiene hoy (a partir de sus líneas vigentes, antes de reemplazarlas) y lo que requieren las líneas nuevas, normalizado y con los productos ya bloqueados. Lo retenido SHALL ser la suma de las cantidades base guardadas en las líneas vigentes del remito para ese producto, en la sucursal vigente del remito (cero en cualquier otra), y NO SHALL calcularse sumando movimientos del ledger, que los roles de aplicación pueden insertar. Si los dos valores difieren, SHALL registrar:
 - una pata de reversa: `type = 'sale_return'`, `reference_type = 'delivery_note_update'`, con lo retenido;
 - después, una pata de aplicación: `type = 'sale'`, `reference_type = 'delivery_note'`, con lo requerido.
 
-El control de faltante SHALL evaluarse sobre el stock con la reversa ya aplicada. Los pares sin cambio SHALL NOT escribir movimientos. Editar SHALL incrementar la versión, NO SHALL cambiar el estado y NO SHALL registrar historial de estados.
+El control de faltante SHALL evaluarse sobre el stock con la reversa ya aplicada. Los pares sin cambio SHALL NOT escribir movimientos ni volver a descontar stock, aunque otro producto del mismo remito sí cambie. Editar SHALL incrementar la versión, NO SHALL cambiar el estado y NO SHALL registrar historial de estados.
 
 Los snapshots SHALL seguir la política canónica de operaciones: la línea cuyo producto ya estaba en el remito conserva nombre, SKU, costo y alícuota de IVA de la línea vieja; un producto nuevo los toma del maestro vigente de la cuenta.
 
-Un producto que ya estaba en el remito y fue dado de baja después de emitirlo SHALL aceptarse en la edición sin revalidar el catálogo vivo, conservando su snapshot, siempre que su cantidad base no supere la que el remito ya retiene de él: conservarla o reducirla SHALL funcionar, y aumentarla SHALL rechazarse con `P0400 delivery_note_product_unavailable`. Un producto dado de baja que no estaba en el remito SHALL rechazarse como en el alta.
+Un producto que ya estaba en el remito y fue dado de baja después de emitirlo SHALL aceptarse en la edición sin revalidar el catálogo vivo, conservando su snapshot, siempre que su cantidad base requerida total no supere la que el remito ya retiene de él en total, sumando todas sus sucursales: conservarla o reducirla SHALL funcionar, cambiar la sucursal del remito conservando la cantidad SHALL funcionar y trasladar su stock, y aumentarla SHALL rechazarse con `P0400 delivery_note_product_unavailable`. Un producto dado de baja que no estaba en el remito SHALL rechazarse como en el alta.
 
 #### Scenario: Cambiar sólo un precio no mueve el ledger
 - **GIVEN** un remito `issued` con 2 unidades de A
@@ -105,6 +109,11 @@ Un producto que ya estaba en el remito y fue dado de baja después de emitirlo S
 - **GIVEN** un remito con 2 unidades de A y stock de A en `5`
 - **WHEN** se edita a 4 unidades
 - **THEN** el ledger suma `sale_return` / `delivery_note_update` de `+2` y `sale` / `delivery_note` de `-4`, y el stock de A queda en `3`
+
+#### Scenario: Un producto sin cambios no recibe movimientos
+- **GIVEN** un remito con 2 unidades de A y 1 de B, con stock suficiente de B
+- **WHEN** se edita B a 3 unidades sin tocar A
+- **THEN** el ledger suma un solo par espejo, sobre B, ningún movimiento sobre A, y el stock de A no cambia
 
 #### Scenario: Faltante sobre el neto
 - **GIVEN** un remito con 2 unidades de A y stock de A en `1`
@@ -131,6 +140,11 @@ Un producto que ya estaba en el remito y fue dado de baja después de emitirlo S
 - **WHEN** se edita la línea de A a 3 unidades
 - **THEN** la operación falla con `P0400 delivery_note_product_unavailable` y nada cambia
 
+#### Scenario: Cambiar la sucursal de un remito con un producto dado de baja
+- **GIVEN** un remito `issued` desde la sucursal X con 2 unidades de A, A dado de baja después de emitirlo, y stock de A en la sucursal Y
+- **WHEN** se edita la sucursal a Y sin cambiar la cantidad de A
+- **THEN** la edición se acepta, X recibe una pata de reversa de `+2` y Y una de aplicación de `-2`
+
 #### Scenario: Remito convertido inmutable
 - **GIVEN** un remito `converted`
 - **WHEN** se intenta editarlo
@@ -150,7 +164,8 @@ Las anulaciones rechazadas responden así:
 - un remito `converted`: `P0423 delivery_note_locked_converted` (primero se borra la venta);
 - uno ya `canceled`: `P0409 delivery_note_invalid_state`;
 - sin motivo: `P0400 delivery_note_cancel_reason_required`;
-- un rol sin permiso: `P0403 insufficient_role`.
+- un rol sin permiso: `P0403 insufficient_role`;
+- un remito cuya sucursal está desactivada o cerrada: `P0422 delivery_note_branch_inactive`, sin reponer stock.
 
 #### Scenario: Anular repone el stock
 - **GIVEN** un remito `issued` que retiene 3 unidades de A en la sucursal X
@@ -234,7 +249,7 @@ La conversión SHALL estar permitida a vendedores, cajeros, administradores y du
 ### Requirement: Vida posterior de la venta nacida de un remito
 El sistema SHALL tratar la venta nacida de un remito así:
 
-- **Borrarla**: SHALL compensar dinero y orden como cualquier venta, NO SHALL tocar el stock y SHALL devolver el remito a `issued`, registrando la transición `converted → issued` con el motivo del borrado en la misma transacción. El remito SHALL poder volver a convertirse después.
+- **Borrarla**: SHALL compensar dinero y orden como cualquier venta, NO SHALL tocar el stock y SHALL devolver el remito a `issued`, registrando la transición `converted → issued` con el motivo del borrado en la misma transacción. El remito SHALL poder volver a convertirse después. Si la sucursal del remito fue desactivada o cerrada después de la conversión, el borrado SHALL rechazarse con `P0422 delivery_note_branch_inactive` antes de cualquier efecto, para no reabrir un remito en una sucursal que no opera.
 - **Editarla**: SHALL rechazarse con `P0423 delivery_note_sale_locked` antes de cualquier efecto.
 - **Anular el remito mientras la venta exista**: SHALL rechazarse con `P0423 delivery_note_locked_converted`.
 - **Venta con comprobante fiscal autorizado**: como esa venta no se puede borrar, el remito queda cerrado; la interfaz SHALL explicarlo e indicar que la devolución de mercadería requiere una nota de crédito.
@@ -248,6 +263,11 @@ El sistema SHALL tratar la venta nacida de un remito así:
 - **GIVEN** un remito que volvió a `issued` porque se borró su venta
 - **WHEN** se lo convierte otra vez
 - **THEN** se crea una venta nueva y el remito vuelve a `converted`
+
+#### Scenario: Borrar la venta con la sucursal del remito desactivada
+- **GIVEN** una venta a crédito nacida de un remito, y la sucursal del remito vaciada y desactivada después de la conversión
+- **WHEN** se intenta borrar la venta
+- **THEN** la operación falla con `P0422 delivery_note_branch_inactive`, la cuenta corriente no cambia, la orden sigue `confirmed` y el remito sigue `converted`
 
 #### Scenario: Editar la venta está bloqueado
 - **WHEN** se intenta editar una venta nacida de un remito
@@ -298,14 +318,14 @@ El sistema SHALL ofrecer en el detalle del remito el menú compartido de documen
 El sistema SHALL exponer los remitos de venta en estas superficies:
 
 - **Sidebar**: entrada "Remitos" en el grupo *Operaciones*, después de "Presupuestos", sin gate de plan.
-- **`/remitos`**: listado paginado con filtros por estado y búsqueda por cliente o número, más un resumen de los pendientes (cantidad y total).
+- **`/remitos`**: listado paginado con filtros por estado y búsqueda por cliente o número, más un resumen de los pendientes (cantidad y total). La página SHALL leer de la URL un único contrato de filtros (estado, sucursal y cliente), que usan todos los enlaces que llegan filtrados.
 - **`/remitos/nuevo`**: alta con el editor de líneas compartido, mostrando y haciendo cumplir el stock de la sucursal elegida (nunca el stock agregado de todas las sucursales). La sucursal SHALL ser obligatoria y visible en todos los planes, sin opción "sin sucursal", y SHALL avisar que emitir descuenta stock de esa sucursal.
 - **`/remitos/[id]`**: detalle con las acciones según estado y rol. El diálogo "Venta" SHALL avisar que el stock ya se descontó al emitir el remito y que la venta no lo vuelve a descontar.
-- **`/remitos/[id]/editar`**: edición. Todas las líneas cuentan contra un mismo disponible: el stock de la sucursal elegida más lo que el remito ya retiene en ella (cero si se cambia de sucursal). Antes de guardar SHALL mostrar qué stock vuelve y qué stock sale. Una línea de un producto dado de baja SHALL conservarse sin bloquear el guardado.
+- **`/remitos/[id]/editar`**: edición. Todas las líneas cuentan contra un mismo disponible: el stock de la sucursal elegida más lo que el remito ya retiene en ella (cero si se cambia de sucursal). Antes de guardar SHALL mostrar qué stock vuelve y qué stock sale. Una línea de un producto dado de baja SHALL conservarse sin bloquear el guardado. Si el cliente del remito fue dado de baja, el formulario SHALL mostrarlo congelado con un aviso y exigir elegir un cliente vigente para guardar, y el detalle SHALL deshabilitar "Venta" con ese motivo.
 - **Estados de página**: sin permiso, cargando, error o no encontrado, y no editable (convertido o anulado, con su explicación).
 - **Ficha del cliente**: acción "Nuevo remito" con el cliente preseleccionado.
 - **`/ventas`**: badge "Desde remito R-…" con enlace.
-- **Panel de movimientos de stock**: rotula los movimientos del remito como "Remito", "Edición de remito" o "Anulación de remito", con su número.
+- **Panel de movimientos de stock**: rotula los movimientos del remito como "Remito", "Edición de remito" o "Anulación de remito", con su número formateado según el sentido del remito. La exportación CSV del panel SHALL usar el mismo rótulo que la fila.
 
 Mientras no exista el remito de compra, la pantalla NO SHALL mostrar pestañas de sentido. Las pantallas SHALL verificarse en escritorio y en 375 px, en tema claro y oscuro.
 
@@ -333,6 +353,15 @@ Mientras no exista el remito de compra, la pantalla NO SHALL mostrar pestañas d
 - **GIVEN** una cuenta cuyo plan no tiene módulo de sucursales y una sola sucursal activa
 - **WHEN** abre `/remitos/nuevo`
 - **THEN** ve la sucursal de origen precargada y puede emitir el remito
+
+#### Scenario: Enlace a los remitos pendientes de una sucursal
+- **WHEN** el usuario sigue "Ver remitos pendientes" desde el diálogo de baja de una sucursal
+- **THEN** `/remitos` abre en la pestaña Pendientes, filtrado por esa sucursal, con el filtro visible y removible
+
+#### Scenario: Exportación del kardex
+- **GIVEN** el panel de movimientos de un producto con un movimiento de emisión de remito
+- **WHEN** el usuario exporta el CSV
+- **THEN** la columna de tipo de esa fila dice "Remito" con su número, no "Venta"
 
 #### Scenario: Badge en ventas
 - **WHEN** el listado de ventas incluye una venta nacida de un remito

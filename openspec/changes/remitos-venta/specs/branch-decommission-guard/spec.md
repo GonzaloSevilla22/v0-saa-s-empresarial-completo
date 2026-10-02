@@ -11,9 +11,9 @@ El sistema SHALL rechazar todo intento de dar de baja una sucursal que tenga con
 1. **Existencias**: alguna posición del inventario por sucursal con cantidad distinta de cero. El predicado SHALL ser *distinta de cero* y no *mayor que cero*: una cantidad negativa producto de una anomalía debe bloquear la baja, nunca autorizarla en silencio.
 2. **Una sesión de caja abierta** en alguna caja de la sucursal. Desactivar la sucursal deja esa sesión imposible de cerrar desde la interfaz y sus movimientos huérfanos.
 3. **Transferencias de stock sin completar** con la sucursal como origen o como destino.
-4. **Remitos de venta pendientes de convertir** (`issued`) emitidos desde la sucursal. Con la sucursal desactivada, el remito queda en una sucursal que desaparece de los selectores y de la resolución de la sucursal por defecto; con la sucursal cerrada, la conversión en venta la rechaza. En los dos casos, anularlo devolvería el stock a una sucursal que ya no opera. El rechazo SHALL nombrar la cantidad de remitos pendientes y la acción que destraba la baja (convertirlos en venta o anularlos), con un motivo propio que la interfaz distingue de los otros tres. Un remito ya convertido o anulado NO SHALL bloquear.
+4. **Remitos pendientes** (`issued`) de la sucursal, de cualquier sentido (venta o compra). Con la sucursal desactivada, el remito queda en una sucursal que desaparece de los selectores y de la resolución de la sucursal por defecto; con la sucursal cerrada, la conversión en venta la rechaza. En los dos casos, anularlo devolvería el stock a una sucursal que ya no opera. El rechazo SHALL nombrar la cantidad de remitos pendientes y la acción que destraba la baja (convertirlos o anularlos), con un motivo propio que la interfaz distingue de los otros tres. Un remito ya convertido o anulado NO SHALL bloquear.
 
-La cuarta condición SHALL sumarse a la definición única del predicado y a su único punto de decisión, que ya comparten el disparador y los comandos de desactivación y de cierre; NO SHALL evaluarse por separado en el disparador. La pantalla de desactivación SHALL detectar los remitos pendientes antes de ofrecer la baja y enlazar al listado filtrado.
+La cuarta condición SHALL tener una única definición (un solo lugar que cuenta los remitos pendientes de una sucursal) y evaluarse en el único punto de decisión de la baja, que ya comparten el disparador y los comandos de desactivación y de cierre; NO SHALL evaluarse por separado en el disparador, y NO SHALL cambiar la firma de las funciones existentes del predicado. La pantalla de desactivación SHALL detectar los remitos pendientes antes de ofrecer la baja y enlazar al listado filtrado.
 
 La verificación SHALL leer el **ledger canónico de stock por sucursal** que el sistema ya mantiene. SHALL NOT recalcularse a partir del stock agregado del catálogo ni escribirse una segunda definición de "cuánto hay en esta sucursal".
 
@@ -58,6 +58,11 @@ La verificación SHALL leer el **ledger canónico de stock por sucursal** que el
 - **GIVEN** una sucursal sin existencias, sin sesión de caja abierta ni transferencias en vuelo, con un remito de venta `issued` emitido desde ella
 - **WHEN** se intenta desactivarla o cerrarla
 - **THEN** la operación es rechazada con el mismo código de baja de sucursal, el mensaje nombra el remito pendiente y la acción de convertirlo o anularlo, y la sucursal sigue activa
+
+#### Scenario: Un remito de compra pendiente también bloquea
+- **GIVEN** una sucursal vacía con un remito de compra `issued`
+- **WHEN** se intenta desactivarla
+- **THEN** la operación es rechazada con el mismo motivo de remitos pendientes
 
 #### Scenario: Un remito convertido o anulado no bloquea
 

@@ -24,7 +24,7 @@
 - [ ] 0.3 **Checkpoint de cuerpo vivo, tanda A.** Leer de prod `pg_get_functiondef`, `obj_description` y ACL de:
   - `fn_product_base_unit_guard()`;
   - `fn_uom_in_use_guard()`;
-  - `_branch_blocking_content(uuid)` y `_branch_assert_empty(uuid)` (el predicado y el punto de decisión de la baja de sucursal; `fn_guard_branch_decommission` no se toca, D10);
+  - `_branch_assert_empty(uuid)` (el punto de decisión de la baja de sucursal) y, sólo como referencia, la firma y el `RETURNS TABLE` de `_branch_blocking_content(uuid)`, que **no** se reescribe (D10); `fn_guard_branch_decommission` no se toca;
   - `_quote_validate_items(uuid, jsonb)`;
   - el `CHECK` vivo `operation_idempotency_operation_kind_check`.
   
@@ -61,43 +61,46 @@
 - [ ] 1.4 Extraer `_assert_document_product(uuid, uuid)` y reescribir `_quote_validate_items` **desde el cuerpo vivo de 0.3** para que lo llame, sin otro cambio (D12). `test_presupuestos_modulo.sql` tiene que seguir verde **sin tocarlo**.
 - [ ] 1.5 Helpers internos (sin `authenticated`):
   - `_delivery_note_assert_role(uuid, text)` con los modos `issue`/`void`/`convert`;
-  - `_delivery_note_validate_items` (en la edición, un producto ya presente y hoy dado de baja se acepta sin revalidar el catálogo si no aumenta su cantidad base; si aumenta, `P0400 delivery_note_product_unavailable`, D5);
-  - `_delivery_note_lock_products` (`FOR UPDATE` en orden ascendente de `id`; único helper de lock, lo usan emisión, edición y anulación);
-  - `_delivery_note_insert_items` (snapshots filtrados por cuenta, acarreo de las **cuatro** columnas por producto en edición, D6, y `quantity_base` normalizado en el mismo `INSERT`, después del lock, D4);
-  - `_delivery_note_apply_stock` (lee las líneas insertadas; gate por par con el literal `stock_insuficiente`, delta + movimiento `sale`/`delivery_note`);
-  - `_delivery_note_reverse_held` (retenido = `Σ quantity_base` de las líneas vigentes en la sucursal vigente, **nunca** sumando `stock_movements`, D4);
+  - `_delivery_note_lock_products` (`FOR UPDATE` en orden ascendente de `id`, filtrado por `account_id`; único helper de lock, lo usan emisión, edición y anulación, siempre **antes** de validar los productos, D4/D5);
+  - `_delivery_note_validate_items(account, items, held)` sobre las filas ya bloqueadas: normaliza con `_uom_normalize_quantity` y devuelve las líneas con `quantity_base` y los pares requeridos. En la edición, un producto ya presente y hoy dado de baja se acepta sin revalidar el catálogo si su cantidad base requerida **total** no supera su retenido **total** (por producto, sin importar la sucursal); si lo supera, `P0400 delivery_note_product_unavailable` (D5);
+  - `_delivery_note_insert_items` (snapshots filtrados por cuenta, acarreo de las **cuatro** columnas por producto en edición, D6, y el `quantity_base` ya normalizado escrito en el mismo `INSERT`, D4);
+  - `_delivery_note_held_pairs(dn)`: la **única** definición de lo retenido (`Σ quantity_base` de las líneas vigentes, por producto, en la sucursal vigente), **nunca** sumando `stock_movements` (D4);
+  - `_delivery_note_apply_stock(account, dn, op_group, pairs)`: **recibe** el conjunto de pares a aplicar (no lee las líneas); gate por par con el literal `stock_insuficiente`, delta + movimiento `sale`/`delivery_note`. La emisión le pasa todos los pares; la edición, sólo los que cambian;
+  - `_delivery_note_reverse_held(account, dn, op_group, pairs, reference_type, reverses)`: **recibe** los pares a revertir; delta + movimiento `sale_return` con `delivery_note_update` (edición, sólo pares que cambian) o `delivery_note_reversal` (anulación, todos);
   - `_delivery_note_payload`.
-- [ ] 1.6 RPCs públicas (`SECURITY DEFINER`, `REVOKE … FROM PUBLIC, anon`, `GRANT EXECUTE … TO authenticated`, `COMMENT`): `rpc_create_sale_delivery_note` (D4: `p_idempotency_key` con el molde DEC-06, orden lock → normalizar → insertar líneas → gate → delta), `rpc_update_delivery_note` (D5: espejo sólo en los pares que cambian, faltante sobre el neto, revisión) y `rpc_cancel_delivery_note` (D16: rol `void`, motivo, **lock de productos antes de leer el stock**, contramovimiento `delivery_note_reversal`, historial).
+- [ ] 1.6 RPCs públicas (`SECURITY DEFINER`, `REVOKE … FROM PUBLIC, anon`, `GRANT EXECUTE … TO authenticated`, `COMMENT`): `rpc_create_sale_delivery_note` (D4: `p_idempotency_key` con el molde DEC-06 **exacto** de `_c29_confirm_order_core`, `20261062000001:1350-1358`: `INSERT … ON CONFLICT (user_id, operation_kind, idempotency_key) DO NOTHING` + `GET DIAGNOSTICS`, replay si `ROW_COUNT = 0` y el `operation_id` es un remito de venta de las cuentas del usuario, si no `P0409 idempotency_key_conflict`; orden lock de productos → validar → normalizar → insertar remito y líneas → gate → delta), `rpc_update_delivery_note` (D5: sucursal vigente y nueva vivas, lock → retenido de las líneas vigentes → validar y normalizar → pares que cambian → reversas → aplicaciones → reemplazo de líneas; faltante sobre el neto, revisión) y `rpc_cancel_delivery_note` (D16: rol `void`, motivo, sucursal viva con `P0422 delivery_note_branch_inactive`, **lock de productos antes de leer el stock**, contramovimiento `delivery_note_reversal` sobre todos los pares, historial).
 - [ ] 1.7 GREEN emisión → **TRIANGULATE** hasta cubrir cada bloque del gate de la tanda A (§D16):
   - rechazos con su código y cero efectos;
   - idempotencia de la emisión (misma clave → un remito y un descuento, `replayed = true`);
-  - edición (sólo precio sin movimientos, aumento, faltante sobre el neto, reducción con 0, cambio de producto, cambio de sucursal, snapshot acarreado con `iva_rate_snapshot`, producto dado de baja conservado/reducido/aumentado, versión vieja, anulado);
+  - edición (sólo precio sin movimientos, **A=2/B=1 → A=2/B=3 con un solo par espejo sobre B y cero movimientos sobre A**, aumento, faltante sobre el neto, reducción con 0, cambio de producto, cambio de sucursal, snapshot acarreado con `iva_rate_snapshot`, producto dado de baja conservado/reducido/aumentado/trasladado de sucursal, sucursal vigente desactivada → `P0422`, versión vieja, anulado);
   - fila forjada en `stock_movements` por PostgREST: la anulación y la edición devuelven sólo lo que retienen las líneas;
-  - anulación (motivo, roles, reposición, segunda anulación);
+  - anulación (motivo, roles, reposición, segunda anulación, sucursal desactivada o cerrada → `P0422 delivery_note_branch_inactive`);
   - invariante Σ delta = Δ stock y neto 0 tras anular;
   - PostgREST sin escritura directa;
   - roles (cashier no emite; stock emite y edita pero no anula).
 - [ ] 1.8 Guards de unidad **desde el cuerpo vivo** (D14): `fn_product_base_unit_guard` suma `delivery_note_items` a su `UNION` de líneas y `fn_uom_in_use_guard` a su `OR EXISTS`. RED antes, con fixtures creadas por la RPC real: un producto sin unidad base, con stock y una única línea de remito en **Unidad**, **no** traba asignar Kilogramo (debe fallar); una unidad de la cuenta usada sólo en un remito admite cambiar el factor (debe fallar). Después, `P0409 base_unit_locked` (y Unidad sí se asigna) y `P0409 unit_in_use`.
-- [ ] 1.9 Baja de sucursal **desde el cuerpo vivo** (D10), en el predicado y no en el disparador:
-  - `_branch_blocking_content` suma la columna `pending_delivery_notes` (`DROP FUNCTION` + `CREATE` por el cambio de `RETURNS TABLE`, `COMMENT` conservado y `REVOKE ALL … FROM PUBLIC, anon, authenticated` re-declarado);
-  - `_branch_assert_empty` suma el cuarto `IF`, después de transferencias, con el token `branch_has_pending_delivery_notes` y el mensaje que nombra cantidad y acción;
+- [ ] 1.9 Baja de sucursal **desde el cuerpo vivo** (D10), en el punto de decisión y no en el disparador:
+  - `_branch_blocking_content` **no se toca** (cambiarle el `RETURNS TABLE` rompería el reapply de `20261014000001` en CI con `42P13`);
+  - función nueva `_branch_pending_delivery_notes(uuid) RETURNS bigint` (interna, `STABLE`, sin `EXECUTE` para roles de aplicación): única definición del predicado, `status = 'issued'` **sin** filtrar `direction`;
+  - `_branch_assert_empty` (`CREATE OR REPLACE`, misma firma, `COMMENT` y ACL conservados) suma el cuarto `IF`, después de transferencias, con el token `branch_has_pending_delivery_notes` y el mensaje neutro que nombra cantidad y acción ("convertilos o anulalos");
   - `fn_guard_branch_decommission`, `rpc_deactivate_branch` y `rpc_close_branch` no se tocan;
   - RED en el gate: la baja con un remito pendiente hoy se acepta (por el disparador y por los dos comandos). Después, `P0428` con el token; anulado el remito, la baja procede.
-  - Re-ejecutar `test_sucursal_guard_vaciado.sql` sin cambios (los tres tokens previos no se mueven) y ajustar `frontend/lib/database.types.ts` al tipo nuevo.
+  - Re-ejecutar `test_sucursal_guard_vaciado.sql` sin cambios (los tres tokens previos no se mueven). `frontend/lib/database.types.ts` no cambia.
 - [ ] 1.10 Bloque `DO` de introspección al final de la migración:
   - tablas, `CHECK`, índice único y disparadores;
+  - acciones de las FK (`account_id` `CASCADE` en las dos tablas, D1);
   - cero políticas de escritura;
   - ACLs;
   - una definición por función reescrita;
   - el cuerpo de `_quote_validate_items` llama al helper;
   - los guards nombran `delivery_note_items`;
-  - `_branch_assert_empty` contiene `branch_has_pending_delivery_notes`, una sola definición de cada función de sucursal reescrita y el disparador sigue apuntando a `fn_guard_branch_decommission`;
+  - `_branch_assert_empty` contiene `branch_has_pending_delivery_notes` y llama a `_branch_pending_delivery_notes`, una sola definición de cada una, `_branch_blocking_content` con su firma y su `RETURNS TABLE` de 5 columnas, y el disparador sigue apuntando a `fn_guard_branch_decommission`;
   - catálogo `delivery_note_sale` con 2 filas.
   
   Reaplicar la migración dos veces sin error (idempotencia del auto-apply).
 - [ ] 1.11 Actualizar `test_document_status_transition_role_matrix.sql` (tamaño del catálogo, filas con rol, llamadores de `record_status_transition` y pares producidos) y `test_function_acl_gate.sql` (clasificación de las funciones nuevas; helpers `_*` cubiertos por el chequeo (4)).
 - [ ] 1.12 Reutilizar `test_internal_document_numbering_race.sh` parametrizado por tipo para `delivery_note_sale` (N sesiones emiten el primer remito de una cuenta → 1..N sin huecos). Si el script no admite parámetro, extenderlo sin duplicarlo.
-- [ ] 1.13 Cablear `test_remitos_venta.sql` y la carrera en `KPI_Validation.yml`, en el orden real del workflow, y sumar la migración a la cadena de reaplicación.
+- [ ] 1.13 Cablear `test_remitos_venta.sql` y la carrera en `KPI_Validation.yml`, en el orden real del workflow, y sumar la migración a la cadena de reaplicación **después** de los reapply de `20261014000001`, `20261062000001` y `20261067000001` (los tres vuelven a dejar el cuerpo viejo de `_branch_assert_empty`, de los dos guards de unidad y de `_quote_validate_items`). Después de reaplicarla, assertar que `_branch_assert_empty` contiene `branch_has_pending_delivery_notes`, que `fn_product_base_unit_guard`/`fn_uom_in_use_guard` nombran `delivery_note_items` y que `_quote_validate_items` llama a `_assert_document_product`. Verificar en local que el reapply de `20261014000001` y el de `20261062000001` (con su preflight de 10 funciones y su gate embebido) siguen pasando con la migración de A aplicada.
 
 ## 2. Backend tanda A (3 capas)
 
@@ -132,7 +135,7 @@
 - [ ] 4.2 `hooks/data/use-delivery-notes.ts` + tipos del contrato en `lib/delivery-note-types.ts` + claves en `lib/query-keys.ts`.
 - [ ] 4.3 `lib/delivery-note-share.ts` (`buildDeliveryNoteShareText`) y `lib/delivery-note-status.ts` (rótulos y acciones por estado y rol, funciones puras), con tests.
 - [ ] 4.4 `lib/rbac-capabilities.ts`: `CAN_DELIVER_SALE`, `CAN_VOID_DELIVERY_NOTE` y `CAN_SELL`, más el test de contrato contra el backend y la FSM.
-- [ ] 4.5 `lib/operation-errors.ts`: traducciones accionables de los literales de D11, un caso por literal; `humanizeOperationError` suma el contexto `documentLabel: "venta" | "remito"` (default `"venta"`), con un caso de `stock_insuficiente` para el remito que no diga "la venta".
+- [ ] 4.5 `lib/operation-errors.ts`: traducciones accionables de los literales de D11 (incluido `delivery_note_branch_inactive`, y `client_not_found` en contexto remito con "Cliente dado de baja — elegí uno vigente"), un caso por literal; `humanizeOperationError` suma el contexto `documentLabel: "venta" | "remito"` (default `"venta"`), con un caso de `stock_insuficiente` para el remito que no diga "la venta".
 - [ ] 4.6 **Disponible por sucursal en la capa canónica** (decisión de D11, no checkpoint): `CartStockOptions` de `lib/cart-utils.ts` suma `availableFor?: (productId) => number`, que `addManualLineToCart`, `applyScanToCart` y la validación de cantidad usan en lugar de `product.stock`. RED primero: con stock 2 en la sucursal y 10 en el agregado, agregar 3 se rechaza sólo si se pasa `availableFor`. Los tests de venta y de presupuesto (que no la pasan) siguen verdes sin tocarlos.
 - [ ] 4.7 `BranchSelect`: props aditivas `required` (sin "Sin sucursal") y `alwaysVisible` (visible aunque el plan no tenga módulo de sucursales), con test de que los usos actuales no cambian. Precarga del remito: `lib/default-branch.ts` si #607 ya mergeó; si no, la sucursal activa y no cerrada más antigua (mismo criterio que `c26_default_branch`).
 - [ ] 4.8 `hooks/data/use-client-addresses.ts` (`GET /clients/{id}/addresses`, que ya existe en el backend): grep previo por un hook equivalente; si no hay, nace acá con su test. Lo usa el domicilio de entrega precargado (5.2).
@@ -152,10 +155,11 @@
   - cliente nuevo en el lugar;
   - domicilio precargado (desde `use-client-addresses`);
   - `delivery_note_changed` con recarga;
+  - **cliente dado de baja** en la edición: se muestra el cliente congelado con el aviso "Cliente dado de baja — elegí uno vigente para guardar", el guardado queda bloqueado hasta elegir otro, y en el detalle "Venta" queda deshabilitado con ese motivo (D11);
   - producto dado de baja: se muestra "se conserva lo entregado", **no** bloquea el guardado, no admite aumentar, y quitarlo pide confirmación con lo que vuelve al stock.
 - [ ] 5.2 `components/delivery-notes/DeliveryNoteForm.tsx`, compuesto con `StagedProductLine` (que encapsula `ProductPicker`), `CartItemList` (con `maxQtyMap`), `ScrollableCartShell`, `BarcodeScannerInput`, `BranchSelect` (`required` + `alwaysVisible`, 4.7) y `lib/cart-utils` (`enforceStock: true` + `availableFor`, 4.6). Las líneas rehidratadas no llevan `source: "persisted"` (D11). Sin copiar lógica de `QuoteForm`: si algo se repite, se extrae a `components/shared/` o `lib/`.
 - [ ] 5.3 `DeliveryNoteStatusBadge` (tokens semánticos, sin literales de paleta) y `CancelDeliveryNoteDialog` (motivo obligatorio, enumera lo que vuelve al stock, manda `revision`, foco y teclado).
-- [ ] 5.4 `/remitos`: listado con pestañas de estado, búsqueda con debounce, paginado, tarjetas en móvil, resumen de pendientes, CTA por rol, estado vacío y filtro `?cliente=`. **Sin pestañas de sentido** (D11).
+- [ ] 5.4 `/remitos`: listado con pestañas de estado, búsqueda con debounce, paginado, tarjetas en móvil, resumen de pendientes, CTA por rol y estado vacío. Lee de la URL el contrato único de D11 (`?estado=`, `?sucursal=`, `?cliente=`): `estado` preselecciona la pestaña y `sucursal`/`cliente` se aplican como chips removibles. Test de página que entra con los tres parámetros. **Sin pestañas de sentido** (D11).
 - [ ] 5.5 `/remitos/nuevo` (`?cliente=`) y `/remitos/[id]/editar`, con los estados de página de `DocumentPageStates` (4.9): sin `CAN_DELIVER_SALE`, error o no encontrado (ajeno = inexistente), y no editable (convertido: enlace a la venta e instrucción de eliminarla; anulado: motivo).
 - [ ] 5.6 `/remitos/[id]`:
   - detalle con la matriz estado × rol de D11 y `DocumentShareMenu` con el switch "Mostrar precios" (apagado por defecto) **fuera del desplegable**, con `Label`, y el menú montado con `key={showPrices}` para descartar la precarga; test "cambiar el switch y enviar comparte la variante elegida";
@@ -164,13 +168,13 @@
   - leyenda de "convertido";
   - en la tanda A, "Venta" no se muestra.
 - [ ] 5.7 Sidebar: "Remitos" (`PackageCheck`) en *Operaciones*, después de "Presupuestos". Breadcrumb de las 4 rutas. Ajustar los tests de estructura del sidebar y del breadcrumb.
-- [ ] 5.8 Ficha del cliente: "Nuevo remito" y "Ver remitos" en `ClientDetailHeader`.
-- [ ] 5.9 Panel de movimientos de `/stock`: rótulos "Remito R-…", "Edición de remito R-…" y "Anulación de remito R-…" por `reference_type`, con enlace a `/remitos/<reference_id>`. El sentido y el ícono siguen saliendo del `type`. El número se resuelve **en el panel**, con una segunda consulta `delivery_notes.select("id, number").in("id", refIds)` por página (RLS de `SELECT`); si falla, la fila dice "Remito" sin número. Test de fila y del fallo de la segunda consulta.
-- [ ] 5.10 `DeactivateBranchDialog`: además de las existencias, consulta los remitos `issued` de la sucursal (`GET /delivery-notes?status=issued&branch_id=…`) y, si hay, en lugar de "Desactivar" muestra el aviso con "Ver remitos pendientes" (`/remitos?status=issued&branch_id=…`). Test con y sin remitos pendientes.
+- [ ] 5.8 Ficha del cliente: "Nuevo remito" (`/remitos/nuevo?cliente=<id>`) y "Ver remitos" (`/remitos?cliente=<id>`, contrato de D11) en `ClientDetailHeader`.
+- [ ] 5.9 Panel de movimientos de `/stock`: rótulos "Remito R-…", "Edición de remito R-…" y "Anulación de remito R-…" por `reference_type`, con enlace a `/remitos/<reference_id>`. El sentido y el ícono siguen saliendo del `type`. El número se resuelve **en el panel**, con una segunda consulta `delivery_notes.select("id, number, direction").in("id", refIds)` por página (RLS de `SELECT`), formateado según `direction` con `lib/internal-document-number.ts` (D2); si falla, la fila dice "Remito" sin número. El rótulo se extrae a un helper del panel (`movementLabel`) que usan `MovementRow` **y `exportCsv`**. Tests: fila, fallo de la segunda consulta y CSV con una fila `delivery_note` cuya columna "Tipo" dice "Remito R-…".
+- [ ] 5.10 `DeactivateBranchDialog`: además de las existencias, consulta los remitos `issued` de la sucursal (`GET /delivery-notes?status=issued&branch_id=…`, sin filtro de `direction`) y, si hay, en lugar de "Desactivar" muestra el aviso con "Ver remitos pendientes" (`/remitos?estado=pendientes&sucursal=<id>`, contrato de D11). Test con y sin remitos pendientes.
 
 ## 6. Tanda B: DB — núcleo, conversión, borrado y edición
 
-- [ ] 6.0 Número de migración de la tanda B (siguiente libre). Confirmar que la tanda B de presupuestos está mergeada y en prod.
+- [ ] 6.0 Número de migración de la tanda B (siguiente libre). Confirmar que la tanda B de presupuestos está mergeada y en prod. `grep -n "REGLA PARA EL PR SIGUIENTE" .github/workflows/KPI_Validation.yml`: anotar si el bloque de reaplicación de `20261062000001` sigue en el workflow (si el #607 ya mergeó, puede haberlo retirado él).
 - [ ] 6.1 **Checkpoint de cuerpo vivo, tanda B**, inmediatamente antes de escribir. Leer de prod `pg_get_functiondef`, `obj_description` y ACL de:
   - `_c29_confirm_order_core(text, uuid, text, uuid, text, uuid, text, uuid, uuid)`;
   - `rpc_delete_sale_operation(uuid, uuid, text)`;
@@ -186,7 +190,7 @@
   - `COMMENT` vivo re-declarado y ACL idéntica a la previa (el allowlist del chequeo (4) sigue igual);
   - **el diff contra el cuerpo vivo tiene que ser sólo esa rama**: adjuntarlo en `evidence/`.
 - [ ] 6.5 `rpc_convert_delivery_note_to_sale` (D7), con el molde de `rpc_convert_quote_to_sale`: lock del origen, idempotencia bajo lock, estado, versión, cliente vivo, sucursal activa y no cerrada (`P0422`), orden + líneas copiadas, núcleo, `RAISE` ante replay ajeno y transición `issued → converted` (`delivery_note_sale`).
-- [ ] 6.6 `rpc_delete_sale_operation` desde el cuerpo vivo (D9): salto explícito de la reversa de stock cuando la orden tiene origen de remito, y vuelta del remito a `issued` (lock después de `fiscal_documents`, historial con motivo).
+- [ ] 6.6 `rpc_delete_sale_operation` desde el cuerpo vivo (D9): con origen de remito, **antes** del guard fiscal y de cualquier compensación, la sucursal del remito leída con `FOR SHARE` tiene que estar activa y no cerrada (si no, `P0422 delivery_note_branch_inactive` y cero efectos); salto explícito de la reversa de stock; y vuelta del remito a `issued` (lock después de `fiscal_documents`, historial con motivo).
 - [ ] 6.7 `rpc_atomic_update_sale_operation` desde el cuerpo vivo (D9): `P0423 delivery_note_sale_locked` inmediatamente después del lock de `sales` y del guard de cliente, **antes** de la anulación fiscal.
 - [ ] 6.8 GREEN → **TRIANGULATE** hasta cubrir toda la matriz del gate de la tanda B:
   - `cash`/`credit`/`transfer`;
@@ -194,12 +198,12 @@
   - baja de producto que convierte; cliente de baja; sucursal desactivada o cerrada (`P0422`); replay; conflicto de clave; segunda conversión; versión vieja;
   - roles; `cash` sin sesión;
   - los 7 orígenes inválidos;
-  - borrado (dinero, stock, orden, remito, reconversión);
+  - borrado (dinero, stock, orden, remito, reconversión) y borrado con la sucursal del remito desactivada después de convertir → `P0422 delivery_note_branch_inactive` sin efectos;
   - edición bloqueada sin anular el comprobante pendiente, con `branch_stock` y `stock_movements` (`sale_update`/`sale`) del par sin cambios;
   - anulación de un convertido;
   - regresiones del POS y de `rpc_convert_quote_to_sale`.
-- [ ] 6.9 `supabase/tests/test_remitos_venta_race.sh` (molde de `test_presupuesto_a_venta_race.sh`) con las 8 carreras de §D16, incluidas emisión con la misma clave, borrado de la venta contra anulación del remito y edición contra anulación. (Las carreras que no dependen de la conversión se pueden adelantar a la tanda A.)
-- [ ] 6.10 Introspección de la tanda B (una definición por función, ACL igual a la previa en las tres reescritas, cuerpos con la rama, el salto y el `P0423`) + reaplicación doble. Actualizar `test_document_status_transition_role_matrix.sql` y `test_function_acl_gate.sql`, re-ejecutar `test_presupuesto_a_venta.sql`, `test_operacion_party_guard.sql` y los gates de venta. Cablear en `KPI_Validation.yml`.
+- [ ] 6.9 `supabase/tests/test_remitos_venta_race.sh` (molde de `test_presupuesto_a_venta_race.sh`) con las 9 carreras de §D16, incluidas emisión con la misma clave (la segunda con `replayed = true`, nunca un 500), emisión contra baja del producto, borrado de la venta contra anulación del remito y edición contra anulación. (Las carreras que no dependen de la conversión se pueden adelantar a la tanda A.)
+- [ ] 6.10 Introspección de la tanda B (una definición por función, ACL igual a la previa en las tres reescritas, cuerpos con la rama, el salto y el `P0423`) + reaplicación doble. Actualizar `test_document_status_transition_role_matrix.sql` y `test_function_acl_gate.sql`, re-ejecutar `test_presupuesto_a_venta.sql`, `test_operacion_party_guard.sql` y los gates de venta. Cablear en `KPI_Validation.yml`. **Si el bloque de reaplicación de `20261062000001` sigue en el workflow (6.0), retirarlo en este mismo PR** (su "REGLA PARA EL PR SIGUIENTE": esta tanda redefine `_c29_confirm_order_core` y `rpc_atomic_update_sale_operation`, dos de sus diez funciones, y con el bloque puesto `validate-kpis` queda en rojo); su control pasa a `test_remito_a_venta.sql` + la introspección de la tanda B. Si ya lo retiró el #607, anotarlo acá.
 
 ## 7. Tanda B: backend y frontend de la conversión
 
@@ -241,7 +245,7 @@
   - **B**: convertir en efectivo y a crédito → el stock no cambia → badge en `/ventas` → Facturar → borrar la venta → el remito vuelve a pendiente y el stock no cambia → reconvertir.
 - [ ] 8.4 **Red-team** contra el stack local (GoTrue + PostgREST + FastAPI + Postgres), molde de `presupuestos-modulo/evidence/redteam/`:
   - escritura directa por PostgREST sobre las tablas, helpers y `sales_orders`;
-  - fila forjada en `stock_movements` contra un remito pendiente, seguida de anulación y de edición: el stock devuelto es sólo lo retenido;
+  - fila forjada en `stock_movements` contra un remito pendiente, seguida de anulación y de edición: el stock devuelto es sólo lo retenido; y la misma fila **no** se puede revertir por `rpc_reverse_stock_movement` (no admite `delivery_note*`), con el control positivo de que una fila forjada `reference_type='sale'` sí se revierte hoy por esa función (preexistente, candidato de 9.1);
   - doble `POST /delivery-notes` con la misma `Idempotency-Key`;
   - remito ajeno por cada endpoint;
   - rol `stock` convirtiendo y `seller` anulando;
@@ -259,6 +263,7 @@
   - el orden de locks nuevo (`delivery_notes` primero en la conversión, al final en el borrado de la venta) junto a la regla global;
   - candidatos que deja, cada uno con su motivo:
     - la RLS preexistente de `stock_movements` (`INSERT` para cualquier miembro) y `branch_stock` (`INSERT`/`UPDATE` para escritores);
+    - **`rpc_reverse_stock_movement`** (`SECURITY DEFINER`, `EXECUTE` para `authenticated`, sin `is_account_writer` ni rol): combinada con la RLS de arriba, convierte hoy una fila forjada en stock. Revocarla de `authenticated` (sus llamadores legítimos son RPCs definer) o exigirle `is_account_writer` + rol; revisar igual `rpc_apply_product_stock_delta`, que deja a cualquier miembro mover stock directo;
     - el remito legal "R" (CAI o remito electrónico de ARCA), descartado por R1;
     - remitos parciales y varios remitos → una venta (R8);
     - presupuesto → remito y venta → remito;

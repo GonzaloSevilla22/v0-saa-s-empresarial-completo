@@ -194,7 +194,7 @@ Se agregan **dos filas** al catálogo: `quote: expired → draft` y `quote: reje
   1. `SELECT … FOR UPDATE` en la lectura del presupuesto, para cerrar la carrera de doble aceptación;
   2. la sucursal pasa a ser `COALESCE(p_branch_id, v_quote.branch_id, c26_default_branch(...))`, con `p_branch_id` validado contra la cuenta y no cerrada (`P0404`/`P0422`).
 - `rpc_accept_quote(p_quote_id)` queda como wrapper de una línea, `RETURN _quote_accept_core(p_quote_id, NULL)`, con la **misma firma** (`CREATE OR REPLACE`), el mismo `COMMENT` vivo (regla: conservar el COMMENT al reescribir) y el mismo resultado.
-- **Sus ACLs sí cambian, a propósito**: `REVOKE EXECUTE … FROM PUBLIC, anon, authenticated` explícito, porque el `CREATE OR REPLACE` conservaría el `GRANT` de C-29 (`20260702000001:334-335`). Con `EXECUTE` para `authenticated`, PostgREST (`/rest/v1/rpc/rpc_accept_quote`) seguiría siendo un camino a `accepted` fuera de la conversión:
+- **Sus ACLs sí cambian, a propósito** (**adelantado a la tanda A** por la revisión adversarial F2: sin consumidores desde que se retiró `POST /quotes/{id}/accept`, el `REVOKE` va en `20261067000001` —con aserto en la introspección, el bloque (h) del gate invocándola como `authenticated`, el chequeo (3) del gate de ACLs y el bloque (8) de `test_operacion_party_guard.sql` invertido—; la tanda B conserva el resto de este punto, el wrapper y el núcleo, y ya no necesita tocar esas ACLs): `REVOKE EXECUTE … FROM PUBLIC, anon, authenticated` explícito, porque el `CREATE OR REPLACE` conservaría el `GRANT` de C-29 (`20260702000001:334-335`). Con `EXECUTE` para `authenticated`, PostgREST (`/rest/v1/rpc/rpc_accept_quote`) seguiría siendo un camino a `accepted` fuera de la conversión:
   - sin nada más, deja un presupuesto "convertido" con una orden `draft` invisible (el hueco por el que se rechazó A2);
   - encadenado con `POST /sales-orders/{id}/confirm` o `rpc_confirm_sales_order` (los dos para `authenticated`), produce una venta que se saltea los guards del paso 4: producto o cliente dados de baja, padre con variantes.
   
@@ -286,7 +286,7 @@ Consecuencias:
   - `SKIP LOCKED` evita esperar a una conversión en curso sobre el mismo presupuesto: si la conversión gana, el presupuesto queda `accepted` y el barrido no lo toca al día siguiente.
 - **Cron**: `cron.unschedule` + `cron.schedule('quotes-expire-sweep', '5 3 * * *', …)`. Corre a las 03:05 UTC (00:05 ART), así que un presupuesto "válido hasta ayer" amanece vencido. Es el molde de `cobranzas-overdue-digest-sweep`.
 - **Derivación al leer**: el read model devuelve `is_expired = status IN ('draft','sent') AND valid_until < reporting_local_today()`. La UI lo muestra como "Vencido" aunque el barrido todavía no haya corrido, y deshabilita "Venta" con la explicación. La conversión igual lo rechaza (`quote_expired`), como hoy.
-- **Validez por defecto**: `accounts.default_quote_validity_days` (15) + `rpc_set_default_quote_validity(p_days integer)`:
+- **Validez por defecto**: `accounts.default_quote_validity_days` (15) + `rpc_set_default_quote_validity(p_account_id uuid, p_days integer)` (la cuenta viaja como parámetro y se valida contra las del invocante, P0404 si no es suya — revisión adversarial F6: `current_account_ids() LIMIT 1` no es determinista con más de una membresía; el PATCH pasa la cuenta del header, la misma que lee el GET):
   - `SECURITY DEFINER`;
   - guard **owner/admin** (`CAN_CONFIGURE`: es configuración de la cuenta, igual que las formas de pago) → `P0403 insufficient_role`;
   - rango 1..365 (`P0400`).
@@ -550,7 +550,7 @@ Presupuestos, PDF, WhatsApp y conversión quedan disponibles en todos los tiers,
 - **[Doble conversión concurrente]** → `FOR UPDATE` sobre `quotes` antes de todo, idempotencia leída después del lock, gate de carrera con dos sesiones reales.
 - **[Presupuesto editado mientras otro lo convierte o lo edita]** → versión (`revision`) esperada en la edición y en la conversión; `P0409 quote_changed` en vez de cobrar un total que nadie confirmó o de pisar una edición ajena (D1, D5, D6).
 - **[Borrado concurrente con la conversión]** → `rpc_delete_quote` toma el lock y borra con el predicado de estado; caso en el gate de carrera (D2).
-- **[`rpc_accept_quote` alcanzable por PostgREST]** → se revoca su `EXECUTE` de los roles de aplicación en la tanda B, con el bloque (8) de `test_operacion_party_guard.sql` invertido y el chequeo (3) del gate de ACLs (D6).
+- **[`rpc_accept_quote` alcanzable por PostgREST]** → se revoca su `EXECUTE` de los roles de aplicación **ya en la tanda A** (revisión adversarial F2: sin consumidores desde el retiro del endpoint, y alcanzable dejaba un presupuesto "convertido" con una orden `draft` invisible), con el bloque (8) de `test_operacion_party_guard.sql` invertido y el chequeo (3) del gate de ACLs (D6).
 - **[Emisor vacío para quien no es el dueño]** → `rpc_commercial_issuer` `SECURITY DEFINER`, ejecutada en el gate como un vendedor no dueño (D8).
 - **[Misma clave de idempotencia sobre dos presupuestos en paralelo]** → el núcleo devolvería `replayed` con la venta ajena; la RPC lo convierte en `P0409` (D6, paso 6) y el gate de carrera lo cubre.
 - **[Barrido que aborta]** → el historial exige actor: el barrido usa el uuid cero (D7) y el gate lo ejecuta de verdad.

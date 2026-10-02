@@ -105,6 +105,8 @@ export interface QuoteApiRow {
   is_expired: boolean
   /** La orden de venta generada al convertir (`accepted`), si existe. */
   sales_order_id: string | null
+  /** Nombre del emisor tal como lo imprime el PDF; sólo viene en el detalle. */
+  issuer_name?: string | null
   items: QuoteItemApiRow[]
   history: QuoteHistoryEntry[]
 }

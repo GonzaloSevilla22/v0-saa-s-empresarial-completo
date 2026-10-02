@@ -304,6 +304,9 @@ def _repo(**returns) -> AsyncMock:
     repo.transition_quote.return_value = {"id": QUOTE_ID, "account_id": ACCOUNT_ID}
     repo.delete_quote.return_value = None
     repo.get_quote.return_value = _quote_record()
+    repo.get_commercial_issuer.return_value = {
+        "nombre_fantasia": "Sumar", "razon_social": "PEREZ MARIA LAURA", "business_name": "Almacén Don José",
+    }
     for name, value in returns.items():
         getattr(repo, name).return_value = value
     return repo
@@ -556,6 +559,64 @@ class TestServiceBehavior:
 
         repo = _repo(get_quote=_quote_record(number=None))
         assert (await svc.get_quote(repo, ACCOUNT_ID, QUOTE_ID))["number_label"] is None
+
+
+class TestGetQuoteDetailIssuer:
+    """Revisión adversarial F1: el texto de WhatsApp firma con el MISMO emisor que
+    el encabezado del PDF (fantasía -> razón social -> negocio del dueño), no con
+    el perfil del usuario que comparte (un vendedor que no es el dueño no tiene
+    `business_name` propio)."""
+
+    @pytest.mark.asyncio
+    async def test_detail_carries_the_issuer_name_the_pdf_prints(self):
+        from backend.services import quotes as svc
+
+        repo = _repo()
+        got = await svc.get_quote_detail(repo, ACCOUNT_ID, QUOTE_ID)
+
+        assert got["issuer_name"] == "Sumar"
+        assert got["number_label"] == "P-00000012"
+        repo.get_commercial_issuer.assert_awaited_once_with(ACCOUNT_ID)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "raw, expected",
+        [
+            ({"nombre_fantasia": None, "razon_social": "PEREZ MARIA LAURA", "business_name": "X"}, "PEREZ MARIA LAURA"),
+            ({"nombre_fantasia": " ", "razon_social": "", "business_name": "Almacén Don José"}, "Almacén Don José"),
+            ({}, "Mi Negocio"),
+        ],
+    )
+    async def test_detail_issuer_name_follows_the_same_cascade(self, raw, expected):
+        from backend.services import quotes as svc
+
+        repo = _repo(get_commercial_issuer=raw)
+        assert (await svc.get_quote_detail(repo, ACCOUNT_ID, QUOTE_ID))["issuer_name"] == expected
+
+    @pytest.mark.asyncio
+    async def test_issuer_failure_does_not_break_the_detail(self):
+        """El nombre del emisor es un adorno del texto compartido: si la RPC falla
+        el presupuesto se sigue leyendo (el PDF, que sí lo necesita, sí falla)."""
+        from backend.services import quotes as svc
+
+        repo = _repo()
+        repo.get_commercial_issuer.side_effect = _pg_error("42501", "forbidden")
+        got = await svc.get_quote_detail(repo, ACCOUNT_ID, QUOTE_ID)
+
+        assert got["issuer_name"] is None
+        assert got["id"] == QUOTE_ID
+
+    @pytest.mark.asyncio
+    async def test_foreign_quote_is_404_without_resolving_the_issuer(self):
+        from backend.services import quotes as svc
+
+        repo = _repo()
+        repo.get_quote.return_value = None
+        with pytest.raises(HTTPException) as info:
+            await svc.get_quote_detail(repo, ACCOUNT_ID, QUOTE_ID)
+
+        assert info.value.status_code == 404
+        repo.get_commercial_issuer.assert_not_awaited()
 
 
 class TestServiceListing:
@@ -994,6 +1055,23 @@ class TestEndpoints:
         assert [c.args for c in repo.transition_quote.await_args_list] == [
             (QUOTE_ID, "sent", None), (QUOTE_ID, "rejected", "precio alto"),
         ]
+
+    async def test_get_detail_exposes_issuer_name(self, async_client, repo_override):
+        repo, (pool, conn) = repo_override
+        with patch("backend.core.database.pool", pool):
+            resp = await async_client.get(f"/quotes/{QUOTE_ID}", headers=_headers("seller"))
+
+        assert resp.status_code == 200
+        assert resp.json()["issuer_name"] == "Sumar"
+
+    async def test_write_responses_do_not_resolve_the_issuer(self, async_client, repo_override):
+        repo, (pool, conn) = repo_override
+        with patch("backend.core.database.pool", pool):
+            resp = await async_client.post("/quotes", json=_body(), headers=_headers("seller"))
+
+        assert resp.status_code == 201
+        assert resp.json()["issuer_name"] is None
+        repo.get_commercial_issuer.assert_not_awaited()
 
     async def test_get_missing_quote_is_404_problem(self, async_client, repo_override):
         repo, (pool, conn) = repo_override

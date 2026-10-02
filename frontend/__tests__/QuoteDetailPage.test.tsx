@@ -45,7 +45,7 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: mocks.push }),
 }))
 vi.mock("sonner", () => ({ toast: { error: mocks.toastError, success: mocks.toastSuccess, info: vi.fn() } }))
-vi.mock("@/contexts/auth-context", () => ({ useAuth: () => ({ user: { businessName: "Kiosco Lola" } }) }))
+vi.mock("@/contexts/auth-context", () => ({ useAuth: () => ({ user: { businessName: "Negocio propio del vendedor" } }) }))
 vi.mock("@/hooks/useOrgRole", () => ({ useOrgRole: () => mocks.useOrgRole() }))
 vi.mock("@/hooks/data/use-products", () => ({ useProducts: () => ({ products: [REMERA], isLoading: false }) }))
 vi.mock("@/hooks/use-units-of-measure", () => ({
@@ -113,6 +113,7 @@ function quote(overrides: Partial<QuoteApiRow> = {}): QuoteApiRow {
     updated_by: null,
     is_expired: false,
     sales_order_id: null,
+    issuer_name: "Kiosco Lola",
     items: [line({ id: "i-1" })],
     history: [
       { from_status: null, to_status: "draft", performed_by: "u-1", occurred_at: "2026-10-01T15:00:00Z", reason: null },
@@ -374,6 +375,24 @@ describe("QuoteDetailPage — compartir marca como enviado", () => {
     expect(props.shareText).toContain("P-00000012")
     expect(props.shareText).toContain("Kiosco Lola")
     expect(props.shareText).toMatch(/3\.000/)
+  })
+
+  it("firma con el emisor del PDF (issuer_name), no con el negocio del perfil de quien comparte", () => {
+    setQuote(quote({ issuer_name: "Sumar" }))
+    render(<QuoteDetailPage />)
+
+    const text = mocks.shareProps.mock.calls[0][0].shareText as string
+    expect(text.endsWith("Sumar")).toBe(true)
+    expect(text).not.toContain("Negocio propio del vendedor")
+  })
+
+  it("sin emisor resuelto el texto sale sin firma (no cae al perfil del usuario)", () => {
+    setQuote(quote({ issuer_name: null }))
+    render(<QuoteDetailPage />)
+
+    const text = mocks.shareProps.mock.calls[0][0].shareText as string
+    expect(text).not.toContain("Negocio propio del vendedor")
+    expect(text.endsWith("válido hasta el 16/10/2999.")).toBe(true)
   })
 
   it("un draft con permiso: al compartir pasa a 'enviado' (send) sin mostrar error", async () => {

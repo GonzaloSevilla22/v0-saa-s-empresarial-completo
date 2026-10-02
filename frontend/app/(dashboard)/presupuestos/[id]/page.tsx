@@ -40,7 +40,6 @@ import { fetchQuotePdf, useDeleteQuote, useQuote, useTransitionQuote } from "@/h
 import { useOrgRole } from "@/hooks/useOrgRole"
 import { useRestoreFocus } from "@/hooks/ui/use-restore-focus"
 import { useUnitsOfMeasure } from "@/hooks/use-units-of-measure"
-import { useAuth } from "@/contexts/auth-context"
 import { formatDate, formatMoney, formatNumber } from "@/lib/format"
 import { humanizeOperationError } from "@/lib/operation-errors"
 import { catalogPriceHint, isModifiedAfterSent, quoteActions, quoteFileName } from "@/lib/quote-detail"
@@ -69,7 +68,6 @@ export default function QuoteDetailPage() {
   const params = useParams<{ id: string }>()
   const quoteId = params.id
   const router = useRouter()
-  const { user } = useAuth()
   const { roles, rolesResolved } = useOrgRole()
   const { products } = useProducts()
   const { unitsById } = useUnitsOfMeasure()
@@ -164,7 +162,8 @@ export default function QuoteDetailPage() {
     numberLabel,
     total,
     validUntil: quote.valid_until,
-    businessName: user?.businessName,
+    // El emisor del PDF (resuelto por el servidor), no el perfil de quien comparte.
+    businessName: quote.issuer_name,
   })
 
   const saleLegend = actions.saleBlockedByExpiry

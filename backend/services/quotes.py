@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import contextlib
 import datetime
+import logging
 import uuid
 from collections.abc import Collection
 
@@ -54,6 +55,8 @@ from backend.services.commercial_documents.numbering import (
 )
 from backend.services.commercial_documents.pdf import build_commercial_document_pdf
 from backend.services.commercial_documents.view import build_quote_view
+
+logger = logging.getLogger(__name__)
 
 # Acción del contrato HTTP -> estado destino que admite `rpc_transition_quote`.
 _ACTION_TO_STATUS = {"send": "sent", "reject": "rejected"}
@@ -225,6 +228,24 @@ async def get_quote(repo: QuoteRepository, account_id: str, quote_id: str) -> di
             status_code=404, detail="Presupuesto no encontrado", code="quote_not_found"
         )
     return _present(record)
+
+
+async def get_quote_detail(repo: QuoteRepository, account_id: str, quote_id: str) -> dict:
+    """Detalle para `GET /quotes/{id}`: el presupuesto más `issuer_name`, el
+    nombre del emisor ya resuelto por la MISMA cascada y la MISMA RPC que el
+    encabezado del PDF (`resolve_commercial_issuer`). Es lo que firma el texto de
+    WhatsApp: el perfil del usuario que comparte no sirve (un vendedor que no es
+    el dueño no tiene negocio propio y el del dueño con nombre de fantasía fiscal
+    difiere del que imprime el PDF). Adorno, no dato del documento: si la RPC
+    falla el presupuesto se lee igual y el texto sale sin firma."""
+    record = await get_quote(repo, account_id, quote_id)
+    try:
+        issuer = await resolve_commercial_issuer(repo, account_id)
+        issuer_name: str | None = issuer.name
+    except asyncpg.PostgresError:
+        logger.warning("quote %s: no se pudo resolver el emisor para el texto compartido", quote_id, exc_info=True)
+        issuer_name = None
+    return {**record, "issuer_name": issuer_name}
 
 
 async def list_quotes(

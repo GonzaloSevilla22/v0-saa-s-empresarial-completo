@@ -101,7 +101,7 @@ async def get_quote(
     repo: QuoteRepository = Depends(get_quote_repo),
     account_id: uuid.UUID = Depends(get_account_id),
 ):
-    return await quotes_service.get_quote(repo, str(account_id), str(quote_id))
+    return await quotes_service.get_quote_detail(repo, str(account_id), str(quote_id))
 
 
 @router.put("/quotes/{quote_id}", response_model=QuoteOut)

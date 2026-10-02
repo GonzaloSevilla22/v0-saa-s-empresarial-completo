@@ -185,6 +185,9 @@ class QuoteOut(BaseModel):
     client_name:  Optional[str] = None
     client_phone: Optional[str] = None
     client_tax_id: Optional[str] = None
+    # Nombre del emisor tal como lo imprime el PDF (sólo en `GET /quotes/{id}`):
+    # lo usa el texto de WhatsApp para firmar igual que el documento.
+    issuer_name:  Optional[str] = None
     # La orden de venta nacida de la conversión (tanda B); null hasta entonces.
     sales_order_id: Optional[uuid.UUID] = None
     items:        list[QuoteItemOut] = []

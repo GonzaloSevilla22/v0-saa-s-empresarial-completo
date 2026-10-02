@@ -53,6 +53,34 @@ export interface UpdateQuoteInput {
   items: QuoteItemInput[]
 }
 
+/**
+ * Conversión atómica del presupuesto en venta (D6/D12): `POST /quotes/{id}/convert`.
+ * La clave de idempotencia viaja por el header `Idempotency-Key` (no en el cuerpo).
+ * `expected_revision` es la `revision` que el diálogo mostró: si cambió, el servidor
+ * responde `quote_changed` (409) y nadie cobra un total que no confirmó.
+ */
+export interface QuoteConvertInput {
+  expected_revision: number
+  payment_method_id: string
+  branch_id?: string | null
+  /** Con `kind = cash` el servidor exige la sesión abierta de la sucursal (`cash_requires_session`). */
+  cash_session_id?: string | null
+  bank_account_id?: string | null
+  canal?: string | null
+}
+
+export interface QuoteConvertResult {
+  quote_id: string
+  quote_number: number | null
+  /** `P-00000012`, derivada por el servidor. */
+  quote_number_label: string | null
+  sales_order_id: string
+  operation_id: string
+  total: string | number
+  /** `true` si la clave ya había convertido este presupuesto: se muestra igual. */
+  replayed: boolean
+}
+
 // ── Salida ─────────────────────────────────────────────────────────────────────
 
 export interface QuoteItemApiRow {

@@ -949,6 +949,13 @@ BEGIN
     IF position('idempotency_key_conflict' in v_def) = 0 OR position('replayed' in v_def) = 0 THEN
       v_bad := v_bad || 'rpc_convert_quote_to_sale no convierte un replay del núcleo en idempotency_key_conflict'::text;
     END IF;
+    -- Deadlock entre conversiones: los productos de las líneas se bloquean por id
+    -- ascendente ANTES del núcleo (el núcleo los toma por sales_order_items.id,
+    -- aleatorio por orden). La carrera real la ejercita test_presupuesto_a_venta_race.sh (4).
+    IF v_def !~* 'ORDER\s+BY\s+p\.id\s+FOR\s+UPDATE'
+       OR position('ORDER BY p.id' in v_def) > position('_quote_accept_core(' in v_def) THEN
+      v_bad := v_bad || 'rpc_convert_quote_to_sale no bloquea los productos por id ascendente antes del núcleo'::text;
+    END IF;
   END IF;
 
   IF array_length(v_bad, 1) > 0 THEN

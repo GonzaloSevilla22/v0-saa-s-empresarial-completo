@@ -30,6 +30,13 @@
 #        quote_not_deletable;
 #   (3b) borrado abierto vs conversión -> el presupuesto se borra y la
 #        conversión recibe quote_not_found;
+#   (4)  DOS conversiones simultáneas de presupuestos DISTINTOS que comparten
+#        dos productos (claves distintas, ROUNDS rondas con barrera): ninguna
+#        puede terminar en deadlock (40P01). El núcleo de venta bloquea los
+#        productos en el orden de sales_order_items.id (un uuid aleatorio por
+#        orden), así que dos órdenes con los mismos dos productos los toman en
+#        orden inverso; la conversión toma ella los productos por id ascendente
+#        ANTES de entrar al núcleo para que ese orden sea el mismo en todas;
 #   y en ningún caso existe una orden con source_quote_id NULL.
 #
 # Uso:
@@ -107,6 +114,7 @@ DECLARE
   v_account uuid;
   v_branch  uuid;
   v_product uuid;
+  v_product2 uuid;
 BEGIN
   INSERT INTO auth.users (id, aud, role, email, created_at, updated_at, raw_user_meta_data)
   VALUES (v_user, 'authenticated', 'authenticated', '$EMAIL', now(), now(),
@@ -117,16 +125,20 @@ BEGIN
   INSERT INTO public.clients (user_id, account_id, name) VALUES (v_user, v_account, 'Cliente PV Race');
   INSERT INTO public.products (user_id, account_id, name, sku, cost, price)
   VALUES (v_user, v_account, 'Producto PV Race', 'PV-RACE-1', 10, 100) RETURNING id INTO v_product;
-  PERFORM public.c21_apply_branch_stock_delta(v_account, v_product, v_branch, 100);
+  PERFORM public.c21_apply_branch_stock_delta(v_account, v_product, v_branch, 1000);
+  INSERT INTO public.products (user_id, account_id, name, sku, cost, price)
+  VALUES (v_user, v_account, 'Producto PV Race 2', 'PV-RACE-2', 10, 100) RETURNING id INTO v_product2;
+  PERFORM public.c21_apply_branch_stock_delta(v_account, v_product2, v_branch, 1000);
 END \$\$;
 SQL
 USER_ID=$(q "SELECT id FROM auth.users WHERE email = '$EMAIL';")
 [ -n "$USER_ID" ] || fail "el fixture no creó el usuario"
 ACCOUNT_ID=$(q "SELECT account_id FROM public.account_members WHERE user_id = '$USER_ID' ORDER BY created_at LIMIT 1;")
 CLIENT_ID=$(q "SELECT id FROM public.clients WHERE account_id = '$ACCOUNT_ID' LIMIT 1;")
-PRODUCT_ID=$(q "SELECT id FROM public.products WHERE account_id = '$ACCOUNT_ID' LIMIT 1;")
+PRODUCT_ID=$(q "SELECT id FROM public.products WHERE account_id = '$ACCOUNT_ID' AND sku = 'PV-RACE-1';")
+PRODUCT2_ID=$(q "SELECT id FROM public.products WHERE account_id = '$ACCOUNT_ID' AND sku = 'PV-RACE-2';")
 PM_CREDIT=$(q "SELECT id FROM public.payment_methods WHERE account_id = '$ACCOUNT_ID' AND kind = 'credit' AND is_active AND deleted_at IS NULL ORDER BY sort_order LIMIT 1;")
-[ -n "$ACCOUNT_ID" ] && [ -n "$CLIENT_ID" ] && [ -n "$PRODUCT_ID" ] && [ -n "$PM_CREDIT" ] || fail "el fixture no devolvió cuenta/cliente/producto/forma de pago"
+[ -n "$ACCOUNT_ID" ] && [ -n "$CLIENT_ID" ] && [ -n "$PRODUCT_ID" ] && [ -n "$PRODUCT2_ID" ] && [ -n "$PM_CREDIT" ] || fail "el fixture no devolvió cuenta/cliente/producto/forma de pago"
 
 CLAIMS="SELECT set_config('request.jwt.claims', json_build_object('sub', '$USER_ID', 'role', 'authenticated')::text, true);
 SELECT set_config('request.jwt.claim.sub', '$USER_ID', true);"
@@ -264,10 +276,76 @@ grep -q 'quote_not_found' "$TMP_DIR/3b.b" || fail "(3b) la conversión debía re
 [ "$(q "SELECT count(*) FROM public.quotes WHERE id = '$Q6';")" = "0" ] || fail "(3b) el presupuesto no se borró"
 echo "PASS (3b): borrado abierto vs conversión -> el presupuesto se borra y la conversión recibe quote_not_found."
 
+# ── (4) dos presupuestos distintos con los mismos dos productos, a la vez ────
+# Barrera: las dos sesiones esperan un advisory compartido que el portero
+# retiene en exclusivo; al soltarlo arrancan juntas. Cada ronda usa dos
+# presupuestos nuevos y dos claves distintas. Nadie se bloquea "a propósito":
+# lo que se mide es que el orden de los locks de producto no deje un deadlock.
+ROUNDS="${ROUNDS:-12}"
+new_quote2() {
+  psql "$DB_URL" -v ON_ERROR_STOP=1 -X -q -t -A <<SQL | grep -o 'QID=[0-9a-f-]*' | sed 's/QID=//'
+BEGIN;
+$CLAIMS
+WITH q AS (
+  SELECT (public.rpc_create_quote('$CLIENT_ID'::uuid, NULL, NULL, NULL,
+           jsonb_build_array(
+             jsonb_build_object('product_id', '$PRODUCT_ID'::uuid, 'unit_id', NULL,
+               'quantity', 1, 'price', 100, 'subtotal', 100, 'description', NULL),
+             jsonb_build_object('product_id', '$PRODUCT2_ID'::uuid, 'unit_id', NULL,
+               'quantity', 1, 'price', 100, 'subtotal', 100, 'description', NULL)))->>'id')::uuid AS id)
+SELECT 'QID=' || id FROM q;
+COMMIT;
+SQL
+}
+DEADLOCKS=0
+SOLD=0
+for r in $(seq 1 "$ROUNDS"); do
+  QA=$(new_quote2); send_quote "$QA"
+  QB=$(new_quote2); send_quote "$QB"
+  [ -n "$QA" ] && [ -n "$QB" ] || fail "(4) no se crearon los presupuestos de la ronda $r"
+  PGAPPNAME="${RUN}-gate" psql "$DB_URL" -X -q -t -A >/dev/null 2>&1 <<SQL &
+SELECT pg_advisory_lock($ADVISORY_KEY);
+SELECT pg_sleep(120);
+SQL
+  GATE_PID=$!
+  wait_for "EXISTS (SELECT 1 FROM pg_locks WHERE locktype = 'advisory' AND objid = $ADVISORY_KEY AND granted)" "el portero de (4) ronda $r"
+  for side in a b; do
+    if [ "$side" = "a" ]; then QX="$QA"; else QX="$QB"; fi
+    PGAPPNAME="${RUN}-4$side" psql "$DB_URL" -X -q -t -A > "$TMP_DIR/4.$r.$side" 2>&1 <<SQL &
+SET statement_timeout = '60s';
+BEGIN;
+$CLAIMS
+SELECT pg_advisory_xact_lock_shared($ADVISORY_KEY);
+$(convert_sql "${RUN}-4-$r-$side" "$QX")
+COMMIT;
+SQL
+    eval "PID_$side=$!"
+  done
+  wait_for "(SELECT count(*) FROM pg_stat_activity WHERE application_name IN ('${RUN}-4a', '${RUN}-4b') AND wait_event = 'advisory') = 2" "que las dos sesiones de (4) esperen la barrera (ronda $r)"
+  q "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE application_name = '${RUN}-gate';" >/dev/null
+  wait "$GATE_PID" 2>/dev/null
+  GATE_PID=""
+  wait "$PID_a" 2>/dev/null
+  wait "$PID_b" 2>/dev/null
+  for side in a b; do
+    if grep -q '40P01\|deadlock detected' "$TMP_DIR/4.$r.$side"; then
+      DEADLOCKS=$((DEADLOCKS + 1))
+      echo "[4] ronda $r lado $side: $(tr '\n' ' ' < "$TMP_DIR/4.$r.$side" | cut -c1-160)"
+    elif grep -q '"replayed": false' "$TMP_DIR/4.$r.$side"; then
+      SOLD=$((SOLD + 1))
+    else
+      fail "(4) ronda $r lado $side: resultado inesperado: $(tr '\n' ' ' < "$TMP_DIR/4.$r.$side" | cut -c1-200)"
+    fi
+  done
+done
+[ "$DEADLOCKS" = "0" ] || fail "(4) $DEADLOCKS conversiones terminaron en deadlock (40P01) sobre $ROUNDS rondas"
+[ "$SOLD" = "$((ROUNDS * 2))" ] || fail "(4) se esperaban $((ROUNDS * 2)) ventas y hubo $SOLD"
+echo "PASS (4): $ROUNDS rondas de dos conversiones simultáneas de presupuestos distintos con los mismos dos productos -> $SOLD ventas, ningún deadlock."
+
 [ "$(q "SELECT count(*) FROM public.sales_orders WHERE account_id = '$ACCOUNT_ID' AND source_quote_id IS NULL;")" = "0" ] || fail "quedó una orden con source_quote_id NULL"
-[ "$(q "SELECT count(*) FROM public.sales_orders WHERE account_id = '$ACCOUNT_ID';")" = "4" ] || fail "se esperaban exactamente 4 órdenes (1a, 1b, 2, 3a)"
+[ "$(q "SELECT count(*) FROM public.sales_orders WHERE account_id = '$ACCOUNT_ID';")" = "$((4 + ROUNDS * 2))" ] || fail "se esperaban exactamente $((4 + ROUNDS * 2)) órdenes (1a, 1b, 2, 3a y las de (4))"
 
 cleanup
 LEFT=$(q "SELECT count(*) FROM auth.users WHERE id = '$USER_ID';")
 [ "$LEFT" = "0" ] || { echo "GATE PRESUPUESTO-A-VENTA-RACE FAILED: quedó el usuario del fixture" >&2; exit 1; }
-echo "GATE PRESUPUESTO-A-VENTA-RACE PASSED: 5 carreras con bloqueo real verificado, ninguna orden sin presupuesto de origen (residuo cero)."
+echo "GATE PRESUPUESTO-A-VENTA-RACE PASSED: 5 carreras con bloqueo real verificado + el caso de deadlock (4), ninguna orden sin presupuesto de origen (residuo cero)."

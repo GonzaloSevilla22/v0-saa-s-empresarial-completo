@@ -36,8 +36,10 @@
 --   4. Bloque DO de introspección al final.
 --
 -- Orden de locks (regla global sales -> sales_orders -> fiscal_documents ->
--- resto): la conversión toma PRIMERO quotes (FOR UPDATE) y después, dentro del
--- núcleo de venta, products (FOR UPDATE en orden de sales_order_items.id); no
+-- resto): la conversión toma PRIMERO quotes (FOR UPDATE), después los productos
+-- de sus líneas por id ASCENDENTE (paso 4a: el núcleo los toma por
+-- sales_order_items.id, aleatorio por orden, y dos conversiones con los mismos
+-- dos productos terminaban en 40P01) y recién ahí el núcleo de venta; no
 -- bloquea filas existentes de sales ni de sales_orders (las crea), y quotes no
 -- participa de ningún otro camino que tome los locks de venta, así que no
 -- invierte el orden global.
@@ -378,6 +380,25 @@ BEGIN
       p_expected_revision, v_quote.revision
       USING ERRCODE = 'P0409';
   END IF;
+
+  -- 4a. Lock de los productos de las líneas por id ASCENDENTE, antes del
+  -- núcleo. El núcleo de venta (que no se toca) los bloquea en el orden de
+  -- sales_order_items.id, un uuid aleatorio por orden: dos órdenes con los
+  -- mismos dos productos los toman en orden inverso y una de las dos termina en
+  -- deadlock (40P01). Tomándolos acá todas las conversiones los toman en el
+  -- mismo orden y el FOR UPDATE del núcleo pasa a ser un no-op sobre filas ya
+  -- propias. Sólo productos de la cuenta: uno ajeno cae en el guard de abajo
+  -- (P0404). El guard lee ya con el lock puesto: un producto no se da de baja
+  -- entre el chequeo y la venta.
+  PERFORM 1
+  FROM public.products p
+  WHERE p.account_id = v_quote.account_id
+    AND p.id IN (
+      SELECT qi.product_id FROM public.quote_items qi
+      WHERE qi.quote_id = p_quote_id AND qi.product_id IS NOT NULL
+    )
+  ORDER BY p.id
+  FOR UPDATE;
 
   -- 4. Guards de convertibilidad, antes de escribir nada. El núcleo de venta
   -- no filtra deleted_at: sin este guard un producto dado de baja se vendería.

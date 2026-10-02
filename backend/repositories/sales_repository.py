@@ -62,7 +62,12 @@ class SalesRepository(BaseRepository):
                    COALESCE(si.quantity,   s.quantity)   AS quantity,
                    COALESCE(si.price,      s.amount)     AS amount,
                    COALESCE(si.subtotal,   s.total)      AS total,
-                   pr.name AS product_name,
+                   -- presupuestos-modulo (tanda B, D6/OQ-P15): la fila legacy de una
+                   -- línea de servicio (venta convertida desde un presupuesto, sin
+                   -- producto) no tiene descripción en `sales`: se resuelve desde
+                   -- `sales_order_items.name_snapshot` de la MISMA orden (ver el
+                   -- LATERAL `svc`). Con producto manda el nombre del maestro.
+                   COALESCE(pr.name, svc.name_snapshot) AS product_name,
                    cl.name AS client_name,
                    -- edicion-preserva-contexto (D11): expuestos para
                    -- prefillear el form de edición. branch_id/canal son del
@@ -175,7 +180,19 @@ class SalesRepository(BaseRepository):
                      OR (so.id IS NOT NULL AND EXISTS (SELECT 1 FROM cash_movements cm WHERE cm.reference_id = so.id))
                      OR EXISTS (SELECT 1 FROM bank_movements bm WHERE bm.source_doc_type = 'sale' AND bm.source_doc_ref = s.operation_id)
                      OR (so.id IS NOT NULL AND EXISTS (SELECT 1 FROM bank_movements bm WHERE bm.source_doc_type = 'sale' AND bm.source_doc_ref = so.id))
-                   ) AS is_payment_locked
+                   ) AS is_payment_locked,
+                   -- presupuestos-modulo (tanda B): el presupuesto que originó la
+                   -- venta, derivado de sales_orders.source_quote_id (sin columnas
+                   -- denormalizadas). El JOIN exige la misma cuenta: nunca se
+                   -- muestra el número de un presupuesto ajeno.
+                   so.source_quote_id                       AS source_quote_id,
+                   sq.number                                AS source_quote_number,
+                   -- presupuestos-modulo (D6, OQ-P16): la operación incluye alguna
+                   -- fila sin producto (línea de servicio). Es de la OPERACIÓN, no
+                   -- de la fila: toda ella se ve sin edición en /ventas. Derivado de
+                   -- lectura, sin columna.
+                   BOOL_OR(COALESCE(si.product_id, s.product_id) IS NULL)
+                     OVER (PARTITION BY COALESCE(s.operation_id::text, s.id::text)) AS has_service_lines
             FROM sales s
             JOIN op_page ON COALESCE(s.operation_id::text, s.id::text) = op_page.op_key
             LEFT JOIN sale_items si ON si.sale_id = s.id AND si.product_id IS NOT NULL
@@ -187,6 +204,28 @@ class SalesRepository(BaseRepository):
                    ON pos_pm.id          = so.payment_method_id
                   AND pos_pm.deleted_at IS NULL
             LEFT JOIN fiscal_documents fd ON fd.id = so.fiscal_document_id
+            LEFT JOIN quotes sq ON sq.id = so.source_quote_id AND sq.account_id = so.account_id
+            -- Descripción de una línea de servicio: una fila de `sales` sin
+            -- producto ni línea de venta, emparejada con la línea sin producto de
+            -- la misma orden por precio, cantidad, subtotal y unidad. LIMIT 1: dos
+            -- líneas de servicio idénticas en esos cuatro valores muestran la misma
+            -- descripción (límite declarado, OQ-P15) pero NUNCA duplican la fila.
+            LEFT JOIN LATERAL (
+              SELECT soi.name_snapshot
+              FROM sales_order_items soi
+              WHERE so.id IS NOT NULL
+                AND s.product_id IS NULL
+                AND si.id IS NULL
+                AND soi.sales_order_id = so.id
+                AND soi.account_id = s.account_id
+                AND soi.product_id IS NULL
+                AND soi.price = s.amount
+                AND soi.quantity = s.quantity
+                AND soi.subtotal = s.total
+                AND soi.unit_id IS NOT DISTINCT FROM s.unit_id
+              ORDER BY soi.id
+              LIMIT 1
+            ) svc ON TRUE
             WHERE s.account_id = $1::uuid
             ORDER BY s.date DESC, s.id
             """,

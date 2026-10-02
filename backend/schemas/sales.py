@@ -193,6 +193,18 @@ class SaleItemOut(BaseModel):
     has_account_charge: bool = False
     has_cash_movement: bool = False
     has_bank_movement: bool = False
+    # presupuestos-modulo (tanda B): el presupuesto que originó la venta
+    # (`sales_orders.source_quote_id → quotes`, derivado de lectura) para el
+    # indicador "Desde presupuesto P-NNNNNNNN" de /ventas. Una venta del POS o
+    # del formulario no lo tiene.
+    source_quote_id: uuid.UUID | None = None
+    source_quote_number: int | None = None
+    # presupuestos-modulo (D6, OQ-P16): la OPERACIÓN incluye alguna fila sin
+    # producto (línea de servicio de un presupuesto convertido). El editor de
+    # /ventas no la edita: la acción "Editar" se deshabilita con su motivo.
+    # Default False: fila sin el derivado = sin líneas de servicio; la
+    # autoridad al editar sigue siendo el servidor.
+    has_service_lines: bool = False
 
     @field_validator("date", mode="before")
     @classmethod

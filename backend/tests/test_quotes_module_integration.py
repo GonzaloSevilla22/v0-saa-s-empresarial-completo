@@ -731,3 +731,134 @@ async def test_the_same_key_on_another_quote_is_409_idempotency_key_conflict(con
     assert (info.value.status_code, info.value.code) == (409, "idempotency_key_conflict")
     assert await _effects(conn, world) == after_first
     assert await conn.fetchval("SELECT status FROM public.quotes WHERE id = $1", q2["id"]) == "draft"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Tanda B (6.6): read models de ventas y órdenes contra la base real
+# ══════════════════════════════════════════════════════════════════════════════
+
+async def _sales_page(conn, w: World, user=None, *, authenticated_role: bool = True):
+    from backend.repositories.sales_repository import SalesRepository
+
+    user = user or w.owner_a
+    async with _as(conn, user, authenticated_role=authenticated_role):
+        rows, total = await SalesRepository(conn).list_paginated_by_operation(str(w.account_a), 0, 50)
+    return [dict(r) for r in rows], total
+
+
+async def test_sales_read_model_exposes_origin_quote_service_lines_and_their_description(conn, world: World):
+    await _stock(conn, world, 10)
+    pm = await _payment_method(conn, world.account_a, "credit")
+    quote = await _create(
+        conn, world,
+        items=[
+            _line(world.product_a, qty="2", price="1000", subtotal="2000"),
+            QuoteItemIn(quantity="1", price="300", subtotal="300", description="Instalación"),
+            QuoteItemIn(quantity="3", price="50", subtotal="150", description="Traslado"),
+        ],
+    )
+    result = await _convert(conn, world, quote, _convert_payload(quote, pm, idempotency_key="integ-rm-1"))
+
+    # una venta sin presupuesto (formulario/POS): no debe heredar nada
+    plain_op = uuid.uuid4()
+    await conn.execute(
+        "INSERT INTO public.sales (user_id, account_id, product_id, amount, quantity, total, currency, date, operation_id) "
+        "VALUES ($1, $2, $3, 1000, 1, 1000, 'ARS', now(), $4)", world.owner_a, world.account_a, world.product_a, plain_op)
+
+    rows, total = await _sales_page(conn, world)
+
+    assert total == 2  # dos operaciones: la convertida y la suelta
+    converted = [r for r in rows if str(r["operation_id"]) == result["operation_id"]]
+    plain = [r for r in rows if r["operation_id"] == plain_op]
+    assert len(converted) == 3 and len(plain) == 1, "el LATERAL no debe duplicar ni perder filas"
+
+    # presupuesto de origen en cada fila de la operación convertida
+    assert {str(r["source_quote_id"]) for r in converted} == {str(quote["id"])}
+    assert {r["source_quote_number"] for r in converted} == {1}
+    # has_service_lines es de la OPERACIÓN: también la fila del producto
+    assert all(r["has_service_lines"] for r in converted)
+    # las filas de servicio muestran su descripción; la del producto, su nombre
+    by_name = sorted(r["product_name"] for r in converted)
+    assert by_name == sorted(["__integ_pm_producto_a__", "Instalación", "Traslado"])
+    for r in converted:
+        if r["product_id"] is None:
+            assert r["product_name"] in ("Instalación", "Traslado")
+            assert r["amount"] in (300, 50)
+
+    # la venta suelta no tiene origen ni líneas de servicio
+    assert plain[0]["source_quote_id"] is None and plain[0]["source_quote_number"] is None
+    assert plain[0]["has_service_lines"] is False
+
+
+async def test_sales_read_model_without_service_lines_keeps_the_origin_but_stays_editable(conn, world: World):
+    await _stock(conn, world, 10)
+    pm = await _payment_method(conn, world.account_a, "credit")
+    quote = await _create(conn, world, items=[_line(world.product_a, qty="1", price="1000", subtotal="1000")])
+    await _convert(conn, world, quote, _convert_payload(quote, pm, idempotency_key="integ-rm-2"))
+
+    rows, _ = await _sales_page(conn, world)
+
+    assert len(rows) == 1
+    assert rows[0]["source_quote_number"] == 1 and rows[0]["has_service_lines"] is False
+    assert rows[0]["product_name"] == "__integ_pm_producto_a__"
+
+
+async def test_two_identical_service_lines_share_the_description_without_duplicating_rows(conn, world: World):
+    """Límite declarado (OQ-P15): dos líneas de servicio iguales en precio,
+    cantidad, subtotal y unidad muestran la misma descripción — pero cada una
+    es UNA fila: la venta no se duplica."""
+    await _stock(conn, world, 10)
+    pm = await _payment_method(conn, world.account_a, "credit")
+    quote = await _create(
+        conn, world,
+        items=[
+            QuoteItemIn(quantity="1", price="200", subtotal="200", description="Flete A"),
+            QuoteItemIn(quantity="1", price="200", subtotal="200", description="Flete B"),
+        ],
+    )
+    await _convert(conn, world, quote, _convert_payload(quote, pm, idempotency_key="integ-rm-3"))
+
+    rows, total = await _sales_page(conn, world)
+
+    assert total == 1 and len(rows) == 2
+    assert len({r["product_name"] for r in rows}) == 1 and rows[0]["product_name"] in ("Flete A", "Flete B")
+    assert all(r["has_service_lines"] for r in rows)
+
+
+async def test_sales_read_model_never_leaks_another_accounts_quote_number(conn, world: World):
+    """El JOIN al presupuesto exige la misma cuenta: aunque `source_quote_id`
+    apuntara a un presupuesto de otra cuenta, su número no se expone."""
+    await _stock(conn, world, 10)
+    pm = await _payment_method(conn, world.account_a, "credit")
+    quote_a = await _create(conn, world, items=[_line(world.product_a, qty="1", price="1000", subtotal="1000")])
+    result = await _convert(conn, world, quote_a, _convert_payload(quote_a, pm, idempotency_key="integ-rm-4"))
+    quote_b = await _create(
+        conn, world, user=world.owner_b, account=world.account_b, client=world.client_b, items=[_line(world.product_b)],
+    )
+    # Corrompe a propósito (como postgres, sin triggers): la orden de A apunta al presupuesto de B.
+    await conn.execute("SET session_replication_role = replica")
+    await conn.execute("UPDATE public.sales_orders SET source_quote_id = $1 WHERE id = $2", quote_b["id"], result["sales_order_id"])
+    await conn.execute("SET session_replication_role = DEFAULT")
+
+    # Con y SIN la red de la RLS: bajo `authenticated` la política de `quotes` ya
+    # oculta el presupuesto ajeno; como `postgres` sólo lo frena la cláusula
+    # explícita de cuenta del JOIN (regla dura desde el incidente #446).
+    for authenticated_role in (True, False):
+        rows, _ = await _sales_page(conn, world, authenticated_role=authenticated_role)
+        assert rows[0]["source_quote_number"] is None, f"authenticated_role={authenticated_role}"
+
+
+async def test_sales_orders_read_models_expose_the_origin_quote_number(conn, world: World):
+    from backend.repositories.sales_order_repository import SalesOrderRepository
+
+    await _stock(conn, world, 10)
+    pm = await _payment_method(conn, world.account_a, "credit")
+    quote = await _create(conn, world, items=[_line(world.product_a, qty="1", price="1000", subtotal="1000")])
+    result = await _convert(conn, world, quote, _convert_payload(quote, pm, idempotency_key="integ-rm-5"))
+
+    async with _as(conn, world.owner_a, authenticated_role=True):
+        listed = [dict(r) for r in await SalesOrderRepository(conn).list_orders(str(world.account_a))]
+        detail = await SalesOrderRepository(conn).get_order(result["sales_order_id"], str(world.account_a))
+
+    assert len(listed) == 1 and listed[0]["source_quote_number"] == 1 and listed[0]["source_quote_id"] == quote["id"]
+    assert detail["source_quote_number"] == 1

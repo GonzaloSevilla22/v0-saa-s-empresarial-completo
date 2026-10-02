@@ -16,6 +16,8 @@ from __future__ import annotations
 import re
 from unittest.mock import AsyncMock, patch
 
+import pytest
+
 from backend.tests.conftest import TEST_ACCOUNT_ID
 
 
@@ -156,3 +158,158 @@ async def test_sales_orders_sin_comprobante(async_client, valid_token, mock_pool
     assert order["fiscal_document_status"] is None
     assert order["fiscal_cae"] is None
     assert order["fiscal_frozen"] is False
+
+
+# ── presupuestos-modulo (tanda B, 6.6) — presupuesto de origen y líneas de servicio ─
+
+QUOTE_ID = "dddddddd-dddd-dddd-dddd-dddddddddddd"
+
+
+async def test_sales_expone_el_presupuesto_de_origen(async_client, valid_token, mock_pool):
+    """`/sales` trae `source_quote_id` y su número, derivados de
+    `sales_orders.source_quote_id → quotes` (sin columnas denormalizadas)."""
+    pool, conn = mock_pool
+    conn.fetch = AsyncMock(return_value=[_sale_row(source_quote_id=QUOTE_ID, source_quote_number=12)])
+    conn.fetchval = AsyncMock(return_value=1)
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.get("/sales", headers={"Authorization": f"Bearer {valid_token}"})
+
+    assert resp.status_code == 200
+    item = resp.json()["items"][0]
+    assert item["source_quote_id"] == QUOTE_ID
+    assert item["source_quote_number"] == 12
+
+    sql = _normalized(conn.fetch.await_args_list[-1].args[0])
+    assert re.search(r"so\.source_quote_id\s+AS source_quote_id\b", sql)
+    assert re.search(r"sq\.number\s+AS source_quote_number\b", sql)
+    # el JOIN al presupuesto exige la misma cuenta (nunca un número ajeno)
+    assert re.search(r"LEFT JOIN (public\.)?quotes sq ON sq\.id = so\.source_quote_id AND sq\.account_id = so\.account_id", sql)
+
+
+async def test_sales_sin_presupuesto_no_inventa_origen(async_client, valid_token, mock_pool):
+    """Una venta del POS o del formulario no nació de un presupuesto: sin
+    indicador."""
+    pool, conn = mock_pool
+    conn.fetch = AsyncMock(return_value=[_sale_row()])
+    conn.fetchval = AsyncMock(return_value=1)
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.get("/sales", headers={"Authorization": f"Bearer {valid_token}"})
+
+    item = resp.json()["items"][0]
+    assert item["source_quote_id"] is None
+    assert item["source_quote_number"] is None
+
+
+@pytest.mark.parametrize("flag", [True, False])
+async def test_sales_expone_has_service_lines(async_client, valid_token, mock_pool, flag):
+    pool, conn = mock_pool
+    conn.fetch = AsyncMock(return_value=[_sale_row(has_service_lines=flag)])
+    conn.fetchval = AsyncMock(return_value=1)
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.get("/sales", headers={"Authorization": f"Bearer {valid_token}"})
+
+    assert resp.json()["items"][0]["has_service_lines"] is flag
+
+
+async def test_sales_fila_sin_derivado_es_sin_lineas_de_servicio(async_client, valid_token, mock_pool):
+    """Default conservador: una fila sin el derivado = sin líneas de servicio
+    (la autoridad al editar sigue siendo el servidor)."""
+    pool, conn = mock_pool
+    conn.fetch = AsyncMock(return_value=[_sale_row()])
+    conn.fetchval = AsyncMock(return_value=1)
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.get("/sales", headers={"Authorization": f"Bearer {valid_token}"})
+
+    assert resp.json()["items"][0]["has_service_lines"] is False
+
+
+async def test_sales_la_linea_de_servicio_muestra_su_descripcion(async_client, valid_token, mock_pool):
+    """La fila legacy de una línea de servicio no tiene producto ni descripción:
+    el read model la resuelve desde `sales_order_items.name_snapshot` de la
+    MISMA orden y la entrega como `product_name`."""
+    pool, conn = mock_pool
+    conn.fetch = AsyncMock(return_value=[_sale_row(product_name="Instalación", has_service_lines=True)])
+    conn.fetchval = AsyncMock(return_value=1)
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.get("/sales", headers={"Authorization": f"Bearer {valid_token}"})
+
+    item = resp.json()["items"][0]
+    assert item["product_id"] is None
+    assert item["product_name"] == "Instalación"
+
+    sql = _normalized(conn.fetch.await_args_list[-1].args[0])
+    # la descripción sólo se busca para una fila SIN producto y SIN línea de venta
+    assert "COALESCE(pr.name, svc.name_snapshot) AS product_name" in sql
+    lateral = sql[sql.index("LEFT JOIN LATERAL"):sql.index(") svc ON TRUE")]
+    assert "FROM sales_order_items soi" in lateral or "FROM public.sales_order_items soi" in lateral
+    assert "soi.sales_order_id = so.id" in lateral
+    assert "soi.account_id = s.account_id" in lateral          # tenencia explícita
+    assert "soi.product_id IS NULL" in lateral and "s.product_id IS NULL" in lateral
+    # emparejado por precio, cantidad, subtotal y unidad (D6, OQ-P15)
+    for pair in ("soi.price = s.amount", "soi.quantity = s.quantity", "soi.subtotal = s.total",
+                 "soi.unit_id IS NOT DISTINCT FROM s.unit_id"):
+        assert pair in lateral, pair
+    # sin fan-out: dos líneas iguales no duplican la fila de la venta
+    assert "LIMIT 1" in lateral
+
+
+async def test_sales_has_service_lines_se_calcula_por_operacion(async_client, valid_token, mock_pool):
+    """Una operación con alguna fila sin producto marca TODAS sus filas (el
+    lápiz de "Editar" es de la operación, no de la fila)."""
+    pool, conn = mock_pool
+    conn.fetch = AsyncMock(return_value=[_sale_row()])
+    conn.fetchval = AsyncMock(return_value=1)
+    with patch("backend.core.database.pool", pool):
+        await async_client.get("/sales", headers={"Authorization": f"Bearer {valid_token}"})
+
+    sql = _normalized(conn.fetch.await_args_list[-1].args[0])
+    assert re.search(
+        r"BOOL_OR\(COALESCE\(si\.product_id, s\.product_id\) IS NULL\) "
+        r"OVER \(PARTITION BY COALESCE\(s\.operation_id::text, s\.id::text\)\) AS has_service_lines", sql)
+
+
+async def test_list_orders_trae_el_numero_del_presupuesto_de_origen():
+    from backend.repositories.sales_order_repository import SalesOrderRepository
+
+    conn = AsyncMock()
+    conn.fetch = AsyncMock(return_value=[])
+    await SalesOrderRepository(conn).list_orders(str(TEST_ACCOUNT_ID))
+
+    sql = _normalized(conn.fetch.await_args.args[0])
+    assert re.search(r"sq\.number\s+AS source_quote_number\b", sql)
+    assert re.search(r"LEFT JOIN public\.quotes sq ON sq\.id = so\.source_quote_id AND sq\.account_id = so\.account_id", sql)
+
+
+async def test_get_order_trae_el_numero_del_presupuesto_de_origen():
+    from backend.repositories.sales_order_repository import SalesOrderRepository
+
+    conn = AsyncMock()
+    conn.fetchrow = AsyncMock(return_value=None)
+    await SalesOrderRepository(conn).get_order("44444444-4444-4444-4444-444444444444", str(TEST_ACCOUNT_ID))
+
+    sql = _normalized(conn.fetchrow.await_args.args[0])
+    assert re.search(r"sq\.number\s+AS source_quote_number\b", sql)
+    assert "WHERE so.id = $1::uuid AND so.account_id = $2::uuid" in sql
+
+
+async def test_sales_orders_expone_el_presupuesto_de_origen(async_client, valid_token, mock_pool):
+    pool, conn = mock_pool
+    conn.fetch = AsyncMock(return_value=[_order_row(source_quote_id=QUOTE_ID, source_quote_number=12)])
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.get("/sales-orders", headers={"Authorization": f"Bearer {valid_token}"})
+
+    assert resp.status_code == 200
+    order = resp.json()[0]
+    assert order["source_quote_id"] == QUOTE_ID
+    assert order["source_quote_number"] == 12
+
+
+async def test_sales_orders_sin_presupuesto_de_origen(async_client, valid_token, mock_pool):
+    pool, conn = mock_pool
+    conn.fetch = AsyncMock(return_value=[_order_row()])
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.get("/sales-orders", headers={"Authorization": f"Bearer {valid_token}"})
+
+    order = resp.json()[0]
+    assert order["source_quote_id"] is None
+    assert order["source_quote_number"] is None

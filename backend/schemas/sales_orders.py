@@ -97,6 +97,10 @@ class SalesOrderOut(BaseModel):
     branch_id:          uuid.UUID
     client_id:          Optional[uuid.UUID] = None
     source_quote_id:    Optional[uuid.UUID] = None
+    # presupuestos-modulo (tanda B): número visible del presupuesto de origen,
+    # derivado de `source_quote_id → quotes` (sin columna denormalizada); la
+    # etiqueta "P-00000012" la arma la interfaz con `formatInternalDocumentNumber`.
+    source_quote_number: Optional[int] = None
     status:             SalesOrderStatus
     # qa-integral-modulos (G8/D6): la columna sales_orders.payment_method (TEXT
     # legacy) fue retirada por limpiezas-pagos-admin — el repo DERIVA este campo

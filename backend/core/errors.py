@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 
 import asyncpg
 from fastapi import HTTPException, Request
@@ -287,6 +288,38 @@ class ProblemHTTPException(HTTPException):
         self.field = field
         # factura-fiscal-imprimible: miembros de extensión RFC 7807 extra.
         self.extensions = extensions
+
+
+# presupuestos-modulo (D12): los RAISE de las RPCs de negocio escriben el
+# literal estable al principio del mensaje ("quote_changed: el presupuesto
+# cambió…"). Es el `code` que el frontend traduce de forma accionable
+# (`lib/operation-errors.ts`); el sqlstate solo no alcanza porque un mismo
+# P0409 es `quote_changed`, `quote_not_deletable` o `stock_insuficiente`.
+_STABLE_LITERAL = re.compile(r"^([a-z][a-z0-9_]*)(?=[:\s]|$)")
+
+
+def pg_stable_code(exc: asyncpg.PostgresError) -> str | None:
+    """Literal estable de un error de RPC de negocio, o el sqlstate si el
+    mensaje no empieza con uno ("Unit of measure not found: …"). `None` si ni
+    el uno ni el otro existen."""
+    match = _STABLE_LITERAL.match(str(exc))
+    if match:
+        return match.group(1)
+    return getattr(exc, "sqlstate", None)
+
+
+def problem_from_pg_error(exc: asyncpg.PostgresError) -> "ProblemHTTPException | None":
+    """Traduce un error de negocio de una RPC a RFC 7807 con el `code` estable.
+
+    Reutiliza el mapa sqlstate -> status del handler global
+    (`_BUSINESS_ERRCODE_STATUS`), así que un sqlstate fuera del mapa devuelve
+    `None`: el caller lo re-lanza y el handler global lo resuelve como 500
+    genérico sin filtrar internals. No es un catch-all.
+    """
+    status = _BUSINESS_ERRCODE_STATUS.get(getattr(exc, "sqlstate", None))
+    if status is None:
+        return None
+    return ProblemHTTPException(status_code=status, detail=str(exc), code=pg_stable_code(exc) or "http_error")
 
 
 async def asyncpg_error_handler(request: Request, exc: asyncpg.PostgresError) -> JSONResponse:

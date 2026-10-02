@@ -12,12 +12,18 @@ import { isValidTaxId, CUIT_FORMAT_HINT } from "@/lib/cuit-utils"
 import { IVA_CONDITION_OPTIONS } from "@/lib/constants"
 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import type { Client, IvaCondition } from "@/lib/types"
+import type { Client, IvaCondition, NewClientInput } from "@/lib/types"
 
 const IVA_NONE = "none"
 
 interface ClientFormProps {
-  onSuccess: () => void
+  /**
+   * Se llama tras guardar. En el ALTA recibe el cliente creado (presupuestos-
+   * modulo D12: el formulario de presupuesto lo preselecciona); en la edición
+   * no recibe nada. Retrocompatible: los callers que ignoran el argumento no
+   * cambian.
+   */
+  onSuccess: (client?: Client) => void
   initialData?: Client
 }
 
@@ -68,11 +74,11 @@ export function ClientForm({ onSuccess, initialData }: ClientFormProps) {
       return
     }
 
-    const clientData = {
+    const clientData: NewClientInput = {
       name:     name.trim(),
       email:    email.trim()    || null,
       phone:    phone.trim()    || null,
-      category: category.trim() || null,
+      category: category.trim() || undefined,
       taxId:        taxId.trim()     || undefined,
       ivaCondition: ivaCondition     || undefined,
       legalName:    legalName.trim() || undefined,
@@ -83,13 +89,14 @@ export function ClientForm({ onSuccess, initialData }: ClientFormProps) {
 
     try {
       if (initialData) {
-        await updateClient({ ...clientData, id: initialData.id } as any)
+        await updateClient({ ...clientData, id: initialData.id })
         toast.success("Cliente actualizado")
-      } else {
-        await addClient(clientData as any)
-        toast.success("Cliente creado")
+        onSuccess()
+        return
       }
-      onSuccess()
+      const created = await addClient(clientData)
+      toast.success("Cliente creado")
+      onSuccess(created ?? undefined)
     } catch (error) {
       console.error(error)
       toast.error("Error al guardar cliente")

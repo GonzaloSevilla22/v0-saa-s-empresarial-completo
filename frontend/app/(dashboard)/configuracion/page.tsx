@@ -21,6 +21,7 @@ import { TeamSection } from "@/components/settings/TeamSection"
 import { FiscalSettings } from "@/components/settings/FiscalSettings"
 import { CostCenterManager } from "@/components/cost-centers/CostCenterManager"
 import { CollectionSettingsForm } from "@/components/settings/CollectionSettingsForm"
+import { QuoteSettingsCard } from "@/components/quotes/QuoteSettingsCard"
 import { PaymentMethodManager } from "@/components/payment-methods/PaymentMethodManager"
 import { ProductCategoryManager } from "@/components/product-categories/ProductCategoryManager"
 import { ScaleSettings } from "@/components/settings/ScaleSettings"
@@ -226,7 +227,12 @@ export default function ConfiguracionPage() {
               sin plazo en ningún lado, los cargos nacen sin vencimiento.
             </p>
           </div>
-          <CollectionSettingsForm />
+          {/* presupuestos-modulo (D7, OQ-P9): la validez de los presupuestos es de la
+              misma familia — condiciones comerciales hacia el cliente. */}
+          <div className="flex flex-col gap-4">
+            <CollectionSettingsForm />
+            <QuoteSettingsCard />
+          </div>
         </TabsContent>
 
         {/* ── Balanza (balanza-etiquetas-pos D11) ─────────────────────────────

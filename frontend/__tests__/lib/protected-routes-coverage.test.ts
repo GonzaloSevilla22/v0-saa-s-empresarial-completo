@@ -84,23 +84,31 @@ describe("D4 — cobertura de rutas del área autenticada por construcción", ()
   })
 
   // ── El detector no es vacuo: contra el predicado legacy señala los 12 ──────
-  it("el detector señala exactamente los 12 árboles que la lista enumerada dejaba afuera", () => {
+  it("el detector señala los 12 árboles que la lista enumerada dejaba afuera", () => {
     const trees = listRouteTrees(DASHBOARD_DIR)
     const uncovered = uncoveredRouteTrees(trees, legacyIsProtected)
-    expect(uncovered).toEqual([
-      "banco",
-      "caja",
-      "cobranzas",
-      "estadisticas",
-      "exportaciones",
-      "facturacion",
-      "finanzas",
-      "organizacion",
-      "planes",
-      "rentabilidad",
-      "reportes",
-      "sucursales",
-    ])
+    // Los 12 de F1 tienen que seguir apareciendo. NO se compara por igualdad
+    // exacta: la lista legacy está congelada, así que todo árbol que nace
+    // después en `app/(dashboard)` (p. ej. `presupuestos`, de presupuestos-modulo)
+    // queda "afuera" del predicado legacy igual que ellos — y ese crecimiento
+    // natural no es un defecto del detector. Lo que no puede pasar es que
+    // deje de señalar a los 12 (el test de cobertura real sería vacuo).
+    expect(uncovered).toEqual(
+      expect.arrayContaining([
+        "banco",
+        "caja",
+        "cobranzas",
+        "estadisticas",
+        "exportaciones",
+        "facturacion",
+        "finanzas",
+        "organizacion",
+        "planes",
+        "rentabilidad",
+        "reportes",
+        "sucursales",
+      ]),
+    )
   })
 
   // ── 12.4: un árbol nuevo sin cobertura hace fallar la suite ────────────────

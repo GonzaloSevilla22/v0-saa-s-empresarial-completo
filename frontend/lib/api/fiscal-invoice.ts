@@ -2,17 +2,14 @@
  * factura-fiscal-imprimible (D10) — la factura impresa (PDF) de un comprobante
  * autorizado, desde `GET /fiscal/documents/{id}/pdf`.
  *
- * - Encabezados con `getAuthHeaders` (nunca leyendo cookies); un 401 que ya
- *   navegó al login corta devolviendo `null` (mismo idioma que el resto de los
- *   `fetch` a mano: `redirectedOnUnauthorized`).
+ * - El transporte (encabezados con `getAuthHeaders`, 401 → `null`, cuerpo RFC
+ *   7807) vive en `lib/api/document-pdf.ts` (presupuestos-modulo D9), que
+ *   comparten la factura y los documentos comerciales.
  * - Los errores RFC 7807 llegan como `FiscalInvoiceError` con el `code`
  *   estable del backend y un mensaje en castellano; `issuer_data_incomplete`
  *   nombra lo que falta con las mismas etiquetas que la configuración fiscal.
- *
- * No usa `python-client` a propósito: ese cliente parsea JSON y este endpoint
- * devuelve un binario.
  */
-import { getAuthHeaders, redirectedOnUnauthorized, tokenFromHeaders } from "@/lib/api/auth-headers"
+import { DocumentPdfError, fetchDocumentPdf, type ProblemBody } from "@/lib/api/document-pdf"
 import { describeMissingIssuerFields } from "@/lib/fiscal-issuer"
 
 export type InvoiceDisposition = "inline" | "attachment"
@@ -35,22 +32,7 @@ export class FiscalInvoiceError extends Error {
   }
 }
 
-interface ProblemBody {
-  code?: unknown
-  detail?: unknown
-  missing?: unknown
-}
-
-async function readProblem(response: Response): Promise<ProblemBody> {
-  try {
-    const body: unknown = await response.json()
-    return body && typeof body === "object" ? (body as ProblemBody) : {}
-  } catch {
-    return {}
-  }
-}
-
-function toError(status: number, body: ProblemBody): FiscalInvoiceError {
+function toError(body: ProblemBody, status: number): FiscalInvoiceError {
   const code = typeof body.code === "string" ? body.code : `http_${status}`
   const missing = Array.isArray(body.missing)
     ? body.missing.filter((m): m is string => typeof m === "string")
@@ -84,13 +66,13 @@ export async function fetchFiscalInvoicePdf(
   documentId: string,
   { disposition = "inline", copy = "original" }: FetchInvoiceOptions = {},
 ): Promise<Blob | null> {
-  const headers = await getAuthHeaders()
-  const query = new URLSearchParams({ disposition, copia: copy })
-  const response = await fetch(
-    `${process.env.NEXT_PUBLIC_BACKEND_URL}/fiscal/documents/${encodeURIComponent(documentId)}/pdf?${query.toString()}`,
-    { method: "GET", headers },
-  )
-  if (await redirectedOnUnauthorized(response, tokenFromHeaders(headers))) return null
-  if (!response.ok) throw toError(response.status, await readProblem(response))
-  return response.blob()
+  try {
+    return await fetchDocumentPdf(`/fiscal/documents/${encodeURIComponent(documentId)}/pdf`, {
+      disposition,
+      copia: copy,
+    })
+  } catch (err) {
+    if (err instanceof DocumentPdfError) throw toError(err.problem, err.status)
+    throw err
+  }
 }

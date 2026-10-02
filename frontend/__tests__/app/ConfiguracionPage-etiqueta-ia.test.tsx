@@ -29,6 +29,8 @@ vi.mock("@/components/settings/TeamSection", () => ({ TeamSection: () => <div />
 vi.mock("@/components/settings/FiscalSettings", () => ({ FiscalSettings: () => <div /> }))
 vi.mock("@/components/cost-centers/CostCenterManager", () => ({ CostCenterManager: () => <div /> }))
 vi.mock("@/components/settings/CollectionSettingsForm", () => ({ CollectionSettingsForm: () => <div /> }))
+// presupuestos-modulo (5.11): la tarjeta de validez vive en la pestaña Cobranzas.
+vi.mock("@/components/quotes/QuoteSettingsCard", () => ({ QuoteSettingsCard: () => <div /> }))
 vi.mock("@/components/payment-methods/PaymentMethodManager", () => ({ PaymentMethodManager: () => <div /> }))
 vi.mock("@/components/product-categories/ProductCategoryManager", () => ({ ProductCategoryManager: () => <div /> }))
 vi.mock("@/components/settings/ScaleSettings", () => ({ ScaleSettings: () => <div /> }))

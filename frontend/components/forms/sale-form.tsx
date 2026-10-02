@@ -6,7 +6,6 @@ import { useScaleSettings } from "@/hooks/data/use-scale-settings"
 import { resolveScan } from "@/lib/scan-resolution"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { NumericInput } from "@/components/ui/numeric-input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { SearchableSelect } from "@/components/ui/searchable-select"
@@ -23,30 +22,22 @@ import { formatMoney, CURRENCIES, type Currency } from "@/lib/format"
 import { addDaysToIsoDate } from "@/lib/receivables-aging"
 import { SALE_CHANNELS } from "@/lib/kpi-format"
 import type { SaleOperation } from "@/lib/group-operations"
-import { formatStock } from "@/lib/format-unit"
+import { unitInputStep, unitInputMin, resolveUnit } from "@/lib/unit-utils"
 import {
-  unitInputStep,
-  unitInputMin,
-  toBaseQuantity,
-  convertUnitPrice,
-  resolveUnit,
-  compatibleUnits,
-  isProductoMedible,
-} from "@/lib/unit-utils"
-import {
-  calcSaleSubtotal,
   calcCartTotal,
-  unitPriceFromSubtotal,
-  addScannedProductLine,
-  exceedsStock,
+  addManualLineToCart,
+  applyScanToCart,
+  removeLine,
+  updateLineQuantity,
+  updateLineSubtotal,
   type SaleCartItem,
+  type StagedCartLine,
 } from "@/lib/cart-utils"
 import { useIdempotencyKey } from "@/hooks/use-idempotency-key"
 import { argentinaToday } from "@/lib/date-range"
 import { ScrollableCartShell } from "@/components/shared/scrollable-cart-shell"
-import { getCanonicalLabel } from "@/lib/product-labels"
-import { ProductPicker } from "@/components/shared/product-picker"
-import { Plus, UserPlus, ShoppingCart, PackagePlus, CalendarIcon, Ruler, AlertCircle } from "lucide-react"
+import { StagedProductLine, type StagedProductLineHandle } from "@/components/shared/StagedProductLine"
+import { Plus, UserPlus, ShoppingCart, CalendarIcon, AlertCircle } from "lucide-react"
 import { toast } from "sonner"
 import { BranchSelect } from "@/components/branches/BranchSelect"
 import { PaymentMethodSelect, BankAccountDestinationSelect } from "@/components/payment-methods/PaymentMethodSelect"
@@ -91,9 +82,9 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
   // suspende; el diálogo "Nueva venta" que envuelve este form SÍ lo contiene.
   const scopeRef = useRef<HTMLFormElement>(null)
   // D8: un producto medible escaneado por código común/SKU no agrega una
-  // cantidad arbitraria — queda elegido en el picker con el foco en "Cantidad".
-  const quantityInputRef = useRef<HTMLInputElement>(null)
-  const [focusQuantityToken, setFocusQuantityToken] = useState(0)
+  // cantidad arbitraria — queda elegido en el renglón con el foco en "Cantidad"
+  // (`StagedProductLine.selectProduct`).
+  const stagedRef = useRef<StagedProductLineHandle>(null)
 
   // ── pagos-cableados-restantes (OQ-C/OQ-D): catálogo + kind resuelto ────────
   // Mismo patrón que /ventas/pos (pos-catalogo-pagos D7/D8) — reutilización
@@ -154,21 +145,6 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
     }))
   })
 
-  // ── Current item being staged ───────────────────────────────────────────────
-  const [productId, setProductId] = useState("")
-  const [unitPrice, setUnitPrice] = useState(0)
-  const [quantity, setQuantity] = useState(1)
-  const [discount, setDiscount] = useState(0)
-  const [unitId, setUnitId] = useState("")
-
-  // Subtotal is editable: the user can type the exact price the sale closed at
-  // and we back-compute the effective unit price. While the field is focused we
-  // show their raw draft (avoids rounding flicker when qty > 1); when blurred we
-  // show the derived stagedSubtotal. unitPrice + discount remain the source of
-  // truth, so the rest of the form (and persistence) is unchanged.
-  const [subtotalFocused, setSubtotalFocused] = useState(false)
-  const [subtotalDraft, setSubtotalDraft] = useState(0)
-
   // ── Header fields (apply to all items) ─────────────────────────────────────
   const [clientId, setClientId] = useState(() => editingOperation?.clientId ?? "")
   const [currency, setCurrency] = useState<Currency>(() => (editingOperation?.currency as Currency) ?? "ARS")
@@ -206,10 +182,6 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
   const [submitting, setSubmitting] = useState(false)
 
   // ── Derived ─────────────────────────────────────────────────────────────────
-  const selectedProduct = useMemo(
-    () => products.find((p) => p.id === productId),
-    [products, productId],
-  )
   const selectedClient = useMemo(
     () => clients.find((c) => c.id === clientId),
     [clients, clientId],
@@ -243,16 +215,6 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
   useEffect(() => {
     if (!dueDateTouched) setDueDate(resolvedDueDate)
   }, [resolvedDueDate, dueDateTouched])
-
-  // balanza-etiquetas-pos (D8): foco en "Cantidad" tras elegir un producto
-  // medible por código común/SKU — corre DESPUÉS del commit (el input recién
-  // existe una vez que `selectedProduct` es verdadero).
-  useEffect(() => {
-    if (focusQuantityToken > 0) {
-      quantityInputRef.current?.focus()
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [focusQuantityToken])
 
   // ── pagos-cableados-restantes (OQ-C): opt-in de caja ────────────────────────
   // La sucursal EFECTIVA es la elegida en el form, o la primera activa de la
@@ -299,52 +261,11 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
   const cashOptinEligible = cashOptin.eligible
   const cashOptinReason = cashOptin.reason
 
-  // Resolve selected unit from the map (O(1) vs O(n) Array.find)
-  const selectedUnit = useMemo(
-    () => resolveUnit(unitId, unitsById),
-    [unitId, unitsById],
-  )
-
-  // ventas-unidades-conversion (D1/D5): unidad en que se lleva el stock del
-  // producto; normalización local y opciones del selector salen de la misma
-  // función que en el POS y en el formulario de compra.
-  const productBaseUnit = useMemo(
-    () => resolveUnit(selectedProduct?.baseUnitId, unitsById),
-    [selectedProduct, unitsById],
-  )
-  const unitOptions = useMemo(
-    () => compatibleUnits(units, productBaseUnit),
-    [units, productBaseUnit],
-  )
-
-  // Contrato D-F: el precio de catálogo está en la unidad BASE; el aviso
-  // "Cat." compara contra ese precio re-expresado en la unidad de la línea
-  // (si no, elegir gramos mostraría siempre "precio modificado").
-  const catalogPriceForLine = useMemo(
-    () => convertUnitPrice(selectedProduct?.price ?? 0, productBaseUnit, selectedUnit, productBaseUnit),
-    [selectedProduct, productBaseUnit, selectedUnit],
-  )
-
-  // Input constraints for the staged quantity — driven by selected unit type
-  const stagedStep = useMemo(() => unitInputStep(selectedUnit), [selectedUnit])
-  const stagedMin  = useMemo(() => unitInputMin(selectedUnit),  [selectedUnit])
-
   const cartTotal = useMemo(() => calcCartTotal(cartItems), [cartItems])
 
   // pagos-cableados-restantes (D8): saldo proyectado tras esta venta — mismo
   // patrón visual que /ventas/pos (0 si aún no resolvió la CustomerAccount).
   const projectedBalance = (customerAccount?.balance ?? 0) + cartTotal
-
-  const stagedSubtotal = useMemo(
-    () => (selectedProduct ? calcSaleSubtotal(unitPrice, quantity, discount) : 0),
-    [selectedProduct, unitPrice, quantity, discount],
-  )
-
-  // Quantity converted to base unit — used for local stock validation
-  const stagedQuantityNormalized = useMemo(
-    () => toBaseQuantity(quantity, selectedUnit, productBaseUnit),
-    [quantity, selectedUnit, productBaseUnit],
-  )
 
   // ── Option lists ────────────────────────────────────────────────────────────
 
@@ -375,187 +296,67 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
    * balanza-etiquetas-pos (D6/D9): resuelve un código leído por el lector
    * (código de barras exacto → etiqueta de balanza → SKU → error, D6) y lo
    * despacha SIN ninguna lógica de etiquetas propia — todo vive en `lib/`
-   * (`resolveScan`, `addScannedProductLine`, `exceedsStock`, `resolveScaleScan`).
+   * (`resolveScan`, `applyScanToCart`, `resolveScaleScan`).
    */
   function handleScan(code: string): ScanFeedback {
-    const result = resolveScan(code, { products, units, unitsById, settings: scaleSettings })
+    const scan = resolveScan(code, { products, units, unitsById, settings: scaleSettings })
+    // presupuestos-modulo (D12): el despacho vive en `applyScanToCart`, la misma
+    // definición que usa el formulario de presupuesto; la venta rechaza lo que
+    // supera el disponible (`enforceStock: true`).
+    const result = applyScanToCart(cartItems, scan, { unitsById, products }, { enforceStock: true })
 
-    if (result.kind === "error") {
-      return { ok: false, label: result.message }
+    if (result.kind === "rejected") {
+      return { ok: false, label: result.label }
     }
 
-    if (result.kind === "product") {
-      const baseUnit = resolveUnit(result.product.baseUnitId, unitsById)
+    if (result.kind === "needs_quantity") {
       // D8: producto medible por código común/SKU — se elige en el selector
       // y el foco pasa a "Cantidad" sin agregar 0,001; sin cantidad todavía
-      // no hay stock que chequear (lo hace `handleAddToCart` al cargarla).
-      if (isProductoMedible(baseUnit)) {
-        handleProductChange(result.product.id)
-        setFocusQuantityToken((t) => t + 1)
-        return { ok: true, label: `Ingresá la cantidad de «${result.product.name}»` }
-      }
-      // Fix F3 (revisión adversarial PR #599): un código común o SKU de un
-      // producto por unidades también suma stock — el mismo chequeo
-      // acumulativo que ya aplicaba la rama `scale_line` y el alta manual
-      // (D7/D8/OQ-9), que esta rama nunca corría.
-      const addBase = unitInputMin(baseUnit)
-      if (exceedsStock(cartItems, result.product.id, addBase, result.product.stock)) {
-        return {
-          ok: false,
-          label: `Stock insuficiente (disponible: ${formatStock(result.product.stock, baseUnit?.symbol)})`,
-        }
-      }
-      const addResult = addScannedProductLine(cartItems, result.product, { unitsById, products })
-      if ("needsQuantity" in addResult) {
-        // No debería pasar (ya se descartó arriba) — defensivo.
-        handleProductChange(result.product.id)
-        setFocusQuantityToken((t) => t + 1)
-        return { ok: true, label: `Ingresá la cantidad de «${result.product.name}»` }
-      }
-      setCartItems(addResult.items)
-      // Fix F9 (revisión adversarial PR #599): sólo el nombre — el
-      // indicador (BarcodeScannerInput) YA antepone su propio "✓ " en
-      // el estado success; devolver "✓ ${nombre}" acá duplicaba el tilde.
-      return { ok: true, label: result.product.name }
+      // no hay stock que chequear (lo hace `handleAddStaged` al cargarla).
+      stagedRef.current?.selectProduct(result.product.id)
+      return { ok: true, label: result.label }
     }
 
-    // result.kind === "scale_line" (D7): una línea nueva, nunca fusionada
-    // (D8) — el chequeo de stock es acumulativo (exceedsStock, D7/OQ-9).
-    const line        = result.line
-    const lineProduct = productById.get(line.productId)
-    const lineBaseUnit = resolveUnit(lineProduct?.baseUnitId, unitsById)
-    if (exceedsStock(cartItems, line.productId, line.quantityBase ?? line.quantity, lineProduct?.stock ?? 0)) {
-      return {
-        ok: false,
-        label: `Stock insuficiente (disponible: ${formatStock(lineProduct?.stock ?? 0, lineBaseUnit?.symbol)})`,
-      }
-    }
-    setCartItems((prev) => [...prev, { id: crypto.randomUUID(), ...line }])
-    return { ok: true, label: line.productName }
+    setCartItems(result.items)
+    return { ok: true, label: result.label }
   }
 
-  function handleProductChange(id: string) {
-    setProductId(id)
-    setQuantity(1)
-    setDiscount(0)
-    // Pre-select the product's base unit so step/min are immediately correct
-    const p = products.find((x) => x.id === id)
-    const nextUnitId = p?.baseUnitId ?? ""
-    setUnitId(nextUnitId)
-    // ventas-unidades-conversion (D5): la cantidad arranca en el mínimo de la
-    // unidad base (0,001 para medibles), no en un 1 fijo.
-    setQuantity(unitInputMin(resolveUnit(nextUnitId, unitsById)))
-    setUnitPrice(p?.price ?? 0)
-  }
-
-  function handleAddToCart() {
-    if (!selectedProduct) {
-      toast.error("Seleccioná un producto")
-      return
-    }
-
-    // D8: la fusión sólo mira líneas SIN `source` — una línea de balanza
-    // (`"scale"`) o rehidratada al editar (`"persisted"`) nunca se toca
-    // desde el alta manual.
-    const existing = cartItems.find(
-      (item) => item.productId === productId && (item.unitId ?? "") === unitId && !item.source,
+  /**
+   * Alta de una línea desde `StagedProductLine` (el renglón "Agregar producto"
+   * compartido con el formulario de presupuesto). Devuelve `true` si se agregó
+   * —el renglón se limpia— o `false` si se rechazó (el renglón conserva lo
+   * tipeado). La fusión (sólo sobre líneas SIN `source`, D8), el chequeo de
+   * stock acumulativo (D7/OQ-9) y el armado de la línea viven en
+   * `addManualLineToCart`, compartida con el formulario de presupuesto.
+   */
+  function handleAddStaged(line: StagedCartLine): boolean {
+    const result = addManualLineToCart(
+      cartItems,
+      line,
+      { unitsById, products },
+      { enforceStock: true },
     )
-
-    // El stock del producto se lleva en su unidad BASE: el disponible se
-    // informa con el símbolo de la base, nunca con el de la línea (con la
-    // línea en gramos decía "0.550 g" sobre 0,55 kg — corrección del PR #584).
-    // D7/OQ-9: el chequeo es ACUMULATIVO (`exceedsStock`) — suma todas las
-    // líneas del carrito del mismo producto (persisted excluida) más lo
-    // nuevo, en vez de mirar sólo la línea que se está tocando.
-    if (exceedsStock(cartItems, productId, stagedQuantityNormalized, selectedProduct.stock)) {
-      toast.error(`Stock insuficiente (disponible: ${formatStock(selectedProduct.stock, productBaseUnit?.symbol)})`)
-      return
+    if (!result.ok) {
+      toast.error(result.message)
+      return false
     }
-
-    if (existing) {
-      const newQty           = existing.quantity + quantity
-      const newNormalized    = toBaseQuantity(newQty, selectedUnit, productBaseUnit)
-      setCartItems((prev) =>
-        prev.map((item) =>
-          item.id === existing.id
-            ? {
-                ...item,
-                quantity:      newQty,
-                quantityBase:  newNormalized,
-                subtotal:      calcSaleSubtotal(item.unitPrice, newQty, item.discount),
-              }
-            : item,
-        ),
-      )
-      toast.success(`Cantidad actualizada: ${selectedProduct.name}`)
-    } else {
-      setCartItems((prev) => [
-        ...prev,
-        {
-          id:            crypto.randomUUID(),
-          productId:     selectedProduct.id,
-          productName:   getCanonicalLabel(selectedProduct, selectedProduct.parentId ? productById.get(selectedProduct.parentId) : undefined),
-          unitPrice:     unitPrice,
-          quantity,
-          discount,
-          subtotal:      stagedSubtotal,
-          unitId:        unitId || undefined,
-          unitSymbol:    selectedUnit?.symbol,
-          quantityBase:  stagedQuantityNormalized,
-          step:          stagedStep,
-          minQty:        stagedMin,
-        },
-      ])
-      toast.success(`${selectedProduct.name} agregado`)
-    }
-
-    // Reset staged item
-    setProductId("")
-    setUnitPrice(0)
-    setQuantity(1)
-    setDiscount(0)
-    setUnitId("")
+    setCartItems(result.items)
+    toast.success(result.merged ? `Cantidad actualizada: ${result.productName}` : `${result.productName} agregado`)
+    return true
   }
 
   function handleRemoveItem(id: string) {
-    setCartItems((prev) => prev.filter((item) => item.id !== id))
+    setCartItems((prev) => removeLine(prev, id))
   }
 
   function handleUpdateQty(id: string, qty: number) {
-    setCartItems((prev) =>
-      prev.map((item) => {
-        if (item.id !== id) return item
-        // Use the item's own minQty — not a global 1 — so medibles can go below 1
-        const newQty = Math.max(item.minQty ?? unitInputMin(lineUnitOf(item)), qty)
-        return {
-          ...item,
-          quantity:     newQty,
-          quantityBase: toBaseQuantity(
-            newQty,
-            resolveUnit(item.unitId, unitsById),
-            resolveUnit(productById.get(item.productId)?.baseUnitId, unitsById),
-          ),
-          subtotal:     calcSaleSubtotal(item.unitPrice, newQty, item.discount),
-        }
-      }),
-    )
+    setCartItems((prev) => updateLineQuantity(prev, id, qty, { unitsById, products }))
   }
 
   // Edit the subtotal of an item already in the cart: back-compute the effective
   // unit price and clear the discount (mirrors the staged-item behaviour).
   function handleUpdateSubtotal(id: string, newSubtotal: number) {
-    setCartItems((prev) =>
-      prev.map((item) =>
-        item.id === id
-          ? {
-              ...item,
-              unitPrice: unitPriceFromSubtotal(newSubtotal, item.quantity),
-              discount:  0,
-              subtotal:  newSubtotal,
-            }
-          : item,
-      ),
-    )
+    setCartItems((prev) => updateLineSubtotal(prev, id, newSubtotal))
   }
 
   function handleCreateClient() {
@@ -710,11 +511,6 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
       submittingRef.current = false
     }
   }
-
-  // ── Dynamic label for the quantity field ─────────────────────────────────────
-  const quantityLabel = selectedUnit
-    ? `Cantidad (${selectedUnit.symbol})`
-    : "Cantidad"
 
   // ── Render ───────────────────────────────────────────────────────────────────
   return (
@@ -1073,146 +869,16 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
         <div className="border-t border-border" />
 
         {/* ── HEADER: Product Adder ────────────────────────────────────── */}
-        <div className="flex flex-col gap-3 rounded-lg border border-dashed border-border bg-accent/15 p-3">
-          <div className="flex items-center justify-between">
-            <Label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-              <PackagePlus className="h-3.5 w-3.5" />
-              Agregar producto
-            </Label>
-            <BarcodeScannerInput onScan={handleScan} scopeRef={scopeRef} guardFocusedInput />
-          </div>
-
-          <ProductPicker
-            products={products}
-            productById={productById}
-            unitsById={unitsById}
-            value={productId}
-            onValueChange={handleProductChange}
-            currency={currency}
-          />
-
-          {selectedProduct && (
-            <div className="flex flex-col gap-2">
-              {/* Row 0: Precio unitario */}
-              <div className="flex flex-col gap-1">
-                <Label className="text-[10px] text-muted-foreground flex items-center justify-between">
-                  Precio unit.
-                  {unitPrice !== catalogPriceForLine && (
-                    <span className="text-[9px] text-amber-400 tabular-nums">
-                      Cat. {formatMoney(catalogPriceForLine, currency)}
-                    </span>
-                  )}
-                </Label>
-                <NumericInput
-                  min={0}
-                  step={1}
-                  value={unitPrice}
-                  onValueChange={setUnitPrice}
-                  className="bg-background border-border text-foreground"
-                />
-              </div>
-              {/* Row 1: Cantidad + Unidad */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                <div className="flex flex-col gap-1">
-                  <Label className="text-[10px] text-muted-foreground">
-                    {quantityLabel}
-                  </Label>
-                  <NumericInput
-                    ref={quantityInputRef}
-                    min={stagedMin}
-                    step={stagedStep}
-                    value={quantity}
-                    onValueChange={(val) => setQuantity(Math.max(stagedMin, val))}
-                    className="bg-background border-border text-foreground"
-                  />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <Label className="text-[10px] text-muted-foreground flex items-center gap-1">
-                    <Ruler className="h-3 w-3" />
-                    Unidad
-                  </Label>
-                  <Select
-                    value={unitId || "__none__"}
-                    onValueChange={(v) => {
-                      const next = v === "__none__" ? "" : v
-                      setUnitId(next)
-                      const nextUnit = next ? unitsById.get(next) : undefined
-                      setQuantity(unitInputMin(nextUnit))
-                      // Contrato D-F (precio por unidad de la LÍNEA): el precio
-                      // se re-expresa con el mismo factor que la cantidad —
-                      // 100 g a $1.800/kg cobran $180, no $180.000.
-                      setUnitPrice((prev) => convertUnitPrice(prev, selectedUnit, nextUnit, productBaseUnit))
-                    }}
-                  >
-                    <SelectTrigger className="bg-background border-border text-foreground h-10 text-sm">
-                      <SelectValue placeholder="Base (×1)" />
-                    </SelectTrigger>
-                    <SelectContent className="bg-popover border-border">
-                      {/* ventas-unidades-conversion (D5): sólo unidades compatibles
-                          con la unidad base del producto (misma regla que el POS). */}
-                      {!productBaseUnit && (
-                        <SelectItem value="__none__">Sin unidad (base)</SelectItem>
-                      )}
-                      {unitOptions.map((u) => (
-                        <SelectItem key={u.id} value={u.id}>
-                          {u.symbol} — {u.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-              {/* Row 2: Descuento + Subtotal */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                <div className="flex flex-col gap-1">
-                  <Label className="text-[10px] text-muted-foreground">Descuento (%)</Label>
-                  <NumericInput
-                    min={0}
-                    max={100}
-                    value={discount}
-                    onValueChange={setDiscount}
-                    placeholder="0"
-                    className="bg-background border-border text-foreground"
-                  />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <Label className="text-[10px] text-muted-foreground flex items-center justify-between">
-                    Subtotal
-                    <span className="text-[9px] text-muted-foreground/70">editable</span>
-                  </Label>
-                  <NumericInput
-                    min={0}
-                    value={subtotalFocused ? subtotalDraft : stagedSubtotal}
-                    onFocus={(e) => {
-                      e.target.select()
-                      setSubtotalDraft(stagedSubtotal)
-                      setSubtotalFocused(true)
-                    }}
-                    onBlur={() => setSubtotalFocused(false)}
-                    onValueChange={(val) => {
-                      setSubtotalDraft(val)
-                      // Fijar el precio efectivo a partir del subtotal tipeado.
-                      setUnitPrice(unitPriceFromSubtotal(val, quantity))
-                      setDiscount(0)
-                    }}
-                    className="bg-background border-border text-right font-bold text-emerald-400"
-                  />
-                </div>
-              </div>
-            </div>
-          )}
-
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={handleAddToCart}
-            disabled={!selectedProduct}
-            className="w-full gap-2"
-          >
-            <Plus className="h-4 w-4" />
-            Agregar al carrito
-          </Button>
-        </div>
+        <StagedProductLine
+          ref={stagedRef}
+          products={products}
+          productById={productById}
+          units={units}
+          unitsById={unitsById}
+          currency={currency}
+          onAdd={handleAddStaged}
+          headerSlot={<BarcodeScannerInput onScan={handleScan} scopeRef={scopeRef} guardFocusedInput />}
+        />
       </ScrollableCartShell>
       </fieldset>
 

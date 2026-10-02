@@ -10,6 +10,10 @@
 --       fiscal_document (pending_cae→voided, allowed_role NULL por D7):
 --       19/5 pasó a 20/6. Este bloque es de conteo EXACTO, así que una fila
 --       nueva sin actualizarlo acá rompe el pipeline — a propósito.
+--       presupuestos-modulo (20261067000001) sumó las 2 filas de reapertura
+--       quote: expired->draft y rejected->draft, con allowed_role
+--       {seller,admin,owner} (D4): 20/14 pasó a 22/16. El conjunto de las 6
+--       filas NULL no cambia (las dos nuevas no son de sistema).
 --   (2) segregación de funciones (11.2, RN-A4): un cashier CONFIRMA una
 --       venta (sales_order draft→confirmed) pero NO la ANULA
 --       (confirmed→canceled, requiere admin/owner); un stock completa una
@@ -68,8 +72,8 @@ BEGIN
   SELECT count(*), count(allowed_role) INTO v_total, v_populated
   FROM public.document_status_transitions;
 
-  IF v_total <> 20 OR v_populated <> 14 THEN
-    RAISE EXCEPTION 'GATE FAILED (1): se esperaban 20 filas / 14 pobladas, hay % / %', v_total, v_populated;
+  IF v_total <> 22 OR v_populated <> 16 THEN
+    RAISE EXCEPTION 'GATE FAILED (1): se esperaban 22 filas / 16 pobladas, hay % / %', v_total, v_populated;
   END IF;
 
   SELECT array_agg(document_type || ':' || COALESCE(from_status, 'NULL') || '->' || to_status ORDER BY document_type, from_status NULLS FIRST, to_status)
@@ -90,7 +94,7 @@ BEGIN
     RAISE EXCEPTION 'GATE FAILED (1): el conjunto EXACTO de las 6 filas NULL no coincide: %', v_null_set;
   END IF;
 
-  RAISE NOTICE 'PASS (1): allowed_role es text[], 14/20 pobladas, las 6 NULL son exactamente fiscal_document(x4) + quote->expired(x2).';
+  RAISE NOTICE 'PASS (1): allowed_role es text[], 16/22 pobladas, las 6 NULL son exactamente fiscal_document(x4) + quote->expired(x2).';
 END $$;
 
 
@@ -300,7 +304,15 @@ DECLARE
     -- Es la única fila de fiscal_document con requires_reason=true: el motivo
     -- ("anulado por edición de la venta X") queda en document_status_history.
     'fiscal_document:pending_cae->voided',     -- _fiscal_void_pending_for_sale_edit
-    'stock_transfer:NULL->completed'     -- rpc_transfer_stock
+    'stock_transfer:NULL->completed',    -- rpc_transfer_stock
+    -- presupuestos-modulo (20261067000001): los 3 llamadores nuevos (5b).
+    'quote:draft->sent',                 -- rpc_transition_quote('sent')
+    'quote:draft->rejected',             -- rpc_transition_quote('rejected')
+    'quote:sent->rejected',              -- rpc_transition_quote('rejected')
+    'quote:draft->expired',              -- _expire_overdue_quotes (actor uuid cero)
+    'quote:sent->expired',               -- _expire_overdue_quotes (actor uuid cero)
+    'quote:expired->draft',              -- rpc_update_quote (reapertura al editar, D5)
+    'quote:rejected->draft'              -- rpc_update_quote (reapertura al editar, D5)
   ];
   v_existing_triples text[];
   v_missing text[];
@@ -318,11 +330,11 @@ BEGIN
   END LOOP;
 
   IF array_length(v_missing, 1) > 0 THEN
-    RAISE EXCEPTION 'GATE FAILED (5): % de los pares (document_type,from,to) que producen los 13 llamadores vivos de record_status_transition NO están catalogados en document_status_transitions: % -- una creación no catalogada hoy pasa SIN chequeo de rol (D17/11.7, exención conservadora), así que un caller nuevo/modificado que produzca uno de estos pares debe agregarlo a la matriz.',
+    RAISE EXCEPTION 'GATE FAILED (5): % de los pares (document_type,from,to) que producen los 16 llamadores vivos de record_status_transition NO están catalogados en document_status_transitions: % -- una creación no catalogada hoy pasa SIN chequeo de rol (D17/11.7, exención conservadora), así que un caller nuevo/modificado que produzca uno de estos pares debe agregarlo a la matriz.',
       array_length(v_missing, 1), v_missing;
   END IF;
 
-  RAISE NOTICE 'PASS (5): las % triples (document_type,from,to) que producen los 13 llamadores vivos de record_status_transition están TODAS catalogadas en document_status_transitions.', array_length(v_expected_triples, 1);
+  RAISE NOTICE 'PASS (5): las % triples (document_type,from,to) que producen los 16 llamadores vivos de record_status_transition están TODAS catalogadas en document_status_transitions.', array_length(v_expected_triples, 1);
 END $$;
 
 
@@ -365,7 +377,14 @@ DECLARE
     'rpc_quick_sale',
     'rpc_record_fiscal_transition',
     'rpc_transfer_stock',
-    'trg_quote_record_creation'
+    'trg_quote_record_creation',
+    -- presupuestos-modulo (20261067000001): 14o-16o llamadores. Producen los
+    -- pares quote:draft->sent, draft|sent->rejected (rpc_transition_quote),
+    -- draft|sent->expired (_expire_overdue_quotes) y expired|rejected->draft
+    -- (rpc_update_quote) — bloque (5).
+    'rpc_update_quote',
+    'rpc_transition_quote',
+    '_expire_overdue_quotes'
   ];
   v_actual_callers   text[];
   v_missing_callers  text[];
@@ -419,5 +438,5 @@ BEGIN
       array_length(v_new_callers, 1), v_new_callers;
   END IF;
 
-  RAISE NOTICE 'PASS (5b): el conjunto de % funciones que invocan record_status_transition sigue siendo EXACTAMENTE el de los 13 llamadores conocidos -- sin altas ni bajas sin revisar.', array_length(v_expected_callers, 1);
+  RAISE NOTICE 'PASS (5b): el conjunto de % funciones que invocan record_status_transition sigue siendo EXACTAMENTE el de los 16 llamadores conocidos -- sin altas ni bajas sin revisar.', array_length(v_expected_callers, 1);
 END $$;

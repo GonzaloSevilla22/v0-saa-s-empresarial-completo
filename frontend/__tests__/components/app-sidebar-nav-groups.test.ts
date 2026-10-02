@@ -22,7 +22,7 @@ import { describe, it, expect } from "vitest"
 import { dashboardItem, navGroups } from "@/components/app-sidebar"
 import {
   Banknote, BarChart3, BookOpen, Boxes, Briefcase, Brain, Calculator, ChartPie,
-  CircleUser, Crown, CreditCard, FolderDown, GitCompare, GraduationCap, Globe,
+  CircleUser, Crown, CreditCard, FileText, FolderDown, GitCompare, GraduationCap, Globe,
   HandCoins, Landmark, LayoutDashboard, LayoutGrid, MapPin, MessageSquare,
   Package, Receipt, Scan, ShieldCheck, ShoppingBag, ShoppingCart, Sparkles,
   Tags, TrendingUp, Truck, Users, Wallet, Warehouse, Zap,
@@ -84,6 +84,8 @@ describe("app-sidebar — módulos por grupo (título + href exactos)", () => {
       [
         ["Ventas", "/ventas"],
         ["POS — Venta Rápida", "/ventas/pos"],
+        // presupuestos-modulo (D10, task 5.9): entre el POS y Compras.
+        ["Presupuestos", "/presupuestos"],
         ["Compras", "/compras"],
         ["Gastos", "/gastos"],
         ["Caja", "/caja"],
@@ -151,7 +153,7 @@ describe("app-sidebar — módulos por grupo (título + href exactos)", () => {
 // tienen que seguir alcanzables, exactamente una vez.
 const HREFS_DEL_MENU_VIEJO = [
   "/dashboard",
-  "/ventas", "/ventas/pos", "/compras", "/gastos", "/caja", "/banco", "/cobranzas",
+  "/ventas", "/ventas/pos", "/presupuestos", "/compras", "/gastos", "/caja", "/banco", "/cobranzas",
   "/productos", "/stock", "/clientes", "/proveedores", "/sucursales",
   "/copiloto-ia", "/insights", "/estadisticas", "/rentabilidad",
   "/reportes/comparativo", "/reportes/sucursal", "/reportes/centros-costo",
@@ -163,8 +165,8 @@ const HREFS_DEL_MENU_VIEJO = [
 describe("app-sidebar — las rutas no se rompen", () => {
   const hrefsNuevos = [dashboardItem.href, ...navGroups.flatMap((g) => g.items.map((i) => i.href))]
 
-  it("el menú nuevo expone las mismas 30 rutas, sin perder ni inventar ninguna", () => {
-    expect(hrefsNuevos).toHaveLength(30)
+  it("el menú nuevo expone las 31 rutas (las 30 de siempre más /presupuestos), sin perder ni inventar ninguna", () => {
+    expect(hrefsNuevos).toHaveLength(31)
     expect([...hrefsNuevos].sort()).toEqual([...HREFS_DEL_MENU_VIEJO].sort())
   })
 
@@ -183,6 +185,7 @@ describe("app-sidebar — cada módulo conserva su ícono y sus gates de plan", 
     // [grupo, título, ícono, pro, proOnly]
     ["Operaciones", "Ventas", ShoppingCart, false, false],
     ["Operaciones", "POS — Venta Rápida", Scan, false, false],
+    ["Operaciones", "Presupuestos", FileText, false, false],
     ["Operaciones", "Compras", ShoppingBag, false, false],
     ["Operaciones", "Gastos", Receipt, false, false],
     ["Operaciones", "Caja", Banknote, false, false],
@@ -212,10 +215,10 @@ describe("app-sidebar — cada módulo conserva su ícono y sus gates de plan", 
     ["Mi Cuenta", "Exportaciones", FolderDown, false, false],
   ]
 
-  it("el mapa cubre exactamente los 29 módulos de los grupos (el Tablero se testea aparte)", () => {
+  it("el mapa cubre exactamente los 30 módulos de los grupos (el Tablero se testea aparte)", () => {
     const enElMapa = MAPA.map(([grupo, titulo]) => `${grupo} › ${titulo}`)
     const enElMenu = navGroups.flatMap((g) => g.items.map((i) => `${g.label} › ${i.title}`))
-    expect(enElMenu).toHaveLength(29)
+    expect(enElMenu).toHaveLength(30)
     expect([...enElMapa].sort()).toEqual([...enElMenu].sort())
   })
 
@@ -252,6 +255,16 @@ describe("app-sidebar — adyacencias que se conservan", () => {
     const libro = items.findIndex((i) => i.title === "Libro diario")
     expect(formas).toBeGreaterThanOrEqual(0)
     expect(libro).toBe(formas + 1)
+  })
+
+  it("Presupuestos va entre el POS y Compras (se cotiza antes de vender)", () => {
+    const items = navGroups.find((g) => g.label === "Operaciones")?.items ?? []
+    const pos = items.findIndex((i) => i.title === "POS — Venta Rápida")
+    const presupuestos = items.findIndex((i) => i.title === "Presupuestos")
+    const compras = items.findIndex((i) => i.title === "Compras")
+    expect(pos).toBeGreaterThanOrEqual(0)
+    expect(presupuestos).toBe(pos + 1)
+    expect(compras).toBe(presupuestos + 1)
   })
 
   it("Caja, Banco y Cobranzas conviven en Operaciones (la cobranza es una tarea diaria)", () => {

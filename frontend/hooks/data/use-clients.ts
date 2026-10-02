@@ -3,7 +3,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { pythonClient } from "@/lib/api/python-client"
 import { queryKeys } from "@/lib/query-keys"
-import type { Client, IvaCondition } from "@/lib/types"
+import type { Client, IvaCondition, NewClientInput } from "@/lib/types"
 
 // ── Types for API responses ───────────────────────────────────────────────────
 
@@ -77,8 +77,11 @@ export function useClients() {
   })
 
   const addClientMutation = useMutation({
-    mutationFn: async (client: Omit<Client, "id">) => {
-      return pythonClient.post<ClientApiRow>("/clients", {
+    mutationFn: async (client: NewClientInput): Promise<Client> => {
+      // presupuestos-modulo (D12): devuelve el cliente YA mapeado al tipo de la
+      // app para que quien lo da de alta en el lugar (formulario de
+      // presupuesto) pueda preseleccionarlo, sin leer la fila cruda del API.
+      const row = await pythonClient.post<ClientApiRow>("/clients", {
         name:          client.name,
         email:         client.email        || null,
         phone:         client.phone        || null,
@@ -91,6 +94,7 @@ export function useClients() {
           ? { payment_terms_days: client.paymentTermsDays }
           : {}),
       })
+      return mapClient(row)
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.clients.all() })
@@ -98,7 +102,7 @@ export function useClients() {
   })
 
   const updateClientMutation = useMutation({
-    mutationFn: async (client: Client) => {
+    mutationFn: async (client: NewClientInput & { id: string }) => {
       return pythonClient.put<ClientApiRow>(`/clients/${client.id}`, {
         name:          client.name,
         email:         client.email        || null,

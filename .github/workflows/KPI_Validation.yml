@@ -1154,6 +1154,33 @@ jobs:
           fi
           echo "20261066000001 idempotente: introspección OK, scale_plu última columna de la vista y schema IDÉNTICO al previo a este paso."
 
+          # presupuestos-modulo tanda A (2026-10-01): reaplicación de
+          # 20261067000001 AL FINAL de la cadena (el eslabón más nuevo se
+          # reaplica sobre la historia real completa). Idempotente por
+          # construcción: ADD COLUMN IF NOT EXISTS, constraints guardadas
+          # contra pg_constraint, CREATE TABLE/INDEX IF NOT EXISTS, CREATE OR
+          # REPLACE FUNCTION con firmas nuevas (sin overload), DROP POLICY/
+          # TRIGGER IF EXISTS + CREATE, catálogo con ON CONFLICT DO NOTHING +
+          # UPDATE … WHERE is_terminal_to, cron unschedule + schedule, backfill
+          # por WHERE … IS NULL y REVOKE/GRANT re-ejecutables. SIN tolerancia:
+          # exige el OK de su bloque de introspección y el schema IDÉNTICO.
+          # Verificado local: dos aplicaciones seguidas sin error y snapshot
+          # (constraints + firmas + ACLs + catálogo de transiciones + cron +
+          # políticas) idéntico.
+          PRES_OUT=$(psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261067000001_presupuestos_modulo.sql 2>&1) || { echo "$PRES_OUT"; echo "ERROR: el reapply de 20261067000001 falló (sin tolerancia)."; exit 1; }
+          echo "$PRES_OUT"
+          if ! echo "$PRES_OUT" | grep -qF 'presupuestos-modulo (introspecci'; then
+            echo "ERROR: el reapply de 20261067000001 no imprimió el OK de su bloque de introspección."
+            exit 1
+          fi
+          schema_snapshot > /tmp/schema_after_pres_reapply.txt
+          if ! diff -u /tmp/schema_before_reapply.txt /tmp/schema_after_pres_reapply.txt > /tmp/schema_diff_pres.txt; then
+            echo "NOT IDEMPOTENT: reaplicar 20261067000001 cambió el schema (constraints + firmas de función + ACLs):"
+            cat /tmp/schema_diff_pres.txt
+            exit 1
+          fi
+          echo "20261067000001 idempotente: introspección OK y schema IDÉNTICO al previo a este paso."
+
       # -v ON_ERROR_STOP=1 is required: without it psql prints RAISE EXCEPTION
       # errors but still exits 0, so failing assertions show green in CI.
       - name: Run deterministic KPI tests
@@ -2107,7 +2134,8 @@ jobs:
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_membership_rpcs_pivot_rewrite.sql
 
       # v3-rbac-multirole Parte B, grupo 8 (D11): is_account_writer sobre el
-      # pivot -- firma y las 48 policies/20 tablas intactas; un rol writer
+      # pivot -- firma y las 45 policies/18 tablas (presupuestos-modulo retiró
+      # las 4 de escritura directa de quotes/quote_items); un rol writer
       # (seller) escribe, viewer no, un rol vencido no cuenta aunque exista
       # la fila (fail-closed), otro rol vigente entre varios alcanza, y un
       # miembro de otra cuenta no escribe acá.
@@ -2639,3 +2667,36 @@ jobs:
       # limpieza completa de las filas sembradas por handle_new_user.
       - name: Run ventas formulario sucursal gate
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_ventas_formulario_sucursal.sql
+
+      # presupuestos-modulo tanda A (2026-10-01, governance MEDIA; sign-off del
+      # PO 2026-10-01). `supabase start` ya aplicó 20261067000001; este paso
+      # corre su gate, que EJECUTA las 6 RPCs nuevas con usuarios reales
+      # (owner, seller, cashier y viewer en account_members/account_member_roles):
+      # (a) numeración interna correlativa por cuenta, sin consumir número en
+      # altas fallidas, explícito duplicado 23505, explícito mayor avanza la
+      # secuencia, default de validez, disparador genérico ('quote') y
+      # document_sequences intacta; (b) alta: sin cliente P0400, cliente
+      # ajeno/dado de baja P0404 client_not_found, producto ajeno P0404 sin
+      # snapshot ajeno, padre P0400 product_is_parent, unidad incompatible,
+      # unidad de otra cuenta en un servicio P0404, servicio sin descripción,
+      # total del servidor, validez pasada, sucursal ajena/cerrada; (c) sin
+      # efectos en stock/caja/cuenta corriente/banco; (d) edición: reemplazo,
+      # snapshots re-tomados, revision, quote_changed, validez obligatoria,
+      # reapertura expired/rejected -> draft, P0423 en accepted, atomicidad;
+      # (e) transiciones; (f) borrado bajo lock; (g) roles P0403/P0401/P0404;
+      # (h) INSERT/UPDATE directos como authenticated rechazados; (i) barrido
+      # _expire_overdue_quotes con actor uuid cero, idempotente; (j) validez por
+      # defecto; (k) ACLs; (l) P0B04 y el historial de creación; (m) catálogo
+      # con accepted único terminal; (n) rpc_commercial_issuer como vendedor no
+      # dueño; (o) backfill; residuo cero.
+      - name: Run presupuestos modulo gate
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_presupuestos_modulo.sql
+
+      # presupuestos-modulo (internal-document-numbering): N=20 sesiones psql
+      # REALES crean a la vez el primer presupuesto de una cuenta sin fila de
+      # secuencia (advisory lock compartido como largada, sin sleeps a ciegas)
+      # -> números 1..20 sin huecos ni repetidos y la secuencia en 20; residuo
+      # cero. Ejercita el INSERT concurrente + reintento del UPDATE de
+      # _next_internal_document_number.
+      - name: Run internal document numbering race gate
+        run: N=20 DB_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres bash supabase/tests/test_internal_document_numbering_race.sh

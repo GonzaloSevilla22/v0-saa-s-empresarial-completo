@@ -48,7 +48,8 @@ import {
   buildSalesReceiptPdfPayload,
 } from "@/lib/receipt"
 import { getDocumentScriptNonce } from "@/lib/script-nonce"
-import { buildWhatsAppUrl, normalizeWhatsAppPhone } from "@/lib/phone-utils"
+import { normalizeWhatsAppPhone } from "@/lib/phone-utils"
+import { downloadBlob, openWhatsAppText as openWhatsAppChat, sharePdf, type SharePdfResult } from "@/lib/document-share"
 import { useUnitsOfMeasure } from "@/hooks/use-units-of-measure"
 import { resolveUnit } from "@/lib/unit-utils"
 import type { SaleOperation } from "@/lib/group-operations"
@@ -63,36 +64,14 @@ import {
 /** Adónde lleva el aviso de datos del emisor incompletos. */
 const FISCAL_SETTINGS_PATH = "/configuracion/fiscal"
 
-// ── Helpers de archivo compartidos (comprobante interno y factura) ─────────────
+// Los helpers de archivo y de compartir (`downloadBlob`, `sharePdf`,
+// `openWhatsAppText`) viven en `lib/document-share.ts` (presupuestos-modulo D9):
+// los comparten el comprobante, la factura y el menú de los documentos
+// comerciales.
 
-/** Descarga un blob con un <a download>, y libera la URL después. */
-function downloadBlob(blob: Blob, fileName: string): void {
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement("a")
-  a.href = url
-  a.download = fileName
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
-  setTimeout(() => URL.revokeObjectURL(url), 10_000)
-}
-
-/**
- * Comparte un PDF por el menú nativo (en el celular el usuario elige WhatsApp y
- * se manda el archivo adjunto). `shared` = se compartió o el usuario canceló;
- * `unsupported` = el dispositivo no puede compartir archivos (o falló) y el
- * caller sigue con su fallback.
- */
-async function sharePdf(file: File, text: string, title: string): Promise<"shared" | "unsupported"> {
-  const nav = navigator as Navigator & { canShare?: (d: ShareData) => boolean }
-  if (!nav.canShare?.({ files: [file] })) return "unsupported"
-  try {
-    await nav.share({ files: [file], text, title })
-    return "shared"
-  } catch (err) {
-    if ((err as Error)?.name === "AbortError") return "shared" // el usuario canceló
-    return "unsupported" // si falló el share (ej. iOS), fallback de descarga
-  }
+/** Compartido o cancelado por el usuario: el menú nativo ya resolvió el envío. */
+function wasHandledByShare(result: SharePdfResult): boolean {
+  return result === "shared" || result === "cancelled"
 }
 
 function invoiceErrorMessage(err: unknown): string {
@@ -209,15 +188,15 @@ export function SaleReceiptButton({
   // Fallback (compu / sin soporte): descarga el PDF y abre WhatsApp con el texto.
   const openWhatsAppText = useCallback(
     (text: string) => {
-      window.open(buildWhatsAppUrl(clientPhone, text), "_blank", "noopener,noreferrer")
-      if (!hasValidPhone) {
+      const hadNumber = openWhatsAppChat(clientPhone, text)
+      if (!hadNumber) {
         toast.info(
           "No hay número de WhatsApp registrado para este cliente. Seleccioná el contacto en WhatsApp.",
           { duration: 4000 },
         )
       }
     },
-    [clientPhone, hasValidPhone],
+    [clientPhone],
   )
 
   // ── Factura (comprobante autorizado) ─────────────────────────────────────
@@ -293,7 +272,7 @@ export function SaleReceiptButton({
       const fileName = `comprobante-${payload.receipt_number}.pdf`
       const file = new File([blob], fileName, { type: "application/pdf" })
 
-      if ((await sharePdf(file, shortText, "Comprobante de venta")) === "shared") return
+      if (wasHandledByShare(await sharePdf(file, shortText, "Comprobante de venta"))) return
 
       // Fallback: descargar el PDF + abrir WhatsApp con el mensaje corto
       downloadBlob(blob, fileName)
@@ -324,7 +303,7 @@ export function SaleReceiptButton({
       if (!blob) return
       const fileName = invoiceFileName(invoice)
       const file = new File([blob], fileName, { type: "application/pdf" })
-      if ((await sharePdf(file, shortText, "Factura")) === "shared") return
+      if (wasHandledByShare(await sharePdf(file, shortText, "Factura"))) return
       downloadBlob(blob, fileName)
       openWhatsAppText(shortText)
       toast.info("Descargamos la factura en PDF. Adjuntala en el chat de WhatsApp que se abrió.")

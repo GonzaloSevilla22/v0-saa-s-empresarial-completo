@@ -57,6 +57,18 @@
 
 ---
 
+### Presupuestos (`presupuestos-modulo`, tanda A — 2026-10-01)
+
+- `/presupuestos`: listado paginado por estado (borrador, enviado, aceptado, rechazado, vencidos), búsqueda por cliente o número (`P-00000001`)
+- Alta y edición con el editor de líneas de la venta (buscador, lector, balanza, unidades, descuento, líneas de servicio); cliente obligatorio con alta en el lugar; nunca mueve stock
+- Descargar PDF, ver/imprimir y enviar por WhatsApp (con el PDF adjunto si el dispositivo lo permite); descargar o compartir lo marca como enviado
+- Rechazar, reabrir editando (vencido o rechazado vuelve a borrador), duplicar con los precios de hoy y eliminar borradores
+- Validez por defecto por cuenta en `/configuracion` (pestaña Cobranzas); vencimiento automático diario
+- Desde la ficha del cliente: botón "Nuevo presupuesto" y sus últimos 5
+- Pendiente (tanda B): botón "Venta" que convierte el presupuesto aceptado en venta de forma atómica
+
+---
+
 ## Épica 3: Clientes
 
 - Crear cliente con nombre, email y teléfono

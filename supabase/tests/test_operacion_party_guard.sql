@@ -580,12 +580,17 @@ BEGIN
   END IF;
   IF NOT (has_function_privilege('authenticated', 'public.rpc_create_sale_operation_v2(text, uuid, date, text, jsonb, uuid, text, uuid, uuid, uuid, date)'::regprocedure, 'EXECUTE')
       AND has_function_privilege('authenticated', 'public._c29_confirm_order_core(text, uuid, text, uuid, text, uuid, text, uuid, uuid)'::regprocedure, 'EXECUTE')
-      AND has_function_privilege('authenticated', 'public.rpc_atomic_update_sale_operation(uuid[], uuid, date, text, jsonb, uuid, boolean, uuid, boolean, text, boolean)'::regprocedure, 'EXECUTE')
-      AND has_function_privilege('authenticated', 'public.rpc_accept_quote(uuid)'::regprocedure, 'EXECUTE'))
+      AND has_function_privilege('authenticated', 'public.rpc_atomic_update_sale_operation(uuid[], uuid, date, text, jsonb, uuid, boolean, uuid, boolean, text, boolean)'::regprocedure, 'EXECUTE'))
   THEN
-    RAISE EXCEPTION 'GATE OPERACION-PARTY-GUARD FAILED (8-acl-authenticated): las 4 funciones deben seguir siendo EXECUTE-ables por authenticated (CREATE OR REPLACE no debe haber tocado el proacl).';
+    RAISE EXCEPTION 'GATE OPERACION-PARTY-GUARD FAILED (8-acl-authenticated): las 3 funciones de venta deben seguir siendo EXECUTE-ables por authenticated (CREATE OR REPLACE no debe haber tocado el proacl).';
   END IF;
-  RAISE NOTICE 'PASS (8): ACL sin cambios en las 4 funciones — EXECUTE para authenticated/service_role/postgres, sin anon.';
+  -- presupuestos-modulo (revisión adversarial F2): rpc_accept_quote no tiene
+  -- consumidores desde la tanda A y se le revocó el EXECUTE de authenticated
+  -- (sigue sin anon). Los bloques (2b)/(7) la ejecutan como postgres.
+  IF has_function_privilege('authenticated', 'public.rpc_accept_quote(uuid)'::regprocedure, 'EXECUTE') THEN
+    RAISE EXCEPTION 'GATE OPERACION-PARTY-GUARD FAILED (8-acl-accept-quote): rpc_accept_quote no debe ser EXECUTE-able por authenticated (sin consumidores; alcanzable por PostgREST dejaba un presupuesto convertido con una orden draft invisible).';
+  END IF;
+  RAISE NOTICE 'PASS (8): ACL — las 3 funciones de venta con EXECUTE para authenticated/service_role/postgres y sin anon; rpc_accept_quote sin anon ni authenticated.';
   v_blocks_run := v_blocks_run + 1;
 
   -- ══ (9) BARRIDO GLOBAL — coherencia (account_id, client_id) en toda la base ══

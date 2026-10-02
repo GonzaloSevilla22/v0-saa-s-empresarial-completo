@@ -118,6 +118,30 @@ const QUANTITY_BELOW_PRECISION_ERROR = /quantity_below_precision:.*?del producto
 const FISCAL_SENT_ERROR = /fiscal_document_sent_immutable/
 const FISCAL_CLAIM_IN_FLIGHT_ERROR = /fiscal_document_claim_in_flight/
 
+// presupuestos-modulo (D10, task 4.7): literales de las RPCs del presupuesto
+// (`rpc_create_quote`/`rpc_update_quote`/`rpc_transition_quote`/
+// `rpc_delete_quote`) y de la conversión en venta (`rpc_convert_quote_to_sale`,
+// que reutiliza además `cash_requires_session` y el vocabulario de stock del
+// núcleo de venta). Mismo mapa que venta y compra — no un segundo mapa.
+const QUOTE_LOCKED_CONVERTED_ERROR = /quote_locked_converted/
+const QUOTE_EXPIRED_ERROR = /quote_expired/
+const QUOTE_INVALID_STATE_ERROR = /quote_invalid_state/
+const QUOTE_NOT_DELETABLE_ERROR = /quote_not_deletable/
+const QUOTE_VALID_UNTIL_IN_PAST_ERROR = /quote_valid_until_in_past/
+const QUOTE_VALID_UNTIL_REQUIRED_ERROR = /quote_valid_until_required/
+const QUOTE_CHANGED_ERROR = /quote_changed/
+// El RAISE lleva el nombre congelado del producto detrás de los dos puntos.
+const QUOTE_PRODUCT_UNAVAILABLE_ERROR = /quote_product_unavailable(?::\s*([^\n]+))?/
+const QUOTE_CLIENT_UNAVAILABLE_ERROR = /quote_client_unavailable/
+const PRODUCT_NOT_FOUND_ERROR = /product_not_found/
+const PRODUCT_IS_PARENT_ERROR = /product_is_parent/
+// P0403 de la RPC (`insufficient_role`) y el 403 de `require_account_role`
+// ("Rol de cuenta insuficiente: se requiere …", sin `code`): un solo texto.
+const INSUFFICIENT_ROLE_ERROR = /insufficient_role|Rol de cuenta insuficiente/
+const CASH_REQUIRES_SESSION_ERROR = /cash_requires_session/
+const IDEMPOTENCY_KEY_CONFLICT_ERROR = /idempotency_key_conflict/
+const PAYMENT_METHOD_REQUIRED_ERROR = /payment_method_required/
+
 const fmtMoney = (n: number) =>
   n.toLocaleString("es-AR", { style: "currency", currency: "ARS" })
 
@@ -132,6 +156,121 @@ export function humanizeOperationError(
   branchName?: string | null,
 ): HumanizedOperationError {
   if (!message) return { message: "Error desconocido" }
+
+  // presupuestos-modulo: el estado y la edición primero — son los rechazos que
+  // el usuario más ve y cada uno nombra qué hacer en vez de repetir el literal.
+  if (QUOTE_LOCKED_CONVERTED_ERROR.test(message)) {
+    return {
+      message:
+        "Este presupuesto ya se convirtió en una venta y no se puede modificar. " +
+        "Los cambios se hacen sobre la venta; para presupuestar algo parecido, duplicalo.",
+    }
+  }
+
+  if (QUOTE_EXPIRED_ERROR.test(message)) {
+    return {
+      message:
+        "El presupuesto está vencido y no se puede convertir en venta. " +
+        "Editalo para ampliar la validez o duplicalo.",
+    }
+  }
+
+  if (QUOTE_INVALID_STATE_ERROR.test(message)) {
+    return {
+      message:
+        "El presupuesto ya no está en un estado que permita esta acción (puede que ya se haya convertido en venta o rechazado). " +
+        "Actualizá la pantalla para ver cómo quedó.",
+    }
+  }
+
+  if (QUOTE_NOT_DELETABLE_ERROR.test(message)) {
+    return {
+      message:
+        "Sólo se puede eliminar un borrador que nunca se envió, y este ya salió o cambió de estado. " +
+        "Rechazalo si ya no corresponde, o duplicalo para armar uno nuevo.",
+    }
+  }
+
+  if (QUOTE_VALID_UNTIL_IN_PAST_ERROR.test(message)) {
+    return {
+      message: "La fecha de validez ya pasó. Elegí hoy o una fecha posterior.",
+    }
+  }
+
+  if (QUOTE_VALID_UNTIL_REQUIRED_ERROR.test(message)) {
+    return {
+      message: "Indicá hasta qué fecha es válido el presupuesto.",
+    }
+  }
+
+  if (QUOTE_CHANGED_ERROR.test(message)) {
+    return {
+      message: "El presupuesto cambió mientras lo tenías abierto: revisalo y volvé a intentar.",
+    }
+  }
+
+  const quoteProductMatch = message.match(QUOTE_PRODUCT_UNAVAILABLE_ERROR)
+  if (quoteProductMatch) {
+    const name = quoteProductMatch[1]?.trim()
+    const producto = name ? `«${name}»` : "uno de los productos"
+    return {
+      message:
+        `${name ? `«${name}»` : "Uno de los productos"} ya no está disponible en el catálogo. ` +
+        `Editá el presupuesto y quitá o reemplazá ${producto}.`,
+    }
+  }
+
+  if (QUOTE_CLIENT_UNAVAILABLE_ERROR.test(message)) {
+    return {
+      message:
+        "El cliente del presupuesto fue dado de baja. Editá el presupuesto y elegí un cliente vigente.",
+    }
+  }
+
+  if (PRODUCT_IS_PARENT_ERROR.test(message)) {
+    return {
+      message:
+        "Uno de los productos tiene variantes (talle, color, …) y no se puede cotizar o vender como padre. " +
+        "Elegí la variante puntual.",
+    }
+  }
+
+  if (PRODUCT_NOT_FOUND_ERROR.test(message)) {
+    return {
+      message:
+        "Uno de los productos no existe o no pertenece a esta cuenta. Quitalo o reemplazalo y volvé a intentar.",
+    }
+  }
+
+  if (INSUFFICIENT_ROLE_ERROR.test(message)) {
+    return {
+      message:
+        "Tu rol no permite realizar esta acción. Pedile al dueño o a un administrador de la cuenta que te asigne el rol de vendedor.",
+    }
+  }
+
+  if (CASH_REQUIRES_SESSION_ERROR.test(message)) {
+    return {
+      message:
+        "Para cobrar en efectivo hace falta una caja abierta en esta sucursal. " +
+        "Abrí la caja o elegí otra forma de pago: no se registró nada.",
+      action: { label: "Ir a Caja", href: "/caja" },
+    }
+  }
+
+  if (IDEMPOTENCY_KEY_CONFLICT_ERROR.test(message)) {
+    return {
+      message:
+        "Esta operación ya se registró con otro documento (la clave de la operación se repitió). " +
+        "Cerrá este cuadro y volvé a intentar.",
+    }
+  }
+
+  if (PAYMENT_METHOD_REQUIRED_ERROR.test(message)) {
+    return {
+      message: "Elegí la forma de pago para registrar la venta.",
+    }
+  }
 
   const stockMatch = message.match(STOCK_ERROR)
   if (stockMatch) {

@@ -15,6 +15,14 @@ interface UseOrgRoleReturn {
   /** Conjunto COMPLETO de roles ACTIVOS del miembro (ronda 1 adversarial,
    * finding MAJOR — ver `isWriter` abajo). */
   roles: OrgRole[]
+  /**
+   * presupuestos-modulo (D11): `true` cuando el conjunto `roles` ya es el real
+   * (la consulta de `rpc_my_active_account_roles` resolvió, incluso a vacío).
+   * Mientras es `false`, `roles` vale `[role]` y `role` colapsa a `member` a un
+   * vendedor: `hasCapability` falla abierto con este indicador en vez de
+   * decidir sobre un array de conveniencia.
+   */
+  rolesResolved: boolean
   isWriter: boolean
   isLoading: boolean
 }
@@ -129,5 +137,11 @@ export function useOrgRole(): UseOrgRoleReturn {
     return activeRoles.some((r) => catalog.find((c) => c.code === r)?.is_writer ?? true)
   })()
 
-  return { role: role ?? null, roles, isWriter, isLoading: isRoleLoading }
+  return {
+    role: role ?? null,
+    roles,
+    rolesResolved: isActiveRolesResolved,
+    isWriter,
+    isLoading: isRoleLoading,
+  }
 }

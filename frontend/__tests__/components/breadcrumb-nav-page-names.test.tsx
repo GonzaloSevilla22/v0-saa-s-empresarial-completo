@@ -124,4 +124,32 @@ describe("BreadcrumbNav — nombres de página (H17)", () => {
     expect(screen.queryByText(/0b0c1a2b/)).not.toBeInTheDocument()
     expect(screen.queryByText("ALIADATA")).not.toBeInTheDocument()
   })
+
+  // presupuestos-modulo (D10, task 5.9): las rutas fijas con nombre propio y las
+  // dinámicas, que no pueden mostrar el uuid capitalizado.
+  it.each([
+    ["/presupuestos", "Presupuestos"],
+    ["/presupuestos/nuevo", "Nuevo presupuesto"],
+  ] as Array<[string, string]>)("%s muestra «%s»", (ruta, nombre) => {
+    renderAt(ruta)
+    expect(screen.getByText(nombre)).toBeInTheDocument()
+    expect(screen.queryByText("ALIADATA")).not.toBeInTheDocument()
+  })
+
+  it("el detalle de un presupuesto muestra «Detalle de presupuesto», no el uuid", () => {
+    renderAt("/presupuestos/0b0c1a2b-3d4e-4f60-8a9b-0c1d2e3f4a5b")
+    expect(screen.getByText("Detalle de presupuesto")).toBeInTheDocument()
+    expect(screen.queryByText(/0b0c1a2b/)).not.toBeInTheDocument()
+  })
+
+  it("la edición de un presupuesto muestra «Editar presupuesto», no «Editar»", () => {
+    renderAt("/presupuestos/0b0c1a2b-3d4e-4f60-8a9b-0c1d2e3f4a5b/editar")
+    expect(screen.getByText("Editar presupuesto")).toBeInTheDocument()
+    expect(screen.queryByText("Editar")).not.toBeInTheDocument()
+  })
+
+  it("«nuevo» nunca cae en la regla del detalle (la ruta completa gana)", () => {
+    renderAt("/presupuestos/nuevo")
+    expect(screen.queryByText("Detalle de presupuesto")).not.toBeInTheDocument()
+  })
 })

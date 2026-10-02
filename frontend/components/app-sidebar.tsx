@@ -13,7 +13,7 @@ import {
   MessageSquare, GraduationCap, Settings, LogOut, Zap, Crown,
   ShieldCheck, BarChart3, LayoutGrid, Bot, TrendingUp, GitCompare, MapPin,
   CreditCard, FolderDown, Leaf, Scan, Landmark, ShieldAlert, Tags, Wallet, Banknote, Truck, HandCoins, BookOpen,
-  Briefcase, Boxes, Brain, ChartPie, Globe, CircleUser, ChevronRight,
+  Briefcase, Boxes, Brain, ChartPie, Globe, CircleUser, ChevronRight, FileText,
   type LucideIcon,
 } from "lucide-react"
 import {
@@ -103,6 +103,9 @@ export const navGroups: NavGroup[] = [
     items: [
       { title: "Ventas", href: "/ventas", icon: ShoppingCart, pro: false, proOnly: false },
       { title: "POS — Venta Rápida", href: "/ventas/pos", icon: Scan, pro: false, proOnly: false },
+      // presupuestos-modulo (D10/D13): se cotiza antes de vender — vive entre el
+      // POS y Compras, junto a las operaciones de venta. Sin gate de plan.
+      { title: "Presupuestos", href: "/presupuestos", icon: FileText, pro: false, proOnly: false },
       { title: "Compras", href: "/compras", icon: ShoppingBag, pro: false, proOnly: false },
       { title: "Gastos", href: "/gastos", icon: Receipt, pro: false, proOnly: false },
       // banco-caja-historial-ajustes (D8): Caja pasa a ser un módulo propio

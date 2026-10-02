@@ -915,6 +915,17 @@ export interface Client {
   legalName?: string
 }
 
+/** Lo que un formulario o un importador entrega para dar de alta o editar un
+ * cliente. No exige los derivados (`lastPurchase`, `totalSpent`: los calcula el
+ * servidor) y admite `null` en el contacto (vacío = sin dato). Un `Client`
+ * completo sigue siendo un `NewClientInput` válido. */
+export type NewClientInput = Omit<Client, "id" | "email" | "phone" | "lastPurchase" | "totalSpent"> & {
+  email?: string | null
+  phone?: string | null
+  lastPurchase?: string
+  totalSpent?: number
+}
+
 // ── compras-proveedor-cuenta-corriente (D2/D10): el proveedor como maestro
 // operable — espejo exacto de Client en identidad fiscal (RN-96, FiscalIdentity
 // es un VO compartido). Sin lastPurchase/totalSpent/category: no hay read-model

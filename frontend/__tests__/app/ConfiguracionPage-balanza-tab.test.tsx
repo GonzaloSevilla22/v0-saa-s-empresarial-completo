@@ -36,6 +36,10 @@ vi.mock("@/components/cost-centers/CostCenterManager", () => ({
 vi.mock("@/components/settings/CollectionSettingsForm", () => ({
   CollectionSettingsForm: () => <div data-testid="stub-cobranzas" />,
 }))
+// presupuestos-modulo (5.11): la tarjeta de validez vive en la pestaña Cobranzas.
+vi.mock("@/components/quotes/QuoteSettingsCard", () => ({
+  QuoteSettingsCard: () => <div data-testid="stub-validez-presupuestos" />,
+}))
 vi.mock("@/components/payment-methods/PaymentMethodManager", () => ({
   PaymentMethodManager: () => <div data-testid="stub-formas-pago" />,
 }))
@@ -64,5 +68,23 @@ describe("ConfiguracionPage — pestaña Balanza (balanza-etiquetas-pos D11)", (
     searchParamsFixture = new URLSearchParams()
     render(<ConfiguracionPage />)
     expect(screen.getByTestId("stub-perfil")).toBeInTheDocument()
+  })
+})
+
+describe("ConfiguracionPage — validez de presupuestos en Cobranzas (presupuestos-modulo D7, 5.11)", () => {
+  it("?tab=cobranzas muestra el plazo de pago y, debajo, la tarjeta de validez de presupuestos", () => {
+    searchParamsFixture = new URLSearchParams("tab=cobranzas")
+    render(<ConfiguracionPage />)
+
+    const plazo = screen.getByTestId("stub-cobranzas")
+    const validez = screen.getByTestId("stub-validez-presupuestos")
+    expect(plazo.compareDocumentPosition(validez) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it("en las otras pestañas la tarjeta no se monta", () => {
+    searchParamsFixture = new URLSearchParams("tab=balanza")
+    render(<ConfiguracionPage />)
+
+    expect(screen.queryByTestId("stub-validez-presupuestos")).not.toBeInTheDocument()
   })
 })

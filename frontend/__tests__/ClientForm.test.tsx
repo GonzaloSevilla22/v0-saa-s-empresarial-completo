@@ -171,3 +171,61 @@ describe("ClientForm — G2 status legacy oculto (deudas-menores-agosto)", () =>
     expect(screen.getByLabelText("Nombre")).toHaveValue(fiscalClient.name)
   })
 })
+
+describe("ClientForm — onSuccess entrega el cliente creado (presupuestos-modulo D12)", () => {
+  const created: Client = {
+    id: "c-new",
+    name: "Juan",
+    email: "",
+    phone: "2615551234",
+    lastPurchase: "-",
+    totalSpent: 0,
+  }
+
+  it("en el alta llama a onSuccess con el cliente que devolvió addClient", async () => {
+    addClientMock.mockResolvedValue(created)
+    const onSuccess = vi.fn()
+    render(<ClientForm onSuccess={onSuccess} />)
+
+    fireEvent.change(screen.getByLabelText("Nombre"), { target: { value: "Juan" } })
+    fireEvent.click(screen.getByRole("button", { name: /crear cliente/i }))
+
+    await waitFor(() => expect(onSuccess).toHaveBeenCalledTimes(1))
+    expect(onSuccess).toHaveBeenCalledWith(created)
+  })
+
+  it("en el alta, si addClient no devuelve nada, onSuccess igual se llama (sin cliente)", async () => {
+    addClientMock.mockResolvedValue(undefined)
+    const onSuccess = vi.fn()
+    render(<ClientForm onSuccess={onSuccess} />)
+
+    fireEvent.change(screen.getByLabelText("Nombre"), { target: { value: "Juan" } })
+    fireEvent.click(screen.getByRole("button", { name: /crear cliente/i }))
+
+    await waitFor(() => expect(onSuccess).toHaveBeenCalledTimes(1))
+    expect(onSuccess.mock.calls[0][0]).toBeUndefined()
+  })
+
+  it("en la edición onSuccess se llama sin argumentos (el caller existente de /clientes lo ignora)", async () => {
+    updateClientMock.mockResolvedValue(fiscalClient)
+    const onSuccess = vi.fn()
+    render(<ClientForm onSuccess={onSuccess} initialData={fiscalClient} />)
+
+    fireEvent.click(screen.getByRole("button", { name: /actualizar cliente/i }))
+
+    await waitFor(() => expect(onSuccess).toHaveBeenCalledTimes(1))
+    expect(onSuccess.mock.calls[0]).toHaveLength(0)
+  })
+
+  it("si el alta falla no llama a onSuccess", async () => {
+    addClientMock.mockRejectedValue(new Error("boom"))
+    const onSuccess = vi.fn()
+    render(<ClientForm onSuccess={onSuccess} />)
+
+    fireEvent.change(screen.getByLabelText("Nombre"), { target: { value: "Juan" } })
+    fireEvent.click(screen.getByRole("button", { name: /crear cliente/i }))
+
+    await waitFor(() => expect(toastErrorMock).toHaveBeenCalled())
+    expect(onSuccess).not.toHaveBeenCalled()
+  })
+})

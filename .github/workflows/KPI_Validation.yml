@@ -1181,6 +1181,31 @@ jobs:
           fi
           echo "20261067000001 idempotente: introspección OK y schema IDÉNTICO al previo a este paso."
 
+          # presupuestos-modulo tanda B (2026-10-02): reaplicación de
+          # 20261068000001 AL FINAL de la cadena, DESPUÉS de 20261067000001.
+          # Va última a propósito: la tanda A (y, antes del reset, 20261045000001)
+          # dejan a rpc_accept_quote con su cuerpo propio o sólo con el REVOKE;
+          # ésta lo vuelve a dejar como wrapper de _quote_accept_core, re-revoca
+          # su EXECUTE (nunca lo re-otorga) y redefine el núcleo y
+          # rpc_convert_quote_to_sale con CREATE OR REPLACE sobre firmas fijas
+          # (sin overload, sin 42725). No toca _c29_confirm_order_core (el de
+          # 20261062000001, reaplicado arriba). SIN tolerancia: exige el OK de
+          # su bloque de introspección (una definición de cada función, wrapper
+          # que delega con su COMMENT vivo, ACLs) y el schema IDÉNTICO.
+          PRESB_OUT=$(psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261068000001_presupuestos_conversion_venta.sql 2>&1) || { echo "$PRESB_OUT"; echo "ERROR: el reapply de 20261068000001 falló (sin tolerancia)."; exit 1; }
+          echo "$PRESB_OUT"
+          if ! echo "$PRESB_OUT" | grep -qF 'presupuestos-modulo tanda B (introspecci'; then
+            echo "ERROR: el reapply de 20261068000001 no imprimió el OK de su bloque de introspección."
+            exit 1
+          fi
+          schema_snapshot > /tmp/schema_after_presb_reapply.txt
+          if ! diff -u /tmp/schema_before_reapply.txt /tmp/schema_after_presb_reapply.txt > /tmp/schema_diff_presb.txt; then
+            echo "NOT IDEMPOTENT: reaplicar 20261068000001 cambió el schema (constraints + firmas de función + ACLs):"
+            cat /tmp/schema_diff_presb.txt
+            exit 1
+          fi
+          echo "20261068000001 idempotente: introspección OK y schema IDÉNTICO al previo a este paso."
+
       # -v ON_ERROR_STOP=1 is required: without it psql prints RAISE EXCEPTION
       # errors but still exits 0, so failing assertions show green in CI.
       - name: Run deterministic KPI tests
@@ -2700,3 +2725,34 @@ jobs:
       # _next_internal_document_number.
       - name: Run internal document numbering race gate
         run: N=20 DB_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres bash supabase/tests/test_internal_document_numbering_race.sh
+
+      # presupuestos-modulo tanda B (2026-10-02, governance MEDIA con tramo
+      # ALTO: escribe stock, caja, banco y cuenta corriente vía el núcleo del
+      # POS, que no se toca). `supabase start` ya aplicó 20261068000001; este
+      # paso EJECUTA rpc_convert_quote_to_sale con usuarios reales: (a) cash
+      # (stock, caja, SaleConfirmed, QuoteAccepted, historial de los dos
+      # documentos) con precio del presupuesto y costo del día (catálogo
+      # remarcado después de cotizar); (b) crédito como `authenticated` por el
+      # vendedor, con vencimiento por cascada; (c) transferencia con sucursal
+      # elegida y versión vieja -> quote_changed; (d) stock insuficiente con
+      # CERO efectos contados tabla por tabla; (e-h) vencido, producto dado de
+      # baja, padre y cliente dado de baja; (i-m, r) ajeno, caja ajena,
+      # parámetros, cash sin sesión, cajero, sucursal ajena/cerrada; (n-p)
+      # replay, clave contra otro presupuesto, segunda conversión y estado
+      # antes que convertibilidad; (q) línea de servicio; (s) regresión de
+      # rpc_accept_quote; (t) 42501 por la API de datos; (u) introspección
+      # (ACLs, wrapper, orden lock -> idempotencia -> núcleos); residuo cero.
+      - name: Run presupuesto a venta gate
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_presupuesto_a_venta.sql
+
+      # presupuestos-modulo tanda B: carreras con DOS conexiones reales y
+      # bloqueo VERIFICADO en pg_stat_activity antes de soltar a la primera
+      # (sin sleeps a ciegas): mismo presupuesto con claves distintas
+      # (quote_invalid_state) y con la misma clave (replay), misma clave sobre
+      # dos presupuestos (idempotency_key_conflict, 0 órdenes draft), borrado
+      # vs conversión en los dos órdenes (quote_not_deletable / quote_not_found)
+      # y ninguna orden con source_quote_id NULL. Controles negativos
+      # ejecutados: sin el FOR UPDATE de la conversión falla (1b); sin el
+      # RAISE ante el replay del núcleo falla (2).
+      - name: Run presupuesto a venta race gate (dos conexiones)
+        run: DB_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres bash supabase/tests/test_presupuesto_a_venta_race.sh

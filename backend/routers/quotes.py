@@ -9,6 +9,7 @@ Routes:
   PUT    /quotes/{id}               → edición, reemplazo completo (rpc_update_quote)
   DELETE /quotes/{id}               → borra un borrador nunca enviado
   POST   /quotes/{id}/transition    → marcar enviado / rechazar
+  GET    /quotes/{id}/pdf           → PDF (inline | attachment), cualquier estado
   GET    /settings/quotes           → validez por defecto de la cuenta
   PATCH  /settings/quotes           → fijarla (owner/admin); `PUT` es un alias
 
@@ -23,6 +24,7 @@ y los guards en services/quotes.py.
 from __future__ import annotations
 
 import uuid
+from typing import Literal
 
 import asyncpg
 from fastapi import APIRouter, Depends, Query, Response
@@ -139,6 +141,29 @@ async def transition_quote(
 ):
     return await quotes_service.transition_quote(
         repo, auth, str(account_id), str(quote_id), payload, conn=conn
+    )
+
+
+@router.get("/quotes/{quote_id}/pdf")
+async def get_quote_pdf(
+    quote_id: uuid.UUID,
+    disposition: Literal["inline", "attachment"] = "inline",
+    auth: dict = Depends(get_current_user),
+    repo: QuoteRepository = Depends(get_quote_repo),
+    account_id: uuid.UUID = Depends(get_account_id),
+) -> Response:
+    """PDF del presupuesto (capability `commercial-document-pdf`): lectura de
+    cualquier miembro, en cualquier estado. 404 idéntico para uno de otra cuenta
+    y para uno inexistente; 422 con `disposition` inválido. `no-store`: lleva
+    datos del cliente y no debe quedar en cachés compartidas."""
+    pdf, filename = await quotes_service.get_quote_pdf(repo, str(account_id), str(quote_id))
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'{disposition}; filename="{filename}"',
+            "Cache-Control": "private, no-store",
+        },
     )
 
 

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import contextlib
 import datetime
+import io
 import json
 import os
 import uuid
@@ -26,6 +27,7 @@ import uuid
 import asyncpg
 import pytest
 from fastapi import HTTPException
+from pypdf import PdfReader
 
 from backend.repositories.quote_repository import QuoteRepository
 from backend.schemas.quotes import (
@@ -523,3 +525,53 @@ async def test_direct_writes_are_no_longer_possible_for_the_app_role(conn, world
         async with _as(conn, world.owner_a, authenticated_role=True):
             await conn.execute("UPDATE public.quotes SET notes = 'directo' WHERE id = $1", quote["id"])
     assert await conn.fetchval("SELECT notes FROM public.quotes WHERE id = $1", quote["id"]) is None
+
+
+def _pdf_text(pdf: bytes) -> str:
+    return "\n".join(page.extract_text() for page in PdfReader(io.BytesIO(pdf)).pages)
+
+
+async def test_pdf_of_a_seller_who_is_not_the_owner_carries_the_owners_business(conn, world: World):
+    """El PDF lo descarga un vendedor (rol `authenticated`, como en producción
+    con el Paso 2 de tenencia): el emisor es el del DUEÑO, no "Mi Negocio"."""
+    quote = await _create(conn, world, items=[_line(world.product_a, unit_id=world.unit_a)])
+
+    async with _as(conn, world.seller, authenticated_role=True):
+        pdf, filename = await svc.get_quote_pdf(QuoteRepository(conn), str(world.account_a), str(quote["id"]))
+
+    text = _pdf_text(pdf)
+    assert filename == "presupuesto-P-00000001.pdf"
+    assert "Almacén Integración" in text and "2615550101" in text
+    assert "Mi Negocio" not in text
+    assert "Cliente Integ A" in text and "__integ_pm_producto_a__" in text
+    assert "no válido como factura" in text
+
+
+async def test_pdf_of_another_account_is_a_404_identical_to_a_missing_one(conn, world: World):
+    quote = await _create(conn, world)
+    repo = QuoteRepository(conn)
+
+    async with _as(conn, world.owner_b):
+        with pytest.raises(HTTPException) as foreign:
+            await svc.get_quote_pdf(repo, str(world.account_b), str(quote["id"]))
+        with pytest.raises(HTTPException) as missing:
+            await svc.get_quote_pdf(repo, str(world.account_b), str(uuid.uuid4()))
+
+    assert (foreign.value.status_code, foreign.value.code) == (404, "quote_not_found")
+    assert (missing.value.status_code, missing.value.code) == (404, "quote_not_found")
+    assert foreign.value.detail == missing.value.detail
+
+
+async def test_pdf_of_a_rejected_quote_is_stamped(conn, world: World):
+    quote = await _create(conn, world)
+    qid = str(quote["id"])
+    async with _as(conn, world.owner_a):
+        await svc.transition_quote(
+            QuoteRepository(conn), _auth(world.owner_a), str(world.account_a), qid,
+            QuoteTransitionIn(action="reject"), conn=conn,
+        )
+
+    async with _as(conn, world.cashier):  # lectura abierta a cualquier miembro
+        pdf, _ = await svc.get_quote_pdf(QuoteRepository(conn), str(world.account_a), qid)
+
+    assert "RECHAZADO" in _pdf_text(pdf)

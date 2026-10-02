@@ -28,6 +28,7 @@ el repositorio.
 from __future__ import annotations
 
 import contextlib
+import datetime
 import uuid
 from collections.abc import Collection
 
@@ -37,6 +38,7 @@ from fastapi import HTTPException
 from backend.core.errors import ProblemHTTPException, problem_from_pg_error
 from backend.core.guards import require_account_role
 from backend.core.rbac import CAN_CONFIGURE, CAN_QUOTE
+from backend.core.timezone import today_in_argentina
 from backend.repositories.quote_repository import QuoteRepository
 from backend.schemas.quotes import (
     QuoteIn,
@@ -45,10 +47,13 @@ from backend.schemas.quotes import (
     QuoteTransitionIn,
     QuoteUpdateIn,
 )
+from backend.services.commercial_documents.issuer import resolve_commercial_issuer
 from backend.services.commercial_documents.numbering import (
     format_internal_document_number,
     parse_internal_document_number_query,
 )
+from backend.services.commercial_documents.pdf import build_commercial_document_pdf
+from backend.services.commercial_documents.view import build_quote_view
 
 # Acción del contrato HTTP -> estado destino que admite `rpc_transition_quote`.
 _ACTION_TO_STATUS = {"send": "sent", "reject": "rejected"}
@@ -248,6 +253,37 @@ async def list_quotes(
     )
     pages = -(-total // page_size) if total > 0 else 0
     return {"items": [_present(r) for r in rows], "total": total, "page": page, "pages": pages}
+
+
+async def get_quote_pdf(
+    repo: QuoteRepository,
+    account_id: str,
+    quote_id: str,
+    *,
+    today: datetime.date | None = None,
+) -> tuple[bytes, str]:
+    """PDF del presupuesto (`GET /quotes/{id}/pdf`) y su nombre de archivo.
+
+    Lectura de cualquier miembro, para cualquier estado (un presupuesto
+    rechazado o vencido se puede volver a descargar, con su sello). El
+    contenido sale de la base por la cuenta del caller —nunca del request—, con
+    el mismo 404 para un id ajeno que para uno inexistente. El emisor se resuelve
+    sin bloquear y siempre por `rpc_commercial_issuer` (ver
+    `commercial_documents/issuer.py`). `today` es el día de negocio argentino;
+    se inyecta sólo para fijarlo en los tests.
+    """
+    record = await get_quote(repo, account_id, quote_id)
+    with _pg_errors_as_problems():
+        issuer = await resolve_commercial_issuer(repo, account_id)
+    view = build_quote_view(
+        record,
+        record["items"],
+        {"name": record.get("client_name"), "tax_id": record.get("client_tax_id"), "phone": record.get("client_phone")},
+        issuer,
+        today or today_in_argentina(),
+    )
+    label = record["number_label"] or str(record["id"])[:8]
+    return build_commercial_document_pdf(view), f"presupuesto-{label}.pdf"
 
 
 # ── Configuración de la cuenta ────────────────────────────────────────────────

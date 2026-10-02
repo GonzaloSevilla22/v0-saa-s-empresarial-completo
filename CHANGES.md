@@ -3900,7 +3900,7 @@ Gate: L.13-L.24, (O), (P) y la introspección (E) ampliada (también en el gate 
 
 
 
-## Change `presupuestos-modulo` — TANDA A apply 2026-10-01 (propose 2026-09-30, PR #601) · EN CURSO (la tanda B, conversión a venta, es otro PR)
+## Change `presupuestos-modulo` — TANDA A apply 2026-10-01 + TANDA B apply 2026-10-02 (propose 2026-09-30, PR #601) · EN CURSO (tanda B pendiente de revisión adversarial, merge y humo del PO)
 
 **Change `presupuestos-modulo`** — governance **MEDIA con un tramo ALTO en la tanda B** (la conversión escribe dinero real en caja y cuenta corriente desde una RPC `SECURITY DEFINER`); la **tanda A** (esta ficha) no escribe dinero: presupuestar nunca toca stock, caja ni cuenta corriente. Migración de la tanda A **`20261067000001_presupuestos_modulo.sql`** (idempotente). Artefactos en `openspec/changes/presupuestos-modulo/` (`proposal.md`, `design.md` D1-D14 y OQ-P1..P16, `tasks.md`, `specs/` — `internal-document-numbering` y `commercial-document-pdf` nuevas; `quote`, `sales-order`, `document-snapshots`, `document-status-history` modificadas —, `research/`).
 

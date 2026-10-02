@@ -57,7 +57,7 @@
 
 ---
 
-### Presupuestos (`presupuestos-modulo`, tanda A — 2026-10-01)
+### Presupuestos (`presupuestos-modulo`, tandas A y B — 2026-10-02)
 
 - `/presupuestos`: listado paginado por estado (borrador, enviado, aceptado, rechazado, vencidos), búsqueda por cliente o número (`P-00000001`)
 - Alta y edición con el editor de líneas de la venta (buscador, lector, balanza, unidades, descuento, líneas de servicio); cliente obligatorio con alta en el lugar; nunca mueve stock
@@ -65,7 +65,7 @@
 - Rechazar, reabrir editando (vencido o rechazado vuelve a borrador), duplicar con los precios de hoy y eliminar borradores
 - Validez por defecto por cuenta en `/configuracion` (pestaña Cobranzas); vencimiento automático diario
 - Desde la ficha del cliente: botón "Nuevo presupuesto" y sus últimos 5
-- Pendiente (tanda B): botón "Venta" que convierte el presupuesto aceptado en venta de forma atómica
+- Botón "Venta" (tanda B): convierte el presupuesto en venta de forma atómica, al precio del presupuesto, con forma de pago, caja o banco y cuenta corriente resueltos como en el POS; la venta aparece en `/ventas` con el badge "Desde presupuesto" y se puede facturar desde el panel de éxito
 
 ---
 

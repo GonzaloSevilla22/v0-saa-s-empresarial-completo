@@ -227,3 +227,25 @@ Usuario → /stock → producto → "Ajustar Stock"
     │
     └── Usuario ve historial actualizado en ledger
 ```
+
+## Flujo 10: Presupuesto a Venta (`presupuestos-modulo`, tanda B)
+
+```
+Usuario (owner/admin/seller) → /presupuestos/[id] → "Venta"
+    │
+    ├── Diálogo: forma de pago (catálogo), cuenta bancaria o caja según el kind,
+    │   sucursal, vencimiento (crédito); precios del presupuesto, no del catálogo
+    │
+    ├── POST /quotes/{id}/convert  (header Idempotency-Key)
+    │   └── RPC rpc_convert_quote_to_sale — UNA transacción:
+    │       ├── FOR UPDATE del presupuesto; idempotencia leída bajo el lock
+    │       ├── Guards: estado draft/sent, no vencido, versión confirmada
+    │       │   (quote_changed), producto/cliente vivos
+    │       ├── FOR UPDATE de los productos por id ascendente
+    │       └── Núcleo de venta del POS (_c29_confirm_order_core, sin cambios):
+    │           stock por sucursal, caja, banco, cuenta corriente con vencimiento
+    │       └── Presupuesto → accepted (terminal), enlazado a la venta
+    │
+    └── Éxito: "Venta generada", badge "Desde presupuesto" en /ventas, "Facturar" opcional
+        Error (stock, caja cerrada, versión vieja): no queda ningún efecto parcial
+```

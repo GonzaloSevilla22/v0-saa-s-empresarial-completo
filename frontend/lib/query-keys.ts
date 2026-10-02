@@ -1,3 +1,5 @@
+import type { QuoteListFilters } from "@/lib/quote-types"
+
 /**
  * Centralized query key factory.
  *
@@ -115,7 +117,14 @@ export const queryKeys = {
   quotes: {
     all:    () => ["quotes"] as const,
     lists:  () => ["quotes", "list"] as const,
+    /** presupuestos-modulo: el listado depende de los filtros — `lists()` es su prefijo. */
+    list:   (filters: QuoteListFilters) => ["quotes", "list", filters] as const,
     detail: (id: string) => ["quotes", "detail", id] as const,
+  },
+  // presupuestos-modulo (D7): validez por defecto de la cuenta — GET/PATCH /settings/quotes.
+  quoteSettings: {
+    all: () => ["quote-settings"] as const,
+    get: (accountId: string) => ["quote-settings", accountId] as const,
   },
   salesOrders: {
     all:    () => ["salesOrders"] as const,

@@ -180,6 +180,8 @@ DECLARE
   v_pm_cash       uuid;
   v_pm_credit     uuid;
   v_pm_transfer   uuid;
+  v_pm_b          uuid;
+  v_bank_b        uuid;
 
   v_client_a      uuid;
   v_client_gone   uuid;
@@ -292,6 +294,14 @@ BEGIN
   IF v_pm_cash IS NULL OR v_pm_credit IS NULL OR v_pm_transfer IS NULL THEN
     RAISE EXCEPTION 'SETUP FAILED: la cuenta A no tiene sembradas las formas de pago cash/credit/transfer';
   END IF;
+  -- Revisión 6.11 (B-05): una forma de pago y una cuenta bancaria de OTRA cuenta.
+  SELECT id INTO v_pm_b FROM public.payment_methods
+  WHERE account_id = v_account_b AND kind = 'transfer' AND is_active AND deleted_at IS NULL ORDER BY sort_order LIMIT 1;
+  IF v_pm_b IS NULL THEN
+    RAISE EXCEPTION 'SETUP FAILED: la cuenta B no tiene sembrada una forma de pago transfer';
+  END IF;
+  INSERT INTO public.bank_accounts (account_id, name, currency, opening_balance)
+  VALUES (v_account_b, 'Banco Gate PV B', 'ARS', 0) RETURNING id INTO v_bank_b;
 
   INSERT INTO public.clients (user_id, account_id, name, phone, payment_terms_days)
   VALUES (v_owner_a, v_account_a, 'Cliente Gate PV', '2615550303', 30) RETURNING id INTO v_client_a;
@@ -645,6 +655,14 @@ BEGIN
   IF v_out NOT LIKE 'ERR|P0400|cash_requires_session%' THEN
     v_failures := v_failures || format('FAIL (l): efectivo sin sesión: se esperaba P0400 cash_requires_session, vino %s', v_out);
   END IF;
+  v_out := pg_temp.pv_convert(v_tag || 'pm-b', v_q_other, 1, v_pm_b, NULL, NULL, NULL);
+  IF v_out NOT LIKE 'ERR|P0404|payment_method_not_found%' THEN
+    v_failures := v_failures || format('FAIL (i): forma de pago de otra cuenta: se esperaba P0404 payment_method_not_found, vino %s', v_out);
+  END IF;
+  v_out := pg_temp.pv_convert(v_tag || 'banco-b', v_q_other, 1, v_pm_transfer, NULL, NULL, v_bank_b);
+  IF v_out NOT LIKE 'ERR|P0412|bank_account_not_found_or_inactive%' THEN
+    v_failures := v_failures || format('FAIL (i): cuenta bancaria de otra cuenta: se esperaba P0412 bank_account_not_found_or_inactive, vino %s', v_out);
+  END IF;
   v_out := pg_temp.pv_convert(v_tag || 'suc-b', v_q_branch, 1, v_pm_credit, v_branch_b, NULL, NULL);
   IF v_out NOT LIKE 'ERR|P0404|branch_not_found%' THEN
     v_failures := v_failures || format('FAIL (r): sucursal de otra cuenta: se esperaba P0404 branch_not_found, vino %s', v_out);
@@ -664,7 +682,7 @@ BEGIN
     v_failures := v_failures || format('FAIL (i-m): quedaron efectos: %s -> %s', v_before, v_after);
   END IF;
   IF COALESCE(array_length(v_failures, 1), 0) = v_fail_before THEN
-    RAISE NOTICE 'PASS (i-m, r): ajeno e inexistente -> P0404 quote_not_found; caja de otra cuenta -> P0422; sin forma de pago / clave / versión -> P0400; efectivo sin sesión -> P0400 cash_requires_session; sucursal ajena -> P0404, cerrada -> P0422; cajero -> P0403; cero efectos en A y en B.';
+    RAISE NOTICE 'PASS (i-m, r): ajeno e inexistente -> P0404 quote_not_found; caja de otra cuenta -> P0422; forma de pago ajena -> P0404; cuenta bancaria ajena -> P0412; sin forma de pago / clave / versión -> P0400; efectivo sin sesión -> P0400 cash_requires_session; sucursal ajena -> P0404, cerrada -> P0422; cajero -> P0403; cero efectos en A y en B.';
   END IF;
 
   -- ═══════════════════════════════════════════════════════════════════════

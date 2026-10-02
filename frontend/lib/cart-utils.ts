@@ -18,7 +18,15 @@
  */
 
 import { getCanonicalLabel } from "@/lib/product-labels"
-import { isProductoMedible, resolveUnit, unitInputMin } from "@/lib/unit-utils"
+import { formatStock } from "@/lib/format-unit"
+import {
+  isProductoMedible,
+  resolveUnit,
+  toBaseQuantity,
+  unitInputMin,
+  unitInputStep,
+} from "@/lib/unit-utils"
+import type { ScanResult } from "@/lib/scan-resolution"
 import type { Product, UnitOfMeasure } from "@/lib/types"
 
 // ─── Operation ID ─────────────────────────────────────────────────────────────
@@ -267,4 +275,229 @@ export function addScannedProductLine(
     minQty: addQty,
   }
   return { items: [...items, newLine] }
+}
+
+
+// ─── presupuestos-modulo (D12) — operaciones de carrito compartidas ────────────
+//
+// Antes vivían embebidas en `components/forms/sale-form.tsx` (`handleAddToCart`,
+// el despacho de `handleScan`, `handleUpdateQty`, `handleUpdateSubtotal`). El
+// formulario de venta y el de presupuesto las comparten desde acá. La única
+// diferencia entre los dos es `enforceStock`: la venta rechaza lo que supera el
+// disponible; el presupuesto (no reserva ni baja stock) lo agrega y sólo avisa.
+// El POS conserva su copia de `handleScan` (duplicación preexistente).
+
+export interface CartContext {
+  unitsById: Map<string, UnitOfMeasure>
+  /** Catálogo completo — para resolver el nombre de una variante con su padre y la unidad base. */
+  products: Product[]
+}
+
+export interface CartStockOptions {
+  /**
+   * `true`: lo que supera el disponible se rechaza (chequeo acumulativo,
+   * `exceedsStock`). `false`: se agrega igual y el resultado trae
+   * `stockWarning` con el disponible.
+   */
+  enforceStock: boolean
+}
+
+/** Lo que el usuario dejó "en preparación" antes de agregarlo al carrito. */
+export interface StagedCartLine {
+  product: Product
+  /** Precio unitario en la unidad de la línea (ya re-expresado si cambió la unidad). */
+  unitPrice: number
+  quantity: number
+  /** Descuento en % (0–100). */
+  discount: number
+  /** Unidad elegida; `""` = sin unidad explícita. */
+  unitId: string
+}
+
+export type AddManualLineResult =
+  | {
+      ok: true
+      items: SaleCartItem[]
+      /** `true` si sumó sobre una línea existente (no creó una nueva). */
+      merged: boolean
+      productName: string
+      /** Sólo con `enforceStock: false` y stock superado: el disponible a mostrar. */
+      stockWarning?: string
+    }
+  | { ok: false; reason: "insufficient_stock"; message: string }
+
+function insufficientStockMessage(stock: number, baseUnit: UnitOfMeasure | undefined): string {
+  // El stock del producto se lleva en su unidad BASE: el disponible se informa
+  // con el símbolo de la base, nunca con el de la línea (con la línea en gramos
+  // decía "0.550 g" sobre 0,55 kg — corrección del PR #584).
+  return `Stock insuficiente (disponible: ${formatStock(stock, baseUnit?.symbol)})`
+}
+
+/**
+ * Alta MANUAL de una línea (producto + cantidad + descuento + unidad elegidos
+ * a mano). Fusiona sólo sobre una línea del mismo producto y unidad SIN
+ * `source` (D8): una línea de balanza o rehidratada al editar nunca se toca.
+ */
+export function addManualLineToCart(
+  cart: SaleCartItem[],
+  staged: StagedCartLine,
+  ctx: CartContext,
+  { enforceStock }: CartStockOptions,
+): AddManualLineResult {
+  const { product, unitPrice, quantity, discount, unitId } = staged
+  const selectedUnit = resolveUnit(unitId, ctx.unitsById)
+  const baseUnit = resolveUnit(product.baseUnitId, ctx.unitsById)
+  const quantityBase = toBaseQuantity(quantity, selectedUnit, baseUnit)
+
+  // D7/OQ-9: chequeo ACUMULATIVO — todas las líneas del mismo producto
+  // (`persisted` excluida) más lo nuevo, no sólo la que se está tocando.
+  const exceeded = exceedsStock(cart, product.id, quantityBase, product.stock)
+  const warning = insufficientStockMessage(product.stock, baseUnit)
+  if (exceeded && enforceStock) {
+    return { ok: false, reason: "insufficient_stock", message: warning }
+  }
+  const stockWarning = exceeded ? warning : undefined
+
+  const existing = cart.find(
+    (item) => item.productId === product.id && (item.unitId ?? "") === unitId && !item.source,
+  )
+
+  if (existing) {
+    const newQty = existing.quantity + quantity
+    const items = cart.map((item) =>
+      item.id === existing.id
+        ? {
+            ...item,
+            quantity: newQty,
+            quantityBase: toBaseQuantity(newQty, selectedUnit, baseUnit),
+            subtotal: calcSaleSubtotal(item.unitPrice, newQty, item.discount),
+          }
+        : item,
+    )
+    return { ok: true, items, merged: true, productName: product.name, stockWarning }
+  }
+
+  const parent = product.parentId ? ctx.products.find((p) => p.id === product.parentId) : undefined
+  const newLine: SaleCartItem = {
+    id: crypto.randomUUID(),
+    productId: product.id,
+    productName: getCanonicalLabel(product, parent),
+    unitPrice,
+    quantity,
+    discount,
+    subtotal: calcSaleSubtotal(unitPrice, quantity, discount),
+    unitId: unitId || undefined,
+    unitSymbol: selectedUnit?.symbol,
+    quantityBase,
+    step: unitInputStep(selectedUnit),
+    minQty: unitInputMin(selectedUnit),
+  }
+  return { ok: true, items: [...cart, newLine], merged: false, productName: product.name, stockWarning }
+}
+
+export type ApplyScanResult =
+  | { kind: "added"; items: SaleCartItem[]; label: string; stockWarning?: string }
+  /** Producto medible: la pantalla lo deja elegido con el foco en "Cantidad". */
+  | { kind: "needs_quantity"; product: Product; label: string }
+  | { kind: "rejected"; label: string }
+
+/**
+ * Despacha un código YA resuelto por `resolveScan` (balanza-etiquetas-pos
+ * D6/D9) sobre el carrito: producto por unidades (suma o crea la línea),
+ * medible (pide la cantidad) o etiqueta de balanza (una línea nueva, nunca
+ * fusionada). El chequeo de stock es acumulativo en las dos ramas.
+ */
+export function applyScanToCart(
+  cart: SaleCartItem[],
+  scan: ScanResult,
+  ctx: CartContext,
+  { enforceStock }: CartStockOptions,
+): ApplyScanResult {
+  if (scan.kind === "error") return { kind: "rejected", label: scan.message }
+
+  if (scan.kind === "product") {
+    const { product } = scan
+    const baseUnit = resolveUnit(product.baseUnitId, ctx.unitsById)
+    const askQuantity: ApplyScanResult = {
+      kind: "needs_quantity",
+      product,
+      label: `Ingresá la cantidad de «${product.name}»`,
+    }
+    // D8: un medible por código común/SKU no agrega una cantidad arbitraria.
+    if (isProductoMedible(baseUnit)) return askQuantity
+
+    // Un producto por unidades también suma stock (fix F3, PR #599).
+    const exceeded = exceedsStock(cart, product.id, unitInputMin(baseUnit), product.stock)
+    const warning = insufficientStockMessage(product.stock, baseUnit)
+    if (exceeded && enforceStock) return { kind: "rejected", label: warning }
+
+    const added = addScannedProductLine(cart, product, { unitsById: ctx.unitsById, products: ctx.products })
+    if ("needsQuantity" in added) return askQuantity // defensivo: ya se descartó arriba
+    // Sólo el nombre: el indicador del lector ya antepone su propio "✓" (F9).
+    return { kind: "added", items: added.items, label: product.name, stockWarning: exceeded ? warning : undefined }
+  }
+
+  // scan.kind === "scale_line" (D7): una línea nueva, nunca fusionada (D8).
+  const { line } = scan
+  const lineProduct = ctx.products.find((p) => p.id === line.productId)
+  const stock = lineProduct?.stock ?? 0
+  const exceeded = exceedsStock(cart, line.productId, line.quantityBase ?? line.quantity, stock)
+  const warning = insufficientStockMessage(stock, resolveUnit(lineProduct?.baseUnitId, ctx.unitsById))
+  if (exceeded && enforceStock) return { kind: "rejected", label: warning }
+  return {
+    kind: "added",
+    items: [...cart, { id: crypto.randomUUID(), ...line }],
+    label: line.productName,
+    stockWarning: exceeded ? warning : undefined,
+  }
+}
+
+/** Quita la línea con ese `id`. */
+export function removeLine(items: SaleCartItem[], id: string): SaleCartItem[] {
+  return items.filter((item) => item.id !== id)
+}
+
+/**
+ * Cambia la cantidad de una línea (en la unidad de la línea), sin bajar de su
+ * mínimo — el de la línea, no un 1 global, para que un medible pueda bajar de
+ * 1 — y recalcula la cantidad base y el subtotal con SU precio y descuento.
+ */
+export function updateLineQuantity(
+  items: SaleCartItem[],
+  id: string,
+  qty: number,
+  ctx: CartContext,
+): SaleCartItem[] {
+  return items.map((item) => {
+    if (item.id !== id) return item
+    const productBaseUnit = resolveUnit(
+      ctx.products.find((p) => p.id === item.productId)?.baseUnitId,
+      ctx.unitsById,
+    )
+    const lineUnit = resolveUnit(item.unitId, ctx.unitsById)
+    const newQty = Math.max(item.minQty ?? unitInputMin(lineUnit ?? productBaseUnit), qty)
+    return {
+      ...item,
+      quantity: newQty,
+      quantityBase: toBaseQuantity(newQty, lineUnit, productBaseUnit),
+      subtotal: calcSaleSubtotal(item.unitPrice, newQty, item.discount),
+    }
+  })
+}
+
+/**
+ * Edita el subtotal de una línea ya cargada: despeja el precio unitario
+ * efectivo y borra el descuento (el precio al que cerró queda como verdad).
+ */
+export function updateLineSubtotal(items: SaleCartItem[], id: string, newSubtotal: number): SaleCartItem[] {
+  return items.map((item) =>
+    item.id === id
+      ? {
+          ...item,
+          unitPrice: unitPriceFromSubtotal(newSubtotal, item.quantity),
+          discount: 0,
+          subtotal: newSubtotal,
+        }
+      : item,
+  )
 }

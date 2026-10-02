@@ -53,6 +53,10 @@ interface SaleApiRow extends FiscalReadModelRow {
   has_account_charge?: boolean
   has_cash_movement?: boolean
   has_bank_movement?: boolean
+  // presupuestos-modulo (tanda B, 6.6/6.10): derivados de lectura del servidor.
+  source_quote_id?: string | null
+  source_quote_number?: number | null
+  has_service_lines?: boolean
 }
 
 interface SalesPageResponse {
@@ -125,6 +129,9 @@ function mapSale(s: SaleApiRow): Sale {
     hasAccountCharge: s.has_account_charge ?? false,
     hasCashMovement:  s.has_cash_movement  ?? false,
     hasBankMovement:  s.has_bank_movement  ?? false,
+    sourceQuoteId:     s.source_quote_id ?? null,
+    sourceQuoteNumber: s.source_quote_number ?? null,
+    hasServiceLines:   s.has_service_lines ?? false,
   }
 }
 

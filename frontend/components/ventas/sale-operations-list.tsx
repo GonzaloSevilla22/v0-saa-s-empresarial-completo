@@ -40,6 +40,7 @@ import { formatMoney, formatUnitPrice, formatDate, type Currency } from "@/lib/f
 import { formatQuantity } from "@/lib/format-unit"
 import { resolveUnit } from "@/lib/unit-utils"
 import { SaleReceiptButton } from "@/components/ventas/sale-receipt-button"
+import { SourceQuoteBadge } from "@/components/ventas/SourceQuoteBadge"
 import type { Sale, Client, SaleFiscalState, UnitOfMeasure } from "@/lib/types"
 import { ProductDisplay } from "@/components/shared/product-display"
 import type { PaginationMeta, PageSizeOption } from "@/lib/pagination-utils"
@@ -65,6 +66,16 @@ import { PaymentMethodSelect } from "@/components/payment-methods/PaymentMethodS
 // consistente con el RAISE del backend (P0423, mensaje distinto por causa).
 const PAYMENT_LOCKED_REASON =
   "No editable: esta operación ya tiene un cargo de cuenta corriente, un movimiento de caja o un movimiento bancario registrado. Emití una nota de crédito y registrá una venta nueva."
+
+// presupuestos-modulo (D6, OQ-P16): una venta convertida desde un presupuesto
+// con conceptos sin producto (líneas de servicio) no se edita desde /ventas: el
+// editor rehidrata cada fila como una línea de PRODUCTO (`productId`
+// obligatorio) y la descripción del concepto vive sólo en la orden. No hay
+// bloqueo duro del servidor (borrarla funciona y un request armado a mano no
+// puede corromperla): es un límite de la pantalla, así que va ÚLTIMO en la
+// prioridad — un bloqueo fiscal o de pago es el que el usuario tiene que ver.
+const SERVICE_LINES_REASON =
+  "Incluye conceptos sin producto de un presupuesto: no se edita desde acá. Para corregirla, eliminala y volvé a venderla desde el presupuesto duplicado."
 
 // venta-editable-sin-cae: el motivo NOMBRA LA CAUSA REAL, que es lo que pidió
 // el PO. Tres causas distintas comparten P0423 en el servidor y la acción que
@@ -433,7 +444,9 @@ export function SaleOperationsList({
             fiscalBlockedReason(op.fiscal) ??
             (op.isFiscallyLocked ? FISCAL_LOCKED_FALLBACK_REASON : null)
           const editBlockedReason =
-            fiscalReason ?? (op.isPaymentLocked ? PAYMENT_LOCKED_REASON : null)
+            fiscalReason ??
+            (op.isPaymentLocked ? PAYMENT_LOCKED_REASON : null) ??
+            (op.hasServiceLines ? SERVICE_LINES_REASON : null)
           const voidHint = voidableEditHint(op.fiscal)
           // venta-editable-vs-promocion-legacy: "Emitir comprobante" sólo
           // mientras la venta está preparada y todavía SIN comprobante vivo.
@@ -510,6 +523,9 @@ export function SaleOperationsList({
                     <span className="text-sm font-bold text-success tabular-nums">{formatMoney(op.total, op.currency)}</span>
                   </div>
                   <PaymentMethodBadge name={op.items[0]?.paymentMethodName} />
+                  {op.sourceQuoteId && (
+                    <SourceQuoteBadge quoteId={op.sourceQuoteId} quoteNumber={op.sourceQuoteNumber} />
+                  )}
                 </div>
 
                 {/* Desktop */}
@@ -525,6 +541,9 @@ export function SaleOperationsList({
                       )}
                     </span>
                     <PaymentMethodBadge name={op.items[0]?.paymentMethodName} layout="inline" />
+                    {op.sourceQuoteId && (
+                      <SourceQuoteBadge quoteId={op.sourceQuoteId} quoteNumber={op.sourceQuoteNumber} />
+                    )}
                   </div>
                   <span className="text-sm text-muted-foreground truncate">{op.clientName}</span>
                   <div className="flex justify-center">

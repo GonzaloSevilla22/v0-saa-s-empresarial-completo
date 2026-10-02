@@ -586,7 +586,11 @@ Presupuestos, PDF, WhatsApp y conversión quedan disponibles en todos los tiers,
 
 **Requisitos firmados (2026-09-29, textuales)**: los cuatro de §Context. Son requisitos, no Open Questions. En particular, **la edición del presupuesto mientras no esté convertido está firmada** y es la base de D5.
 
-**Open Questions**: pendientes de sign-off. **Mientras el PO no responda, el apply adopta la recomendación de cada una** (default declarado, mismo criterio que los changes anteriores). Si el PO elige una alternativa, se actualizan en el mismo PR la decisión afectada, las specs y las tareas. Registrar acá la respuesta textual del PO antes de escribir producción (tarea 0.1).
+**Open Questions**: **firmadas por el PO el 2026-10-01** (tarea 0.1). Respuesta textual: «Anda con todo lo recomendado me parece bien».
+- Cubre las OQ-P1..P8 del explore.
+- OQ-P9..P16 se adoptan por su recomendación (default declarado, mismo criterio que los changes anteriores).
+- El requisito textual «quiero que tanto el remito como los presupuestos se puedan modificar» ya está incorporado (D5).
+- Ninguna alternativa fue elegida, así que no cambia ninguna decisión, spec ni tarea.
 
 ## Open Questions
 

@@ -14,27 +14,44 @@
 
 ## 0. Sign-off y checkpoints previos (sólo lectura)
 
-- [ ] 0.1 **[PO]** Sign-off de OQ-P1..OQ-P16 (`design.md` §Open Questions). Registrar la respuesta textual en `design.md` §"Sign-off del PO" antes de escribir producción. Si no hay respuesta, el apply adopta la recomendación de cada OQ (default declarado). Si el PO elige una alternativa, actualizar en el mismo PR la decisión afectada, las specs y estas tareas.
-- [ ] 0.2 Confirmar que `20261067000001` y `20261068000001` siguen libres (`ls supabase/migrations`, `gh pr list --state open`, `MAX(version)` de prod). Renumerar si no.
+- [x] 0.1 **[PO]** Sign-off de OQ-P1..OQ-P16 (`design.md` §Open Questions). Registrar la respuesta textual en `design.md` §"Sign-off del PO" antes de escribir producción. Si no hay respuesta, el apply adopta la recomendación de cada OQ (default declarado). Si el PO elige una alternativa, actualizar en el mismo PR la decisión afectada, las specs y estas tareas.
+  **Hecho 2026-10-01**: sign-off registrado en `design.md` §"Sign-off del PO" («Anda con todo lo recomendado me parece bien»; OQ-P1..P16 por su recomendación).
+- [x] 0.2 Confirmar que `20261067000001` y `20261068000001` siguen libres (`ls supabase/migrations`, `gh pr list --state open`, `MAX(version)` de prod). Renumerar si no.
+  **Hecho 2026-10-01**: `20261067000001` y `20261068000001` libres (última en `main` = `20261066000001`; `MAX(version)` de prod = `20261066000001`; 0 PRs abiertos).
 - [ ] 0.3 Releer de prod, **inmediatamente antes** de escribir la tanda B:
   - `pg_get_functiondef('public.rpc_accept_quote(uuid)'::regprocedure)`, su `obj_description` y su ACL;
   - `pg_get_functiondef` de `_c29_confirm_order_core(text, uuid, text, uuid, text, uuid, text, uuid, uuid)` (sólo para verificar que no cambió: este change no lo toca).
   
   Compararlos por líneas, sin `\r` (gotcha CRLF), contra `20261045000001:1677` y `20261062000001:1118`. Si difieren, partir del vivo y anotar el desvío acá.
-- [ ] 0.4 Grep de **todos** los escritores de `quotes`/`quote_items` en `backend/`, `frontend/`, `supabase/functions/`, `supabase/tests/` y `supabase/migrations/` (los bloques `DO` de gate dentro de migraciones). Listar cada uno con la decisión: migrar a RPC, o no le afecta porque corre como `postgres`/`session_replication_role`. Anotar la lista acá antes de retirar las políticas (D2).
-- [ ] 0.5 Confirmar en prod (SELECT) el punto de partida:
+- [x] 0.4 Grep de **todos** los escritores de `quotes`/`quote_items` en `backend/`, `frontend/`, `supabase/functions/`, `supabase/tests/` y `supabase/migrations/` (los bloques `DO` de gate dentro de migraciones). Listar cada uno con la decisión: migrar a RPC, o no le afecta porque corre como `postgres`/`session_replication_role`. Anotar la lista acá antes de retirar las políticas (D2).
+  **Hecho 2026-10-01** (grep en `backend/`, `frontend/`, `supabase/functions/`, `supabase/tests/`, `supabase/migrations/`, `scripts/`). Escritores de `quotes`/`quote_items`:
+  - `backend/repositories/quote_repository.py` (INSERT quotes/quote_items, UPDATE status): **migrar a RPC** (2.3).
+  - `supabase/tests/test_operacion_party_guard.sql` L316 (INSERT), L355 y L703-705 (DELETE): corren como `postgres`, no les afecta el retiro de políticas; el bloque (7)/(8) se adapta en la tanda B (6.3b).
+  - `scripts/smoke_c29_quote_salesorder.sql` L81-85: script manual como `postgres`, no le afecta.
+  - Bloques `DO` de migraciones históricas (`20260806000001`, `20260806000002`, `20260807000001`): corren como `postgres` en `db reset`, no les afecta.
+  - `UPDATE public.quotes` dentro de funciones `SECURITY DEFINER` (`rpc_accept_quote` en `20261045000001`, `20260808000002`, `20260907000001`, `20261003000001`): no dependen de las políticas.
+  - `backend/tests/test_table_refs_gate.py:365`: fixture de texto, no escribe.
+  - `supabase/tests/test_ventas_unidades_conversion.sql`: 1 mención de `quote_items`, sin escritura directa.
+  - `supabase/functions/`: 0 menciones. `frontend/`: sólo `hooks/data/use-quotes.ts` (llama al backend) y `lib/database.types.ts` (tipos); sin escrituras directas a PostgREST.
+- [x] 0.5 Confirmar en prod (SELECT) el punto de partida:
   - 0 `quotes` (y cuántos con `number`, `valid_until` o `client_id` NULL si aparecieron);
   - políticas vivas de `quotes`/`quote_items`;
   - disparadores vivos sobre `quotes` (`quotes_record_status_creation`, `quotes_enforce_status_transition`);
   - filas de `document_status_transitions` para `quote` con sus `allowed_role` e `is_terminal_to`, y el conteo total del catálogo (20 filas / 14 con rol);
   - cuentas con `fiscal_profiles.nombre_fantasia`/`razon_social`;
   - jobs de `cron.job`.
-- [ ] 0.6 SAFETY NET — correr y registrar el baseline de:
+  **Hecho 2026-10-01** (SELECT en prod): 0 `quotes`, 0 `quote_items`, 0 órdenes con `source_quote_id`, 0 con `number`/`valid_until`/`client_id` NULL (no existe la columna `number`); 41 cuentas, 1 con nombre en `fiscal_profiles`; políticas vivas `quotes_insert/update/select` y `quote_items_insert/update/select`; disparadores `quotes_record_status_creation` y `quotes_enforce_status_transition`; catálogo 20 filas / 14 con rol; `quote`: `draft->sent`, `draft|sent->accepted`, `draft|sent->rejected` con `{seller,admin,owner}`, `draft|sent->expired` sin rol, todos `is_terminal_to = true` salvo `draft->sent`; 15 jobs de cron, sin `quotes-expire-sweep`. Capturas en `scratchpad-presupuestos/prod-live/grupo0-2026-10-01.md`. `fn_guard_product_soft_delete` viva: sólo `quotes.status = 'draft'` (OQ-P10), `P0B04`.
+- [x] 0.6 SAFETY NET — correr y registrar el baseline de:
   - `backend/tests/test_c29_quote_salesorder.py`, `test_operacion_party_guard.py`, `test_pos_catalogo_pagos.py`, `test_sales_orders_payment_method_contract.py`, `outbox/test_producers.py`, `test_factura_fiscal_read_models.py` y los tests de `receipts`/`invoice_pdf`;
   - `frontend/__tests__` de `sale-receipt-button*`, `fiscal-invoice*`, `use-sales-orders*`, `sale-form-*`, `pos-*`, `configuracion*`, `app-sidebar*`, `breadcrumb*`, `sale-operations-list*`;
   - gates SQL que existen como archivo y tocan este dominio: `test_document_status_transition_role_matrix.sql`, `test_operacion_party_guard.sql`, `test_ventas_unidades_conversion.sql` (+ su `_race.sh`), `test_function_acl_gate.sql` y `test_accounts_privilege_columns.sql`. (`test_c29*`, `test_document_status_history*` y `test_v3_soft_delete*` no existen en `supabase/tests/`: son bloques `DO` de migraciones viejas; lo que se necesita de ellos se re-verifica en 1.1(l).)
   
   Una falla previa se reporta como preexistente y no se corrige acá.
+
+  **Hecho 2026-10-01** (baselines; sin fallas previas):
+  - backend (desde la raíz del worktree): 164 passed (`test_c29_quote_salesorder`, `test_operacion_party_guard`, `test_pos_catalogo_pagos`, `test_sales_orders_payment_method_contract`, `outbox/test_producers`, `test_factura_fiscal_read_models`, `test_receipts*`, `test_invoice_pdf`). Nota: `test_producers` usa rutas relativas y falla si se corre desde `backend/`.
+  - frontend: 37 archivos / 361 tests passed (sale-receipt-button*, fiscal-invoice*, use-sales-orders*, sale-form-*, pos-*, ConfiguracionPage*, app-sidebar*, breadcrumb*, sale-operations-list*, cart-utils*, ClientesPage, ClientForm, use-org-role, operation-errors*). `pnpm tsc --noEmit`: **8 errores preexistentes** (p. ej. `__tests__/reporting/revenue-canon.test.ts`), baseline para 7.1.
+  - gates SQL contra el stack local (DB en `20261066000001`, 313 migraciones), todos PASS: `test_document_status_transition_role_matrix`, `test_operacion_party_guard`, `test_ventas_unidades_conversion`, `test_function_acl_gate`, `test_accounts_privilege_columns`. (`_race.sh` no corrido en la baseline.)
 
 ## 1. DB tanda A: `20261067000001_presupuestos_modulo.sql` + gate
 
@@ -339,4 +356,4 @@
 
 | Task | Test File | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
 |------|-----------|-------|------------|-----|-------|-------------|----------|
-| | | | | | | | |
+| 0.6 | baseline backend/frontend/gates SQL | Safety net | ✅ 164 backend / 361 frontend / 5 gates SQL | n/a | n/a | n/a | n/a |

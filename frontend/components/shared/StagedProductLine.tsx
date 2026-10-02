@@ -5,11 +5,11 @@
  * precio, cantidad, unidad, descuento y subtotal editable, con la unidad y el
  * precio por unidad de la LÍNEA (ventas-unidades-conversion D5/D-F).
  *
- * Nace en la capa canónica a partir del bloque equivalente de
- * `components/forms/sale-form.tsx` para que el formulario de presupuesto no lo
- * copie. El formulario de venta todavía conserva el suyo: migrarlo es un
- * candidato declarado (tocarlo ensancha el diff sobre el hot path de venta sin
- * que el pedido lo necesite).
+ * Nace en la capa canónica a partir del bloque de
+ * `components/forms/sale-form.tsx` y lo consumen los DOS formularios (venta y
+ * presupuesto): una sola definición de la lógica de unidad y precio por unidad
+ * de la línea (revisión adversarial F3 del PR #608: la copia inline de la venta
+ * se migró acá para que no diverjan).
  *
  * El componente es dueño del estado del renglón en preparación y no sabe nada
  * del carrito: al agregar llama a `onAdd(staged)` y sólo limpia el renglón si el

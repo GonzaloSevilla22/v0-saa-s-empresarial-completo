@@ -183,8 +183,8 @@ class SalesRepository(BaseRepository):
                    ) AS is_payment_locked,
                    -- presupuestos-modulo (tanda B): el presupuesto que originó la
                    -- venta, derivado de sales_orders.source_quote_id (sin columnas
-                   -- denormalizadas). El JOIN exige la misma cuenta: nunca se
-                   -- muestra el número de un presupuesto ajeno.
+                   -- denormalizadas). El cruce con el presupuesto se filtra por la
+                   -- misma cuenta: nunca se muestra el número de un presupuesto ajeno.
                    so.source_quote_id                       AS source_quote_id,
                    sq.number                                AS source_quote_number,
                    -- presupuestos-modulo (D6, OQ-P16): la operación incluye alguna
@@ -227,7 +227,7 @@ class SalesRepository(BaseRepository):
                 AND soi.price = s.amount
                 AND soi.quantity = s.quantity
                 AND soi.subtotal = s.total
-                AND soi.unit_id IS NOT DISTINCT FROM s.unit_id
+                AND (soi.unit_id = s.unit_id OR (soi.unit_id IS NULL AND s.unit_id IS NULL))
               ORDER BY soi.id
               LIMIT 1
             ) svc ON TRUE

@@ -245,10 +245,14 @@ async def test_sales_la_linea_de_servicio_muestra_su_descripcion(async_client, v
     assert "soi.sales_order_id = so.id" in lateral
     assert "soi.account_id = s.account_id" in lateral          # tenencia explícita
     assert "soi.product_id IS NULL" in lateral and "s.product_id IS NULL" in lateral
-    # emparejado por precio, cantidad, subtotal y unidad (D6, OQ-P15)
+    # emparejado por precio, cantidad, subtotal y unidad (D6, OQ-P15). La unidad
+    # se compara con la forma explícita (igual, o ambas nulas) y NO con
+    # `IS NOT DISTINCT FROM`: el gate de referencias a tablas toma la palabra
+    # que sigue a FROM como nombre de tabla y lo marcaría como falso positivo.
     for pair in ("soi.price = s.amount", "soi.quantity = s.quantity", "soi.subtotal = s.total",
-                 "soi.unit_id IS NOT DISTINCT FROM s.unit_id"):
+                 "(soi.unit_id = s.unit_id OR (soi.unit_id IS NULL AND s.unit_id IS NULL))"):
         assert pair in lateral, pair
+    assert "DISTINCT FROM" not in lateral
     # sin fan-out: dos líneas iguales no duplican la fila de la venta
     assert "LIMIT 1" in lateral
 

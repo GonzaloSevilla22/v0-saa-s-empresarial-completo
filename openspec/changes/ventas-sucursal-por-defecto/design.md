@@ -77,6 +77,32 @@ Lo que se quería medir servía para **elegir** entre dejar las ventas históric
 3. **El orden de magnitud ya se conoce**: el 75 % de las filas de `sales` estaba sin sucursal, y en agosto había una sola cuenta con más de una sucursal. Para todas las demás cuentas "la principal" es su única sucursal: no hay ambigüedad posible.
 4. **Lo único que se corre en producción son verificaciones posteriores** (tarea 12): tres `SELECT` que confirman que no quedó nada sin asignar. No deciden nada; confirman.
 
+### Medición en producción (2026-10-01, posterior a la redacción de este diseño)
+
+Después de escrito lo anterior, el PO pidió medir igual («sí, medí también»). Se corrieron dos consultas de **sólo lectura y sólo agregados** contra producción. No cambian ninguna regla de D6; le ponen tamaño a las preguntas OQ-4, OQ-5 y OQ-6 y actualizan el punto 3 de arriba (hoy son **dos** las cuentas con más de una sucursal, no una).
+
+| Tipo de cuenta | Cuentas con ventas | Filas de `sales` | Sin sucursal | Operaciones sin sucursal | Filas sin sucursal, últimos 30 días |
+|---|---|---|---|---|---|
+| Una sola sucursal | 7 | 610 | 392 | 159 | 248 |
+| Dos o más sucursales | 2 | 495 | 488 | 246 | 78 |
+| **Total** | **9** | **1.105** | **880 (80 %)** | **405** | **326** |
+
+Las 9 cuentas que venden tienen ventas sin sucursal. La primera es del 2026-03-07 y la última del día de la medición.
+
+Detalle de las dos cuentas con más de una sucursal (sin identificarlas):
+
+| Cuenta | Sucursales (activas) | Segunda sucursal desde | Sucursales con stock | Operaciones sin sucursal | Anteriores a la segunda sucursal | Posteriores | Operaciones con sucursal |
+|---|---|---|---|---|---|---|---|
+| A | 2 (2) | 2026-06-22 | 1 | 16 | 6 | 10 | 2 |
+| B | 3 (1) | 2026-08-22 | 1 | 230 | 162 | 68 | 2 |
+
+Lectura:
+
+- **Las 7 cuentas de sucursal única (392 filas, 159 operaciones) no tienen ambigüedad**: "la principal" es su única sucursal, hoy y cuando se hizo cada venta.
+- **En las dos cuentas con varias sucursales el stock vive en una sola**, así que el stock de esas ventas salió de la principal de aquel momento.
+- **La cuenta B es la del incidente del 22-08** (sucursal original desactivada y stock migrado a otra): sus 162 operaciones anteriores a la segunda sucursal ocurrieron en una sucursal que hoy está inactiva. Es el caso concreto detrás de OQ-4 (a qué sucursal van) y de OQ-5 (qué movimientos de stock se pueden completar con origen demostrable): con las opciones recomendadas, esas ventas van a la principal de hoy y sus movimientos de stock nulos **no** se completan, porque la sucursal que se les asigna no existía cuando ocurrieron (la única de entonces era otra, hoy inactiva). Los contadores que la migración ya informa (D7) son los que le muestran ese número al PO.
+- **La cuenta A tiene las dos sucursales activas** y 10 operaciones sin sucursal posteriores a la segunda: son las únicas donde el usuario pudo haber elegido la otra sucursal y el formulario la descartó (defecto corregido en #606).
+
 ## Goals / Non-Goals
 
 **Goals:**

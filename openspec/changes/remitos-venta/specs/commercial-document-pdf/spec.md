@@ -22,7 +22,7 @@ Cuando la vista indica no mostrar precios, el PDF SHALL omitir las columnas de p
 ### Requirement: Endpoint del PDF del remito por id con tenencia
 El sistema SHALL exponer `GET /delivery-notes/{id}/pdf` con `disposition` (`inline` o `attachment`) y `show_prices` (booleano, falso por defecto).
 
-El endpoint SHALL devolver el PDF para cualquier estado del remito y para cualquier miembro de su cuenta. El archivo se llama `remito-R-00000012.pdf`.
+El endpoint SHALL devolver el PDF para cualquier estado del remito y para cualquier miembro de su cuenta. El archivo se llama `remito-R-00000012.pdf`, y `remito-R-00000012-con-precios.pdf` cuando se piden precios, para que las dos variantes no se confundan.
 
 Un remito de otra cuenta o inexistente SHALL responder 404 con el mismo cuerpo RFC 7807. Un parámetro inválido SHALL responder 422 y un pedido sin sesión, 401.
 

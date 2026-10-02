@@ -96,9 +96,9 @@ Los `reference_type` SHALL ser estos, sumados de forma aditiva al conjunto cerra
 
 Cada movimiento SHALL poblar `quantity_before`, `quantity_after`, `branch_id`, `product_name`, `performed_by`, `operation_group_id` y el costo unitario congelado de la línea.
 
-El stock que retiene un remito en cada par SHALL ser la suma negada de las `quantity_delta` de sus movimientos. La edición y la anulación SHALL revertir por ese neto leído del ledger, nunca reconstruyéndolo desde las líneas.
+El stock que retiene un remito en cada par SHALL ser la suma de las cantidades base guardadas en sus líneas vigentes, en su sucursal vigente: la cantidad que efectivamente se descontó, normalizada al emitir o editar. La edición y la anulación SHALL revertir por ese valor, nunca reconvirtiendo las líneas y nunca sumando movimientos del ledger: `stock_movements` admite inserciones de los roles de aplicación, y una fila forjada NO SHALL poder convertirse en stock devuelto a `branch_stock`.
 
-Para todo remito, la suma de `quantity_delta` de sus movimientos por par SHALL igualar el cambio neto de `branch_stock` de ese par producido por el remito. Un remito anulado SHALL quedar con suma cero en cada par.
+Para todo remito, la suma de `quantity_delta` de sus movimientos por par SHALL igualar el cambio neto de `branch_stock` de ese par producido por el remito y, mientras esté pendiente, el negativo de lo retenido. Un remito anulado SHALL quedar con suma cero en cada par. Estas igualdades SHALL verificarse como gate de comportamiento.
 
 Ningún consumidor del ledger SHALL asumir que `type = 'sale'` implica una fila en `sales`; la venta y el remito se distinguen por `reference_type`.
 
@@ -106,6 +106,11 @@ Ningún consumidor del ledger SHALL asumir que `type = 'sale'` implica una fila 
 - **GIVEN** un producto con stock inicial conocido en una sucursal
 - **WHEN** se emite un remito, se edita su cantidad dos veces y se lo anula
 - **THEN** la suma de los `quantity_delta` del remito para ese par es cero, el stock final iguala al inicial y cada movimiento lleva el `reference_type` de su momento
+
+#### Scenario: una fila forjada no cambia lo que devuelve la anulación
+- **GIVEN** un remito pendiente que retiene 3 unidades de A, y un movimiento de `-1000` con la referencia de ese remito insertado por PostgREST por un miembro de la cuenta
+- **WHEN** se anula el remito
+- **THEN** `branch_stock` de A aumenta exactamente en 3
 
 #### Scenario: el reference_type del remito es admitido y distinto del de la venta
 - **WHEN** se registra un movimiento con `reference_type = 'delivery_note'`

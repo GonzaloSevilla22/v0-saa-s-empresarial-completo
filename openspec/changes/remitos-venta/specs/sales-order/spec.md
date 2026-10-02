@@ -7,7 +7,7 @@ El sistema SHALL confirmar una orden de venta cuyo origen persistido (`source_de
 - numeración fiscal opcional;
 - outbox, historial y fila legacy de ventas.
 
-El costo congelado de cada línea de la venta SHALL ser el costo congelado de la línea del remito.
+Los snapshots de cada línea de la venta (nombre, SKU, costo y alícuota de IVA) SHALL ser los de la línea del remito, copiados a la orden, sin releer ni bloquear el maestro de productos: sin stock que proteger, la confirmación no toma el bloqueo del producto.
 
 La decisión de no mover stock SHALL tomarse sólo a partir de los datos persistidos de la orden. La confirmación NO SHALL aceptar ningún parámetro que pida no mover stock.
 
@@ -25,6 +25,11 @@ A lo sumo una orden no cancelada SHALL referenciar el mismo remito.
 - **GIVEN** una orden `draft` creada por la conversión de un remito pendiente de 3 unidades de A
 - **WHEN** se la confirma
 - **THEN** el stock de A no cambia, no se escribe ningún movimiento de stock y la orden queda `confirmed`
+
+#### Scenario: Nombre congelado del remito
+- **GIVEN** una orden creada desde un remito cuyo producto se renombró después de emitirlo
+- **WHEN** se la confirma
+- **THEN** las líneas de la venta llevan el nombre y el SKU del remito
 
 #### Scenario: Orden sin origen sigue descontando
 - **WHEN** se ejecuta una venta rápida del POS de 2 unidades de A después de este cambio

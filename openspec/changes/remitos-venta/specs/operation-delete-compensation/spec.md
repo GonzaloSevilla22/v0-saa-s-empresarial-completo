@@ -10,7 +10,7 @@ La reversa de stock SHALL saltearse explícitamente: la mercadería quedó entre
 
 En la misma transacción, el remito SHALL volver al estado pendiente (`issued`), registrando la transición `converted → issued` con el usuario y un motivo que identifica el borrado de la venta.
 
-El diálogo de borrado SHALL informar que el stock no vuelve y que, para devolver la mercadería al stock, hay que anular el remito, nombrando su número.
+El diálogo de borrado SHALL informar que el stock no vuelve y que, para devolver la mercadería al stock, hay que anular el remito, nombrando su número. Después del borrado, las pantallas de remitos SHALL mostrar el remito como pendiente sin necesidad de recargar.
 
 #### Scenario: Borrado de una venta en efectivo nacida de un remito
 - **GIVEN** una venta en efectivo nacida del remito R-00000003, con la caja de su sucursal abierta

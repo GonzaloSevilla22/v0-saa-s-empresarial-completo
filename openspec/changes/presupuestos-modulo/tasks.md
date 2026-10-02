@@ -18,11 +18,12 @@
   **Hecho 2026-10-01**: sign-off registrado en `design.md` §"Sign-off del PO" («Anda con todo lo recomendado me parece bien»; OQ-P1..P16 por su recomendación).
 - [x] 0.2 Confirmar que `20261067000001` y `20261068000001` siguen libres (`ls supabase/migrations`, `gh pr list --state open`, `MAX(version)` de prod). Renumerar si no.
   **Hecho 2026-10-01**: `20261067000001` y `20261068000001` libres (última en `main` = `20261066000001`; `MAX(version)` de prod = `20261066000001`; 0 PRs abiertos).
-- [ ] 0.3 Releer de prod, **inmediatamente antes** de escribir la tanda B:
+- [x] 0.3 (hecho 2026-10-02, tanda B) Releer de prod, **inmediatamente antes** de escribir la tanda B:
   - `pg_get_functiondef('public.rpc_accept_quote(uuid)'::regprocedure)`, su `obj_description` y su ACL;
   - `pg_get_functiondef` de `_c29_confirm_order_core(text, uuid, text, uuid, text, uuid, text, uuid, uuid)` (sólo para verificar que no cambió: este change no lo toca).
   
   Compararlos por líneas, sin `\r` (gotcha CRLF), contra `20261045000001:1677` y `20261062000001:1118`. Si difieren, partir del vivo y anotar el desvío acá.
+  **Medido 2026-10-02 (SELECT en prod):** `max(version)=20261067000001` (tanda A desplegada); `quotes`=0, `sales_orders` con `source_quote_id`=0, `quotes` en `accepted`=0. md5 sin `` de `pg_get_functiondef` en prod == `db reset` local: `_c29_confirm_order_core` `bbe8ac0f…` (ACL postgres, authenticated, service_role), `rpc_accept_quote(uuid)` `ad7ff20f…` (ACL postgres, service_role: sin `authenticated`, como dejó la tanda A), `rpc_quick_sale` `ccb8afa0…`. Sin desvío. `20261068000001` libre (único PR abierto: #607, docs). SAFETY NET tanda B: backend 213 pasan (quote/sales_order/party_guard); frontend 94 pasan (9 archivos); gates SQL `test_presupuestos_modulo`, `test_operacion_party_guard`, `test_function_acl_gate`, `test_document_status_transition_role_matrix` PASS.
 - [x] 0.4 Grep de **todos** los escritores de `quotes`/`quote_items` en `backend/`, `frontend/`, `supabase/functions/`, `supabase/tests/` y `supabase/migrations/` (los bloques `DO` de gate dentro de migraciones). Listar cada uno con la decisión: migrar a RPC, o no le afecta porque corre como `postgres`/`session_replication_role`. Anotar la lista acá antes de retirar las políticas (D2).
   **Hecho 2026-10-01** (grep en `backend/`, `frontend/`, `supabase/functions/`, `supabase/tests/`, `supabase/migrations/`, `scripts/`). Escritores de `quotes`/`quote_items`:
   - `backend/repositories/quote_repository.py` (INSERT quotes/quote_items, UPDATE status): **migrar a RPC** (2.3).

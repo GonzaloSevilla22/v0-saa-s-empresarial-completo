@@ -5,9 +5,7 @@
 ## Purpose
 
 FSM genérica e historial append-only de transiciones de estado para todos los tipos de documento del sistema (Modelo V3, Feature 2). Provee una tabla única `document_status_history` para auditoría inmutable de cambios de estado, un catálogo de transiciones válidas modelado como datos (`document_status_transitions`), y un helper de escritura (`record_status_transition`) invocado desde los RPCs de negocio de cada capability (`quote`, `sales-order`, `cash-session`, `afip-fiscal-document`, `bank-reconciliation`, etc.) en la misma transacción que la operación que causa la transición.
-
 ## Requirements
-
 ### Requirement: Historial de estados de documentos append-only
 
 El sistema SHALL persistir cada cambio de estado de un documento en una tabla `document_status_history` con las columnas `id`, `account_id`, `document_type`, `document_id`, `from_status`, `to_status`, `performed_by`, `reason`, `occurred_at`. La tabla SHALL ser append-only: ninguna capa de la aplicación puede emitir `UPDATE` ni `DELETE` sobre ella. El enforcement SHALL ser estructural (grants + ausencia de policy de escritura), no por convención.
@@ -155,17 +153,25 @@ Las transiciones que ejecuta un proceso automático y no una persona —la emisi
 
 ### Requirement: Seed del catálogo refleja las máquinas de estado vigentes
 
-El sistema SHALL sembrar el catálogo con las transiciones que las tablas de documentos permiten actualmente: Quote (`draft→sent`, `draft|sent→accepted`, `draft|sent→expired`, `draft|sent→rejected`), SalesOrder (`draft→confirmed`), FiscalDocument (`pending_cae→authorized`, `pending_cae→rejected`), CashSession (`open→closed`), ReconciliationSession (`open→closed`), StockTransfer (terminal en `completed`), más la fila de creación (`from_status = NULL`) de cada tipo. El sistema NOT SHALL sembrar transiciones que ninguna operación vigente ejecuta.
+El sistema SHALL sembrar el catálogo con las transiciones que las tablas de documentos permiten actualmente: Quote (`draft→sent`, `draft|sent→accepted`, `draft|sent→expired`, `draft|sent→rejected` y la reapertura por edición `expired|rejected→draft`), SalesOrder (`draft→confirmed`, `confirmed→canceled`), FiscalDocument (`pending_cae→authorized`, `pending_cae→rejected`, `pending_cae→voided`), CashSession (`open→closed`), ReconciliationSession (`open→closed`), StockTransfer (terminal en `completed`), más la fila de creación (`from_status = NULL`) de cada tipo. El sistema NOT SHALL sembrar transiciones que ninguna operación vigente ejecuta.
+
+Para Quote, un estado SHALL estar marcado como terminal (`is_terminal_to`) sólo si no tiene transiciones salientes catalogadas, y el único estado terminal SHALL ser `accepted`: `expired` y `rejected` admiten la reapertura a `draft` al editar el presupuesto, y por eso NOT SHALL estar marcados como terminales.
 
 #### Scenario: El seed cubre las transiciones ejecutadas por los RPCs actuales
 - **WHEN** cualquier RPC de transición vigente registra su cambio de estado
 - **THEN** la transición correspondiente existe en el catálogo y el registro tiene éxito
 
 #### Scenario: Transiciones sin operación no se siembran
-- **WHEN** una transición está definida en el CHECK de una tabla pero ningún RPC la ejecuta (por ejemplo `sales_order → canceled`)
+- **WHEN** una transición es posible en el modelo pero ningún RPC la ejecuta (por ejemplo reabrir una sesión de caja cerrada, `cash_session closed → open`)
 - **THEN** esa transición no está en el seed inicial y se agregará cuando exista la operación que la aplique
 
-<!-- Requisitos siguientes agregados por `v31-fsm-status-triggers` (2026-07-31): el enforcement estructural por trigger BEFORE UPDATE que hace inevadible la política de transiciones ya declarada arriba. -->
+#### Scenario: La reapertura del presupuesto está catalogada
+- **WHEN** la edición de un presupuesto en `expired` o `rejected` registra su vuelta a `draft`
+- **THEN** la transición existe en el catálogo, con los roles de vendedor, administrador y dueño, y el registro tiene éxito
+
+#### Scenario: Sólo accepted es terminal para el presupuesto
+- **WHEN** se consulta `is_terminal_status` para `quote` en `accepted`, `expired` y `rejected`
+- **THEN** sólo `accepted` es terminal, y ninguna transición de `quote` sale de un estado marcado terminal
 
 ### Requirement: La política de transiciones es inevadible a nivel de base de datos
 
@@ -222,3 +228,4 @@ El sistema NOT SHALL exponer ningún mecanismo de tiempo de ejecución que permi
 
 - **WHEN** una migración deshabilita el enforcement para ejecutar una corrección de datos
 - **THEN** la misma migración lo vuelve a habilitar, y la verificación estructural del sistema detecta cualquier enforcement que haya quedado deshabilitado
+

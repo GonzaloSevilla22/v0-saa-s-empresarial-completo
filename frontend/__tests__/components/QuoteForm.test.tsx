@@ -137,9 +137,9 @@ vi.mock("@/components/shared/cart-item-list", () => ({
 }))
 vi.mock("@/components/shared/scrollable-cart-shell", () => ({
   ScrollableCartShell: ({
-    children, listContent, footerContent,
-  }: { children: React.ReactNode; listContent?: React.ReactNode; footerContent?: React.ReactNode }) => (
-    <div>
+    children, listContent, footerContent, className,
+  }: { children: React.ReactNode; listContent?: React.ReactNode; footerContent?: React.ReactNode; className?: string }) => (
+    <div data-testid="cart-shell" data-shell-class={className}>
       {children}
       {listContent}
       {footerContent}
@@ -649,5 +649,29 @@ describe("QuoteForm — edición", () => {
     fireEvent.click(within(alert).getByRole("button", { name: /recargar/i }))
 
     expect(mocks.invalidateQueries).toHaveBeenCalledWith({ queryKey: ["quotes", "detail", "q-1"] })
+  })
+})
+
+describe("QuoteForm — altura del carrito en móvil (hallazgo de la pasada visual 7.3)", () => {
+  // La cabecera de la página (barra superior + padding + título) ocupa ~9,4 rem a
+  // 375 px; el carrito compartido reserva sólo 8 rem por defecto (pensado para un
+  // modal), así que "Crear presupuesto" quedaba 22 px debajo del borde inferior
+  // del viewport y la página tenía su propio scroll. El presupuesto es una página,
+  // no un modal: reserva lo que ocupa su cabecera en móvil y en escritorio.
+  function shellClass(): string {
+    return screen.getByTestId("cart-shell").getAttribute("data-shell-class") ?? ""
+  }
+
+  it("en móvil reserva 11 rem (no los 8 rem de un modal) para que el CTA entre en el viewport", () => {
+    render(<QuoteForm />)
+
+    const tokens = shellClass().split(/\s+/)
+    expect(tokens).toContain("max-h-[calc(100dvh-11rem)]")
+  })
+
+  it("en escritorio sigue reservando 12 rem", () => {
+    render(<QuoteForm />)
+
+    expect(shellClass().split(/\s+/)).toContain("sm:max-h-[calc(100dvh-12rem)]")
   })
 })

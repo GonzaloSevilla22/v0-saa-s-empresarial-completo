@@ -105,3 +105,30 @@ describe("ClientDetailHeader — Nuevo presupuesto", () => {
     expect(screen.getByRole("heading", { name: "Acme Corp" })).toBeInTheDocument()
   })
 })
+
+describe("ClientDetailHeader — pestañas en móvil (hallazgo de la pasada visual 7.3)", () => {
+  // Con la tercera pestaña, el riel con `whitespace-nowrap` medía 401 px dentro de
+  // 343: "Presupuestos" quedaba cortada ("Presup") detrás de un scroll horizontal.
+  // En móvil las pestañas se reparten el ancho y pueden partir el rótulo en dos
+  // líneas; desde `sm` vuelven a su ancho natural en una sola línea.
+  it("cada pestaña se reparte el ancho y puede partir el rótulo en móvil", () => {
+    render(<ClientDetailHeader clientId="client-1" />)
+
+    for (const [name] of TABS) {
+      const tokens = screen.getByRole("link", { name }).className.split(/\s+/)
+      expect(tokens).toContain("flex-1")
+      expect(tokens).toContain("whitespace-normal")
+      expect(tokens).toContain("sm:flex-none")
+      expect(tokens).toContain("sm:whitespace-nowrap")
+      expect(tokens).not.toContain("whitespace-nowrap")
+    }
+  })
+
+  it("la pestaña activa conserva su subrayado y la inactiva no", () => {
+    mocks.pathname.value = "/clientes/client-1/presupuestos"
+    render(<ClientDetailHeader clientId="client-1" />)
+
+    expect(screen.getByRole("link", { name: "Presupuestos" }).className).toContain("border-primary")
+    expect(screen.getByRole("link", { name: "Cuenta corriente" }).className).toContain("border-transparent")
+  })
+})

@@ -470,7 +470,7 @@ export function QuoteForm({ quote, duplicateFrom, initialClientId, onReload }: Q
       )}
 
       <ScrollableCartShell
-        className="sm:max-h-[calc(100dvh-12rem)]"
+        className="max-h-[calc(100dvh-11rem)] sm:max-h-[calc(100dvh-12rem)]"
         hasItems={displayItems.length > 0}
         listContent={
           <CartItemList

@@ -244,6 +244,34 @@ describe("QuoteDetailPage — cabecera y contenido", () => {
   })
 })
 
+describe("QuoteDetailPage — tabla de líneas en móvil (hallazgo de la pasada visual 7.3)", () => {
+  // A 375 px la tabla tenía `min-w-[480px]` dentro de un contenedor con scroll
+  // horizontal: "Precio unit." y "Subtotal" quedaban escondidos detrás del scroll.
+  // Sin ancho mínimo y con relleno corto en móvil, las cuatro columnas entran en
+  // la tarjeta (el contenedor con scroll queda sólo como red de seguridad para
+  // importes enormes).
+  it("la tabla no fuerza un ancho mínimo y usa relleno corto en móvil", () => {
+    render(<QuoteDetailPage />)
+    const table = screen.getByRole("table", { name: /líneas del presupuesto/i })
+
+    expect(table.className).not.toMatch(/min-w-\[/)
+    const cells = Array.from(table.querySelectorAll("th, td"))
+    expect(cells.length).toBeGreaterThan(0)
+    for (const cell of cells) {
+      expect(cell.className).toMatch(/\bpx-2\b/)
+      expect(cell.className).toMatch(/\bsm:px-4\b/)
+    }
+  })
+
+  it("las cuatro columnas siguen presentes (Descripción, Cant., Precio unit., Subtotal)", () => {
+    render(<QuoteDetailPage />)
+    const table = screen.getByRole("table", { name: /líneas del presupuesto/i })
+
+    const headers = within(table).getAllByRole("columnheader").map((h) => h.textContent)
+    expect(headers).toEqual(["Descripción", "Cant.", "Precio unit.", "Subtotal"])
+  })
+})
+
 describe("QuoteDetailPage — acciones por estado y rol (D10)", () => {
   const has = (name: RegExp) =>
     screen.queryAllByRole("button", { name }).length + screen.queryAllByRole("link", { name }).length > 0
@@ -506,6 +534,37 @@ describe("QuoteDetailPage — eliminar", () => {
 
     await waitFor(() => expect(mocks.deleteQuote).toHaveBeenCalledWith("q-1"))
     await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/presupuestos"))
+  })
+
+  // Hallazgo de la pasada visual (7.3): con el detalle todavía montado, el hook
+  // borraba la entrada de caché y el observador la reconstruía y volvía a pedir
+  // GET /quotes/<id> -> 404 en consola (y, si llegaba antes que la navegación,
+  // el cartel de "no se pudo cargar"). Una vez eliminado, la pantalla deja de
+  // observar ese presupuesto.
+  it("tras eliminar deja de observar el detalle: no vuelve a pedir un presupuesto que ya no existe", async () => {
+    const user = userEvent.setup()
+    render(<QuoteDetailPage />)
+    expect(mocks.useQuote).toHaveBeenLastCalledWith("q-1")
+
+    await user.click(screen.getByRole("button", { name: /eliminar/i }))
+    const dialog = await screen.findByRole("alertdialog")
+    await user.click(within(dialog).getByRole("button", { name: /^eliminar$/i }))
+
+    await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/presupuestos"))
+    expect(mocks.useQuote).toHaveBeenLastCalledWith(null)
+  })
+
+  it("si la eliminación falla sigue observando el detalle (el presupuesto existe)", async () => {
+    const user = userEvent.setup()
+    mocks.deleteQuote.mockRejectedValue(new Error("quote_not_deletable"))
+    render(<QuoteDetailPage />)
+
+    await user.click(screen.getByRole("button", { name: /eliminar/i }))
+    const dialog = await screen.findByRole("alertdialog")
+    await user.click(within(dialog).getByRole("button", { name: /^eliminar$/i }))
+
+    await waitFor(() => expect(mocks.toastError).toHaveBeenCalled())
+    expect(mocks.useQuote).toHaveBeenLastCalledWith("q-1")
   })
 
   it("cancelar no elimina y devuelve el foco al botón Eliminar", async () => {

@@ -82,7 +82,7 @@ export function ClientDetailHeader({ clientId }: ClientDetailHeaderProps) {
               href={tab.href}
               aria-current={active ? "page" : undefined}
               className={cn(
-                "px-3 py-2 text-sm font-medium whitespace-nowrap border-b-2 -mb-px transition-colors",
+                "flex-1 sm:flex-none px-2 sm:px-3 py-2 text-center sm:text-left text-sm font-medium whitespace-normal sm:whitespace-nowrap border-b-2 -mb-px transition-colors",
                 active
                   ? "border-primary text-foreground"
                   : "border-transparent text-muted-foreground hover:text-foreground",

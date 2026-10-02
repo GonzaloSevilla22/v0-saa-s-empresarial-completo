@@ -73,7 +73,11 @@ export default function QuoteDetailPage() {
   const { roles, rolesResolved } = useOrgRole()
   const { products } = useProducts()
   const { unitsById } = useUnitsOfMeasure()
-  const { data: quote, isLoading, isError } = useQuote(quoteId)
+  // Una vez eliminado, la pantalla deja de observar el presupuesto: si siguiera
+  // montada, el observador reconstruiría la entrada de caché que borra el hook
+  // y volvería a pedir `GET /quotes/<id>` (404) antes de que termine la navegación.
+  const [deleted, setDeleted] = useState(false)
+  const { data: quote, isLoading, isError } = useQuote(deleted ? null : quoteId)
   const transition = useTransitionQuote()
   const deleteQuote = useDeleteQuote()
 
@@ -134,6 +138,7 @@ export default function QuoteDetailPage() {
     setDeleting(true)
     try {
       await deleteQuote.mutateAsync(quoteId)
+      setDeleted(true)
       toast.success("Presupuesto eliminado")
       router.push("/presupuestos")
     } catch (err: unknown) {
@@ -337,13 +342,13 @@ export default function QuoteDetailPage() {
       <Card className="border-border bg-card min-w-0">
         <CardContent className="p-0">
           <div className="overflow-x-auto">
-            <table aria-label="Líneas del presupuesto" className="w-full min-w-[480px] text-sm">
+            <table aria-label="Líneas del presupuesto" className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border text-left">
-                  <th scope="col" className="px-4 py-3 font-medium text-muted-foreground">Descripción</th>
-                  <th scope="col" className="px-4 py-3 text-right font-medium text-muted-foreground">Cant.</th>
-                  <th scope="col" className="px-4 py-3 text-right font-medium text-muted-foreground">Precio unit.</th>
-                  <th scope="col" className="px-4 py-3 text-right font-medium text-muted-foreground">Subtotal</th>
+                  <th scope="col" className="px-2 py-3 sm:px-4 font-medium text-muted-foreground">Descripción</th>
+                  <th scope="col" className="px-2 py-3 sm:px-4 text-right font-medium text-muted-foreground">Cant.</th>
+                  <th scope="col" className="px-2 py-3 sm:px-4 text-right font-medium text-muted-foreground">Precio unit.</th>
+                  <th scope="col" className="px-2 py-3 sm:px-4 text-right font-medium text-muted-foreground">Subtotal</th>
                 </tr>
               </thead>
               <tbody>
@@ -351,12 +356,12 @@ export default function QuoteDetailPage() {
                   const hint = catalogPriceHint(item, products, unitsById)
                   return (
                     <tr key={item.id} className="border-b border-border/50 last:border-b-0">
-                      <td className="px-4 py-3 text-foreground">{item.name_snapshot ?? "—"}</td>
-                      <td className="px-4 py-3 text-right tabular-nums whitespace-nowrap">
+                      <td className="px-2 py-3 sm:px-4 break-words text-foreground">{item.name_snapshot ?? "—"}</td>
+                      <td className="px-2 py-3 sm:px-4 text-right tabular-nums whitespace-nowrap">
                         {formatNumber(Number(item.quantity), 4)}
                         {item.unit_symbol ? ` ${item.unit_symbol}` : ""}
                       </td>
-                      <td className="px-4 py-3 text-right tabular-nums whitespace-nowrap">
+                      <td className="px-2 py-3 sm:px-4 text-right tabular-nums whitespace-nowrap">
                         {formatMoney(Number(item.price))}
                         {hint !== null && (
                           <span className="block text-[11px] text-muted-foreground">
@@ -364,7 +369,7 @@ export default function QuoteDetailPage() {
                           </span>
                         )}
                       </td>
-                      <td className="px-4 py-3 text-right font-medium tabular-nums whitespace-nowrap text-foreground">
+                      <td className="px-2 py-3 sm:px-4 text-right font-medium tabular-nums whitespace-nowrap text-foreground">
                         {formatMoney(Number(item.subtotal))}
                       </td>
                     </tr>

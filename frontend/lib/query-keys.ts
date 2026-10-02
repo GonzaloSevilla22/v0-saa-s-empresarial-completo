@@ -1,3 +1,4 @@
+import type { DeliveryNoteListFilters } from "@/lib/delivery-note-types"
 import type { QuoteListFilters } from "@/lib/quote-types"
 
 /**
@@ -125,6 +126,14 @@ export const queryKeys = {
   quoteSettings: {
     all: () => ["quote-settings"] as const,
     get: (accountId: string) => ["quote-settings", accountId] as const,
+  },
+  // remitos-venta (D11): remitos de venta/compra — GET/POST/PUT /delivery-notes.
+  deliveryNotes: {
+    all:    () => ["deliveryNotes"] as const,
+    lists:  () => ["deliveryNotes", "list"] as const,
+    /** El listado depende de los filtros — `lists()` es su prefijo. */
+    list:   (filters: DeliveryNoteListFilters) => ["deliveryNotes", "list", filters] as const,
+    detail: (id: string) => ["deliveryNotes", "detail", id] as const,
   },
   salesOrders: {
     all:    () => ["salesOrders"] as const,

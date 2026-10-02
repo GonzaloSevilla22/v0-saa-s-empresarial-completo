@@ -238,7 +238,7 @@
   **Hecho 2026-10-01** (`components/quotes/QuoteSettingsCard.tsx`, `app/(dashboard)/configuracion/page.tsx`; `__tests__/components/QuoteSettingsCard.test.tsx`, 24 casos + casos en `ConfiguracionPage-balanza-tab.test.tsx`; los dos tests de la página suman el stub de la tarjeta). Suma `CAN_CONFIGURE` al espejo `lib/rbac-capabilities.ts`, atado por test a `backend/core/rbac.py`. `noValidate` en el formulario: con los atributos `min`/`max` el navegador bloqueaba el envío con su propio tooltip y el mensaje del proyecto nunca aparecía.
 ## 6. Tanda B: conversión atómica a venta
 
-- [ ] 6.1 RED — gate `supabase/tests/test_presupuesto_a_venta.sql` (fixtures propios, cleanup asertado), con la matriz de D14:
+- [x] 6.1 RED — gate `supabase/tests/test_presupuesto_a_venta.sql` (fixtures propios, cleanup asertado), con la matriz de D14:
   - feliz `cash`: stock −, caja, `SaleConfirmed`, quote `accepted`, orden `confirmed` con `source_quote_id` y `sale_operation_id`, historial de los dos documentos;
   - `credit`: cargo con vencimiento por cascada, sin caja;
   - `transfer` con cuenta bancaria: `bank_movements`;
@@ -262,11 +262,15 @@
   - `SET ROLE authenticated` + claims → `rpc_accept_quote` rechazada por permisos (`42501`), sin orden nueva, y candado de su firma para el chequeo (3) del gate de ACLs;
   - versión vieja (el presupuesto se editó después de abrir el diálogo) → `P0409 quote_changed` y cero efectos;
   - presupuesto `accepted` con un producto dado de baja después, convertido con otra clave → `P0409 quote_invalid_state` (estado antes que los guards de convertibilidad), y un vencido con un producto dado de baja → `P0409 quote_expired`.
-- [ ] 6.2 RED — `supabase/tests/test_presupuesto_a_venta_race.sh` (molde `test_ventas_unidades_conversion_race.sh`):
+
+  **Hecho 2026-10-02** (commit `c78b17a1`). Usuarios reales owner/seller/cashier de A (una sola membresía) + owner de B; caja abierta en A y en B, cuenta bancaria de A, formas de pago sembradas por `handle_new_user`. Bloques (a)/(a') cash + precio y snapshots (catálogo remarcado, renombrado y con costo nuevo DESPUÉS de cotizar: `sales_order_items` conserva los del presupuesto, `sale_items`/`stock_movements` congelan el costo vigente), (b) crédito **ejecutada como `authenticated` por el vendedor** (vencimiento hoy + 30 por el plazo del cliente, sin caja), (c) versión vieja → `quote_changed` y luego transferencia **desde `draft`** con sucursal elegida (no la default), (d) stock insuficiente con la huella `pv_effects` (12 conteos: órdenes, líneas, ventas, `sale_items`, movimientos y suma de stock, caja, cuenta corriente, banco, eventos, historial y estados) idéntica antes/después, (e-h), (i-m, r) — además: id inexistente, clave vacía, versión nula (`quote_revision_required`), sucursal ajena (`P0404 branch_not_found`) y cerrada (`P0422 branch_closed`) —, (n) replay, (o/p) clave ajena y segunda conversión, (p') ya convertido + baja → `quote_invalid_state`, (q) línea de servicio, (s) regresión de `rpc_accept_quote` (resultado `{sales_order_id, quote_id, status}`, orden draft, líneas copia exacta con `EXCEPT ALL` en los dos sentidos, historial, payload de `QuoteAccepted`, sin stock ni `SaleConfirmed`), (t) 42501 + candado de firma y (u) introspección (una definición, ACLs, wrapper que delega con su `COMMENT` vivo, `FOR UPDATE` del núcleo, orden lock → idempotencia → aceptación → confirmación). La limpieza incluye `cash_movements`/`cash_sessions`/`cashboxes` (no tienen `account_id`) y el residuo cero se asserta. **RED visto**: `42883 rpc_convert_quote_to_sale(...) does not exist` en todos los bloques de conversión; (s) y (t) ya pasaban contra la tanda A (línea de base de la regresión).
+- [x] 6.2 RED — `supabase/tests/test_presupuesto_a_venta_race.sh` (molde `test_ventas_unidades_conversion_race.sh`):
   - dos sesiones convierten el mismo presupuesto a la vez → exactamente una venta, un `accepted` y un `QuoteAccepted`;
   - dos sesiones convierten **presupuestos distintos con la misma clave** a la vez → una venta, un `P0409 idempotency_key_conflict`, el otro presupuesto en su estado y 0 órdenes `draft`;
   - una sesión borra y otra convierte el mismo `draft` nunca enviado → o venta con el presupuesto `accepted` y `source_quote_id` intacto (el borrado recibe `quote_not_deletable`), o presupuesto borrado y conversión con `quote_not_found`; nunca una orden con `source_quote_id` NULL.
-- [ ] 6.3 GREEN — `20261068000001_presupuestos_conversion_venta.sql`:
+
+  **Hecho 2026-10-02** (commit `c78b17a1`). Guion determinista por caso (sin sleeps a ciegas): portero con advisory exclusivo → A ejecuta y queda con la transacción abierta esperando el advisory compartido → B se lanza y el script **exige verla bloqueada** en un lock de fila/transacción (`pg_stat_activity.wait_event_type = 'Lock'`, distinto de `advisory`; si no, falla "sin bloqueo no hay carrera") → se suelta A. Cinco casos: (1a) mismo presupuesto con claves distintas → `quote_invalid_state`; (1b) misma clave (doble clic) → replay de la misma venta; (2) misma clave sobre dos presupuestos → `idempotency_key_conflict`, el otro en `sent`, 0 órdenes draft y 0 `QuoteAccepted` suyos; (3a) conversión abierta vs borrado → `quote_not_deletable`, venta con su presupuesto; (3b) borrado abierto vs conversión → `quote_not_found`. Al final: 0 órdenes con `source_quote_id` NULL y exactamente 4 órdenes. **RED visto**: A aborta con `42883`. Localmente corre dentro del contenedor (`docker exec … bash`, `DB_URL` al 5432 interno) porque el host no tiene `psql`.
+- [x] 6.3 GREEN — `20261068000001_presupuestos_conversion_venta.sql`:
   - `_quote_accept_core(p_quote_id, p_branch_id)` desde el cuerpo **vivo** de 0.3, con **sólo** los dos cambios de D6 (`FOR UPDATE` y el parámetro de sucursal validado);
   - `rpc_accept_quote` como wrapper (`CREATE OR REPLACE`, misma firma, `COMMENT` vivo re-declarado) + `REVOKE EXECUTE … FROM PUBLIC, anon, authenticated` explícito (el `CREATE OR REPLACE` conservaría el `GRANT` de C-29; D6);
   - `rpc_convert_quote_to_sale` (D6, pasos 1-7 y 3b), incluidos la validación de estado, vencimiento y `p_expected_revision` sobre la fila bloqueada (paso 3b, antes de los guards), los guards de cliente vivo y producto no padre (paso 4) y el `RAISE 'idempotency_key_conflict'` cuando el núcleo devuelve `replayed = true` (paso 6);
@@ -275,13 +279,41 @@
   - **Nota (revisión adversarial F2, tanda A)**: el `REVOKE EXECUTE` de `rpc_accept_quote` ya está en `20261067000001` (sin consumidores desde el retiro del endpoint); acá basta con no re-otorgarlo.
   
   Anotar acá el diff del núcleo contra el cuerpo vivo, que debe limitarse a esos dos cambios.
-- [ ] 6.3b Adaptar gates existentes a la tanda B:
+
+  **Hecho 2026-10-02** (commit `559ebf44`). El núcleo se **generó por script** desde `scratchpad-presupuestos/prod-live-b/rpc_accept_quote.local.sql` (cuerpo vivo; md5 sin CR de prod == local), con un reemplazo por cambio que exige una sola aparición. Diff completo contra el vivo (abreviado sólo en los textos de los mensajes):
+  ```diff
+  -CREATE OR REPLACE FUNCTION public.rpc_accept_quote(p_quote_id uuid)
+  +CREATE OR REPLACE FUNCTION public._quote_accept_core(p_quote_id uuid, p_branch_id uuid)
+     v_branch_id      uuid;
+  +  v_branch         RECORD;
+     FROM public.quotes
+  -  WHERE id = p_quote_id;
+  +  WHERE id = p_quote_id
+  +  FOR UPDATE;  -- presupuestos-modulo (D6, cambio 1 de 2): cierra la doble aceptación
+  -  -- Resolver branch: preferir branch del quote, sino default
+  +  -- presupuestos-modulo (D6, cambio 2 de 2): (comentario de 3 líneas)
+  +  IF p_branch_id IS NOT NULL THEN
+  +    SELECT id, status INTO v_branch FROM public.branches
+  +    WHERE id = p_branch_id AND account_id = v_account_id AND is_active = TRUE;
+  +    IF NOT FOUND THEN RAISE EXCEPTION 'branch_not_found: ...' USING ERRCODE = 'P0404'; END IF;
+  +    IF v_branch.status = 'closed' THEN RAISE EXCEPTION 'branch_closed: ...' USING ERRCODE = 'P0422'; END IF;
+  +  END IF;
+  +  -- Resolver branch: la indicada, si no la del quote, si no la default
+     v_branch_id := COALESCE(
+  +    p_branch_id,
+       v_quote.branch_id,
+  ```
+  Fuera de los dos cambios de D6 sólo cambian el nombre y la firma, la variable `v_branch` y el `;` final del `CREATE` (el predicado de sucursal es el de `rpc_create_quote`). `rpc_accept_quote`: wrapper `RETURN public._quote_accept_core(p_quote_id, NULL)`, `COMMENT` vivo re-declarado literal, `REVOKE ALL … FROM PUBLIC, anon, authenticated` re-ejecutado (nunca re-otorgado; hace falta porque la cadena de reaplicación de CI reaplica `20261045000001`, que deja el cuerpo propio: verificado en una transacción revertida 45 → 67 → 68, el ACL queda `{postgres, service_role}` y el cuerpo vuelve a ser el wrapper). `rpc_convert_quote_to_sale`: pasos 1-7 y 3b de D6; `_c29_confirm_order_core` **sin tocar**. Desvíos menores, documentados en la migración: `p_expected_revision` nula → `P0400 quote_revision_required` (con NULL el `<>` dejaba pasar una conversión sin versión); el guard de cliente dispara sólo para un cliente **de la cuenta dado de baja** (`quote_client_unavailable`), y uno de otra cuenta lo sigue rechazando el núcleo con `client_not_found` (los dos literales que pide 6.5). GREEN: todos los bloques de 6.1 y las 5 carreras de 6.2. **Controles negativos ejecutados** (migración mutada y re-aplicada): estado después de los guards → falla (p'); sin `deleted_at` en el guard de producto → falla (f) (el núcleo de venta intentaba vender y caía en `stock_insuficiente`); sin guard de cliente → falla (h) con un cargo posteado; sin `p_branch_id` en la sucursal → falla (c); sin `FOR UPDATE` en la conversión → falla la carrera (1b); sin el `RAISE` ante el replay del núcleo → falla la carrera (2).
+- [x] 6.3b Adaptar gates existentes a la tanda B:
   - `test_operacion_party_guard.sql` bloque (7): el candado de cuerpo pasa de `rpc_accept_quote(uuid)` a `_quote_accept_core(uuid, uuid)` (`client_not_found` antes de `INSERT INTO public.sales_orders`) y se suma un assert de que `rpc_accept_quote` delega en el núcleo;
   - ~~`test_operacion_party_guard.sql` bloque (8)~~ **hecho en la tanda A (F2)**: `rpc_accept_quote` sin `anon` y sin `authenticated`, las otras tres siguen igual;
   - ~~`test_function_acl_gate.sql`: `public.rpc_accept_quote(uuid)` en el chequeo (3)~~ **hecho en la tanda A (F2)**, con su comentario de por qué nunca se re-otorga;
   - `test_document_status_transition_role_matrix.sql`: `v_expected_callers` cambia `rpc_accept_quote` por `_quote_accept_core` (más `rpc_convert_quote_to_sale` si llama directo al helper);
   - anotar las cuatro adaptaciones en la entrada de `CHANGES.md`.
-- [ ] 6.4 Cablear los dos gates en `KPI_Validation.yml` y sumar `20261068000001` al final de la cadena de reaplicación de idempotencia.
+
+  **Hecho 2026-10-02** (commit `559ebf44`). RED visto con la migración aplicada: `(7-quote-cuerpo): rpc_accept_quote perdió el guard explícito` y `(5b): … YA NO invocan la función: {rpc_accept_quote}`. GREEN: el bloque (7) lee `_quote_accept_core(uuid, uuid)` (guard antes del `INSERT INTO public.sales_orders`) y suma `(7-quote-wrapper)`: `rpc_accept_quote` debe contener `_quote_accept_core(p_quote_id, NULL)` y ningún `INSERT INTO`; la matriz cambia el llamador y los comentarios de los pares `quote:draft|sent->accepted` y `sales_order:NULL->draft` (siguen 16 llamadores y 22 pares: `rpc_convert_quote_to_sale` delega y no llama al helper de historial). Las cuatro adaptaciones, anotadas en `CHANGES.md`.
+- [x] 6.4 Cablear los dos gates en `KPI_Validation.yml` y sumar `20261068000001` al final de la cadena de reaplicación de idempotencia.
+  **Hecho 2026-10-02**: pasos "Run presupuesto a venta gate" y "Run presupuesto a venta race gate (dos conexiones)" al final del job; reaplicación de `20261068000001` después de la de `20261067000001`, sin tolerancia (exige el OK de su introspección y el schema IDÉNTICO). Verificado contra un `npx supabase db reset` limpio del worktree (315 migraciones, `MAX = 20261068000001`): (1) la cola de la cadena posterior al reset (62 → 63 → 64 → 65 → 66 → 67 → 68) extraída del YAML y corrida tal cual: 7/7 idempotentes con schema idéntico; (2) el orden previo al reset (45 → 67 → 68) en una transacción revertida: el wrapper y el ACL `{postgres, service_role}` reconvergen; (3) los **98 pasos** del workflow que corren `supabase/tests/` (extraídos del YAML, en su orden, con `psql` dentro del contenedor y las migraciones copiadas para los `\i` relativos): **98/98 PASS**, incluidos los dos nuevos y los tres que en la tanda A se documentaron como artefactos locales (`test_cuentas_billetera_tipo.sql`, `test_membership_rpcs_pivot_rewrite.sql`, `test_unidades_decisiones_8_9.sql`), que esta vez pasaron sobre la base recién reseteada. Residuo cero de los gates nuevos.
 - [ ] 6.5 RED/GREEN — backend:
   - `QuoteConvertIn/Out` (`expected_revision` requerida; `quote_changed` → 409);
   - `QuoteRepository.convert_to_sale`;

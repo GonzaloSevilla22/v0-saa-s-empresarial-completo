@@ -1,0 +1,72 @@
+PASS  A crea presupuesto (201, P-00000001)  -> 201 P-00000001
+PASS  B crea su presupuesto (201)  -> 201
+PASS  PostgREST INSERT quotes como authenticated rechazado  -> 403 {"code":"42501","details":null,"hint":"Grant the required privileges to the current role with: GRANT INSERT ON public.qu
+PASS  PostgREST UPDATE quotes como authenticated rechazado  -> 403 {"code":"42501","details":null,"hint":"Grant the required privileges to the current role with: GRANT UPDATE ON public.qu
+PASS  PostgREST DELETE quotes como authenticated rechazado  -> 403 {"code":"42501","details":null,"hint":"Grant the required privileges to the current role with: GRANT DELETE ON public.qu
+PASS  PostgREST INSERT quote_items rechazado  -> 403 {"code":"42501","details":null,"hint":"Grant the required privileges to the current role with: GRANT INSERT ON public.qu
+PASS  PostgREST UPDATE quote_items rechazado  -> 403 {"code":"42501","details":null,"hint":"Grant the required privileges to the current role with: GRANT UPDATE ON public.qu
+PASS  PostgREST DELETE quote_items rechazado  -> 403 {"code":"42501","details":null,"hint":"Grant the required privileges to the current role with: GRANT DELETE ON public.qu
+PASS  el presupuesto quedó intacto tras los intentos directos  -> 3900.00
+PASS  PostgREST INSERT quotes como anon rechazado  -> 401
+PASS  PostgREST SELECT propio sigue funcionando  -> 200
+PASS  PostgREST SELECT del presupuesto de B por A -> 0 filas  -> 200 []
+PASS  rpc_delete_quote del presupuesto de B por A -> error P0404  -> 500 {"code":"P0404","details":null,"hint":null,"message":"quote_not_found: 96db0104-5112-4022-85a6-5ac26
+PASS  _next_internal_document_number no ejecutable por authenticated  -> 403
+PASS  _expire_overdue_quotes no ejecutable por authenticated  -> 403
+PASS  GET /quotes/<B> de otra cuenta -> 404  -> 404
+PASS  PUT /quotes/<B> de otra cuenta -> 404  -> 404
+PASS  DELETE /quotes/<B> de otra cuenta -> 404  -> 404
+PASS  POST /quotes/<B>/transition de otra cuenta -> 404  -> 404
+PASS  GET /quotes/<B>/pdf de otra cuenta -> 404  -> 404
+PASS  listado de A no incluye el de B  -> 200
+PASS  B no ve el presupuesto de A (404)  -> 404
+PASS  alta con producto de otra cuenta -> 404 product_not_found  -> 404 product_not_found
+PASS  alta con cliente de otra cuenta -> 404 client_not_found  -> 404 client_not_found
+PASS  edición con producto ajeno -> 404 y no altera  -> 404
+PASS  ningún snapshot ajeno quedó en la base  -> 0
+PASS  el presupuesto conserva 2 líneas y revision 1 tras el intento fallido  -> 2 rev 1
+PASS  edición válida con revision 1 -> 200 y revision 2  -> 200 rev 2
+PASS  edición con versión vieja -> 409 quote_changed  -> 409 quote_changed
+PASS  quote_changed no escribió nada (notas v2, rev 2)  -> v2 2
+PASS  send desde draft -> 200 sent  -> 200 sent
+PASS  doble send idempotente (200, sin historial duplicado)  -> 200 hist 2->2
+PASS  reject desde sent -> 200 rejected  -> 200 rejected
+PASS  doble reject -> 409 quote_invalid_state  -> 409 quote_invalid_state
+PASS  send desde rejected -> 409 quote_invalid_state  -> 409 quote_invalid_state
+PASS  transition accepted pedido por la API -> 422  -> 422
+PASS  editar un rejected lo reabre como draft  -> 200 draft
+PASS  eliminar un presupuesto que fue enviado -> 409 quote_not_deletable  -> 409 quote_not_deletable
+PASS  editar un accepted -> 409 quote_locked_converted (P0423)  -> 409 quote_locked_converted
+PASS  rechazar un accepted -> 409  -> 409
+PASS  eliminar un accepted -> 409 quote_not_deletable  -> 409
+PASS  POST /quotes/{id}/accept retirado (404/405)  -> 404
+PASS  PDF propio -> 200 application/pdf  -> 200 application/pdf
+PASS  PDF por un vendedor que no es el dueño -> 200  -> 200
+PASS  PDF por un cajero -> 200 (leer es de cualquier miembro)  -> 200
+PASS  cashier crear -> 403 insufficient_role  -> 403 insufficient_role
+PASS  cashier editar -> 403 insufficient_role  -> 403 insufficient_role
+PASS  cashier transition -> 403 insufficient_role  -> 403 insufficient_role
+PASS  cashier eliminar -> 403 insufficient_role  -> 403 insufficient_role
+PASS  cashier validez por defecto -> 403 insufficient_role  -> 403 insufficient_role
+PASS  cashier listar -> 200  -> 200
+PASS  cashier detalle -> 200  -> 200
+PASS  cashier rpc_create_quote directa -> rechazada (insufficient_role)  -> 500 {"code":"P0403","details":null,"hint":null,"message":"insufficient_role: tu rol no permite
+PASS  seller validez por defecto -> 403  -> 403
+PASS  owner validez 0 -> 422  -> 422
+PASS  owner validez 366 -> 422  -> 422
+PASS  owner validez 30 -> 200  -> 200
+PASS  seller crear -> 201  -> 201
+PASS  numeración concurrente HTTP (15): todas 201, distintas y correlativas  -> 4,5,6,7,8,9,10,11,12,13,14,15,16,17,18
+PASS  sin números duplicados en la cuenta  -> 0
+PASS  validez en el pasado -> 400 quote_valid_until_in_past  -> 400 quote_valid_until_in_past
+PASS  sin líneas -> 422  -> 422
+PASS  línea de servicio sin descripción -> 422  -> 422
+PASS  notas > 2000 -> 422  -> 422
+PASS  línea de servicio con texto hostil se guarda como dato (201)  -> 201
+PASS  la tabla quotes sigue existiendo  -> t
+PASS  PDF con texto hostil se genera (200)  -> 200
+PASS  id inválido -> 422 (no 500)  -> 422
+PASS  token inválido -> 401  -> 401
+PASS  sin token -> 401/403  -> 401
+
+TOTAL 70  FAIL 0

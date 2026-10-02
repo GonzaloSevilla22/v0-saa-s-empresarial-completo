@@ -24,8 +24,13 @@
 -- de escritura (`scale_settings_writer_insert`/`scale_settings_writer_update`),
 -- ambas invocando is_account_writer(account_id) — subir el conteo al sumar una
 -- tabla nueva con escritura RLS-gated es esperado, no sospechoso.
+-- presupuestos-modulo (20261067000001) lo baja de 49/20 a 45/18: retira a
+-- propósito las 4 policies de escritura directa de `quotes`/`quote_items`
+-- (`quotes_insert`, `quotes_update`, `quote_items_insert`,
+-- `quote_items_update`, D2) — desde ese change el presupuesto se escribe SÓLO
+-- por RPC SECURITY DEFINER, mismo criterio que fiscal_documents en R2.
 --
---   (1) estructura: la firma no cambió y las 49 policies sobre 20 tablas
+--   (1) estructura: la firma no cambió y las 45 policies sobre 18 tablas
 --       siguen existiendo (8.2) — no depende de datos, corre siempre.
 --   (2) un miembro con un rol que CONCEDE escritura (is_writer=true, p.ej.
 --       'seller') -> is_account_writer = true (8.1).
@@ -46,7 +51,7 @@
 -- y no se aborta el gate completo por esto.
 -- =============================================================================
 
--- ── (1) Estructura: firma sin cambios + 47 policies / 19 tablas ─────────────
+-- ── (1) Estructura: firma sin cambios + 45 policies / 18 tablas ─────────────
 DO $$
 DECLARE
   v_nargs   int;
@@ -65,11 +70,11 @@ BEGIN
   WHERE schemaname = 'public'
     AND (qual ILIKE '%is_account_writer%' OR with_check ILIKE '%is_account_writer%');
 
-  IF v_n_pol <> 49 OR v_n_tab <> 20 THEN
-    RAISE EXCEPTION 'GATE FAILED (1): se esperaban 49 policies sobre 20 tablas invocando is_account_writer, hay % sobre %. (El conteo subió de 47/19 a 49/20 en balanza-etiquetas-pos, que sumó scale_settings con sus 2 policies de escritura — ver la cabecera.)', v_n_pol, v_n_tab;
+  IF v_n_pol <> 45 OR v_n_tab <> 18 THEN
+    RAISE EXCEPTION 'GATE FAILED (1): se esperaban 45 policies sobre 18 tablas invocando is_account_writer, hay % sobre %. (El conteo bajó de 49/20 a 45/18 en presupuestos-modulo, que retiró las 4 policies de escritura directa de quotes/quote_items — ver la cabecera.)', v_n_pol, v_n_tab;
   END IF;
 
-  RAISE NOTICE 'PASS (1): is_account_writer conserva su firma (1 arg) y las 49 policies sobre 20 tablas.';
+  RAISE NOTICE 'PASS (1): is_account_writer conserva su firma (1 arg) y las 45 policies sobre 18 tablas.';
 END $$;
 
 

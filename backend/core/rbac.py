@@ -36,6 +36,14 @@ CAN_CASH: frozenset[str] = frozenset({"owner", "admin", "cashier"})
 CAN_STOCK: frozenset[str] = frozenset({"owner", "admin", "stock"})
 CAN_PURCHASE: frozenset[str] = frozenset({"owner", "admin", "purchases"})
 CAN_ACCOUNT: frozenset[str] = frozenset({"owner", "admin", "accountant"})
+# presupuestos-modulo (D11): crear, editar, enviar, rechazar, eliminar y
+# convertir presupuestos. ESPEJA los `allowed_role` de las transiciones de
+# `quote` del catálogo `document_status_transitions` (seed de
+# v3-rbac-multirole + las dos filas de reapertura de 20261067000001): un test
+# (`backend/tests/test_quotes_module.py::TestCanQuote`) lee esas migraciones y
+# falla si divergen. El cajero lee presupuestos pero no los escribe: la
+# conversión compromete una cotización, no sólo cobra un mostrador.
+CAN_QUOTE: frozenset[str] = frozenset({"owner", "admin", "seller"})
 
 # auth-hardening-jwt-cookies D12 — registro EXPLÍCITO de las capacidades para
 # las que la base es la autoridad y el claim es sólo un caché.

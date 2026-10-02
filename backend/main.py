@@ -193,6 +193,7 @@ app.include_router(payments.router)
 app.include_router(cash.router)
 # C-29 v21-quote-salesorder
 app.include_router(quotes.router)
+app.include_router(quotes.settings_router)
 app.include_router(sales_orders.router)
 # C-25 v20-outbox-activation
 app.include_router(outbox.router)

@@ -49,27 +49,23 @@ el guard en sí), con MOLDE en backend/tests/test_cuenta_corriente_party_guard.p
      venta-editable-sin-cae, a diferencia de purchase — el mock se monta
      sobre `conn.fetchval`.
 
-  5. "accept quote" (rpc_accept_quote, vía POST /quotes/{id}/accept) — NUEVO
-     [RONDA 1, MAJOR: el guard nuevo de esta ronda]. `quotes_service.
-     accept_quote` tiene su PROPIO `_map_postgres_error` (backend/services/
-     quotes.py) — mismo patrón que "confirm order": P0404 genérico →
-     HTTPException(404, "No encontrado: ..."), sin distinguir el ERRCODE por
-     mensaje (a diferencia de sales_orders.py, que sí discrimina). Test a
-     nivel service con repo mockeado, mismo nivel que "confirm order".
+  5. "accept quote" (rpc_accept_quote, vía POST /quotes/{id}/accept) — RETIRADO
+     por presupuestos-modulo (tanda A, task 2.6): el endpoint y
+     `quotes_service.accept_quote` ya no existen (D12; la única vía a `accepted`
+     es la conversión a venta). El bloque vuelve en la tanda B (task 6.5)
+     reescrito sobre `convert_quote`: `P0404 client_not_found` y `P0404
+     quote_client_unavailable` -> 404 RFC 7807 con su `code`, más el control
+     negativo. La regresión del guard SQL de `rpc_accept_quote` sigue en el gate
+     supabase/tests/test_operacion_party_guard.sql.
 
-  6. "create quote" (QuoteRepository.create_quote, vía POST /quotes) — NUEVO
-     [RONDA 2, finding MINOR]. A diferencia de los 5 anteriores, este guard
-     NO vive en una RPC SQL: `quotes` no es una de las 3 tablas en alcance de
-     la migración 20261045000001 (sales/purchases/sales_orders), pero
-     `QuoteRepository.create_quote` hacía un INSERT directo de `client_id`
-     SIN validar tenencia (sólo RLS de `account_id`, que no scopea el FK a
-     `clients`) — el hueco real que `rpc_accept_quote` (5) sólo intercepta en
-     el momento de ACEPTAR, no al crearse. El guard vive en
-     `quotes_service.create_quote` (`QuoteRepository.client_belongs_to_account`,
-     nuevo), ANTES de invocar `repo.create_quote` — nunca confía sólo en la
-     RLS. Mismo ERRCODE/mensaje (`P0404`, `client_not_found: <id>`) para que
-     `humanizeOperationError` lo traduzca igual sin importar qué capa lo
-     rechazó. Test a nivel service con repo mockeado.
+  6. "create quote" (rpc_create_quote, vía POST /quotes) — REESCRITO por
+     presupuestos-modulo (task 2.6). Antes el guard era un pre-chequeo Python
+     (`QuoteRepository.client_belongs_to_account`) porque el alta era un INSERT
+     directo. Ahora la tenencia del cliente la resuelve la RPC con el mismo
+     `P0404 client_not_found: <id>` y el service lo mapea a 404 RFC 7807 con
+     `code = client_not_found`: un `client_id` ajeno sigue respondiendo
+     `client_not_found`, pero desde la base y no desde Python. Test a nivel
+     service con repo mockeado.
 
 Control negativo: un sqlstate NO mapeado sigue dando 500 en los CUATRO
 caminos SQL nuevos — sin esto, un `except` demasiado ancho haría pasar todo
@@ -349,187 +345,108 @@ class TestUpdateSaleOperationPartyGuardHttp:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 5 — "accept quote" (rpc_accept_quote, vía POST /quotes/{id}/accept)
-#     [RONDA 1, MAJOR] — guard nuevo de esta ronda. quotes_service.accept_quote
-#     tiene su PROPIO _map_postgres_error (backend/services/quotes.py), mismo
-#     patrón que "confirm order": P0404 -> HTTPException(404, "No encontrado: ...").
+# 5 — "accept quote": RETIRADO hasta la tanda B (ver el docstring del módulo).
 # ═══════════════════════════════════════════════════════════════════════════════
 
-class TestAcceptQuotePartyGuardHttp:
 
-    @pytest.mark.asyncio
-    async def test_accept_quote_with_foreign_client_returns_404(self):
-        """Aceptar un presupuesto cuyo client_id resultó ser de otro tenant
-        (guard nuevo de la RONDA 1 en rpc_accept_quote) → 404, no 500."""
-        from backend.services import quotes as svc
+# ═══════════════════════════════════════════════════════════════════════════════
+# 6 — "create quote" (rpc_create_quote, vía POST /quotes)
+#     presupuestos-modulo (task 2.6): el guard de tenencia del cliente vive en la
+#     RPC (P0404 `client_not_found: <id>`, el mismo literal que los otros cuatro
+#     caminos) y el service lo traduce a 404 RFC 7807 con su `code` estable.
+# ═══════════════════════════════════════════════════════════════════════════════
 
-        mock_repo = AsyncMock()
-        mock_repo.accept_quote.side_effect = _pg_error("P0404", CLIENT_NOT_FOUND_MSG)
+def _quote_payload_for(client_id: str):
+    from backend.schemas.quotes import QuoteIn, QuoteItemIn
 
-        with pytest.raises(HTTPException) as exc_info:
-            await svc.accept_quote(
-                mock_repo, _auth(), "11111111-1111-1111-1111-111111111111"
+    return QuoteIn(
+        client_id=uuid.UUID(client_id),
+        items=[
+            QuoteItemIn(
+                product_id=uuid.UUID(PRODUCT_ID),
+                quantity=Decimal("1"),
+                price=Decimal("1000"),
+                subtotal=Decimal("1000"),
             )
-
-        assert exc_info.value.status_code == 404
-        assert "client_not_found" in str(exc_info.value.detail)
-
-    @pytest.mark.asyncio
-    async def test_unmapped_sqlstate_on_accept_quote_path_still_500(self):
-        """CONTROL NEGATIVO: un sqlstate sin mapear sigue dando 500 — sin
-        esto, el test de arriba pasaría por un `except` demasiado ancho."""
-        from backend.services import quotes as svc
-
-        mock_repo = AsyncMock()
-        mock_repo.accept_quote.side_effect = _pg_error(
-            "P0999", "errcode inventado que nadie mapea"
-        )
-
-        with pytest.raises(HTTPException) as exc_info:
-            await svc.accept_quote(
-                mock_repo, _auth(), "11111111-1111-1111-1111-111111111111"
-            )
-
-        assert exc_info.value.status_code == 500
+        ],
+    )
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# 6 — "create quote" (QuoteRepository.create_quote, vía POST /quotes)
-#     [RONDA 2, finding MINOR] — guard EN PYTHON, no en una RPC SQL: `quotes`
-#     no es una de las 3 tablas en alcance de la migración 20261045000001,
-#     pero el INSERT directo de client_id sin validar tenencia dejaba
-#     materializar un quote cross-tenant que rpc_accept_quote (5, arriba) sólo
-#     intercepta al ACEPTAR, no al crearse. El guard vive en
-#     quotes_service.create_quote (ANTES de repo.create_quote), consultando
-#     repo.client_belongs_to_account (nuevo en QuoteRepository) — nunca
-#     confía sólo en la RLS de account_id.
-# ═══════════════════════════════════════════════════════════════════════════════
+def _seller_auth() -> dict:
+    return {**_auth(), "account_roles": ["seller"]}
+
 
 class TestCreateQuotePartyGuard:
 
     @pytest.mark.asyncio
-    async def test_create_quote_with_foreign_client_returns_404(self):
-        """Un client_id de otro tenant se rechaza con 404 ANTES del INSERT —
-        el guard es Python puro (no un PostgresError), y repo.create_quote
-        nunca llega a invocarse."""
+    async def test_create_quote_with_foreign_client_returns_404_client_not_found(self):
+        """Un client_id de otro tenant lo rechaza la RPC con P0404 y el service
+        lo devuelve como 404 `client_not_found` — no 500, no un detalle opaco."""
         from backend.services import quotes as svc
-        from backend.schemas.quotes import QuoteIn, QuoteItemIn
 
         mock_repo = AsyncMock()
-        mock_repo.client_belongs_to_account.return_value = False
-
-        payload = QuoteIn(
-            client_id=uuid.UUID(FOREIGN_CLIENT_ID),
-            items=[
-                QuoteItemIn(
-                    product_id=uuid.UUID(PRODUCT_ID),
-                    quantity=Decimal("1"),
-                    price=Decimal("1000"),
-                    subtotal=Decimal("1000"),
-                )
-            ],
-        )
+        mock_repo.create_quote.side_effect = _pg_error("P0404", CLIENT_NOT_FOUND_MSG)
 
         with pytest.raises(HTTPException) as exc_info:
             await svc.create_quote(
-                repo=mock_repo,
-                auth=_auth(),
-                payload=payload,
-                created_by="test-uid",
-                account_id=str(TEST_ACCOUNT_ID),
+                mock_repo, _seller_auth(), str(TEST_ACCOUNT_ID),
+                _quote_payload_for(FOREIGN_CLIENT_ID), conn=AsyncMock(),
             )
 
         assert exc_info.value.status_code == 404
-        assert "client_not_found" in str(exc_info.value.detail)
-        mock_repo.client_belongs_to_account.assert_awaited_once_with(
-            FOREIGN_CLIENT_ID, str(TEST_ACCOUNT_ID)
-        )
-        mock_repo.create_quote.assert_not_awaited()
+        assert exc_info.value.code == "client_not_found"
+        assert FOREIGN_CLIENT_ID in str(exc_info.value.detail)
+        mock_repo.get_quote.assert_not_awaited()  # no se leyó nada: la RPC falló antes de escribir
 
     @pytest.mark.asyncio
     async def test_create_quote_with_own_client_still_creates(self):
-        """CONTROL POSITIVO: client_id PROPIO no debe sobre-bloquear — el
-        guard no debe romper el camino feliz."""
+        """CONTROL POSITIVO: un client_id propio no se sobre-bloquea."""
         from backend.services import quotes as svc
-        from backend.schemas.quotes import QuoteIn, QuoteItemIn
 
         mock_repo = AsyncMock()
-        mock_repo.client_belongs_to_account.return_value = True
         mock_repo.create_quote.return_value = {
             "id": "dddddddd-dddd-dddd-dddd-dddddddddddd",
             "account_id": str(TEST_ACCOUNT_ID),
+        }
+        mock_repo.get_quote.return_value = {
+            "id": "dddddddd-dddd-dddd-dddd-dddddddddddd",
+            "account_id": str(TEST_ACCOUNT_ID),
             "branch_id": None,
-            "client_id": FOREIGN_CLIENT_ID,  # reusado solo como uuid válido; acá es "propio"
+            "client_id": FOREIGN_CLIENT_ID,  # reusado sólo como uuid válido; acá es "propio"
             "status": "draft",
             "valid_until": None,
             "total": Decimal("1000.00"),
-            "created_by": "test-uid",
+            "created_by": "11111111-1111-1111-1111-111111111111",
             "created_at": "2026-09-10T00:00:00",
+            "number": 1,
+            "revision": 1,
+            "items": [],
+            "history": [],
         }
 
-        payload = QuoteIn(
-            client_id=uuid.UUID(FOREIGN_CLIENT_ID),
-            items=[
-                QuoteItemIn(
-                    product_id=uuid.UUID(PRODUCT_ID),
-                    quantity=Decimal("1"),
-                    price=Decimal("1000"),
-                    subtotal=Decimal("1000"),
-                )
-            ],
-        )
-
         result = await svc.create_quote(
-            repo=mock_repo,
-            auth=_auth(),
-            payload=payload,
-            created_by="test-uid",
-            account_id=str(TEST_ACCOUNT_ID),
+            mock_repo, _seller_auth(), str(TEST_ACCOUNT_ID),
+            _quote_payload_for(FOREIGN_CLIENT_ID), conn=AsyncMock(),
         )
 
         mock_repo.create_quote.assert_awaited_once()
         assert result["id"] == "dddddddd-dddd-dddd-dddd-dddddddddddd"
 
     @pytest.mark.asyncio
-    async def test_create_quote_without_client_skips_guard(self):
-        """TRIANGULATE: client_id=None sigue siendo opcional — el guard no se
-        ejercita en absoluto (mismo criterio que el guard SQL, que también
-        sólo corre `IF p_client_id IS NOT NULL`)."""
+    async def test_unmapped_sqlstate_on_create_quote_path_is_not_disguised(self):
+        """CONTROL NEGATIVO: un sqlstate sin mapear no se disfraza de
+        `client_not_found` (ni de nada): sube tal cual y el handler global lo
+        resuelve como 500 genérico. Sin esto, el test de arriba pasaría por un
+        `except` demasiado ancho."""
         from backend.services import quotes as svc
-        from backend.schemas.quotes import QuoteIn, QuoteItemIn
 
         mock_repo = AsyncMock()
-        mock_repo.create_quote.return_value = {
-            "id": "dddddddd-dddd-dddd-dddd-dddddddddddd",
-            "account_id": str(TEST_ACCOUNT_ID),
-            "branch_id": None,
-            "client_id": None,
-            "status": "draft",
-            "valid_until": None,
-            "total": Decimal("1000.00"),
-            "created_by": "test-uid",
-            "created_at": "2026-09-10T00:00:00",
-        }
+        mock_repo.create_quote.side_effect = _pg_error("P0999", "errcode inventado que nadie mapea")
 
-        payload = QuoteIn(
-            client_id=None,
-            items=[
-                QuoteItemIn(
-                    product_id=uuid.UUID(PRODUCT_ID),
-                    quantity=Decimal("1"),
-                    price=Decimal("1000"),
-                    subtotal=Decimal("1000"),
-                )
-            ],
-        )
+        with pytest.raises(asyncpg.PostgresError) as exc_info:
+            await svc.create_quote(
+                mock_repo, _seller_auth(), str(TEST_ACCOUNT_ID),
+                _quote_payload_for(FOREIGN_CLIENT_ID), conn=AsyncMock(),
+            )
 
-        await svc.create_quote(
-            repo=mock_repo,
-            auth=_auth(),
-            payload=payload,
-            created_by="test-uid",
-            account_id=str(TEST_ACCOUNT_ID),
-        )
-
-        mock_repo.client_belongs_to_account.assert_not_awaited()
-        mock_repo.create_quote.assert_awaited_once()
+        assert exc_info.value.sqlstate == "P0999"

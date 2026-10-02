@@ -1,23 +1,32 @@
 """
 C-29 v21-quote-salesorder — Tests TDD (Strict TDD Mode).
 
-Comportamientos cubiertos:
-  ── Repository (Quote) ───────────────────────────────────────────────────────
-  - create_quote: hace INSERT en quotes y devuelve la fila
-  - list_quotes: hace SELECT en quotes filtrando por account_id
-  - get_quote: hace SELECT de una fila por id
-  - transition_quote: hace UPDATE del status
-  - accept_quote: invoca rpc_accept_quote y devuelve sales_order_id
+presupuestos-modulo (tanda A, task 2.6): el contrato del PRESUPUESTO migró a
+RPC (rpc_create_quote / rpc_update_quote / rpc_transition_quote /
+rpc_delete_quote) y su batería vive ahora en `test_quotes_module.py` (dobles) y
+`test_quotes_module_integration.py` (Postgres real). Este archivo conserva lo
+que sigue siendo suyo: el pedido de venta (SalesOrder).
 
+Se retiraron de acá, con su reemplazo:
+  - `TestQuoteRepository` (INSERT directo en quotes/quote_items, UPDATE del
+    status, `accept_quote`, `client_belongs_to_account`): el repositorio ya no
+    escribe esas tablas; la tenencia y el estado se verifican en
+    test_quotes_module.py (`TestRepositoryUsesRpcOnly`, `TestRepositoryReads`)
+    y contra la base real en la integración.
+  - `TestQuoteService` / `TestQuoteEndpoints`: rol `["user","admin"]` y
+    transiciones validadas en Python -> `CAN_QUOTE` + errores tipados RFC 7807
+    (`TestServiceRoleGuard`, `TestServiceBehavior`, `TestEndpoints`).
+  - Los casos de `POST /quotes/{id}/accept`: el endpoint se retiró (D12) y
+    `test_accept_endpoint_is_gone` lo verifica. La regresión de
+    `rpc_accept_quote` (8.3: la orden `draft` espejo con las mismas líneas) pasa
+    al gate SQL de la tanda B (`test_presupuesto_a_venta.sql`, tarea 6.1).
+
+Comportamientos que siguen cubiertos acá:
   ── Repository (SalesOrder) ──────────────────────────────────────────────────
   - confirm: invoca rpc_confirm_sales_order con los args correctos
   - quick_sale: invoca rpc_quick_sale con los args correctos
   - list_orders: hace SELECT en sales_orders
   - get_order: hace SELECT de una fila por id
-
-  ── Service (Quote) ───────────────────────────────────────────────────────────
-  - rol insuficiente → HTTPException 403
-  - accept con quote ya aceptado propaga el error del RPC como 409
 
   ── Service (SalesOrder) ──────────────────────────────────────────────────────
   - confirm propaga P0409 (stock insuficiente) como HTTP 409
@@ -25,18 +34,14 @@ Comportamientos cubiertos:
   - validación cross-field cash sin session → error 422 en schema (antes de DB)
 
   ── Endpoint HTTP ─────────────────────────────────────────────────────────────
-  - POST /quotes → 201
-  - POST /quotes/{id}/accept → 200 con sales_order_id
   - POST /sales-orders/{id}/confirm → 200
   - POST /sales-orders/quick-sale → 200
-  - GET /quotes → 200
   - GET /sales-orders → 200
   - member token → 403 en rutas de escritura
 
   ── Invariantes del dominio (TDD obligatorio) ─────────────────────────────────
   - 8.1: quickSale de 2 uds → branch_stock −2 (verificado vía lógica del RPC)
   - 8.2: stock 0 → "stock insuficiente" (P0409), orden no confirmada
-  - 8.3: Quote.accept() → SalesOrder con mismos ítems
   - 8.4: confirm falla a mitad → rollback total (todos los efectos parciales revertidos)
   - 8.5: idempotencia: doble quick-sale con la misma key → replayed=true, sin duplicar
 """
@@ -75,28 +80,7 @@ PRODUCT_ID      = "22222222-2222-2222-2222-222222222222"
 SESSION_ID      = "33333333-3333-3333-3333-333333333333"
 IDEMPOTENCY_KEY = "test-idempotency-key-001"
 
-QUOTE_ROW = {
-    "id":          QUOTE_ID,
-    "account_id":  ACCOUNT_ID,
-    "branch_id":   BRANCH_ID,
-    "client_id":   CLIENT_ID,
-    "status":      "draft",
-    "valid_until": None,
-    "total":       Decimal("1500.00"),
-    "created_by":  "11111111-1111-1111-1111-111111111111",
-    "created_at":  "2026-06-17T10:00:00",
-}
 
-QUOTE_ITEM_ROW = {
-    "id":         ITEM_ID,
-    "quote_id":   QUOTE_ID,
-    "account_id": ACCOUNT_ID,
-    "product_id": PRODUCT_ID,
-    "unit_id":    None,
-    "quantity":   Decimal("2.0000"),
-    "price":      Decimal("750.00"),
-    "subtotal":   Decimal("1500.00"),
-}
 
 SALES_ORDER_ROW = {
     "id":                 SALES_ORDER_ID,
@@ -113,11 +97,6 @@ SALES_ORDER_ROW = {
     "created_at":         "2026-06-17T10:05:00",
 }
 
-ACCEPT_RPC_RESULT = {
-    "sales_order_id": SALES_ORDER_ID,
-    "quote_id":       QUOTE_ID,
-    "status":         "accepted",
-}
 
 CONFIRM_RPC_RESULT = {
     "sales_order_id":  SALES_ORDER_ID,
@@ -141,304 +120,10 @@ QUICK_SALE_RPC_RESULT = {
 # ══════════════════════════════════════════════════════════════════════════════
 
 @pytest.fixture
-def quote_repo():
-    from backend.repositories.quote_repository import QuoteRepository
-    conn = AsyncMock()
-    return QuoteRepository(conn), conn
-
-
-@pytest.fixture
 def sales_order_repo():
     from backend.repositories.sales_order_repository import SalesOrderRepository
     conn = AsyncMock()
     return SalesOrderRepository(conn), conn
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# TASK 5.1 RED — REPOSITORY TESTS (Quote)
-# ══════════════════════════════════════════════════════════════════════════════
-
-class TestQuoteRepository:
-
-    @pytest.mark.asyncio
-    async def test_create_quote_inserts_into_quotes(self, quote_repo):
-        """create_quote hace INSERT en quotes y devuelve la fila."""
-        repo, conn = quote_repo
-        conn.fetchrow = AsyncMock(return_value=QUOTE_ROW)
-
-        result = await repo.create_quote(
-            account_id=ACCOUNT_ID,
-            branch_id=BRANCH_ID,
-            client_id=CLIENT_ID,
-            valid_until=None,
-            total=Decimal("1500.00"),
-            items=[{
-                "product_id": PRODUCT_ID,
-                "unit_id": None,
-                "quantity": "2.0000",
-                "price": "750.00",
-                "subtotal": "1500.00",
-            }],
-            created_by="11111111-1111-1111-1111-111111111111",
-        )
-
-        # Verificar que se hizo INSERT en quotes
-        query = conn.fetchrow.call_args[0][0].lower()
-        assert "insert" in query
-        assert "quotes" in query
-        assert result["id"] == QUOTE_ID
-
-    @pytest.mark.asyncio
-    async def test_create_quote_passes_account_id(self, quote_repo):
-        """Triangulación: account_id llega como argumento al INSERT."""
-        repo, conn = quote_repo
-        conn.fetchrow = AsyncMock(return_value=QUOTE_ROW)
-
-        await repo.create_quote(
-            account_id=ACCOUNT_ID,
-            branch_id=None,
-            client_id=None,
-            valid_until=None,
-            total=Decimal("500.00"),
-            items=[{
-                "product_id": None,
-                "unit_id": None,
-                "quantity": "1.0",
-                "price": "500.00",
-                "subtotal": "500.00",
-            }],
-            created_by="11111111-1111-1111-1111-111111111111",
-        )
-
-        args = conn.fetchrow.call_args[0]
-        assert ACCOUNT_ID in args
-
-    @pytest.mark.asyncio
-    async def test_create_quote_item_insert_congeals_snapshot_from_products(self, quote_repo):
-        """v3-snapshot-pattern: el INSERT de quote_items congela name/sku/cost
-        leyendo products en el mismo statement (join), sin un SELECT previo
-        separado — mismo principio D1 que los RPCs del hot path."""
-        repo, conn = quote_repo
-        conn.fetchrow = AsyncMock(return_value=QUOTE_ROW)
-        conn.execute = AsyncMock(return_value="INSERT 0 1")
-
-        await repo.create_quote(
-            account_id=ACCOUNT_ID,
-            branch_id=BRANCH_ID,
-            client_id=CLIENT_ID,
-            valid_until=None,
-            total=Decimal("1500.00"),
-            items=[{
-                "product_id": PRODUCT_ID,
-                "unit_id": None,
-                "quantity": "2.0000",
-                "price": "750.00",
-                "subtotal": "1500.00",
-            }],
-            created_by="11111111-1111-1111-1111-111111111111",
-        )
-
-        # El INSERT del ítem debe unir contra products para traer name/sku/cost
-        # y persistirlos en las columnas snapshot — no debe ser un INSERT plano.
-        item_query = conn.execute.call_args[0][0].lower()
-        assert "quote_items" in item_query
-        assert "products" in item_query
-        assert "name_snapshot" in item_query
-        assert "sku_snapshot" in item_query
-        assert "unit_cost_snapshot" in item_query
-
-    @pytest.mark.asyncio
-    async def test_create_quote_service_line_item_has_no_product_join_failure(self, quote_repo):
-        """Triangulación: línea de servicio (product_id=None) no debe fallar
-        el join contra products — name_snapshot queda NULL (payload no trae
-        nombre de servicio en este schema; sku/cost/iva ya son NULL por diseño)."""
-        repo, conn = quote_repo
-        conn.fetchrow = AsyncMock(return_value=QUOTE_ROW)
-        conn.execute = AsyncMock(return_value="INSERT 0 1")
-
-        await repo.create_quote(
-            account_id=ACCOUNT_ID,
-            branch_id=None,
-            client_id=None,
-            valid_until=None,
-            total=Decimal("500.00"),
-            items=[{
-                "product_id": None,
-                "unit_id": None,
-                "quantity": "1.0",
-                "price": "500.00",
-                "subtotal": "500.00",
-            }],
-            created_by="11111111-1111-1111-1111-111111111111",
-        )
-
-        # No debe reventar; el execute se llamó igual para la línea de servicio.
-        assert conn.execute.await_count == 1
-
-    @pytest.mark.asyncio
-    async def test_list_quotes_queries_account(self, quote_repo):
-        """list_quotes filtra por account_id."""
-        repo, conn = quote_repo
-        conn.fetch = AsyncMock(return_value=[QUOTE_ROW])
-
-        rows = await repo.list_quotes(ACCOUNT_ID)
-
-        query = conn.fetch.call_args[0][0].lower()
-        assert "quotes" in query
-        assert "account_id" in query
-        assert ACCOUNT_ID in conn.fetch.call_args[0]
-        assert len(rows) == 1
-
-    @pytest.mark.asyncio
-    async def test_list_quotes_empty_for_unknown_account(self, quote_repo):
-        """Triangulación: cuenta sin quotes → lista vacía."""
-        repo, conn = quote_repo
-        conn.fetch = AsyncMock(return_value=[])
-
-        rows = await repo.list_quotes("ffffffff-ffff-ffff-ffff-ffffffffffff")
-
-        assert rows == []
-
-    @pytest.mark.asyncio
-    async def test_get_quote_queries_by_id(self, quote_repo):
-        """get_quote trae la fila por id, scopeado a account_id."""
-        repo, conn = quote_repo
-        conn.fetchrow = AsyncMock(return_value=QUOTE_ROW)
-
-        row = await repo.get_quote(QUOTE_ID, ACCOUNT_ID)
-
-        query = conn.fetchrow.call_args[0][0].lower()
-        assert "quotes" in query
-        assert "account_id" in query
-        assert QUOTE_ID in conn.fetchrow.call_args[0]
-        assert ACCOUNT_ID in conn.fetchrow.call_args[0]
-        assert row == QUOTE_ROW
-
-    @pytest.mark.asyncio
-    async def test_get_quote_not_found_returns_none(self, quote_repo):
-        """Triangulación: quote inexistente → None."""
-        repo, conn = quote_repo
-        conn.fetchrow = AsyncMock(return_value=None)
-
-        row = await repo.get_quote("ffffffff-ffff-ffff-ffff-ffffffffffff", ACCOUNT_ID)
-
-        assert row is None
-
-    @pytest.mark.asyncio
-    async def test_get_quote_foreign_account_returns_none(self, quote_repo):
-        """fix/tenancy-bank-accounts-leak: quote_id real pero de OTRO tenant
-        → None (WHERE account_id = $2 no matchea), nunca la fila ajena."""
-        repo, conn = quote_repo
-        conn.fetchrow = AsyncMock(return_value=None)
-
-        row = await repo.get_quote(QUOTE_ID, "ffffffff-ffff-ffff-ffff-ffffffffffff")
-
-        assert row is None
-        params = conn.fetchrow.call_args[0]
-        assert QUOTE_ID in params
-        assert "ffffffff-ffff-ffff-ffff-ffffffffffff" in params
-
-    @pytest.mark.asyncio
-    async def test_transition_quote_updates_status(self, quote_repo):
-        """transition_quote hace UPDATE del status, scopeado a account_id."""
-        repo, conn = quote_repo
-        conn.fetchrow = AsyncMock(return_value={**QUOTE_ROW, "status": "sent"})
-
-        row = await repo.transition_quote(QUOTE_ID, "sent", ACCOUNT_ID)
-
-        query = conn.fetchrow.call_args[0][0].lower()
-        assert "update" in query
-        assert "quotes" in query
-        assert "status" in query
-        assert "account_id" in query
-        assert ACCOUNT_ID in conn.fetchrow.call_args[0]
-        assert row["status"] == "sent"
-
-    @pytest.mark.asyncio
-    async def test_transition_quote_to_expired(self, quote_repo):
-        """Triangulación: transición a expired."""
-        repo, conn = quote_repo
-        conn.fetchrow = AsyncMock(return_value={**QUOTE_ROW, "status": "expired"})
-
-        row = await repo.transition_quote(QUOTE_ID, "expired", ACCOUNT_ID)
-
-        assert row["status"] == "expired"
-
-    @pytest.mark.asyncio
-    async def test_transition_quote_foreign_account_returns_none(self, quote_repo):
-        """fix/tenancy-bank-accounts-leak: write-IDOR guard — un quote_id de
-        OTRO tenant no matchea el UPDATE (0 filas → None), nunca lo muta."""
-        repo, conn = quote_repo
-        conn.fetchrow = AsyncMock(return_value=None)
-
-        row = await repo.transition_quote(
-            QUOTE_ID, "sent", "ffffffff-ffff-ffff-ffff-ffffffffffff"
-        )
-
-        assert row is None
-
-    @pytest.mark.asyncio
-    async def test_accept_quote_invokes_rpc(self, quote_repo):
-        """accept_quote invoca rpc_accept_quote y devuelve sales_order_id."""
-        repo, conn = quote_repo
-        conn.fetchrow = AsyncMock(
-            return_value={"result": json.dumps(ACCEPT_RPC_RESULT)}
-        )
-
-        result = await repo.accept_quote(QUOTE_ID)
-
-        query = conn.fetchrow.call_args[0][0].lower()
-        assert "rpc_accept_quote" in query
-        assert result["sales_order_id"] == SALES_ORDER_ID
-
-    @pytest.mark.asyncio
-    async def test_accept_quote_passes_quote_id(self, quote_repo):
-        """Triangulación: el RPC recibe el quote_id correcto."""
-        repo, conn = quote_repo
-        conn.fetchrow = AsyncMock(
-            return_value={"result": json.dumps(ACCEPT_RPC_RESULT)}
-        )
-
-        await repo.accept_quote(QUOTE_ID)
-
-        args = conn.fetchrow.call_args[0]
-        assert QUOTE_ID in args
-
-    # ── operacion-party-guard (RONDA 2, finding MINOR) ──────────────────────
-    # client_belongs_to_account: guard de tenencia para quotes.client_id, que
-    # no vive en una RPC (a diferencia de sales/purchases/sales_orders) — ver
-    # backend/tests/test_operacion_party_guard.py (bloque 6) para el candado
-    # a nivel service.
-
-    @pytest.mark.asyncio
-    async def test_client_belongs_to_account_queries_clients_scoped(self, quote_repo):
-        """Consulta clients filtrando por id Y account_id — mismo predicado
-        que el guard SQL (sin filtro de deleted_at)."""
-        repo, conn = quote_repo
-        conn.fetchrow = AsyncMock(return_value={"?column?": 1})
-
-        result = await repo.client_belongs_to_account(CLIENT_ID, ACCOUNT_ID)
-
-        query = conn.fetchrow.call_args[0][0].lower()
-        assert "clients" in query
-        assert "account_id" in query
-        assert "deleted_at" not in query
-        args = conn.fetchrow.call_args[0]
-        assert CLIENT_ID in args
-        assert ACCOUNT_ID in args
-        assert result is True
-
-    @pytest.mark.asyncio
-    async def test_client_belongs_to_account_foreign_returns_false(self, quote_repo):
-        """Triangulación: client_id de otro tenant (o inexistente) → False."""
-        repo, conn = quote_repo
-        conn.fetchrow = AsyncMock(return_value=None)
-
-        result = await repo.client_belongs_to_account(
-            "ffffffff-ffff-ffff-ffff-ffffffffffff", ACCOUNT_ID
-        )
-
-        assert result is False
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -691,111 +376,6 @@ class TestSalesOrderRepository:
 # TASK 6.1 RED — SERVICE TESTS
 # ══════════════════════════════════════════════════════════════════════════════
 
-class TestQuoteService:
-
-    @pytest.mark.asyncio
-    async def test_create_quote_member_returns_403(self):
-        """Rol 'member' no puede crear presupuestos → 403."""
-        from fastapi import HTTPException
-        from backend.services import quotes as quotes_service
-        from backend.schemas.quotes import QuoteIn, QuoteItemIn
-
-        member_auth = {"role": "member"}
-        repo = AsyncMock()
-
-        with pytest.raises(HTTPException) as exc_info:
-            await quotes_service.create_quote(
-                repo=repo,
-                auth=member_auth,
-                payload=QuoteIn(
-                    items=[QuoteItemIn(quantity=Decimal("1"), price=Decimal("100"), subtotal=Decimal("100"))]
-                ),
-                created_by="11111111-1111-1111-1111-111111111111",
-                account_id=ACCOUNT_ID,
-            )
-
-        assert exc_info.value.status_code == 403
-
-    @pytest.mark.asyncio
-    async def test_accept_quote_invalid_state_maps_to_409(self):
-        """RPC lanza P0409 (quote_invalid_state) → HTTPException 409."""
-        from fastapi import HTTPException
-        from backend.services import quotes as quotes_service
-
-        writer_auth = {"role": "user"}
-        repo = AsyncMock()
-        err = asyncpg.exceptions.RaiseError("quote_invalid_state")
-        err.sqlstate = "P0409"
-        repo.accept_quote = AsyncMock(side_effect=err)
-
-        with pytest.raises(HTTPException) as exc_info:
-            await quotes_service.accept_quote(repo=repo, auth=writer_auth, quote_id=QUOTE_ID)
-
-        assert exc_info.value.status_code == 409
-
-    @pytest.mark.asyncio
-    async def test_accept_quote_member_returns_403(self):
-        """Triangulación: member no puede aceptar un quote."""
-        from fastapi import HTTPException
-        from backend.services import quotes as quotes_service
-
-        member_auth = {"role": "member"}
-        repo = AsyncMock()
-
-        with pytest.raises(HTTPException) as exc_info:
-            await quotes_service.accept_quote(repo=repo, auth=member_auth, quote_id=QUOTE_ID)
-
-        assert exc_info.value.status_code == 403
-
-    # ── fix/tenancy-bank-accounts-leak: get_quote/transition_quote scoping ──
-
-    @pytest.mark.asyncio
-    async def test_get_quote_passes_account_id_to_repo(self):
-        """get_quote propaga account_id al repo (defensa en profundidad)."""
-        from backend.services import quotes as quotes_service
-
-        repo = AsyncMock()
-        repo.get_quote = AsyncMock(return_value=dict(QUOTE_ROW))
-
-        await quotes_service.get_quote(repo, QUOTE_ID, ACCOUNT_ID)
-
-        repo.get_quote.assert_awaited_once_with(QUOTE_ID, ACCOUNT_ID)
-
-    @pytest.mark.asyncio
-    async def test_get_quote_404_when_not_owned(self):
-        """Un quote_id de OTRO tenant → 404 (el repo ya no lo devuelve)."""
-        from fastapi import HTTPException
-        from backend.services import quotes as quotes_service
-
-        repo = AsyncMock()
-        repo.get_quote = AsyncMock(return_value=None)
-
-        with pytest.raises(HTTPException) as exc_info:
-            await quotes_service.get_quote(repo, QUOTE_ID, ACCOUNT_ID)
-
-        assert exc_info.value.status_code == 404
-
-    @pytest.mark.asyncio
-    async def test_transition_quote_404_when_not_owned(self):
-        """write-IDOR guard a nivel service: quote de OTRO tenant → 404 antes
-        de intentar el UPDATE."""
-        from fastapi import HTTPException
-        from backend.services import quotes as quotes_service
-        from backend.schemas.quotes import QuoteTransitionIn
-
-        repo = AsyncMock()
-        repo.get_quote = AsyncMock(return_value=None)
-        writer_auth = {"role": "user"}
-
-        with pytest.raises(HTTPException) as exc_info:
-            await quotes_service.transition_quote(
-                repo, writer_auth, QUOTE_ID, QuoteTransitionIn(action="send"), ACCOUNT_ID
-            )
-
-        assert exc_info.value.status_code == 404
-        repo.transition_quote.assert_not_awaited()
-
-
 class TestSalesOrderService:
 
     # ── fix/tenancy-bank-accounts-leak: get_order scoping ───────────────────
@@ -926,174 +506,6 @@ class TestSalesOrderService:
 # ══════════════════════════════════════════════════════════════════════════════
 # TASK 7.1 RED — ENDPOINT HTTP TESTS
 # ══════════════════════════════════════════════════════════════════════════════
-
-class TestQuoteEndpoints:
-
-    async def test_create_quote_writer_returns_201(self, async_client, mock_pool):
-        """POST /quotes con token writer → 201."""
-        pool, conn = mock_pool
-        owner_token = make_token({"role": "user"})
-        conn.fetchrow = AsyncMock(return_value=QUOTE_ROW)
-        conn.execute = AsyncMock(return_value="INSERT 0 1")
-
-        with patch("backend.core.database.pool", pool):
-            resp = await async_client.post(
-                "/quotes",
-                json={
-                    "items": [
-                        {
-                            "product_id": PRODUCT_ID,
-                            "quantity": "2.0",
-                            "price": "750.00",
-                            "subtotal": "1500.00",
-                        }
-                    ]
-                },
-                headers={"Authorization": f"Bearer {owner_token}"},
-            )
-
-        assert resp.status_code == 201
-        assert resp.json()["id"] == QUOTE_ID
-
-    async def test_create_quote_created_by_is_authenticated_user_uuid(self, async_client, mock_pool):
-        """RED (3.1, H-06 call site 1): el `created_by` que recibe
-        QuoteRepository.create_quote es el UUID del usuario autenticado
-        (auth["user_id"]) — no la cadena vacía que produce auth.get("sub", "")."""
-        pool, conn = mock_pool
-        owner_token = make_token({"role": "user"})
-        conn.fetchrow = AsyncMock(return_value=QUOTE_ROW)
-        conn.execute = AsyncMock(return_value="INSERT 0 1")
-
-        with patch("backend.core.database.pool", pool):
-            resp = await async_client.post(
-                "/quotes",
-                json={
-                    "items": [
-                        {
-                            "product_id": PRODUCT_ID,
-                            "quantity": "2.0",
-                            "price": "750.00",
-                            "subtotal": "1500.00",
-                        }
-                    ]
-                },
-                headers={"Authorization": f"Bearer {owner_token}"},
-            )
-
-        assert resp.status_code == 201
-        # created_by es el último argumento posicional del INSERT (ver quote_repository.py)
-        created_by_arg = conn.fetchrow.call_args[0][-1]
-        assert created_by_arg == TEST_USER_ID
-        assert created_by_arg != ""
-
-    async def test_create_quote_created_by_follows_different_sub(self, async_client, mock_pool):
-        """TRIANGULATE (3.3): un token con un `sub` distinto propaga ESE
-        UUID como created_by — descarta que el fix haya hardcodeado TEST_USER_ID."""
-        other_user_id = "99999999-9999-9999-9999-999999999999"
-        pool, conn = mock_pool
-        other_token = make_token({"role": "user", "sub": other_user_id})
-        conn.fetchrow = AsyncMock(return_value=QUOTE_ROW)
-        conn.execute = AsyncMock(return_value="INSERT 0 1")
-
-        with patch("backend.core.database.pool", pool):
-            resp = await async_client.post(
-                "/quotes",
-                json={
-                    "items": [
-                        {
-                            "product_id": PRODUCT_ID,
-                            "quantity": "1.0",
-                            "price": "100.00",
-                            "subtotal": "100.00",
-                        }
-                    ]
-                },
-                headers={"Authorization": f"Bearer {other_token}"},
-            )
-
-        assert resp.status_code == 201
-        created_by_arg = conn.fetchrow.call_args[0][-1]
-        assert created_by_arg == other_user_id
-        assert created_by_arg != TEST_USER_ID
-
-    async def test_create_quote_member_returns_403(self, async_client, mock_pool):
-        """POST /quotes con token member → 403."""
-        pool, conn = mock_pool
-        member_token = make_token({"role": "member"})
-
-        with patch("backend.core.database.pool", pool):
-            resp = await async_client.post(
-                "/quotes",
-                json={
-                    "items": [{"quantity": "1.0", "price": "100.00", "subtotal": "100.00"}]
-                },
-                headers={"Authorization": f"Bearer {member_token}"},
-            )
-
-        assert resp.status_code == 403
-
-    async def test_list_quotes_returns_200(self, async_client, mock_pool):
-        """GET /quotes → 200 con lista."""
-        pool, conn = mock_pool
-        owner_token = make_token({"role": "user"})
-        conn.fetch = AsyncMock(return_value=[QUOTE_ROW])
-
-        with patch("backend.core.database.pool", pool):
-            resp = await async_client.get(
-                "/quotes",
-                headers={"Authorization": f"Bearer {owner_token}"},
-            )
-
-        assert resp.status_code == 200
-        assert isinstance(resp.json(), list)
-
-    async def test_accept_quote_returns_200_with_sales_order_id(self, async_client, mock_pool):
-        """POST /quotes/{id}/accept → 200 con sales_order_id."""
-        pool, conn = mock_pool
-        owner_token = make_token({"role": "user"})
-        conn.fetchrow = AsyncMock(
-            return_value={"result": json.dumps(ACCEPT_RPC_RESULT)}
-        )
-
-        with patch("backend.core.database.pool", pool):
-            resp = await async_client.post(
-                f"/quotes/{QUOTE_ID}/accept",
-                headers={"Authorization": f"Bearer {owner_token}"},
-            )
-
-        assert resp.status_code == 200
-        body = resp.json()
-        assert body["sales_order_id"] == SALES_ORDER_ID
-
-    async def test_accept_quote_member_returns_403(self, async_client, mock_pool):
-        """Triangulación: member no puede aceptar → 403."""
-        pool, conn = mock_pool
-        member_token = make_token({"role": "member"})
-
-        with patch("backend.core.database.pool", pool):
-            resp = await async_client.post(
-                f"/quotes/{QUOTE_ID}/accept",
-                headers={"Authorization": f"Bearer {member_token}"},
-            )
-
-        assert resp.status_code == 403
-
-    async def test_accept_quote_invalid_state_returns_409(self, async_client, mock_pool):
-        """DB lanza P0409 quote_invalid_state → HTTP 409."""
-        pool, conn = mock_pool
-        owner_token = make_token({"role": "user"})
-        err = asyncpg.exceptions.RaiseError("quote_invalid_state")
-        err.sqlstate = "P0409"
-        conn.fetchrow = AsyncMock(side_effect=err)
-
-        with patch("backend.core.database.pool", pool):
-            resp = await async_client.post(
-                f"/quotes/{QUOTE_ID}/accept",
-                headers={"Authorization": f"Bearer {owner_token}"},
-            )
-
-        assert resp.status_code == 409
-
 
 class TestSalesOrderEndpoints:
 
@@ -1362,33 +774,6 @@ class TestDomainInvariants:
             )
 
         assert exc_info.value.sqlstate == "P0409"
-
-    @pytest.mark.asyncio
-    async def test_8_3_accept_quote_creates_sales_order_with_same_items(self, quote_repo):
-        """
-        8.3: Quote.accept() → SalesOrder con los mismos ítems (mismo producto,
-        cantidad y precio). Verificado via el RPC que recibe el quote_id.
-        """
-        repo, conn = quote_repo
-        accept_result = {
-            "sales_order_id": SALES_ORDER_ID,
-            "quote_id":       QUOTE_ID,
-            "status":         "accepted",
-        }
-        conn.fetchrow = AsyncMock(
-            return_value={"result": json.dumps(accept_result)}
-        )
-
-        result = await repo.accept_quote(QUOTE_ID)
-
-        # El RPC fue invocado con el quote_id correcto
-        args = conn.fetchrow.call_args[0]
-        assert QUOTE_ID in args
-
-        # El resultado confirma que se creó la orden con source_quote_id = QUOTE_ID
-        assert result["quote_id"] == QUOTE_ID
-        assert result["sales_order_id"] == SALES_ORDER_ID
-        assert result["status"] == "accepted"
 
     @pytest.mark.asyncio
     async def test_8_4_confirm_failure_propagates_without_partial_effects(self, sales_order_repo):

@@ -1,204 +1,278 @@
 """
-C-29 v21-quote-salesorder — Service layer para Quote.
+Service del presupuesto (C-29 v21-quote-salesorder; reescrito por
+presupuestos-modulo D2/D11/D12).
 
-Regla dura: NO lógica de negocio en routers.
-Todos los guards (rol, dominio) viven aquí.
-Los repositories manejan solo acceso a datos.
+Regla dura: NO lógica de negocio en routers. Acá viven los guards de rol y la
+traducción de errores; las reglas de dominio (tenencia, estados, versión,
+snapshots, numeración) viven en las RPCs `SECURITY DEFINER` y se invocan desde
+el repositorio.
+
+  - Crear, editar, enviar/rechazar y eliminar exigen `CAN_QUOTE` evaluado sobre
+    el CONJUNTO de roles activos (`require_account_role`): un cajero recibe 403
+    sin llegar a la RPC. La RPC lo vuelve a verificar antes de escribir (defensa
+    en profundidad). Leer, ver el detalle y descargar el PDF es de cualquier
+    miembro de la cuenta.
+  - La validez por defecto es configuración de la cuenta: `CAN_CONFIGURE`, una
+    capacidad sensible (la base es la autoridad del rol, no el claim).
+  - Todo error de negocio de las RPCs sale como RFC 7807 con `code` = literal
+    estable del RAISE (`quote_locked_converted`, `quote_changed`,
+    `quote_not_deletable`, `insufficient_role`, …): es lo que el frontend
+    traduce de forma accionable. Un sqlstate fuera del mapa no se disfraza: se
+    re-lanza y el handler global lo resuelve como 500 genérico.
+  - Se retiró `_VALID_TRANSITIONS`: la política de transiciones vive en el
+    catálogo `document_status_transitions`, no duplicada en Python (el dict
+    anterior contradecía al catálogo: no admitía `draft → rejected`).
+  - Se retiró el pre-chequeo `client_belongs_to_account`: la tenencia del
+    cliente la resuelve `rpc_create_quote` con `P0404 client_not_found`.
 """
 from __future__ import annotations
 
-from decimal import Decimal
+import contextlib
+import uuid
+from collections.abc import Collection
 
 import asyncpg
 from fastapi import HTTPException
 
-from backend.core.errors import ProblemHTTPException
-from backend.core.guards import require_role
+from backend.core.errors import ProblemHTTPException, problem_from_pg_error
+from backend.core.guards import require_account_role
+from backend.core.rbac import CAN_CONFIGURE, CAN_QUOTE
 from backend.repositories.quote_repository import QuoteRepository
-from backend.schemas.quotes import QuoteIn, QuoteTransitionIn
+from backend.schemas.quotes import (
+    QuoteIn,
+    QuoteItemIn,
+    QuoteSettingsIn,
+    QuoteTransitionIn,
+    QuoteUpdateIn,
+)
+from backend.services.commercial_documents.numbering import (
+    format_internal_document_number,
+    parse_internal_document_number_query,
+)
+
+# Acción del contrato HTTP -> estado destino que admite `rpc_transition_quote`.
+_ACTION_TO_STATUS = {"send": "sent", "reject": "rejected"}
 
 
-# ── Guards de estado válidos ───────────────────────────────────────────────────
+# ── Guards y traducción de errores ───────────────────────────────────────────
 
-_VALID_TRANSITIONS: dict[str, set[str]] = {
-    "draft":    {"sent", "expired"},
-    "sent":     {"rejected", "expired"},
-    # accepted / rejected / expired son terminales
-}
+async def _require_capability(conn, auth: dict, capability: Collection[str]) -> None:
+    """Guard de rol de cuenta con el 403 como RFC 7807 y `code` estable.
+
+    `require_account_role` levanta un `HTTPException` plano (que el handler
+    global aplanaría a `code="http_error"`): acá se re-emite con
+    `insufficient_role`, el mismo literal que usa la RPC cuando es ella quien
+    rechaza por rol.
+    """
+    try:
+        await require_account_role(conn, auth, capability)
+    except HTTPException as exc:
+        if exc.status_code == 403 and not isinstance(exc, ProblemHTTPException):
+            raise ProblemHTTPException(
+                status_code=403, detail=str(exc.detail), code="insufficient_role"
+            ) from exc
+        raise
 
 
-# ── Funciones de servicio ─────────────────────────────────────────────────────
+@contextlib.contextmanager
+def _pg_errors_as_problems():
+    """Traduce los errores de negocio de las RPCs a RFC 7807 en un solo lugar."""
+    try:
+        yield
+    except asyncpg.PostgresError as exc:
+        problem = problem_from_pg_error(exc)
+        if problem is None:
+            raise
+        raise problem from exc
+
+
+def _uid(value: uuid.UUID | None) -> str | None:
+    return str(value) if value is not None else None
+
+
+def _present(record: dict) -> dict:
+    """Agrega la etiqueta visible del número (`P-00000012`) a un registro."""
+    return {**record, "number_label": format_internal_document_number("quote", record.get("number"))}
+
+
+def _serialize_items(items: list[QuoteItemIn]) -> list[dict]:
+    """Líneas del contrato HTTP -> `p_items` de las RPCs. Los importes viajan
+    como texto exacto (sin pasar por float): el precio por unidad no se
+    redondea (RN-24-bis)."""
+    return [
+        {
+            "product_id": _uid(item.product_id),
+            "unit_id": _uid(item.unit_id),
+            "quantity": str(item.quantity),
+            "price": str(item.price),
+            "subtotal": str(item.subtotal),
+            "description": item.description,
+        }
+        for item in items
+    ]
+
+
+async def _reload(repo: QuoteRepository, written: dict, fallback_account_id: str) -> dict:
+    """Relee el presupuesto completo (cliente, líneas, historial) tras una
+    escritura. La cuenta es la que devolvió la RPC —con varias cuentas, la del
+    cliente es la que manda—, no la que se supuso."""
+    account_id = str(written.get("account_id") or fallback_account_id)
+    record = await repo.get_quote(str(written["id"]), account_id)
+    if record is None:
+        raise ProblemHTTPException(
+            status_code=500,
+            detail="El presupuesto se guardó pero no pudo leerse",
+            code="quote_read_failed",
+        )
+    return _present(record)
+
+
+# ── Escrituras ────────────────────────────────────────────────────────────────
 
 async def create_quote(
     repo: QuoteRepository,
     auth: dict,
+    account_id: str,
     payload: QuoteIn,
-    created_by: str,
-    account_id: str,
+    *,
+    conn,
 ) -> dict:
-    """Crea un presupuesto con sus ítems. Guard: writer.
-
-    operacion-party-guard (RONDA 2, finding MINOR): `client_id` es opcional
-    pero, si viene, tiene que pertenecer al tenant — ANTES del INSERT. Este
-    repository escribe `quotes.client_id` directo (D3: excepción declarada al
-    patrón RPC, ver el docstring del módulo); a diferencia de
-    `rpc_create_sale_operation_v2`/`_c29_confirm_order_core`/
-    `rpc_atomic_update_sale_operation`/`rpc_accept_quote` (guardadas en SQL,
-    migración 20261045000001), `quotes` no es una de las 3 tablas en alcance
-    de ese fix — pero dejarla sin guard igual permitía materializar un quote
-    cross-tenant que `rpc_accept_quote` sólo intercepta en el momento de
-    aceptar, no al crearse. Mismo ERRCODE/mensaje que el guard SQL
-    (P0404, 'client_not_found: <id>') para que el frontend
-    (humanizeOperationError) lo traduzca igual sin importar qué capa lo
-    rechazó."""
-    require_role(auth, ["user", "admin"])
-
-    if payload.client_id is not None:
-        client_id_str = str(payload.client_id)
-        if not await repo.client_belongs_to_account(client_id_str, account_id):
-            raise ProblemHTTPException(
-                status_code=404,
-                detail=f"client_not_found: {client_id_str}",
-                code="P0404",
-            )
-
-    # Calcular total como suma de subtotals
-    total = sum(item.subtotal for item in payload.items)
-
-    # Serializar ítems
-    items = [
-        {
-            "product_id": str(item.product_id) if item.product_id else None,
-            "unit_id":    str(item.unit_id) if item.unit_id else None,
-            "quantity":   str(item.quantity),
-            "price":      str(item.price),
-            "subtotal":   str(item.subtotal),
-        }
-        for item in payload.items
-    ]
-
-    record = await repo.create_quote(
-        account_id=account_id,
-        branch_id=str(payload.branch_id) if payload.branch_id else None,
-        client_id=str(payload.client_id) if payload.client_id else None,
-        valid_until=payload.valid_until,
-        total=total,
-        items=items,
-        created_by=created_by,
-    )
-
-    if record is None:
-        raise HTTPException(status_code=500, detail="Error al crear el presupuesto")
-
-    return dict(record)
+    """Alta en `draft`. Guard: `CAN_QUOTE`."""
+    await _require_capability(conn, auth, CAN_QUOTE)
+    with _pg_errors_as_problems():
+        written = await repo.create_quote(
+            client_id=str(payload.client_id),
+            branch_id=_uid(payload.branch_id),
+            valid_until=payload.valid_until,
+            notes=payload.notes,
+            items=_serialize_items(payload.items),
+        )
+    return await _reload(repo, written, account_id)
 
 
-async def list_quotes(
+async def update_quote(
     repo: QuoteRepository,
+    auth: dict,
     account_id: str,
-) -> list:
-    """Lista los presupuestos de la cuenta. Sin guard de rol (lectura)."""
-    return await repo.list_quotes(account_id)
-
-
-async def get_quote(
-    repo: QuoteRepository,
     quote_id: str,
-    account_id: str,
+    payload: QuoteUpdateIn,
+    *,
+    conn,
 ) -> dict:
-    """Obtiene un presupuesto por id, scopeado a la cuenta del caller. 404 si
-    no existe O no le pertenece (mismo 404 en ambos casos — no revela si el
-    id existe en otro tenant, fix/tenancy-bank-accounts-leak)."""
-    record = await repo.get_quote(quote_id, account_id)
-    if record is None:
-        raise HTTPException(status_code=404, detail="Presupuesto no encontrado")
-    return dict(record)
+    """Edición (reemplazo completo) con la versión que se editó. Guard:
+    `CAN_QUOTE`. `quote_changed` (409) si otro la modificó; `P0423
+    quote_locked_converted` (409) si ya se convirtió en venta."""
+    await _require_capability(conn, auth, CAN_QUOTE)
+    with _pg_errors_as_problems():
+        written = await repo.update_quote(
+            quote_id,
+            expected_revision=payload.revision,
+            client_id=str(payload.client_id),
+            branch_id=_uid(payload.branch_id),
+            valid_until=payload.valid_until,
+            notes=payload.notes,
+            items=_serialize_items(payload.items),
+        )
+    return await _reload(repo, written, account_id)
 
 
 async def transition_quote(
     repo: QuoteRepository,
     auth: dict,
+    account_id: str,
     quote_id: str,
     payload: QuoteTransitionIn,
-    account_id: str,
+    *,
+    conn,
 ) -> dict:
-    """
-    Transiciona el estado de un presupuesto.
-    Acciones: send → sent; reject → rejected; expire → expired.
-    Guard: writer.
-
-    fix/tenancy-bank-accounts-leak: account_id ahora obligatorio — sin él,
-    esto era un write-IDOR (cualquier usuario autenticado podía transicionar
-    el estado de un quote de OTRO tenant).
-    """
-    require_role(auth, ["user", "admin"])
-
-    # Mapeo acción → status destino
-    action_to_status = {
-        "send":   "sent",
-        "reject": "rejected",
-        "expire": "expired",
-    }
-    new_status = action_to_status[payload.action]
-
-    # Verificar estado actual
-    current = await repo.get_quote(quote_id, account_id)
-    if current is None:
-        raise HTTPException(status_code=404, detail="Presupuesto no encontrado")
-
-    current_status = current["status"]
-    valid_targets = _VALID_TRANSITIONS.get(current_status, set())
-    if new_status not in valid_targets:
-        raise HTTPException(
-            status_code=409,
-            detail=f"Transición inválida: {current_status} → {new_status}",
-        )
-
-    try:
-        record = await repo.transition_quote(quote_id, new_status, account_id)
-    except asyncpg.PostgresError as exc:
-        _map_postgres_error(exc)
-
-    if record is None:
-        raise HTTPException(status_code=404, detail="Presupuesto no encontrado")
-
-    return dict(record)
+    """Marcar como enviado (`send`) o rechazar (`reject`, con motivo opcional).
+    Guard: `CAN_QUOTE`. `accepted` y `expired` no se piden por acá (el schema
+    ya los rechaza con 422)."""
+    await _require_capability(conn, auth, CAN_QUOTE)
+    with _pg_errors_as_problems():
+        written = await repo.transition_quote(quote_id, _ACTION_TO_STATUS[payload.action], payload.reason)
+    return await _reload(repo, written, account_id)
 
 
-async def accept_quote(
+async def delete_quote(
     repo: QuoteRepository,
     auth: dict,
+    account_id: str,
     quote_id: str,
+    *,
+    conn,
+) -> None:
+    """Borra un borrador nunca enviado. Guard: `CAN_QUOTE`. Cualquier otro
+    estado -> 409 `quote_not_deletable`."""
+    await _require_capability(conn, auth, CAN_QUOTE)
+    with _pg_errors_as_problems():
+        await repo.delete_quote(quote_id)
+
+
+# ── Lecturas ──────────────────────────────────────────────────────────────────
+
+async def get_quote(repo: QuoteRepository, account_id: str, quote_id: str) -> dict:
+    """Detalle scopeado a la cuenta del caller. Mismo 404 RFC 7807 para un id
+    inexistente y para uno de otra cuenta (no revela si existe en otro tenant)."""
+    record = await repo.get_quote(quote_id, account_id)
+    if record is None:
+        raise ProblemHTTPException(
+            status_code=404, detail="Presupuesto no encontrado", code="quote_not_found"
+        )
+    return _present(record)
+
+
+async def list_quotes(
+    repo: QuoteRepository,
+    account_id: str,
+    *,
+    page: int,
+    page_size: int,
+    status: str | None,
+    client_id: str | None,
+    q: str | None,
 ) -> dict:
+    """Envelope estándar `{items,total,page,pages}` (v3-api-standards §2).
+
+    El texto del buscador se usa para el nombre del cliente y, si es un número
+    de documento ("P-12", "12", "00000012"), también para el número.
     """
-    Acepta un presupuesto y crea un SalesOrder con los mismos ítems.
-    Guard: writer. Atómico vía RPC SECURITY DEFINER.
-    """
-    require_role(auth, ["user", "admin"])
+    rows, total = await repo.list_quotes(
+        account_id,
+        page=page,
+        page_size=page_size,
+        status=status,
+        client_id=client_id,
+        text=q,
+        number=parse_internal_document_number_query(q),
+    )
+    pages = -(-total // page_size) if total > 0 else 0
+    return {"items": [_present(r) for r in rows], "total": total, "page": page, "pages": pages}
 
-    try:
-        result = await repo.accept_quote(quote_id)
-    except asyncpg.PostgresError as exc:
-        _map_postgres_error(exc)
 
-    return result
+# ── Configuración de la cuenta ────────────────────────────────────────────────
+
+async def get_quote_settings(repo: QuoteRepository, account_id: str) -> dict:
+    """Validez por defecto de los presupuestos. Lectura para todo miembro."""
+    days = await repo.get_default_validity_days(account_id)
+    if days is None:
+        raise ProblemHTTPException(
+            status_code=404, detail="Cuenta no encontrada", code="account_not_found"
+        )
+    return {"default_quote_validity_days": days}
 
 
-# ── Error mapping ─────────────────────────────────────────────────────────────
-
-def _map_postgres_error(exc: asyncpg.PostgresError) -> None:
-    """Mapea errores PostgreSQL → HTTPException con código HTTP apropiado."""
-    sqlstate = getattr(exc, "sqlstate", None)
-    message  = str(exc)
-
-    if sqlstate == "P0401":
-        raise HTTPException(status_code=403, detail=f"Sin permiso: {message}")
-    if sqlstate == "P0400":
-        raise HTTPException(status_code=400, detail=f"Payload inválido: {message}")
-    if sqlstate == "P0404":
-        raise HTTPException(status_code=404, detail=f"No encontrado: {message}")
-    if sqlstate in ("P0409", "P0422"):
-        raise HTTPException(status_code=409, detail=f"Conflicto de estado: {message}")
-
-    # Genérico
-    raise HTTPException(status_code=500, detail=f"Error de base de datos: {message}")
+async def set_quote_settings(
+    repo: QuoteRepository,
+    auth: dict,
+    payload: QuoteSettingsIn,
+    *,
+    conn,
+) -> dict:
+    """Fija la validez por defecto. Sólo owner/admin (`CAN_CONFIGURE`, capacidad
+    sensible: la base decide, no el claim). El rango 1..365 ya lo validó el
+    schema (422) antes de la base; la RPC lo vuelve a validar."""
+    await _require_capability(conn, auth, CAN_CONFIGURE)
+    with _pg_errors_as_problems():
+        days = await repo.set_default_validity_days(payload.default_quote_validity_days)
+    return {"default_quote_validity_days": days}

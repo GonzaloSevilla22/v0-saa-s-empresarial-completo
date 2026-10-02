@@ -60,6 +60,8 @@ export interface QuoteItemApiRow {
   quote_id: string
   product_id: string | null
   unit_id: string | null
+  /** Símbolo de la unidad de la línea (`kg`, `u`), resuelto por el servidor. */
+  unit_symbol?: string | null
   quantity: string | number
   price: string | number
   subtotal: string | number
@@ -72,8 +74,9 @@ export interface QuoteItemApiRow {
 export interface QuoteHistoryEntry {
   from_status: QuoteStatus | null
   to_status: QuoteStatus
-  performed_by: string | null
-  performed_at: string
+  performed_by: string
+  /** Instante de la transición (`document_status_history.occurred_at`). */
+  occurred_at: string
   reason: string | null
 }
 

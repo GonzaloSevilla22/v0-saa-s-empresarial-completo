@@ -22,3 +22,13 @@ export function effectiveQuoteStatus(status: QuoteStatus, isExpired?: boolean): 
   if (isExpired && (status === "draft" || status === "sent")) return "expired"
   return status
 }
+
+/** Pestañas del listado: el filtro de estado lo resuelve el SERVIDOR (estado efectivo). */
+export const QUOTE_LIST_TABS: ReadonlyArray<{ value: QuoteStatus | "all"; label: string; noun: string }> = [
+  { value: "all", label: "Todos", noun: "" },
+  { value: "draft", label: "Borradores", noun: "borradores" },
+  { value: "sent", label: "Enviados", noun: "enviados" },
+  { value: "accepted", label: "Aceptados", noun: "aceptados" },
+  { value: "expired", label: "Vencidos", noun: "vencidos" },
+  { value: "rejected", label: "Rechazados", noun: "rechazados" },
+]

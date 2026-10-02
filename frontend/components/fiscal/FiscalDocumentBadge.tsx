@@ -19,7 +19,7 @@
  *   <FiscalDocumentBadge documentId="uuid" initialStatus="pending_cae" />
  */
 
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useRef, useState, useId } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { Badge } from "@/components/ui/badge"
 import { AlertTriangle, Ban, Loader2 } from "lucide-react"
@@ -103,6 +103,11 @@ export function FiscalDocumentBadge({
 }: FiscalDocumentBadgeProps) {
   const [status, setStatus] = useState<FiscalDocumentStatus>(initialStatus)
   const [frozen, setFrozen] = useState<boolean>(initialFrozen)
+  // Un canal por INSTANCIA: `supabase.channel(topic)` devuelve el canal ya existente
+  // con ese topic, y `.on()` sobre un canal ya suscripto lanza. Dos badges del mismo
+  // comprobante a la vez (p. ej. el éxito de la conversión de un presupuesto y la
+  // sección "Venta generada" del detalle) compartían el topic y rompían la pantalla.
+  const instanceId = useId()
   const onStatusChangeRef = useRef(onStatusChange)
   useEffect(() => {
     onStatusChangeRef.current = onStatusChange
@@ -122,7 +127,7 @@ export function FiscalDocumentBadge({
     const supabase = createClient()
 
     const channel = supabase
-      .channel(`fiscal_document_status_${documentId}`)
+      .channel(`fiscal_document_status_${documentId}_${instanceId}`)
       .on(
         "postgres_changes",
         {

@@ -49,13 +49,15 @@ el guard en sí), con MOLDE en backend/tests/test_cuenta_corriente_party_guard.p
      venta-editable-sin-cae, a diferencia de purchase — el mock se monta
      sobre `conn.fetchval`.
 
-  5. "accept quote" (rpc_accept_quote, vía POST /quotes/{id}/accept) — RETIRADO
-     por presupuestos-modulo (tanda A, task 2.6): el endpoint y
-     `quotes_service.accept_quote` ya no existen (D12; la única vía a `accepted`
-     es la conversión a venta). El bloque vuelve en la tanda B (task 6.5)
-     reescrito sobre `convert_quote`: `P0404 client_not_found` y `P0404
-     quote_client_unavailable` -> 404 RFC 7807 con su `code`, más el control
-     negativo. La regresión del guard SQL de `rpc_accept_quote` sigue en el gate
+  5. "convert quote" (rpc_convert_quote_to_sale, vía POST /quotes/{id}/convert) —
+     REESCRITO por presupuestos-modulo (tanda B, task 6.5). El endpoint
+     `POST /quotes/{id}/accept` y `quotes_service.accept_quote` se retiraron en la
+     tanda A (D12; la única vía a `accepted` es la conversión a venta). La RPC
+     de conversión delega la aceptación en `_quote_accept_core` (que conserva el
+     guard del cliente de la RONDA 1: `P0404 client_not_found: <id>`) y suma el
+     suyo (`P0404 quote_client_unavailable`, cliente de la cuenta dado de baja):
+     los dos llegan al cliente HTTP como 404 RFC 7807 con su `code`, más el
+     control positivo y el negativo. La regresión del guard SQL sigue en el gate
      supabase/tests/test_operacion_party_guard.sql.
 
   6. "create quote" (rpc_create_quote, vía POST /quotes) — REESCRITO por
@@ -345,8 +347,127 @@ class TestUpdateSaleOperationPartyGuardHttp:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 5 — "accept quote": RETIRADO hasta la tanda B (ver el docstring del módulo).
+# 5 — "convert quote" (rpc_convert_quote_to_sale, vía POST /quotes/{id}/convert)
+#     presupuestos-modulo (task 6.5): reescrito sobre `convert_quote`.
 # ═══════════════════════════════════════════════════════════════════════════════
+
+QUOTE_ID_5 = "dddddddd-dddd-dddd-dddd-dddddddddddd"
+PAYMENT_METHOD_ID_5 = "55555555-5555-5555-5555-555555555555"
+CLIENT_UNAVAILABLE_MSG = "quote_client_unavailable: el cliente fue dado de baja: editá el presupuesto y elegí un cliente vigente"
+
+
+def _convert_payload():
+    from backend.schemas.quotes import QuoteConvertIn
+
+    return QuoteConvertIn(
+        expected_revision=1,
+        payment_method_id=uuid.UUID(PAYMENT_METHOD_ID_5),
+        idempotency_key=IDEMPOTENCY_KEY,
+    )
+
+
+class TestConvertQuotePartyGuard:
+
+    @pytest.mark.asyncio
+    async def test_convert_with_a_foreign_client_returns_404_client_not_found(self):
+        """El cliente del presupuesto es de otra cuenta: `_quote_accept_core` lo
+        rechaza con P0404 y el service lo devuelve como 404 `client_not_found`."""
+        from backend.services import quotes as svc
+
+        mock_repo = AsyncMock()
+        mock_repo.convert_to_sale.side_effect = _pg_error("P0404", CLIENT_NOT_FOUND_MSG)
+
+        with pytest.raises(HTTPException) as exc_info:
+            await svc.convert_quote(
+                mock_repo, _seller_auth(), str(TEST_ACCOUNT_ID), QUOTE_ID_5, _convert_payload(), conn=AsyncMock(),
+            )
+
+        assert exc_info.value.status_code == 404
+        assert exc_info.value.code == "client_not_found"
+        assert FOREIGN_CLIENT_ID in str(exc_info.value.detail)
+
+    @pytest.mark.asyncio
+    async def test_convert_with_a_deactivated_client_returns_404_quote_client_unavailable(self):
+        from backend.services import quotes as svc
+
+        mock_repo = AsyncMock()
+        mock_repo.convert_to_sale.side_effect = _pg_error("P0404", CLIENT_UNAVAILABLE_MSG)
+
+        with pytest.raises(HTTPException) as exc_info:
+            await svc.convert_quote(
+                mock_repo, _seller_auth(), str(TEST_ACCOUNT_ID), QUOTE_ID_5, _convert_payload(), conn=AsyncMock(),
+            )
+
+        assert exc_info.value.status_code == 404
+        assert exc_info.value.code == "quote_client_unavailable"
+        assert "editá el presupuesto" in str(exc_info.value.detail)
+
+    @pytest.mark.asyncio
+    async def test_convert_with_an_own_client_still_converts(self):
+        """CONTROL POSITIVO: un cliente propio y vivo no se sobre-bloquea."""
+        from backend.services import quotes as svc
+
+        mock_repo = AsyncMock()
+        mock_repo.convert_to_sale.return_value = {
+            "quote_id": QUOTE_ID_5, "quote_number": 7,
+            "sales_order_id": "99999999-9999-9999-9999-999999999999",
+            "operation_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+            "total": 1000, "replayed": False,
+        }
+
+        result = await svc.convert_quote(
+            mock_repo, _seller_auth(), str(TEST_ACCOUNT_ID), QUOTE_ID_5, _convert_payload(), conn=AsyncMock(),
+        )
+
+        mock_repo.convert_to_sale.assert_awaited_once()
+        assert result["sales_order_id"] == "99999999-9999-9999-9999-999999999999"
+
+    @pytest.mark.asyncio
+    async def test_unmapped_sqlstate_on_convert_quote_path_is_not_disguised(self):
+        """CONTROL NEGATIVO: un sqlstate sin mapear no se disfraza de
+        `client_not_found` (ni de nada): sube tal cual y el handler global lo
+        resuelve como 500 genérico. Sin esto, los tests de arriba pasarían por un
+        `except` demasiado ancho."""
+        from backend.services import quotes as svc
+
+        mock_repo = AsyncMock()
+        mock_repo.convert_to_sale.side_effect = _pg_error("P0999", "errcode inventado que nadie mapea")
+
+        with pytest.raises(asyncpg.PostgresError) as exc_info:
+            await svc.convert_quote(
+                mock_repo, _seller_auth(), str(TEST_ACCOUNT_ID), QUOTE_ID_5, _convert_payload(), conn=AsyncMock(),
+            )
+
+        assert exc_info.value.sqlstate == "P0999"
+
+    @pytest.mark.asyncio
+    async def test_http_body_is_rfc7807_with_the_stable_code(self, async_client, mock_pool):
+        """Extremo a extremo por HTTP: el 404 sale como problem+json con el
+        `code`, no como un 500 ni como un detalle opaco."""
+        from backend.main import app
+        from backend.routers.quotes import get_quote_repo
+
+        pool, _conn = mock_pool
+        repo = AsyncMock()
+        repo.convert_to_sale.side_effect = _pg_error("P0404", CLIENT_NOT_FOUND_MSG)
+        app.dependency_overrides[get_quote_repo] = lambda: repo
+        try:
+            token = make_token({"app_metadata": {"account_roles": ["seller"]}})
+            with patch("backend.core.database.pool", pool):
+                response = await async_client.post(
+                    f"/quotes/{QUOTE_ID_5}/convert",
+                    json={"expected_revision": 1, "payment_method_id": PAYMENT_METHOD_ID_5},
+                    headers={"Authorization": f"Bearer {token}", "Idempotency-Key": IDEMPOTENCY_KEY},
+                )
+        finally:
+            app.dependency_overrides.pop(get_quote_repo, None)
+
+        assert response.status_code == 404
+        assert response.headers["content-type"].startswith("application/problem+json")
+        assert response.json()["code"] == "client_not_found"
+        assert FOREIGN_CLIENT_ID in response.json()["detail"]
+
+
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

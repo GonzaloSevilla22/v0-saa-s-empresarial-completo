@@ -57,3 +57,57 @@ Qué cubren los 70 casos de `redteam1.log`:
   descripción, notas de más de 2.000 caracteres, texto con HTML/SQL como dato
   (se guarda y el PDF se genera), id inválido → 422, token inválido o ausente
   → 401.
+
+---
+
+# Evidencia de la tanda B (conversión de presupuesto a venta)
+
+Stack local completo (Supabase local + uvicorn + `pnpm dev` con `NEXT_PUBLIC_PLAYWRIGHT_LOCAL`),
+usuarios `@local.test` (owner, seller, cashier y un segundo tenant), un cliente con teléfono, un
+producto por kg, uno por unidad y uno con 1 unidad de stock, una cuenta bancaria, una caja y un
+perfil fiscal de **homologación** con un punto de venta (el stub de WSFE; nunca producción). Todo
+contra el host local: los scripts se niegan a correr contra cualquier otro.
+
+## Capturas (`capturas-b/`)
+
+`<pantalla>-<viewport>-<tema>.png`, **desktop 1280 y móvil 375 × claro y oscuro** (44 de la pasada
+visual completa) más las del humo funcional en desktop claro.
+
+| Pantalla | Archivos |
+|---|---|
+| Diálogo "Pasar a venta": sin forma de pago, efectivo, transferencia (con cuenta bancaria), crédito (con saldo) y efectivo con la caja cerrada (confirmar deshabilitado con su motivo) | `conv-dialog-{vacio,efectivo,transferencia,credito,caja-cerrada}-{desktop,mobile}-{light,dark}.png` |
+| Error de stock insuficiente (nombra el producto, "Transferir stock") | `conv-error-stock-*` |
+| Error `quote_changed` (el resumen recarga el total vigente) | `conv-error-quote-changed-desktop-light.png` |
+| Éxito ("Venta registrada", Facturar / Ver en Ventas / Cerrar) y Facturar desde el éxito | `conv-exito-*`, `conv-exito-facturar-*`, `conv-facturar-{dialogo,resultado}-*` |
+| Detalle de un presupuesto convertido ("Venta generada") y de uno vencido (Venta deshabilitada, con motivo) | `detalle-convertido-*`, `detalle-vencido-venta-deshabilitada-*` |
+| `/ventas`: badge "Desde presupuesto P-…" y línea de servicio con su descripción y "Editar" deshabilitado | `ventas-badge-*`, `ventas-linea-servicio-*` |
+| Cajero: detalle sin botón Venta | `detalle-cajero-sin-venta-desktop-light.png` |
+| Regresión: formulario de venta y POS | `l-form-venta-*`, `l-pos-*` |
+
+Desborde medido **por elemento** (contra el viewport y contra su card) y consola: 0 desbordes de
+documento en las 44 capturas; el único elemento marcado es el contenedor con scroll horizontal
+propio del detalle expandido de `/ventas` a 375 px (la tabla de cuatro columnas mide 460 px dentro
+de 307: el nombre del producto ya no colapsa y el resto se desplaza dentro del contenedor). La
+consola sólo registra los 404/409 esperados de los casos de error (caja cerrada y stock).
+
+## Scripts (`scripts-b/`) y registros (`redteam-b/`)
+
+`fb-setup.mjs` + `seed.sql` siembran, `fb-func.mjs`/`fb-func2.mjs` hacen el humo por la UI real
+(a-l de 7.4), `fb-visual.mjs` la pasada de las 4 combinaciones, `fb-redteam.mjs` el red-team; `lib-b.mjs`, `fbh.mjs` y
+`pwb-lib.mjs` son los helpers. Las contraseñas se leen de `QA_TEST_USER_PASSWORD`, `RT_PASS_SELLER`,
+`RT_PASS_CASHIER` y `RT_PASS_TENANT_B`. Los registros: `humo-funcional-b.log` (42 verificaciones,
+0 fallas), `visual-b.log` (36 verificaciones, 44 capturas) y `redteam-b.log` (**49 casos, 0 fallas**).
+
+Qué cubre el red-team de la tanda B: ids ajenos en cada campo del payload (presupuesto de otra
+cuenta, sucursal, forma de pago, cuenta bancaria, sesión de caja) → 404/422 y ningún efecto en
+stock, caja, banco, órdenes ni eventos; replay con la misma clave (200 `replayed: true`, misma
+venta) y clave sobre otro presupuesto (409 `idempotency_key_conflict`); sin `Idempotency-Key` → 422;
+`expected_revision` ausente, 0 o vieja; campos extra tipo `skip_stock` ignorados; cajero → 403 y
+vendedor → 200; rechazado/ya convertido/vencido → 409; producto dado de baja → 404; `rpc_accept_quote`
+y `_quote_accept_core` por PostgREST como `authenticated` → 42501, `rpc_convert_quote_to_sale` como
+`anon` → 401, y la firma pública no tiene ningún parámetro de stock; 10 conversiones concurrentes del
+mismo presupuesto con claves distintas → exactamente 1 venta (stock −1 vez, un movimiento de caja,
+9 × 409 sin 5xx) y con la misma clave → 1 nueva + 9 replays. **El caso "misma clave sobre dos
+presupuestos en paralelo" encontró un deadlock real** (ver `CHANGES.md`): corregido y fijado por el
+gate `supabase/tests/test_presupuesto_a_venta_race.sh` (4); 3 corridas completas del red-team
+posteriores al arreglo, 49/49.

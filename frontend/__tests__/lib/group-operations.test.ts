@@ -96,6 +96,47 @@ describe("groupSalesByOperation — contexto edicion-preserva-contexto", () => {
   })
 })
 
+describe("groupSalesByOperation — origen presupuesto y líneas de servicio (presupuestos-modulo 6.10)", () => {
+  it("expone el origen presupuesto de la operación (id y número)", () => {
+    const [op] = groupSalesByOperation([makeSale({ sourceQuoteId: "q-9", sourceQuoteNumber: 12 })])
+    expect(op.sourceQuoteId).toBe("q-9")
+    expect(op.sourceQuoteNumber).toBe(12)
+  })
+
+  it("sin origen: null (no undefined)", () => {
+    const [op] = groupSalesByOperation([makeSale({ sourceQuoteId: undefined, sourceQuoteNumber: undefined })])
+    expect(op.sourceQuoteId).toBeNull()
+    expect(op.sourceQuoteNumber).toBeNull()
+  })
+
+  it("el origen de una operación agrupada es el de la primera fila que lo trae", () => {
+    const [op] = groupSalesByOperation([
+      makeSale({ id: "s1", sourceQuoteId: null, sourceQuoteNumber: null }),
+      makeSale({ id: "s2", sourceQuoteId: "q-9", sourceQuoteNumber: 12 }),
+    ])
+    expect(op.isGrouped).toBe(true)
+    expect(op.sourceQuoteId).toBe("q-9")
+    expect(op.sourceQuoteNumber).toBe(12)
+  })
+
+  it("hasServiceLines=false por defecto", () => {
+    const [op] = groupSalesByOperation([makeSale()])
+    expect(op.hasServiceLines).toBe(false)
+  })
+
+  it("hasServiceLines se propaga, y basta UNA fila de la operación con concepto sin producto", () => {
+    const [single] = groupSalesByOperation([makeSale({ hasServiceLines: true })])
+    expect(single.hasServiceLines).toBe(true)
+
+    const [grouped] = groupSalesByOperation([
+      makeSale({ id: "s1", hasServiceLines: false }),
+      makeSale({ id: "s2", hasServiceLines: true }),
+    ])
+    expect(grouped.isGrouped).toBe(true)
+    expect(grouped.hasServiceLines).toBe(true)
+  })
+})
+
 describe("groupPurchasesByOperation — contexto edicion-preserva-contexto", () => {
   it("expone branchId/unitId de la operación agrupada", () => {
     const [op] = groupPurchasesByOperation([makePurchase({ branchId: "b1", unitId: "u1" })])

@@ -1,0 +1,110 @@
+"use client"
+
+/**
+ * SaleCheckoutFields — los campos de cierre de una venta (presupuestos-modulo
+ * D12, task 6.9): sucursal, forma de pago, cuenta bancaria destino, aviso de
+ * caja y saldo del cliente con cuenta corriente.
+ *
+ * Es CONTROLADO y no conoce el presupuesto: lo compone `ConvertQuoteDialog` y lo
+ * va a reutilizar `remitos-venta` sin refactor. Arma lo que ya existe
+ * (`BranchSelect`, `PaymentMethodSelect`, `BankAccountDestinationSelect`) y no
+ * decide nada por su cuenta: lo derivado (kind, sesión de caja, bloqueo) viene de
+ * `useSaleCheckout`, que el contenedor también usa para el botón de confirmar.
+ *
+ * El texto del bloqueo vive en un elemento con `id` estable
+ * (`SALE_CHECKOUT_REASON_ID`) para que el botón lo referencie con
+ * `aria-describedby`.
+ */
+
+import Link from "next/link"
+import { AlertCircle } from "lucide-react"
+import { Label } from "@/components/ui/label"
+import { BranchSelect } from "@/components/branches/BranchSelect"
+import { BankAccountDestinationSelect, PaymentMethodSelect } from "@/components/payment-methods/PaymentMethodSelect"
+import { useCustomerAccount } from "@/hooks/data/use-customer-account"
+import type { SaleCheckoutState } from "@/hooks/use-sale-checkout"
+import { formatMoney } from "@/lib/format"
+
+export const SALE_CHECKOUT_REASON_ID = "sale-checkout-reason"
+
+interface SaleCheckoutFieldsProps {
+  branchId: string | null
+  onBranchChange: (value: string | null) => void
+  paymentMethodId: string | null
+  onPaymentMethodChange: (value: string | null) => void
+  bankAccountId: string | null
+  onBankAccountChange: (value: string | null) => void
+  /** Cliente de la venta: con cuenta corriente se muestra su saldo actual. */
+  clientId: string | null
+  checkout: SaleCheckoutState
+  disabled?: boolean
+}
+
+export function SaleCheckoutFields({
+  branchId,
+  onBranchChange,
+  paymentMethodId,
+  onPaymentMethodChange,
+  bankAccountId,
+  onBankAccountChange,
+  clientId,
+  checkout,
+  disabled = false,
+}: SaleCheckoutFieldsProps) {
+  const isCredit = checkout.kind === "credit"
+  const { data: customerAccount } = useCustomerAccount(isCredit ? clientId : null)
+
+  return (
+    <fieldset disabled={disabled} className="flex min-w-0 flex-col gap-4 border-0 p-0">
+      <div className="flex flex-col gap-2">
+        <Label className="text-sm text-foreground">Sucursal</Label>
+        <BranchSelect
+          value={branchId}
+          onChange={onBranchChange}
+          placeholder="Sucursal por defecto"
+          className="bg-background border-border text-foreground"
+        />
+      </div>
+
+      <PaymentMethodSelect
+        value={paymentMethodId}
+        onChange={onPaymentMethodChange}
+        label="Forma de pago"
+        placeholder="Elegí la forma de pago"
+        context="sale"
+      />
+
+      <BankAccountDestinationSelect
+        paymentMethodKind={checkout.kind}
+        value={bankAccountId}
+        onChange={onBankAccountChange}
+      />
+
+      {isCredit && (
+        <p className="text-sm text-muted-foreground">
+          Saldo actual:{" "}
+          <span className="font-medium tabular-nums text-foreground">
+            {formatMoney(customerAccount?.balance ?? 0, "ARS")}
+          </span>
+        </p>
+      )}
+
+      {checkout.blockedReason && (
+        <div
+          role="status"
+          className="flex items-start gap-3 rounded-lg border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-foreground"
+        >
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-warning" aria-hidden="true" />
+          <div className="flex min-w-0 flex-col gap-1">
+            <p id={SALE_CHECKOUT_REASON_ID}>{checkout.blockedReason}</p>
+            {checkout.block === "cash_session" && (
+              <Link href="/caja" className="w-fit text-xs text-primary underline underline-offset-2">
+                Ir a Caja →
+              </Link>
+            )}
+          </div>
+        </div>
+      )}
+    </fieldset>
+  )
+}

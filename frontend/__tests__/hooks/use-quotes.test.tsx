@@ -25,6 +25,7 @@ import { PythonApiError } from "@/lib/api/python-api-error"
 import * as quotesModule from "@/hooks/data/use-quotes"
 import {
   fetchQuotePdf,
+  useConvertQuote,
   useCreateQuote,
   useDeleteQuote,
   useQuote,
@@ -34,7 +35,7 @@ import {
   useUpdateQuote,
   useUpdateQuoteSettings,
 } from "@/hooks/data/use-quotes"
-import type { CreateQuoteInput, UpdateQuoteInput } from "@/lib/quote-types"
+import type { CreateQuoteInput, QuoteConvertInput, UpdateQuoteInput } from "@/lib/quote-types"
 
 function setup() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -274,5 +275,127 @@ describe("fetchQuotePdf", () => {
     vi.mocked(fetchDocumentPdf).mockResolvedValue(null)
     await expect(fetchQuotePdf("a/b")).resolves.toBeNull()
     expect(fetchDocumentPdf).toHaveBeenCalledWith("/quotes/a%2Fb/pdf", { disposition: "inline" })
+  })
+})
+
+
+// ── Conversión en venta (tanda B, 6.7) ────────────────────────────────────────
+
+describe("useConvertQuote — conversión atómica a venta", () => {
+  const convertPayload: QuoteConvertInput = {
+    expected_revision: 3,
+    payment_method_id: "pm-1",
+    branch_id: "b-1",
+    cash_session_id: "cs-1",
+    bank_account_id: null,
+    canal: null,
+  }
+  const converted = {
+    quote_id: "q-1",
+    quote_number: 12,
+    quote_number_label: "P-00000012",
+    sales_order_id: "so-1",
+    operation_id: "op-1",
+    total: "3000.00",
+    replayed: false,
+  }
+
+  beforeEach(() => {
+    vi.mocked(pythonClient.post).mockResolvedValue(converted)
+  })
+
+  it("hace POST /quotes/{id}/convert con la clave por HEADER y sin repetirla en el cuerpo", async () => {
+    const { wrapper } = setup()
+    const { result } = renderHook(() => useConvertQuote(), { wrapper })
+
+    let out: unknown
+    await act(async () => {
+      out = await result.current.mutateAsync({ quoteId: "q-1", payload: convertPayload, idempotencyKey: "key-A" })
+    })
+
+    expect(out).toEqual(converted)
+    expect(pythonClient.post).toHaveBeenCalledTimes(1)
+    const [path, body, headers] = vi.mocked(pythonClient.post).mock.calls[0]
+    expect(path).toBe("/quotes/q-1/convert")
+    expect(headers).toEqual({ "Idempotency-Key": "key-A" })
+    expect(body).toEqual(convertPayload)
+    expect(body).not.toHaveProperty("idempotency_key")
+  })
+
+  it("la clave de otro presupuesto viaja en su propia request (A perdido, luego B: sin mezclar)", async () => {
+    const { wrapper } = setup()
+    const { result } = renderHook(() => useConvertQuote(), { wrapper })
+
+    await act(async () => {
+      await result.current.mutateAsync({ quoteId: "q-A", payload: convertPayload, idempotencyKey: "key-A" })
+      await result.current.mutateAsync({ quoteId: "q-B", payload: convertPayload, idempotencyKey: "key-B" })
+    })
+
+    const calls = vi.mocked(pythonClient.post).mock.calls
+    expect(calls.map((c) => [c[0], (c[2] as Record<string, string>)["Idempotency-Key"]])).toEqual([
+      ["/quotes/q-A/convert", "key-A"],
+      ["/quotes/q-B/convert", "key-B"],
+    ])
+  })
+
+  it("al éxito invalida quotes.* y todo lo que toca una venta (invalidateAfterSale)", async () => {
+    const { queryClient, wrapper } = setup()
+    const keys: unknown[][] = [
+      ["quotes", "list", {}],
+      ["quotes", "detail", "q-1"],
+      ["salesOrders", "list"],
+      ["sales", "list"],
+      ["branchStock", "branch", "b-1"],
+      ["products", "list"],
+      ["customerAccounts", "client", "c-1"],
+      ["receivables", "list"],
+      ["cashSessions", "current", "cb-1"],
+      ["cashMovements", "list"],
+      ["bankAccounts", "list"],
+    ]
+    for (const key of keys) await queryClient.fetchQuery({ queryKey: key, queryFn: async () => ({}) })
+    const { result } = renderHook(() => useConvertQuote(), { wrapper })
+
+    await act(async () => {
+      await result.current.mutateAsync({ quoteId: "q-1", payload: convertPayload, idempotencyKey: "key-A" })
+    })
+
+    for (const key of keys) {
+      expect(queryClient.getQueryState(key)?.isInvalidated, JSON.stringify(key)).toBe(true)
+    }
+  })
+
+  it("el replay (replayed: true) también invalida: la venta ya existe y las pantallas deben verla", async () => {
+    vi.mocked(pythonClient.post).mockResolvedValue({ ...converted, replayed: true })
+    const { queryClient, wrapper } = setup()
+    await queryClient.fetchQuery({ queryKey: ["quotes", "detail", "q-1"], queryFn: async () => ({}) })
+    const { result } = renderHook(() => useConvertQuote(), { wrapper })
+
+    await act(async () => {
+      await result.current.mutateAsync({ quoteId: "q-1", payload: convertPayload, idempotencyKey: "key-A" })
+    })
+
+    expect(queryClient.getQueryState(["quotes", "detail", "q-1"])?.isInvalidated).toBe(true)
+  })
+
+  it("un fallo llega con su code estable y NO invalida nada", async () => {
+    vi.mocked(pythonClient.post).mockRejectedValue(
+      new PythonApiError("stock_insuficiente para producto p-1", 409, { code: "stock_insuficiente" }),
+    )
+    const { queryClient, wrapper } = setup()
+    await queryClient.fetchQuery({ queryKey: ["quotes", "detail", "q-1"], queryFn: async () => ({}) })
+    await queryClient.fetchQuery({ queryKey: ["products", "list"], queryFn: async () => ({}) })
+    const { result } = renderHook(() => useConvertQuote(), { wrapper })
+
+    const err = await act(async () =>
+      result.current
+        .mutateAsync({ quoteId: "q-1", payload: convertPayload, idempotencyKey: "key-A" })
+        .catch((e: unknown) => e),
+    )
+
+    expect(err).toBeInstanceOf(PythonApiError)
+    expect((err as PythonApiError).code).toBe("stock_insuficiente")
+    expect(queryClient.getQueryState(["quotes", "detail", "q-1"])?.isInvalidated).toBe(false)
+    expect(queryClient.getQueryState(["products", "list"])?.isInvalidated).toBe(false)
   })
 })

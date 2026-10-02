@@ -522,6 +522,12 @@ export interface Sale {
   hasAccountCharge?: boolean
   hasCashMovement?: boolean
   hasBankMovement?: boolean
+  /** presupuestos-modulo (D6/D10): presupuesto del que nació la venta (derivado de lectura). null = venta suelta. */
+  sourceQuoteId?: string | null
+  /** Número interno del presupuesto de origen (`P-00000012` lo arma la interfaz). */
+  sourceQuoteNumber?: number | null
+  /** presupuestos-modulo (OQ-P16): la operación incluye conceptos sin producto (líneas de servicio); el editor de /ventas no las rehidrata. */
+  hasServiceLines?: boolean
 }
 
 export interface Purchase {

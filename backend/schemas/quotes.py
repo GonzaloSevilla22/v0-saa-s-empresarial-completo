@@ -231,6 +231,51 @@ class QuoteTransitionIn(BaseModel):
     reason: Optional[str] = Field(default=None, max_length=MAX_REASON)
 
 
+# ── Conversión a venta (tanda B, D6/D12) ──────────────────────────────────────
+
+class QuoteConvertIn(BaseModel):
+    """Conversión atómica del presupuesto en venta (`rpc_convert_quote_to_sale`).
+
+    `expected_revision` es la versión del presupuesto que el usuario VIO al
+    confirmar: si otro la editó mientras tanto, la RPC responde `quote_changed`
+    (409) y no cobra un total que nadie confirmó. La forma de pago es del
+    catálogo (`payment_method_id`): la conversión no usa el camino legacy por
+    texto. Sucursal, caja y cuenta bancaria son opcionales y los guards de
+    tenencia viven en la RPC. La clave de idempotencia viaja por el header
+    `Idempotency-Key`; `idempotency_key` en el body es el fallback deprecado
+    (v3-api-standards §3.3).
+    """
+    expected_revision: int = Field(ge=1)
+    payment_method_id: uuid.UUID
+    branch_id:         Optional[uuid.UUID] = None
+    cash_session_id:   Optional[uuid.UUID] = None
+    bank_account_id:   Optional[uuid.UUID] = None
+    canal:             Optional[str] = None
+    idempotency_key:   Optional[str] = None
+
+    @field_validator("idempotency_key")
+    @classmethod
+    def validate_idempotency_key_not_empty(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and not v.strip():
+            raise ValueError("idempotency_key no puede estar vacío")
+        return v
+
+
+class QuoteConvertOut(BaseModel):
+    """Resultado de la conversión: el presupuesto, la orden de venta confirmada y
+    la operación de venta. `replayed = true` cuando la misma clave ya había
+    convertido ESTE presupuesto (el reintento no escribe nada)."""
+    model_config = ConfigDict(from_attributes=True)
+
+    quote_id:           uuid.UUID
+    quote_number:       Optional[int] = None
+    quote_number_label: Optional[str] = None
+    sales_order_id:     uuid.UUID
+    operation_id:       uuid.UUID
+    total:              Decimal
+    replayed:           bool = False
+
+
 # ── Configuración ─────────────────────────────────────────────────────────────
 
 class QuoteSettingsIn(BaseModel):

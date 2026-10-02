@@ -11,7 +11,7 @@
  *     (`lib/operation-errors.ts`); este módulo no mantiene un segundo mapa.
  *   - Sin `useAcceptQuote`: `POST /quotes/{id}/accept` se retiró (dejaba un
  *     presupuesto `accepted` con una orden `draft` invisible). Pasar a venta es
- *     la conversión atómica de la tanda B.
+ *     `useConvertQuote`, la conversión atómica.
  *   - Toda mutación invalida `quotes.*` (listas y detalle son del mismo
  *     documento); las que cambian el stock, la caja o el banco usan además
  *     `invalidateAfterSale`.
@@ -22,10 +22,13 @@ import { useAuth } from "@/contexts/auth-context"
 import { pythonClient } from "@/lib/api/python-client"
 import { fetchDocumentPdf, type PdfDisposition } from "@/lib/api/document-pdf"
 import { queryKeys } from "@/lib/query-keys"
+import { invalidateAfterSale } from "@/lib/query-invalidation"
 import type {
   CreateQuoteInput,
   Paginated,
   QuoteApiRow,
+  QuoteConvertInput,
+  QuoteConvertResult,
   QuoteListFilters,
   QuoteListItem,
   QuoteTransitionAction,
@@ -152,6 +155,40 @@ export function useDeleteQuote() {
       queryClient.invalidateQueries({ queryKey: queryKeys.quotes.lists() })
       // El detalle de un presupuesto que ya no existe no se vuelve a pedir.
       queryClient.removeQueries({ queryKey: queryKeys.quotes.detail(quoteId) })
+    },
+  })
+}
+
+/**
+ * Convierte el presupuesto en venta, de forma atómica (descuenta stock, mueve
+ * caja/banco/cuenta corriente y deja la orden `confirmed`; cualquier fallo
+ * revierte todo). POST /quotes/{id}/convert
+ *
+ * La clave de idempotencia la pone quien llama (el diálogo, con
+ * `useIdempotencyKey("quote-convert:" + quoteId)`) y viaja por header: así una
+ * respuesta perdida de la conversión de A no contamina la de B. Se invalida
+ * `quotes.*` más todo lo que toca una venta (`invalidateAfterSale`), también en
+ * el replay: la venta ya existe y las pantallas tienen que verla.
+ */
+export function useConvertQuote() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({
+      quoteId,
+      payload,
+      idempotencyKey,
+    }: {
+      quoteId: string
+      payload: QuoteConvertInput
+      idempotencyKey: string
+    }): Promise<QuoteConvertResult> =>
+      pythonClient.post<QuoteConvertResult>(`/quotes/${quoteId}/convert`, payload, {
+        "Idempotency-Key": idempotencyKey,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.quotes.all() })
+      invalidateAfterSale(queryClient)
     },
   })
 }

@@ -59,7 +59,9 @@
 --       operation_idempotency para (1)/(2), INSERT en sales para (3), INSERT
 --       en sales_orders para (2b)) — sin este candado, el guard podría
 --       borrarse y (1)-(3)/(2b) seguirían verdes si alguien reintrodujera el
---       choke-point-only por otro camino.
+--       choke-point-only por otro camino. [presupuestos-modulo tanda B] el
+--       guard de rpc_accept_quote vive ahora en _quote_accept_core(uuid,
+--       uuid); el candado lo sigue ahí y exige que rpc_accept_quote delegue.
 --   (8) ACL — {postgres, authenticated, service_role}, SIN anon, en las 4
 --       funciones (CREATE OR REPLACE no debe haber cambiado el proacl).
 --   (9) BARRIDO GLOBAL — cero sales/sales_orders/purchases/quotes cuyo
@@ -558,14 +560,25 @@ BEGIN
   END IF;
 
   -- RONDA 1 (finding MAJOR, candado de cuerpo del guard nuevo en rpc_accept_quote).
-  v_def := pg_get_functiondef('public.rpc_accept_quote(uuid)'::regprocedure);
+  -- presupuestos-modulo tanda B (20261068000001, D6): el cuerpo de
+  -- rpc_accept_quote se movió SIN CAMBIOS (salvo FOR UPDATE y la sucursal) al
+  -- núcleo interno _quote_accept_core(uuid, uuid), que comparten la aceptación
+  -- y la conversión a venta; rpc_accept_quote queda como wrapper de una línea.
+  -- El candado sigue al guard a su nuevo lugar y además exige que el wrapper
+  -- delegue en el núcleo (si volviera a tener cuerpo propio, el guard de acá ya
+  -- no cubriría ese camino).
+  v_def := pg_get_functiondef('public._quote_accept_core(uuid, uuid)'::regprocedure);
   v_pos_guard := position('client_not_found' in v_def);
   v_pos_write := position('INSERT INTO public.sales_orders' in v_def);
   IF v_pos_guard = 0 THEN
-    RAISE EXCEPTION 'GATE OPERACION-PARTY-GUARD FAILED (7-quote-cuerpo): rpc_accept_quote perdió el guard explícito (no aparece client_not_found en el cuerpo vivo).';
+    RAISE EXCEPTION 'GATE OPERACION-PARTY-GUARD FAILED (7-quote-cuerpo): _quote_accept_core perdió el guard explícito (no aparece client_not_found en el cuerpo vivo).';
   END IF;
   IF v_pos_write = 0 OR NOT (v_pos_guard < v_pos_write) THEN
     RAISE EXCEPTION 'GATE OPERACION-PARTY-GUARD FAILED (7-quote-orden): el guard de client_id debe ir ANTES del INSERT en sales_orders. Posiciones: guard=%, insert=%.', v_pos_guard, v_pos_write;
+  END IF;
+  v_def := pg_get_functiondef('public.rpc_accept_quote(uuid)'::regprocedure);
+  IF position('_quote_accept_core(p_quote_id, NULL)' in v_def) = 0 OR v_def ~* 'INSERT\s+INTO' THEN
+    RAISE EXCEPTION 'GATE OPERACION-PARTY-GUARD FAILED (7-quote-wrapper): rpc_accept_quote debe delegar en _quote_accept_core(p_quote_id, NULL) sin escribir por su cuenta.';
   END IF;
   RAISE NOTICE 'PASS (7): las 4 funciones conservan el guard explícito de client_id, ubicado ANTES de la primera escritura real.';
   v_blocks_run := v_blocks_run + 1;

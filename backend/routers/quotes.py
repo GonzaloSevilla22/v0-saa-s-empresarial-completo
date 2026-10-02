@@ -9,6 +9,7 @@ Routes:
   PUT    /quotes/{id}               → edición, reemplazo completo (rpc_update_quote)
   DELETE /quotes/{id}               → borra un borrador nunca enviado
   POST   /quotes/{id}/transition    → marcar enviado / rechazar
+  POST   /quotes/{id}/convert       → conversión atómica a venta (Idempotency-Key)
   GET    /quotes/{id}/pdf           → PDF (inline | attachment), cualquier estado
   GET    /settings/quotes           → validez por defecto de la cuenta
   PATCH  /settings/quotes           → fijarla (owner/admin); `PUT` es un alias
@@ -16,7 +17,7 @@ Routes:
 Se retiró `POST /quotes/{id}/accept` (D12): no tenía consumidores y dejaría un
 presupuesto `accepted` —que en la interfaz significa "convertido en venta"—
 con una orden `draft` que ninguna pantalla muestra. La única vía a `accepted` es
-la conversión a venta.
+la conversión a venta (`POST /quotes/{id}/convert`, tanda B).
 
 Regla dura: routers hacen validación + DI únicamente. Toda la lógica de negocio
 y los guards en services/quotes.py.
@@ -27,13 +28,16 @@ import uuid
 from typing import Literal
 
 import asyncpg
-from fastapi import APIRouter, Depends, Query, Response
+from fastapi import APIRouter, Depends, Query, Request, Response
 
 from backend.core.auth import get_current_user
 from backend.core.database import get_db_conn
 from backend.core.deps import get_account_id
+from backend.core.idempotency import require_idempotency_key
 from backend.repositories.quote_repository import QuoteRepository
 from backend.schemas.quotes import (
+    QuoteConvertIn,
+    QuoteConvertOut,
     QuoteIn,
     QuoteOut,
     QuotePageOut,
@@ -140,6 +144,33 @@ async def transition_quote(
     account_id: uuid.UUID = Depends(get_account_id),
 ):
     return await quotes_service.transition_quote(
+        repo, auth, str(account_id), str(quote_id), payload, conn=conn
+    )
+
+
+@router.post("/quotes/{quote_id}/convert", response_model=QuoteConvertOut)
+async def convert_quote(
+    quote_id: uuid.UUID,
+    request: Request,
+    payload: QuoteConvertIn,
+    auth: dict = Depends(get_current_user),
+    repo: QuoteRepository = Depends(get_quote_repo),
+    conn: asyncpg.Connection = Depends(get_db_conn),
+    account_id: uuid.UUID = Depends(get_account_id),
+):
+    """Convierte el presupuesto en venta en UNA transacción: acepta el
+    presupuesto y confirma la orden con los mismos efectos del POS (stock, caja,
+    cuenta corriente, banco, eventos). Requiere `CAN_QUOTE`. `expected_revision`
+    es la versión que el usuario vio: otra versión → 409 `quote_changed`.
+
+    v3-api-standards §3.3: `Idempotency-Key` por header, con fallback al body
+    deprecado; sin ninguna → 422 `idempotency_key_required`. Un reintento con la
+    misma clave sobre el mismo presupuesto responde 200 con `replayed: true` y no
+    escribe nada; la misma clave sobre otro documento → 409
+    `idempotency_key_conflict`.
+    """
+    payload.idempotency_key = await require_idempotency_key(request, payload.idempotency_key)
+    return await quotes_service.convert_quote(
         repo, auth, str(account_id), str(quote_id), payload, conn=conn
     )
 

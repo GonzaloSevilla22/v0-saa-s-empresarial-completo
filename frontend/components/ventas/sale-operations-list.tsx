@@ -40,6 +40,7 @@ import { formatMoney, formatUnitPrice, formatDate, type Currency } from "@/lib/f
 import { formatQuantity } from "@/lib/format-unit"
 import { resolveUnit } from "@/lib/unit-utils"
 import { SaleReceiptButton } from "@/components/ventas/sale-receipt-button"
+import { SourceQuoteBadge } from "@/components/ventas/SourceQuoteBadge"
 import type { Sale, Client, SaleFiscalState, UnitOfMeasure } from "@/lib/types"
 import { ProductDisplay } from "@/components/shared/product-display"
 import type { PaginationMeta, PageSizeOption } from "@/lib/pagination-utils"
@@ -65,6 +66,16 @@ import { PaymentMethodSelect } from "@/components/payment-methods/PaymentMethodS
 // consistente con el RAISE del backend (P0423, mensaje distinto por causa).
 const PAYMENT_LOCKED_REASON =
   "No editable: esta operación ya tiene un cargo de cuenta corriente, un movimiento de caja o un movimiento bancario registrado. Emití una nota de crédito y registrá una venta nueva."
+
+// presupuestos-modulo (D6, OQ-P16): una venta convertida desde un presupuesto
+// con conceptos sin producto (líneas de servicio) no se edita desde /ventas: el
+// editor rehidrata cada fila como una línea de PRODUCTO (`productId`
+// obligatorio) y la descripción del concepto vive sólo en la orden. No hay
+// bloqueo duro del servidor (borrarla funciona y un request armado a mano no
+// puede corromperla): es un límite de la pantalla, así que va ÚLTIMO en la
+// prioridad — un bloqueo fiscal o de pago es el que el usuario tiene que ver.
+const SERVICE_LINES_REASON =
+  "Incluye conceptos sin producto de un presupuesto: no se edita desde acá. Para corregirla, eliminala y volvé a venderla desde el presupuesto duplicado."
 
 // venta-editable-sin-cae: el motivo NOMBRA LA CAUSA REAL, que es lo que pidió
 // el PO. Tres causas distintas comparten P0423 en el servidor y la acción que
@@ -433,7 +444,9 @@ export function SaleOperationsList({
             fiscalBlockedReason(op.fiscal) ??
             (op.isFiscallyLocked ? FISCAL_LOCKED_FALLBACK_REASON : null)
           const editBlockedReason =
-            fiscalReason ?? (op.isPaymentLocked ? PAYMENT_LOCKED_REASON : null)
+            fiscalReason ??
+            (op.isPaymentLocked ? PAYMENT_LOCKED_REASON : null) ??
+            (op.hasServiceLines ? SERVICE_LINES_REASON : null)
           const voidHint = voidableEditHint(op.fiscal)
           // venta-editable-vs-promocion-legacy: "Emitir comprobante" sólo
           // mientras la venta está preparada y todavía SIN comprobante vivo.
@@ -510,21 +523,31 @@ export function SaleOperationsList({
                     <span className="text-sm font-bold text-success tabular-nums">{formatMoney(op.total, op.currency)}</span>
                   </div>
                   <PaymentMethodBadge name={op.items[0]?.paymentMethodName} />
+                  {op.sourceQuoteId && (
+                    <SourceQuoteBadge quoteId={op.sourceQuoteId} quoteNumber={op.sourceQuoteNumber} />
+                  )}
                 </div>
 
                 {/* Desktop */}
                 <div className="hidden sm:grid grid-cols-[120px_1fr_180px_80px_120px_48px_48px] gap-3 px-4 py-3 items-center">
                   <span className="text-sm text-muted-foreground tabular-nums">{formatDate(op.date)}</span>
-                  <div className="flex items-center gap-2 min-w-0">
-                    {isExpanded ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                      : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0 group-hover:text-foreground" />}
-                    <span className="text-sm font-medium text-foreground truncate">
-                      {op.items[0].productName}
-                      {op.items.length > 1 && (
-                        <span className="text-muted-foreground font-normal"> · +{op.items.length - 1} más</span>
-                      )}
-                    </span>
-                    <PaymentMethodBadge name={op.items[0]?.paymentMethodName} layout="inline" />
+                  {/* El badge de origen va en su propia línea: en la misma fila que el
+                      producto y la forma de pago, la celda lo cortaba antes del número. */}
+                  <div className="flex min-w-0 flex-col gap-1">
+                    <div className="flex items-center gap-2 min-w-0">
+                      {isExpanded ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                        : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0 group-hover:text-foreground" />}
+                      <span className="text-sm font-medium text-foreground truncate">
+                        {op.items[0].productName}
+                        {op.items.length > 1 && (
+                          <span className="text-muted-foreground font-normal"> · +{op.items.length - 1} más</span>
+                        )}
+                      </span>
+                      <PaymentMethodBadge name={op.items[0]?.paymentMethodName} layout="inline" />
+                    </div>
+                    {op.sourceQuoteId && (
+                      <SourceQuoteBadge quoteId={op.sourceQuoteId} quoteNumber={op.sourceQuoteNumber} className="ml-[1.375rem]" />
+                    )}
                   </div>
                   <span className="text-sm text-muted-foreground truncate">{op.clientName}</span>
                   <div className="flex justify-center">
@@ -568,14 +591,14 @@ export function SaleOperationsList({
               {isExpanded && (
                 <div className="px-4 pb-4 pt-1 bg-accent/10 border-t border-dashed border-border/50">
                   <div className="rounded-lg border border-border/60 overflow-x-auto mt-2">
-                    <div className="grid grid-cols-[1fr_72px_110px_110px] gap-2 px-3 py-2 bg-accent/30 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold min-w-[320px]">
+                    <div className="grid grid-cols-[minmax(120px,1fr)_72px_110px_110px] gap-2 px-3 py-2 bg-accent/30 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold min-w-[460px]">
                       <span>Producto</span>
                       <span className="text-center">Cant.</span>
                       <span className="text-right">Precio unit.</span>
                       <span className="text-right">Subtotal</span>
                     </div>
                     {op.items.map((item) => (
-                      <div key={item.id} className="grid grid-cols-[1fr_72px_110px_110px] gap-2 px-3 py-2.5 border-t border-border/30 text-sm items-center hover:bg-accent/10 min-w-[320px]">
+                      <div key={item.id} className="grid grid-cols-[minmax(120px,1fr)_72px_110px_110px] gap-2 px-3 py-2.5 border-t border-border/30 text-sm items-center hover:bg-accent/10 min-w-[460px]">
                         <ProductDisplay mode="table" name={item.productName} />
                         <span className="text-center text-muted-foreground tabular-nums">{formatQuantity(item.quantity, unitSymbolFor(item.unitId))}</span>
                         <span className="text-right text-muted-foreground tabular-nums">{formatUnitPrice(item.unitPrice, op.currency)}</span>
@@ -583,7 +606,7 @@ export function SaleOperationsList({
                       </div>
                     ))}
                     {op.isGrouped && (
-                      <div className="grid grid-cols-[1fr_72px_110px_110px] gap-2 px-3 py-2.5 border-t border-border bg-accent/20 text-sm min-w-[320px]">
+                      <div className="grid grid-cols-[minmax(120px,1fr)_72px_110px_110px] gap-2 px-3 py-2.5 border-t border-border bg-accent/20 text-sm min-w-[460px]">
                         <span className="col-span-3 text-right font-medium text-muted-foreground pr-2">Total operación</span>
                         <span className="text-right font-bold text-base text-primary tabular-nums">{formatMoney(op.total, op.currency)}</span>
                       </div>

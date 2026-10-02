@@ -9,8 +9,11 @@
  * (`CAN_QUOTE` + `draft`): un cajero descarga el PDF sin cambiar el estado, y si
  * marcar como enviado falla no se muestra error (la descarga ya funcionó).
  *
- * "Venta" aparece deshabilitado en esta entrega: la conversión atómica llega en la
- * tanda B (D14), y el botón ya deja ver dónde va a estar.
+ * "Venta" (tanda B) abre `ConvertQuoteDialog`, la conversión atómica en venta:
+ * habilitado en draft/sent vigentes con `CAN_QUOTE`; en uno vencido queda
+ * deshabilitado y explicado. En un presupuesto convertido, "Venta generada"
+ * enlaza a la orden, muestra el estado de su comprobante y, si la orden se
+ * canceló, avisa que la venta fue eliminada (OQ-P12).
  */
 import { useCallback, useRef, useState } from "react"
 import Link from "next/link"
@@ -32,15 +35,19 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { QuoteLoadError, QuoteLoading } from "@/components/quotes/QuotePageStates"
+import { ConvertQuoteDialog } from "@/components/quotes/ConvertQuoteDialog"
 import { QuoteStatusBadge } from "@/components/quotes/QuoteStatusBadge"
+import { FiscalInvoiceSummary } from "@/components/fiscal/FiscalInvoiceSummary"
 import { DocumentShareMenu } from "@/components/shared/DocumentShareMenu"
 import { ResponsiveModal } from "@/components/shared/responsive-modal"
 import { useProducts } from "@/hooks/data/use-products"
 import { fetchQuotePdf, useDeleteQuote, useQuote, useTransitionQuote } from "@/hooks/data/use-quotes"
+import { useSalesOrder } from "@/hooks/data/use-sales-orders"
 import { useOrgRole } from "@/hooks/useOrgRole"
 import { useRestoreFocus } from "@/hooks/ui/use-restore-focus"
 import { useUnitsOfMeasure } from "@/hooks/use-units-of-measure"
 import { formatDate, formatMoney, formatNumber } from "@/lib/format"
+import { mapFiscalState } from "@/lib/fiscal-comprobante"
 import { humanizeOperationError } from "@/lib/operation-errors"
 import { catalogPriceHint, isModifiedAfterSent, quoteActions, quoteFileName } from "@/lib/quote-detail"
 import { QUOTE_STATUS_LABELS } from "@/lib/quote-status"
@@ -78,7 +85,13 @@ export default function QuoteDetailPage() {
   const { data: quote, isLoading, isError } = useQuote(deleted ? null : quoteId)
   const transition = useTransitionQuote()
   const deleteQuote = useDeleteQuote()
+  // La orden de la venta generada (sólo en un presupuesto convertido): de ahí
+  // salen su estado (¿se canceló?) y el de su comprobante fiscal.
+  const { data: generatedOrder } = useSalesOrder(
+    quote?.status === "accepted" ? (quote.sales_order_id ?? null) : null,
+  )
 
+  const [convertOpen, setConvertOpen] = useState(false)
   const [rejectOpen, setRejectOpen] = useState(false)
   const [rejectReason, setRejectReason] = useState("")
   const [rejecting, setRejecting] = useState(false)
@@ -86,8 +99,10 @@ export default function QuoteDetailPage() {
   const [deleting, setDeleting] = useState(false)
   const [notice, setNotice] = useState("")
 
+  const saleButtonRef = useRef<HTMLButtonElement>(null)
   const rejectButtonRef = useRef<HTMLButtonElement>(null)
   const deleteButtonRef = useRef<HTMLButtonElement>(null)
+  useRestoreFocus(convertOpen, saleButtonRef)
   useRestoreFocus(rejectOpen, rejectButtonRef)
   useRestoreFocus(deleteOpen, deleteButtonRef)
 
@@ -166,9 +181,13 @@ export default function QuoteDetailPage() {
     businessName: quote.issuer_name,
   })
 
+  // Sólo un presupuesto vencido necesita explicar por qué "Venta" no responde.
   const saleLegend = actions.saleBlockedByExpiry
     ? `Vencido el ${validUntilText ?? "—"}: ampliá la validez o duplicalo.`
-    : "Pasar a venta: disponible en la próxima entrega."
+    : null
+
+  const generatedFiscal = generatedOrder ? mapFiscalState(generatedOrder) : null
+  const generatedOrderCanceled = generatedOrder?.status === "canceled"
 
   return (
     <div className="flex flex-col gap-6 min-w-0">
@@ -237,13 +256,33 @@ export default function QuoteDetailPage() {
       {quote.status === "accepted" && (
         <section
           aria-label="Venta generada"
-          className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-success/30 bg-success/10 px-4 py-3 text-sm text-foreground"
+          className="flex flex-col gap-3 rounded-lg border border-success/30 bg-success/10 px-4 py-3 text-sm text-foreground"
         >
-          <p>Este presupuesto se convirtió en una venta.</p>
-          {quote.sales_order_id && (
-            <Button asChild size="sm" variant="outline">
-              <Link href={`/ventas/ordenes/${quote.sales_order_id}`}>Ver venta</Link>
-            </Button>
+          {generatedOrderCanceled ? (
+            <>
+              <p className="font-medium">La venta generada fue eliminada.</p>
+              <p className="text-muted-foreground">
+                Este presupuesto no se reabre: para volver a vender, duplicá el presupuesto.
+              </p>
+            </>
+          ) : (
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p>Este presupuesto se convirtió en una venta.</p>
+              {quote.sales_order_id && (
+                <Button asChild size="sm" variant="outline">
+                  <Link href={`/ventas/ordenes/${quote.sales_order_id}`}>Ver venta</Link>
+                </Button>
+              )}
+            </div>
+          )}
+          {!generatedOrderCanceled && generatedOrder && (
+            <div className="min-w-0">
+              {generatedFiscal ? (
+                <FiscalInvoiceSummary fiscal={generatedFiscal} />
+              ) : (
+                <p className="text-xs text-muted-foreground">Sin comprobante emitido.</p>
+              )}
+            </div>
           )}
         </section>
       )}
@@ -282,11 +321,13 @@ export default function QuoteDetailPage() {
           )}
           {actions.showSaleButton && (
             <Button
+              ref={saleButtonRef}
               type="button"
               size="sm"
               className="gap-1.5"
-              disabled
-              aria-describedby={SALE_LEGEND_ID}
+              disabled={!actions.canConvert}
+              aria-describedby={saleLegend ? SALE_LEGEND_ID : undefined}
+              onClick={() => setConvertOpen(true)}
             >
               <ShoppingCart className="h-4 w-4" aria-hidden="true" />
               Venta
@@ -327,7 +368,7 @@ export default function QuoteDetailPage() {
             </Button>
           )}
         </div>
-        {actions.showSaleButton && (
+        {saleLegend && (
           <p id={SALE_LEGEND_ID} className="text-xs text-muted-foreground">
             {saleLegend}
           </p>
@@ -411,6 +452,14 @@ export default function QuoteDetailPage() {
           ))}
         </ul>
       </section>
+
+      {/* ── Pasar a venta ──
+          Se mantiene montado mientras esté abierto: al convertir, el presupuesto
+          pasa a `accepted` (y deja de ofrecer "Venta"), pero el diálogo tiene que
+          seguir ahí para mostrar "Venta registrada" hasta que el usuario lo cierre. */}
+      {canQuote && (actions.canConvert || convertOpen) && (
+        <ConvertQuoteDialog quote={quote} open={convertOpen} onOpenChange={setConvertOpen} />
+      )}
 
       {/* ── Rechazar ── */}
       <ResponsiveModal open={rejectOpen} onOpenChange={setRejectOpen} title="Rechazar presupuesto">

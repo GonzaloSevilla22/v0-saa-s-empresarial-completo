@@ -118,6 +118,50 @@ describe("permisos y conversión en venta", () => {
   })
 })
 
+describe("conversión en venta — rechazos de forma de pago, banco y caja (revisión 6.11, B-03)", () => {
+  it("cash_optin_requires_open_session: la caja se cerró mientras se confirmaba; ofrece ir a /caja", () => {
+    const { message, action } = humanizeOperationError(
+      "cash_optin_requires_open_session: la sesión de caja debe estar abierta y pertenecer a la sucursal efectiva de la venta",
+    )
+    expect(message).toMatch(/caja/i)
+    expect(message).toMatch(/no se registró nada/i)
+    expect(message).toMatch(/otra forma de pago/i)
+    expect(message).not.toMatch(/cash_optin/)
+    expect(action).toEqual({ label: "Ir a Caja", href: "/caja" })
+  })
+
+  it.each([
+    ["payment_method_not_found: 686292f2-1111-2222-3333-444455556666 no pertenece a la cuenta o no existe"],
+    ["payment_method_inactive: 686292f2-1111-2222-3333-444455556666 está desactivada"],
+    ["payment_method_not_found or not active for this account"],
+  ])("%s: pide elegir otra forma de pago, sin el uuid ni el token", (raw) => {
+    const { message } = humanizeOperationError(raw)
+    expect(message).toMatch(/forma de pago/i)
+    expect(message).toMatch(/elegí otra/i)
+    expect(message).not.toMatch(/payment_method_/)
+    expect(message).not.toMatch(/686292f2/)
+  })
+
+  it("bank_account_not_found_or_inactive: pide elegir otra cuenta bancaria, sin el uuid", () => {
+    const { message } = humanizeOperationError(
+      "bank_account_not_found_or_inactive: cccce457-1111-2222-3333-444455556666 no pertenece a la cuenta, no existe, está inactiva o borrada",
+    )
+    expect(message).toMatch(/cuenta bancaria/i)
+    expect(message).toMatch(/elegí otra/i)
+    expect(message).not.toMatch(/bank_account_not_found/)
+    expect(message).not.toMatch(/cccce457/)
+  })
+
+  it("bank_period_reconciled: período bancario cerrado; no se registró nada y se explica la salida", () => {
+    const { message } = humanizeOperationError(
+      "bank_period_reconciled: la fecha 2026-10-02 cae dentro de un período ya conciliado y cerrado de la cuenta bancaria — registrá el ajuste como movimiento bancario manual",
+    )
+    expect(message).toMatch(/conciliado/i)
+    expect(message).toMatch(/no se registró nada/i)
+    expect(message).not.toMatch(/bank_period_reconciled/)
+  })
+})
+
 describe("sin regresiones sobre el mapa existente", () => {
   it("el stock insuficiente de la conversión sigue su camino (producto + transferir)", () => {
     const { message, action } = humanizeOperationError(

@@ -19,10 +19,12 @@ export interface QuoteActions {
   canMarkSent: boolean
   /** Descargar o mandar por WhatsApp marca como enviado: sólo con permiso y en `draft`. */
   markSentOnShare: boolean
-  /** El botón "Venta" se muestra (en la tanda A, siempre deshabilitado). */
+  /** El botón "Venta" se muestra (con permiso y en `draft`/`sent`). */
   showSaleButton: boolean
   /** Con `showSaleButton`: el presupuesto está vencido (derivado), la venta se explica por eso. */
   saleBlockedByExpiry: boolean
+  /** "Venta" habilitada: se muestra y el presupuesto sigue vigente. El servidor valida igual. */
+  canConvert: boolean
   canReject: boolean
   canDuplicate: boolean
   /** Sólo un `draft` NUNCA enviado admite eliminarse. */
@@ -42,6 +44,7 @@ export function quoteActions(quote: QuoteActionsInput, canQuote: boolean): Quote
     markSentOnShare: canQuote && quote.status === "draft",
     showSaleButton,
     saleBlockedByExpiry: showSaleButton && quote.is_expired,
+    canConvert: showSaleButton && !quote.is_expired,
     canReject: canQuote && open,
     canDuplicate: canQuote,
     canDelete: canQuote && quote.status === "draft" && !quote.sent_at,

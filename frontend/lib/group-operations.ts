@@ -49,6 +49,14 @@ export interface SaleOperation {
   hasAccountCharge: boolean
   hasCashMovement: boolean
   hasBankMovement: boolean
+  /** presupuestos-modulo (D6/D10): presupuesto del que nació la operación. La
+   * PRIMERA fila que lo trae (todas comparten la misma orden de venta). null = suelta. */
+  sourceQuoteId: string | null
+  /** Número interno del presupuesto de origen; null en uno anterior al módulo. */
+  sourceQuoteNumber: number | null
+  /** presupuestos-modulo (OQ-P16): ALGUNA fila de la operación es un concepto sin
+   * producto (línea de servicio). Un OR: una operación mixta también lo es. */
+  hasServiceLines: boolean
 }
 
 export function groupSalesByOperation(sales: Sale[]): SaleOperation[] {
@@ -69,6 +77,9 @@ export function groupSalesByOperation(sales: Sale[]): SaleOperation[] {
       op.hasAccountCharge = op.hasAccountCharge || !!sale.hasAccountCharge
       op.hasCashMovement = op.hasCashMovement || !!sale.hasCashMovement
       op.hasBankMovement = op.hasBankMovement || !!sale.hasBankMovement
+      op.sourceQuoteId = op.sourceQuoteId ?? sale.sourceQuoteId ?? null
+      op.sourceQuoteNumber = op.sourceQuoteNumber ?? sale.sourceQuoteNumber ?? null
+      op.hasServiceLines = op.hasServiceLines || !!sale.hasServiceLines
     } else {
       map.set(key, {
         key,
@@ -90,6 +101,9 @@ export function groupSalesByOperation(sales: Sale[]): SaleOperation[] {
         hasAccountCharge: !!sale.hasAccountCharge,
         hasCashMovement: !!sale.hasCashMovement,
         hasBankMovement: !!sale.hasBankMovement,
+        sourceQuoteId: sale.sourceQuoteId ?? null,
+        sourceQuoteNumber: sale.sourceQuoteNumber ?? null,
+        hasServiceLines: !!sale.hasServiceLines,
       })
     }
   }

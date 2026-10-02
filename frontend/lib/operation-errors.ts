@@ -141,6 +141,13 @@ const INSUFFICIENT_ROLE_ERROR = /insufficient_role|Rol de cuenta insuficiente/
 const CASH_REQUIRES_SESSION_ERROR = /cash_requires_session/
 const IDEMPOTENCY_KEY_CONFLICT_ERROR = /idempotency_key_conflict/
 const PAYMENT_METHOD_REQUIRED_ERROR = /payment_method_required/
+// presupuestos-modulo (revisión 6.11, B-03): rechazos realistas de la conversión
+// que el núcleo de venta y los helpers de banco levantan con el uuid detrás del
+// token — el usuario nunca debe ver ni el uno ni el otro.
+const CASH_OPTIN_SESSION_ERROR = /cash_optin_requires_open_session/
+const PAYMENT_METHOD_INVALID_ERROR = /payment_method_not_found|payment_method_inactive/
+const BANK_ACCOUNT_INVALID_ERROR = /bank_account_not_found_or_inactive/
+const BANK_PERIOD_RECONCILED_ERROR = /bank_period_reconciled/
 
 const fmtMoney = (n: number) =>
   n.toLocaleString("es-AR", { style: "currency", currency: "ARS" })
@@ -269,6 +276,39 @@ export function humanizeOperationError(
   if (PAYMENT_METHOD_REQUIRED_ERROR.test(message)) {
     return {
       message: "Elegí la forma de pago para registrar la venta.",
+    }
+  }
+
+  if (CASH_OPTIN_SESSION_ERROR.test(message)) {
+    return {
+      message:
+        "La caja de esta sucursal ya no está abierta (se cerró mientras confirmabas): no se registró nada. " +
+        "Abrí la caja o elegí otra forma de pago.",
+      action: { label: "Ir a Caja", href: "/caja" },
+    }
+  }
+
+  if (PAYMENT_METHOD_INVALID_ERROR.test(message)) {
+    return {
+      message:
+        "La forma de pago elegida no existe, está desactivada o no pertenece a esta cuenta: no se registró nada. " +
+        "Elegí otra forma de pago.",
+    }
+  }
+
+  if (BANK_ACCOUNT_INVALID_ERROR.test(message)) {
+    return {
+      message:
+        "La cuenta bancaria elegida no existe, está inactiva o no pertenece a esta cuenta: no se registró nada. " +
+        "Elegí otra cuenta bancaria.",
+    }
+  }
+
+  if (BANK_PERIOD_RECONCILED_ERROR.test(message)) {
+    return {
+      message:
+        "La fecha de la operación cae en un período bancario ya conciliado y cerrado: no se registró nada. " +
+        "Registrá el ajuste como movimiento bancario manual.",
     }
   }
 

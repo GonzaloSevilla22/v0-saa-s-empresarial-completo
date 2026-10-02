@@ -29,7 +29,8 @@
 --       pares (document_type, from_status, to_status) que producen los 12
 --       llamadores VIVOS de record_status_transition (task 7.5 -- 14
 --       triples distintos, incluidas las 2 ramas dinámicas de
---       rpc_accept_quote (quote draft/sent→accepted) y las 2 de
+--       _quote_accept_core (quote draft/sent→accepted; era rpc_accept_quote
+--       hasta presupuestos-modulo tanda B) y las 2 de
 --       rpc_record_fiscal_transition (fiscal_document pending_cae→
 --       authorized/rejected)) y asserta que TODOS existen en
 --       document_status_transitions. record_status_transition exime la
@@ -284,12 +285,12 @@ END $$;
 DO $$
 DECLARE
   v_expected_triples text[] := ARRAY[
-    'sales_order:NULL->draft',           -- rpc_accept_quote, rpc_quick_sale
+    'sales_order:NULL->draft',           -- _quote_accept_core, rpc_quick_sale
     'sales_order:draft->confirmed',      -- _c29_confirm_order_core
     'sales_order:confirmed->canceled',   -- rpc_delete_sale_operation
     'quote:NULL->draft',                 -- trg_quote_record_creation
-    'quote:draft->accepted',             -- rpc_accept_quote (v_quote.status='draft')
-    'quote:sent->accepted',              -- rpc_accept_quote (v_quote.status='sent')
+    'quote:draft->accepted',             -- _quote_accept_core (v_quote.status='draft')
+    'quote:sent->accepted',              -- _quote_accept_core (v_quote.status='sent')
     'cash_session:NULL->open',           -- rpc_open_cash_session
     'cash_session:open->closed',         -- rpc_close_cash_session
     'reconciliation_session:NULL->open', -- rpc_open_reconciliation_session
@@ -367,7 +368,13 @@ DECLARE
     -- exactamente un par: fiscal_document:pending_cae->voided (bloque 5).
     '_fiscal_void_pending_for_sale_edit',
     '_c29_confirm_order_core',
-    'rpc_accept_quote',
+    -- presupuestos-modulo tanda B (20261068000001, D6): el cuerpo de
+    -- rpc_accept_quote se movió al núcleo _quote_accept_core, que comparten la
+    -- aceptación y la conversión a venta. rpc_accept_quote (wrapper) y
+    -- rpc_convert_quote_to_sale delegan en él y NO llaman al helper directo:
+    -- el conteo sigue en 16 y los pares quote:draft|sent->accepted y
+    -- sales_order:NULL->draft siguen siendo los mismos.
+    '_quote_accept_core',
     'rpc_close_cash_session',
     'rpc_close_reconciliation_session',
     'rpc_delete_sale_operation',

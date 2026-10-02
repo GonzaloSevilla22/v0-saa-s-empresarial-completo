@@ -19,7 +19,7 @@ function input(status: QuoteStatus, overrides: Partial<ActionsInput> = {}): Acti
 }
 
 describe("quoteActions — con permiso (CAN_QUOTE)", () => {
-  it("draft nunca enviado: editar, marcar enviado, venta (deshabilitada), rechazar, duplicar y eliminar", () => {
+  it("draft nunca enviado: editar, marcar enviado, venta, rechazar, duplicar y eliminar", () => {
     const a = quoteActions(input("draft"), true)
     expect(a).toMatchObject({
       canEdit: true,
@@ -89,6 +89,26 @@ describe("quoteActions — con permiso (CAN_QUOTE)", () => {
 
   it("accepted sin orden asociada no ofrece 'Ver venta'", () => {
     expect(quoteActions(input("accepted"), true).showViewSale).toBe(false)
+  })
+})
+
+describe("quoteActions — canConvert (tanda B: el botón 'Venta' se habilita)", () => {
+  it.each(["draft", "sent"] as const)("%s vigente con permiso: se puede convertir", (status) => {
+    expect(quoteActions(input(status), true).canConvert).toBe(true)
+  })
+
+  it.each(["draft", "sent"] as const)("%s vencido (derivado): se muestra pero NO se puede convertir", (status) => {
+    const a = quoteActions(input(status, { is_expired: true }), true)
+    expect(a.showSaleButton).toBe(true)
+    expect(a.canConvert).toBe(false)
+  })
+
+  it.each(["expired", "rejected", "accepted"] as const)("%s: nunca se convierte", (status) => {
+    expect(quoteActions(input(status, { sales_order_id: "so-1" }), true).canConvert).toBe(false)
+  })
+
+  it("sin permiso (cashier): no se convierte aunque el estado lo admita", () => {
+    expect(quoteActions(input("sent"), false).canConvert).toBe(false)
   })
 })
 

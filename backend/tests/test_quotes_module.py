@@ -297,12 +297,40 @@ def _payload_update(**over):
     return QuoteUpdateIn(**data)
 
 
+PAYMENT_METHOD_ID = "55555555-5555-5555-5555-555555555555"
+BRANCH_ID = "66666666-6666-6666-6666-666666666666"
+CASH_SESSION_ID = "77777777-7777-7777-7777-777777777777"
+BANK_ACCOUNT_ID = "88888888-8888-8888-8888-888888888888"
+SALES_ORDER_ID = "99999999-9999-9999-9999-999999999999"
+OPERATION_ID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+CONVERT_KEY = "quote-convert:dddddddd:1"
+
+
+def _convert_result(**over) -> dict:
+    """Lo que devuelve `rpc_convert_quote_to_sale` (D6, paso 7)."""
+    base = {
+        "quote_id": QUOTE_ID, "quote_number": 12, "sales_order_id": SALES_ORDER_ID,
+        "operation_id": OPERATION_ID, "total": 1500, "replayed": False,
+    }
+    base.update(over)
+    return base
+
+
+def _payload_convert(**over):
+    from backend.schemas.quotes import QuoteConvertIn
+
+    data = {"expected_revision": 3, "payment_method_id": PAYMENT_METHOD_ID, "idempotency_key": CONVERT_KEY}
+    data.update(over)
+    return QuoteConvertIn(**data)
+
+
 def _repo(**returns) -> AsyncMock:
     repo = AsyncMock()
     repo.create_quote.return_value = {"id": QUOTE_ID, "account_id": ACCOUNT_ID}
     repo.update_quote.return_value = {"id": QUOTE_ID, "account_id": ACCOUNT_ID}
     repo.transition_quote.return_value = {"id": QUOTE_ID, "account_id": ACCOUNT_ID}
     repo.delete_quote.return_value = None
+    repo.convert_to_sale.return_value = _convert_result()
     repo.get_quote.return_value = _quote_record()
     repo.get_commercial_issuer.return_value = {
         "nombre_fantasia": "Sumar", "razon_social": "PEREZ MARIA LAURA", "business_name": "Almacén Don José",
@@ -318,10 +346,14 @@ WRITE_CALLS = {
     "transition": lambda svc, repo, auth, conn: svc.transition_quote(
         repo, auth, ACCOUNT_ID, QUOTE_ID, __import__("backend.schemas.quotes", fromlist=["x"]).QuoteTransitionIn(action="send"), conn=conn),
     "delete": lambda svc, repo, auth, conn: svc.delete_quote(repo, auth, ACCOUNT_ID, QUOTE_ID, conn=conn),
+    # tanda B (6.5): la conversión comparte el guard CAN_QUOTE de las demás escrituras.
+    "convert": lambda svc, repo, auth, conn: svc.convert_quote(
+        repo, auth, ACCOUNT_ID, QUOTE_ID, _payload_convert(), conn=conn),
 }
 REPO_WRITE_METHOD = {
     "create": "create_quote", "update": "update_quote",
     "transition": "transition_quote", "delete": "delete_quote",
+    "convert": "convert_to_sale",
 }
 
 
@@ -1155,3 +1187,346 @@ class TestSettingsEndpoints:
             )
         assert resp.status_code == 422
         repo.set_default_validity_days.assert_not_awaited()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 6.5 (tanda B) conversión atómica a venta: schema, repositorio, service, HTTP
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestConvertSchemas:
+    def test_expected_revision_and_payment_method_are_required(self):
+        from backend.schemas.quotes import QuoteConvertIn
+
+        with pytest.raises(ValidationError) as info:
+            QuoteConvertIn(payment_method_id=PAYMENT_METHOD_ID)
+        assert "expected_revision" in str(info.value)
+        with pytest.raises(ValidationError) as info:
+            QuoteConvertIn(expected_revision=1)
+        assert "payment_method_id" in str(info.value)
+
+    def test_optional_fields_default_to_none(self):
+        from backend.schemas.quotes import QuoteConvertIn
+
+        body = QuoteConvertIn(expected_revision=2, payment_method_id=PAYMENT_METHOD_ID)
+        assert body.branch_id is None and body.cash_session_id is None
+        assert body.bank_account_id is None and body.canal is None and body.idempotency_key is None
+
+    def test_revision_is_at_least_one(self):
+        from backend.schemas.quotes import QuoteConvertIn
+
+        with pytest.raises(ValidationError):
+            QuoteConvertIn(expected_revision=0, payment_method_id=PAYMENT_METHOD_ID)
+
+    def test_blank_body_key_is_rejected_but_absent_is_fine(self):
+        """El fallback del body no admite una clave vacía (mismo contrato que
+        `QuickSaleIn`); ausente es legal porque la clave viaja por header."""
+        from backend.schemas.quotes import QuoteConvertIn
+
+        with pytest.raises(ValidationError):
+            QuoteConvertIn(expected_revision=1, payment_method_id=PAYMENT_METHOD_ID, idempotency_key="   ")
+
+    def test_payment_method_must_be_a_uuid(self):
+        from backend.schemas.quotes import QuoteConvertIn
+
+        with pytest.raises(ValidationError):
+            QuoteConvertIn(expected_revision=1, payment_method_id="cash")
+
+    def test_out_carries_the_rpc_result(self):
+        from backend.schemas.quotes import QuoteConvertOut
+
+        out = QuoteConvertOut(**_convert_result())
+        assert str(out.sales_order_id) == SALES_ORDER_ID and str(out.operation_id) == OPERATION_ID
+        assert out.quote_number == 12 and out.total == Decimal("1500") and out.replayed is False
+
+
+class _ConvertConn(_RecordingConn):
+    def __init__(self, result):
+        super().__init__()
+        self._result = result
+
+    async def fetchval(self, query, *args):
+        return await self._answer(query, args, self._result)
+
+
+class TestConvertRepository:
+    @pytest.mark.asyncio
+    async def test_calls_the_rpc_with_the_eight_arguments_in_order(self):
+        from backend.repositories.quote_repository import QuoteRepository
+
+        conn = _ConvertConn(json.dumps(_convert_result()))
+        result = await QuoteRepository(conn).convert_to_sale(
+            QUOTE_ID,
+            idempotency_key=CONVERT_KEY, expected_revision=3, payment_method_id=PAYMENT_METHOD_ID,
+            branch_id=BRANCH_ID, cash_session_id=CASH_SESSION_ID, bank_account_id=BANK_ACCOUNT_ID, canal="mostrador",
+        )
+
+        query, args = conn.queries[0]
+        assert "rpc_convert_quote_to_sale" in query
+        assert " ".join(query.split()).count("$") == 8
+        assert args == (CONVERT_KEY, QUOTE_ID, 3, PAYMENT_METHOD_ID, BRANCH_ID, CASH_SESSION_ID, BANK_ACCOUNT_ID, "mostrador")
+        assert result["sales_order_id"] == SALES_ORDER_ID and result["replayed"] is False
+
+    @pytest.mark.asyncio
+    async def test_optional_arguments_travel_as_null(self):
+        from backend.repositories.quote_repository import QuoteRepository
+
+        conn = _ConvertConn(_convert_result())  # un dict ya parseado también se acepta
+        await QuoteRepository(conn).convert_to_sale(
+            QUOTE_ID, idempotency_key=CONVERT_KEY, expected_revision=1, payment_method_id=PAYMENT_METHOD_ID,
+            branch_id=None, cash_session_id=None, bank_account_id=None, canal=None,
+        )
+
+        _, args = conn.queries[0]
+        assert args[4:] == (None, None, None, None)
+
+    @pytest.mark.asyncio
+    async def test_the_conversion_writes_nothing_directly(self):
+        from backend.repositories.quote_repository import QuoteRepository
+
+        conn = _ConvertConn(_convert_result())
+        await QuoteRepository(conn).convert_to_sale(
+            QUOTE_ID, idempotency_key=CONVERT_KEY, expected_revision=1, payment_method_id=PAYMENT_METHOD_ID,
+            branch_id=None, cash_session_id=None, bank_account_id=None, canal=None,
+        )
+        for query, _ in conn.queries:
+            assert not re.search(r"(INSERT\s+INTO|UPDATE|DELETE\s+FROM)", query, re.I)
+
+
+class TestConvertService:
+    @pytest.mark.asyncio
+    async def test_passes_every_argument_to_the_repository_and_returns_the_result(self):
+        from backend.services import quotes as svc
+
+        repo = _repo()
+        payload = _payload_convert(
+            branch_id=BRANCH_ID, cash_session_id=CASH_SESSION_ID, bank_account_id=BANK_ACCOUNT_ID, canal="web",
+        )
+        result = await svc.convert_quote(repo, _auth("seller"), ACCOUNT_ID, QUOTE_ID, payload, conn=AsyncMock())
+
+        repo.convert_to_sale.assert_awaited_once_with(
+            QUOTE_ID, idempotency_key=CONVERT_KEY, expected_revision=3, payment_method_id=PAYMENT_METHOD_ID,
+            branch_id=BRANCH_ID, cash_session_id=CASH_SESSION_ID, bank_account_id=BANK_ACCOUNT_ID, canal="web",
+        )
+        assert result["sales_order_id"] == SALES_ORDER_ID and result["replayed"] is False
+        assert result["quote_number_label"] == "P-00000012"
+
+    @pytest.mark.asyncio
+    async def test_a_replay_is_returned_as_is(self):
+        from backend.services import quotes as svc
+
+        repo = _repo(convert_to_sale=_convert_result(replayed=True))
+        result = await svc.convert_quote(repo, _auth("owner"), ACCOUNT_ID, QUOTE_ID, _payload_convert(), conn=AsyncMock())
+        assert result["replayed"] is True
+
+    @pytest.mark.asyncio
+    async def test_the_key_must_have_been_resolved_by_the_router(self):
+        """El service no inventa una clave: la que no llegó resuelta es un bug del
+        router y se rechaza antes de tocar la base."""
+        from backend.services import quotes as svc
+
+        repo = _repo()
+        with pytest.raises(ValueError):
+            await svc.convert_quote(
+                repo, _auth("owner"), ACCOUNT_ID, QUOTE_ID, _payload_convert(idempotency_key=None), conn=AsyncMock())
+        repo.convert_to_sale.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "sqlstate,message,status,code",
+        [
+            # stock y estado: el mismo P0409 con literales distintos
+            ("P0409", "stock_insuficiente para producto 2222: disponible 1, solicitado 2", 409, "stock_insuficiente"),
+            ("P0409", "quote_changed: el presupuesto cambió (versión 3 -> 4): revisalo", 409, "quote_changed"),
+            ("P0409", "quote_expired: el presupuesto venció el 2026-09-30", 409, "quote_expired"),
+            ("P0409", "quote_invalid_state: el presupuesto ya está aceptado", 409, "quote_invalid_state"),
+            ("P0409", "idempotency_key_conflict: la clave ya se usó con otro documento", 409, "idempotency_key_conflict"),
+            # tenencia y convertibilidad
+            ("P0404", "quote_not_found", 404, "quote_not_found"),
+            ("P0404", "quote_product_unavailable: Remera", 404, "quote_product_unavailable"),
+            ("P0404", "quote_client_unavailable: el cliente fue dado de baja", 404, "quote_client_unavailable"),
+            ("P0404", "client_not_found: cccccccc", 404, "client_not_found"),
+            ("P0404", "branch_not_found: 6666", 404, "branch_not_found"),
+            ("P0404", "payment_method_not_found: 5555 no pertenece a la cuenta o no existe", 404, "payment_method_not_found"),
+            # validación de la forma de cobro
+            ("P0400", "payment_method_required: la conversión exige una forma de pago del catálogo", 400, "payment_method_required"),
+            ("P0400", "quote_revision_required: falta la versión", 400, "quote_revision_required"),
+            ("P0400", "cash_requires_session: payment_method=cash exige cash_session_id", 400, "cash_requires_session"),
+            ("P0400", "product_is_parent: \"Remera\" se vende a través de sus variantes", 400, "product_is_parent"),
+            ("P0400", "credit_requires_client: una venta a crédito exige client_id", 400, "credit_requires_client"),
+            # caja de otra sucursal / sucursal cerrada
+            ("P0422", "branch_closed: la sucursal está cerrada", 422, "branch_closed"),
+            ("P0422", "cash_session_branch_mismatch: la caja no es de esta sucursal", 422, "cash_session_branch_mismatch"),
+            # rol
+            ("P0403", "insufficient_role: tu rol no permite gestionar presupuestos", 403, "insufficient_role"),
+            ("P0401", "unauthorized", 403, "unauthorized"),
+        ],
+    )
+    async def test_errors_become_problem_7807_with_a_stable_code(self, sqlstate, message, status, code):
+        from backend.core.errors import ProblemHTTPException
+        from backend.services import quotes as svc
+
+        repo = _repo()
+        repo.convert_to_sale.side_effect = _pg_error(sqlstate, message)
+        with pytest.raises(ProblemHTTPException) as info:
+            await svc.convert_quote(repo, _auth("seller"), ACCOUNT_ID, QUOTE_ID, _payload_convert(), conn=AsyncMock())
+
+        assert info.value.status_code == status
+        assert info.value.code == code
+        assert message in str(info.value.detail)
+
+    @pytest.mark.asyncio
+    async def test_unmapped_sqlstate_is_not_disguised(self):
+        """CONTROL NEGATIVO: lo que el mapa no conoce sube tal cual (500 genérico)."""
+        from backend.services import quotes as svc
+
+        repo = _repo()
+        repo.convert_to_sale.side_effect = _pg_error("P0999", "errcode inventado que nadie mapea")
+        with pytest.raises(asyncpg.PostgresError):
+            await svc.convert_quote(repo, _auth("seller"), ACCOUNT_ID, QUOTE_ID, _payload_convert(), conn=AsyncMock())
+
+    @pytest.mark.asyncio
+    async def test_the_rpc_is_the_only_guard_on_the_branch_cash_session_and_bank_account(self):
+        """Los ids del payload no se pre-validan en Python (la tenencia vive en
+        la RPC): el service no abre otra consulta, ni siquiera de lectura."""
+        from backend.services import quotes as svc
+
+        repo = _repo()
+        await svc.convert_quote(
+            repo, _auth("seller"), ACCOUNT_ID, QUOTE_ID,
+            _payload_convert(branch_id=BRANCH_ID, cash_session_id=CASH_SESSION_ID, bank_account_id=BANK_ACCOUNT_ID),
+            conn=AsyncMock(),
+        )
+        repo.get_quote.assert_not_awaited()
+
+
+class TestConvertEndpoint:
+    @staticmethod
+    def _url() -> str:
+        return f"/quotes/{QUOTE_ID}/convert"
+
+    @staticmethod
+    def _json(**over) -> dict:
+        data = {"expected_revision": 3, "payment_method_id": PAYMENT_METHOD_ID}
+        data.update(over)
+        return data
+
+    async def test_key_in_the_header_converts_and_returns_the_result(self, async_client, repo_override):
+        repo, (pool, conn) = repo_override
+        with patch("backend.core.database.pool", pool):
+            resp = await async_client.post(
+                self._url(), json=self._json(),
+                headers={**_headers("seller"), "Idempotency-Key": "hdr-key-1"},
+            )
+
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["sales_order_id"] == SALES_ORDER_ID and body["operation_id"] == OPERATION_ID
+        assert body["quote_number"] == 12 and body["replayed"] is False
+        assert repo.convert_to_sale.await_args.kwargs["idempotency_key"] == "hdr-key-1"
+        assert repo.convert_to_sale.await_args.kwargs["expected_revision"] == 3
+
+    async def test_key_in_the_body_is_the_deprecated_fallback(self, async_client, repo_override):
+        repo, (pool, conn) = repo_override
+        with patch("backend.core.database.pool", pool):
+            resp = await async_client.post(
+                self._url(), json=self._json(idempotency_key="body-key-1"), headers=_headers("seller"),
+            )
+
+        assert resp.status_code == 200, resp.text
+        assert repo.convert_to_sale.await_args.kwargs["idempotency_key"] == "body-key-1"
+
+    async def test_the_header_wins_over_the_body(self, async_client, repo_override):
+        repo, (pool, conn) = repo_override
+        with patch("backend.core.database.pool", pool):
+            await async_client.post(
+                self._url(), json=self._json(idempotency_key="body-key"),
+                headers={**_headers("seller"), "Idempotency-Key": "header-key"},
+            )
+        assert repo.convert_to_sale.await_args.kwargs["idempotency_key"] == "header-key"
+
+    async def test_without_any_key_is_422_idempotency_key_required(self, async_client, repo_override):
+        repo, (pool, conn) = repo_override
+        with patch("backend.core.database.pool", pool):
+            resp = await async_client.post(self._url(), json=self._json(), headers=_headers("seller"))
+
+        assert resp.status_code == 422
+        assert resp.headers["content-type"].startswith("application/problem+json")
+        assert resp.json()["code"] == "idempotency_key_required"
+        repo.convert_to_sale.assert_not_awaited()
+
+    async def test_a_replay_answers_200_with_replayed_true(self, async_client, repo_override):
+        repo, (pool, conn) = repo_override
+        repo.convert_to_sale.return_value = _convert_result(replayed=True)
+        with patch("backend.core.database.pool", pool):
+            resp = await async_client.post(
+                self._url(), json=self._json(), headers={**_headers("owner"), "Idempotency-Key": "k"},
+            )
+        assert resp.status_code == 200 and resp.json()["replayed"] is True
+
+    async def test_cashier_is_403_before_the_rpc(self, async_client, repo_override):
+        repo, (pool, conn) = repo_override
+        with patch("backend.core.database.pool", pool):
+            resp = await async_client.post(
+                self._url(), json=self._json(), headers={**_headers("cashier"), "Idempotency-Key": "k"},
+            )
+        assert resp.status_code == 403
+        assert resp.json()["code"] == "insufficient_role"
+        repo.convert_to_sale.assert_not_awaited()
+
+    async def test_stale_revision_is_409_quote_changed(self, async_client, repo_override):
+        repo, (pool, conn) = repo_override
+        repo.convert_to_sale.side_effect = _pg_error("P0409", "quote_changed: el presupuesto cambió (versión 3 -> 4)")
+        with patch("backend.core.database.pool", pool):
+            resp = await async_client.post(
+                self._url(), json=self._json(), headers={**_headers("seller"), "Idempotency-Key": "k"},
+            )
+        assert resp.status_code == 409
+        assert resp.headers["content-type"].startswith("application/problem+json")
+        assert resp.json()["code"] == "quote_changed"
+
+    async def test_insufficient_stock_is_409_with_the_literal_the_ui_translates(self, async_client, repo_override):
+        repo, (pool, conn) = repo_override
+        repo.convert_to_sale.side_effect = _pg_error(
+            "P0409", "stock_insuficiente para producto 2222: disponible 1, solicitado 2")
+        with patch("backend.core.database.pool", pool):
+            resp = await async_client.post(
+                self._url(), json=self._json(), headers={**_headers("seller"), "Idempotency-Key": "k"},
+            )
+        assert resp.status_code == 409
+        assert resp.json()["code"] == "stock_insuficiente"
+        assert "2222" in resp.json()["detail"]
+
+    @pytest.mark.parametrize("body", [
+        {"payment_method_id": PAYMENT_METHOD_ID},            # sin expected_revision
+        {"expected_revision": 3},                            # sin forma de pago
+        {"expected_revision": 0, "payment_method_id": PAYMENT_METHOD_ID},
+        {"expected_revision": 3, "payment_method_id": "cash"},
+    ])
+    async def test_invalid_payload_is_422_before_the_database(self, async_client, repo_override, body):
+        repo, (pool, conn) = repo_override
+        with patch("backend.core.database.pool", pool):
+            resp = await async_client.post(
+                self._url(), json=body, headers={**_headers("seller"), "Idempotency-Key": "k"},
+            )
+        assert resp.status_code == 422
+        repo.convert_to_sale.assert_not_awaited()
+
+    async def test_a_non_uuid_quote_id_is_422(self, async_client, repo_override):
+        repo, (pool, conn) = repo_override
+        with patch("backend.core.database.pool", pool):
+            resp = await async_client.post(
+                "/quotes/not-a-uuid/convert", json=self._json(),
+                headers={**_headers("seller"), "Idempotency-Key": "k"},
+            )
+        assert resp.status_code == 422
+        repo.convert_to_sale.assert_not_awaited()
+
+    async def test_unauthenticated_is_401(self, async_client, repo_override):
+        resp = await async_client.post(self._url(), json=self._json(), headers={"Idempotency-Key": "k"})
+        assert resp.status_code == 401
+
+    async def test_the_old_accept_endpoint_stays_gone(self, async_client, repo_override):
+        repo, (pool, conn) = repo_override
+        with patch("backend.core.database.pool", pool):
+            resp = await async_client.post(f"/quotes/{QUOTE_ID}/accept", headers=_headers("owner"))
+        assert resp.status_code in (404, 405)

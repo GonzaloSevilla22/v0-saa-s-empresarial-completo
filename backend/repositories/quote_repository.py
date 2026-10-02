@@ -153,6 +153,38 @@ class QuoteRepository(BaseRepository):
         """`rpc_delete_quote`: sólo un borrador nunca enviado, decidido bajo lock."""
         await self._conn.fetchval("SELECT public.rpc_delete_quote($1::uuid)", quote_id)
 
+    async def convert_to_sale(
+        self,
+        quote_id: str,
+        *,
+        idempotency_key: str,
+        expected_revision: int,
+        payment_method_id: str,
+        branch_id: str | None,
+        cash_session_id: str | None,
+        bank_account_id: str | None,
+        canal: str | None,
+    ) -> dict:
+        """`rpc_convert_quote_to_sale`: acepta el presupuesto y confirma la venta
+        en UNA transacción (stock, caja, cuenta corriente, banco, historial,
+        eventos) sobre el núcleo del POS. Bloquea primero el presupuesto, valida
+        estado, vencimiento y versión, y revierte todo ante cualquier fallo. La
+        tenencia del presupuesto, la sucursal, la forma de pago, la cuenta
+        bancaria y la caja la resuelve la RPC; acá sólo se transportan los ids."""
+        raw = await self._conn.fetchval(
+            "SELECT public.rpc_convert_quote_to_sale("
+            "$1::text, $2::uuid, $3::integer, $4::uuid, $5::uuid, $6::uuid, $7::uuid, $8::text)",
+            idempotency_key,
+            quote_id,
+            expected_revision,
+            payment_method_id,
+            branch_id,
+            cash_session_id,
+            bank_account_id,
+            canal,
+        )
+        return _jsonb(raw)
+
     async def set_default_validity_days(self, account_id: str, days: int) -> int:
         """`rpc_set_default_quote_validity`: owner/admin de ESA cuenta, rango
         1..365. La cuenta es la misma que lee `get_default_validity_days` (la

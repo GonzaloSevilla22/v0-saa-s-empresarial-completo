@@ -42,6 +42,7 @@ from backend.core.rbac import CAN_CONFIGURE, CAN_QUOTE
 from backend.core.timezone import today_in_argentina
 from backend.repositories.quote_repository import QuoteRepository
 from backend.schemas.quotes import (
+    QuoteConvertIn,
     QuoteIn,
     QuoteItemIn,
     QuoteSettingsIn,
@@ -215,6 +216,51 @@ async def delete_quote(
     await _require_capability(conn, auth, CAN_QUOTE)
     with _pg_errors_as_problems():
         await repo.delete_quote(quote_id)
+
+
+async def convert_quote(
+    repo: QuoteRepository,
+    auth: dict,
+    account_id: str,
+    quote_id: str,
+    payload: QuoteConvertIn,
+    *,
+    conn,
+) -> dict:
+    """Convierte el presupuesto en venta, atómicamente (`rpc_convert_quote_to_sale`).
+
+    Guard: `CAN_QUOTE`. Es la ÚNICA vía a `accepted` (el endpoint `accept` se
+    retiró). Todo lo demás lo decide la RPC bajo el lock del presupuesto:
+    tenencia de cada id del payload, estado, vencimiento, versión
+    (`quote_changed`), convertibilidad (`quote_product_unavailable`,
+    `quote_client_unavailable`, `product_is_parent`), stock (`stock_insuficiente`)
+    e idempotencia (`idempotency_key_conflict` si la clave ya convirtió OTRO
+    documento). Cualquier fallo revierte la aceptación y la orden: no queda un
+    presupuesto `accepted` sin venta. Nada se pre-valida acá para no abrir una
+    ventana entre el chequeo y el lock.
+
+    `payload.idempotency_key` ya llega resuelto por el router (header > body).
+    Un `ValueError` si no llegó es un bug de cableado, no un error del usuario:
+    sin clave la conversión no es reintentable y se corta antes de la base.
+    """
+    if not payload.idempotency_key:
+        raise ValueError("convert_quote: falta la clave de idempotencia resuelta por el router")
+    await _require_capability(conn, auth, CAN_QUOTE)
+    with _pg_errors_as_problems():
+        result = await repo.convert_to_sale(
+            quote_id,
+            idempotency_key=payload.idempotency_key,
+            expected_revision=payload.expected_revision,
+            payment_method_id=str(payload.payment_method_id),
+            branch_id=_uid(payload.branch_id),
+            cash_session_id=_uid(payload.cash_session_id),
+            bank_account_id=_uid(payload.bank_account_id),
+            canal=payload.canal,
+        )
+    return {
+        **result,
+        "quote_number_label": format_internal_document_number("quote", result.get("quote_number")),
+    }
 
 
 # ── Lecturas ──────────────────────────────────────────────────────────────────

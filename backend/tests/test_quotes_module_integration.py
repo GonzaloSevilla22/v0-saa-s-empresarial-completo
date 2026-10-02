@@ -31,6 +31,7 @@ from pypdf import PdfReader
 
 from backend.repositories.quote_repository import QuoteRepository
 from backend.schemas.quotes import (
+    QuoteConvertIn,
     QuoteIn,
     QuoteItemIn,
     QuoteSettingsIn,
@@ -575,3 +576,158 @@ async def test_pdf_of_a_rejected_quote_is_stamped(conn, world: World):
         pdf, _ = await svc.get_quote_pdf(QuoteRepository(conn), str(world.account_a), qid)
 
     assert "RECHAZADO" in _pdf_text(pdf)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Tanda B (6.5): conversión atómica a venta, contra la base real y con el rol
+# `authenticated` adoptado como en prod (tenancy Paso 2).
+# ══════════════════════════════════════════════════════════════════════════════
+
+async def _stock(conn: asyncpg.Connection, w: World, qty: int) -> uuid.UUID:
+    """Deja `qty` unidades de `product_a` en la sucursal por defecto de A."""
+    branch = await conn.fetchval("SELECT public.c26_default_branch($1)", w.account_a)
+    await conn.execute("SELECT public.c21_apply_branch_stock_delta($1, $2, $3, $4)", w.account_a, w.product_a, branch, qty)
+    return branch
+
+
+async def _payment_method(conn: asyncpg.Connection, account: uuid.UUID, kind: str) -> uuid.UUID:
+    pm = await conn.fetchval(
+        "SELECT id FROM public.payment_methods WHERE account_id = $1 AND kind = $2 AND is_active AND deleted_at IS NULL "
+        "ORDER BY sort_order LIMIT 1", account, kind)
+    assert pm, f"SETUP: handle_new_user no sembró una forma de pago '{kind}'"
+    return pm
+
+
+def _convert_payload(quote: dict, pm: uuid.UUID, **over) -> QuoteConvertIn:
+    data = {"expected_revision": quote["revision"], "payment_method_id": pm}
+    data.update(over)
+    return QuoteConvertIn(**data)
+
+
+async def _convert(conn, w: World, quote: dict, payload: QuoteConvertIn, *, user=None):
+    user = user or w.owner_a
+    async with _as(conn, user, authenticated_role=True):
+        return await svc.convert_quote(
+            QuoteRepository(conn), _auth(user), str(w.account_a), str(quote["id"]), payload, conn=conn,
+        )
+
+
+async def _effects(conn: asyncpg.Connection, w: World) -> tuple:
+    """Huella de lo que una conversión escribe: si falla no debe cambiar."""
+    return (
+        await conn.fetchval("SELECT count(*) FROM public.sales_orders WHERE account_id = $1", w.account_a),
+        await conn.fetchval("SELECT count(*) FROM public.sales WHERE account_id = $1", w.account_a),
+        await conn.fetchval("SELECT COALESCE(sum(quantity), 0) FROM public.branch_stock WHERE account_id = $1", w.account_a),
+        await conn.fetchval("SELECT count(*) FROM public.customer_account_movements WHERE account_id = $1", w.account_a),
+        await conn.fetchval("SELECT count(*) FROM public.events WHERE account_id = $1", w.account_a),
+        await conn.fetchval("SELECT count(*) FROM public.document_status_history WHERE account_id = $1", w.account_a),
+    )
+
+
+async def test_convert_creates_the_confirmed_sale_in_one_transaction_and_replays(conn, world: World):
+    branch = await _stock(conn, world, 5)
+    quote = await _create(conn, world, items=[_line(world.product_a, qty="2", price="1000", subtotal="2000")])
+    pm = await _payment_method(conn, world.account_a, "credit")
+    payload = _convert_payload(quote, pm, idempotency_key="integ-convert-1")
+
+    result = await _convert(conn, world, quote, payload)
+
+    assert result["replayed"] is False and result["quote_number"] == 1 and result["quote_number_label"] == "P-00000001"
+    assert result["total"] == 2000
+    order = await conn.fetchrow("SELECT * FROM public.sales_orders WHERE id = $1", result["sales_order_id"])
+    assert order["status"] == "confirmed" and order["source_quote_id"] == quote["id"]
+    assert str(order["sale_operation_id"]) == result["operation_id"] and order["branch_id"] == branch
+    assert await conn.fetchval("SELECT status FROM public.quotes WHERE id = $1", quote["id"]) == "accepted"
+    assert await conn.fetchval(
+        "SELECT quantity FROM public.branch_stock WHERE product_id = $1 AND branch_id = $2", world.product_a, branch) == 3
+    assert await conn.fetchval(
+        "SELECT count(*) FROM public.sales WHERE operation_id = $1 AND account_id = $2",
+        result["operation_id"], world.account_a) == 1
+    assert await conn.fetchval(
+        "SELECT count(*) FROM public.customer_account_movements WHERE account_id = $1", world.account_a) == 1
+    assert {r["event_type"] for r in await conn.fetch(
+        "SELECT event_type FROM public.events WHERE account_id = $1", world.account_a)} >= {"QuoteAccepted", "SaleConfirmed"}
+    after_first = await _effects(conn, world)
+
+    # Reintento con la misma clave sobre el mismo presupuesto: replay sin efectos.
+    again = await _convert(conn, world, quote, payload)
+    assert again["replayed"] is True and again["sales_order_id"] == result["sales_order_id"]
+    assert await _effects(conn, world) == after_first
+
+    # Otra clave sobre el ya convertido: el estado manda.
+    with pytest.raises(HTTPException) as info:
+        await _convert(conn, world, quote, _convert_payload(quote, pm, idempotency_key="integ-convert-2"))
+    assert (info.value.status_code, info.value.code) == (409, "quote_invalid_state")
+    assert await _effects(conn, world) == after_first
+
+
+async def test_convert_with_insufficient_stock_is_409_and_changes_nothing(conn, world: World):
+    await _stock(conn, world, 1)
+    quote = await _create(conn, world, items=[_line(world.product_a, qty="2", price="1000", subtotal="2000")])
+    pm = await _payment_method(conn, world.account_a, "credit")
+    before = await _effects(conn, world)
+
+    with pytest.raises(HTTPException) as info:
+        await _convert(conn, world, quote, _convert_payload(quote, pm, idempotency_key="integ-convert-stock"))
+
+    assert (info.value.status_code, info.value.code) == (409, "stock_insuficiente")
+    assert await _effects(conn, world) == before
+    assert await conn.fetchval("SELECT status FROM public.quotes WHERE id = $1", quote["id"]) == "draft"
+
+
+async def test_convert_with_a_stale_revision_is_409_quote_changed(conn, world: World):
+    await _stock(conn, world, 5)
+    quote = await _create(conn, world)
+    pm = await _payment_method(conn, world.account_a, "credit")
+    before = await _effects(conn, world)
+
+    with pytest.raises(HTTPException) as info:
+        await _convert(conn, world, quote, _convert_payload(quote, pm, expected_revision=quote["revision"] + 1,
+                                                            idempotency_key="integ-convert-rev"))
+
+    assert (info.value.status_code, info.value.code) == (409, "quote_changed")
+    assert await _effects(conn, world) == before
+
+
+async def test_convert_rejects_a_cashier_a_foreign_quote_and_a_foreign_payment_method(conn, world: World):
+    await _stock(conn, world, 5)
+    quote = await _create(conn, world)
+    pm = await _payment_method(conn, world.account_a, "credit")
+    pm_b = await _payment_method(conn, world.account_b, "credit")
+    before = await _effects(conn, world)
+
+    with pytest.raises(HTTPException) as info:
+        await _convert(conn, world, quote, _convert_payload(quote, pm, idempotency_key="integ-c-1"), user=world.cashier)
+    assert (info.value.status_code, info.value.code) == (403, "insufficient_role")
+
+    # Un presupuesto ajeno es indistinguible de uno inexistente.
+    with pytest.raises(HTTPException) as info:
+        async with _as(conn, world.owner_b, authenticated_role=True):
+            await svc.convert_quote(
+                QuoteRepository(conn), _auth(world.owner_b), str(world.account_b), str(quote["id"]),
+                _convert_payload(quote, pm_b, idempotency_key="integ-c-2"), conn=conn,
+            )
+    assert (info.value.status_code, info.value.code) == (404, "quote_not_found")
+
+    # La forma de pago de otra cuenta no se acepta.
+    with pytest.raises(HTTPException) as info:
+        await _convert(conn, world, quote, _convert_payload(quote, pm_b, idempotency_key="integ-c-3"))
+    assert info.value.status_code == 404
+
+    assert await _effects(conn, world) == before
+
+
+async def test_the_same_key_on_another_quote_is_409_idempotency_key_conflict(conn, world: World):
+    await _stock(conn, world, 5)
+    q1 = await _create(conn, world)
+    q2 = await _create(conn, world)
+    pm = await _payment_method(conn, world.account_a, "credit")
+    await _convert(conn, world, q1, _convert_payload(q1, pm, idempotency_key="integ-shared-key"))
+    after_first = await _effects(conn, world)
+
+    with pytest.raises(HTTPException) as info:
+        await _convert(conn, world, q2, _convert_payload(q2, pm, idempotency_key="integ-shared-key"))
+
+    assert (info.value.status_code, info.value.code) == (409, "idempotency_key_conflict")
+    assert await _effects(conn, world) == after_first
+    assert await conn.fetchval("SELECT status FROM public.quotes WHERE id = $1", q2["id"]) == "draft"

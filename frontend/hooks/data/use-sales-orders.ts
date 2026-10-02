@@ -16,6 +16,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { pythonClient } from "@/lib/api/python-client"
 import { queryKeys } from "@/lib/query-keys"
+import { invalidateAfterSale } from "@/lib/query-invalidation"
 import type { PaymentMethodKind } from "@/lib/types"
 import type { FiscalReadModelRow } from "@/lib/fiscal-comprobante"
 
@@ -236,21 +237,12 @@ export function useConfirmSalesOrder() {
         throw new Error(translateSalesOrderError((err as Error).message))
       }
     },
-    onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.salesOrders.detail(variables.salesOrderId) })
-      queryClient.invalidateQueries({ queryKey: queryKeys.salesOrders.lists() })
-      // Confirmar una venta afecta branch_stock y la lista de ventas legacy
-      queryClient.invalidateQueries({ queryKey: queryKeys.sales.all() })
-      queryClient.invalidateQueries({ queryKey: queryKeys.branchStock.all() })
-      // fix-supplier-account-ui-post-delete (bug 1, camino SalesOrder): una
-      // confirmación con payment_method="credit" postea un cargo en
-      // customerAccounts — sin esto la cuenta corriente del cliente queda
-      // stale (mismo bug que usePurchases/useSales, misma clase).
-      queryClient.invalidateQueries({ queryKey: queryKeys.customerAccounts.all() })
-      // cobranzas-panel (D8): el panel /cobranzas y el KPI del Tablero derivan
-      // del mismo saldo — toda mutación que lo altera los invalida acá, en el
-      // hook, nunca en la pantalla.
-      queryClient.invalidateQueries({ queryKey: queryKeys.receivables.all() })
+    onSuccess: () => {
+      // presupuestos-modulo (D12): la unión de lo que toca una venta confirmada
+      // (orden, ventas, stock, productos, cuenta corriente, cobranzas, caja y
+      // banco) vive en `invalidateAfterSale`. Antes esta lista no incluía caja,
+      // banco ni productos.
+      invalidateAfterSale(queryClient)
     },
   })
 }
@@ -316,17 +308,9 @@ export function useQuickSale() {
       }
     },
     onSuccess: () => {
-      // La venta confirmada afecta sales, branch_stock y sales_orders
-      queryClient.invalidateQueries({ queryKey: queryKeys.salesOrders.all() })
-      queryClient.invalidateQueries({ queryKey: queryKeys.sales.all() })
-      queryClient.invalidateQueries({ queryKey: queryKeys.branchStock.all() })
-      // fix-supplier-account-ui-post-delete (bug 1, camino quickSale/POS): ver
-      // comentario en useConfirmSalesOrder — mismo camino de cargo a crédito.
-      queryClient.invalidateQueries({ queryKey: queryKeys.customerAccounts.all() })
-      // cobranzas-panel (D8): el panel /cobranzas y el KPI del Tablero derivan
-      // del mismo saldo — toda mutación que lo altera los invalida acá, en el
-      // hook, nunca en la pantalla.
-      queryClient.invalidateQueries({ queryKey: queryKeys.receivables.all() })
+      // presupuestos-modulo (D12): ver `invalidateAfterSale` (misma unión que la
+      // confirmación de una orden; antes no invalidaba caja, banco ni productos).
+      invalidateAfterSale(queryClient)
     },
   })
 }

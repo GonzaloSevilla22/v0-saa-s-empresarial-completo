@@ -23,28 +23,27 @@ import { formatMoney, CURRENCIES, type Currency } from "@/lib/format"
 import { addDaysToIsoDate } from "@/lib/receivables-aging"
 import { SALE_CHANNELS } from "@/lib/kpi-format"
 import type { SaleOperation } from "@/lib/group-operations"
-import { formatStock } from "@/lib/format-unit"
 import {
   unitInputStep,
   unitInputMin,
-  toBaseQuantity,
   convertUnitPrice,
   resolveUnit,
   compatibleUnits,
-  isProductoMedible,
 } from "@/lib/unit-utils"
 import {
   calcSaleSubtotal,
   calcCartTotal,
   unitPriceFromSubtotal,
-  addScannedProductLine,
-  exceedsStock,
+  addManualLineToCart,
+  applyScanToCart,
+  removeLine,
+  updateLineQuantity,
+  updateLineSubtotal,
   type SaleCartItem,
 } from "@/lib/cart-utils"
 import { useIdempotencyKey } from "@/hooks/use-idempotency-key"
 import { argentinaToday } from "@/lib/date-range"
 import { ScrollableCartShell } from "@/components/shared/scrollable-cart-shell"
-import { getCanonicalLabel } from "@/lib/product-labels"
 import { ProductPicker } from "@/components/shared/product-picker"
 import { Plus, UserPlus, ShoppingCart, PackagePlus, CalendarIcon, Ruler, AlertCircle } from "lucide-react"
 import { toast } from "sonner"
@@ -340,12 +339,6 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
     [selectedProduct, unitPrice, quantity, discount],
   )
 
-  // Quantity converted to base unit — used for local stock validation
-  const stagedQuantityNormalized = useMemo(
-    () => toBaseQuantity(quantity, selectedUnit, productBaseUnit),
-    [quantity, selectedUnit, productBaseUnit],
-  )
-
   // ── Option lists ────────────────────────────────────────────────────────────
 
   const productById = useMemo(
@@ -375,63 +368,30 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
    * balanza-etiquetas-pos (D6/D9): resuelve un código leído por el lector
    * (código de barras exacto → etiqueta de balanza → SKU → error, D6) y lo
    * despacha SIN ninguna lógica de etiquetas propia — todo vive en `lib/`
-   * (`resolveScan`, `addScannedProductLine`, `exceedsStock`, `resolveScaleScan`).
+   * (`resolveScan`, `applyScanToCart`, `resolveScaleScan`).
    */
   function handleScan(code: string): ScanFeedback {
-    const result = resolveScan(code, { products, units, unitsById, settings: scaleSettings })
+    const scan = resolveScan(code, { products, units, unitsById, settings: scaleSettings })
+    // presupuestos-modulo (D12): el despacho vive en `applyScanToCart`, la misma
+    // definición que usa el formulario de presupuesto; la venta rechaza lo que
+    // supera el disponible (`enforceStock: true`).
+    const result = applyScanToCart(cartItems, scan, { unitsById, products }, { enforceStock: true })
 
-    if (result.kind === "error") {
-      return { ok: false, label: result.message }
+    if (result.kind === "rejected") {
+      return { ok: false, label: result.label }
     }
 
-    if (result.kind === "product") {
-      const baseUnit = resolveUnit(result.product.baseUnitId, unitsById)
+    if (result.kind === "needs_quantity") {
       // D8: producto medible por código común/SKU — se elige en el selector
       // y el foco pasa a "Cantidad" sin agregar 0,001; sin cantidad todavía
       // no hay stock que chequear (lo hace `handleAddToCart` al cargarla).
-      if (isProductoMedible(baseUnit)) {
-        handleProductChange(result.product.id)
-        setFocusQuantityToken((t) => t + 1)
-        return { ok: true, label: `Ingresá la cantidad de «${result.product.name}»` }
-      }
-      // Fix F3 (revisión adversarial PR #599): un código común o SKU de un
-      // producto por unidades también suma stock — el mismo chequeo
-      // acumulativo que ya aplicaba la rama `scale_line` y el alta manual
-      // (D7/D8/OQ-9), que esta rama nunca corría.
-      const addBase = unitInputMin(baseUnit)
-      if (exceedsStock(cartItems, result.product.id, addBase, result.product.stock)) {
-        return {
-          ok: false,
-          label: `Stock insuficiente (disponible: ${formatStock(result.product.stock, baseUnit?.symbol)})`,
-        }
-      }
-      const addResult = addScannedProductLine(cartItems, result.product, { unitsById, products })
-      if ("needsQuantity" in addResult) {
-        // No debería pasar (ya se descartó arriba) — defensivo.
-        handleProductChange(result.product.id)
-        setFocusQuantityToken((t) => t + 1)
-        return { ok: true, label: `Ingresá la cantidad de «${result.product.name}»` }
-      }
-      setCartItems(addResult.items)
-      // Fix F9 (revisión adversarial PR #599): sólo el nombre — el
-      // indicador (BarcodeScannerInput) YA antepone su propio "✓ " en
-      // el estado success; devolver "✓ ${nombre}" acá duplicaba el tilde.
-      return { ok: true, label: result.product.name }
+      handleProductChange(result.product.id)
+      setFocusQuantityToken((t) => t + 1)
+      return { ok: true, label: result.label }
     }
 
-    // result.kind === "scale_line" (D7): una línea nueva, nunca fusionada
-    // (D8) — el chequeo de stock es acumulativo (exceedsStock, D7/OQ-9).
-    const line        = result.line
-    const lineProduct = productById.get(line.productId)
-    const lineBaseUnit = resolveUnit(lineProduct?.baseUnitId, unitsById)
-    if (exceedsStock(cartItems, line.productId, line.quantityBase ?? line.quantity, lineProduct?.stock ?? 0)) {
-      return {
-        ok: false,
-        label: `Stock insuficiente (disponible: ${formatStock(lineProduct?.stock ?? 0, lineBaseUnit?.symbol)})`,
-      }
-    }
-    setCartItems((prev) => [...prev, { id: crypto.randomUUID(), ...line }])
-    return { ok: true, label: line.productName }
+    setCartItems(result.items)
+    return { ok: true, label: result.label }
   }
 
   function handleProductChange(id: string) {
@@ -454,60 +414,21 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
       return
     }
 
-    // D8: la fusión sólo mira líneas SIN `source` — una línea de balanza
-    // (`"scale"`) o rehidratada al editar (`"persisted"`) nunca se toca
-    // desde el alta manual.
-    const existing = cartItems.find(
-      (item) => item.productId === productId && (item.unitId ?? "") === unitId && !item.source,
+    // presupuestos-modulo (D12): la fusión (sólo sobre líneas SIN `source`, D8),
+    // el chequeo de stock acumulativo (D7/OQ-9) y el armado de la línea viven
+    // en `addManualLineToCart`, compartida con el formulario de presupuesto.
+    const result = addManualLineToCart(
+      cartItems,
+      { product: selectedProduct, unitPrice, quantity, discount, unitId },
+      { unitsById, products },
+      { enforceStock: true },
     )
-
-    // El stock del producto se lleva en su unidad BASE: el disponible se
-    // informa con el símbolo de la base, nunca con el de la línea (con la
-    // línea en gramos decía "0.550 g" sobre 0,55 kg — corrección del PR #584).
-    // D7/OQ-9: el chequeo es ACUMULATIVO (`exceedsStock`) — suma todas las
-    // líneas del carrito del mismo producto (persisted excluida) más lo
-    // nuevo, en vez de mirar sólo la línea que se está tocando.
-    if (exceedsStock(cartItems, productId, stagedQuantityNormalized, selectedProduct.stock)) {
-      toast.error(`Stock insuficiente (disponible: ${formatStock(selectedProduct.stock, productBaseUnit?.symbol)})`)
+    if (!result.ok) {
+      toast.error(result.message)
       return
     }
-
-    if (existing) {
-      const newQty           = existing.quantity + quantity
-      const newNormalized    = toBaseQuantity(newQty, selectedUnit, productBaseUnit)
-      setCartItems((prev) =>
-        prev.map((item) =>
-          item.id === existing.id
-            ? {
-                ...item,
-                quantity:      newQty,
-                quantityBase:  newNormalized,
-                subtotal:      calcSaleSubtotal(item.unitPrice, newQty, item.discount),
-              }
-            : item,
-        ),
-      )
-      toast.success(`Cantidad actualizada: ${selectedProduct.name}`)
-    } else {
-      setCartItems((prev) => [
-        ...prev,
-        {
-          id:            crypto.randomUUID(),
-          productId:     selectedProduct.id,
-          productName:   getCanonicalLabel(selectedProduct, selectedProduct.parentId ? productById.get(selectedProduct.parentId) : undefined),
-          unitPrice:     unitPrice,
-          quantity,
-          discount,
-          subtotal:      stagedSubtotal,
-          unitId:        unitId || undefined,
-          unitSymbol:    selectedUnit?.symbol,
-          quantityBase:  stagedQuantityNormalized,
-          step:          stagedStep,
-          minQty:        stagedMin,
-        },
-      ])
-      toast.success(`${selectedProduct.name} agregado`)
-    }
+    setCartItems(result.items)
+    toast.success(result.merged ? `Cantidad actualizada: ${result.productName}` : `${result.productName} agregado`)
 
     // Reset staged item
     setProductId("")
@@ -518,44 +439,17 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
   }
 
   function handleRemoveItem(id: string) {
-    setCartItems((prev) => prev.filter((item) => item.id !== id))
+    setCartItems((prev) => removeLine(prev, id))
   }
 
   function handleUpdateQty(id: string, qty: number) {
-    setCartItems((prev) =>
-      prev.map((item) => {
-        if (item.id !== id) return item
-        // Use the item's own minQty — not a global 1 — so medibles can go below 1
-        const newQty = Math.max(item.minQty ?? unitInputMin(lineUnitOf(item)), qty)
-        return {
-          ...item,
-          quantity:     newQty,
-          quantityBase: toBaseQuantity(
-            newQty,
-            resolveUnit(item.unitId, unitsById),
-            resolveUnit(productById.get(item.productId)?.baseUnitId, unitsById),
-          ),
-          subtotal:     calcSaleSubtotal(item.unitPrice, newQty, item.discount),
-        }
-      }),
-    )
+    setCartItems((prev) => updateLineQuantity(prev, id, qty, { unitsById, products }))
   }
 
   // Edit the subtotal of an item already in the cart: back-compute the effective
   // unit price and clear the discount (mirrors the staged-item behaviour).
   function handleUpdateSubtotal(id: string, newSubtotal: number) {
-    setCartItems((prev) =>
-      prev.map((item) =>
-        item.id === id
-          ? {
-              ...item,
-              unitPrice: unitPriceFromSubtotal(newSubtotal, item.quantity),
-              discount:  0,
-              subtotal:  newSubtotal,
-            }
-          : item,
-      ),
-    )
+    setCartItems((prev) => updateLineSubtotal(prev, id, newSubtotal))
   }
 
   function handleCreateClient() {

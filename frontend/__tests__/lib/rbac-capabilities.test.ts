@@ -12,7 +12,7 @@
 import { describe, it, expect } from "vitest"
 import fs from "node:fs"
 import path from "node:path"
-import { CAN_QUOTE, hasCapability } from "@/lib/rbac-capabilities"
+import { CAN_CONFIGURE, CAN_QUOTE, hasCapability } from "@/lib/rbac-capabilities"
 
 const ROOT = path.resolve(__dirname, "../../..")
 
@@ -48,6 +48,21 @@ describe("CAN_QUOTE — atado al backend y a la FSM", () => {
       const roles = [...row[1].matchAll(/'([a-z_]+)'/g)].map((m) => m[1]).sort()
       expect(roles).toEqual([...CAN_QUOTE].sort())
     }
+  })
+})
+
+describe("CAN_CONFIGURE — atado al backend (presupuestos-modulo, tarea 5.11)", () => {
+  it("es owner y admin", () => {
+    expect([...CAN_CONFIGURE].sort()).toEqual(["admin", "owner"])
+  })
+
+  it("coincide con CAN_CONFIGURE de backend/core/rbac.py", () => {
+    expect([...CAN_CONFIGURE].sort()).toEqual(pythonCapability("CAN_CONFIGURE"))
+  })
+
+  it("un vendedor no configura la cuenta; un admin sí", () => {
+    expect(hasCapability(["seller"], CAN_CONFIGURE, true)).toBe(false)
+    expect(hasCapability(["admin"], CAN_CONFIGURE, true)).toBe(true)
   })
 })
 

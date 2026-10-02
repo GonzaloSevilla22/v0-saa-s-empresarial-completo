@@ -17,6 +17,13 @@ import type { OrgRole } from "@/lib/types"
 export const CAN_QUOTE: readonly OrgRole[] = ["owner", "admin", "seller"]
 
 /**
+ * Configurar la cuenta (validez por defecto de los presupuestos, formas de
+ * pago…). Espejo de `CAN_CONFIGURE` de `backend/core/rbac.py`; la RPC
+ * `rpc_set_default_quote_validity` lo exige con `P0403`.
+ */
+export const CAN_CONFIGURE: readonly OrgRole[] = ["owner", "admin"]
+
+/**
  * ¿Alguno de los roles activos del usuario habilita la capacidad?
  *
  * Mientras el conjunto no resolvió (`rolesResolved === false`) responde `true`:

@@ -1014,7 +1014,7 @@ class TestEndpoints:
 
     async def test_unauthenticated_is_401(self, async_client, repo_override):
         resp = await async_client.get("/quotes")
-        assert resp.status_code in (401, 403)
+        assert resp.status_code == 401
 
 
 class TestSettingsEndpoints:

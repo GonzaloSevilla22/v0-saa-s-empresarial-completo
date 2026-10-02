@@ -673,6 +673,10 @@ Números: **el siguiente libre ≥ `20261069000001`** al momento de cada apply (
 
 **Las OQ-RV de abajo son nuevas de este propose.** Se adoptan por su recomendación como default declarado, el mismo criterio que los changes anteriores, salvo que el PO elija otra alternativa antes del apply (tarea 0.1).
 
+**Registro del apply (tarea 0.1, 2026-10-02)**:
+- El PO firmó el 2026-09-29, textual: «no necesito el remito legal. Andá con todo lo recomendado» y «quiero que tanto el remito como los presupuestos se puedan modificar» (R1–R8, arriba).
+- **OQ-RV1..OQ-RV13 se adoptan por su recomendación** (default declarado, informado al PO el 2026-10-02). El PO no eligió ninguna alternativa; por lo tanto no cambia ninguna decisión, spec ni tarea.
+
 ## Open Questions
 
 - **OQ-RV1 — Secuencia del número.**

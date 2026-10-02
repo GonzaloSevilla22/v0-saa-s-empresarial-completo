@@ -16,12 +16,12 @@
 
 ## 0. Sign-off y checkpoints previos (sólo lectura)
 
-- [ ] 0.1 **[PO]** Sign-off de OQ-RV1..OQ-RV13 (`design.md` §Open Questions). R1–R8 ya están firmadas (§"Sign-off del PO").
+- [x] 0.1 **[PO]** Sign-off de OQ-RV1..OQ-RV13 (`design.md` §Open Questions). R1–R8 ya están firmadas (§"Sign-off del PO").
   - Registrar la respuesta textual en `design.md` antes de escribir producción.
   - Sin respuesta, el apply adopta la recomendación de cada OQ (default declarado).
   - Si el PO elige una alternativa, actualizar en el mismo PR la decisión, las specs y estas tareas.
-- [ ] 0.2 Elegir el número de migración de la tanda A: `ls supabase/migrations`, `gh pr list --state open` (incluidos #607 y la tanda B de presupuestos) y `MAX(version)` de prod. Tomar el siguiente libre ≥ `20261069000001` y anotarlo acá. Repetir para la tanda B en 6.0.
-- [ ] 0.3 **Checkpoint de cuerpo vivo, tanda A.** Leer de prod `pg_get_functiondef`, `obj_description` y ACL de:
+- [x] 0.2 Elegir el número de migración de la tanda A: `ls supabase/migrations`, `gh pr list --state open` (incluidos #607 y la tanda B de presupuestos) y `MAX(version)` de prod. Tomar el siguiente libre ≥ `20261069000001` y anotarlo acá. Repetir para la tanda B en 6.0.
+- [x] 0.3 **Checkpoint de cuerpo vivo, tanda A.** Leer de prod `pg_get_functiondef`, `obj_description` y ACL de:
   - `fn_product_base_unit_guard()`;
   - `fn_uom_in_use_guard()`;
   - `_branch_assert_empty(uuid)` (el punto de decisión de la baja de sucursal) y, sólo como referencia, la firma y el `RETURNS TABLE` de `_branch_blocking_content(uuid)`, que **no** se reescribe (D10); `fn_guard_branch_decommission` no se toca;
@@ -29,20 +29,27 @@
   - el `CHECK` vivo `operation_idempotency_operation_kind_check`.
   
   Compararlos por líneas, sin `\r`, contra `20261062000001` (los dos de unidades), `20261014000001` (los dos de sucursal), `20261067000001` y `20261044000001` (el `CHECK`). Si difieren, partir del vivo y anotar el desvío acá. Guardar los cuerpos previos en `evidence/` para el rollback.
-- [ ] 0.4 Re-medir en prod (SELECT):
+- [x] 0.4 Re-medir en prod (SELECT):
   - los `CHECK` de `stock_movements.type`/`reference_type`, `document_status_*.document_type` e `internal_document_sequences.document_type`;
   - que siguen en 0 las tablas, funciones y columnas `delivery`/`remito`;
   - el tamaño del catálogo de transiciones (filas totales, con rol, llamadores);
   - productos `untracked` (hoy 0).
   
   Comparar con `design.md` §"Medido en prod". Si algo cambió, actualizar el design en el mismo PR.
-- [ ] 0.5 Grep de **lectores** de `stock_movements.type` y de `reference_type` en `backend/`, `frontend/`, `supabase/functions/` y las funciones vivas (`pg_proc.prosrc`). Confirmar que ninguno asume "`type = 'sale'` ⇒ fila en `sales`" y anotar la lista. Si apareciera uno, rediseñar con `type` propios antes de seguir (D4).
-- [ ] 0.6 **Safety net**: correr y registrar el baseline de:
+- [x] 0.5 Grep de **lectores** de `stock_movements.type` y de `reference_type` en `backend/`, `frontend/`, `supabase/functions/` y las funciones vivas (`pg_proc.prosrc`). Confirmar que ninguno asume "`type = 'sale'` ⇒ fila en `sales`" y anotar la lista. Si apareciera uno, rediseñar con `type` propios antes de seguir (D4).
+- [x] 0.6 **Safety net**: correr y registrar el baseline de:
   - backend: `-m "not integration"` + integración;
   - vitest completo y `tsc`;
   - los gates SQL de `KPI_Validation.yml` sobre `db reset` limpio, en especial `test_presupuestos_modulo.sql`, `test_ventas_unidades_conversion.sql`, `test_sucursal_guard_vaciado.sql`, `test_document_status_transition_role_matrix.sql` y `test_function_acl_gate.sql`.
   
   Un pre-existente en rojo se reporta y no se corrige acá.
+  **Resultado del grupo 0 (apply tanda A, 2026-10-02, `main` `dad7852a`)**:
+  - **0.1**: sign-off registrado en `design.md` §Sign-off del PO. R1-R8 firmadas el 2026-09-29; OQ-RV1..RV13 adoptadas por su recomendación (default declarado, informado al PO el 2026-10-02).
+  - **0.2 — migración de la tanda A: `20261069000001`**. La tanda B de presupuestos (`20261068000001`) YA está en `main` y aplicada en prod (`MAX(version) = 20261068000001`, 315 migraciones). El único PR abierto (#607) no trae migraciones. Libre desde `20261069000001`.
+  - **0.3**: se compararon los hashes md5 de `pg_get_functiondef` sin `` de 20 funciones (las 6 pedidas, más `_branch_blocking_content`, `fn_guard_branch_decommission`, `_uom_normalize_quantity`, `c21_apply_branch_stock_delta`, `record_status_transition`, `trg_*`, las tres de la tanda B y `rpc_reverse_stock_movement`): **prod = base local tras `db reset`, las 20 coinciden, sin desvío**. Cuerpos previos guardados (sin ``) en `C:/Users/Usuario/Desktop/EIE/scratchpad-remitos/prod-live/` (fuera del repo, para el rollback). ACLs vivas: helpers y `_branch_assert_empty` sin `authenticated`; `_c29_confirm_order_core`, `rpc_delete_sale_operation`, `rpc_atomic_update_sale_operation` y `rpc_reverse_stock_movement` con `authenticated`. `_assert_document_product` todavía no existe (nace en 1.4). CHECK vivo de `operation_idempotency.operation_kind`: 13 tipos, sin remito.
+  - **0.4**: coincide con `design.md` §Medido en prod. CHECK de `stock_movements.type`/`reference_type`, FSM (6 tipos) y `internal_document_sequences` (`'quote'`) sin cambios. 0 tablas/funciones con `delivery`/`remito`. Catálogo de transiciones: 22 filas, 16 con rol. Productos `untracked`: 0.
+  - **0.5**: ningún lector asume `type='sale'` ⇒ fila en `sales`. Código de aplicación: sólo `stock-movements-panel.tsx` (rotula por `type`, tarea 5.9), `stock_repository.list_movements` (genérico) y `product_repository._GROUP_HAS_MOVEMENTS_SQL` (existencia). Funciones vivas que leen `stock_movements`: `fn_product_base_unit_guard`, `rpc_atomic_update_purchase_operation` (compras), `rpc_atomic_update_sale_operation` y `rpc_reverse_stock_movement` (ambas por `reference_id` de `sales`, no alcanzan a un id de remito). Se confirma D4: `type` existentes, `reference_type` nuevos.
+  - **0.6 safety net** (baseline focalizado de la tanda A; las suites completas van en 8.1): backend `-m "not integration"` sobre quotes, commercial documents/PDF, products, stock, rbac y unidades: **332 passed**. Frontend vitest (QuoteForm, DocumentShareMenu, CartItemList, ConvertQuoteDialog, AppSidebarGroups, nav-groups, cart-utils-lines, document-share, ClientesPage, ClienteDetailPage): **10 archivos, 285 passed**. Gates SQL sobre `db reset` limpio, todos PASS: `test_ventas_unidades_conversion` (24 avisos), `test_function_acl_gate`, `test_document_status_transition_role_matrix` (22 triples, 16 llamadores), `test_is_account_writer_pivot` (45 policies, 18 tablas), `test_presupuestos_modulo` (27 avisos), `test_sucursal_guard_vaciado` (25 avisos). Sin pre-existentes en rojo.
 
 ## 1. DB tanda A: migración del documento, stock y guards + gate
 
@@ -298,4 +305,5 @@
 
 | Task | Test File | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
 |------|-----------|-------|------------|-----|-------|-------------|----------|
+| 0 (grupo 0) | backend/tests (332), frontend/__tests__ (285), 6 gates SQL | Safety net | 332 + 285 + 6/6 PASS | n/a | n/a | n/a | n/a |
 | | | | | | | | |

@@ -148,7 +148,7 @@ function makeOperation(overrides: Partial<SaleOperation> = {}): SaleOperation {
     key: "op-1", operationId: "op-1", date: "2026-09-28", clientId: "client-1", clientName: "Cliente Uno",
     currency: "ARS", items: [item], total: 4.8, isGrouped: false, paymentMethodId: null, branchId: null,
     canal: null, unitId: "u-kg", isFiscallyLocked: false, fiscal: null, isPaymentLocked: false,
-    hasAccountCharge: false, hasCashMovement: false, hasBankMovement: false, ...overrides,
+    hasAccountCharge: false, hasCashMovement: false, hasBankMovement: false, sourceQuoteId: null, sourceQuoteNumber: null, hasServiceLines: false, ...overrides,
   }
 }
 

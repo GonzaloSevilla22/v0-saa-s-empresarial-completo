@@ -32,7 +32,7 @@ function op(items: Sale[]): SaleOperation {
     total: items.reduce((s, i) => s + i.total, 0), isGrouped: items.length > 1,
     paymentMethodId: null, branchId: null, canal: null, unitId: null,
     isFiscallyLocked: false, fiscal: null, isPaymentLocked: false,
-    hasAccountCharge: false, hasCashMovement: false, hasBankMovement: false,
+    hasAccountCharge: false, hasCashMovement: false, hasBankMovement: false, sourceQuoteId: null, sourceQuoteNumber: null, hasServiceLines: false,
   }
 }
 

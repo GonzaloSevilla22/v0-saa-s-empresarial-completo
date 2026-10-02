@@ -3902,7 +3902,7 @@ Gate: L.13-L.24, (O), (P) y la introspección (E) ampliada (también en el gate 
 
 
 
-## Change `presupuestos-modulo` — ✅ COMPLETADA Y ARCHIVADA 2026-10-02 (propose 2026-09-30 PR #601 · tanda A PR #608 `95eb8dd7`, migración `20261067000001` · tanda B PR #610 `dad7852a`, migración `20261068000001` · archive PR ARCHIVE_PR_NUM; humo real del PO pendiente)
+## Change `presupuestos-modulo` — ✅ COMPLETADA Y ARCHIVADA 2026-10-02 (propose 2026-09-30 PR #601 · tanda A PR #608 `95eb8dd7`, migración `20261067000001` · tanda B PR #610 `dad7852a`, migración `20261068000001` · archive PR **#611**; humo real del PO pendiente)
 
 **Change `presupuestos-modulo`** — governance **MEDIA con un tramo ALTO en la tanda B** (la conversión escribe dinero real en caja y cuenta corriente desde una RPC `SECURITY DEFINER`); la **tanda A** (esta ficha) no escribe dinero: presupuestar nunca toca stock, caja ni cuenta corriente. Migración de la tanda A **`20261067000001_presupuestos_modulo.sql`** (idempotente). Artefactos en `openspec/changes/presupuestos-modulo/` (`proposal.md`, `design.md` D1-D14 y OQ-P1..P16, `tasks.md`, `specs/` — `internal-document-numbering` y `commercial-document-pdf` nuevas; `quote`, `sales-order`, `document-snapshots`, `document-status-history` modificadas —, `research/`).
 

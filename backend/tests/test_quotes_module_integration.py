@@ -790,6 +790,45 @@ async def test_sales_read_model_exposes_origin_quote_service_lines_and_their_des
     assert plain[0]["has_service_lines"] is False
 
 
+async def test_sales_row_orphaned_by_a_deleted_product_is_not_a_service_line(conn, world: World):
+    """Revisión 6.11 (B-01): `sales.product_id` es ON DELETE SET NULL, así que en
+    prod hay operaciones históricas con la fila sin producto (el producto se borró
+    físicamente) que NO vienen de ningún presupuesto. No son líneas de servicio:
+    `has_service_lines` debe ser False, o /ventas mostraría "Editar" deshabilitado
+    con un motivo falso."""
+    orphan_op = uuid.uuid4()
+    await conn.execute(
+        "INSERT INTO public.sales (user_id, account_id, product_id, amount, quantity, total, currency, date, operation_id) "
+        "VALUES ($1, $2, NULL, 500, 2, 1000, 'ARS', now(), $3)", world.owner_a, world.account_a, orphan_op)
+
+    rows, total = await _sales_page(conn, world)
+
+    assert total == 1 and len(rows) == 1
+    assert rows[0]["product_id"] is None
+    assert rows[0]["source_quote_id"] is None
+    assert rows[0]["has_service_lines"] is False
+
+
+async def test_orphaned_row_does_not_taint_a_converted_operation_and_vice_versa(conn, world: World):
+    """El flag sigue siendo de la OPERACIÓN y sigue marcando la conversión con
+    servicio, aun conviviendo con una operación huérfana en la misma página."""
+    await _stock(conn, world, 10)
+    pm = await _payment_method(conn, world.account_a, "credit")
+    quote = await _create(conn, world, items=[QuoteItemIn(quantity="1", price="300", subtotal="300", description="Instalación")])
+    result = await _convert(conn, world, quote, _convert_payload(quote, pm, idempotency_key="integ-rm-orphan"))
+    orphan_op = uuid.uuid4()
+    await conn.execute(
+        "INSERT INTO public.sales (user_id, account_id, product_id, amount, quantity, total, currency, date, operation_id) "
+        "VALUES ($1, $2, NULL, 500, 2, 1000, 'ARS', now(), $3)", world.owner_a, world.account_a, orphan_op)
+
+    rows, total = await _sales_page(conn, world)
+
+    assert total == 2
+    by_op = {str(r["operation_id"]): r for r in rows}
+    assert by_op[result["operation_id"]]["has_service_lines"] is True
+    assert by_op[str(orphan_op)]["has_service_lines"] is False
+
+
 async def test_sales_read_model_without_service_lines_keeps_the_origin_but_stays_editable(conn, world: World):
     await _stock(conn, world, 10)
     pm = await _payment_method(conn, world.account_a, "credit")

@@ -264,8 +264,26 @@ async def test_sales_has_service_lines_se_calcula_por_operacion(async_client, va
 
     sql = _normalized(conn.fetch.await_args_list[-1].args[0])
     assert re.search(
-        r"BOOL_OR\(COALESCE\(si\.product_id, s\.product_id\) IS NULL\) "
+        r"BOOL_OR\(s\.product_id IS NULL AND si\.id IS NULL AND so\.source_quote_id IS NOT NULL\) "
         r"OVER \(PARTITION BY COALESCE\(s\.operation_id::text, s\.id::text\)\) AS has_service_lines", sql)
+
+
+async def test_sales_has_service_lines_exige_el_origen_presupuesto(async_client, valid_token, mock_pool):
+    """Revisión 6.11 (B-01): una fila sin producto NO alcanza para ser una línea
+    de servicio. En prod hay operaciones históricas con `product_id` NULL porque
+    el producto se borró (FK ON DELETE SET NULL): sin el origen en un
+    presupuesto, el lápiz de editar tendría un motivo falso."""
+    pool, conn = mock_pool
+    conn.fetch = AsyncMock(return_value=[_sale_row()])
+    conn.fetchval = AsyncMock(return_value=1)
+    with patch("backend.core.database.pool", pool):
+        await async_client.get("/sales", headers={"Authorization": f"Bearer {valid_token}"})
+
+    sql = _normalized(conn.fetch.await_args_list[-1].args[0])
+    flag = re.search(r"BOOL_OR\((.+?)\) OVER \(PARTITION BY .+? AS has_service_lines", sql)
+    assert flag is not None
+    assert "so.source_quote_id IS NOT NULL" in flag.group(1)
+    assert "COALESCE(si.product_id, s.product_id) IS NULL" not in flag.group(1)
 
 
 async def test_list_orders_trae_el_numero_del_presupuesto_de_origen():

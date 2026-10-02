@@ -188,10 +188,15 @@ class SalesRepository(BaseRepository):
                    so.source_quote_id                       AS source_quote_id,
                    sq.number                                AS source_quote_number,
                    -- presupuestos-modulo (D6, OQ-P16): la operación incluye alguna
-                   -- fila sin producto (línea de servicio). Es de la OPERACIÓN, no
-                   -- de la fila: toda ella se ve sin edición en /ventas. Derivado de
-                   -- lectura, sin columna.
-                   BOOL_OR(COALESCE(si.product_id, s.product_id) IS NULL)
+                   -- línea de servicio. Es de la OPERACIÓN, no de la fila: toda ella
+                   -- se ve sin edición en /ventas. Derivado de lectura, sin columna.
+                   -- Revisión 6.11 (B-01): "sin producto" NO alcanza. `sales.
+                   -- product_id` es ON DELETE SET NULL: en prod hay operaciones
+                   -- históricas cuyo producto se borró y que no vienen de ningún
+                   -- presupuesto. La línea de servicio se reconoce por su ORIGEN:
+                   -- fila sin producto ni línea de venta, de una orden nacida de un
+                   -- presupuesto (la única fuente de líneas de servicio).
+                   BOOL_OR(s.product_id IS NULL AND si.id IS NULL AND so.source_quote_id IS NOT NULL)
                      OVER (PARTITION BY COALESCE(s.operation_id::text, s.id::text)) AS has_service_lines
             FROM sales s
             JOIN op_page ON COALESCE(s.operation_id::text, s.id::text) = op_page.op_key

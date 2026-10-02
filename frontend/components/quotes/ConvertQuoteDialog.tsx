@@ -22,7 +22,8 @@
  *   - La clave de idempotencia es POR presupuesto (`quote-convert:<id>`) y se
  *     resetea tras cada éxito, incluido el replay: una respuesta perdida de la
  *     conversión de A no contamina la de B. Reintentar tras un error conserva la
- *     clave (un fallo revierte todo, incluida la clave).
+ *     clave (un fallo revierte todo, incluida la clave); la excepción es
+ *     `idempotency_key_conflict`, donde la clave chocó con otro documento y se renueva.
  *   - Doble clic: un candado síncrono (ref) deja pasar una sola request; el
  *     estado `submitting` llega tarde para dos clics en el mismo tick.
  */
@@ -60,9 +61,10 @@ function errorSource(err: unknown): string {
   return err instanceof Error ? err.message : ""
 }
 
-function isQuoteChanged(err: unknown): boolean {
-  return /quote_changed/.test(errorSource(err))
-}
+/** Rechazos tras los cuales el presupuesto mostrado ya no es el vigente. */
+const RELOAD_QUOTE_ERROR = /quote_changed|quote_invalid_state/
+const CASH_SESSION_CLOSED_ERROR = /cash_optin_requires_open_session|cash_requires_session/
+const IDEMPOTENCY_CONFLICT_ERROR = /idempotency_key_conflict/
 
 function ConvertQuoteDialogBody({ quote, open, onOpenChange }: ConvertQuoteDialogProps) {
   const queryClient = useQueryClient()
@@ -79,11 +81,17 @@ function ConvertQuoteDialogBody({ quote, open, onOpenChange }: ConvertQuoteDialo
   const [submitting, setSubmitting] = useState(false)
   const submittingRef = useRef(false)
 
-  // La sucursal de la venta: la elegida o, si no, la del presupuesto. Es la MISMA
-  // que se usa para resolver la caja y la que viaja en el payload: el servidor
-  // aplica `COALESCE(p_branch_id, quote.branch_id, default)`, así que resolverla
-  // distinto acá dejaría la sesión de una sucursal y la venta en otra.
-  const resolvedBranchId = branchId ?? quote.branch_id
+  // La sucursal de la venta: la elegida, la del presupuesto o, si no hay ninguna,
+  // la por defecto — la más antigua ACTIVA y ABIERTA, el mismo criterio de
+  // `c26_default_branch` (el hook de sucursales sólo filtra `is_active`, así que
+  // una sucursal cerrada podía quedar primera). Es la MISMA que se usa para
+  // resolver la caja y la que viaja en el payload: el servidor aplica
+  // `COALESCE(p_branch_id, quote.branch_id, default)`, así que resolverla
+  // distinto acá dejaría la sesión de una sucursal y la venta en otra (P0422).
+  // Sin ninguna abierta queda `null`: el hook de caja y el servidor caen los dos
+  // en la más antigua a secas.
+  const defaultBranchId = branches.find((b) => b.status !== "closed")?.id ?? null
+  const resolvedBranchId = branchId ?? quote.branch_id ?? defaultBranchId
   const checkout = useSaleCheckout({
     paymentMethodId,
     branchId: resolvedBranchId,
@@ -132,13 +140,27 @@ function ConvertQuoteDialogBody({ quote, open, onOpenChange }: ConvertQuoteDialo
       resetIdempotencyKey()
       setDone(result)
     } catch (err: unknown) {
-      if (isQuoteChanged(err)) {
-        // Otro usuario lo editó: se recarga el resumen y se confirma sobre el total vigente.
+      const source = errorSource(err)
+      if (RELOAD_QUOTE_ERROR.test(source)) {
+        // Otro usuario lo editó, lo convirtió o lo rechazó: se recarga el
+        // presupuesto para que la pantalla refleje el estado real.
         void queryClient.invalidateQueries({ queryKey: queryKeys.quotes.detail(quote.id) })
+      }
+      if (CASH_SESSION_CLOSED_ERROR.test(source)) {
+        // La caja se cerró entre que se abrió el diálogo y se confirmó: sin
+        // recargar, el diálogo seguiría mostrando una sesión que ya no existe.
+        void queryClient.invalidateQueries({ queryKey: queryKeys.cashSessions.all() })
+      }
+      if (IDEMPOTENCY_CONFLICT_ERROR.test(source)) {
+        // La clave chocó con OTRO documento y la conversión falló entera: no
+        // quedó asociada a nada de este presupuesto. Reintentar (o cerrar y
+        // reabrir, que relee sessionStorage) con la misma clave repetiría el
+        // choque para siempre; una nueva es segura.
+        resetIdempotencyKey()
       }
       setError(
         humanizeOperationError(
-          errorSource(err),
+          source,
           (productId) => productNameById.get(productId),
           branchName,
         ),

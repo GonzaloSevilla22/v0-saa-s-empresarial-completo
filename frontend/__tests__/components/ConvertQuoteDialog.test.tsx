@@ -33,6 +33,7 @@ const mocks = vi.hoisted(() => ({
   customerBalance: 0,
   emitProps: vi.fn(),
   bankSelectProps: vi.fn(),
+  branches: [{ id: "b-1", name: "Central" }, { id: "b-2", name: "Norte" }] as Array<{ id: string; name: string; status?: string }>,
 }))
 
 vi.mock("@/hooks/data/use-quotes", () => ({
@@ -49,7 +50,7 @@ vi.mock("@/hooks/data/use-payment-methods", () => ({
   }),
 }))
 vi.mock("@/hooks/data/use-branches", () => ({
-  useBranches: () => ({ branches: [{ id: "b-1", name: "Central" }, { id: "b-2", name: "Norte" }] }),
+  useBranches: () => ({ branches: mocks.branches }),
 }))
 vi.mock("@/hooks/data/use-cashboxes", () => ({
   useCashboxes: (branchId: string | null) => ({ data: branchId ? [{ id: `cb-${branchId}` }] : undefined }),
@@ -174,6 +175,7 @@ beforeEach(() => {
   window.sessionStorage.clear()
   mocks.session = { id: "cs-1" }
   mocks.customerBalance = 0
+  mocks.branches = [{ id: "b-1", name: "Central" }, { id: "b-2", name: "Norte" }]
   mocks.convert.mockResolvedValue(RESULT)
   queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   invalidateSpy = vi.spyOn(queryClient, "invalidateQueries")
@@ -285,6 +287,39 @@ describe("ConvertQuoteDialog — caja con la semántica del POS", () => {
   })
 })
 
+describe("ConvertQuoteDialog — sucursal por defecto (revisión 6.11, B-02)", () => {
+  it("sin sucursal en el presupuesto ni elegida, la que viaja es la misma con la que se resolvió la caja, no null", async () => {
+    renderDialog() // quote.branch_id = null, sin elegir
+    pickPayment("pm-cash")
+    fireEvent.click(saleButton())
+
+    await waitFor(() => expect(mocks.convert).toHaveBeenCalledTimes(1))
+    expect(mocks.convert.mock.calls[0][0].payload).toMatchObject({ branch_id: "b-1", cash_session_id: "cs-1" })
+  })
+
+  it("la sucursal por defecto salta las cerradas: igual que c26_default_branch, así caja y venta caen en la misma", async () => {
+    mocks.branches = [
+      { id: "b-1", name: "Central", status: "closed" },
+      { id: "b-2", name: "Norte", status: "active" },
+    ]
+    renderDialog()
+    pickPayment("pm-cash")
+    fireEvent.click(saleButton())
+
+    await waitFor(() => expect(mocks.convert).toHaveBeenCalledTimes(1))
+    expect(mocks.convert.mock.calls[0][0].payload).toMatchObject({ branch_id: "b-2", cash_session_id: "cs-1" })
+  })
+
+  it("la sucursal del presupuesto y la elegida siguen ganando sobre la por defecto", async () => {
+    renderDialog(quote({ branch_id: "b-2" }))
+    pickPayment("pm-transfer")
+    fireEvent.click(saleButton())
+
+    await waitFor(() => expect(mocks.convert).toHaveBeenCalledTimes(1))
+    expect(mocks.convert.mock.calls[0][0].payload.branch_id).toBe("b-2")
+  })
+})
+
 describe("ConvertQuoteDialog — cuenta corriente", () => {
   it("con credit muestra el saldo actual del cliente", () => {
     mocks.customerBalance = 12500
@@ -390,6 +425,53 @@ describe("ConvertQuoteDialog — errores (el diálogo no se cierra)", () => {
   it("un error de stock no recarga el detalle (sólo quote_changed lo hace)", async () => {
     await submitWith(new PythonApiError("stock_insuficiente para producto 0dd2e5bb-2b93-4470-b4b6-52f008046112", 409, { code: "stock_insuficiente" }))
     expect(invalidateSpy).not.toHaveBeenCalled()
+  })
+
+  it("quote_invalid_state (otro usuario lo convirtió o rechazó): recarga el detalle para que la pantalla refleje el estado real", async () => {
+    const { alert, onOpenChange } = await submitWith(
+      new PythonApiError("quote_invalid_state: estado actual accepted", 409, { code: "quote_invalid_state" }),
+    )
+
+    expect(alert).toHaveTextContent(/ya no está en un estado/i)
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["quotes", "detail", "q-1"] })
+    expect(onOpenChange).not.toHaveBeenCalledWith(false)
+  })
+
+  it("la caja se cerró mientras se confirmaba: mensaje accionable (sin token) con enlace a /caja y recarga de las sesiones", async () => {
+    const { alert } = await submitWith(
+      new PythonApiError(
+        "cash_optin_requires_open_session: la sesión de caja debe estar abierta y pertenecer a la sucursal efectiva de la venta",
+        409,
+        { code: "cash_optin_requires_open_session" },
+      ),
+    )
+
+    expect(alert).toHaveTextContent(/la caja .* ya no está abierta/i)
+    expect(alert).not.toHaveTextContent(/cash_optin/)
+    expect(within(alert).getByRole("link", { name: /ir a caja/i })).toHaveAttribute("href", "/caja")
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["cashSessions"] })
+  })
+
+  it("forma de pago o cuenta bancaria inválidas: piden elegir otra, sin el token ni el uuid", async () => {
+    const { alert } = await submitWith(
+      new PythonApiError("payment_method_not_found: 686292f2-1111-2222-3333-444455556666 no pertenece a la cuenta o no existe", 404, {
+        code: "payment_method_not_found",
+      }),
+    )
+    expect(alert).toHaveTextContent(/elegí otra forma de pago/i)
+    expect(alert).not.toHaveTextContent(/686292f2|payment_method_not_found/)
+  })
+
+  it("idempotency_key_conflict: reabrir y reintentar usa una clave NUEVA (si no, el reintento chocaría con el mismo conflicto)", async () => {
+    mocks.convert.mockRejectedValueOnce(new PythonApiError("idempotency_key_conflict", 409, { code: "idempotency_key_conflict" }))
+    renderDialog()
+    pickPayment("pm-transfer")
+    fireEvent.click(saleButton())
+    await screen.findByRole("alert")
+
+    fireEvent.click(saleButton())
+    await waitFor(() => expect(mocks.convert).toHaveBeenCalledTimes(2))
+    expect(mocks.convert.mock.calls[1][0].idempotencyKey).not.toBe(mocks.convert.mock.calls[0][0].idempotencyKey)
   })
 
   it("reintentar tras un error usa LA MISMA clave (la conversión fallida no dejó nada registrado)", async () => {

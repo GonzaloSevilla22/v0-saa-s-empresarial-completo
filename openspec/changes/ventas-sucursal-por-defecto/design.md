@@ -10,27 +10,32 @@ El 2026-10-01 el PO decidió *«sí, que las ventas sin sucursal queden con la p
 
 ### Estado actual
 
-Todo lo que sigue está verificado contra el repo (`origin/main` `f61820ac`) y la base local (313 migraciones, `MAX = 20261066000001`).
+Todo lo que sigue está verificado contra el repo (`origin/main` `f61820ac`) y la base local (las 313 migraciones de `main`, `MAX = 20261066000001`; la base local compartida suma además `20261067000001`, aplicada por el apply en curso de `presupuestos-modulo`, que no toca ninguna de estas funciones).
 
 **Alta de venta.** La última definición de `rpc_create_sale_operation_v2` y la del wrapper `rpc_create_sale_operation` están en `supabase/migrations/20261062000001_ventas_unidades_conversion.sql`. El wrapper se redefinió ahí; la definición de `20261022000001` que citaba el brief ya no es la viva.
 
-- **v2** (L330-699):
+- **v2** (L330-697):
   - L436-448 valida la sucursal recibida: ajena o inactiva da `P0404`, cerrada da `P0422 branch_closed`.
   - L450: `v_gate_branch := COALESCE(p_branch_id, public.c26_default_branch(v_account_id))`.
   - Con `v_gate_branch` se hace el gate de stock, el descuento `c21_apply_branch_stock_delta`, el opt-in de caja (L634 compara la sucursal de la sesión contra `v_gate_branch`) y el movimiento bancario (L662, `_pay_register_operation_bank_movement(..., v_gate_branch, NULL)`).
   - Pero los `INSERT` guardan **`p_branch_id` crudo**: `sales` en L552 (línea con producto) y L602 (línea de servicio), `stock_movements` en L583.
-- **Wrapper** (L2629-3044): lee el flag `sale_items_rpc_v2` (L2669). Sin fila, el flag vale `true` (L2671) y delega en la v2. Con `false` ejecuta una **rama legacy** completa, con el mismo `COALESCE` (L2760) y los mismos tres `INSERT` crudos (L2858, L2877, L2890).
-- **Edición**: `rpc_atomic_update_sale_operation` (L1594-2262).
+- **Wrapper** (L2629-2957; desde L2959 sigue DDL ajeno a la función, §8 de esa migración): lee el flag `sale_items_rpc_v2` (L2669). Sin fila, el flag vale `true` (L2671) y delega en la v2. Con `false` ejecuta una **rama legacy** completa, con el mismo `COALESCE` (L2760) y los mismos tres `INSERT` crudos (L2858, L2877, L2890).
+- **Edición**: `rpc_atomic_update_sale_operation` (L1594-2260).
   - Tri-estado de sucursal en L1923-1936: `p_branch_provided` con valor reimputa (valida `P0422 branch_invalid`), con `NULL` desimputa, y sin informar conserva `v_old_branch_id`.
   - La pata REVERSE (L1985) devuelve el stock a `v_old_sale.branch_id`.
   - La pata APPLY (L2109) y los dos `INSERT` en `sales` (L2070, L2125) usan `v_final_branch_id`.
   - `op_stock_movement` ya escribe `COALESCE(p_branch_id, c26_default_branch(...))` en `stock_movements.branch_id`, así que en la edición sólo la **fila de venta** puede quedar `NULL`.
   - El gate de stock de la edición es **global** (`Σ branch_stock`).
-- **Sucursal principal**: `c26_default_branch(uuid)` (`20260625000001_c26_branch_as_root.sql:135`, `STABLE`) devuelve la sucursal más antigua con `is_active AND status = 'active'` por `created_at ASC`. Si no hay ninguna, devuelve la más antigua a secas. No tiene desempate. `COMMENT`: *"C-26: branch default operativa de una cuenta…"*.
+- **Integridad de función en la última reescritura**: `20261062000001` abre con un bloque `DO` de *preflight* (L107-170) que compara `md5(replace(prosrc, E'\r', ''))` de sus diez funciones contra dos listas: el cuerpo de partida (`v_expected`, verificado contra producción el 2026-09-25) y el que ella deja (`v_rewritten`, L142-146). Si no coincide ninguno, aborta. En la base local, los tres cuerpos de este change miden exactamente su `v_rewritten`: v2 `23f9f29a…`, wrapper `577f86d2…`, edición `e8687db5…`.
+- **Sucursal principal**: `c26_default_branch(uuid)` (`20260625000001_c26_branch_as_root.sql:135`, `STABLE`) devuelve la sucursal más antigua con `is_active AND status = 'active'` por `created_at ASC`. Si no hay ninguna, devuelve la más antigua a secas, aunque esté inactiva o cerrada. No tiene desempate. `COMMENT`: *"C-26: branch default operativa de una cuenta…"*.
+- **Baja de sucursales**: sólo `rpc_close_branch` impide dejar a la cuenta sin sucursal operativa (`P0409 last_active_branch`). `rpc_deactivate_branch` (la invoca `frontend/hooks/data/use-branches.ts:217`) sólo exige que la sucursal esté vacía (`_branch_assert_empty`), y `trg_guard_branch_decommission` tampoco cuenta las restantes. Una cuenta sin stock, sin caja abierta y sin transferencias puede desactivar **todas** sus sucursales; entonces `c26_default_branch` devuelve su fallback, una sucursal inactiva.
 - **Reversas**:
-  - `rpc_delete_sale_operation` (viva en `20261061000001`) repone el stock con `rpc_reverse_stock_movement`, que usa `stock_movements.branch_id` del movimiento original. Con `NULL`, `rpc_apply_product_stock_delta` resuelve la principal **vigente al momento del borrado**.
+  - `rpc_delete_sale_operation` (viva en `20261061000001`) repone el stock con `rpc_reverse_stock_movement`, que usa `stock_movements.branch_id` del movimiento original (L51-52 de su `pg_get_functiondef` local). Con `NULL`, `rpc_apply_product_stock_delta` resuelve la principal **vigente al momento del borrado**. Con una sucursal cerrada, rechaza con `P0422 branch_closed` (L57 de su `pg_get_functiondef` local).
   - La edición devuelve a `sales.branch_id`, que con `NULL` vuelve a caer en `op_stock_movement` → principal vigente.
-- **Otros caminos de venta**: persisten la sucursal resuelta y no se tocan. Son `rpc_quick_sale` (`COALESCE` + `P0422 no_branch_found` si no hay ninguna), `_c29_confirm_order_core` (toma la sucursal de la orden, `sales_orders.branch_id NOT NULL`) y `rpc_accept_quote`.
+  - **No toda venta `NULL` tiene su movimiento en `NULL`.** `op_stock_movement` escribe `COALESCE(p_branch_id, c26_default_branch(...))` en el movimiento, así que la pata APPLY de toda edición de una venta `NULL` dejó un movimiento `'sale'` con la principal **de aquel momento**. Además, `scripts/sql/backfill_stock_movements_operaciones.sql` (L103, ejecutado el 2026-08-19) insertó los movimientos `'sale'` de las operaciones editadas con el mismo `COALESCE`. Para esas ventas, el borrado repone en la sucursal **registrada en el movimiento**, no en la principal vigente.
+- **Ledger de stock**: RN-21 (`knowledge-base/05_reglas_de_negocio.md:120`) y `openspec/specs/inventory-single-ledger/spec.md` (L179, L202, L242, L253) declaran `stock_movements` *append-only*: toda corrección es un movimiento nuevo. El PO ya aplicó esa regla a la historia: los 139 huérfanos de `stock-movements-edicion` quedaron «sin tocar» y los `unit_cost_snapshot` previos quedaron nulos. Completar `branch_id` en movimientos existentes es una excepción a esa regla (OQ-5).
+- **Otros caminos de venta**: en el servidor persisten la sucursal resuelta y no se tocan. Son `rpc_quick_sale` (`COALESCE` + `P0422 no_branch_found` si no hay ninguna), `_c29_confirm_order_core` (toma la sucursal de la orden, `sales_orders.branch_id NOT NULL`) y `rpc_accept_quote`.
+- **El POS en el cliente** sí toma "la principal" por su cuenta: `app/(dashboard)/ventas/pos/page.tsx:166` hace `activeBranch = branches[0]`. Con esa sucursal busca la caja y la sesión (L168), arma el enlace «Ir a caja de …» (L744-749) y la manda **explícita** como `branch_id` (L618). Si la sucursal más antigua está cerrada, el POS manda esa y `_c29_confirm_order_core` rechaza con `P0422 branch_closed`.
 - **"Facturar venta manual"** (`rpc_promote_legacy_sale_to_order`, viva en `20261061000001`): resuelve `COALESCE(sales.branch_id, c26_default_branch)` para la **orden**, pero no actualiza `sales.branch_id`. Su helper `_sales_order_sync_from_operation` levanta `P0422 operation_inconsistent` si las filas de una operación mezclan `NULL` y no-`NULL`.
 - **Escritores de `sales`**: hay seis funciones vivas que hacen `INSERT` en `sales`, más un `UPDATE` de `product_id` en `rpc_safe_delete_product`. Cuatro son las de arriba. Las otras dos son los overloads legacy `rpc_atomic_create_sale(...)`, que insertan **sin `account_id` ni `branch_id`**, sólo tienen `EXECUTE` para `postgres`/`service_role` y ningún archivo de `backend/`, `frontend/` ni `supabase/functions/` las llama (sólo aparecen en `database.types.ts`).
 - **Tabla `sales`**:
@@ -46,19 +51,25 @@ Todo lo que sigue está verificado contra el repo (`origin/main` `f61820ac`) y l
   - El stock sin rotación es *fail-open* para las `NULL` (`kpi-branch-consistency` D4).
   - `supabase/functions/generate-export/index.ts:74` muestra las `NULL` como "Principal".
 - **Frontend**:
-  - `components/branches/BranchSelect.tsx` lo comparten la venta, la compra, el gasto y el importador de gastos. No se renderiza sin el módulo de sucursales. Su primera opción, "Sin sucursal (general)", vale `null`.
+  - `components/branches/BranchSelect.tsx` lo comparten la venta, la compra, el gasto y el importador de gastos. No se renderiza sin el módulo de sucursales (`return null`, L29). Sólo acepta `value`, `onChange`, `placeholder` y `className` (L9-14): no tiene `id` ni rótulo propio. Su primera opción vale `null` y lleva el texto del `placeholder`: "Sin sucursal (general)" por defecto (L23), y "Sin sucursal por defecto" en el importador de gastos (`expense-import-dialog.tsx:691`). El patrón canónico del proyecto pone el rótulo **dentro** del selector, con `useId` (`PaymentMethodSelect.tsx:95-108`, `CostCenterSelect.tsx`).
+  - Radix `Select` sólo emite `onValueChange` cuando el valor **cambia** (`@radix-ui/react-use-controllable-state`: `if (value2 !== prop)`, verificado en las versiones 1.1.0 y 1.2.2 instaladas).
   - `hooks/data/use-branches.ts` lista las sucursales con `is_active = true` ordenadas por `created_at`, **sin filtrar `status`**.
-  - `hooks/use-cash-optin.ts:103` (`effectiveBranchId = branchId || branches[0]?.id`) y `hooks/use-default-branch-notice.ts` toman `branches[0]` como "la principal". Si la sucursal más antigua está **cerrada**, el cliente la toma como principal y el servidor (`c26_default_branch`, que exige `status = 'active'`) no.
+  - `hooks/use-cash-optin.ts:103` (`effectiveBranchId = branchId || branches[0]?.id`), `hooks/use-default-branch-notice.ts:49` y el POS (`ventas/pos/page.tsx:166`) toman `branches[0]` como "la principal". Si la sucursal más antigua está **cerrada**, el cliente la toma como principal y el servidor (`c26_default_branch`, que exige `status = 'active'`) no.
+  - `useCashOptin` tiene **cinco** consumidores: venta (`sale-form.tsx:265`), compra (`purchase-form.tsx:214`), gasto (`expense-form-v2.tsx:70`), cobro de cuenta corriente (`customer-accounts/RegisterPaymentForm.tsx:76`) y pago a proveedor (`supplier-accounts/RegisterPaymentMadeForm.tsx:67`); los dos últimos con `branchId: null`. El servidor no valida la sesión igual en todos: venta y gasto la comparan contra la sucursal efectiva (`COALESCE`); cobro y pago sólo exigen una sesión abierta; la **compra** la compara contra `p_branch_id` **crudo** (`20261062000001`, bloque del opt-in de `rpc_create_purchase_operation`, L1037-1057). Una compra sin sucursal elegida ve el opt-in ofrecido por el hook, y el servidor lo rechaza siempre con `P0422 cash_optin_requires_open_session`. Es preexistente, y `__tests__/components/purchase-form-cash-optin.test.tsx:204-213` (con `BranchSelect` mockeado a `null`) fija ese payload.
+  - `no_branch_found` ya se traduce en cuatro lugares, con textos distintos: el POS (`ventas/pos/page.tsx:100`), `hooks/data/use-promote-to-order.ts:49`, `hooks/data/use-quotes.ts:74` y `hooks/data/use-sales-orders.ts:172`. `lib/operation-errors.ts` lo deja pasar a propósito, y `__tests__/lib/operation-errors-branch.test.ts:44-49` lo fija.
+  - El formulario de venta valida y muestra «Stock insuficiente (disponible: N)» con el stock **agregado** de la cuenta (`selectedProduct.stock`, `sale-form.tsx:405` y `:470-471`): candidato (c) de #606.
 - **Precedentes**:
   - Gasto (`gastos-forma-pago` D6): el alta persiste el `COALESCE`, los 175 gastos históricos no tienen backfill y la edición (`rpc_update_expense`) todavía permite desimputar.
   - Compra (`caja-compras-cobranzas` D3): persiste `p_branch_id` crudo y no tiene backfill.
-  - Ventas: el fix #606 dejó los bloques 2 y 6 de `supabase/tests/test_ventas_formulario_sucursal.sql` fijando el contrato "sin sucursal → `NULL`" **para que este change los cambie a conciencia**.
+  - Ventas: el fix #606 dejó los bloques 2 y 6 de `supabase/tests/test_ventas_formulario_sucursal.sql` fijando el contrato "sin sucursal → `NULL`" **para que este change los cambie a conciencia**. Hasta #606 (2026-10-01) el formulario **descartaba** la sucursal elegida: toda venta del formulario quedó `NULL` aunque el usuario hubiera elegido otra sucursal, y su stock salió de la principal del momento (`CHANGES.md:3891`).
+  - CI: `KPI_Validation.yml` reaplica `20261062000001` **después** de la reconvergencia (`supabase db reset`, L982-1041) y exige `UOM_REAPPLIED == 10` (L1022). El workflow dejó escrita la regla (L1004-1018): una migración posterior que redefina cualquiera de sus diez funciones (entre ellas, las tres de este change) hace abortar ese preflight y pone `validate-kpis` en rojo, así que **tiene que retirar ese bloque en el mismo PR**. Es el mismo criterio por el que `20261060000001` y `20261061000001` no están en la cadena.
+  - `presupuestos-modulo` (propose en `main`, apply en curso) reserva `20261067000001`/`20261068000001` y no toca ninguna de las diez funciones. Pero su apply suma dos consumidores de `BranchSelect`: `QuoteForm` y `ConvertQuoteDialog`, y este último **registra una venta** («`BranchSelect` con el default», su `tasks.md:239` y `design.md:461`). Además migra la lógica de carrito de `sale-form.tsx` a `lib/cart-utils.ts` (su `tasks.md:118-124`), así que los dos changes tocan `sale-form.tsx`.
 
 ### Por qué no hace falta medir antes
 
 Lo que se quería medir servía para **elegir** entre dejar las ventas históricas, asignarlas todas, o asignar sólo las de cuentas con una única sucursal. El PO ya eligió: asignarlas. Con esa decisión tomada, ningún número cambia lo que hay que hacer:
 
-1. **La migración resuelve todos los casos sin intervención** (D6): sin ningún dato extra decide qué hacer con cuenta de una sucursal, cuenta de varias, venta facturada a mano, operación mixta y fila sin cuenta.
+1. **La migración resuelve todos los casos sin intervención** (D6): sin ningún dato extra decide qué hacer con cuenta de una sucursal, cuenta de varias, operación mixta, venta cuyo movimiento ya registró una sucursal, venta facturada a mano, sucursal no operativa y fila sin cuenta. Lo que el PO firma antes de escribirla son las **reglas** (OQ-4, OQ-5 y OQ-6), no números: ningún conteo cambia cuál regla es la correcta.
 2. **La migración se autoinforma**: emite `NOTICE` con los conteos por regla, el residuo que no pudo asignar y cuántas ventas tenían evidencia de otra sucursal en caja o banco. Además deja una fila de auditoría por cuenta (D7). Nadie tiene que contar nada a mano para saber qué pasó.
 3. **El orden de magnitud ya se conoce**: el 75 % de las filas de `sales` estaba sin sucursal, y en agosto había una sola cuenta con más de una sucursal. Para todas las demás cuentas "la principal" es su única sucursal: no hay ambigüedad posible.
 4. **Lo único que se corre en producción son verificaciones posteriores** (tarea 12): tres `SELECT` que confirman que no quedó nada sin asignar. No deciden nada; confirman.
@@ -68,17 +79,20 @@ Lo que se quería medir servía para **elegir** entre dejar las ventas históric
 **Goals:**
 
 1. Ninguna venta **nueva ni editada** queda con `sales.branch_id = NULL`. La sucursal guardada es, por construcción, **la misma variable** con la que se validó y descontó el stock y se resolvieron la caja y el banco.
-2. Las ventas **históricas** con `branch_id NULL` pasan a la principal (o a la sucursal de su orden, si fue facturada a mano). Sus movimientos de stock toman la misma sucursal, de forma idempotente, trazable y sin disparar efectos laterales.
+2. Las ventas **históricas** con `branch_id NULL` pasan a la principal, salvo que su operación ya tenga asentada otra sucursal operativa (en otras filas, en su movimiento de stock o en su orden facturada a mano; D6). Si el PO acepta la excepción a RN-21 (OQ-5), sus movimientos de stock nulos toman la misma sucursal. Todo de forma idempotente, trazable y sin disparar efectos laterales.
 3. En el formulario de venta, la opción "Sin sucursal (general)" deja de existir y la principal se ve como lo que es.
-4. Una sola definición de "la principal" en el cliente, idéntica a la del servidor.
+4. Una sola definición de "la principal" en el cliente, idéntica a la del servidor, para todos los que hoy la toman de `branches[0]`: el selector, el opt-in de caja, el aviso de cambio y el POS.
 5. Cero regresiones: POS, órdenes, presupuestos, compras, gastos, borrado, edición con sucursal explícita, gates de integridad, firmas y ACLs.
 
 **Non-Goals:**
 
-- **Compras**: el alta y la edición siguen guardando `NULL` si no se elige sucursal. Las compras históricas no se tocan (OQ-3).
+- **Compras**: el alta y la edición siguen guardando `NULL` si no se elige sucursal. Las compras históricas no se tocan. Tampoco se corrige el opt-in de caja de una compra sin sucursal, que el hook ofrece y el servidor rechaza siempre (preexistente, Context). Todo va al change hermano (OQ-3).
 - **Gastos**: la edición todavía puede desimputar, y la opción "Sin sucursal (general)" del formulario de gasto ya miente, porque el alta guarda la principal. Va al change hermano (OQ-3).
 - **`NOT NULL` o `CHECK` sobre `sales.branch_id`** (D8: candidato posterior).
 - **Validar el stock de la edición contra la sucursal efectiva** (candidato (d) de #606). La edición conserva su gate global.
+- **Mostrar en el formulario el stock de la sucursal efectiva** (candidato (c) de #606). El formulario sigue validando y mostrando «Stock insuficiente (disponible: N)» con el stock agregado de la cuenta. Con la principal a la vista, el usuario puede ver un «disponible» que suma otras sucursales y recibir `P0409` del servidor contra la principal. Se avisa en el humo (H1).
+- **Guard de "última sucursal operativa" en `rpc_deactivate_branch`**: hoy no existe (Context). Este change sólo hace que la venta rechace ese estado (D3); el guard en el ciclo de vida de sucursales queda como candidato.
+- **Unificar las traducciones de `no_branch_found`** del POS, órdenes, presupuestos y promoción: este change sólo agrega la del formulario (tarea 6.3).
 - **Sucursal principal configurable** (OQ-1) y **desempate de `c26_default_branch`** (D4).
 - **Ocultar el selector cuando la cuenta tiene una sola sucursal** (RN-93 lo pide). No se toca acá.
 - **Tocar los lectores**: ninguno cambia su código (D12).
@@ -106,30 +120,37 @@ No hace falta ninguna función nueva: `c26_default_branch` ya es la definición 
 
 | Función (viva en `20261062000001`) | Cambio |
 |---|---|
-| `rpc_create_sale_operation_v2` | `sales.branch_id` (L552, L602) y `stock_movements.branch_id` (L583) pasan de `p_branch_id` a `v_gate_branch`. Después de L450 y **antes** del `INSERT` en `operation_idempotency`: `IF v_gate_branch IS NULL THEN RAISE 'no_branch_found…' USING ERRCODE = 'P0422'` (D3). |
+| `rpc_create_sale_operation_v2` | `sales.branch_id` (L552, L602) y `stock_movements.branch_id` (L583) pasan de `p_branch_id` a `v_gate_branch`. Después de L450 y **antes** del `INSERT` en `operation_idempotency`, cuando `p_branch_id IS NULL`: si `v_gate_branch` es `NULL` o la sucursal resuelta no está operativa (`is_active AND status = 'active'`), `RAISE 'no_branch_found…' USING ERRCODE = 'P0422'` (D3). Una sucursal **elegida** sigue validándose como hoy (L436-448). |
 | `rpc_create_sale_operation` (rama legacy, `v_flag_on = false`) | Los mismos tres cambios (L2858, L2877, L2890) y el mismo guard después de L2760. La rama v2 del wrapper (delegación) no cambia. |
-| `rpc_atomic_update_sale_operation` | Después del bloque tri-estado (L1923-1936) y **antes del REVERSE**: `v_final_branch_id := COALESCE(v_final_branch_id, public.c26_default_branch(v_account_id))`, más el mismo guard `P0422 no_branch_found`. La validación de una sucursal explícita (`P0422 branch_invalid`) no cambia. La pata REVERSE sigue devolviendo a `v_old_sale.branch_id`. |
+| `rpc_atomic_update_sale_operation` | Después del bloque tri-estado (L1923-1936) y **antes del REVERSE**: si `v_final_branch_id` quedó `NULL`, `v_final_branch_id := public.c26_default_branch(v_account_id)` y el mismo guard `P0422 no_branch_found` (resuelta `NULL` o no operativa). La validación de una sucursal explícita (`P0422 branch_invalid`) no cambia, y una sucursal vigente no nula se preserva sin revalidar, como hoy. La pata REVERSE sigue devolviendo a `v_old_sale.branch_id`. |
 
 Reglas de la reescritura:
 
 - Se parte del `pg_get_functiondef` **vivo de producción**.
+- La migración abre con un bloque `DO` de **preflight**, molde de `20261062000001` L107-170:
+  - `v_expected`: el `md5(replace(prosrc, E'\r', ''))` de partida de cada función, confirmado contra producción en el checkpoint 0.2 (hoy, local: `23f9f29a…`, `577f86d2…`, `e8687db5…`);
+  - `v_rewritten`: el que deja esta migración, medido en el stack local después de aplicarla;
+  - si el cuerpo vivo no es ninguno de los dos, `RAISE EXCEPTION` sin reescribir nada. Así una migración intermedia que nadie reconcilió aborta el `db push` en vez de pisarse en silencio;
+  - si ya es el reescrito, `NOTICE 'ventas-sucursal-por-defecto: % ya es el cuerpo de esta migración (reaplicación)'`, que la reaplicación de CI cuenta (D13).
 - `CREATE OR REPLACE` con la misma firma: sin `DROP`, sin overload y sin `42725`.
 - Se re-declara el `COMMENT` vivo. Sólo la edición tiene uno; la v2 y el wrapper no tienen, y eso se verifica en el checkpoint.
 - Se re-emiten las ACLs vivas: `authenticated` y `service_role` con `EXECUTE`, `anon` sin `EXECUTE`.
 - El diff contra el cuerpo vivo tiene que ser **exactamente** los cambios de esta tabla y un comentario de cabecera por función.
 - *Alternativa — helper `_sale_effective_branch(account, branch)`*. **Rechazada**: la parte compartida es una línea (`COALESCE` sobre la función canónica). La validación de la sucursal explícita difiere entre el alta (`P0404`/`P0422 branch_closed`) y la edición (`P0422 branch_invalid`), y un helper más sumaría una entrada al gate de ACLs (chequeo (4)) sin quitar duplicación real.
-- *Alternativa — dejar `stock_movements` como está*. **Rechazada**: la reversa del borrado lee la sucursal **del movimiento**. Si la venta queda en A y su movimiento en `NULL`, el borrado repone en la principal vigente en ese momento, que puede no ser A.
+- *Alternativa — seguir insertando el movimiento de una venta nueva con `p_branch_id` crudo*. **Rechazada**: la reversa del borrado lee la sucursal **del movimiento**. Si la venta queda en A y su movimiento en `NULL`, el borrado repone en la principal vigente en ese momento, que puede no ser A. Para los movimientos **nuevos** no hay tensión con RN-21: el valor se escribe una única vez, en el `INSERT`. Los movimientos históricos son otro asunto (D6, OQ-5).
 
-### D3 — Una cuenta sin ninguna sucursal falla con `P0422 no_branch_found`
+### D3 — Sin sucursal operativa a la cual resolver: `P0422 no_branch_found`
 
-Es el mismo token y el mismo código que `rpc_quick_sale` y `rpc_promote_legacy_sale_to_order`. Hoy, en ese estado:
+Cuando la venta no trae sucursal y la principal resuelta **no existe o no está operativa**, el alta y la edición fallan con `P0422 no_branch_found`. Es el mismo token y el mismo código que `rpc_quick_sale` y `rpc_promote_legacy_sale_to_order`. Hay dos estados:
 
-- una venta con producto falla con `P0409`, porque el gate busca stock en una sucursal `NULL`;
-- una venta sólo de servicios **pasa con `NULL`**: es el único camino que dejaría una venta sin sucursal después de este change.
+- **Cuenta sin ninguna sucursal** (`c26_default_branch` devuelve `NULL`). Es inalcanzable por la interfaz: el aprovisionamiento crea "Casa Central" y las sucursales no se pueden borrar. Hoy, en ese estado, una venta con producto falla con `P0409` (el gate busca stock en una sucursal `NULL`) y una sólo de servicios **pasa con `NULL`**.
+- **Cuenta sin ninguna sucursal operativa** (todas inactivas o cerradas). Es **alcanzable**: `rpc_deactivate_branch` no impide desactivar la última (Context). `c26_default_branch` devuelve entonces su fallback, una sucursal inactiva o cerrada. Hoy la venta descuenta el stock de esa sucursal (si lo tiene) y una de servicios pasa con `NULL`. Persistir ese fallback dejaría la venta en una sucursal que el formulario no lista y que la edición rechaza (`branch_invalid`).
 
-El estado es inalcanzable por construcción (aprovisionamiento más la prohibición de borrar sucursales), así que el guard es *fail-closed* y ruidoso ante un estado imposible.
+Rechazar los dos estados es coherente con cómo se valida una sucursal **elegida**: inactiva da `P0404` y cerrada da `P0422 branch_closed`. Una venta nunca queda, por resolución implícita, en una sucursal que el usuario no podría elegir. Es un cambio de comportamiento sólo en el segundo estado de borde, y el formulario traduce el error con la salida: crear o reabrir una sucursal (tarea 6.3).
 
 - *Alternativa — crear "Casa Central" al vuelo, como hace `c21_apply_branch_stock_delta`*. **Rechazada**: que una venta cree una sucursal es un efecto lateral oculto, y el POS, que es el camino de más volumen, ya eligió rechazar.
+- *Alternativa — persistir el fallback inactivo o cerrado*. **Rechazada** por lo de arriba: la venta quedaría sin poder editarse desde el formulario.
+- *Alternativa — agregar a `rpc_deactivate_branch` el guard de última sucursal operativa*. Fuera de alcance: toca el ciclo de vida de sucursales (`branch-decommission-guard`). Queda como candidato.
 
 ### D4 — "La principal" es `c26_default_branch`, sin cambios
 
@@ -151,39 +172,56 @@ El estado es inalcanzable por construcción (aprovisionamiento más la prohibici
 
 El `COALESCE` corre antes del REVERSE, igual que la validación (gate 2.9 de `edicion-preserva-contexto`: una edición inválida no revierte ni reaplica stock). El REVERSE de una fila con `NULL` ya caía en la principal vigente (`op_stock_movement`) y el APPLY ahora descuenta de esa misma sucursal: el neto es cero, igual que hoy.
 
-**BREAKING (contrato interno)**: el escenario "desimputar" del contrato tri-estado deja de aplicar a la sucursal de la **venta**. Siguen igual el canal de la venta y todo el contrato de la compra. No hay consumidor que dependa de desimputar: el formulario no podrá elegir "sin sucursal" (D9) y un `PUT /sales/{id}` con `branch_id: null` pasa a guardar la principal, que es exactamente la decisión del PO.
+**BREAKING (contrato interno, OQ-7)**: el escenario "desimputar" del contrato tri-estado deja de aplicar a la sucursal de la **venta**, y el requirement «La edición de una operación preserva el contexto de su header» deja de preservar un `branch_id` vigente **nulo** de una venta. Los dos requirements de `operation-edit-context` declaran la excepción en su delta, para que la spec sincronizada no quede con dos SHALL incompatibles. Siguen igual el canal de la venta, todo el contrato de la compra y el del gasto (`expense-operation`). No hay consumidor que dependa de desimputar: el formulario no podrá elegir "sin sucursal" (D9) y un `PUT /sales/{id}` con `branch_id: null` pasa a guardar la principal, que es exactamente la decisión del PO.
 
-### D6 — Ventas históricas: a la principal, con dos excepciones de coherencia
+### D6 — Ventas históricas: a la principal, salvo que la operación ya tenga asentada otra sucursal operativa
 
-**Reglas, en orden de precedencia.** Para cada fila de `sales` con `branch_id IS NULL` y `account_id IS NOT NULL`:
+> Las reglas de esta decisión, la excepción a RN-21 y la precedencia entre movimiento y orden son decisiones del PO (OQ-4, OQ-5 y OQ-6) y **bloquean el grupo 3**: el apply no escribe la migración de datos sin su OK textual.
 
-1. **Venta facturada con "Facturar venta manual"**: hay una `sales_orders` con `sale_operation_id = sales.operation_id` (índice único `sales_orders_sale_operation_id_uq`) y la misma cuenta. La venta toma **la sucursal de la orden**, que es la que figura en la orden y la factura. Hoy coincide con la principal salvo que esta haya cambiado después de facturar, y la promoción funciona recién desde #585 (2026-09-25).
-2. **Operación mixta**: las otras filas de la misma `operation_id` tienen **exactamente una** sucursal distinta. La fila toma esa sucursal, porque una operación es de una sola sucursal y así se cura el `P0422 operation_inconsistent` de "Facturar venta manual". Con dos o más sucursales distintas no se elige ninguna y se aplica la regla 3.
-3. **Resto**: `c26_default_branch(account_id)` **vigente al aplicar la migración**.
+**Unidad de resolución: la operación** (`COALESCE(operation_id, id)`). Todas las filas `NULL` de una operación toman la misma sucursal. Resolver fila por fila podría dejar una operación mixta: una línea de servicio no tiene movimiento de stock, así que la regla 2 la saltearía y caería en otra sucursal. Y `_sales_order_sync_from_operation` rechaza con `P0422 operation_inconsistent` una operación con filas de distinta sucursal, o que mezcla `NULL` y no `NULL`.
 
-**Movimientos de stock.** Los movimientos `reference_type = 'sale'` con `reference_id` igual a una venta **asignada por esta migración** y `branch_id IS NULL` toman la sucursal de su venta.
+**Reglas, en orden de precedencia.** Para cada operación con filas `branch_id IS NULL` y `account_id IS NOT NULL`, gana la primera regla que dé una sucursal **operativa** (`is_active AND status = 'active'`). Una regla que da una sucursal no operativa se saltea y se cuenta: asignar una sucursal cerrada o inactiva dejaría la venta sin poder editarse desde el formulario (la edición manda la sucursal precargada y recibe `branch_invalid`), cuando hoy se edita.
+
+1. **Operación mixta**: las filas no nulas de la misma operación tienen **exactamente una** sucursal. La operación es de una sola sucursal y así se cura el `P0422 operation_inconsistent` de "Facturar venta manual". Va primera porque cualquier otra elección dejaría la operación mixta para siempre. Con dos o más sucursales distintas no se elige ninguna y se pasa a la regla 2.
+2. **Movimiento de stock propio** (OQ-6): los movimientos `type = 'sale'`, `reference_type = 'sale'`, con `reference_id` igual a una fila `NULL` de la operación y `branch_id` no nulo, registran **exactamente una** sucursal. Es donde quedó asentada la salida del stock (la pata APPLY de una edición o el backfill del 2026-08-19, Context) y es donde el borrado repone. Es el mismo principio de D1: la sucursal de la venta es la que movió el stock. Así, borrar y editar la venta devuelven el stock al mismo lugar.
+3. **Venta facturada con "Facturar venta manual"**: hay una `sales_orders` con `sale_operation_id = operation_id` (índice único `sales_orders_sale_operation_id_uq`) y la misma cuenta. La venta toma **la sucursal de la orden**, que es la que figura en la orden y la factura. Hoy coincide con la principal salvo que esta haya cambiado después de facturar, y la promoción funciona recién desde #585 (2026-09-25). Si la regla 2 eligió otra sucursal, la orden se alinea sola en la próxima edición: `_sales_order_sync_from_operation` copia la sucursal de la venta (`COALESCE(v_hdr.branch_id, so.branch_id)`).
+4. **Resto**: `c26_default_branch(account_id)` **vigente al aplicar la migración**, si está operativa.
+
+**Residuo.** Quedan `NULL`, se informan con `NOTICE` y la migración no aborta:
+
+- las filas sin `account_id`;
+- las de una cuenta sin sucursal;
+- las de una cuenta sin sucursal operativa: todas inactivas o cerradas, así que `c26_default_branch` sólo da su fallback no operativo.
+
+**Movimientos de stock (sujeto a OQ-5).** Si el PO acepta la excepción a RN-21, los movimientos `type = 'sale'`, `reference_type = 'sale'`, con `branch_id IS NULL` y `reference_id` igual a una venta **asignada por esta migración**, toman la sucursal de su venta. Sólo se completa `branch_id`: ninguna otra columna cambia y cada id queda en la auditoría (D7). La excepción queda escrita en `inventory-single-ledger` (requirement nuevo) y en RN-21 (tarea 10.2). Si el PO no la acepta, los movimientos quedan `NULL` y el borrado de esas ventas sigue reponiendo en la principal **vigente al borrar**. Hoy coincide con la sucursal asignada por la regla 4, pero no con la de las reglas 1 y 3, y deja de coincidir con cualquiera si la principal cambia después.
+
+**Discrepancia venta ≠ movimiento.** Una venta asignada por las reglas 1, 3 o 4 puede tener un movimiento `'sale'` ya asentado en **otra** sucursal: por ejemplo, la regla 2 se salteó porque esa sucursal está cerrada, o la operación mixta manda otra. La migración **no** toca esos movimientos y **cuenta** las ventas en esa situación (`discrepancia_movimiento`). En ellas, el borrado repone en la sucursal del movimiento y la edición en la de la venta, igual que hoy entre la principal vigente y la registrada.
 
 **Qué no se toca:**
 
+- los movimientos `'sale'` que ya registran una sucursal;
 - los movimientos de ventas ya borradas: el par original y su reversa quedan los dos en `NULL`, que es consistente;
 - `cash_movements`, `bank_movements` (ya llevan la sucursal resuelta), `customer_account_movements`, `journal_entries`, `events`, `sales_orders`, `sale_items`, `branch_stock`.
 
-**Residuo.** Las filas sin `account_id` y las de una cuenta sin sucursal quedan `NULL`. Se informan con `NOTICE` y la migración no se aborta.
-
-**Por qué la principal vigente y no "la principal de aquel momento":**
+**Por qué la principal vigente (regla 4) y no "la principal de aquel momento":**
 
 1. **Es la decisión literal del PO.**
-2. **Es lo que el sistema ya hace hoy en cada camino de ejecución con esas ventas**: el borrado y la edición devuelven el stock a la principal *vigente*, y el export las rotula "Principal". La migración deja escrito el comportamiento que ya existía en vez de inventar uno nuevo.
-3. **"La de aquel momento" sólo se conoce para las ventas con movimiento de caja o de banco**, y puede ser una sucursal hoy cerrada o desactivada (el caso típico es la cuenta del incidente del 22-08). Asignársela dejaría esas ventas **sin poder editarse ni borrarse** sin reabrir la sucursal, que es el candidato (i) de #606.
+2. **Es lo que el sistema ya hace con esas ventas cuando no quedó nada asentado.** El alta resolvió la principal *del momento* para el stock, la caja y el banco. La reversa de un movimiento `NULL` y la edición de una fila `NULL` resuelven la principal *vigente*. El export las rotula "Principal". Cuando sí quedó asentada otra sucursal (otra fila de la operación, el movimiento de stock o la orden), las reglas 1 a 3 la respetan.
+3. **"La de aquel momento", fuera de las reglas 1 a 3, sólo se conoce para las ventas con movimiento de caja o de banco**, y puede ser una sucursal hoy cerrada o desactivada (el caso típico es la cuenta del incidente del 22-08). Asignársela dejaría esas ventas **sin poder editarse** desde el formulario sin reabrir la sucursal (candidato (i) de #606).
 
-El costo es que, en una cuenta cuya principal cambió, las ventas viejas quedan atribuidas a la principal de hoy. La migración **cuenta** cuántas ventas asignadas tienen un movimiento de caja (vía `cash_sessions → cashboxes.branch_id`) o de banco (`bank_movements.branch_id`) que registró **otra** sucursal, y lo informa (OQ-4).
+El costo es que, en una cuenta cuya principal cambió, las ventas viejas sin nada asentado quedan atribuidas a la principal de hoy. La migración **cuenta** cuántas ventas asignadas tienen un movimiento de caja (vía `cash_sessions → cashboxes.branch_id`) o de banco (`bank_movements.branch_id`) que registró **otra** sucursal, y lo informa (OQ-4).
+
+**Lo que la migración no puede saber: ventas anteriores al 2026-10-01.** Hasta #606 el formulario descartaba la sucursal elegida. Una venta que el usuario registró "en B" quedó `NULL` y su stock salió de la principal de ese momento. No queda rastro de esa elección: el banco se resolvió contra la principal, y el opt-in de caja buscaba la sesión de B pero el servidor la comparaba contra la principal y la rechazaba. La migración deja esas ventas en la principal: coincide con el ledger (de ahí salió el stock), pero no con lo que eligió el usuario. La corrección es venta por venta, **editándola a B**: la reversa devuelve el stock a la principal y la reaplicación lo descuenta de B, así que se corrige también el stock. Se informa al PO en OQ-4 y en el humo.
 
 - *Alternativa (c) del brief — sólo las cuentas con una única sucursal*. Superada por la decisión del PO. Además, el **mismo** argumento vale para las cuentas con varias sucursales, cuyo stock se movió en la principal.
 - *Alternativa — cascada con la sucursal registrada en caja y banco como regla 0*. Rechazada por el punto 3 (OQ-4).
+- *Alternativa — la orden antes que el movimiento*. Ver OQ-6: dejaría venta y movimiento en sucursales distintas, así que borrar y editar devolverían el stock a lugares distintos.
+- *Alternativa — resolver fila por fila*. Rechazada: puede crear operaciones mixtas (ver la unidad de resolución).
 
 ### D7 — Mecánica del backfill: archivo propio, orden global de locks, trazable e idempotente
 
-- **Dos archivos**: `20261069000001_ventas_sucursal_por_defecto.sql` (funciones) y `20261069000002_ventas_sucursal_por_defecto_backfill.sql` (datos solamente: sin DDL, sin funciones, sin ACLs). Primero entran los cuerpos nuevos y después corre el backfill. Así se achica la ventana de ventas "en vuelo" (D13 y Risks), el PO puede mergear la migración de datos con la regla vigente (los sub-agentes no mergean migraciones de datos) y cada archivo se reaplica por separado en la cadena de `KPI_Validation.yml`.
+- **Dos archivos**: `20261069000001_ventas_sucursal_por_defecto.sql` (funciones) y `20261069000002_ventas_sucursal_por_defecto_backfill.sql` (datos solamente: sin DDL, sin funciones, sin ACLs). Primero entran los cuerpos nuevos y después corre el backfill. Así se achica la ventana de ventas "en vuelo" (D13 y Risks), el PO puede mergear la migración de datos con la regla vigente (los sub-agentes no mergean migraciones de datos) y cada archivo se reaplica por separado en `KPI_Validation.yml`.
+- **RN-21**: el `UPDATE` de `stock_movements` es la excepción de OQ-5, acotada en el requirement nuevo de `inventory-single-ledger`: sólo `branch_id` nulo, sólo movimientos `'sale'` de ventas vivas asignadas en esta corrida, cada id en la auditoría. Si el PO no la acepta, la pata de movimientos no se escribe.
 - **Locks**: antes de actualizar, las filas candidatas se toman con `FOR UPDATE` en **orden ascendente de `id`**. Es la regla dura del proyecto (orden global único: `sales` por `id` → `sales_orders` → `fiscal_documents` → resto), la misma que usan la edición, el borrado y la promoción, así que el backfill no puede entrar en deadlock con ninguno de los tres. `stock_movements` va después ("resto"). **No** se usa `LOCK TABLE`: con escritores que toman `sales` y `stock_movements` en órdenes distintos (el alta inserta `sales` antes que el movimiento y el borrado inserta la reversa antes del `DELETE`), un lock de tabla sí puede entrar en deadlock.
 - **Trazabilidad**: se escribe **una fila de `audit_logs` por cuenta afectada**, con estos campos:
   - `action = 'sales_branch_backfill'`
@@ -191,7 +229,7 @@ El costo es que, en una cuenta cuya principal cambió, las ventas viejas quedan 
   - `entity_id = account_id`
   - `account_id`
   - `user_id = NULL` (sistema; mismo criterio que la autoría nula del alta automática de sucursales)
-  - `metadata = {change, sale_ids[], movement_ids[], por_regla{orden, operacion, principal}, branch_ids[], evidencia_otra_sucursal}`
+  - `metadata = {change, sale_ids[], movement_ids[], por_regla{operacion, movimiento, orden, principal}, salteadas_no_operativa, discrepancia_movimiento, branch_ids[], evidencia_otra_sucursal}`
 
   `audit_logs` no tiene disparadores, y su política de lectura (vía `company_id`) no expone estas filas a los usuarios. Así queda registrado qué asignó el sistema frente a lo que eligió el usuario, y hay un camino de reversión exacto (Migration Plan).
 - **Idempotencia**:
@@ -199,7 +237,7 @@ El costo es que, en una cuenta cuya principal cambió, las ventas viejas quedan 
   - con cero filas no se escribe ninguna fila de auditoría;
   - el gate la ejecuta dos veces (molde `test_unidades_decisiones_8_9.sql`), y la cadena de reaplicación de CI compara el fingerprint del esquema.
 - **Sin efectos laterales**: `sales` sólo tiene disparadores `AFTER INSERT`, así que el `UPDATE` no dispara margen bajo, analytics, eventos, notificaciones ni Realtime. El gate lo asierta comparando los conteos de `events`, `notifications` y `analytics_events` antes y después.
-- **Nunca aborta por datos**. El residuo y las discrepancias se informan con `NOTICE`.
+- **Nunca aborta por datos**. Se informan con `NOTICE`: los conteos por regla, las reglas salteadas por sucursal no operativa, los movimientos completados, el residuo, las discrepancias venta ≠ movimiento y la evidencia de otra sucursal en caja o banco.
 
 ### D8 — Sin `NOT NULL` ni `CHECK` sobre `sales.branch_id` en este change
 
@@ -212,21 +250,24 @@ El costo es que, en una cuenta cuya principal cambió, las ventas viejas quedan 
 
 ### D9 — Formulario de venta: sin "Sin sucursal", con la principal a la vista
 
-- `BranchSelect` suma una prop opt-in, `allowUnassigned?: boolean`, con valor por defecto `true`, para que compra, gasto e importador de gastos queden **idénticos**.
-- En la venta se usa `allowUnassigned={false}`:
+- `BranchSelect` suma props opt-in cuyos valores por defecto dejan a compra, gasto e importador de gastos **idénticos**:
+  - `allowUnassigned?: boolean`, por defecto `true`;
+  - `label?: string`. El rótulo se renderiza **dentro** del componente, con `useId`, `<Label htmlFor>` e `id` en el `SelectTrigger`: es el patrón de `PaymentMethodSelect.tsx:95-108` y `CostCenterSelect`. Como el componente devuelve `null` sin el módulo de sucursales, el rótulo desaparece junto con el control. Un `<Label>` puesto afuera, en `sale-form.tsx`, quedaría huérfano en las cuentas sin módulo y no tendría un `id` al que apuntar.
+  - con `allowUnassigned={false}`, un placeholder propio que nunca dice «Sin sucursal»: «Cargando sucursales…». Lo muestra el disparador mientras `useBranches` carga, cuando el valor mostrado todavía es `undefined`.
+- En la venta se usa `allowUnassigned={false}` y `label="Sucursal"` (hoy el selector no tiene rótulo, a diferencia de Fecha y Canal), y se retira el `placeholder="Sin sucursal (general)"` que hoy pasa `sale-form.tsx:944`:
   - no aparece la opción `__none__`;
   - el valor mostrado es `value ?? resolveDefaultBranch(branches)?.id`;
-  - la principal se lista como "Nombre (principal)";
-  - el formulario suma el rótulo **"Sucursal"**: hoy el selector no tiene rótulo, a diferencia de Fecha y Canal.
+  - la principal se lista como "Nombre (principal)".
 - El **estado** del formulario sigue en `null` hasta que el usuario elige. Con `null` el alta manda `branch_id: null` y **el servidor** decide con datos vivos.
   - Se ve la principal y se guarda la principal, porque el helper del cliente es espejo exacto de `c26_default_branch` (D10).
   - La única ventana de diferencia es el caché de cinco minutos de `useBranches` si la principal cambia mientras el modal está abierto. En ese caso el servidor guarda la principal **real**.
-- Si el usuario elige una sucursal, explícitamente o eligiendo la principal en la lista, viaja su id.
+- Si el usuario elige **otra** sucursal, viaja su id. Elegir la principal que ya se muestra **no cambia nada**: Radix no emite `onValueChange` cuando el valor no cambia (Context), así que el estado sigue en `null`, viaja `null` y el servidor resuelve la misma principal. Para fijarla de forma explícita hay que elegir otra y volver a ella, y entonces sí viaja su id.
 - **Edición**:
   - precarga `editingOperation.branchId`;
   - después del backfill toda venta tiene sucursal;
   - si quedó residuo, se muestra la principal y viaja `null`, que el servidor resuelve a la principal (D5).
-- **Cuenta sin módulo de sucursales**: el selector no se renderiza (sin cambio), viaja `null` y la venta queda en su única sucursal. El opt-in de caja ya usaba esa misma sucursal.
+- **Cuenta sin módulo de sucursales**: el selector y su rótulo no se renderizan (sin cambio), viaja `null` y la venta queda en la principal de la cuenta. Es su única sucursal si tiene una sola. Si conserva varias de un plan anterior (bajar de plan no desactiva sucursales), es la más antigua operativa. El opt-in de caja ya usaba esa misma sucursal.
+- **Toda superficie que registre una venta con un selector de sucursal usa `allowUnassigned={false}`.** Hoy es sólo el formulario de venta. `presupuestos-modulo` suma `ConvertQuoteDialog`, que crea una venta y cuyo `_quote_accept_core` resuelve la principal cuando no se elige sucursal. Coordinación (tarea 6.7): el change que aplique **segundo** pasa el diálogo a `allowUnassigned={false}` con `label="Sucursal"` y resuelve el conflicto en `sale-form.tsx`, que los dos tocan (aquél migra el carrito a `lib/cart-utils.ts`, éste el selector). `QuoteForm`, el presupuesto en sí, conserva el valor por defecto: un presupuesto no mueve stock ni es una venta.
 - *Alternativa — preseleccionar el id explícito en el estado (`useEffect` y bandera "tocado")*. **Rechazada**: suma un efecto y congela la vista cacheada del cliente en el dato que se guarda. Con `null`, la fuente de verdad sigue siendo una sola: el servidor.
 - *Alternativa — conservar una opción `null` rotulada "Sucursal principal (Casa Central)"*. **Rechazada**: lista dos opciones que significan lo mismo ("Sucursal principal (Casa Central)" y "Casa Central"). Queda como opción (b) de OQ-2.
 
@@ -238,41 +279,49 @@ El costo es que, en una cuenta cuya principal cambió, las ventas viejas quedan 
 - si no hay ninguna, devuelve la primera de la lista;
 - con la lista vacía, devuelve `null`.
 
-La consumen tres lugares:
+La consumen `BranchSelect` (D9) y todos los lugares del cliente que hoy toman `branches[0]` como "la principal":
 
-- `BranchSelect` (D9);
-- `useCashOptin`: `effectiveBranchId = branchId || resolveDefaultBranch(branches)?.id || null`;
+- `useCashOptin`: `effectiveBranchId = branchId || resolveDefaultBranch(branches)?.id || null`. Alcanza a sus **cinco** consumidores: venta, compra, gasto, cobro de cuenta corriente y pago a proveedor (Context).
 - `useDefaultBranchNotice`.
+- **El POS** (`ventas/pos/page.tsx:166`): `activeBranch = resolveDefaultBranch(branches)`. Con esa sucursal busca la caja y la sesión, arma el enlace «Ir a caja de …» y la manda explícita como `branch_id`.
 
-Con esto se cumple la Regla de Tres (tres consumidores) y se corrige un desfasaje real. Hoy, con la sucursal más antigua **cerrada**, el opt-in de caja busca la sesión en la cerrada mientras el servidor exige la de la siguiente, y el aviso anuncia como principal una sucursal cerrada.
+Con esto se cumple la Regla de Tres y se corrige un desfasaje real. El helper sólo difiere de `branches[0]` cuando la sucursal más antigua está **cerrada**. En ese caso, hoy:
 
-Límite declarado: si **ninguna** sucursal activa está operativa, el servidor cae a la más antigua de **todas**, incluidas las inactivas, y el cliente sólo ve las activas. Es un estado al que no se llega por la interfaz: `rpc_close_branch` rechaza cerrar la última operativa (`P0409 last_active_branch`).
+- el opt-in de venta y de gasto busca la sesión en la cerrada, mientras el servidor exige la de la siguiente;
+- el aviso anuncia como principal una sucursal cerrada;
+- el POS manda la cerrada y `_c29_confirm_order_core` rechaza la venta con `branch_closed`;
+- el cobro y el pago de cuenta corriente buscan la sesión en la caja de la cerrada (el servidor sólo exige que haya una sesión abierta). Desde este change ofrecen la sesión de la principal operativa: cambia la superficie de dinero de cuentas corrientes, y se cubre con un caso de regresión (tarea 5.2).
+
+**Paridad con el servidor, acotada.** Vale para venta, gasto, cobro, pago y POS. **No** vale para la compra: su RPC compara la sesión contra `p_branch_id` crudo, así que, sin sucursal elegida, el hook ofrece la sesión de la principal y el servidor la rechaza siempre. Es preexistente (pasa igual con `branches[0]`) y va al change hermano (OQ-3).
+
+Límite declarado: si **ninguna** sucursal activa está operativa, el cliente muestra la primera activa (cerrada), y el servidor resuelve el fallback de `c26_default_branch` (la más antigua de **todas**, incluidas las inactivas) y rechaza la venta con `no_branch_found` (D3); el formulario traduce el error con la salida. El estado **es alcanzable**: `rpc_close_branch` rechaza cerrar la última operativa (`P0409 last_active_branch`), pero `rpc_deactivate_branch` no tiene ese guard (Context).
 
 ### D11 — Backend sin cambio de lógica
 
-`SaleOperationIn.branch_id` y `SaleOperationUpdateIn.branch_id` ya transportan `None`, y el tri-estado viaja por `model_fields_set`. Sólo se corrigen los comentarios que afirman que "`None` conserva `branch_id` NULL" (`backend/services/sales.py` cerca de L147, `backend/schemas/sales.py` cerca de L50) y se agrega la descripción del campo en el esquema (OpenAPI): «sin sucursal se registra en la principal de la cuenta». Los errores nuevos (`P0422 no_branch_found`) llegan como RFC 7807 por el mapeo global de `asyncpg_error_handler`, como el resto de `P0422`.
+`SaleOperationIn.branch_id` y `SaleOperationUpdateIn.branch_id` ya transportan `None`, y el tri-estado viaja por `model_fields_set`. Sólo se corrigen los comentarios que afirman que "`None` conserva `branch_id` NULL" (`backend/services/sales.py` cerca de L147, `backend/schemas/sales.py` cerca de L50) y se agrega la descripción del campo en el esquema (OpenAPI): «sin sucursal se registra en la principal de la cuenta». También se corrige la prosa de los tests que afirma el contrato viejo, sin cambiar ninguna aserción (el transporte de `null` sigue igual): `backend/tests/test_sales_branch_id.py:75-77` y `:212`. Los errores nuevos (`P0422 no_branch_found`) llegan como RFC 7807 por el mapeo global de `asyncpg_error_handler`, como el resto de `P0422`.
 
 ### D12 — Lectores: ningún cambio de código; qué cambia de un día para otro
 
 | Lector | Efecto |
 |---|---|
 | Tablero, estadísticas y márgenes **filtrados por la principal** | Suman las ventas que hoy quedan afuera por ser `NULL`. En cuentas sin módulo de sucursales no hay filtro, así que no cambia nada visible. |
-| Tramo "Sin sucursal" (`rpc_sales_breakdown`, `rpc_branch_report`) | Deja de recibir ventas; sólo conserva el residuo. `rpc_branch_report` lee `sales` y `expenses` (no compras), así que su fila "Sin sucursal" sigue mostrando los gastos históricos sin sucursal. |
-| Stock sin rotación **filtrado por una sucursal que no es la principal** | Las ventas históricas sin sucursal dejan de contar como rotación ahí: ahora pertenecen a la principal. Es más fiel, porque el stock de esas ventas salió de la principal. El *fail-open* de `kpi-branch-consistency` D4 queda vigente y se vuelve vacuo, aunque sigue protegiendo el residuo. |
+| Tramo "Sin sucursal" (`rpc_sales_breakdown`, `rpc_branch_report`) | Deja de recibir ventas; sólo conserva el residuo. `rpc_branch_report` lee `sales` y `expenses` (no compras), así que su fila "Sin sucursal" sigue mostrando los gastos históricos sin sucursal. El fundamento de `sales-statistics` («en producción son la mayoría de las operaciones») deja de valer para la sucursal y se actualiza con un delta. |
+| Stock sin rotación **filtrado por una sucursal que no es la principal** | Las ventas históricas sin sucursal dejan de contar como rotación ahí: ahora pertenecen a su sucursal asignada (en general, la principal). Es fiel al ledger, porque su stock salió de esa sucursal. Incluye las ventas anteriores a #606 que el usuario había elegido en otra sucursal (D6): en los períodos pasados, el Tablero filtrado por esa sucursal puede mostrar como sin rotación productos que se vendieron "ahí". El *fail-open* de `kpi-branch-consistency` D4 queda vigente para el residuo. Su fundamento («lo contrario marcaría como estancado a casi todo el catálogo») deja de ser cierto y se actualiza con un delta de `dashboard-kpi-summary`, para que el PO lo acepte en el sign-off. |
 | Export (`generate-export`) | Muestra el nombre real de la sucursal en vez de "Principal". |
 | `/sucursales/:id` e inventario | Sin cambios: leen `branch_stock`, que este change no toca. |
 
-*Alternativa — retirar el fail-open o la etiqueta "Sin sucursal"*. **Rechazada**: siguen haciendo falta para el residuo, las compras y los gastos, y tocarlos exigiría reescribir las RPCs de reporte desde su cuerpo vivo sin necesidad.
+*Alternativa — retirar el fail-open o la etiqueta "Sin sucursal"*. **Rechazada**: siguen haciendo falta para el residuo, las compras y los gastos, y tocarlos exigiría reescribir las RPCs de reporte desde su cuerpo vivo sin necesidad. Lo que cambia es sólo el fundamento escrito en las specs, no el comportamiento.
 
 ### D13 — Gates: ejecutan las RPCs y la migración, con controles de introspección y mutaciones
 
 Gate nuevo: `supabase/tests/test_ventas_sucursal_por_defecto.sql`. Sigue el patrón del proyecto: acumula fallos en `text[]`, usa anchors sintéticos vía `handle_new_user`, `created_at` explícito y asertado, y limpieza completa. Bloques:
 
-- **(0) Introspección**: los cuerpos **vivos** de las tres funciones persisten la sucursal resuelta. La edición conserva su `COMMENT`. Hay una sola firma por función y las ACLs no cambiaron. Falla explícito si una reaplicación posterior de la cadena de CI pisa un cuerpo (lección de `candidatos-db-backend`).
+- **(0) Introspección**: los cuerpos **vivos** de las tres funciones persisten la sucursal resuelta y su `md5(replace(prosrc, E'\r', ''))` es el `v_rewritten` del preflight de `20261069000001`. La edición conserva su `COMMENT`. Hay una sola firma por función y las ACLs no cambiaron. Falla explícito si una reaplicación posterior de CI pisa un cuerpo (lección de `candidatos-db-backend`).
 - **(1)** Alta v2 sin sucursal, en una cuenta con A (principal) y B, con dos líneas (una de servicio): `sales.branch_id = A` en todas las filas, `stock_movements.branch_id = A`, el stock baja en A y B queda intacta.
 - **(2)** Lo mismo por la **rama legacy** (flag `sale_items_rpc_v2 = false` para la cuenta del fixture).
 - **(3)** Con la principal **cerrada**: `c26_default_branch` resuelve B, y la venta y el stock van a B.
-- **(4)** Cuenta sin ninguna sucursal (fixture con `session_replication_role = replica` para esquivar el guard de borrado): `P0422 no_branch_found` en la v2 y en la legacy, sin filas en `sales`, `operation_idempotency` ni `stock_movements`.
+- **(3b)** Cuenta con **todas** sus sucursales sin operar: una desactivada (`is_active = false`, permitido por `trg_guard_branch_decommission` porque está vacía) y otra cerrada. `P0422 no_branch_found` en la v2, en la legacy y en la edición sin sucursal, sin filas nuevas y sin cambios en `branch_stock`. Este fixture no necesita `session_replication_role`.
+- **(4)** Cuenta sin ninguna sucursal: `P0422 no_branch_found` en la v2 y en la legacy, sin filas en `sales`, `operation_idempotency` ni `stock_movements`. Fixture: el borrado de la sucursal sembrada exige `session_replication_role = replica` para esquivar `trg_guard_branch_decommission`, y en ese modo **no corren las acciones de FK**. Por eso se borran explícitamente, antes del `DELETE` de la sucursal, sus dependencias en cascada: `cashboxes` (que `handle_new_user` siembra y que no tiene `account_id`, así que la limpieza por cuenta no la alcanza) y `branch_stock`. Al final, el gate asierta residuo cero de cajas y de stock de esas sucursales (mismo gotcha que `test_admin_kpis.sql`).
 - **(5) Edición**:
   - venta en B editada con `p_branch_provided = true` y `NULL` → A (el REVERSE devuelve a B y el APPLY descuenta de A);
   - fila residual `NULL` editada sin informar sucursal → A;
@@ -281,16 +330,20 @@ Gate nuevo: `supabase/tests/test_ventas_sucursal_por_defecto.sql`. Sigue el patr
 - **(7) Backfill**, ejecutando el archivo de datos **dos veces** (`\i`):
   - mono-sucursal → su sucursal;
   - multi-sucursal → principal;
-  - con orden facturada en B → B;
-  - operación mixta (B más `NULL`) → B;
-  - sin `account_id` → sigue `NULL`;
-  - movimientos de las asignadas → misma sucursal;
+  - operación mixta (B más `NULL`) → B, en una operación con una línea de servicio (sin movimiento), para probar que la operación no queda mixta;
+  - venta `NULL` con su movimiento `'sale'` en X operativa ≠ principal A → X (regla 2), y el movimiento sigue en X;
+  - venta `NULL` con su movimiento `'sale'` en X **cerrada** → principal A, el movimiento sigue en X y se cuenta una `discrepancia_movimiento`;
+  - con orden facturada en B (sin movimiento con sucursal) → B;
+  - con orden facturada en una sucursal **cerrada** → principal, y se cuenta la regla salteada;
+  - cuenta con todas sus sucursales sin operar → sigue `NULL` (residuo);
+  - sin `account_id` → sigue `NULL` (residuo);
+  - movimientos `NULL` de las asignadas → misma sucursal (si OQ-5 = (a));
   - movimientos de ventas borradas → intactos;
-  - una fila de `audit_logs` por cuenta con los ids;
+  - una fila de `audit_logs` por cuenta con los ids y los conteos;
   - la segunda corrida no cambia filas ni escribe auditoría;
   - `events`, `notifications` y `analytics_events` sin cambios.
 - **(8)** Después del backfill, `rpc_promote_legacy_sale_to_order` **ejecutada** sobre la operación antes mixta ya no levanta `P0422 operation_inconsistent`.
-- **(9)** `rpc_delete_sale_operation` **ejecutada** sobre una venta asignada por el backfill repone el stock en la sucursal asignada.
+- **(9)** `rpc_delete_sale_operation` **ejecutada** sobre una venta asignada por el backfill repone el stock en la sucursal asignada, y también sobre la venta asignada por la regla 2 (repone en X).
 
 **Mutaciones** que el apply ejecuta sobre los cuerpos locales, dentro de una transacción con `ROLLBACK`, y que el gate tiene que detectar con mensaje propio:
 
@@ -298,8 +351,11 @@ Gate nuevo: `supabase/tests/test_ventas_sucursal_por_defecto.sql`. Sigue el patr
 - M2: la legacy, crudo;
 - M3: v2 con `stock_movements` crudo;
 - M4: edición sin `COALESCE`;
-- M5: backfill sin la pata de movimientos;
-- M6: backfill sin la regla de la orden.
+- M5: backfill sin la pata de movimientos (si OQ-5 = (a));
+- M6: backfill sin la regla de la orden;
+- M7: backfill sin la regla del movimiento;
+- M8: backfill sin el filtro de sucursal operativa;
+- M9: guard de `no_branch_found` que sólo mira `NULL` y deja pasar la sucursal no operativa.
 
 **Gate existente que cambia a propósito**: `test_ventas_formulario_sucursal.sql`.
 
@@ -316,14 +372,30 @@ Gate nuevo: `supabase/tests/test_ventas_sucursal_por_defecto.sql`. Sigue el patr
 - `test_ventas_unidades_conversion.sql`;
 - `test_function_acl_gate.sql`.
 
-Las dos migraciones se suman **al final** de la cadena de reaplicación de `KPI_Validation.yml` (después de `20261066000001` y de las de `presupuestos-modulo` si ya mergearon). El gate nuevo se cablea como paso propio.
+**CI (`KPI_Validation.yml`)**:
+
+- **Se retira, en este mismo PR, el bloque de reaplicación de `20261062000001`** (L982-1041). Lo exige la regla que el propio workflow dejó escrita (L1004-1018): este change redefine tres de sus diez funciones, así que, después de la reconvergencia, su preflight no encuentra ni el cuerpo de partida ni el reescrito, aborta, y `UOM_REAPPLIED` (L1022) no llega a 10. Es el mismo criterio por el que `20261060000001` y `20261061000001` no están en la cadena.
+- La cobertura que se pierde se reemplaza así:
+  - las tres funciones reescritas las controlan el preflight de `20261069000001` (ejercitado en su reaplicación) y el bloque (0) del gate nuevo;
+  - las otras siete siguen cubiertas por `test_ventas_unidades_conversion.sql` (paso propio, L2446) y `test_ventas_unidades_conversion_race.sh` (L2465). El apply verifica en la corrida de CI que sigan verdes.
+- Se actualiza el comentario del bloque de `20261066000001`, que justifica su posición «después del bloque de 20261062000001». Su aserción (`scale_plu` última columna de la vista) sigue valiendo sobre el estado reconvergido.
+- `20261069000001` y `20261069000002` se reaplican **después de la reconvergencia** (`supabase db reset`), al final de los reapply posteriores (después de `20261066000001` y de los de `presupuestos-modulo` si ya mergearon), y no en la cadena previa. La cadena previa reaplica `20261045000001`, que redefine `rpc_atomic_update_sale_operation` con su cuerpo de esa fecha, y ahí el preflight abortaría. Sin tolerancia:
+  - el archivo de funciones tiene que imprimir 3 `NOTICE` «ya es el cuerpo de esta migración» (contados como `UOM_REAPPLIED`);
+  - el de datos, su `NOTICE` final con 0 filas asignadas;
+  - el `schema_snapshot` tiene que quedar idéntico.
+- El gate nuevo se cablea como paso propio.
 
 ## Risks / Trade-offs
 
 - **[Ventas "en vuelo" durante el deploy]** Una llamada al cuerpo **viejo** que empezó antes del commit de `20261069000001` y commitea después de que corrió el `UPDATE` de `20261069000002` deja una fila `NULL`. → El archivo de funciones va primero (si el CLI aplica cada archivo en su transacción, la ventana es de milisegundos; si los aplica en una sola, es la duración del push). La verificación posterior (tarea 12) cuenta las filas `NULL` creadas después del deploy. Si hay alguna, con OK del PO se re-ejecuta el bloque idempotente del archivo de datos (`npx supabase db query --linked`). Es el único caso que necesita intervención.
-- **[Atribución histórica en cuentas cuya principal cambió]** Sus ventas viejas quedan en la principal de hoy (D6). → La migración cuenta las que tienen evidencia de otra sucursal en caja o banco, la fila de auditoría permite revertir o reasignar por id, y OQ-4 deja la alternativa a decisión del PO.
+- **[Atribución histórica en cuentas cuya principal cambió]** Sus ventas viejas sin nada asentado quedan en la principal de hoy (D6). → La migración cuenta las que tienen evidencia de otra sucursal en caja o banco, la fila de auditoría permite revertir o reasignar por id, y OQ-4 deja la alternativa a decisión del PO.
+- **[Ventas anteriores a #606 que el usuario había elegido en otra sucursal]** El formulario descartaba la elección y no quedó rastro (D6). Esas ventas quedan en la principal: coinciden con el ledger, pero no con lo que eligió el usuario. → No hay forma de recuperarlo en masa. Se declara en OQ-4, y la salida, venta por venta, es editarla a la sucursal correcta, que también corrige el stock. Efecto en el Tablero filtrado por esa otra sucursal: D12.
+- **[Discrepancia venta ≠ movimiento]** Una venta asignada por las reglas 1, 3 o 4 puede conservar un movimiento en otra sucursal (D6). En ella, borrar y editar devuelven el stock a sucursales distintas, como ya pasa hoy. → La migración las cuenta, la tarea 12.4 las vuelve a medir en producción y se informan al PO.
 - **[Una venta histórica asignada a la principal, que después se cierra]** No se puede editar ni borrar sin reabrir la sucursal, igual que cualquier venta con sucursal (candidato (i) de #606). Antes se borraba igual porque la reversa caía en la principal del momento. → Se declara. La salida es reabrir, o transferir y volver a cerrar.
-- **[Cambio visible del KPI "stock sin rotación" filtrado]** Ver D12. → Se avisa al PO en el humo y en la ficha de `CHANGES.md`.
+- **[Cambio visible del KPI "stock sin rotación" filtrado]** Ver D12. → Se avisa al PO en el humo y en la ficha de `CHANGES.md`, y el delta de `dashboard-kpi-summary` lo deja escrito.
+- **[Cuenta sin ninguna sucursal operativa]** Una venta que hoy pasaba (servicios, o con stock en la sucursal inactiva) pasa a rechazarse con `no_branch_found` (D3). → Estado de borde; el formulario traduce el error con la salida.
+- **[Orden de merge con `presupuestos-modulo`]** Los dos changes tocan `sale-form.tsx` y aquél suma un diálogo que registra ventas con `BranchSelect` (D9). → El que mergee segundo resuelve el conflicto y pasa `ConvertQuoteDialog` a `allowUnassigned={false}` (tarea 6.7). Los números de migración no chocan: aquél usa `20261067000001`/`20261068000001`.
+- **[Retiro del bloque de reaplicación de `20261062000001`]** Se pierde la reaplicación de su gate embebido (sección 14) y de su DDL de `min_stock`. → Es lo que pide la regla del propio workflow; las tres funciones reescritas quedan bajo el preflight y el gate nuevos, y las otras siete bajo `test_ventas_unidades_conversion.sql` y su prueba de carrera (D13).
 - **[Volumen del `UPDATE`]** En agosto había 436 filas. Hoy probablemente miles (no medido, no hace falta: D7). Con locks por fila en orden de `id`, bloquea sólo a quien edite o borre una de esas ventas durante la migración. → Aceptado.
 - **[Reescritura de ~1.300 líneas de PL/pgSQL]** → Checkpoint 0 contra el cuerpo **vivo** de producción, diff acotado a la tabla de D2, gates de integridad existentes, gate nuevo con mutaciones, y paridad v2/legacy asertada en los bloques 1 y 2.
 - **[Orden de despliegue frontend/backend/base]** Seguro en los dos sentidos:
@@ -337,13 +409,14 @@ Las dos migraciones se suman **al final** de la cadena de reaplicación de `KPI_
 
 1. **Checkpoint 0** (tarea 0, lo ejecuta o autoriza el PO, sólo lectura):
    - leer el `pg_get_functiondef` vivo de producción de las tres funciones (más `c26_default_branch`, `op_stock_movement` y `rpc_reverse_stock_movement`, sólo para leer);
-   - compararlo por líneas sin `\r` contra el local y contra `20261062000001`;
+   - medir `md5(replace(prosrc, E'\r', ''))` (la medida del preflight) y compararlo con el local y con el `v_rewritten` de `20261062000001`; además, comparar el cuerpo por líneas sin `\r`;
    - leer `COMMENT`, ACLs y `MAX(version)`;
    - confirmar que `20261069000001`/`000002` están libres.
 
-   Si algún cuerpo diverge, se reescribe sobre el **vivo** y se documenta.
-2. **Merge del PR** (lo mergea el PO, porque lleva una migración de datos). El pipeline (`deploy.yml`) aplica `20261069000001` y después `20261069000002` con `supabase db push`, Vercel despliega el frontend y Render el backend (verificar `GET /deploys`).
-3. **Verificación posterior** (tarea 12): cuerpos y ACLs vivos, cero `NULL` creadas después del deploy, residuo igual al informado, cero movimientos `'sale'` en `NULL` de ventas existentes, y humo del PO.
+   Si algún cuerpo diverge, se reescribe sobre el **vivo**, el `v_expected` del preflight toma el md5 vivo y se documenta.
+2. **Sign-off de datos** (OQ-4, OQ-5 y OQ-6): sin el OK textual del PO, registrado en este design, el apply no escribe `20261069000002`.
+3. **Merge del PR** (lo mergea el PO, porque lleva una migración de datos). El pipeline (`deploy.yml`) aplica `20261069000001` y después `20261069000002` con `supabase db push`, Vercel despliega el frontend y Render el backend (verificar `GET /deploys`).
+4. **Verificación posterior** (tarea 12): cuerpos y ACLs vivos, cero `NULL` creadas después del deploy, residuo igual al informado, cero movimientos `'sale'` en `NULL` de ventas existentes (si OQ-5 = (a)), las discrepancias venta ≠ movimiento, y humo del PO.
 
 **Rollback:**
 
@@ -356,7 +429,7 @@ Las dos migraciones se suman **al final** de la cadena de reaplicación de `KPI_
                FROM audit_logs WHERE action = 'sales_branch_backfill');
   ```
 
-  Lo mismo para `movement_ids` en `stock_movements`. Sólo con decisión explícita del PO; no está previsto.
+  Lo mismo para `movement_ids` en `stock_movements` (sólo existen si OQ-5 = (a)). Sólo con decisión explícita del PO; no está previsto.
 
 ## Open Questions
 
@@ -364,7 +437,10 @@ Las dos migraciones se suman **al final** de la cadena de reaplicación de `KPI_
 |---|---|---|---|
 | OQ-1 | ¿Qué es "la principal"? | (a) La regla vigente, `c26_default_branch`: la sucursal activa y operativa más antigua. (b) Una sucursal principal **configurable**: `accounts.default_branch_id` y una acción "Usar como principal" en `/sucursales`. (c) Por nombre ("Casa Central"). | **(a)**. Ya decide hoy dónde se descuenta el stock y se cobra toda venta, gasto y venta de POS sin sucursal, y es lo que anuncia el aviso de cambio. (b) es una funcionalidad aparte que tocaría la resolución compartida con POS, gastos y compras; queda como candidato. (c) se rompe al renombrar. |
 | OQ-2 | ¿Cómo se ve en el formulario de venta? | (a) Sin la opción "Sin sucursal (general)", con la principal elegida de entrada y marcada "(principal)", más el rótulo "Sucursal" (D9). (b) Mantener una opción rotulada "Sucursal principal (Casa Central)". (c) Dejar la interfaz como está. | **(a)**. (b) lista dos opciones que significan lo mismo. (c) deja un rótulo que contradice lo que se guarda. |
-| OQ-3 | ¿Y compras y gastos? Comparten el selector, y el pedido fue sólo de ventas. | (a) Fuera de este change, con un **change hermano** `compras-gastos-sucursal-por-defecto`. Cubriría el alta, la edición y los históricos de compras (el mismo argumento aplica: el stock de una compra sin sucursal **entró** en la principal), la edición de gastos y el rótulo de gastos, que hoy dice "Sin sucursal (general)" aunque el alta ya guarda la principal. (b) Incluirlos acá. (c) Dejarlos así. | **(a)**. Mantiene este change del tamaño del pedido y no mezcla una segunda migración masiva (compras) con la de ventas. |
-| OQ-4 | Ventas históricas cuyo cobro en caja o banco quedó registrado en **otra** sucursal porque la principal cambió después (por ejemplo, la cuenta del incidente del 22-08). | (a) Van a la principal de hoy, como todas (tu decisión literal), y la migración informa cuántas son. (b) Van a la sucursal que registró la caja o el banco. | **(a)**. (b) es más fiel al pasado, pero esa sucursal puede estar cerrada o desactivada, y esas ventas quedarían sin poder editarse ni borrarse sin reabrirla. **No bloquea el apply**: se aplica (a) salvo indicación contraria. |
+| OQ-3 | ¿Y compras y gastos? Comparten el selector, y el pedido fue sólo de ventas. | (a) Fuera de este change, con un **change hermano** `compras-gastos-sucursal-por-defecto`. Cubriría el alta, la edición y los históricos de compras (el mismo argumento aplica: el stock de una compra sin sucursal **entró** en la principal); el opt-in de caja de una compra sin sucursal, que hoy se ofrece y el servidor rechaza siempre; la edición de gastos, y el rótulo de gastos, que hoy dice "Sin sucursal (general)" aunque el alta ya guarda la principal. (b) Incluirlos acá. (c) Dejarlos así. | **(a)**. Mantiene este change del tamaño del pedido y no mezcla una segunda migración masiva (compras) con la de ventas. |
+| OQ-4 | ¿A qué sucursal van las ventas viejas que quedaron sin sucursal? | La regla general es **la principal de hoy**, como pediste. La migración agrega tres excepciones de coherencia, que pueden dejar una venta en **otra** sucursal: (1) la misma operación ya tiene otras filas en una sucursal; (2) su movimiento de stock ya registró una sucursal (porque la venta se editó, o por el arreglo de stock del 19-08); (3) la facturaste con "Facturar venta manual" y su orden está en otra sucursal. Ninguna asigna una sucursal cerrada o desactivada. Hay dos casos que la migración no puede resolver mejor, y los **cuenta** para informarte: (i) ventas cuyo cobro en caja o banco quedó en otra sucursal porque la principal cambió después (por ejemplo, la cuenta del incidente del 22-08); (ii) ventas anteriores al 2026-10-01 en las que elegiste otra sucursal y el formulario la descartó. De (ii) no quedó registro, así que van a la principal, que es de donde salió el stock; si querés corregir alguna, se edita a la sucursal correcta y el stock se acomoda solo. Opciones: (a) las reglas de D6 tal cual; (b) todas a la principal de hoy, sin excepciones; (c) como (a), pero las de (i) a la sucursal de su caja o banco. | **(a)**. (b) dejaría operaciones con filas en sucursales distintas, que "Facturar venta manual" rechaza, y ventas en una sucursal distinta de la que movió su stock. (c) puede asignar una sucursal cerrada, y esas ventas no se podrían editar. **Bloquea el grupo 3.** |
+| OQ-5 | ¿Se permite, por única vez, completar la sucursal vacía de los movimientos de stock de esas ventas? La regla RN-21 dice que el historial de stock no se modifica nunca: las correcciones se hacen con movimientos nuevos. | (a) Sí, como excepción declarada: sólo se completa la sucursal vacía con la que se asignó a la venta, sólo en movimientos de venta de ventas vigentes, con cada movimiento anotado en la auditoría para poder revertirlo, y la excepción escrita en la spec `inventory-single-ledger` y en RN-21. (b) No: esos movimientos quedan vacíos y, al borrar una de esas ventas, el stock vuelve a la sucursal principal que haya en ese momento. | **(a)**. No cambia ningún dato registrado: completa uno que faltaba, con el valor que el sistema ya usaba. Con (b), borrar y editar una misma venta pueden devolver el stock a sucursales distintas: desde el primer día en las ventas de las excepciones 1 y 3 de OQ-4, y en todas si la principal cambia después. **Bloquea el grupo 3.** |
+| OQ-6 | Si una venta tiene su movimiento de stock en una sucursal y su orden facturada en otra, ¿cuál manda? | (a) El movimiento, que es de donde salió el stock y donde lo repone el borrado. (b) La orden, que es la que figura en la factura. | **(a)**. Con (a), borrar y editar la venta devuelven el stock al mismo lugar, y la orden se alinea sola en la próxima edición de la venta. Con (b) quedan venta y movimiento en sucursales distintas. Es un caso de borde (una venta editada, facturada después, y con la principal cambiada entre una cosa y la otra); la migración cuenta cuántas hay. **Bloquea el grupo 3.** |
+| OQ-7 | Al editar una venta, ¿se puede seguir dejándola "sin sucursal"? | (a) No: si se edita sin sucursal, queda en la principal (D5). (b) Sí, como hoy. | **(a)**. Es la consecuencia directa de tu decisión: con (b), una edición volvería a crear exactamente lo que este cambio elimina. Es un cambio del contrato interno de edición (BREAKING), y no hay ninguna pantalla ni integración que dependa de dejarla sin sucursal. |
 
-Ninguna OQ bloquea el apply. Las cuatro se aplican por su recomendación salvo que el PO diga otra cosa antes del merge.
+OQ-1, OQ-2, OQ-3 y OQ-7 no bloquean: se aplica su recomendación salvo que el PO diga otra cosa antes del merge. **OQ-4, OQ-5 y OQ-6 bloquean el grupo 3** (la migración de datos): el apply escribe las funciones, el frontend y los gates, pero no escribe `20261069000002` sin el OK textual del PO sobre las tres, registrado en la sección "Sign-off del PO". Es una modificación en masa de datos de producción (governance ALTO), y las tres cambian qué se escribe.

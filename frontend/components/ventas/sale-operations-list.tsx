@@ -591,14 +591,14 @@ export function SaleOperationsList({
               {isExpanded && (
                 <div className="px-4 pb-4 pt-1 bg-accent/10 border-t border-dashed border-border/50">
                   <div className="rounded-lg border border-border/60 overflow-x-auto mt-2">
-                    <div className="grid grid-cols-[1fr_72px_110px_110px] gap-2 px-3 py-2 bg-accent/30 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold min-w-[320px]">
+                    <div className="grid grid-cols-[minmax(120px,1fr)_72px_110px_110px] gap-2 px-3 py-2 bg-accent/30 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold min-w-[460px]">
                       <span>Producto</span>
                       <span className="text-center">Cant.</span>
                       <span className="text-right">Precio unit.</span>
                       <span className="text-right">Subtotal</span>
                     </div>
                     {op.items.map((item) => (
-                      <div key={item.id} className="grid grid-cols-[1fr_72px_110px_110px] gap-2 px-3 py-2.5 border-t border-border/30 text-sm items-center hover:bg-accent/10 min-w-[320px]">
+                      <div key={item.id} className="grid grid-cols-[minmax(120px,1fr)_72px_110px_110px] gap-2 px-3 py-2.5 border-t border-border/30 text-sm items-center hover:bg-accent/10 min-w-[460px]">
                         <ProductDisplay mode="table" name={item.productName} />
                         <span className="text-center text-muted-foreground tabular-nums">{formatQuantity(item.quantity, unitSymbolFor(item.unitId))}</span>
                         <span className="text-right text-muted-foreground tabular-nums">{formatUnitPrice(item.unitPrice, op.currency)}</span>
@@ -606,7 +606,7 @@ export function SaleOperationsList({
                       </div>
                     ))}
                     {op.isGrouped && (
-                      <div className="grid grid-cols-[1fr_72px_110px_110px] gap-2 px-3 py-2.5 border-t border-border bg-accent/20 text-sm min-w-[320px]">
+                      <div className="grid grid-cols-[minmax(120px,1fr)_72px_110px_110px] gap-2 px-3 py-2.5 border-t border-border bg-accent/20 text-sm min-w-[460px]">
                         <span className="col-span-3 text-right font-medium text-muted-foreground pr-2">Total operación</span>
                         <span className="text-right font-bold text-base text-primary tabular-nums">{formatMoney(op.total, op.currency)}</span>
                       </div>

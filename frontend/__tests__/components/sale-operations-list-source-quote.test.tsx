@@ -7,7 +7,7 @@
  *    Un bloqueo fiscal o de pago (duro, del servidor) gana al de servicio.
  */
 import { describe, it, expect, vi } from "vitest"
-import { render, screen, within } from "@testing-library/react"
+import { render, screen, within, fireEvent } from "@testing-library/react"
 import "@testing-library/jest-dom"
 import { SaleOperationsList } from "@/components/ventas/sale-operations-list"
 import type { Sale } from "@/lib/types"
@@ -143,5 +143,29 @@ describe("SaleOperationsList — 'Editar' con líneas de servicio (OQ-P16)", () 
   it("el borrado sigue disponible: una venta con líneas de servicio se puede eliminar", () => {
     render(<SaleOperationsList {...baseProps([makeSale({ hasServiceLines: true })])} />)
     expect(screen.getAllByTestId("delete-operation-trigger").length).toBeGreaterThan(0)
+  })
+})
+
+describe("SaleOperationsList — detalle expandido en pantallas angostas", () => {
+  it("la columna del producto tiene un ancho mínimo y el contenedor desplaza en horizontal, en vez de colapsar el nombre a 0 px (375 px: la descripción del concepto quedaba invisible)", () => {
+    render(<SaleOperationsList {...baseProps([makeSale({ productName: "Flete a domicilio" })])} />)
+    const row = screen.getAllByRole("button").find((b) => b.tagName === "DIV" && b.hasAttribute("aria-expanded"))!
+    fireEvent.click(row)
+
+    const header = screen.getByText("Subtotal").parentElement as HTMLElement
+    const track = /grid-cols-\[minmax\((\d+)px,1fr\)_72px_110px_110px\]/.exec(header.className)
+    expect(track).not.toBeNull()
+    const minName = Number(track![1])
+    expect(minName).toBeGreaterThanOrEqual(120)
+
+    // El mínimo del contenedor alcanza para las 4 columnas + 3 huecos de 8 px + el padding de 24 px.
+    const minWidth = /min-w-\[(\d+)px\]/.exec(header.className)
+    expect(minWidth).not.toBeNull()
+    expect(Number(minWidth![1])).toBeGreaterThanOrEqual(minName + 72 + 110 + 110 + 3 * 8 + 24)
+
+    // Las filas de líneas usan el mismo trazado que el encabezado (si no, las columnas se desalinean).
+    const rows = Array.from(document.querySelectorAll<HTMLElement>('[class*="72px_110px_110px"]'))
+    expect(rows.length).toBeGreaterThanOrEqual(2) // encabezado + al menos una línea
+    for (const r of rows) expect(r.className).toContain(track![0])
   })
 })

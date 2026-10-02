@@ -1,0 +1,71 @@
+shot conv-dialog-vacio-desktop-light docOverflow=0 elementOverflow=0
+shot conv-dialog-efectivo-desktop-light docOverflow=0 elementOverflow=0
+shot conv-exito-desktop-light docOverflow=0 elementOverflow=0
+PASS  (a) stock baja  -> h 14->12 a 50->47
+PASS  (a) movimiento de caja  -> 71->72
+PASS  (g) doble clic = UNA orden confirmada  -> confirmed
+PASS  (g) una sola operación de venta
+PASS  (h) la venta cobra el precio del presupuesto (3900), no el remarcado  -> total 3900
+PASS  (a) presupuesto accepted
+shot ventas-badge-desktop-light docOverflow=0 elementOverflow=0
+PASS  (a) badge Desde presupuesto en /ventas  -> Desde presupuesto P-00000046
+shot detalle-convertido-desktop-light docOverflow=0 elementOverflow=0
+PASS  (a) detalle: Venta generada
+shot conv-dialog-credito-desktop-light docOverflow=0 elementOverflow=0
+PASS  (b) cargo en cuenta corriente  -> 3900.00|2026-11-01|sale
+PASS  (b) vencimiento por cascada = hoy+30  -> 3900.00|2026-11-01|sale esperado 2026-11-01
+PASS  (b) sin movimiento de caja
+shot conv-dialog-transferencia-desktop-light docOverflow=0 elementOverflow=0
+PASS  (c) aparece el selector de cuenta bancaria
+PASS  (c) movimiento de banco  -> 5->6
+PASS  (c) sin caja
+shot conv-error-stock-desktop-light docOverflow=0 elementOverflow=0
+PASS  (d) mensaje con el producto  -> No hay stock de «Producto escaso QA» en la sucursal Casa Central. Puede haber unidades en otra sucursal: revisá el stock por sucursal o cambiá la sucursal de la venta.Transferir stock
+PASS  (d) el mensaje nombra el producto  -> No hay stock de «Producto escaso QA» en la sucursal Casa Central. Puede haber unidades en otra sucursal: revisá el stock por sucursal o cambiá la sucursal de la venta.Transferir stock
+PASS  (d) nada escrito  -> 1  sent
+PASS  (d) el diálogo sigue abierto
+shot detalle-vencido-venta-deshabilitada-desktop-light docOverflow=0 elementOverflow=0
+PASS  (e) Venta deshabilitada si está vencido  -> disabled=true
+PASS  (e) leyenda del motivo
+PASS  (f) edición concurrente aplicada  -> status 200
+shot conv-error-quote-changed-desktop-light docOverflow=0 elementOverflow=0
+PASS  (f) quote_changed traducido  -> El presupuesto cambió mientras lo tenías abierto: revisalo y volvé a intentar.
+PASS  (f) nada escrito
+PASS  (f) el resumen recargó el total vigente (4.400)  -> $ 4.400
+PASS  (f) la 2ª confirmación convierte al total vigente
+PASS  (i) la línea de servicio se convirtió
+shot ventas-linea-servicio-desktop-light docOverflow=0 elementOverflow=0
+PASS  (i) /ventas muestra la descripción del servicio
+PASS  (i) "Editar" deshabilitado con su motivo  -> botones con el motivo=24
+PASS  (i) el motivo incluye la salida (eliminar y volver a vender desde el duplicado)  -> Incluye conceptos sin producto de un presupuesto: no se edita desde acá. Para corregirla, eliminala y volvé a venderla desde el presupuesto duplicado.
+PASS  (k) EmitInvoiceButton presente
+shot conv-exito-facturar-desktop-light docOverflow=0 elementOverflow=0
+shot conv-facturar-dialogo-desktop-light docOverflow=0 elementOverflow=0
+PASS  (k) comprobante en trámite en la base  -> pending_cae,pending_cae,pending_cae,pending_cae,pending_cae
+shot conv-facturar-resultado-desktop-light docOverflow=0 elementOverflow=0
+PASS  (k) la pantalla NO se rompe tras facturar (sin errores de consola)
+
+console errors: [
+  'Failed to load resource: the server responded with a status of 409 (Conflict)',
+  'Failed to load resource: the server responded with a status of 409 (Conflict)'
+]
+
+RESUMEN: 32 PASS / 0 FAIL
+PASS  (j) cajero: sin botón Venta en el detalle  -> botones=0
+PASS  (j) cajero: sin Editar (sólo lectura)  -> editar=0
+shot detalle-cajero-sin-venta-desktop-light docOverflow=0 elementOverflow=0
+PASS  (j) consola sin errores
+shot l-form-venta-carrito-desktop-light docOverflow=0 elementOverflow=0
+shot l-form-venta-resultado-desktop-light docOverflow=0 elementOverflow=0
+dialog visible: false | toasts: 
+PASS  (l) formulario de venta: se registra la venta  -> 189->190
+PASS  (l) formulario de venta: baja el stock de la sucursal elegida  -> 34->33
+PASS  (l) formulario de venta: consola sin errores
+shot l-pos-carrito-desktop-light docOverflow=0 elementOverflow=0
+shot l-pos-resultado-desktop-light docOverflow=0 elementOverflow=0
+PASS  (l) POS: se registra la venta  -> 190
+PASS  (l) POS: baja el stock  -> 33->32
+PASS  (l) POS: movimiento de caja en efectivo  -> 74->75
+PASS  (l) POS: consola sin errores
+
+RESUMEN: 10 PASS / 0 FAIL

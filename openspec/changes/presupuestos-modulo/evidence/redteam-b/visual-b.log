@@ -1,0 +1,109 @@
+
+=== desktop / light ===
+shot conv-dialog-caja-cerrada-desktop-light docOverflow=0 elementOverflow=0
+PASS  [desktop/light] caja cerrada: confirmar deshabilitado con su motivo  -> disabled=true motivo=1
+shot conv-dialog-vacio-desktop-light docOverflow=0 elementOverflow=0
+PASS  [desktop/light] el foco entra al diálogo
+PASS  [desktop/light] sin forma de pago, confirmar deshabilitado
+shot conv-dialog-efectivo-desktop-light docOverflow=0 elementOverflow=0
+shot conv-dialog-transferencia-desktop-light docOverflow=0 elementOverflow=0
+shot conv-dialog-credito-desktop-light docOverflow=0 elementOverflow=0
+PASS  [desktop/light] CTA "Registrar venta" visible (dentro del viewport)  -> {"x":771.53125,"y":586.5,"width":127.46875,"height":40}
+PASS  [desktop/light] Escape devuelve el foco al botón Venta  -> Venta
+shot conv-error-stock-desktop-light docOverflow=0 elementOverflow=0
+PASS  [desktop/light] error de stock con el producto, accionable  -> No hay stock de «Producto escaso QA» en la sucursal Casa Central. Puede haber unidades en otra sucursal: revisá el stock por sucursal o cambiá la sucursal de la venta.Transferir stock
+shot conv-exito-desktop-light docOverflow=0 elementOverflow=0
+PASS  [desktop/light] el foco pasa al título "Venta registrada"  -> Venta registrada
+PASS  [desktop/light] "Facturar" ofrecido en el éxito
+shot detalle-convertido-desktop-light docOverflow=0 elementOverflow=0
+shot ventas-badge-desktop-light docOverflow=0 elementOverflow=0
+shot ventas-linea-servicio-desktop-light docOverflow=0 elementOverflow=0
+shot detalle-vencido-venta-deshabilitada-desktop-light docOverflow=0 elementOverflow=0
+PASS  [desktop/light] vencido: Venta deshabilitada con leyenda
+console errors: [
+  'Failed to load resource: the server responded with a status of 404 (Not Found)',
+  'Failed to load resource: the server responded with a status of 409 (Conflict)'
+]
+
+=== desktop / dark ===
+shot conv-dialog-caja-cerrada-desktop-dark docOverflow=0 elementOverflow=0
+PASS  [desktop/dark] caja cerrada: confirmar deshabilitado con su motivo  -> disabled=true motivo=1
+shot conv-dialog-vacio-desktop-dark docOverflow=0 elementOverflow=0
+PASS  [desktop/dark] el foco entra al diálogo
+PASS  [desktop/dark] sin forma de pago, confirmar deshabilitado
+shot conv-dialog-efectivo-desktop-dark docOverflow=0 elementOverflow=0
+shot conv-dialog-transferencia-desktop-dark docOverflow=0 elementOverflow=0
+shot conv-dialog-credito-desktop-dark docOverflow=0 elementOverflow=0
+PASS  [desktop/dark] CTA "Registrar venta" visible (dentro del viewport)  -> {"x":771.53125,"y":586.5,"width":127.46875,"height":40}
+PASS  [desktop/dark] Escape devuelve el foco al botón Venta  -> Venta
+shot conv-error-stock-desktop-dark docOverflow=0 elementOverflow=0
+PASS  [desktop/dark] error de stock con el producto, accionable  -> No hay stock de «Producto escaso QA» en la sucursal Casa Central. Puede haber unidades en otra sucursal: revisá el stock por sucursal o cambiá la sucursal de la venta.Transferir stock
+shot conv-exito-desktop-dark docOverflow=0 elementOverflow=0
+PASS  [desktop/dark] el foco pasa al título "Venta registrada"  -> Venta registrada
+PASS  [desktop/dark] "Facturar" ofrecido en el éxito
+shot detalle-convertido-desktop-dark docOverflow=0 elementOverflow=0
+shot ventas-badge-desktop-dark docOverflow=0 elementOverflow=0
+shot ventas-linea-servicio-desktop-dark docOverflow=0 elementOverflow=0
+shot detalle-vencido-venta-deshabilitada-desktop-dark docOverflow=0 elementOverflow=0
+PASS  [desktop/dark] vencido: Venta deshabilitada con leyenda
+console errors: [
+  'Failed to load resource: the server responded with a status of 404 (Not Found)',
+  'Failed to load resource: the server responded with a status of 409 (Conflict)'
+]
+
+=== mobile / light ===
+shot conv-dialog-caja-cerrada-mobile-light docOverflow=0 elementOverflow=0
+PASS  [mobile/light] caja cerrada: confirmar deshabilitado con su motivo  -> disabled=true motivo=1
+shot conv-dialog-vacio-mobile-light docOverflow=0 elementOverflow=0
+PASS  [mobile/light] el foco entra al diálogo
+PASS  [mobile/light] sin forma de pago, confirmar deshabilitado
+shot conv-dialog-efectivo-mobile-light docOverflow=0 elementOverflow=0
+shot conv-dialog-transferencia-mobile-light docOverflow=0 elementOverflow=0
+shot conv-dialog-credito-mobile-light docOverflow=0 elementOverflow=0
+PASS  [mobile/light] CTA "Registrar venta" visible (dentro del viewport)  -> {"x":227.53125,"y":744,"width":127.46875,"height":44}
+PASS  [mobile/light] Escape devuelve el foco al botón Venta  -> Venta
+shot conv-error-stock-mobile-light docOverflow=0 elementOverflow=0
+PASS  [mobile/light] error de stock con el producto, accionable  -> No hay stock de «Producto escaso QA» en la sucursal Casa Central. Puede haber unidades en otra sucursal: revisá el stock por sucursal o cambiá la sucursal de la venta.Transferir stock
+shot conv-exito-mobile-light docOverflow=0 elementOverflow=0
+PASS  [mobile/light] el foco pasa al título "Venta registrada"  -> Venta registrada
+PASS  [mobile/light] "Facturar" ofrecido en el éxito
+shot detalle-convertido-mobile-light docOverflow=0 elementOverflow=0
+shot ventas-badge-mobile-light docOverflow=0 elementOverflow=0
+shot ventas-linea-servicio-mobile-light docOverflow=0 elementOverflow=1  <<< DESBORDE
+    [{"kind":"scroller","tag":"DIV","cls":"rounded-lg border border-border/60 overflow-x-auto mt-2","text":"ProductoCant.Precio unit.SubtotalAlfajor","scrollW":460,"clientW":307}]
+shot detalle-vencido-venta-deshabilitada-mobile-light docOverflow=0 elementOverflow=0
+PASS  [mobile/light] vencido: Venta deshabilitada con leyenda
+console errors: [
+  'Failed to load resource: the server responded with a status of 404 (Not Found)',
+  'Failed to load resource: the server responded with a status of 409 (Conflict)'
+]
+
+=== mobile / dark ===
+shot conv-dialog-caja-cerrada-mobile-dark docOverflow=0 elementOverflow=0
+PASS  [mobile/dark] caja cerrada: confirmar deshabilitado con su motivo  -> disabled=true motivo=1
+shot conv-dialog-vacio-mobile-dark docOverflow=0 elementOverflow=0
+PASS  [mobile/dark] el foco entra al diálogo
+PASS  [mobile/dark] sin forma de pago, confirmar deshabilitado
+shot conv-dialog-efectivo-mobile-dark docOverflow=0 elementOverflow=0
+shot conv-dialog-transferencia-mobile-dark docOverflow=0 elementOverflow=0
+shot conv-dialog-credito-mobile-dark docOverflow=0 elementOverflow=0
+PASS  [mobile/dark] CTA "Registrar venta" visible (dentro del viewport)  -> {"x":227.53125,"y":744,"width":127.46875,"height":44}
+PASS  [mobile/dark] Escape devuelve el foco al botón Venta  -> Venta
+shot conv-error-stock-mobile-dark docOverflow=0 elementOverflow=0
+PASS  [mobile/dark] error de stock con el producto, accionable  -> No hay stock de «Producto escaso QA» en la sucursal Casa Central. Puede haber unidades en otra sucursal: revisá el stock por sucursal o cambiá la sucursal de la venta.Transferir stock
+shot conv-exito-mobile-dark docOverflow=0 elementOverflow=0
+PASS  [mobile/dark] el foco pasa al título "Venta registrada"  -> Venta registrada
+PASS  [mobile/dark] "Facturar" ofrecido en el éxito
+shot detalle-convertido-mobile-dark docOverflow=0 elementOverflow=0
+shot ventas-badge-mobile-dark docOverflow=0 elementOverflow=0
+shot ventas-linea-servicio-mobile-dark docOverflow=0 elementOverflow=1  <<< DESBORDE
+    [{"kind":"scroller","tag":"DIV","cls":"rounded-lg border border-border/60 overflow-x-auto mt-2","text":"ProductoCant.Precio unit.SubtotalAlfajor","scrollW":460,"clientW":307}]
+shot detalle-vencido-venta-deshabilitada-mobile-dark docOverflow=0 elementOverflow=0
+PASS  [mobile/dark] vencido: Venta deshabilitada con leyenda
+console errors: [
+  'Failed to load resource: the server responded with a status of 404 (Not Found)',
+  'Failed to load resource: the server responded with a status of 409 (Conflict)'
+]
+
+shots=44 conDesborde=2
+RESUMEN: 36 PASS / 0 FAIL; consola con errores: 8

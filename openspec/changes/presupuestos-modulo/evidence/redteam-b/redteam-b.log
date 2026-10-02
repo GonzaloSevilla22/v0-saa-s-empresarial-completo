@@ -1,0 +1,53 @@
+PASS  quote de A convertido por B -> 404  -> 404 {"type":"about:blank","title":"No encontrado","status":404,"detail":"quote_not_found","code":"quote_not_found"}
+PASS  sucursal ajena -> 404/422 sin efectos  -> 404 {"type":"about:blank","title":"No encontrado","status":404,"detail":"branch_not_found: la sucursal no pertenece a la cuenta o no está activa
+PASS  forma de pago ajena -> 4xx sin efectos  -> 404 {"type":"about:blank","title":"No encontrado","status":404,"detail":"payment_method_not_found: 686292f2-5239-47c2-b9d2-3f2734640774 no perte
+PASS  cuenta bancaria ajena -> 4xx sin efectos  -> 404 {"type":"about:blank","title":"No encontrado","status":404,"detail":"bank_account_not_found_or_inactive: cccce457-4daf-4c46-ab38-5c6e877fc41
+PASS  sesión de caja ajena -> 4xx sin efectos  -> 422 {"type":"about:blank","title":"Error de validación","status":422,"detail":"cash_optin_requires_open_session: la sesión de caja debe estar ab
+PASS  forma de pago inexistente -> 4xx  -> 404
+PASS  sesión inexistente -> 4xx  -> 422
+PASS  sucursal inexistente -> 4xx  -> 404
+PASS  ningún efecto de los 8 ataques  -> [{"h":46,"a":108,"cash":56,"bank":3,"orders":"70","sales":"138","events":"150"},{"h":46,"a":108,"cash":56,"bank":3,"orders":"70","sales":"138","events":"150"}]
+PASS  efectivo sin sesión de caja -> 4xx (cash_requires_session)  -> 400 {"type":"about:blank","title":"Solicitud inválida","status":400,"detail":"cash_requires_session: payment_method=cash exige cash_session_id",
+PASS    ...sin efectos
+INFO  la cuenta A tiene una sola sucursal: cruce sesión/sucursal cubierto por el gate SQL (bloques de P0422)
+PASS  tras los ataques la conversión legítima funciona  -> 200 {"quote_id":"25b0e119-d328-492a-9be2-996e9e1dce95","quote_number":125,"quote_number_label":"P-00000125","sales_order_id":"c6fc13a0-a36f-4d6d
+PASS  B no lee la orden de A  -> 404
+PASS  replay misma clave+mismo presupuesto -> 200 replayed:true misma venta  -> 200 {"quote_id":"8e6e8a38-a459-42f8-abc8-705543d5f143","quote_number":126,"quote_number_label":"P-00000126","sales_order_id":"73b47b76-5154-47bb-96e4-93c6c709d66b",
+PASS    ...sin escribir
+PASS  misma clave sobre OTRO presupuesto -> 409 idempotency_key_conflict  -> 409 {"type":"about:blank","title":"Conflicto","status":409,"detail":"idempotency_key_conflict: la clave ya se usó para otra operación","code":"idempotency_key_confl
+PASS    ...q2 intacto
+PASS  sin Idempotency-Key -> 422  -> 422 {"type":"about:blank","title":"Error de validación","status":422,"detail":"Falta la clave de idempotencia: enviar el hea
+PASS  clave en el body (fallback deprecado) sigue andando o se rechaza sin romper  -> 200
+PASS  sin expected_revision -> 422  -> 422
+PASS  expected_revision 0 -> 422  -> 422
+PASS  versión vieja/ajena -> 409 quote_changed  -> 409 {"type":"about:blank","title":"Conflicto","status":409,"detail":"quote_changed: el presupuesto cambió mientras se confir
+PASS  campos extra tipo skip_stock no cambian nada (200 convierte normal o 422)  -> 200
+PASS  conversión por HTTP con id no uuid -> 422
+PASS  cajero -> 403 insufficient_role  -> 403 {"type":"about:blank","title":"Prohibido","status":403,"detail":"Rol de cuenta insuficiente: se requiere admin o owner o
+PASS    ...q intacto
+PASS  vendedor convierte -> 200  -> 200 {"quote_id":"fbd3ff7d-ef50-40eb-bc6f-d1e1e3c81d47","quote_number":129,"quote_number_label":"P-00000129","sales_order_id"
+PASS  rechazado -> 409 quote_invalid_state  -> 409 {"type":"about:blank","title":"Conflicto","status":409,"detail":"quote_invalid_state: estado rejecte
+PASS  ya convertido (otra clave) -> 409 quote_invalid_state  -> 409 {"type":"about:blank","title":"Conflicto","status":409,"detail":"quote_invalid_state: estado accepte
+PASS  vencido -> 409 quote_expired  -> 409 {"type":"about:blank","title":"Conflicto","status":409,"detail":"quote_expired: valid_until 2026-09-
+PASS  producto dado de baja -> 404 quote_product_unavailable  -> 404 {"type":"about:blank","title":"No encontrado","status":404,"detail":"quote_product_unavailable: Baja QA","code":"quote_product_unavailable"}
+PASS    ...sin efectos
+PASS  rpc_accept_quote por PostgREST (owner) -> 403/42501 o 404  -> 403 {"code":"42501","details":null,"hint":null,"message":"permission denied for function rpc_accept_quote"}
+PASS  _quote_accept_core por PostgREST (owner) -> 403/404  -> 403 {"code":"42501","details":null,"hint":null,"message":"permission denied for function _quote_accept_core"}
+PASS  rpc_convert_quote_to_sale como anon -> 401/403  -> 401
+PASS  cajero por PostgREST -> rechazado (P0403)  -> 500 {"code":"P0403","details":null,"hint":null,"message":"insufficient_role: tu rol no permite gestionar presupuestos (requiere vendedor, admini
+PASS  tenant B por PostgREST sobre quote de A -> quote_not_found  -> 500 {"code":"P0404","details":null,"hint":null,"message":"quote_not_found"}
+PASS  p_expected_revision NULL -> P0400  -> 500 {"code":"P0400","details":null,"hint":null,"message":"quote_revision_required: falta la versión del presupuesto que se confirmó"}
+PASS  clave vacía -> P0400  -> 500 {"code":"P0400","details":null,"hint":null,"message":"idempotency_key is required"}
+PASS  parámetro inexistente p_skip_stock -> rechazado (PGRST202, la firma no admite saltear stock)  -> 404 {"code":"PGRST202","details":"Searched for the function public.rpc_convert_quote_to_sale with parameters p_cash_session_id, p_expected_revis
+PASS  la firma pública no tiene ningún parámetro de stock  -> p_idempotency_key text, p_quote_id uuid, p_expected_revision integer, p_payment_method_id uuid, p_branch_id uuid DEFAULT NULL::uuid, p_cash_session_id uuid DEFAULT NULL::uuid, p_bank_account_id uuid DEFAULT NULL::uuid, p_canal text DEFAULT NULL::text
+INFO ACLs: _quote_accept_core:postgres=X/postgres,service_role=X/postgres | rpc_accept_quote:postgres=X/postgres,service_role=X/postgres | rpc_convert_quote_to_sale:postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres
+PASS  núcleo y aceptación SIN EXECUTE para authenticated/anon
+PASS  PostgREST no cambió el estado (todo rechazado)  -> [{"h":36,"a":93,"cash":61,"bank":3,"orders":"75","sales":"148","events":"160"},{"h":36,"a":93,"cash":61,"bank":3,"orders":"75","sales":"148","events":"160"}]
+PASS  10 conversiones, claves distintas, mismo presupuesto -> exactamente 1 venta  -> 200,409,409,409,409,409,409,409,409,409 :: confirmed
+PASS    ...stock bajó UNA vez  -> 36->34 93->90
+PASS    ...UN solo movimiento de caja  -> 61->62
+PASS    ...los 9 restantes son 409 quote_invalid_state sin 5xx  -> 200,409,409,409,409,409,409,409,409,409
+PASS  10 conversiones con la MISMA clave -> 1 nueva + 9 replays, una sola venta  -> 1/9 200,200,200,200,200,200,200,200,200,200
+PASS  misma clave en 2 presupuestos en paralelo -> sólo uno convierte, el otro 409 y revierte  -> 200,409 accepted,sent drafts=0
+
+RESUMEN RED-TEAM: 49 PASS / 0 FAIL

@@ -310,7 +310,7 @@ COMMENT ON FUNCTION public._assert_document_product(uuid, uuid) IS
   'variant_only" para las líneas de documentos (presupuesto, remito). P0404 product_not_found / P0400 '
   'product_is_parent. Devuelve la fila. Interna.';
 
--- _quote_validate_items desde su cuerpo VIVO (md5 sin \r verificado en el
+-- _quote_validate_items desde su cuerpo VIVO (md5 sin CR verificado en el
 -- checkpoint 0.3, igual a 20261067000001:372-460): el único cambio es que el
 -- guard de producto embebido pasa a ser la llamada a _assert_document_product.
 -- CREATE OR REPLACE con la misma firma conserva COMMENT y ACL.
@@ -1317,3 +1317,531 @@ GRANT EXECUTE ON FUNCTION public.rpc_get_delivery_note(uuid) TO authenticated;
 COMMENT ON FUNCTION public.rpc_get_delivery_note(uuid) IS
   'remitos-venta (D16): payload del remito (cabecera, líneas, nombres e historial) para cualquier miembro de la '
   'cuenta. Ajeno e inexistente responden igual: P0404 delivery_note_not_found. Sólo lectura.';
+
+
+-- =============================================================================
+-- 7. Guards desde el cuerpo VIVO (D10, D14)
+-- =============================================================================
+-- Los tres parten de su pg_get_functiondef vivo (md5 sin CR igual en prod y en
+-- local, checkpoint 0.3; cuerpos previos guardados para el rollback). CREATE OR
+-- REPLACE con la misma firma: conserva COMMENT, ACL y el disparador que los usa.
+
+-- fn_product_base_unit_guard: la rama "asignar una unidad sobre historia en
+-- otra unidad" suma delivery_note_items a su UNION de líneas.
+CREATE OR REPLACE FUNCTION public.fn_product_base_unit_guard()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_unit_system  boolean;
+  v_unit_account uuid;
+  v_parent_base  uuid;
+  v_old_parent_base  uuid;
+  v_old_eff      uuid;
+  v_new_eff      uuid;
+  v_self_changed      boolean;
+  v_children_changed  boolean;
+  v_self_assigned     boolean;
+  v_children_assigned boolean;
+  v_stash             jsonb;
+  v_conflict_unit     uuid;
+BEGIN
+  -- Cuarta revisión: DELETE físico de un PADRE. products_parent_id_fkey es ON
+  -- DELETE SET NULL: la acción referencial desengancha a las variantes que
+  -- sobreviven, y cuando ese UPDATE llega a este trigger el padre ya no es
+  -- visible — la unidad que heredaban se perdía sin control ("5 kg" → "5
+  -- uds"; `authenticated` tiene DELETE por products_writer_delete). Acá se
+  -- toman FOR UPDATE las variantes que heredan (serializa con una venta o
+  -- compra de la variante) y la unidad del padre queda en un GUC LOCAL de la
+  -- transacción; la rama UPDATE la lee cuando no encuentra al padre y decide
+  -- con el stock de la variante que QUEDA. Borrar el padre junto con sus
+  -- variantes en la misma sentencia no traba nada: la acción referencial corre
+  -- al final de la sentencia y ya no las encuentra.
+  IF TG_OP = 'DELETE' THEN
+    IF OLD.base_unit_id IS NOT NULL THEN
+      PERFORM 1 FROM public.products v
+       WHERE v.parent_id = OLD.id AND v.base_unit_id IS NULL
+       ORDER BY v.id
+       FOR UPDATE;
+      IF FOUND THEN
+        v_stash := COALESCE(NULLIF(current_setting('ventas_uom.deleted_parent_base', true), ''), '{}')::jsonb;
+        PERFORM set_config('ventas_uom.deleted_parent_base',
+                           (v_stash || jsonb_build_object(OLD.id::text, OLD.base_unit_id::text))::text, true);
+      END IF;
+    END IF;
+    RETURN OLD;
+  END IF;
+
+  -- Tenencia: sólo cuando la unidad base (o la cuenta) efectivamente cambia.
+  IF NEW.base_unit_id IS NOT NULL AND (
+       TG_OP = 'INSERT'
+       OR NEW.base_unit_id IS DISTINCT FROM OLD.base_unit_id
+       OR NEW.account_id   IS DISTINCT FROM OLD.account_id) THEN
+    SELECT COALESCE(u.is_system, false), u.account_id
+      INTO v_unit_system, v_unit_account
+      FROM public.units_of_measure u
+     WHERE u.id = NEW.base_unit_id;
+    IF NOT FOUND OR (NOT v_unit_system AND v_unit_account IS DISTINCT FROM NEW.account_id) THEN
+      RAISE EXCEPTION 'base_unit_not_found: la unidad base no existe o no pertenece a la cuenta del producto'
+        USING ERRCODE = 'P0404';
+    END IF;
+  END IF;
+
+  -- Tercera revisión: la unidad base EFECTIVA de una variante que hereda
+  -- también cambia si se la RE-PARENTA (o se la desengancha): `authenticated`
+  -- tiene UPDATE sobre products.parent_id, y re-parentar 5 kg a un padre en
+  -- 'u' los dejaba leyéndose 5 u (reproducido por PostgREST).
+  IF TG_OP = 'INSERT'
+     OR (NEW.base_unit_id IS NOT DISTINCT FROM OLD.base_unit_id
+         AND NEW.parent_id IS NOT DISTINCT FROM OLD.parent_id) THEN
+    RETURN NEW;
+  END IF;
+
+  -- Unidad base EFECTIVA antes y después: la propia o la heredada del padre
+  -- (misma regla que _uom_normalize_quantity y v_products_with_stock) — el
+  -- padre de OLD para la de antes y el de NEW para la de después.
+  IF OLD.parent_id IS NOT NULL THEN
+    SELECT p.base_unit_id INTO v_old_parent_base FROM public.products p WHERE p.id = OLD.parent_id;
+    IF NOT FOUND THEN
+      -- Cuarta revisión: el padre se está borrando en esta misma sentencia
+      -- (este UPDATE es la acción referencial ON DELETE SET NULL); su unidad
+      -- la dejó la rama DELETE en el GUC local.
+      v_old_parent_base := NULLIF(
+        COALESCE(NULLIF(current_setting('ventas_uom.deleted_parent_base', true), ''), '{}')::jsonb
+          ->> OLD.parent_id::text, '')::uuid;
+    END IF;
+  END IF;
+  IF NEW.parent_id IS NOT NULL THEN
+    IF NEW.parent_id IS DISTINCT FROM OLD.parent_id THEN
+      -- Cuarta revisión (write skew): re-parentar bajo P2 mientras otra
+      -- transacción cambia la unidad base de P2. El FK sólo toma KEY SHARE
+      -- sobre P2, que no choca con el NO KEY UPDATE del cambio de base, y ese
+      -- cambio no ve todavía a esta variante como hija: los dos pasaban.
+      -- FOR SHARE sí choca: el que llega segundo espera y decide sobre lo
+      -- commiteado (test_ventas_unidades_conversion_race.sh, (d) y (e)).
+      SELECT p.base_unit_id INTO v_parent_base FROM public.products p WHERE p.id = NEW.parent_id FOR SHARE;
+    ELSE
+      SELECT p.base_unit_id INTO v_parent_base FROM public.products p WHERE p.id = NEW.parent_id;
+    END IF;
+  END IF;
+  v_old_eff := COALESCE(OLD.base_unit_id, v_old_parent_base);
+  v_new_eff := COALESCE(NEW.base_unit_id, v_parent_base);
+
+  -- Sin cambio efectivo no hay nada que proteger. Dos grupos, cada uno con su
+  -- condición:
+  --   · el producto mismo, si SU unidad efectiva cambia (base propia o padre);
+  --   · las variantes que HEREDAN su base propia, si la base PROPIA cambia
+  --     (re-parentar al producto no las toca: heredan NEW.base_unit_id, no la
+  --     unidad efectiva de NEW).
+  -- CAMBIAR (de una unidad a otra, o quitarla) con stock o movimientos → P0409.
+  -- ASIGNAR (de ninguna a una) — cuarta revisión: también → P0409 si el grupo
+  -- tiene stock o movimientos Y alguna línea grabada con una unidad EXPLÍCITA
+  -- distinta de la que se asigna. Un producto sin unidad base admite líneas
+  -- en cualquier unidad base (kg, L, u): con historia en kg, asignarle 'g'
+  -- dejaba el stock 1000 veces menor, y con historia en 'u', asignarle 'kg'
+  -- lo reinterpretaba en kilos (redteam-3a/30-31). Las líneas SIN unidad no
+  -- declaran ninguna: sobre ellas la asignación sigue permitida (D-C).
+  v_self_changed      := v_old_eff IS NOT NULL AND v_old_eff IS DISTINCT FROM v_new_eff;
+  v_children_changed  := OLD.base_unit_id IS NOT NULL AND NEW.base_unit_id IS DISTINCT FROM OLD.base_unit_id;
+  v_self_assigned     := v_old_eff IS NULL AND v_new_eff IS NOT NULL;
+  v_children_assigned := OLD.base_unit_id IS NULL AND NEW.base_unit_id IS NOT NULL;
+  IF NOT (v_self_changed OR v_children_changed OR v_self_assigned OR v_children_assigned) THEN
+    RETURN NEW;
+  END IF;
+
+  -- Las variantes que heredan se toman FOR UPDATE (orden de id) para
+  -- serializar con las ventas/compras, que toman la fila de su producto.
+  IF v_children_changed OR v_children_assigned THEN
+    PERFORM 1 FROM public.products v
+     WHERE v.parent_id = NEW.id AND v.base_unit_id IS NULL
+     ORDER BY v.id
+     FOR UPDATE;
+  END IF;
+
+  IF (v_self_changed OR v_children_changed) AND (
+       EXISTS (
+         SELECT 1 FROM public.branch_stock bs
+          WHERE bs.quantity <> 0
+            AND ((v_self_changed AND bs.product_id = NEW.id)
+                 OR (v_children_changed
+                     AND bs.product_id IN (SELECT v.id FROM public.products v
+                                            WHERE v.parent_id = NEW.id AND v.base_unit_id IS NULL))))
+       OR EXISTS (
+         SELECT 1 FROM public.stock_movements sm
+          WHERE (v_self_changed AND sm.product_id = NEW.id)
+             OR (v_children_changed
+                 AND sm.product_id IN (SELECT v.id FROM public.products v
+                                        WHERE v.parent_id = NEW.id AND v.base_unit_id IS NULL)))) THEN
+    RAISE EXCEPTION 'base_unit_locked: el producto % ya tiene stock o movimientos en su unidad base actual; cambiarla haría que las cantidades se lean en otra unidad. Creá un producto nuevo con la unidad correcta y pasale el stock con un ajuste.', NEW.id
+      USING ERRCODE = 'P0409';
+  END IF;
+
+  IF v_self_assigned OR v_children_assigned THEN
+    -- Los productos cuya unidad efectiva se asigna, cada uno con la unidad
+    -- que pasaría a tener; y la primera línea grabada en otra unidad.
+    WITH grp AS (
+      SELECT NEW.id AS product_id, v_new_eff AS target WHERE v_self_assigned
+      UNION ALL
+      SELECT v.id, NEW.base_unit_id FROM public.products v
+       WHERE v_children_assigned AND v.parent_id = NEW.id AND v.base_unit_id IS NULL
+    ), lines AS (
+      SELECT s.product_id, s.unit_id FROM public.sales s WHERE s.product_id IN (SELECT g.product_id FROM grp g)
+      UNION ALL
+      SELECT pu.product_id, pu.unit_id FROM public.purchases pu WHERE pu.product_id IN (SELECT g.product_id FROM grp g)
+      UNION ALL
+      SELECT si.product_id, si.unit_id FROM public.sale_items si WHERE si.product_id IN (SELECT g.product_id FROM grp g)
+      UNION ALL
+      SELECT pi.product_id, pi.unit_id FROM public.purchase_items pi WHERE pi.product_id IN (SELECT g.product_id FROM grp g)
+      UNION ALL
+      SELECT soi.product_id, soi.unit_id FROM public.sales_order_items soi WHERE soi.product_id IN (SELECT g.product_id FROM grp g)
+      UNION ALL
+      SELECT qi.product_id, qi.unit_id FROM public.quote_items qi WHERE qi.product_id IN (SELECT g.product_id FROM grp g)
+      UNION ALL
+      -- remitos-venta (D14): las líneas del remito también graban la unidad.
+      SELECT dni.product_id, dni.unit_id FROM public.delivery_note_items dni WHERE dni.product_id IN (SELECT g.product_id FROM grp g)
+    )
+    SELECT l.unit_id INTO v_conflict_unit
+      FROM lines l JOIN grp g ON g.product_id = l.product_id
+     WHERE l.unit_id IS NOT NULL AND l.unit_id IS DISTINCT FROM g.target
+     LIMIT 1;
+
+    IF v_conflict_unit IS NOT NULL AND (
+         EXISTS (
+           SELECT 1 FROM public.branch_stock bs
+            WHERE bs.quantity <> 0
+              AND ((v_self_assigned AND bs.product_id = NEW.id)
+                   OR (v_children_assigned
+                       AND bs.product_id IN (SELECT v.id FROM public.products v
+                                              WHERE v.parent_id = NEW.id AND v.base_unit_id IS NULL))))
+         OR EXISTS (
+           SELECT 1 FROM public.stock_movements sm
+            WHERE (v_self_assigned AND sm.product_id = NEW.id)
+               OR (v_children_assigned
+                   AND sm.product_id IN (SELECT v.id FROM public.products v
+                                          WHERE v.parent_id = NEW.id AND v.base_unit_id IS NULL)))) THEN
+      RAISE EXCEPTION 'base_unit_locked: el producto % tiene stock o movimientos y operaciones cargadas en otra unidad (%); asignarle la unidad base % haría que esas cantidades se lean en la unidad nueva. Asignale la unidad en que ya lo venías cargando, o creá un producto nuevo con la unidad correcta y pasale el stock con un ajuste.',
+        NEW.id,
+        COALESCE((SELECT u.symbol FROM public.units_of_measure u WHERE u.id = v_conflict_unit), v_conflict_unit::text),
+        COALESCE((SELECT u.symbol FROM public.units_of_measure u WHERE u.id = COALESCE(v_new_eff, NEW.base_unit_id)), COALESCE(v_new_eff, NEW.base_unit_id)::text)
+        USING ERRCODE = 'P0409';
+    END IF;
+  END IF;
+
+  RETURN NEW;
+END;
+$function$;
+
+-- fn_uom_in_use_guard: suma delivery_note_items a su OR EXISTS.
+CREATE OR REPLACE FUNCTION public.fn_uom_in_use_guard()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+BEGIN
+  IF NEW.factor       IS NOT DISTINCT FROM OLD.factor
+     AND NEW.type         IS NOT DISTINCT FROM OLD.type
+     AND NEW.base_unit_id IS NOT DISTINCT FROM OLD.base_unit_id THEN
+    RETURN NEW;
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.products          WHERE base_unit_id = OLD.id)
+     OR EXISTS (SELECT 1 FROM public.sales             WHERE unit_id = OLD.id)
+     OR EXISTS (SELECT 1 FROM public.purchases         WHERE unit_id = OLD.id)
+     OR EXISTS (SELECT 1 FROM public.sale_items        WHERE unit_id = OLD.id)
+     OR EXISTS (SELECT 1 FROM public.purchase_items    WHERE unit_id = OLD.id)
+     OR EXISTS (SELECT 1 FROM public.sales_order_items WHERE unit_id = OLD.id)
+     OR EXISTS (SELECT 1 FROM public.quote_items       WHERE unit_id = OLD.id)
+     -- remitos-venta (D14): una línea de remito también fija la unidad.
+     OR EXISTS (SELECT 1 FROM public.delivery_note_items WHERE unit_id = OLD.id) THEN
+    RAISE EXCEPTION 'unit_in_use: la unidad % (%) es la unidad base de algún producto o la unidad de alguna operación; cambiarle el factor, el tipo o la unidad base reinterpretaría esas cantidades y su costo. Creá una unidad nueva con la conversión correcta.',
+      OLD.name, OLD.symbol
+      USING ERRCODE = 'P0409';
+  END IF;
+  RETURN NEW;
+END;
+$function$;
+
+-- Única definición del predicado "remito pendiente en la sucursal" (D10),
+-- agnóstico del sentido: remitos-compra no tiene que reescribir el guard.
+CREATE OR REPLACE FUNCTION public._branch_pending_delivery_notes(p_branch_id uuid)
+RETURNS bigint
+LANGUAGE sql
+STABLE
+SET search_path TO 'public'
+AS $function$
+  SELECT count(*)
+  FROM   public.delivery_notes dn
+  WHERE  dn.branch_id = p_branch_id
+    AND  dn.status = 'issued';
+$function$;
+
+REVOKE ALL ON FUNCTION public._branch_pending_delivery_notes(uuid) FROM PUBLIC, anon, authenticated;
+COMMENT ON FUNCTION public._branch_pending_delivery_notes(uuid) IS
+  'remitos-venta (D10): cantidad de remitos issued (de cualquier sentido) con esa sucursal. Única definición del '
+  'predicado; la usa _branch_assert_empty como cuarta condición de la baja. Interna.';
+
+-- _branch_assert_empty: cuarto IF, después de transferencias, con token propio.
+-- _branch_blocking_content (RETURNS TABLE de 5 columnas) y
+-- fn_guard_branch_decommission NO se tocan: el reapply de 20261014000001 en CI
+-- no choca con 42P13.
+CREATE OR REPLACE FUNCTION public._branch_assert_empty(p_branch_id uuid)
+ RETURNS void
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_content RECORD;
+  v_pending_delivery_notes bigint;
+BEGIN
+  SELECT * INTO v_content
+  FROM public._branch_blocking_content(p_branch_id);
+
+  -- Orden de evaluación D2: 1) existencias, 2) caja abierta, 3) transferencias.
+  IF v_content.total_qty <> 0 THEN
+    IF v_content.other_active_branches = 0 THEN
+      -- La única sucursal activa de la cuenta: no hay a dónde transferir.
+      RAISE EXCEPTION
+        'branch_has_stock: la sucursal tiene % unidades en % producto(s) y es la única sucursal activa de la cuenta — creá otra sucursal para poder transferirle el stock antes de darla de baja',
+        v_content.total_qty, v_content.product_count
+        USING ERRCODE = 'P0428';
+    ELSE
+      RAISE EXCEPTION
+        'branch_has_stock: la sucursal tiene % unidades en % producto(s) — transferí el stock a otra sucursal antes de darla de baja',
+        v_content.total_qty, v_content.product_count
+        USING ERRCODE = 'P0428';
+    END IF;
+  END IF;
+
+  IF v_content.cash_session_open THEN
+    RAISE EXCEPTION
+      'branch_has_open_cash_session: la sucursal tiene una sesión de caja abierta — cerrala antes de darla de baja'
+      USING ERRCODE = 'P0428';
+  END IF;
+
+  IF v_content.pending_transfers > 0 THEN
+    RAISE EXCEPTION
+      'branch_has_pending_transfers: la sucursal tiene % transferencia(s) de stock sin completar — esperá a que terminen antes de darla de baja',
+      v_content.pending_transfers
+      USING ERRCODE = 'P0428';
+  END IF;
+
+  -- remitos-venta (D10): 4) remitos pendientes, sin importar el sentido. Una
+  -- sucursal dada de baja con un remito issued dejaría a la conversión sin
+  -- sucursal y a la anulación reponiendo stock en una sucursal que no opera.
+  v_pending_delivery_notes := public._branch_pending_delivery_notes(p_branch_id);
+  IF v_pending_delivery_notes > 0 THEN
+    RAISE EXCEPTION
+      'branch_has_pending_delivery_notes: la sucursal tiene % remito(s) pendiente(s) — convertilos o anulalos antes de darla de baja',
+      v_pending_delivery_notes
+      USING ERRCODE = 'P0428';
+  END IF;
+
+  -- Nada bloquea: la baja puede proceder.
+END;
+$function$;
+
+
+-- =============================================================================
+-- 8. Introspección (D16). Falla la migración si algo no quedó como se diseñó.
+-- =============================================================================
+DO $$
+DECLARE
+  v_bad  text[] := '{}';
+  v_fn   text;
+  v_def  text;
+  v_n    integer;
+  v_c    text;
+  v_rpcs text[] := ARRAY[
+    'public.rpc_create_sale_delivery_note(text, uuid, uuid, text, text, jsonb)',
+    'public.rpc_update_delivery_note(uuid, integer, uuid, uuid, text, text, jsonb)',
+    'public.rpc_cancel_delivery_note(uuid, integer, text)',
+    'public.rpc_get_delivery_note(uuid)'
+  ];
+  v_internal text[] := ARRAY[
+    'public._assert_document_product(uuid, uuid)',
+    'public._quote_validate_items(uuid, jsonb)',
+    'public._delivery_note_assert_role(uuid, text)',
+    'public._delivery_note_lock_products(uuid, uuid[])',
+    'public._delivery_note_validate_items(uuid, uuid, jsonb, jsonb)',
+    'public._delivery_note_insert_items(uuid, uuid, jsonb, jsonb)',
+    'public._delivery_note_held_pairs(uuid)',
+    'public._delivery_note_apply_stock(uuid, uuid, uuid, jsonb)',
+    'public._delivery_note_reverse_held(uuid, uuid, uuid, jsonb, text, text)',
+    'public._delivery_note_payload(uuid)',
+    'public._branch_pending_delivery_notes(uuid)',
+    'public._branch_assert_empty(uuid)',
+    'public.trg_delivery_note_record_creation()',
+    'public.fn_product_base_unit_guard()',
+    'public.fn_uom_in_use_guard()'
+  ];
+BEGIN
+  -- Tablas, CHECK, unicidad.
+  FOREACH v_c IN ARRAY ARRAY[
+    'delivery_notes_direction_check', 'delivery_notes_status_check', 'delivery_notes_counterparty_check',
+    'delivery_notes_supplier_reference_length_check', 'delivery_notes_supplier_reference_direction_check',
+    'delivery_notes_delivery_address_length_check', 'delivery_notes_notes_length_check',
+    'delivery_notes_account_direction_number_key', 'delivery_note_items_quantity_check',
+    'delivery_note_items_price_check', 'delivery_note_items_subtotal_check', 'delivery_note_items_quantity_base_check'
+  ] LOOP
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = v_c
+                   AND conrelid IN ('public.delivery_notes'::regclass, 'public.delivery_note_items'::regclass)) THEN
+      v_bad := v_bad || format('falta la constraint %s', v_c);
+    END IF;
+  END LOOP;
+  IF (SELECT attnotnull FROM pg_attribute
+      WHERE attrelid = 'public.delivery_note_items'::regclass AND attname = 'quantity_base') IS DISTINCT FROM true THEN
+    v_bad := v_bad || 'delivery_note_items.quantity_base no es NOT NULL'::text;
+  END IF;
+
+  -- CHECK ampliados.
+  FOR v_c, v_def IN
+    SELECT con.conname, pg_get_constraintdef(con.oid) FROM pg_constraint con
+    WHERE con.conname IN ('internal_document_sequences_document_type_check',
+                          'document_status_history_document_type_check',
+                          'document_status_transitions_document_type_check',
+                          'operation_idempotency_operation_kind_check')
+  LOOP
+    IF v_def NOT LIKE '%delivery_note_sale%' THEN
+      v_bad := v_bad || format('%s no admite delivery_note_sale', v_c);
+    END IF;
+  END LOOP;
+  SELECT pg_get_constraintdef(oid) INTO v_def FROM pg_constraint WHERE conname = 'stock_movements_reference_type_check';
+  IF v_def NOT LIKE '%''delivery_note''%' OR v_def NOT LIKE '%delivery_note_update%' OR v_def NOT LIKE '%delivery_note_reversal%' THEN
+    v_bad := v_bad || 'stock_movements_reference_type_check sin los tres reference_type del remito'::text;
+  END IF;
+
+  -- Acciones de las FK: account_id (x2) y delivery_note_id en CASCADE; el resto NO ACTION.
+  SELECT count(*) INTO v_n FROM pg_constraint
+  WHERE contype = 'f' AND confdeltype = 'c'
+    AND ((conrelid = 'public.delivery_notes'::regclass AND confrelid = 'public.accounts'::regclass)
+      OR (conrelid = 'public.delivery_note_items'::regclass
+          AND confrelid IN ('public.accounts'::regclass, 'public.delivery_notes'::regclass)));
+  IF v_n <> 3 THEN
+    v_bad := v_bad || format('se esperaban 3 FK en CASCADE (account_id x2, delivery_note_id), hay %s', v_n);
+  END IF;
+  SELECT count(*) INTO v_n FROM pg_constraint
+  WHERE contype = 'f' AND confdeltype <> 'a'
+    AND conrelid IN ('public.delivery_notes'::regclass, 'public.delivery_note_items'::regclass)
+    AND confrelid NOT IN ('public.accounts'::regclass, 'public.delivery_notes'::regclass);
+  IF v_n <> 0 THEN
+    v_bad := v_bad || format('%s FK de sucursal/cliente/proveedor/producto/unidad no son NO ACTION', v_n);
+  END IF;
+
+  -- Disparadores.
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger t JOIN pg_proc p ON p.oid = t.tgfoid
+                 WHERE t.tgrelid = 'public.delivery_notes'::regclass AND t.tgname = 'delivery_notes_assign_number_sale'
+                   AND p.proname = 'trg_assign_internal_document_number'
+                   AND pg_get_triggerdef(t.oid) LIKE '%direction = ''sale''%'
+                   AND pg_get_triggerdef(t.oid) LIKE '%delivery_note_sale%')
+     OR NOT EXISTS (SELECT 1 FROM pg_trigger t JOIN pg_proc p ON p.oid = t.tgfoid
+                 WHERE t.tgrelid = 'public.delivery_notes'::regclass AND t.tgname = 'delivery_notes_record_status_creation_sale'
+                   AND p.proname = 'trg_delivery_note_record_creation'
+                   AND pg_get_triggerdef(t.oid) LIKE '%direction = ''sale''%')
+     OR NOT EXISTS (SELECT 1 FROM pg_trigger t JOIN pg_proc p ON p.oid = t.tgfoid
+                 WHERE t.tgrelid = 'public.delivery_notes'::regclass AND t.tgname = 'delivery_notes_enforce_status_transition_sale'
+                   AND p.proname = 'trg_enforce_status_transition'
+                   AND pg_get_triggerdef(t.oid) LIKE '%delivery_note_sale%') THEN
+    v_bad := v_bad || 'faltan o están mal los disparadores de número/creación/enforcement de delivery_notes'::text;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger t JOIN pg_proc p ON p.oid = t.tgfoid
+                 WHERE t.tgrelid = 'public.branches'::regclass AND t.tgname = 'trg_guard_branch_decommission'
+                   AND p.proname = 'fn_guard_branch_decommission') THEN
+    v_bad := v_bad || 'trg_guard_branch_decommission dejó de apuntar a fn_guard_branch_decommission'::text;
+  END IF;
+
+  -- RLS activa, sin políticas de escritura ni privilegios de más.
+  IF EXISTS (SELECT 1 FROM pg_policy
+             WHERE polrelid IN ('public.delivery_notes'::regclass, 'public.delivery_note_items'::regclass)
+               AND polcmd <> 'r') THEN
+    v_bad := v_bad || 'delivery_notes/delivery_note_items tienen políticas de escritura'::text;
+  END IF;
+  IF NOT (SELECT relrowsecurity FROM pg_class WHERE oid = 'public.delivery_notes'::regclass)
+     OR NOT (SELECT relrowsecurity FROM pg_class WHERE oid = 'public.delivery_note_items'::regclass) THEN
+    v_bad := v_bad || 'RLS desactivada en las tablas del remito'::text;
+  END IF;
+  IF has_table_privilege('anon', 'public.delivery_notes', 'SELECT')
+     OR has_table_privilege('anon', 'public.delivery_note_items', 'SELECT')
+     OR has_table_privilege('authenticated', 'public.delivery_notes', 'INSERT')
+     OR has_table_privilege('authenticated', 'public.delivery_notes', 'UPDATE')
+     OR has_table_privilege('authenticated', 'public.delivery_note_items', 'INSERT')
+     OR has_table_privilege('authenticated', 'public.delivery_note_items', 'UPDATE') THEN
+    v_bad := v_bad || 'privilegios de tabla de más para anon/authenticated'::text;
+  END IF;
+
+  -- ACLs.
+  FOREACH v_fn IN ARRAY v_rpcs LOOP
+    IF to_regprocedure(v_fn) IS NULL
+       OR has_function_privilege('anon', v_fn, 'EXECUTE')
+       OR NOT has_function_privilege('authenticated', v_fn, 'EXECUTE')
+       OR NOT (SELECT prosecdef FROM pg_proc WHERE oid = to_regprocedure(v_fn)) THEN
+      v_bad := v_bad || format('ACL/definer inesperado en %s', v_fn);
+    END IF;
+  END LOOP;
+  FOREACH v_fn IN ARRAY v_internal LOOP
+    IF to_regprocedure(v_fn) IS NULL
+       OR has_function_privilege('anon', v_fn, 'EXECUTE')
+       OR has_function_privilege('authenticated', v_fn, 'EXECUTE') THEN
+      v_bad := v_bad || format('helper %s ausente o ejecutable por anon/authenticated', v_fn);
+    END IF;
+  END LOOP;
+
+  -- Una sola definición de cada función reescrita o nueva.
+  FOREACH v_c IN ARRAY ARRAY['_quote_validate_items', 'fn_product_base_unit_guard', 'fn_uom_in_use_guard',
+                             '_branch_assert_empty', '_branch_pending_delivery_notes', '_branch_blocking_content',
+                             '_assert_document_product', '_delivery_note_assert_role', '_delivery_note_lock_products',
+                             '_delivery_note_validate_items', '_delivery_note_insert_items', '_delivery_note_held_pairs',
+                             '_delivery_note_apply_stock', '_delivery_note_reverse_held', '_delivery_note_payload',
+                             'trg_delivery_note_record_creation', 'rpc_create_sale_delivery_note',
+                             'rpc_update_delivery_note', 'rpc_cancel_delivery_note', 'rpc_get_delivery_note'] LOOP
+    SELECT count(*) INTO v_n FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public' AND p.proname = v_c;
+    IF v_n <> 1 THEN
+      v_bad := v_bad || format('%s tiene %s definiciones (se esperaba 1)', v_c, v_n);
+    END IF;
+  END LOOP;
+
+  -- Cuerpos y COMMENT vivos.
+  IF (SELECT prosrc FROM pg_proc WHERE oid = 'public._quote_validate_items(uuid, jsonb)'::regprocedure)
+       NOT LIKE '%public._assert_document_product(p_account_id, v_pid)%' THEN
+    v_bad := v_bad || '_quote_validate_items no llama a _assert_document_product'::text;
+  END IF;
+  IF (SELECT prosrc FROM pg_proc WHERE oid = 'public.fn_product_base_unit_guard()'::regprocedure)
+       NOT LIKE '%public.delivery_note_items dni%'
+     OR (SELECT prosrc FROM pg_proc WHERE oid = 'public.fn_uom_in_use_guard()'::regprocedure)
+       NOT LIKE '%public.delivery_note_items WHERE unit_id = OLD.id%' THEN
+    v_bad := v_bad || 'los guards de unidad no nombran delivery_note_items'::text;
+  END IF;
+  SELECT prosrc INTO v_def FROM pg_proc WHERE oid = 'public._branch_assert_empty(uuid)'::regprocedure;
+  IF v_def NOT LIKE '%branch_has_pending_delivery_notes%'
+     OR v_def NOT LIKE '%public._branch_pending_delivery_notes(p_branch_id)%'
+     OR v_def NOT LIKE '%branch_has_stock%' OR v_def NOT LIKE '%branch_has_open_cash_session%'
+     OR v_def NOT LIKE '%branch_has_pending_transfers%' THEN
+    v_bad := v_bad || '_branch_assert_empty sin la cuarta condición o sin los tres tokens previos'::text;
+  END IF;
+  IF obj_description('public._branch_assert_empty(uuid)'::regprocedure, 'pg_proc') NOT LIKE 'sucursal-guard-vaciado-auditoria%'
+     OR obj_description('public._quote_validate_items(uuid, jsonb)'::regprocedure, 'pg_proc') NOT LIKE 'presupuestos-modulo (D2)%'
+     OR obj_description('public.fn_uom_in_use_guard()'::regprocedure, 'pg_proc') NOT LIKE 'ventas-unidades-conversion%'
+     OR obj_description('public.fn_product_base_unit_guard()'::regprocedure, 'pg_proc') NOT LIKE 'ventas-unidades-conversion%' THEN
+    v_bad := v_bad || 'una función reescrita perdió su COMMENT vivo'::text;
+  END IF;
+  SELECT count(*) INTO v_n
+  FROM   pg_proc p, unnest(p.proargmodes) AS m
+  WHERE  p.oid = 'public._branch_blocking_content(uuid)'::regprocedure AND m = 't';
+  IF v_n <> 5 THEN
+    v_bad := v_bad || format('_branch_blocking_content cambió su RETURNS TABLE (%s columnas, se esperaban 5)', v_n);
+  END IF;
+
+  -- Catálogo de la tanda A.
+  SELECT count(*) INTO v_n FROM public.document_status_transitions WHERE document_type = 'delivery_note_sale';
+  IF v_n <> 2 THEN
+    v_bad := v_bad || format('catálogo delivery_note_sale con %s filas (se esperaban 2)', v_n);
+  END IF;
+
+  IF array_length(v_bad, 1) > 0 THEN
+    RAISE EXCEPTION E'remitos-venta (introspección FAILED):\n  %', array_to_string(v_bad, E'\n  ');
+  END IF;
+  RAISE NOTICE 'remitos-venta (introspección OK): tablas, CHECK, FK, disparadores, RLS sin escritura, ACLs, una definición por función, cuerpos y COMMENT de los guards, catálogo delivery_note_sale con 2 filas.';
+END $$;

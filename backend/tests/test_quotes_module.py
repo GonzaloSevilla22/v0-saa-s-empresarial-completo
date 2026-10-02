@@ -675,17 +675,18 @@ class TestServiceSettings:
 
         with pytest.raises(HTTPException) as info:
             await svc.set_quote_settings(
-                repo, _auth("owner"), QuoteSettingsIn(default_quote_validity_days=30), conn=conn,
+                repo, _auth("owner"), ACCOUNT_ID, QuoteSettingsIn(default_quote_validity_days=30), conn=conn,
             )
         assert info.value.status_code == 403
         repo.set_default_validity_days.assert_not_awaited()
 
         conn.fetchval = account_roles_fetchval(["admin"])
         out = await svc.set_quote_settings(
-            repo, _auth("seller"), QuoteSettingsIn(default_quote_validity_days=30), conn=conn,
+            repo, _auth("seller"), ACCOUNT_ID, QuoteSettingsIn(default_quote_validity_days=30), conn=conn,
         )
         assert out == {"default_quote_validity_days": 30}
-        repo.set_default_validity_days.assert_awaited_once_with(30)
+        # Revisión adversarial F6: la RPC recibe la MISMA cuenta que la pantalla lee.
+        repo.set_default_validity_days.assert_awaited_once_with(ACCOUNT_ID, 30)
 
     @pytest.mark.asyncio
     async def test_set_maps_the_rpc_range_error(self):
@@ -699,7 +700,7 @@ class TestServiceSettings:
 
         with pytest.raises(HTTPException) as info:
             await svc.set_quote_settings(
-                repo, _auth("owner"), QuoteSettingsIn(default_quote_validity_days=30), conn=conn,
+                repo, _auth("owner"), ACCOUNT_ID, QuoteSettingsIn(default_quote_validity_days=30), conn=conn,
             )
         assert info.value.code == "quote_validity_out_of_range"
 
@@ -749,7 +750,7 @@ class TestRepositoryUsesRpcOnly:
         await repo.get_quote(QUOTE_ID, ACCOUNT_ID)
         await repo.list_quotes(ACCOUNT_ID, page=0, page_size=25, status=None, client_id=None, text=None, number=None)
         await repo.get_default_validity_days(ACCOUNT_ID)
-        await repo.set_default_validity_days(15)
+        await repo.set_default_validity_days(ACCOUNT_ID, 15)
         await repo.get_commercial_issuer(ACCOUNT_ID)
 
         assert conn.queries, "el repositorio no emitió ninguna consulta"
@@ -767,13 +768,26 @@ class TestRepositoryUsesRpcOnly:
                                 valid_until=datetime.date(2026, 10, 20), notes="n", items=[_item_in()])
         await repo.transition_quote(QUOTE_ID, "rejected", "precio alto")
         await repo.delete_quote(QUOTE_ID)
-        await repo.set_default_validity_days(30)
+        await repo.set_default_validity_days(ACCOUNT_ID, 30)
         await repo.get_commercial_issuer(ACCOUNT_ID)
 
         called = " ".join(q for q, _ in conn.queries)
         for rpc in ("rpc_create_quote", "rpc_update_quote", "rpc_transition_quote",
                     "rpc_delete_quote", "rpc_set_default_quote_validity", "rpc_commercial_issuer"):
             assert rpc in called, f"falta la llamada a {rpc}"
+
+    @pytest.mark.asyncio
+    async def test_set_default_validity_sends_the_account_and_the_days(self):
+        """F6: la cuenta viaja como parámetro (no se resuelve con
+        `current_account_ids() LIMIT 1` dentro de la RPC)."""
+        from backend.repositories.quote_repository import QuoteRepository
+
+        conn = _RecordingConn()
+        await QuoteRepository(conn).set_default_validity_days(ACCOUNT_ID, 45)
+
+        query, args = conn.queries[0]
+        assert "rpc_set_default_quote_validity($1::uuid, $2::integer)" in query
+        assert args == (ACCOUNT_ID, 45)
 
     @pytest.mark.asyncio
     async def test_create_ships_lines_as_jsonb_and_returns_the_parsed_payload(self):
@@ -1117,6 +1131,9 @@ class TestSettingsEndpoints:
 
         assert resp.status_code == 200, resp.text
         assert resp.json() == {"default_quote_validity_days": 30}
+        # F6: se escribe sobre la cuenta del header (la misma que lee el GET).
+        days_args = repo.set_default_validity_days.await_args.args
+        assert days_args[1] == 30 and days_args[0] == str(TEST_ACCOUNT_ID)
 
     async def test_seller_cannot_update(self, async_client, repo_override):
         repo, (pool, conn) = repo_override

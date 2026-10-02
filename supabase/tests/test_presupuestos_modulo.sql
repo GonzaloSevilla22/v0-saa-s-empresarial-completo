@@ -1004,14 +1004,14 @@ BEGIN
   v_fail_before := COALESCE(array_length(v_failures, 1), 0);
   PERFORM pg_temp.pm_as(v_owner_a);
   BEGIN
-    PERFORM public.rpc_set_default_quote_validity(0);
+    PERFORM public.rpc_set_default_quote_validity(v_account_a, 0);
     v_failures := v_failures || 'FAIL (j): 0 días debía fallar'::text;
   EXCEPTION WHEN OTHERS THEN
     GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE;
     IF v_state <> 'P0400' THEN v_failures := v_failures || format('FAIL (j): 0 días -> P0400, salió %s', v_state); END IF;
   END;
   BEGIN
-    PERFORM public.rpc_set_default_quote_validity(366);
+    PERFORM public.rpc_set_default_quote_validity(v_account_a, 366);
     v_failures := v_failures || 'FAIL (j): 366 días debía fallar'::text;
   EXCEPTION WHEN OTHERS THEN
     GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE;
@@ -1019,7 +1019,7 @@ BEGIN
   END;
   PERFORM pg_temp.pm_as(v_seller);
   BEGIN
-    PERFORM public.rpc_set_default_quote_validity(30);
+    PERFORM public.rpc_set_default_quote_validity(v_account_a, 30);
     v_failures := v_failures || 'FAIL (j): el seller no debía cambiar la validez por defecto'::text;
   EXCEPTION WHEN OTHERS THEN
     GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE, v_msg = MESSAGE_TEXT;
@@ -1031,7 +1031,7 @@ BEGIN
     v_failures := v_failures || 'FAIL (j): un intento rechazado cambió la validez por defecto'::text;
   END IF;
   PERFORM pg_temp.pm_as(v_owner_a);
-  PERFORM public.rpc_set_default_quote_validity(30);
+  PERFORM public.rpc_set_default_quote_validity(v_account_a, 30);
   IF (SELECT default_quote_validity_days FROM public.accounts WHERE id = v_account_a) <> 30 THEN
     v_failures := v_failures || 'FAIL (j): el owner debía poder fijar 30 días'::text;
   END IF;
@@ -1039,8 +1039,44 @@ BEGIN
   IF (v_result->>'valid_until')::date IS DISTINCT FROM v_today + 30 THEN
     v_failures := v_failures || format('FAIL (j): el alta siguiente debía usar la validez nueva (hoy+30), usó %s', v_result->>'valid_until');
   END IF;
+  -- Revisión adversarial F6: la RPC recibe la cuenta (la misma que la pantalla
+  -- lee por el header) en lugar de tomar `current_account_ids() LIMIT 1`, que no
+  -- es determinista con más de una membresía. El dueño de A es además vendedor
+  -- de B: escribir en A cambia sólo A; apuntar a B (donde no es owner/admin) se
+  -- rechaza con P0403 sin tocar B; una cuenta que no es suya es P0404.
+  INSERT INTO public.account_members (account_id, user_id, role) VALUES (v_account_b, v_owner_a, 'member') RETURNING id INTO v_member;
+  INSERT INTO public.account_member_roles (account_id, member_id, role) VALUES (v_account_b, v_member, 'seller');
+  PERFORM pg_temp.pm_as(v_owner_a);
+  PERFORM public.rpc_set_default_quote_validity(v_account_a, 40);
+  IF (SELECT default_quote_validity_days FROM public.accounts WHERE id = v_account_a) <> 40 THEN
+    v_failures := v_failures || 'FAIL (j): con dos membresías, el owner debía poder fijar la validez de SU cuenta A'::text;
+  END IF;
+  IF (SELECT default_quote_validity_days FROM public.accounts WHERE id = v_account_b) <> 15 THEN
+    v_failures := v_failures || 'FAIL (j): con dos membresías, fijar la validez de A tocó la cuenta B'::text;
+  END IF;
+  BEGIN
+    PERFORM public.rpc_set_default_quote_validity(v_account_b, 99);
+    v_failures := v_failures || 'FAIL (j): un vendedor de B no debía cambiar la validez de B'::text;
+  EXCEPTION WHEN OTHERS THEN
+    GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE;
+    IF v_state <> 'P0403' THEN v_failures := v_failures || format('FAIL (j): vendedor de B -> P0403, salió %s', v_state); END IF;
+  END;
+  BEGIN
+    PERFORM public.rpc_set_default_quote_validity(gen_random_uuid(), 20);
+    v_failures := v_failures || 'FAIL (j): una cuenta que no existe/no es suya debía fallar'::text;
+  EXCEPTION WHEN OTHERS THEN
+    GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE;
+    IF v_state <> 'P0404' THEN v_failures := v_failures || format('FAIL (j): cuenta ajena -> P0404, salió %s', v_state); END IF;
+  END;
+  IF (SELECT default_quote_validity_days FROM public.accounts WHERE id = v_account_b) <> 15 THEN
+    v_failures := v_failures || 'FAIL (j): un intento rechazado cambió la validez de B'::text;
+  END IF;
+  -- Se restaura el estado previo: el resto del gate supone una sola membresía.
+  DELETE FROM public.account_member_roles WHERE member_id = v_member;
+  DELETE FROM public.account_members WHERE id = v_member;
+  UPDATE public.accounts SET default_quote_validity_days = 30 WHERE id = v_account_a;
   IF COALESCE(array_length(v_failures, 1), 0) = v_fail_before THEN
-    RAISE NOTICE 'PASS (j): rpc_set_default_quote_validity valida 1..365, exige owner/admin y el alta usa el valor nuevo.';
+    RAISE NOTICE 'PASS (j): rpc_set_default_quote_validity(cuenta, días) valida 1..365, exige owner/admin en ESA cuenta (dos membresías no se confunden, cuenta ajena P0404) y el alta usa el valor nuevo.';
   END IF;
 
   -- ═══════════════════════════════════════════════════════════════════════
@@ -1229,7 +1265,7 @@ DECLARE
     'public.rpc_update_quote(uuid, integer, uuid, uuid, date, text, jsonb)',
     'public.rpc_transition_quote(uuid, text, text)',
     'public.rpc_delete_quote(uuid)',
-    'public.rpc_set_default_quote_validity(integer)',
+    'public.rpc_set_default_quote_validity(uuid, integer)',
     'public.rpc_commercial_issuer(uuid)'
   ];
 BEGIN

@@ -153,9 +153,13 @@ class QuoteRepository(BaseRepository):
         """`rpc_delete_quote`: sólo un borrador nunca enviado, decidido bajo lock."""
         await self._conn.fetchval("SELECT public.rpc_delete_quote($1::uuid)", quote_id)
 
-    async def set_default_validity_days(self, days: int) -> int:
-        """`rpc_set_default_quote_validity`: owner/admin, rango 1..365."""
-        return await self._conn.fetchval("SELECT public.rpc_set_default_quote_validity($1::integer)", days)
+    async def set_default_validity_days(self, account_id: str, days: int) -> int:
+        """`rpc_set_default_quote_validity`: owner/admin de ESA cuenta, rango
+        1..365. La cuenta es la misma que lee `get_default_validity_days` (la
+        del header): la RPC no adivina una con `current_account_ids() LIMIT 1`."""
+        return await self._conn.fetchval(
+            "SELECT public.rpc_set_default_quote_validity($1::uuid, $2::integer)", account_id, days
+        )
 
     # ── Lecturas (SELECT con account_id explícito) ────────────────────────────
 

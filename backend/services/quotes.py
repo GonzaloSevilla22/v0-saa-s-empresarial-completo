@@ -322,14 +322,16 @@ async def get_quote_settings(repo: QuoteRepository, account_id: str) -> dict:
 async def set_quote_settings(
     repo: QuoteRepository,
     auth: dict,
+    account_id: str,
     payload: QuoteSettingsIn,
     *,
     conn,
 ) -> dict:
-    """Fija la validez por defecto. Sólo owner/admin (`CAN_CONFIGURE`, capacidad
-    sensible: la base decide, no el claim). El rango 1..365 ya lo validó el
-    schema (422) antes de la base; la RPC lo vuelve a validar."""
+    """Fija la validez por defecto de la cuenta del header (la misma que lee
+    `get_quote_settings`). Sólo owner/admin (`CAN_CONFIGURE`, capacidad sensible:
+    la base decide, no el claim). El rango 1..365 ya lo validó el schema (422)
+    antes de la base; la RPC lo vuelve a validar."""
     await _require_capability(conn, auth, CAN_CONFIGURE)
     with _pg_errors_as_problems():
-        days = await repo.set_default_validity_days(payload.default_quote_validity_days)
+        days = await repo.set_default_validity_days(account_id, payload.default_quote_validity_days)
     return {"default_quote_validity_days": days}

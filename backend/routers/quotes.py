@@ -186,8 +186,10 @@ async def set_quote_settings(
     auth: dict = Depends(get_current_user),
     repo: QuoteRepository = Depends(get_quote_repo),
     conn: asyncpg.Connection = Depends(get_db_conn),
+    account_id: uuid.UUID = Depends(get_account_id),
 ):
-    """Fija la validez por defecto vía `rpc_set_default_quote_validity`. Sólo
-    owner/admin. Fuera de 1..365 → 422 en el schema, sin tocar la base. `PATCH`
-    es el verbo del molde (`/settings/collections`); `PUT` responde igual."""
-    return await quotes_service.set_quote_settings(repo, auth, payload, conn=conn)
+    """Fija la validez por defecto vía `rpc_set_default_quote_validity`, sobre la
+    cuenta del header (la que lee el GET). Sólo owner/admin. Fuera de 1..365 →
+    422 en el schema, sin tocar la base. `PATCH` es el verbo del molde
+    (`/settings/collections`); `PUT` responde igual."""
+    return await quotes_service.set_quote_settings(repo, auth, str(account_id), payload, conn=conn)

@@ -881,25 +881,32 @@ COMMENT ON FUNCTION public.rpc_delete_quote(uuid) IS
 
 
 -- ── rpc_set_default_quote_validity ───────────────────────────────────────────
-CREATE OR REPLACE FUNCTION public.rpc_set_default_quote_validity(p_days integer)
+-- Revisión adversarial F6: recibe la cuenta (la misma que la pantalla lee por el
+-- header de cuenta) en lugar de tomar `current_account_ids() LIMIT 1`, que no es
+-- determinista con más de una membresía: el owner de A que también es miembro de
+-- B podía ver el valor de A, guardar, y escribir en B. La firma de una sola
+-- columna (p_days) nunca llegó a producción: se descarta para no dejar overload.
+DROP FUNCTION IF EXISTS public.rpc_set_default_quote_validity(integer);
+CREATE OR REPLACE FUNCTION public.rpc_set_default_quote_validity(p_account_id uuid, p_days integer)
 RETURNS integer
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path TO 'public'
 AS $function$
-DECLARE
-  v_account_id uuid;
 BEGIN
-  SELECT cai INTO v_account_id
-  FROM   public.current_account_ids() AS cai
-  LIMIT  1;
+  -- La cuenta tiene que ser una de las del invocante: el mismo P0404 que
+  -- rpc_commercial_issuer (no revela si existe en otro tenant).
+  IF p_account_id IS NULL
+     OR NOT EXISTS (SELECT 1 FROM public.current_account_ids() AS cai WHERE cai = p_account_id) THEN
+    RAISE EXCEPTION 'account_not_found: %', p_account_id USING ERRCODE = 'P0404';
+  END IF;
 
-  IF v_account_id IS NULL OR NOT public.is_account_writer(v_account_id) THEN
+  IF NOT public.is_account_writer(p_account_id) THEN
     RAISE EXCEPTION 'unauthorized' USING ERRCODE = 'P0401';
   END IF;
 
   -- CAN_CONFIGURE: es configuración de la cuenta, como las formas de pago.
-  IF NOT (public.account_user_active_roles(v_account_id, auth.uid()) && ARRAY['owner', 'admin']) THEN
+  IF NOT (public.account_user_active_roles(p_account_id, auth.uid()) && ARRAY['owner', 'admin']) THEN
     RAISE EXCEPTION 'insufficient_role: sólo el dueño o un administrador cambian la validez por defecto'
       USING ERRCODE = 'P0403';
   END IF;
@@ -911,17 +918,18 @@ BEGIN
 
   UPDATE public.accounts
   SET    default_quote_validity_days = p_days
-  WHERE  id = v_account_id;
+  WHERE  id = p_account_id;
 
   RETURN p_days;
 END;
 $function$;
 
-REVOKE ALL ON FUNCTION public.rpc_set_default_quote_validity(integer) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.rpc_set_default_quote_validity(integer) TO authenticated;
-COMMENT ON FUNCTION public.rpc_set_default_quote_validity(integer) IS
-  'presupuestos-modulo (D7): fija accounts.default_quote_validity_days de la cuenta del invocante. Writer (P0401), '
-  'owner/admin (P0403 insufficient_role), rango 1..365 (P0400). Devuelve el valor guardado.';
+REVOKE ALL ON FUNCTION public.rpc_set_default_quote_validity(uuid, integer) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.rpc_set_default_quote_validity(uuid, integer) TO authenticated;
+COMMENT ON FUNCTION public.rpc_set_default_quote_validity(uuid, integer) IS
+  'presupuestos-modulo (D7): fija accounts.default_quote_validity_days de la cuenta indicada, que debe ser del '
+  'invocante (P0404 account_not_found). Writer (P0401), owner/admin en ESA cuenta (P0403 insufficient_role), '
+  'rango 1..365 (P0400). Devuelve el valor guardado.';
 
 
 -- ── rpc_commercial_issuer ────────────────────────────────────────────────────
@@ -1175,7 +1183,7 @@ BEGIN
                               'public.rpc_update_quote(uuid, integer, uuid, uuid, date, text, jsonb)',
                               'public.rpc_transition_quote(uuid, text, text)',
                               'public.rpc_delete_quote(uuid)',
-                              'public.rpc_set_default_quote_validity(integer)',
+                              'public.rpc_set_default_quote_validity(uuid, integer)',
                               'public.rpc_commercial_issuer(uuid)'] LOOP
     IF has_function_privilege('anon', v_fn, 'EXECUTE') OR NOT has_function_privilege('authenticated', v_fn, 'EXECUTE') THEN
       v_bad := v_bad || format('ACL de %s', v_fn);

@@ -488,13 +488,13 @@ async def test_default_validity_setting_requires_owner_or_admin_and_drives_new_q
     async with _as(conn, world.seller):
         with pytest.raises(HTTPException) as info:
             await svc.set_quote_settings(
-                repo, _auth(world.seller), QuoteSettingsIn(default_quote_validity_days=30), conn=conn,
+                repo, _auth(world.seller), str(world.account_a), QuoteSettingsIn(default_quote_validity_days=30), conn=conn,
             )
     assert info.value.status_code == 403
 
     async with _as(conn, world.owner_a):
         assert await svc.set_quote_settings(
-            repo, _auth(world.owner_a), QuoteSettingsIn(default_quote_validity_days=30), conn=conn,
+            repo, _auth(world.owner_a), str(world.account_a), QuoteSettingsIn(default_quote_validity_days=30), conn=conn,
         ) == {"default_quote_validity_days": 30}
         assert await svc.get_quote_settings(repo, str(world.account_a)) == {"default_quote_validity_days": 30}
 

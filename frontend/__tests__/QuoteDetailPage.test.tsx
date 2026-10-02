@@ -9,7 +9,11 @@
  *  - "Marcar como enviado", "Rechazar" (motivo opcional), "Duplicar",
  *    "Eliminar" con confirmación sólo en un `draft` nunca enviado;
  *  - "Modificado después de enviado", historial, precio de lista de hoy;
- *  - "Venta" presente pero deshabilitada en la tanda A (llega con la conversión);
+ *  - "Venta" (tanda B): habilitada en draft/sent vigentes con CAN_QUOTE, abre el
+ *    diálogo de conversión; deshabilitada y explicada si está vencido; ausente
+ *    sin permiso o fuera de draft/sent;
+ *  - "Venta generada" (accepted): enlace a la orden, estado de su comprobante y,
+ *    si la orden se canceló, "La venta generada fue eliminada" (OQ-P12);
  *  - accesibilidad: avisos en `aria-live`, retorno del foco al cerrar los modales.
  */
 import React from "react"
@@ -32,6 +36,8 @@ const mocks = vi.hoisted(() => ({
   toastSuccess: vi.fn(),
   shareProps: vi.fn(),
   fetchQuotePdf: vi.fn(),
+  useSalesOrder: vi.fn(),
+  convertDialog: vi.fn(),
 }))
 
 const U: UnitOfMeasure = { id: "u-u", name: "Unidad", symbol: "u", type: "unit", factor: 1, isSystem: true }
@@ -56,6 +62,28 @@ vi.mock("@/hooks/data/use-quotes", () => ({
   useTransitionQuote: () => ({ mutateAsync: mocks.transition, isPending: false }),
   useDeleteQuote: () => ({ mutateAsync: mocks.deleteQuote, isPending: false }),
   fetchQuotePdf: (...args: unknown[]) => mocks.fetchQuotePdf(...args),
+}))
+vi.mock("@/hooks/data/use-sales-orders", () => ({
+  useSalesOrder: (id: string | null) => mocks.useSalesOrder(id),
+}))
+vi.mock("@/components/fiscal/FiscalInvoiceSummary", () => ({
+  FiscalInvoiceSummary: ({ fiscal }: { fiscal: { label: string | null; status: string } }) => (
+    <p data-testid="fiscal-summary">
+      {fiscal.status} {fiscal.label}
+    </p>
+  ),
+}))
+vi.mock("@/components/quotes/ConvertQuoteDialog", () => ({
+  ConvertQuoteDialog: (props: { quote: { id: string }; open: boolean; onOpenChange: (open: boolean) => void }) => {
+    mocks.convertDialog(props)
+    return props.open ? (
+      <div role="dialog" aria-label="Pasar a venta (mock)">
+        <button type="button" onClick={() => props.onOpenChange(false)}>
+          Cerrar diálogo (mock)
+        </button>
+      </div>
+    ) : null
+  },
 }))
 vi.mock("@/components/shared/DocumentShareMenu", () => ({
   DocumentShareMenu: (props: {
@@ -137,6 +165,7 @@ beforeEach(() => {
   setQuote(quote())
   mocks.transition.mockResolvedValue(quote({ status: "sent" }))
   mocks.deleteQuote.mockResolvedValue(undefined)
+  mocks.useSalesOrder.mockReturnValue({ data: undefined, isLoading: false, isError: false })
 })
 
 describe("QuoteDetailPage — cabecera y contenido", () => {
@@ -347,20 +376,119 @@ describe("QuoteDetailPage — acciones por estado y rol (D10)", () => {
     expect(has(/eliminar/i)).toBe(true)
   })
 
-  it("'Venta' queda visible pero deshabilitada, con su leyenda (llega con la conversión)", () => {
+  it("'Venta' está HABILITADA en un presupuesto vigente y ya no promete 'la próxima entrega'", () => {
     setQuote(quote({ status: "sent", sent_at: "2026-10-01T16:00:00Z" }))
+    render(<QuoteDetailPage />)
+
+    expect(screen.getByRole("button", { name: /^venta$/i })).toBeEnabled()
+    expect(screen.queryByText(/próxima entrega/i)).not.toBeInTheDocument()
+  })
+
+  it("'Venta' abre el diálogo de conversión con ESTE presupuesto, y se cierra", () => {
+    render(<QuoteDetailPage />)
+    expect(screen.queryByRole("dialog", { name: /pasar a venta/i })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole("button", { name: /^venta$/i }))
+    const dialog = screen.getByRole("dialog", { name: /pasar a venta/i })
+    expect(mocks.convertDialog).toHaveBeenLastCalledWith(
+      expect.objectContaining({ open: true, quote: expect.objectContaining({ id: "q-1" }) }),
+    )
+
+    fireEvent.click(within(dialog).getByRole("button", { name: /cerrar diálogo/i }))
+    expect(screen.queryByRole("dialog", { name: /pasar a venta/i })).not.toBeInTheDocument()
+  })
+
+  it("'Venta' en un vencido queda deshabilitada y se explica por el vencimiento", () => {
+    setQuote(quote({ status: "sent", is_expired: true, valid_until: "2026-09-20", sent_at: "2026-09-10T12:00:00Z" }))
     render(<QuoteDetailPage />)
 
     const sale = screen.getByRole("button", { name: /^venta$/i })
     expect(sale).toBeDisabled()
-    expect(sale).toHaveAccessibleDescription(/disponible en la próxima entrega/i)
+    expect(sale).toHaveAccessibleDescription(/vencido el 20\/09\/2026/i)
+    fireEvent.click(sale)
+    expect(screen.queryByRole("dialog", { name: /pasar a venta/i })).not.toBeInTheDocument()
   })
 
-  it("'Venta' en un vencido se explica por el vencimiento, no por la entrega", () => {
-    setQuote(quote({ status: "sent", is_expired: true, valid_until: "2026-09-20", sent_at: "2026-09-10T12:00:00Z" }))
+  it("sin permiso (cashier) no hay 'Venta' ni diálogo", () => {
+    asRoles(["cashier"])
     render(<QuoteDetailPage />)
 
-    expect(screen.getByRole("button", { name: /^venta$/i })).toHaveAccessibleDescription(/vencido el 20\/09\/2026/i)
+    expect(screen.queryByRole("button", { name: /^venta$/i })).not.toBeInTheDocument()
+    expect(mocks.convertDialog).not.toHaveBeenCalled()
+  })
+})
+
+describe("QuoteDetailPage — 'Venta generada' (presupuesto convertido)", () => {
+  function accepted() {
+    setQuote(quote({ status: "accepted", sales_order_id: "so-9", sent_at: "2026-10-01T16:00:00Z" }))
+  }
+  const order = (overrides: Record<string, unknown> = {}) => ({
+    id: "so-9",
+    status: "confirmed",
+    fiscal_document_id: null,
+    ...overrides,
+  })
+
+  it("consulta la orden generada y enlaza a ella", () => {
+    accepted()
+    mocks.useSalesOrder.mockReturnValue({ data: order(), isLoading: false, isError: false })
+    render(<QuoteDetailPage />)
+
+    expect(mocks.useSalesOrder).toHaveBeenCalledWith("so-9")
+    const region = screen.getByRole("region", { name: /venta generada/i })
+    expect(within(region).getByRole("link", { name: /ver venta/i })).toHaveAttribute("href", "/ventas/ordenes/so-9")
+  })
+
+  it("un presupuesto abierto no consulta ninguna orden", () => {
+    render(<QuoteDetailPage />)
+    expect(mocks.useSalesOrder).toHaveBeenCalledWith(null)
+  })
+
+  it("sin comprobante: lo dice", () => {
+    accepted()
+    mocks.useSalesOrder.mockReturnValue({ data: order(), isLoading: false, isError: false })
+    render(<QuoteDetailPage />)
+
+    expect(within(screen.getByRole("region", { name: /venta generada/i })).getByText(/sin comprobante/i)).toBeInTheDocument()
+  })
+
+  it("con comprobante: muestra su estado y número", () => {
+    accepted()
+    mocks.useSalesOrder.mockReturnValue({
+      data: order({
+        fiscal_document_id: "fd-1",
+        fiscal_document_status: "authorized",
+        fiscal_punto_de_venta: 3,
+        fiscal_number: 501,
+      }),
+      isLoading: false,
+      isError: false,
+    })
+    render(<QuoteDetailPage />)
+
+    expect(screen.getByTestId("fiscal-summary")).toHaveTextContent("authorized 0003-00000501")
+  })
+
+  it("si la orden fue cancelada: 'La venta generada fue eliminada', sin enlace a la orden", () => {
+    accepted()
+    mocks.useSalesOrder.mockReturnValue({ data: order({ status: "canceled" }), isLoading: false, isError: false })
+    render(<QuoteDetailPage />)
+
+    const region = screen.getByRole("region", { name: /venta generada/i })
+    expect(within(region).getByText(/la venta generada fue eliminada/i)).toBeInTheDocument()
+    expect(within(region).getByText(/duplicá el presupuesto/i)).toBeInTheDocument()
+    expect(within(region).queryByRole("link", { name: /ver venta/i })).not.toBeInTheDocument()
+    expect(within(region).queryByText(/sin comprobante/i)).not.toBeInTheDocument()
+  })
+
+  it("si la orden no se pudo leer, igual muestra la venta generada con su enlace", () => {
+    accepted()
+    mocks.useSalesOrder.mockReturnValue({ data: undefined, isLoading: false, isError: true })
+    render(<QuoteDetailPage />)
+
+    const region = screen.getByRole("region", { name: /venta generada/i })
+    expect(within(region).getByRole("link", { name: /ver venta/i })).toBeInTheDocument()
+    expect(within(region).queryByText(/sin comprobante/i)).not.toBeInTheDocument()
   })
 })
 

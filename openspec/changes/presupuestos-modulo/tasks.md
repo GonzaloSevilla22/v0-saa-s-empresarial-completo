@@ -362,7 +362,7 @@
   - Cajero contra cada endpoint de escritura (crear, editar, transition, eliminar, validez por defecto) → `403 insufficient_role`; leer y detalle → 200; `rpc_create_quote` directa por PostgREST → rechazada con `insufficient_role`. El vendedor no configura la validez (403); el dueño sí, y 0 / 366 → 422.
   - Entradas hostiles: validez en el pasado → `400 quote_valid_until_in_past`; sin líneas / servicio sin descripción / notas > 2000 → 422; un servicio con `<script>` y `DROP TABLE` se guarda como dato y su PDF se genera; id no uuid → 422; token inválido / ausente → 401.
   - Observación (no es defecto): una excepción de negocio de una RPC llamada directo por PostgREST sale como HTTP 500 con el `code` de la excepción en el cuerpo; es el comportamiento de PostgREST con un SQLSTATE propio y la UI nunca pasa por ahí (usa el backend, que lo traduce a RFC 7807).
-- [ ] 8.1 `CHANGES.md`: entrada de `presupuestos-modulo` (alcance, migraciones, decisiones clave, OQs y su resolución) y el orden de locks de la conversión (`quotes` → productos → inserciones de venta) documentado junto a la regla global. Candidatos que deja:
+- [x] 8.1 (tanda A hecha 2026-10-01; al mergear B sumar la conversión y sus hallazgos) `CHANGES.md`: entrada de `presupuestos-modulo` (alcance, migraciones, decisiones clave, OQs y su resolución) y el orden de locks de la conversión (`quotes` → productos → inserciones de venta) documentado junto a la regla global. Candidatos que deja:
   - migrar el comprobante interno de venta a `build_commercial_document_pdf`;
   - migrar el POS a los helpers de carrito extraídos (`sale-form` ya se migra en este change);
   - link público y aceptación online;
@@ -370,7 +370,7 @@
   - el hallazgo de invalidación del POS (caja, banco y productos) queda cerrado por `invalidateAfterSale`: anotarlo.
   
   **No** tocar `CLAUDE.md` ni `AGENTS.md` en este change.
-- [ ] 8.2 `knowledge-base/05_reglas_de_negocio.md`: corregir RN-A2 (línea 300: "el INSERT es directo vía RLS, sin RPC" deja de ser cierto; la creación va por `rpc_create_quote` y el disparador sigue registrando el historial) y sumar las reglas nuevas del presupuesto:
+- [x] 8.2 (tanda A hecha 2026-10-01: RN-A2 corregida y RN-P1..P5; al mergear B sumar la regla de conversión) `knowledge-base/05_reglas_de_negocio.md`: corregir RN-A2 (línea 300: "el INSERT es directo vía RLS, sin RPC" deja de ser cierto; la creación va por `rpc_create_quote` y el disparador sigue registrando el historial) y sumar las reglas nuevas del presupuesto:
   - editable hasta convertirse (editar un vencido o rechazado lo reabre a `draft`), `P0423` después;
   - no mueve stock;
   - conversión atómica al precio del presupuesto;
@@ -378,7 +378,7 @@
   - numeración interna por cuenta.
   
   `knowledge-base/06_funcionalidades.md`: módulo de presupuestos.
-- [ ] 8.3 Docstrings de los módulos nuevos (propósito, decisiones D-n que implementan) y `COMMENT ON` de cada objeto SQL nuevo.
+- [x] 8.3 (tanda A hecha 2026-10-01: docstrings y 26 COMMENT ON; la B suma los suyos) Docstrings de los módulos nuevos (propósito, decisiones D-n que implementan) y `COMMENT ON` de cada objeto SQL nuevo.
 
 ## 9. Post-merge (por tanda)
 

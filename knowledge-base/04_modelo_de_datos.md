@@ -250,6 +250,27 @@ Sin fila = balanza desactivada con los formatos de fábrica (peso `20BBBBCCCCCCX
 
 ---
 
+### `quotes` / `quote_items` / `internal_document_sequences` — Presupuestos (`presupuestos-modulo`, 2026-10-01)
+```sql
+-- quotes (columnas nuevas; las previas son de C-29)
+number      BIGINT       NULL      -- correlativo por cuenta (P-00000001), asignado por disparador
+notes       TEXT         NULL      -- hasta 2000 caracteres
+sent_at     TIMESTAMPTZ  NULL
+updated_at  TIMESTAMPTZ  NULL
+updated_by  UUID         NULL
+revision    INTEGER      NOT NULL DEFAULT 1   -- versión optimista; sube en cada edición
+-- quote_items
+line_no     INTEGER      NULL      -- orden de las líneas
+-- accounts
+default_quote_validity_days INTEGER NOT NULL DEFAULT 15  -- 1..365
+
+-- internal_document_sequences (nueva; clave (account_id, document_type))
+account_id UUID, document_type TEXT, last_number BIGINT
+```
+Escritura sólo por RPC (`rpc_create_quote`, `rpc_update_quote`, `rpc_transition_quote`, `rpc_delete_quote`, `rpc_set_default_quote_validity`); sin políticas de escritura directa. `internal_document_sequences` no es escribible por PostgREST (la usa el disparador de numeración, reutilizable por los remitos).
+
+---
+
 ### `stock_movements` — Libro Mayor de Stock (Ledger)
 ```sql
 id                  UUID    PK

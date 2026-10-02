@@ -914,6 +914,25 @@ BEGIN
   IF (SELECT total FROM public.quotes WHERE id = v_q) <> v_val OR v_n <> 0 THEN
     v_failures := v_failures || 'FAIL (h): un UPDATE directo como authenticated modificó quotes/quote_items'::text;
   END IF;
+  -- Revisión adversarial F2: `rpc_accept_quote` no tiene consumidores en la
+  -- tanda A (se retiró POST /quotes/{id}/accept) y por PostgREST dejaba al
+  -- presupuesto "convertido" (accepted: inmutable, P0423) con una orden draft
+  -- que ninguna pantalla muestra. Se le revoca el EXECUTE: la API de datos se
+  -- rechaza por permisos, sin orden nueva y sin cambiar el estado.
+  SELECT COUNT(*) INTO v_n FROM public.sales_orders WHERE account_id = v_account_a;
+  SELECT status INTO v_state FROM public.quotes WHERE id = v_q;
+  BEGIN
+    EXECUTE 'SET LOCAL ROLE authenticated';
+    PERFORM public.rpc_accept_quote(v_q);
+    EXECUTE 'RESET ROLE';
+    v_failures := v_failures || 'FAIL (h): rpc_accept_quote como authenticated debía rechazarse por permisos'::text;
+  EXCEPTION WHEN insufficient_privilege THEN
+    EXECUTE 'RESET ROLE';
+  END;
+  IF (SELECT COUNT(*) FROM public.sales_orders WHERE account_id = v_account_a) <> v_n
+     OR (SELECT status FROM public.quotes WHERE id = v_q) IS DISTINCT FROM v_state THEN
+    v_failures := v_failures || 'FAIL (h): rpc_accept_quote como authenticated dejó una orden o cambió el estado del presupuesto'::text;
+  END IF;
   -- La RPC sí funciona con el rol de la API de datos (el payload se arma antes
   -- de cambiar de rol: las funciones pg_temp del gate son de postgres).
   v_result := jsonb_build_array(pg_temp.pm_line(v_p2, 1, 100, 100));
@@ -1200,7 +1219,10 @@ DECLARE
     'public._quote_insert_items(uuid, uuid, jsonb)',
     'public._quote_payload(uuid)',
     'public.trg_assign_internal_document_number()',
-    'public.trg_quote_default_valid_until()'
+    'public.trg_quote_default_valid_until()',
+    -- F2: sin consumidores hasta la tanda B (que la reemplaza por el núcleo
+    -- interno de la conversión); nunca se re-otorga.
+    'public.rpc_accept_quote(uuid)'
   ];
   v_public text[] := ARRAY[
     'public.rpc_create_quote(uuid, uuid, date, text, jsonb)',

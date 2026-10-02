@@ -223,7 +223,15 @@ DECLARE
     -- Meta-candado de que la firma RESUELVE
     -- (este chequeo es drift-tolerante) en el bloque (0) de
     -- supabase/tests/test_facturar_venta_manual.sql.
-    'public._sales_order_sync_from_operation(uuid, uuid, uuid)'
+    'public._sales_order_sync_from_operation(uuid, uuid, uuid)',
+    -- presupuestos-modulo (20261067000001, revisión adversarial F2):
+    -- rpc_accept_quote(uuid) sin consumidores desde la tanda A (se retiró
+    -- POST /quotes/{id}/accept). Por PostgREST dejaba al presupuesto
+    -- "convertido" (accepted: inmutable, P0423) con una orden `draft` que
+    -- ninguna pantalla muestra. La tanda B la reemplaza por el núcleo interno
+    -- de la conversión. NUNCA re-otorgar. Candado de comportamiento:
+    -- bloque (h) de supabase/tests/test_presupuestos_modulo.sql.
+    'public.rpc_accept_quote(uuid)'
   ];
   -- Allowlist del chequeo (4) — helpers internos que HOY siguen expuestos a
   -- `authenticated`. Cada entrada necesita su justificación.

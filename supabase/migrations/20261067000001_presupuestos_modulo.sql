@@ -39,7 +39,9 @@
 --   5. Se retiran las 4 políticas de escritura directa (quotes_insert,
 --      quotes_update, quote_items_insert, quote_items_update) y los
 --      privilegios INSERT/UPDATE/DELETE/TRUNCATE de la API de datos sobre las
---      dos tablas: quedan sólo los SELECT (patrón de sales_orders).
+--      dos tablas: quedan sólo los SELECT (patrón de sales_orders). También se
+--      revoca el EXECUTE de rpc_accept_quote(uuid) (sin consumidores en la
+--      tanda A; la tanda B la reemplaza).
 --   6. Vencimiento (D7): _expire_overdue_quotes (FOR UPDATE SKIP LOCKED, actor
 --      uuid cero, motivo "vencimiento automático") + pg_cron
 --      quotes-expire-sweep (03:05 UTC = 00:05 ART), idempotente
@@ -981,6 +983,16 @@ DROP POLICY IF EXISTS quote_items_update ON public.quote_items;
 REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON TABLE public.quotes      FROM anon, authenticated;
 REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON TABLE public.quote_items FROM anon, authenticated;
 
+-- rpc_accept_quote (C-29) sin consumidores desde esta tanda: POST /quotes/{id}/accept
+-- se retiró y la única vía a `accepted` pasa a ser la conversión a venta (tanda
+-- B). Alcanzable por PostgREST dejaría al presupuesto "convertido" (accepted:
+-- inmutable, P0423) con una orden `draft` que ninguna pantalla muestra, y
+-- encadenada con rpc_confirm_sales_order produciría una venta sin los guards
+-- de la conversión (revisión adversarial F2). El cuerpo no se toca (CREATE OR
+-- REPLACE lo dejaría igual y conservaría el GRANT de C-29): sólo se le quita el
+-- EXECUTE. La tanda B lo reemplaza por el núcleo interno de la conversión.
+REVOKE ALL ON FUNCTION public.rpc_accept_quote(uuid) FROM PUBLIC, anon, authenticated;
+
 
 -- =============================================================================
 -- 7. Vencimiento automático (D7)
@@ -1178,7 +1190,8 @@ BEGIN
                               'public._quote_insert_items(uuid, uuid, jsonb)',
                               'public._quote_payload(uuid)',
                               'public._expire_overdue_quotes()',
-                              'public._quotes_backfill_number_and_validity()'] LOOP
+                              'public._quotes_backfill_number_and_validity()',
+                              'public.rpc_accept_quote(uuid)'] LOOP
     IF has_function_privilege('anon', v_fn, 'EXECUTE') OR has_function_privilege('authenticated', v_fn, 'EXECUTE') THEN
       v_bad := v_bad || format('%s es ejecutable por un rol de aplicación', v_fn);
     END IF;

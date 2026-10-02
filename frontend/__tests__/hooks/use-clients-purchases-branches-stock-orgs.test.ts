@@ -96,6 +96,28 @@ describe("useClients", () => {
     expect(pythonClient.get).toHaveBeenCalledTimes(2) // initial + after invalidation
   })
 
+  it("addClient resuelve con el cliente creado, ya mapeado al tipo de la app (presupuestos-modulo D12)", async () => {
+    vi.mocked(pythonClient.get).mockResolvedValue([])
+    vi.mocked(pythonClient.post).mockResolvedValueOnce({
+      id: "c-new", account_id: "a-1", name: "Ana", email: null, phone: "2615551234",
+      payment_terms_days: 15, created_at: "2026-01-15T00:00:00Z",
+    })
+
+    const { result } = renderHook(() => useClients(), { wrapper: makeWrapper() })
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+
+    let created: unknown
+    await act(async () => {
+      created = await result.current.addClient({
+        name: "Ana", email: "", phone: "2615551234", status: "activo", lastPurchase: "-", totalSpent: 0,
+      })
+    })
+
+    // Forma de la app (camelCase, email/phone como string), no la fila cruda del API.
+    expect(created).toMatchObject({ id: "c-new", name: "Ana", email: "", phone: "2615551234", paymentTermsDays: 15 })
+    expect(created).not.toHaveProperty("created_at")
+  })
+
   it("maps fiscal identity fields from API (C-22)", async () => {
     vi.mocked(pythonClient.get).mockResolvedValueOnce([
       {

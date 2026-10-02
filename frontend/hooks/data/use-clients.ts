@@ -77,8 +77,11 @@ export function useClients() {
   })
 
   const addClientMutation = useMutation({
-    mutationFn: async (client: Omit<Client, "id">) => {
-      return pythonClient.post<ClientApiRow>("/clients", {
+    mutationFn: async (client: Omit<Client, "id">): Promise<Client> => {
+      // presupuestos-modulo (D12): devuelve el cliente YA mapeado al tipo de la
+      // app para que quien lo da de alta en el lugar (formulario de
+      // presupuesto) pueda preseleccionarlo, sin leer la fila cruda del API.
+      const row = await pythonClient.post<ClientApiRow>("/clients", {
         name:          client.name,
         email:         client.email        || null,
         phone:         client.phone        || null,
@@ -91,6 +94,7 @@ export function useClients() {
           ? { payment_terms_days: client.paymentTermsDays }
           : {}),
       })
+      return mapClient(row)
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.clients.all() })

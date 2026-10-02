@@ -17,7 +17,13 @@ import type { Client, IvaCondition } from "@/lib/types"
 const IVA_NONE = "none"
 
 interface ClientFormProps {
-  onSuccess: () => void
+  /**
+   * Se llama tras guardar. En el ALTA recibe el cliente creado (presupuestos-
+   * modulo D12: el formulario de presupuesto lo preselecciona); en la edición
+   * no recibe nada. Retrocompatible: los callers que ignoran el argumento no
+   * cambian.
+   */
+  onSuccess: (client?: Client) => void
   initialData?: Client
 }
 
@@ -85,11 +91,12 @@ export function ClientForm({ onSuccess, initialData }: ClientFormProps) {
       if (initialData) {
         await updateClient({ ...clientData, id: initialData.id } as any)
         toast.success("Cliente actualizado")
-      } else {
-        await addClient(clientData as any)
-        toast.success("Cliente creado")
+        onSuccess()
+        return
       }
-      onSuccess()
+      const created = await addClient(clientData as any)
+      toast.success("Cliente creado")
+      onSuccess(created ?? undefined)
     } catch (error) {
       console.error(error)
       toast.error("Error al guardar cliente")

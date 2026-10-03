@@ -6,7 +6,10 @@
  * mercadería (alineado con `CAN_RECEIVE_PURCHASE`: el vendedor no recibe).
  */
 import { describe, it, expect } from "vitest"
-import { DELIVERY_NOTE_PAGE_TEXTS } from "@/components/delivery-notes/delivery-note-page-texts"
+import {
+  DELIVERY_NOTE_PAGE_TEXTS,
+  DELIVERY_NOTE_SCREEN_TEXTS,
+} from "@/components/delivery-notes/delivery-note-page-texts"
 import { deliveryNoteListHref } from "@/lib/delivery-note-status"
 
 describe("DELIVERY_NOTE_PAGE_TEXTS[direction]", () => {
@@ -44,5 +47,34 @@ describe("DELIVERY_NOTE_PAGE_TEXTS[direction]", () => {
     for (const direction of ["sale", "purchase"] as const) {
       expect(DELIVERY_NOTE_PAGE_TEXTS[direction].backHref).toBe(deliveryNoteListHref(direction))
     }
+  })
+})
+
+// ── remitos-compra (tarea 5.5): títulos y avisos de las pantallas de alta y edición ──
+
+describe("DELIVERY_NOTE_SCREEN_TEXTS[direction] — alta y edición", () => {
+  it("venta: los textos de siempre", () => {
+    expect(DELIVERY_NOTE_SCREEN_TEXTS.sale).toMatchObject({
+      newTitle: "Nuevo remito",
+      newSubtitle: "Documentá la mercadería que entregás. Emitir un remito descuenta stock de la sucursal que elijas.",
+      newAction: "emitir remitos",
+      editAction: "editar remitos",
+      editSubtitle: "Los cambios reemplazan el contenido del remito y ajustan el stock sólo donde cambia.",
+    })
+  })
+
+  it("compra: recibir SUMA stock y el permiso habla de recibir remitos de compra", () => {
+    expect(DELIVERY_NOTE_SCREEN_TEXTS.purchase).toMatchObject({
+      newTitle: "Nuevo remito de compra",
+      newSubtitle:
+        "Registrá la mercadería que recibís de un proveedor. Emitir el remito suma stock a la sucursal que elijas.",
+      newAction: "recibir remitos de compra",
+      editAction: "editar remitos",
+    })
+    expect(DELIVERY_NOTE_SCREEN_TEXTS.purchase.newSubtitle).not.toMatch(/descuenta/i)
+  })
+
+  it("la edición dice lo mismo en los dos sentidos (ajusta el stock sólo donde cambia)", () => {
+    expect(DELIVERY_NOTE_SCREEN_TEXTS.purchase.editSubtitle).toBe(DELIVERY_NOTE_SCREEN_TEXTS.sale.editSubtitle)
   })
 })

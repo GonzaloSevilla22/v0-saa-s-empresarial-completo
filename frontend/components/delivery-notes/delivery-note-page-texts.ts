@@ -27,3 +27,35 @@ export const DELIVERY_NOTE_PAGE_TEXTS: Record<DeliveryNoteDirection, DocumentPag
     permissionHint: "Pedile a un administrador del negocio que te habilite como encargado de stock.",
   },
 }
+
+/**
+ * Los títulos y avisos de las pantallas de alta y edición, por sentido (D11). La
+ * redacción que depende del sentido vive acá y no en cada página: el alta de
+ * venta descuenta stock; la de compra lo suma.
+ */
+export interface DeliveryNoteScreenTexts {
+  newTitle: string
+  newSubtitle: string
+  /** Lo que el rol no puede hacer: "Tu rol no permite {newAction}". */
+  newAction: string
+  editAction: string
+  editSubtitle: string
+}
+
+export const DELIVERY_NOTE_SCREEN_TEXTS: Record<DeliveryNoteDirection, DeliveryNoteScreenTexts> = {
+  sale: {
+    newTitle: "Nuevo remito",
+    newSubtitle: "Documentá la mercadería que entregás. Emitir un remito descuenta stock de la sucursal que elijas.",
+    newAction: "emitir remitos",
+    editAction: "editar remitos",
+    editSubtitle: "Los cambios reemplazan el contenido del remito y ajustan el stock sólo donde cambia.",
+  },
+  purchase: {
+    newTitle: "Nuevo remito de compra",
+    newSubtitle:
+      "Registrá la mercadería que recibís de un proveedor. Emitir el remito suma stock a la sucursal que elijas.",
+    newAction: "recibir remitos de compra",
+    editAction: "editar remitos",
+    editSubtitle: "Los cambios reemplazan el contenido del remito y ajustan el stock sólo donde cambia.",
+  },
+}

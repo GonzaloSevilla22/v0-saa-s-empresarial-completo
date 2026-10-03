@@ -199,7 +199,7 @@ export default function DeliveryNoteDetailPage() {
               <DocumentShareMenu
                 key={String(showPrices)}
                 fetchPdf={fetchPdf}
-                fileName={deliveryNoteFileName(note.number_label ?? null, showPrices)}
+                fileName={deliveryNoteFileName(note.direction, note.number_label ?? null, showPrices)}
                 shareText={shareText}
                 shareTitle={`Remito ${numberLabel}`}
                 clientPhone={note.client_phone}

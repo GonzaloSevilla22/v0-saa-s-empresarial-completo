@@ -7,7 +7,7 @@
  * Estados (D3): `issued` (pendiente de convertir), `converted` (la venta ya
  * existe) y `canceled` (terminal, repuso el stock).
  */
-import type { DeliveryNoteStatus } from "@/lib/delivery-note-types"
+import type { DeliveryNoteHistoryEntry, DeliveryNoteStatus } from "@/lib/delivery-note-types"
 
 export const DELIVERY_NOTE_STATUS_LABELS: Record<DeliveryNoteStatus, string> = {
   issued: "Pendiente",
@@ -125,4 +125,16 @@ export function deliveryNoteActions(
   }
 
   return { share: true, edit: false, convert: noConvert, cancel: false, viewSale: false, legend: null }
+}
+
+/**
+ * El motivo con que se anuló el remito, del historial de estados (la transición
+ * a `canceled` más reciente). `null` si no hay transición o no trae motivo: nunca
+ * se inventa uno.
+ */
+export function canceledReason(history: readonly DeliveryNoteHistoryEntry[]): string | null {
+  const cancellations = history.filter((entry) => entry.to_status === "canceled")
+  const latest = [...cancellations].sort((a, b) => a.occurred_at.localeCompare(b.occurred_at)).pop()
+  const reason = latest?.reason?.trim()
+  return reason ? reason : null
 }

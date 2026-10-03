@@ -7,11 +7,12 @@ import { describe, it, expect } from "vitest"
 import {
   DELIVERY_NOTE_ESTADO_TABS,
   DELIVERY_NOTE_STATUS_LABELS,
+  canceledReason,
   deliveryNoteActions,
   parseDeliveryNoteEstadoParam,
   type DeliveryNoteActionContext,
 } from "@/lib/delivery-note-status"
-import { DELIVERY_NOTE_STATUSES } from "@/lib/delivery-note-types"
+import { DELIVERY_NOTE_STATUSES, type DeliveryNoteHistoryEntry } from "@/lib/delivery-note-types"
 
 const ALL_ROLES: DeliveryNoteActionContext = { canDeliver: true, canSell: true, canVoid: true }
 const NO_ROLES: DeliveryNoteActionContext = { canDeliver: false, canSell: false, canVoid: false }
@@ -144,5 +145,42 @@ describe("deliveryNoteActions — matriz estado × rol (D11)", () => {
 
   it("un remito pendiente no lleva leyenda", () => {
     expect(deliveryNoteActions("issued", ALL_ROLES).legend).toBeNull()
+  })
+})
+
+describe("canceledReason", () => {
+  const entry = (overrides: Partial<DeliveryNoteHistoryEntry>): DeliveryNoteHistoryEntry => ({
+    from_status: null,
+    to_status: "issued",
+    performed_by: "u-1",
+    occurred_at: "2026-10-02T12:00:00Z",
+    reason: null,
+    ...overrides,
+  })
+
+  it("devuelve el motivo de la transición a anulado", () => {
+    expect(
+      canceledReason([entry({}), entry({ from_status: "issued", to_status: "canceled", reason: "Cliente devolvió todo" })]),
+    ).toBe("Cliente devolvió todo")
+  })
+
+  it("sin transición a anulado, o sin motivo, no inventa uno", () => {
+    expect(canceledReason([])).toBeNull()
+    expect(canceledReason([entry({})])).toBeNull()
+    expect(canceledReason([entry({ from_status: "issued", to_status: "canceled", reason: null })])).toBeNull()
+    expect(canceledReason([entry({ from_status: "issued", to_status: "canceled", reason: "   " })])).toBeNull()
+  })
+
+  it("ignora el motivo de otras transiciones", () => {
+    expect(canceledReason([entry({ from_status: "converted", to_status: "issued", reason: "se eliminó la venta" })])).toBeNull()
+  })
+
+  it("si hubiera más de una, toma la más reciente", () => {
+    expect(
+      canceledReason([
+        entry({ to_status: "canceled", reason: "vieja", occurred_at: "2026-10-02T10:00:00Z" }),
+        entry({ to_status: "canceled", reason: "nueva", occurred_at: "2026-10-02T11:00:00Z" }),
+      ]),
+    ).toBe("nueva")
   })
 })

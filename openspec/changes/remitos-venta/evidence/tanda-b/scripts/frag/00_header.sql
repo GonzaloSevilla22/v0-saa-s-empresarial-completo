@@ -1,0 +1,58 @@
+-- =============================================================================
+-- 20261070000001_remitos_venta_conversion.sql — remitos-venta, TANDA B
+-- (governance MEDIA con tramo ALTO: reescribe tres funciones del camino del
+-- dinero y del stock desde sus cuerpos VIVOS y suma la conversión).
+--
+-- Qué hace (design.md §D1, §D3, §D7, §D9, §D16):
+--   1. sales_orders.source_delivery_note_id (FK NO ACTION) + índice único
+--      parcial (a lo sumo una orden viva por remito; una orden cancelada no
+--      impide reconvertir) + las filas issued -> converted y
+--      converted -> issued del catálogo delivery_note_sale.
+--   2. _c29_confirm_order_core, desde su pg_get_functiondef vivo: SÓLO la rama
+--      v_from_delivery_note. Con origen de remito revalida el remito y el
+--      multiconjunto de líneas (P0409 delivery_note_order_mismatch) y, en el
+--      loop, saltea el FOR UPDATE del producto, la normalización, el gate, el
+--      delta y el movimiento; sale_items toma los cuatro snapshots de la línea
+--      de la orden. La decisión la toma la columna persistida de la orden,
+--      nunca un parámetro: la firma no cambia. Caja, cuenta corriente, banco,
+--      fiscal, outbox, historial y UPDATE de la orden: sin cambios.
+--   3. rpc_convert_delivery_note_to_sale (nueva), molde de
+--      rpc_convert_quote_to_sale: lock del remito -> idempotencia bajo el lock
+--      -> estado / versión / cliente vivo / sucursal activa y no cerrada ->
+--      orden + líneas copiadas del remito (precios y snapshots del remito, sin
+--      re-leer el maestro) -> núcleo -> RAISE ante replay ajeno -> transición
+--      issued -> converted. No bloquea productos.
+--   4. rpc_delete_sale_operation, desde su cuerpo vivo: con origen de remito,
+--      la sucursal del remito (FOR SHARE) tiene que estar activa y no cerrada
+--      ANTES del guard fiscal y de cualquier compensación (P0422
+--      delivery_note_branch_inactive, cero efectos); salto explícito de la
+--      reversa de stock; y el remito vuelve a issued (lock al final:
+--      sales -> sales_orders -> fiscal_documents -> delivery_notes).
+--   5. rpc_atomic_update_sale_operation, desde su cuerpo vivo: P0423
+--      delivery_note_sale_locked después del lock de sales y del guard de
+--      cliente, ANTES de la anulación fiscal.
+--   6. _delivery_note_payload (tanda A): converted_sales_order_id /
+--      converted_operation_id pasan de NULL fijo a derivarse de la orden viva
+--      del remito (desvío aditivo declarado: la tanda A los dejó anunciados
+--      para esta tanda).
+--
+-- Orden de locks: la conversión toma delivery_notes PRIMERO y después sólo
+-- CREA filas de venta (no bloquea filas existentes de sales), así que no
+-- invierte el orden global sales -> sales_orders -> fiscal_documents. El
+-- borrado de la venta toma el remito AL FINAL. Sin ciclo: la conversión nunca
+-- espera un lock de sales, y ante un remito converted falla de inmediato.
+--
+-- Cuerpos de partida (checkpoint 6.1, re-verificado 2026-10-03 contra prod,
+-- md5 de pg_get_functiondef sin \r): _c29_confirm_order_core
+-- bbe8ac0f9cedc5873dbeb6c81a661aed, rpc_delete_sale_operation
+-- b7ca24c74058c427cdfd6dca2e9102c3, rpc_atomic_update_sale_operation
+-- 954a5c8fb31202259c82485d0c6e05b9 (= base local tras db reset). El diff de
+-- cada reescritura contra su cuerpo vivo está en
+-- openspec/changes/remitos-venta/evidence/tanda-b/. CREATE OR REPLACE con la
+-- misma firma conserva la ACL; el COMMENT vivo se re-declara idéntico.
+--
+-- Idempotente (CI la reaplica al final de la cadena, después de
+-- 20261069000001): ADD COLUMN IF NOT EXISTS, FK guardada contra pg_constraint,
+-- CREATE UNIQUE INDEX IF NOT EXISTS, catálogo con ON CONFLICT DO NOTHING,
+-- CREATE OR REPLACE con firmas fijas, REVOKE/GRANT y COMMENT re-emitidos.
+-- =============================================================================

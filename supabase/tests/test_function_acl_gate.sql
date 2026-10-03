@@ -284,6 +284,15 @@ DECLARE
     --       Sigue en la allowlist porque es el helper que ejecutan los dos
     --       wrappers del POS: revocarlo rompería el hot path de ventas.
     --       Candado del guard: supabase/tests/test_tenancy_guard_caja_outbox.sql.
+    --   remitos-venta tanda B (20261070000001): la rama v_from_delivery_note
+    --       (la orden nacida de un remito no vuelve a mover stock) NO suma
+    --       ningún identificador por parámetro ni cambia la firma: el origen
+    --       sale de la columna persistida de la propia orden
+    --       (sales_orders.source_delivery_note_id, sin políticas de escritura)
+    --       y se revalida contra la cuenta, el cliente, la sucursal y las
+    --       líneas de esa orden (P0409 delivery_note_order_mismatch). La
+    --       justificación v3 sigue intacta. Candado: bloques (z) y (n) de
+    --       supabase/tests/test_remito_a_venta.sql.
     'public._c29_confirm_order_core(p_idempotency_key text, p_sales_order_id uuid, p_payment_method text, p_cash_session_id uuid, p_comprobante_type text, p_point_of_sale_id uuid, p_canal text, p_payment_method_id uuid, p_bank_account_id uuid)'
     -- NO agregar acá _pay_register_party_charge ni _journal_post_from_event:
     -- los revoca 20261010000001_revoke_internal_money_helpers.sql (hotfix

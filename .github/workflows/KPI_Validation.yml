@@ -979,61 +979,24 @@ jobs:
           fi
           echo "Reconvergencia OK: constraints + firmas de función + ACLs quedaron IDÉNTICOS al estado previo a este paso."
 
-          # ventas-unidades-conversion (2026-09-25): reaplicación de
-          # 20261062000001, el ÚLTIMO eslabón de la cadena. Va DESPUÉS de la
-          # reconvergencia a propósito, no junto a las demás: la cadena de
-          # arriba reaplica 20261045000001 (CREATE OR REPLACE de
-          # rpc_atomic_update_sale_operation con su cuerpo de esa fecha) y no
-          # reaplica 20261060000001/20261061000001, así que al final de la
-          # cadena ese cuerpo no es ni el de partida del preflight de
-          # 20261062000001 ni el que ella deja → el preflight ABORTA siempre
-          # (y las otras nueve funciones volverían a su cuerpo de partida,
-          # ejercitando la rama de reescritura en vez de la de reaplicación).
-          # Sobre el estado reconvergido (= la historia real completa, con
-          # 20261062000001 ya aplicada por el reset), los diez cuerpos son
-          # exactamente `v_rewritten`: esto ejercita la rama de reaplicación
-          # del preflight (10 NOTICE "ya es el cuerpo de esta migración": los seis
-          # que escriben stock + los tres de reporting de la segunda revisión +
-          # check_low_margin de la tercera) y el gate embebido (sección 14), y
-          # prueba que DROP VIEW + ALTER TYPE +
-          # DROP/CREATE de las dos funciones de min_stock son re-ejecutables.
-          # SIN tolerancia (ON_ERROR_STOP=1 + `set -e`: cualquier error →
-          # rojo), y el schema tiene que quedar IDÉNTICO al de antes del paso:
-          # una reaplicación que cambie ACLs, firmas o constraints no es
-          # idempotente aunque salga con exit 0.
-          #
-          # REGLA PARA EL PR SIGUIENTE (cuarta revisión del PR #584): este
-          # bloque exige que las DIEZ funciones sigan con el cuerpo que
-          # 20261062000001 deja (_c29_confirm_order_core,
-          # rpc_create_sale_operation_v2, rpc_create_purchase_operation,
-          # rpc_atomic_update_sale_operation,
-          # rpc_atomic_update_purchase_operation, rpc_create_sale_operation,
-          # reporting_sales_lines_in_window, rpc_dashboard_kpi_summary,
-          # rpc_dashboard_channel_margin, check_low_margin). Una migración
-          # POSTERIOR que redefina cualquiera de ellas hace abortar el
-          # preflight de este reapply y pone validate-kpis en ROJO en un PR
-          # ajeno. Esa migración tiene que RETIRAR este bloque en el mismo PR
-          # (su propio gate pasa a ser el control de esas funciones) — el
-          # mismo criterio por el que 20261060000001 y 20261061000001, que
-          # también tienen preflight, no están en esta cadena.
-          UOM_OUT=$(psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261062000001_ventas_unidades_conversion.sql 2>&1) || { echo "$UOM_OUT"; echo "ERROR: el reapply de 20261062000001 falló (sin tolerancia)."; exit 1; }
-          echo "$UOM_OUT"
-          UOM_REAPPLIED=$(echo "$UOM_OUT" | grep -cF 'ya es el cuerpo de esta migraci' || true)
-          if [ "$UOM_REAPPLIED" != "10" ]; then
-            echo "ERROR: el reapply de 20261062000001 no tomó la rama de reaplicación del preflight en las 10 funciones (tomó $UOM_REAPPLIED/10): alguna quedó reescrita desde su cuerpo de partida, o sea que el estado reconvergido no es el que la migración deja."
-            exit 1
-          fi
-          if ! echo "$UOM_OUT" | grep -qF 'GATE ventas-unidades-conversion (embebido): PASS'; then
-            echo "ERROR: el reapply de 20261062000001 no imprimió el PASS de su gate embebido."
-            exit 1
-          fi
-          schema_snapshot > /tmp/schema_after_uom_reapply.txt
-          if ! diff -u /tmp/schema_before_reapply.txt /tmp/schema_after_uom_reapply.txt > /tmp/schema_diff_uom.txt; then
-            echo "NOT IDEMPOTENT: reaplicar 20261062000001 cambió el schema (constraints + firmas de función + ACLs):"
-            cat /tmp/schema_diff_uom.txt
-            exit 1
-          fi
-          echo "20261062000001 idempotente: rama de reaplicación 10/10, gate embebido PASS y schema IDÉNTICO al previo a este paso."
+          # ventas-unidades-conversion (2026-09-25): el bloque de reaplicación
+          # de 20261062000001 que vivía acá se RETIRÓ en remitos-venta tanda B
+          # (2026-10-03, 20261070000001), cumpliendo su propia "REGLA PARA EL PR
+          # SIGUIENTE" (cuarta revisión del PR #584): exigía que DIEZ funciones
+          # siguieran con el cuerpo que esa migración deja, y la tanda B
+          # redefine dos de ellas desde su cuerpo vivo (_c29_confirm_order_core
+          # y rpc_atomic_update_sale_operation; además rpc_delete_sale_operation,
+          # que no estaba en el bloque). Con el bloque puesto, el preflight de
+          # 20261062000001 abortaba y validate-kpis quedaba en ROJO — el mismo
+          # criterio por el que 20261060000001 y 20261061000001, que también
+          # tienen preflight, no están en esta cadena. El control de esas
+          # funciones pasa a ser el gate de la tanda B
+          # (supabase/tests/test_remito_a_venta.sql, que además re-ejerce
+          # rpc_quick_sale y rpc_convert_quote_to_sale) más la introspección de
+          # 20261070000001, reaplicada al final de esta cadena; las otras ocho
+          # siguen cubiertas por test_ventas_unidades_conversion.sql y por los
+          # gates de reporting, que corren más abajo sobre el estado
+          # reconvergido.
 
           # punto-venta-seleccion (2026-09-26): reaplicación de 20261063000001
           # sobre el estado reconvergido, DESPUÉS del bloque de 20261062000001
@@ -1250,6 +1213,34 @@ jobs:
             exit 1
           fi
           echo "20261069000001 idempotente: introspección OK, cuerpos reescritos reconvergidos y schema IDÉNTICO al previo a este paso."
+
+          # remitos-venta tanda B (2026-10-03): reaplicación de 20261070000001
+          # AL FINAL de la cadena, DESPUÉS de la de 20261069000001 (contrato
+          # 6.0 con la tanda A: esa reaplicación vuelve a dejar el cuerpo de la
+          # tanda A en _delivery_note_payload, que ésta redefine). Reescribe
+          # desde el cuerpo vivo _c29_confirm_order_core,
+          # rpc_delete_sale_operation y rpc_atomic_update_sale_operation y suma
+          # rpc_convert_delivery_note_to_sale, todo con CREATE OR REPLACE sobre
+          # firmas fijas (sin overload, sin 42725, ACL conservada); la columna
+          # con ADD COLUMN IF NOT EXISTS, la FK guardada contra pg_constraint,
+          # el índice IF NOT EXISTS y el catálogo con ON CONFLICT DO NOTHING.
+          # SIN tolerancia: exige el OK de su introspección (una definición y
+          # ACL previa de las tres reescritas, rama del núcleo, guard y salto
+          # del borrado, P0423 de la edición, orden de la conversión, catálogo,
+          # COMMENT vivos) y el schema IDÉNTICO.
+          RVB_OUT=$(psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261070000001_remitos_venta_conversion.sql 2>&1) || { echo "$RVB_OUT"; echo "ERROR: el reapply de 20261070000001 falló (sin tolerancia)."; exit 1; }
+          echo "$RVB_OUT"
+          if ! echo "$RVB_OUT" | grep -qF 'remitos-venta tanda B (introspecci'; then
+            echo "ERROR: el reapply de 20261070000001 no imprimió el OK de su bloque de introspección."
+            exit 1
+          fi
+          schema_snapshot > /tmp/schema_after_rvb_reapply.txt
+          if ! diff -u /tmp/schema_before_reapply.txt /tmp/schema_after_rvb_reapply.txt > /tmp/schema_diff_rvb.txt; then
+            echo "NOT IDEMPOTENT: reaplicar 20261070000001 cambió el schema (constraints + firmas de función + ACLs):"
+            cat /tmp/schema_diff_rvb.txt
+            exit 1
+          fi
+          echo "20261070000001 idempotente: introspección OK y schema IDÉNTICO al previo a este paso."
 
       # -v ON_ERROR_STOP=1 is required: without it psql prints RAISE EXCEPTION
       # errors but still exits 0, so failing assertions show green in CI.
@@ -2824,11 +2815,38 @@ jobs:
       - name: Run remitos venta gate
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_remitos_venta.sql
 
-      # remitos-venta tanda A: carreras con DOS conexiones reales y bloqueo
-      # verificado en pg_stat_activity — última unidad (stock_insuficiente),
-      # misma clave (replay, nunca 23505), edición vs anulación en los dos
-      # órdenes (delivery_note_changed / invalid_state, ledger cuadrado) y
-      # emisión vs baja del producto en los dos órdenes (TOCTOU del lock).
+      # remitos-venta tanda B (2026-10-03, governance MEDIA con tramo ALTO:
+      # reescribe el núcleo de confirmación de venta, el borrado y la edición
+      # desde su cuerpo vivo). `supabase start` ya aplicó 20261070000001; este
+      # paso EJECUTA rpc_convert_delivery_note_to_sale y las tres reescritas
+      # con usuarios reales: (z) CONTROL NEGATIVO — el núcleo, con una orden
+      # cuyo origen es un remito válido, no descuenta (sin la rama, falla por
+      # doble descuento); (n) 10 orígenes inválidos -> P0409
+      # delivery_note_order_mismatch sin efectos; (a-d) conversión
+      # cash/credit (como authenticated)/transfer con stock idéntico, 0
+      # movimientos y los cuatro snapshots del remito (producto renombrado y
+      # costo remarcado después de emitir; producto dado de baja convierte);
+      # (e/f) cliente de baja / sucursal desactivada o cerrada; (g-l) replay,
+      # clave ajena, segunda conversión, versión vieja, parámetros, roles, cash
+      # sin sesión; (m) regresiones de rpc_quick_sale, rpc_convert_quote_to_sale
+      # y del P0423 de dinero; (q/r) edición bloqueada (P0423
+      # delivery_note_sale_locked, comprobante pendiente intacto, también sin
+      # dinero posteado) y anulación de un convertido; (o/p) borrado que
+      # reabre el remito sin tocar stock, reconversión, y P0422
+      # delivery_note_branch_inactive con la sucursal del remito inactiva;
+      # (s) invariante; (u) introspección; residuo cero.
+      - name: Run remito a venta gate
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_remito_a_venta.sql
+
+      # remitos-venta tandas A y B: carreras con DOS conexiones reales y
+      # bloqueo verificado en pg_stat_activity — última unidad
+      # (stock_insuficiente), misma clave (replay, nunca 23505), edición vs
+      # anulación en los dos órdenes, emisión vs baja del producto en los dos
+      # órdenes (TOCTOU del lock) y, en la tanda B, dos conversiones del mismo
+      # remito (claves distintas y misma clave), conversión vs anulación y vs
+      # edición en los dos órdenes, borrado de la venta vs reconversión y vs
+      # anulación del remito convertido (sin interbloqueo, stock repuesto una
+      # sola vez).
       - name: Run remitos venta race gate (dos conexiones)
         run: DB_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres bash supabase/tests/test_remitos_venta_race.sh
 

@@ -27,11 +27,17 @@ class SupplierRepository(BaseRepository):
         )
 
     async def get_by_id(
-        self, supplier_id: str, account_id: str
+        self, supplier_id: str, account_id: str, *, lock: bool = False
     ) -> asyncpg.Record | None:
+        """`lock=True` toma la fila FOR UPDATE (remitos-compra, RC-A-04): el
+        borrado la necesita ANTES de contar los remitos pendientes, para
+        serializar contra la recepción/edición, que la leen FOR SHARE. Sólo
+        tiene sentido dentro de la transacción del request (la dependencia de
+        conexión ya la abre); las lecturas comunes no bloquean."""
         return await self.fetchrow(
             "SELECT * FROM suppliers WHERE id = $1 AND account_id = $2"
-            + self.not_deleted_clause(),
+            + self.not_deleted_clause()
+            + (" FOR UPDATE" if lock else ""),
             supplier_id,
             account_id,
         )

@@ -36,7 +36,15 @@
 #        pendiente en una sucursal desactivada;
 #   (5c) baja abierta vs edición que mueve un remito a esa sucursal -> la
 #        edición espera el FOR SHARE de la sucursal nueva y rechaza con P0422;
-#        el remito sigue en su sucursal.
+#        el remito sigue en su sucursal;
+#   (6a) recepción abierta vs borrado del proveedor (delete_supplier toma el
+#        proveedor FOR UPDATE, cuenta los remitos pendientes y recién entonces
+#        lo da de baja) -> el borrado espera, cuenta el remito y NO borra
+#        (revisión adversarial RC-A-04);
+#   (6b) borrado abierto vs recepción -> la recepción espera el FOR SHARE del
+#        proveedor, lo relee borrado y rechaza con supplier_not_found; ningún
+#        remito pendiente queda en un proveedor dado de baja;
+#   (6c) edición abierta vs borrado -> el borrado espera y no borra.
 #
 # Uso:
 #   DB_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres \
@@ -113,6 +121,11 @@ BEGIN
   SELECT account_id INTO v_account FROM public.account_members WHERE user_id = v_user ORDER BY created_at LIMIT 1;
   IF v_account IS NULL THEN RAISE EXCEPTION 'SETUP FAILED: handle_new_user no creó la cuenta'; END IF;
   INSERT INTO public.suppliers (account_id, name) VALUES (v_account, 'Proveedor RC Race');
+  -- Un proveedor por carrera de borrado (6a/6b/6c): el soft delete lo consume.
+  INSERT INTO public.suppliers (account_id, name) VALUES
+    (v_account, 'Proveedor RC Race Borrado A'),
+    (v_account, 'Proveedor RC Race Borrado B'),
+    (v_account, 'Proveedor RC Race Borrado C');
   -- Dos sucursales VACÍAS extra para la baja (5a/5b/5c) y una de origen (5c).
   INSERT INTO public.branches (account_id, name, is_active, status, opened_at, created_at)
   VALUES (v_account, 'RC Race Vacía 1', TRUE, 'active', now(), now() + interval '1 minute'),
@@ -125,13 +138,17 @@ BEGIN
     (v_user, v_account, 'RC Race Última 1', 'RC-RACE-LAST1', 10, 100),
     (v_user, v_account, 'RC Race Última 2', 'RC-RACE-LAST2', 10, 100),
     (v_user, v_account, 'RC Race Edit',   'RC-RACE-EDIT', 10, 100),
-    (v_user, v_account, 'RC Race Baja',   'RC-RACE-BAJA', 10, 100);
+    (v_user, v_account, 'RC Race Baja',   'RC-RACE-BAJA', 10, 100),
+    (v_user, v_account, 'RC Race Borrado', 'RC-RACE-BORRADO', 10, 100);
 END \$\$;
 SQL
 USER_ID=$(q "SELECT id FROM auth.users WHERE email = '$EMAIL';")
 [ -n "$USER_ID" ] || fail "el fixture no creó el usuario"
 ACCOUNT_ID=$(q "SELECT account_id FROM public.account_members WHERE user_id = '$USER_ID' ORDER BY created_at LIMIT 1;")
-SUPPLIER_ID=$(q "SELECT id FROM public.suppliers WHERE account_id = '$ACCOUNT_ID' LIMIT 1;")
+SUPPLIER_ID=$(q "SELECT id FROM public.suppliers WHERE account_id = '$ACCOUNT_ID' AND name = 'Proveedor RC Race';")
+SUP_A=$(q "SELECT id FROM public.suppliers WHERE account_id = '$ACCOUNT_ID' AND name = 'Proveedor RC Race Borrado A';")
+SUP_B=$(q "SELECT id FROM public.suppliers WHERE account_id = '$ACCOUNT_ID' AND name = 'Proveedor RC Race Borrado B';")
+SUP_C=$(q "SELECT id FROM public.suppliers WHERE account_id = '$ACCOUNT_ID' AND name = 'Proveedor RC Race Borrado C';")
 BRANCH_ID=$(q "SELECT id FROM public.branches WHERE account_id = '$ACCOUNT_ID' ORDER BY created_at LIMIT 1;")
 EMPTY1=$(q "SELECT id FROM public.branches WHERE account_id = '$ACCOUNT_ID' AND name = 'RC Race Vacía 1';")
 EMPTY2=$(q "SELECT id FROM public.branches WHERE account_id = '$ACCOUNT_ID' AND name = 'RC Race Vacía 2';")
@@ -143,10 +160,12 @@ P_LAST1=$(q "SELECT id FROM public.products WHERE account_id = '$ACCOUNT_ID' AND
 P_LAST2=$(q "SELECT id FROM public.products WHERE account_id = '$ACCOUNT_ID' AND sku = 'RC-RACE-LAST2';")
 P_EDIT=$(q "SELECT id FROM public.products WHERE account_id = '$ACCOUNT_ID' AND sku = 'RC-RACE-EDIT';")
 P_BAJA=$(q "SELECT id FROM public.products WHERE account_id = '$ACCOUNT_ID' AND sku = 'RC-RACE-BAJA';")
+P_BORRADO=$(q "SELECT id FROM public.products WHERE account_id = '$ACCOUNT_ID' AND sku = 'RC-RACE-BORRADO';")
 PM_OTHER=$(q "SELECT id FROM public.payment_methods WHERE account_id = '$ACCOUNT_ID' AND kind = 'other' AND is_active AND deleted_at IS NULL ORDER BY sort_order LIMIT 1;")
 [ -n "$ACCOUNT_ID" ] && [ -n "$SUPPLIER_ID" ] && [ -n "$BRANCH_ID" ] && [ -n "$EMPTY1" ] && [ -n "$EMPTY2" ] \
   && [ -n "$EMPTY3" ] && [ -n "$ORIGIN" ] && [ -n "$P_TWO" ] && [ -n "$P_IDEM" ] && [ -n "$P_LAST1" ] \
   && [ -n "$P_LAST2" ] && [ -n "$P_EDIT" ] && [ -n "$P_BAJA" ] && [ -n "$PM_OTHER" ] \
+  && [ -n "$SUP_A" ] && [ -n "$SUP_B" ] && [ -n "$SUP_C" ] && [ -n "$P_BORRADO" ] \
   || fail "el fixture no devolvió cuenta/proveedor/sucursales/productos/forma de pago"
 
 CLAIMS="SELECT set_config('request.jwt.claims', json_build_object('sub', '$USER_ID', 'role', 'authenticated')::text, true);
@@ -154,13 +173,13 @@ SELECT set_config('request.jwt.claim.sub', '$USER_ID', true);"
 
 stock() { q "SELECT COALESCE((SELECT quantity FROM public.branch_stock WHERE product_id = '$1' AND branch_id = '${2:-$BRANCH_ID}'), 0);"; }
 
-issue_sql() {  # $1 = clave, $2 = producto, $3 = cantidad, $4 = sucursal (opcional)
-  echo "SELECT 'RES=' || public.rpc_create_purchase_delivery_note('$1', '$SUPPLIER_ID'::uuid, '${4:-$BRANCH_ID}'::uuid, NULL, NULL,
+issue_sql() {  # $1 = clave, $2 = producto, $3 = cantidad, $4 = sucursal (opcional), $5 = proveedor (opcional)
+  echo "SELECT 'RES=' || public.rpc_create_purchase_delivery_note('$1', '${5:-$SUPPLIER_ID}'::uuid, '${4:-$BRANCH_ID}'::uuid, NULL, NULL,
           jsonb_build_array(jsonb_build_object('product_id', '$2'::uuid, 'unit_id', NULL,
             'quantity', $3, 'price', 100, 'subtotal', $3 * 100)))::text;"
 }
-update_sql() { # $1 = remito, $2 = versión, $3 = producto, $4 = cantidad, $5 = sucursal (opcional)
-  echo "SELECT 'RES=' || public.rpc_update_purchase_delivery_note('$1'::uuid, $2, '$SUPPLIER_ID'::uuid, '${5:-$BRANCH_ID}'::uuid, NULL, NULL,
+update_sql() { # $1 = remito, $2 = versión, $3 = producto, $4 = cantidad, $5 = sucursal (opcional), $6 = proveedor (opcional)
+  echo "SELECT 'RES=' || public.rpc_update_purchase_delivery_note('$1'::uuid, $2, '${6:-$SUPPLIER_ID}'::uuid, '${5:-$BRANCH_ID}'::uuid, NULL, NULL,
           jsonb_build_array(jsonb_build_object('product_id', '$3'::uuid, 'unit_id', NULL,
             'quantity', $4, 'price', 100, 'subtotal', $4 * 100)))::text;"
 }
@@ -175,13 +194,28 @@ sell_sql() {   # $1 = clave, $2 = producto, $3 = cantidad (venta del POS)
 deactivate_sql() { # $1 = sucursal
   echo "SELECT 'RES=deactivated:' || public.rpc_deactivate_branch('$1'::uuid)::text;"
 }
+# Réplica en SQL de delete_supplier (backend/services/suppliers.py): el proveedor
+# se toma FOR UPDATE ANTES de contar, y el conteo y el soft delete son sentencias
+# aparte (en READ COMMITTED cada una relee). $1 = proveedor.
+delete_supplier_sql() {
+  echo "SELECT 'LOCKED=' || count(*) FROM (SELECT id FROM public.suppliers
+          WHERE id = '$1'::uuid AND account_id = '$ACCOUNT_ID'::uuid AND deleted_at IS NULL FOR UPDATE) s;
+        SELECT 'PENDING=' || count(*) FROM public.delivery_notes
+          WHERE supplier_id = '$1'::uuid AND account_id = '$ACCOUNT_ID'::uuid AND direction = 'purchase' AND status = 'issued';
+        UPDATE public.suppliers SET deleted_at = now(), deleted_by = '$USER_ID'::uuid
+          WHERE id = '$1'::uuid AND account_id = '$ACCOUNT_ID'::uuid
+            AND NOT EXISTS (SELECT 1 FROM public.delivery_notes
+                            WHERE supplier_id = '$1'::uuid AND account_id = '$ACCOUNT_ID'::uuid
+                              AND direction = 'purchase' AND status = 'issued')
+          RETURNING 'DELETED=' || id;"
+}
 
 # Alta fuera de carrera. Devuelve el id del remito.
-new_note() {  # $1 = clave, $2 = producto, $3 = cantidad, $4 = sucursal (opcional)
+new_note() {  # $1 = clave, $2 = producto, $3 = cantidad, $4 = sucursal (opcional), $5 = proveedor (opcional)
   psql "$DB_URL" -v ON_ERROR_STOP=1 -X -q -t -A <<SQL | grep -o '"id": "[0-9a-f-]*"' | head -1 | grep -o '[0-9a-f-]\{36\}'
 BEGIN;
 $CLAIMS
-$(issue_sql "$1" "$2" "$3" "${4:-}")
+$(issue_sql "$1" "$2" "$3" "${4:-}" "${5:-}")
 COMMIT;
 SQL
 }
@@ -312,9 +346,9 @@ echo "PASS (4b): anulación abierta vs edición -> la edición recibió delivery
 race "5a" "$(issue_sql "${RUN}-5a" "$P_BAJA" 1 "$EMPTY1")" "$(deactivate_sql "$EMPTY1")"
 grep -q '"replayed": false' "$TMP_DIR/5a.a" || fail "(5a) la recepción debía completarse"
 # La recepción ya sumó stock, así que el primer token de P0428 que salta es
-# branch_has_stock (antes que branch_has_pending_delivery_notes): los dos son
-# la misma defensa del guard de baja (_branch_assert_empty).
-grep -qE 'branch_has_stock|branch_has_pending_delivery_notes' "$TMP_DIR/5a.b" || fail "(5a) la baja debía rechazar con P0428 (branch_has_stock / branch_has_pending_delivery_notes)"
+# branch_has_stock (antes que branch_has_pending_delivery_notes, que el remito
+# pendiente también dispararía): la spec declara ESE token y el gate lo exige.
+grep -q 'branch_has_stock' "$TMP_DIR/5a.b" || fail "(5a) la baja debía rechazar con P0428 branch_has_stock (el token exacto que declara la spec)"
 [ "$(q "SELECT is_active FROM public.branches WHERE id = '$EMPTY1';")" = "t" ] || fail "(5a) la sucursal debía seguir activa"
 echo "PASS (5a): recepción abierta vs baja de una sucursal vacía -> la baja esperó el FOR SHARE y rechazó con P0428 (la sucursal ya tiene lo recibido)."
 
@@ -335,6 +369,32 @@ grep -q 'P0422\|delivery_note_branch_inactive' "$TMP_DIR/5c.b" || fail "(5c) la 
 is_zero "$(stock "$P_BAJA" "$EMPTY3")" || fail "(5c) no debía quedar stock en la sucursal desactivada"
 echo "PASS (5c): baja abierta vs edición hacia esa sucursal -> la edición esperó el FOR SHARE de la sucursal nueva y rechazó con P0422."
 
+# ── (6a) recepción abierta vs borrado del proveedor ──────────────────────────
+race "6a" "$(issue_sql "${RUN}-6a" "$P_BORRADO" 1 "" "$SUP_A")" "$(delete_supplier_sql "$SUP_A")"
+grep -q '"replayed": false' "$TMP_DIR/6a.a" || fail "(6a) la recepción debía completarse"
+grep -q 'PENDING=1' "$TMP_DIR/6a.b" || fail "(6a) el borrado debía esperar y contar el remito de la recepción (PENDING=1)"
+grep -q 'DELETED=' "$TMP_DIR/6a.b" && fail "(6a) el borrado no debía dar de baja a un proveedor con un remito pendiente"
+[ "$(q "SELECT deleted_at IS NULL FROM public.suppliers WHERE id = '$SUP_A';")" = "t" ] || fail "(6a) el proveedor debía seguir vivo"
+[ "$(q "SELECT count(*) FROM public.delivery_notes WHERE supplier_id = '$SUP_A' AND status = 'issued';")" = "1" ] || fail "(6a) debía quedar un remito pendiente"
+echo "PASS (6a): recepción abierta vs borrado del proveedor -> el borrado esperó el FOR SHARE, contó el remito y no borró."
+
+# ── (6b) borrado abierto vs recepción ────────────────────────────────────────
+race "6b" "$(delete_supplier_sql "$SUP_B")" "$(issue_sql "${RUN}-6b" "$P_BORRADO" 1 "" "$SUP_B")"
+grep -q 'PENDING=0' "$TMP_DIR/6b.a" && grep -q 'DELETED=' "$TMP_DIR/6b.a" || fail "(6b) el borrado debía completarse sobre un proveedor sin remitos"
+grep -q 'supplier_not_found' "$TMP_DIR/6b.b" || fail "(6b) la recepción debía rechazar con supplier_not_found (el proveedor ya está dado de baja)"
+[ "$(q "SELECT deleted_at IS NOT NULL FROM public.suppliers WHERE id = '$SUP_B';")" = "t" ] || fail "(6b) el proveedor debía quedar dado de baja"
+[ "$(q "SELECT count(*) FROM public.delivery_notes WHERE supplier_id = '$SUP_B';")" = "0" ] || fail "(6b) no debía quedar un remito en un proveedor dado de baja"
+echo "PASS (6b): borrado abierto vs recepción -> la recepción esperó, releyó el proveedor borrado y rechazó con supplier_not_found; ningún remito en un proveedor dado de baja."
+
+# ── (6c) edición abierta vs borrado ──────────────────────────────────────────
+R6C=$(new_note "${RUN}-6c" "$P_BORRADO" 1 "" "$SUP_C"); [ -n "$R6C" ] || fail "no se recibió el remito de (6c)"
+race "6c" "$(update_sql "$R6C" 1 "$P_BORRADO" 2 "" "$SUP_C")" "$(delete_supplier_sql "$SUP_C")"
+grep -q '"revision": 2' "$TMP_DIR/6c.a" || fail "(6c) la edición debía completarse"
+grep -q 'PENDING=1' "$TMP_DIR/6c.b" || fail "(6c) el borrado debía esperar y contar el remito (PENDING=1)"
+grep -q 'DELETED=' "$TMP_DIR/6c.b" && fail "(6c) el borrado no debía dar de baja al proveedor"
+[ "$(q "SELECT deleted_at IS NULL FROM public.suppliers WHERE id = '$SUP_C';")" = "t" ] || fail "(6c) el proveedor debía seguir vivo"
+echo "PASS (6c): edición abierta vs borrado del proveedor -> el borrado esperó el FOR SHARE y no borró."
+
 # Numeración RC sin huecos ni repetidos.
 [ "$(q "SELECT count(*) = max(number) AND count(*) = count(DISTINCT number) FROM public.delivery_notes WHERE account_id = '$ACCOUNT_ID' AND direction = 'purchase';")" = "t" ] \
   || fail "la numeración RC de las carreras tiene huecos o repetidos"
@@ -342,4 +402,4 @@ echo "PASS (5c): baja abierta vs edición hacia esa sucursal -> la edición espe
 cleanup
 LEFT=$(q "SELECT count(*) FROM auth.users WHERE id = '$USER_ID';")
 [ "$LEFT" = "0" ] || { echo "GATE REMITOS-COMPRA-RACE FAILED: quedó el usuario del fixture" >&2; exit 1; }
-echo "GATE REMITOS-COMPRA-RACE PASSED: 9 carreras con bloqueo real verificado (recepciones concurrentes, doble clic, anulación contra venta del POS en los dos órdenes, edición contra anulación en los dos órdenes, recepción y edición contra la baja de una sucursal vacía), residuo cero."
+echo "GATE REMITOS-COMPRA-RACE PASSED: 12 carreras con bloqueo real verificado (recepciones concurrentes, doble clic, anulación contra venta del POS en los dos órdenes, edición contra anulación en los dos órdenes, recepción y edición contra la baja de una sucursal vacía, recepción y edición contra el borrado del proveedor), residuo cero."

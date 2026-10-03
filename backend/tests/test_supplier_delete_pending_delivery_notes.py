@@ -128,3 +128,58 @@ async def test_an_empty_count_is_zero(mock_pool):
     _pool, conn = mock_pool
     conn.fetchval = AsyncMock(return_value=None)
     assert await SupplierRepository(conn).count_pending_purchase_delivery_notes(SUPPLIER_ID, "acct-1") == 0
+
+
+# ── Revisión adversarial RC-A-04: el borrado serializa contra la recepción ──
+
+
+async def test_the_delete_locks_the_supplier_row_before_counting_pending_notes(async_client, mock_pool):
+    """check-then-act sin lock: una recepción concurrente pasaba su chequeo de
+    'proveedor vivo' entre el conteo y el soft delete y dejaba un remito pendiente
+    en un proveedor dado de baja. El borrado toma la fila del proveedor FOR UPDATE
+    ANTES de contar (la emisión y la edición la leen FOR SHARE): o la recepción ya
+    la tenía y el borrado espera y cuenta su remito, o el borrado llegó primero y
+    la recepción lo relee borrado."""
+    pool, conn = mock_pool
+    order: list[str] = []
+
+    async def fetchrow(sql, *args):
+        order.append("lock" if "FOR UPDATE" in sql else "read")
+        if "FROM suppliers" in sql:
+            return SUPPLIER_ROW
+        return {"balance": Decimal("0.00")}
+
+    async def fetchval(sql, *args):
+        order.append("count")
+        return 0
+
+    conn.fetchrow = AsyncMock(side_effect=fetchrow)
+    conn.fetchval = AsyncMock(side_effect=fetchval)
+    conn.execute = AsyncMock(return_value="UPDATE 1")
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.delete(f"/suppliers/{SUPPLIER_ID}", headers=_delete_headers())
+
+    assert resp.status_code == 204
+    assert order.index("lock") < order.index("count"), order
+    first_select = conn.fetchrow.call_args_list[0].args[0]
+    assert "FROM suppliers" in first_select and "deleted_at IS NULL" in first_select
+    assert first_select.rstrip().endswith("FOR UPDATE")
+    assert len(_soft_deletes(conn)) == 1
+
+
+async def test_a_plain_read_of_the_supplier_does_not_lock_it(mock_pool):
+    """CONTROL: `get_by_id` sigue sin lock por defecto (lo usan las lecturas y la
+    edición); el bloqueo es opt-in del borrado."""
+    from backend.repositories.supplier_repository import SupplierRepository
+
+    _pool, conn = mock_pool
+    conn.fetchrow = AsyncMock(return_value=SUPPLIER_ROW)
+    repo = SupplierRepository(conn)
+
+    await repo.get_by_id(SUPPLIER_ID, "acct-1")
+    assert "FOR UPDATE" not in conn.fetchrow.call_args.args[0]
+
+    await repo.get_by_id(SUPPLIER_ID, "acct-1", lock=True)
+    sql = conn.fetchrow.call_args.args[0]
+    assert sql.rstrip().endswith("FOR UPDATE")
+    assert "account_id = $2" in sql and "deleted_at IS NULL" in sql

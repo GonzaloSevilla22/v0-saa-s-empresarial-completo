@@ -118,11 +118,19 @@ BEGIN
   INSERT INTO public.clients (user_id, account_id, name) VALUES (v_user, v_account, 'Cliente Race') RETURNING id INTO v_client;
   -- remitos-compra: proveedor para el remito de compra (inocuo para los demás tipos).
   INSERT INTO public.suppliers (account_id, name) VALUES (v_account, 'Proveedor Race');
-  INSERT INTO public.products (user_id, account_id, name, sku, cost, price)
-  VALUES (v_user, v_account, 'Producto Race', 'NUM-RACE-1', 10, 20) RETURNING id INTO v_product;
-  -- remitos-venta: stock para que cada una de las N emisiones descuente 1
-  -- (inocuo para el presupuesto, que no toca stock).
-  PERFORM public.c21_apply_branch_stock_delta(v_account, v_product, public.c26_default_branch(v_account), $N);
+  -- Un producto POR SESIÓN (revisión adversarial RC-A-02): los remitos toman el
+  -- lock de sus productos (FOR UPDATE) ANTES del alta, así que con un único
+  -- producto compartido las N emisiones quedaban serializadas ahí y nunca
+  -- competían por internal_document_sequences (el gate pasaba aunque la
+  -- numeración no tuviera lock propio). Con productos disjuntos el único punto
+  -- de contención que queda es la secuencia.
+  FOR i IN 1..$N LOOP
+    INSERT INTO public.products (user_id, account_id, name, sku, cost, price)
+    VALUES (v_user, v_account, 'Producto Race ' || i, 'NUM-RACE-' || i, 10, 20) RETURNING id INTO v_product;
+    -- remitos-venta: stock para que cada emisión descuente 1 (inocuo para el
+    -- presupuesto, que no toca stock, y para la compra, que suma).
+    PERFORM public.c21_apply_branch_stock_delta(v_account, v_product, public.c26_default_branch(v_account), $N);
+  END LOOP;
   IF EXISTS (SELECT 1 FROM public.internal_document_sequences WHERE account_id = v_account) THEN
     RAISE EXCEPTION 'SETUP FAILED: la cuenta nueva ya tiene fila de secuencia';
   END IF;
@@ -132,10 +140,12 @@ USER_ID=$(q "SELECT id FROM auth.users WHERE email = '$FIXTURE_EMAIL' ORDER BY c
 [ -n "$USER_ID" ] || fail "el fixture no creó el usuario"
 ACCOUNT_ID=$(q "SELECT account_id FROM public.account_members WHERE user_id = '$USER_ID' ORDER BY created_at LIMIT 1;")
 CLIENT_ID=$(q "SELECT id FROM public.clients WHERE account_id = '$ACCOUNT_ID' LIMIT 1;")
-PRODUCT_ID=$(q "SELECT id FROM public.products WHERE account_id = '$ACCOUNT_ID' LIMIT 1;")
+mapfile -t PRODUCT_IDS < <(q "SELECT id FROM public.products WHERE account_id = '$ACCOUNT_ID' ORDER BY length(sku), sku;" | tr -d '\r')
+PRODUCT_ID="${PRODUCT_IDS[0]:-}"
 BRANCH_ID=$(q "SELECT public.c26_default_branch('$ACCOUNT_ID'::uuid);")
 SUPPLIER_ID=$(q "SELECT id FROM public.suppliers WHERE account_id = '$ACCOUNT_ID' LIMIT 1;")
 [ -n "$ACCOUNT_ID" ] && [ -n "$CLIENT_ID" ] && [ -n "$PRODUCT_ID" ] && [ -n "$BRANCH_ID" ] || fail "el fixture no devolvió cuenta/cliente/producto/sucursal"
+[ "${#PRODUCT_IDS[@]}" -eq "$N" ] || fail "el fixture debía crear $N productos distintos, creó ${#PRODUCT_IDS[@]}"
 echo "fixture: account=$ACCOUNT_ID, $N sesiones, tipo $DOC_TYPE"
 
 # ── Portero: advisory EXCLUSIVO, retenido hasta que lo terminemos ────────────
@@ -155,6 +165,7 @@ done
 # ── N sesiones: esperan el advisory compartido y crean el presupuesto ────────
 WORKER_PIDS=()
 for i in $(seq 1 "$N"); do
+  PRODUCT_ID="${PRODUCT_IDS[$((i - 1))]}"   # un producto distinto por sesión (RC-A-02)
   if [ "$DOC_TYPE" = "quote" ]; then
     CALL="public.rpc_create_quote(
   '$CLIENT_ID'::uuid, NULL, NULL, NULL,

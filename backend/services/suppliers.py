@@ -76,7 +76,12 @@ async def delete_supplier(repo: SupplierRepository, auth: dict, account_id: str,
     bloquea con el MISMO 409 `P0409` y el conteo en el mensaje. Los remitos
     convertidos o anulados, o de otra cuenta, no impiden el borrado."""
     require_role(auth, ["user", "admin"])
-    existing = await repo.get_by_id(supplier_id, account_id)
+    # FOR UPDATE antes de cualquier conteo (revisión adversarial RC-A-04): sin el
+    # lock, una recepción concurrente pasaba su chequeo de "proveedor vivo" entre
+    # el conteo de pendientes y el soft delete, y quedaba un remito pendiente en
+    # un proveedor dado de baja. La emisión y la edición del remito de compra
+    # leen la fila FOR SHARE, así que una u otra espera y ve el estado final.
+    existing = await repo.get_by_id(supplier_id, account_id, lock=True)
     if existing is None:
         raise HTTPException(status_code=404, detail="Proveedor no encontrado")
     balance = await repo.get_account_balance(supplier_id, account_id)

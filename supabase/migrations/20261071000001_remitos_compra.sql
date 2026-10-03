@@ -912,7 +912,12 @@ BEGIN
 
   PERFORM public._delivery_note_assert_role_dir(v_account_id, 'issue', 'purchase');
 
-  IF NOT EXISTS (SELECT 1 FROM public.suppliers WHERE id = p_supplier_id AND deleted_at IS NULL) THEN
+  -- FOR SHARE (revisión adversarial RC-A-04): serializa contra delete_supplier,
+  -- que toma el proveedor FOR UPDATE ANTES de contar sus remitos pendientes. Si
+  -- el borrado llegó primero, se relee ya borrado y se rechaza; si llegó la
+  -- recepción primero, el borrado espera y cuenta este remito (409 P0409).
+  PERFORM 1 FROM public.suppliers WHERE id = p_supplier_id AND deleted_at IS NULL FOR SHARE;
+  IF NOT FOUND THEN
     RAISE EXCEPTION 'supplier_not_found: %', p_supplier_id USING ERRCODE = 'P0404';
   END IF;
 
@@ -954,11 +959,15 @@ BEGIN
   END IF;
 
   -- D1: el subtotal de cada línea lo calcula el servidor (precio x cantidad,
-  -- redondeado a 2), ignorando el que mande el cliente.
+  -- redondeado a 2), ignorando el que mande el cliente. El patrón acepta TODA
+  -- forma finita que Postgres lee como numeric (exponente '1E+2' que emite
+  -- str(Decimal) del backend, '.5', '+250', '5.'): con uno más angosto el
+  -- subtotal del cliente pasaba sin tocar mientras el total sí se recalculaba
+  -- (revisión adversarial RC-A-03). Lo no numérico lo rechaza el validador.
   SELECT jsonb_agg(CASE
            WHEN jsonb_typeof(e) = 'object'
-            AND (e->>'price')    ~ '^\s*-?[0-9]+(\.[0-9]+)?\s*$'
-            AND (e->>'quantity') ~ '^\s*-?[0-9]+(\.[0-9]+)?\s*$'
+            AND (e->>'price')    ~ '^\s*[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)([eE][+-]?[0-9]+)?\s*$'
+            AND (e->>'quantity') ~ '^\s*[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)([eE][+-]?[0-9]+)?\s*$'
            THEN e || jsonb_build_object('subtotal', round((e->>'price')::numeric * (e->>'quantity')::numeric, 2))
            ELSE e END ORDER BY o)
   INTO   v_items
@@ -1074,10 +1083,11 @@ BEGIN
   IF p_supplier_id IS NULL THEN
     RAISE EXCEPTION 'delivery_note_supplier_required: el remito de compra necesita un proveedor' USING ERRCODE = 'P0400';
   END IF;
-  IF NOT EXISTS (
-    SELECT 1 FROM public.suppliers
-    WHERE id = p_supplier_id AND account_id = v_dn.account_id AND deleted_at IS NULL
-  ) THEN
+  -- FOR SHARE: la misma serialización contra delete_supplier que la emisión (RC-A-04).
+  PERFORM 1 FROM public.suppliers
+  WHERE id = p_supplier_id AND account_id = v_dn.account_id AND deleted_at IS NULL
+  FOR SHARE;
+  IF NOT FOUND THEN
     RAISE EXCEPTION 'supplier_not_found: %', p_supplier_id USING ERRCODE = 'P0404';
   END IF;
 
@@ -1135,8 +1145,8 @@ BEGIN
   -- D1: subtotales del servidor.
   SELECT jsonb_agg(CASE
            WHEN jsonb_typeof(e) = 'object'
-            AND (e->>'price')    ~ '^\s*-?[0-9]+(\.[0-9]+)?\s*$'
-            AND (e->>'quantity') ~ '^\s*-?[0-9]+(\.[0-9]+)?\s*$'
+            AND (e->>'price')    ~ '^\s*[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)([eE][+-]?[0-9]+)?\s*$'
+            AND (e->>'quantity') ~ '^\s*[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)([eE][+-]?[0-9]+)?\s*$'
            THEN e || jsonb_build_object('subtotal', round((e->>'price')::numeric * (e->>'quantity')::numeric, 2))
            ELSE e END ORDER BY o)
   INTO   v_items

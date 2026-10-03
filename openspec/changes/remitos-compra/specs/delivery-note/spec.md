@@ -84,7 +84,7 @@ La emisión SHALL ser idempotente: exige una clave de idempotencia y, ante la mi
 #### Scenario: Recepción contra la baja de una sucursal vacía
 - **GIVEN** una sucursal activa sin existencias ni remitos pendientes
 - **WHEN** un usuario emite un remito de compra a esa sucursal mientras otro la da de baja
-- **THEN** o la emisión falla con `P0422` y la sucursal queda dada de baja sin stock, o la baja falla con `P0428 branch_has_pending_delivery_notes` y el remito queda emitido en una sucursal activa
+- **THEN** o la emisión falla con `P0422` y la sucursal queda dada de baja sin stock, o la baja falla con `P0428 branch_has_stock` (la recepción ya sumó stock; el remito pendiente también la bloquearía con `branch_has_pending_delivery_notes`) y el remito queda emitido en una sucursal activa
 
 #### Scenario: Recibir no mueve dinero ni el costo
 - **WHEN** se emite un remito de compra con precio $500 para un producto de costo de catálogo $300

@@ -188,7 +188,7 @@ DECLARE
   v_pa uuid; v_pb uuid; v_pkg uuid; v_pk3 uuid; v_pc uuid; v_pd uuid; v_pe uuid; v_pf uuid;
   v_pq uuid; v_pr uuid; v_pw uuid; v_pw2 uuid; v_psnap uuid; v_pdel uuid; v_pz uuid; v_pi uuid;
   v_pforge uuid; v_pcan uuid; v_ppart uuid; v_pnobase uuid; v_pbulto uuid; v_pv uuid; v_pidem uuid;
-  v_ph uuid; v_parent uuid; v_variant uuid; v_pdead uuid; v_pother uuid;
+  v_ph uuid; v_parent uuid; v_variant uuid; v_pdead uuid; v_pother uuid; v_psci uuid; v_dnsci uuid;
   v_pm_other uuid;
 
   v_today   date := public.reporting_local_today();
@@ -294,6 +294,8 @@ BEGIN
   VALUES (v_owner_a, v_account_a, 'Gate RC Kg', 'GRC-KG', 1000, 2000, v_kg) RETURNING id INTO v_pkg;
   INSERT INTO public.products (user_id, account_id, name, sku, cost, price, base_unit_id)
   VALUES (v_owner_a, v_account_a, 'Gate RC Kg3', 'GRC-KG3', 500, 999, v_kg) RETURNING id INTO v_pk3;
+  INSERT INTO public.products (user_id, account_id, name, sku, cost, price, base_unit_id)
+  VALUES (v_owner_a, v_account_a, 'Gate RC Sci', 'GRC-SCI', 500, 999, v_kg) RETURNING id INTO v_psci;
   INSERT INTO public.products (user_id, account_id, name, sku, cost, price, base_unit_id)
   VALUES (v_owner_a, v_account_a, 'Gate RC C', 'GRC-C', 10, 20, v_u) RETURNING id INTO v_pc;
   INSERT INTO public.products (user_id, account_id, name, sku, cost, price, base_unit_id)
@@ -483,6 +485,31 @@ BEGIN
   END IF;
   IF pg_temp.rcp_stock(v_pk3, v_x) <> 0.666 THEN
     v_failures := v_failures || format('FAIL (a): el par Kg3 debía sumar 0,666 (dos líneas del mismo producto juntas), stock %s', pg_temp.rcp_stock(v_pk3, v_x));
+  END IF;
+  -- Revisión adversarial RC-A-03: el subtotal del servidor NO depende de la forma
+  -- textual del número. El backend serializa con str(Decimal), que puede dar
+  -- exponente ('1E+2'); '.5' y '+250' también son numéricos válidos. En los tres
+  -- casos el subtotal que mande el cliente (9999 / 777 / 5) se ignora.
+  v_r := pg_temp.rcp_issue('rc-a-sci', v_sup2, v_x, jsonb_build_array(
+    jsonb_build_object('product_id', v_psci, 'unit_id', NULL, 'quantity', '0.5',  'price', '1E+2', 'subtotal', '9999'),
+    jsonb_build_object('product_id', v_psci, 'unit_id', NULL, 'quantity', '4',    'price', '.5',   'subtotal', '777'),
+    jsonb_build_object('product_id', v_psci, 'unit_id', NULL, 'quantity', '2E0',  'price', '+250', 'subtotal', '5')));
+  v_dnsci := (v_r->>'id')::uuid;
+  v_rc_expected := v_rc_expected + 1;
+  IF (v_r->>'total')::numeric IS DISTINCT FROM 552.00
+     OR (SELECT string_agg(subtotal::text, ',' ORDER BY line_no) FROM public.delivery_note_items WHERE delivery_note_id = v_dnsci)
+          IS DISTINCT FROM '50.00,2.00,500.00' THEN
+    v_failures := v_failures || format('FAIL (a): precios/cantidades con exponente, punto inicial o signo + debían dar subtotales 50 / 2 / 500 (total 552) ignorando el del cliente; salió total %s y subtotales %s',
+      v_r->>'total', (SELECT string_agg(subtotal::text, ',' ORDER BY line_no) FROM public.delivery_note_items WHERE delivery_note_id = v_dnsci));
+  END IF;
+  -- La misma regla en la edición (el reemplazo persiste las líneas desde el núcleo).
+  v_r := public.rpc_update_purchase_delivery_note(v_dnsci, pg_temp.rcp_rev(v_dnsci), v_sup2, v_x, NULL, NULL, jsonb_build_array(
+    jsonb_build_object('product_id', v_psci, 'unit_id', NULL, 'quantity', '3', 'price', '1E+1', 'subtotal', '123456')));
+  IF (v_r->>'total')::numeric IS DISTINCT FROM 30.00
+     OR (SELECT string_agg(subtotal::text, ',' ORDER BY line_no) FROM public.delivery_note_items WHERE delivery_note_id = v_dnsci)
+          IS DISTINCT FROM '30.00' THEN
+    v_failures := v_failures || format('FAIL (a): la edición con precio 1E+1 debía dar subtotal 30 ignorando el del cliente; salió total %s y subtotales %s',
+      v_r->>'total', (SELECT string_agg(subtotal::text, ',' ORDER BY line_no) FROM public.delivery_note_items WHERE delivery_note_id = v_dnsci));
   END IF;
   -- La secuencia R siguió por su lado.
   PERFORM pg_temp.rcp_as(v_seller);

@@ -109,7 +109,7 @@ describe("DeliveryNotesPage — listado", () => {
     expect(within(first).getByText("Ana Pérez")).toBeInTheDocument()
     expect(within(first).getByText("Centro")).toBeInTheDocument()
     expect(first).toHaveTextContent(/12\.345/)
-    expect(first).toHaveTextContent(/\b3\b/)
+    expect(within(first).getAllByRole("cell")[4]).toHaveTextContent(/^3$/)
     expect(within(first).getByText("Pendiente")).toBeInTheDocument()
 
     expect(within(screen.getByTestId("delivery-note-row-dn-2")).getByText("Convertido en venta")).toBeInTheDocument()

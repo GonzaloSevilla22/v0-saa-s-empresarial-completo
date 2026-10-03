@@ -25,3 +25,19 @@ El sistema SHALL exponer en el listado de compras el remito de origen de cada op
 - **GIVEN** una compra nacida del remito `RC-00000012`
 - **WHEN** el usuario abre `/compras`
 - **THEN** la fila muestra "Desde remito RC-00000012" con enlace al detalle del remito
+
+### Requirement: El origen de remito de una compra no es escribible por los roles de aplicación
+El sistema SHALL impedir que los roles de aplicación (`anon`, `authenticated`) fijen, cambien o limpien `purchases.source_delivery_note_id`, inserten filas de compra con origen o borren filas con origen por fuera del borrado de la operación, porque esa columna decide que la compra no sumó stock, que no se edita, que su borrado no revierte stock y que reabre un remito. El rechazo SHALL ser `P0403 delivery_note_source_protected`, sin efectos. Las operaciones del servidor que crean y borran la compra nacida de un remito SHALL seguir pudiendo escribirla, y las escrituras sobre compras sin origen SHALL comportarse como hoy.
+
+#### Scenario: Forjar el origen en una compra directa
+- **GIVEN** una compra directa de 5 unidades de A, con su movimiento de stock
+- **WHEN** un escritor de la cuenta actualiza por PostgREST su `source_delivery_note_id` con el id de un remito pendiente
+- **THEN** la operación falla con `P0403 delivery_note_source_protected` y borrar esa compra después sigue restando las 5 unidades
+
+#### Scenario: Limpiar el origen de una compra de remito
+- **WHEN** un escritor de la cuenta pone en nulo por PostgREST el `source_delivery_note_id` de una compra nacida de un remito
+- **THEN** la operación falla con `P0403 delivery_note_source_protected` y la compra sigue sin poder editarse
+
+#### Scenario: Borrar por PostgREST las filas de una compra de remito
+- **WHEN** un escritor de la cuenta borra por PostgREST una fila de una compra nacida de un remito
+- **THEN** la operación falla con `P0403 delivery_note_source_protected` y el remito sigue `converted` con su compra

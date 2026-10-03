@@ -2,14 +2,14 @@
 
 El PO pidió (2026-09-29), textual: *«el módulo remito tanto de venta como de compra y el módulo presupuesto […] quiero lo mismo para remito pero que éste sí baje de stock; cuando se crea el presupuesto no.»* Y después: *«no necesito el remito legal. Andá con todo lo recomendado»* y *«quiero que tanto el remito como los presupuestos se puedan modificar»*.
 
-Este change es el tercero y último del split del explore (`openspec/changes/archive/2026-10-02-presupuestos-modulo/research/explore-presupuestos-remitos.md` §4): `presupuestos-modulo` (archivado) → `remitos-venta` (tanda A en el PR #612) → **`remitos-compra`**. Cubre el sentido que el explore llama "de un solo paso": la mercadería que **entra** desde un proveedor.
+Este change es el tercero y último del split del explore (`openspec/changes/archive/2026-10-02-presupuestos-modulo/research/explore-presupuestos-remitos.md` §4): `presupuestos-modulo` (archivado) → `remitos-venta` (tanda A ya en `main`, PR #612) → **`remitos-compra`**. Cubre el sentido que el explore llama "de un solo paso": la mercadería que **entra** desde un proveedor.
 
 Hoy la única forma de registrar mercadería que entra es la compra (`rpc_create_purchase_operation`), que suma stock **y** mueve dinero en el mismo acto. El comercio que recibe la mercadería con el remito del proveedor y paga después (la factura llega días más tarde, se paga a fin de mes o el precio se confirma con la factura) tiene dos malas opciones:
 
 - **cargar la compra al recibir**: registra un pago o una deuda antes de tiempo, con un precio que todavía no conoce;
 - **no cargar nada hasta pagar**: el stock queda en cero mientras la mercadería ya está en el depósito, y el POS rechaza las ventas por falta de stock.
 
-Medido en prod (2026-10-03, sólo lectura): **0** tablas, funciones o columnas de remito de compra (las de `remitos-venta` todavía no están aplicadas); 127 operaciones de compra (33 en los últimos 30 días, 32 de ellas con proveedor); 19 proveedores vivos en 8 cuentas, **2** con teléfono.
+Medido en prod (2026-10-03, sólo lectura): **0** remitos de compra ni filas `delivery_note_purchase` (las tablas de `remitos-venta` ya están aplicadas, `MAX(version) = 20261069000001`); 127 operaciones de compra (33 en los últimos 30 días, 32 de ellas con proveedor); 19 proveedores vivos en 8 cuentas, **2** con teléfono.
 
 ## What Changes
 
@@ -29,9 +29,10 @@ Medido en prod (2026-10-03, sólo lectura): **0** tablas, funciones o columnas d
   - Se extrae un núcleo interno `_purchase_operation_core` desde el cuerpo vivo de `rpc_create_purchase_operation`. La RPC pública queda como wrapper con la misma firma, la misma ACL y sin `COMMENT` (hoy no tiene).
   - El salto de stock lo decide el servidor: el núcleo recibe el remito **sólo** desde la conversión (es interno, sin `EXECUTE` para roles de aplicación), lo revalida bajo bloqueo, lee las líneas del propio remito y persiste el origen en `purchases.source_delivery_note_id`. Ningún parámetro público pide "no sumes stock".
   - La compra mueve el dinero exactamente como una compra directa: caja con las tres condiciones, banco, cuenta corriente del proveedor con vencimiento por cascada, evento `PurchaseCreated` y asiento.
+  - `purchases` admite escritura por PostgREST, así que un disparador impide que los roles de aplicación fijen, cambien o limpien `source_delivery_note_id`, o borren filas con origen por fuera del borrado.
 - **Vida posterior de la compra nacida de un remito**:
   - **No se edita** desde `/compras` (`P0423 delivery_note_purchase_locked`): la edición volvería a mover stock.
-  - **Borrarla** compensa el dinero como siempre, **no toca stock** y devuelve el remito a pendiente (R5 aplicado a compra).
+  - **Borrarla** compensa el dinero como siempre, **no toca stock** y devuelve el remito a pendiente (R5 aplicado a compra). El borrado bloquea el remito antes de compensar, así que dos borrados o un borrado contra una reconversión no lo reabren dos veces.
   - Anular un remito convertido está prohibido (`P0423`).
 - **PDF** del remito de compra con el constructor compartido: "Recibido de" (proveedor), "Ingresa a" (sucursal), número del remito del proveedor, bloque de firma de quien recibe, sin precios por defecto y con "Mostrar precios" (R2).
 - **Envío** con `DocumentShareMenu`: descarga y WhatsApp **al proveedor** si tiene teléfono; sin teléfono, el selector de contacto de WhatsApp.
@@ -41,7 +42,8 @@ Medido en prod (2026-10-03, sólo lectura): **0** tablas, funciones o columnas d
   - **`/remitos/nuevo?tipo=compra`** y **`/remitos/[id]/editar`**: el formulario del remito parametrizado por sentido, con **proveedor obligatorio y alta inline** (selector extraído del formulario de compra a un componente compartido), número del remito del proveedor y sucursal de destino.
   - **`/remitos/[id]`** de compra: Compartir (con "Mostrar precios"), Editar, **Compra** y Anular con motivo.
   - Diálogo **"Convertir en compra"**: forma de pago, cuenta bancaria, caja, fecha, vencimiento y centro de costo, con los campos de cierre extraídos del formulario de compra.
-  - **`/compras`**: badge **"Desde remito RC-…"** con enlace, "Editar" deshabilitado con su motivo y una línea nueva en el diálogo de borrado.
+  - **`/compras`**: badge **"Desde remito RC-…"** con enlace, "Editar" deshabilitado con su motivo, el diálogo de borrado sin la reversa de stock y con la explicación del remito, y "Eliminar" deshabilitado con su motivo para quien no puede reabrir el remito o si su sucursal está inactiva.
+  - **Aviso contra la doble suma**: "Nueva compra" y Factura IA avisan, con enlace, cuando hay remitos de compra pendientes (del proveedor elegido, o de la cuenta si el flujo no identifica proveedor).
   - **Proveedores**: acción "Nuevo remito de compra" en el listado y "Nuevo remito" / "Ver remitos" en la cuenta corriente del proveedor.
   - **`/stock`**: el panel ya rotula los remitos por `reference_type` y formatea el número por sentido; muestra `RC-…` sin cambios de lógica.
   - **Diálogo de baja de sucursal**: un enlace por sentido a los remitos pendientes.
@@ -59,7 +61,7 @@ Medido en prod (2026-10-03, sólo lectura): **0** tablas, funciones o columnas d
 - **R4**: editable mientras no esté convertido, con espejo de stock en los pares que cambian y control de faltante sobre el neto (bajar una cantidad ya vendida → `P0409`). Convertido → inmutable.
 - **R5**: borrar la compra nacida del remito lo devuelve a pendiente; el stock **no** se toca.
 - **R6**: anular un remito de compra cuya mercadería ya se consumió se bloquea con `P0409`.
-- **R7**: emitir un remito de compra: `stock`/`admin`/`owner`. Anular: `admin`/`owner`. Convertir: quien registra compras (`CAN_PURCHASE`: `purchases`/`admin`/`owner`).
+- **R7**: emitir un remito de compra: `stock`/`admin`/`owner`. Anular: `admin`/`owner`. (Quién **convierte** no estaba en OQ-R7: es la recomendación de OQ-RC6, `purchases`/`stock`/`admin`/`owner`.)
 - **R8**: 1 remito → 1 compra con todas sus líneas; sin gate de plan; descarga y WhatsApp, sin link público ni email. Proveedor obligatorio y número del remito del proveedor opcional.
 
 ## Qué se reutiliza
@@ -110,10 +112,10 @@ Ninguna. El remito de compra extiende la capability `delivery-note` que crea `re
 ## Impact
 
 - **Base de datos**: dos migraciones (tandas A y B), con el **siguiente número libre** al momento de cada apply (`remitos-venta` tanda A tomó `20261069000001`; su tanda B probablemente tome `20261070000001`).
-  - Tanda A: `CHECK` ampliados (`internal_document_sequences`, los dos de FSM, `operation_idempotency`); filas del catálogo; disparadores gemelos; helpers reescritos desde el cuerpo vivo; núcleo de edición extraído; `rpc_create_purchase_delivery_note`, `rpc_update_purchase_delivery_note` y `rpc_cancel_delivery_note` generalizada.
-  - Tanda B: `purchases.source_delivery_note_id`; filas de conversión del catálogo; `_purchase_operation_core` + wrapper; `rpc_convert_delivery_note_to_purchase`; `rpc_delete_purchase_operation` y `rpc_atomic_update_purchase_operation` desde el cuerpo vivo; retiro del bloque de reaplicación de `20261062000001` en `KPI_Validation.yml` si sigue ahí.
-- **Backend**: `delivery_notes` (schemas con unión discriminada por `direction`, repositorio, service, router, `POST /delivery-notes/{id}/convert-to-purchase`), `core/rbac.py` (`CAN_RECEIVE_PURCHASE`), vista PDF por sentido, read model de compras con el remito de origen, numeración `RC`.
-- **Frontend**: `/remitos` (pestañas), `DeliveryNoteForm` por sentido, `components/suppliers/SupplierSelect.tsx` (extraído de `purchase-form.tsx`), `components/compras/PurchaseCheckoutFields.tsx` (extraído), `ConvertPurchaseDeliveryNoteDialog`, `purchase-operations-list.tsx` y diálogo de borrado de compra, `/proveedores` y su cuenta corriente, `DeactivateBranchDialog`, `lib/internal-document-number.ts`, `lib/operation-errors.ts`, `lib/rbac-capabilities.ts`, `lib/query-invalidation.ts`.
+  - Tanda A: `CHECK` ampliados por agregado al vivo (`internal_document_sequences`, los dos de FSM, `operation_idempotency`); filas del catálogo; disparadores gemelos; helpers reescritos desde el cuerpo vivo; núcleo de edición extraído; `rpc_create_purchase_delivery_note`, `rpc_update_purchase_delivery_note` y `rpc_cancel_delivery_note` generalizada; **retiro del paso de reaplicación de `20261069000001`** en `KPI_Validation.yml` (sus `CHECK` de lista fija abortarían con las filas `delivery_note_purchase`), con reconvergencia por `db reset`.
+  - Tanda B: `purchases.source_delivery_note_id` y su disparador de integridad; filas de conversión del catálogo; `_purchase_operation_core` + wrapper; `rpc_convert_delivery_note_to_purchase`; `rpc_delete_purchase_operation` y `rpc_atomic_update_purchase_operation` desde el cuerpo vivo; retiro del bloque de reaplicación de `20261062000001` en `KPI_Validation.yml` si sigue ahí.
+- **Backend**: `delivery_notes` (schemas con unión discriminada por `direction`, repositorio, service, router, `POST /delivery-notes/{id}/convert-to-purchase`), `core/rbac.py` (`CAN_RECEIVE_PURCHASE`, `CAN_CONVERT_PURCHASE_DELIVERY_NOTE`), vista PDF por sentido, read model de compras con el remito de origen, numeración `RC`.
+- **Frontend**: `/remitos` (pestañas), `DeliveryNoteForm` por sentido, `components/suppliers/SupplierSelect.tsx` (extraído de `purchase-form.tsx`), `components/compras/PurchaseCheckoutFields.tsx` (extraído), `ConvertPurchaseDeliveryNoteDialog`, `purchase-operations-list.tsx` y diálogo de borrado de compra, `/proveedores` y su cuenta corriente, `DeactivateBranchDialog`, `lib/internal-document-number.ts`, `lib/operation-errors.ts`, `lib/rbac-capabilities.ts`, `lib/query-invalidation.ts`, `components/shared/StagedProductLine.tsx` y `lib/cart-utils.ts` (fuente de precio por sentido), `hooks/` (cascada del vencimiento extraída de `sale-form.tsx`), `components/invoice/InvoiceAIButton.tsx` (aviso).
 - **Gates**: `test_remitos_compra.sql` (A), `test_remito_a_compra.sql` (B) y `test_remitos_compra_race.sh`; actualizados `test_remitos_venta.sql` (regresión de los helpers compartidos), `test_document_status_transition_role_matrix.sql`, `test_function_acl_gate.sql` y los gates de compras (`test_purchase_cash_optin.sql`, `test_purchase_delete_cash_compensation.sql`, `test_compras_proveedor_cuenta_corriente.sql`, `test_stock_movements_edicion.sql`, `test_delete_guard_ledgers.sql`, `test_edicion_preserva_contexto.sql`), todos cableados en `KPI_Validation.yml`.
 - **Governance: MEDIA con tramo ALTO.** Escribe el ledger de stock en tres caminos nuevos, reescribe helpers que `remitos-venta` acaba de mergear y extrae el núcleo de la compra, que mueve caja, banco y cuenta corriente. Checkpoints de cuerpo vivo, gate con matriz de evasión contra la doble suma y revisión adversarial antes de cada merge.
-- **Riesgos principales**: doble suma de stock al convertir; regresión de la compra directa por la extracción del núcleo; regresión del remito de venta por los helpers compartidos; anulación o edición que deja stock negativo (la tabla lo prohíbe con un `CHECK`: sin gate, fallaría con un `23514` ilegible); choque de orden con la tanda B de `remitos-venta` y con el PR #607.
+- **Riesgos principales**: doble suma de stock al convertir o por una compra directa de la misma mercadería; puente remito ↔ compra escribible por PostgREST; regresión de la compra directa por la extracción del núcleo; regresión del remito de venta por los helpers compartidos; anulación o edición que deja stock negativo (la tabla lo prohíbe con un `CHECK`: sin gate, fallaría con un `23514` ilegible); choque de orden con la tanda B de `remitos-venta` y con el PR #607.

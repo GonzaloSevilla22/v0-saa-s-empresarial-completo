@@ -1,3 +1,34 @@
+## MODIFIED Requirements
+
+### Requirement: Remito de venta interno con cliente, sucursal y líneas con producto
+El sistema SHALL modelar el remito como documento interno ("X"), no fiscal, en `delivery_notes` + `delivery_note_items`, con un sentido (`direction`) que admite `'sale'` y `'purchase'`. El sentido `'sale'` es el remito de venta (descuenta stock) y el sentido `'purchase'` es el remito de compra (suma stock), con sus requirements propios en esta capability.
+
+Un remito de venta SHALL tener:
+- un cliente vivo de su cuenta;
+- una sucursal de origen de su cuenta, activa y no cerrada;
+- al menos una línea.
+
+Cada línea SHALL tener un producto vivo de la cuenta que no sea padre con variantes ni `variant_only`, una cantidad mayor que cero, un precio por unidad de la línea no negativo guardado sin redondear y un subtotal no negativo. Los precios SHALL guardarse siempre, aunque el PDF no los muestre. El total SHALL calcularlo el servidor como el redondeo a 2 decimales de la suma de subtotales, ignorando cualquier total que envíe el cliente.
+
+Una línea sin producto SHALL rechazarse con `P0400 delivery_note_product_required`. El remito admite además domicilio de entrega (hasta 500 caracteres) y notas (hasta 2.000), opcionales. La fecha del remito SHALL ser el día argentino de la emisión y no se edita.
+
+#### Scenario: Alta válida
+- **GIVEN** un cliente vivo, una sucursal activa de la cuenta y dos productos con stock suficiente
+- **WHEN** un vendedor emite un remito con dos líneas
+- **THEN** existe un remito `issued` con fecha de hoy (ART), las dos líneas y el total calculado por el servidor
+
+#### Scenario: Línea sin producto rechazada
+- **WHEN** se emite un remito con una línea sin `product_id`
+- **THEN** la operación falla con `P0400 delivery_note_product_required` y no se escribe nada
+
+#### Scenario: Contraparte y sucursal ajenas o inválidas
+- **WHEN** se emite un remito con un cliente de otra cuenta, un cliente dado de baja, sin sucursal, con una sucursal de otra cuenta o con una sucursal cerrada
+- **THEN** la operación falla con `P0404 client_not_found`, `P0400 delivery_note_branch_required`, `P0404` o `P0422 branch_closed`, según el caso, sin escribir nada
+
+#### Scenario: Producto inválido
+- **WHEN** una línea referencia un producto de otra cuenta, dado de baja, o un padre con variantes
+- **THEN** la operación falla con `P0404 product_not_found` o `P0400 product_is_parent` y no se escribe nada
+
 ## ADDED Requirements
 
 ### Requirement: Remito de compra interno con proveedor, sucursal de destino y líneas con producto
@@ -53,7 +84,7 @@ El sistema SHALL permitir editar un remito de compra `issued` (líneas, cantidad
 
 Para cada par producto-sucursal que cambia, SHALL registrar una pata de aplicación (`type = 'purchase'`, `reference_type = 'delivery_note'`, con lo nuevo) y una pata de reversa (`type = 'purchase_return'`, `reference_type = 'delivery_note_update'`, con lo que el remito aportaba), aplicando primero las patas que suman stock y después las que restan, de modo que el control de faltante se evalúe sobre el neto. Lo que el remito aporta SHALL calcularse desde las cantidades base de sus líneas vigentes, nunca sumando el ledger.
 
-Si una pata que resta necesita más de lo que la sucursal tiene, la edición SHALL fallar con `P0409 delivery_note_stock_consumed`, nombrando el producto, lo disponible y lo que se necesita restar, sin cambiar nada. Los pares sin cambio SHALL NOT escribir movimientos. Un remito `converted` SHALL rechazar la edición con `P0423 delivery_note_locked_converted`, uno `canceled` con `P0409 delivery_note_invalid_state`, una versión vieja con `P0409 delivery_note_changed` y una sucursal vigente desactivada o cerrada con `P0422 delivery_note_branch_inactive`.
+La edición SHALL fijar la sucursal nueva del remito antes de calcular lo que aportan las líneas nuevas, de modo que un cambio de sucursal mueva el stock aunque las cantidades no cambien. Antes de escribir cualquier pata, SHALL verificar el neto de cada par producto-sucursal: si el neto resta más de lo que la sucursal tiene, la edición SHALL fallar con `P0409 delivery_note_stock_consumed`, nombrando el producto, el stock de la sucursal antes de la edición y lo que el usuario resta (el neto), sin cambiar nada. Los pares sin cambio SHALL NOT escribir movimientos. Un remito `converted` SHALL rechazar la edición con `P0423 delivery_note_locked_converted`, uno `canceled` con `P0409 delivery_note_invalid_state`, una versión vieja con `P0409 delivery_note_changed` y una sucursal vigente desactivada o cerrada con `P0422 delivery_note_branch_inactive`.
 
 #### Scenario: Bajar una cantidad ya vendida en parte
 - **GIVEN** un remito de compra que aportó 10 unidades de A a la sucursal X, de las que se vendieron 7 (stock de A en X: `3`)
@@ -63,7 +94,7 @@ Si una pata que resta necesita más de lo que la sucursal tiene, la edición SHA
 #### Scenario: Bajar por debajo de lo que ya salió
 - **GIVEN** el mismo remito, con stock de A en X en `3`
 - **WHEN** se edita la línea a 5 unidades
-- **THEN** la operación falla con `P0409 delivery_note_stock_consumed`, el stock sigue en `3` y el remito conserva sus 10 unidades
+- **THEN** la operación falla con `P0409 delivery_note_stock_consumed`, el mensaje dice que en la sucursal quedan 3 y el remito necesita restar 5, el stock sigue en `3` y el remito conserva sus 10 unidades
 
 #### Scenario: Cargar los precios no mueve el ledger
 - **GIVEN** un remito de compra `issued` con una línea de precio `0`
@@ -73,7 +104,12 @@ Si una pata que resta necesita más de lo que la sucursal tiene, la edición SHA
 #### Scenario: Cambiar la sucursal de destino
 - **GIVEN** un remito de compra que aportó 4 unidades de A a la sucursal X, con stock de A en X en `4`
 - **WHEN** se edita la sucursal a Y
-- **THEN** Y recibe una pata de aplicación de `+4`, X una de reversa de `-4`, y el stock queda en `0` en X y en `+4` en Y
+- **THEN** Y recibe una pata de aplicación de `+4`, X una de reversa de `-4`, el stock queda en `0` en X y en `+4` en Y, y el remito queda con la sucursal Y
+
+#### Scenario: Cambiar la sucursal sin toda la mercadería en la vieja
+- **GIVEN** un remito de compra que aportó 4 unidades de A a la sucursal X, con stock de A en X en `1`
+- **WHEN** se edita la sucursal a Y
+- **THEN** la operación falla con `P0409 delivery_note_stock_consumed`, nada se mueve y el remito sigue en X
 
 ### Requirement: Anulación del remito de compra bloqueada si la mercadería se consumió
 El sistema SHALL permitir anular un remito de compra `issued` sólo a administradores y dueños, con un motivo no vacío y la versión vigente, usando la misma operación de anulación que el remito de venta.
@@ -141,7 +177,9 @@ Las conversiones rechazadas responden así, sin efectos: precio cero en alguna l
 El sistema SHALL tratar la compra nacida de un remito de compra así:
 - su edición SHALL rechazarse con `P0423 delivery_note_purchase_locked` antes de cualquier escritura, porque volvería a mover stock;
 - su borrado SHALL compensar el dinero como el de cualquier compra, SHALL NOT tocar el stock y SHALL devolver el remito a `issued`, con la transición `converted → issued` registrada con el motivo y el usuario que borró;
-- su borrado SHALL exigir el rol de anular remitos de compra (administrador o dueño) y que la sucursal del remito esté activa y no cerrada (`P0422 delivery_note_branch_inactive`), antes de cualquier efecto;
+- su borrado SHALL bloquear el remito de origen, leído con la cuenta del usuario y el sentido compra, antes de cualquier compensación; bajo ese bloqueo SHALL volver a leer las filas de la compra (si ya no existen, termina sin efectos) y exigir que el remito siga `converted`, de modo que dos borrados de la misma compra, o un borrado que esperó contra una reconversión, nunca reabran el remito dos veces ni lo reabran con otra compra viva;
+- su borrado SHALL exigir el rol de anular remitos de compra (administrador o dueño, `P0403 delivery_note_purchase_delete_forbidden`) y que la sucursal del remito esté activa y no cerrada (`P0422 delivery_note_branch_inactive`), antes de cualquier efecto;
+- un origen que apunta a un remito de otra cuenta o de venta SHALL NOT reabrirse: el borrado rechaza con `P0409 delivery_note_purchase_mismatch`;
 - el remito convertido SHALL NOT poder anularse ni editarse (`P0423 delivery_note_locked_converted`) mientras la compra exista.
 
 Un remito que vuelve a `issued` SHALL poder convertirse de nuevo.
@@ -153,7 +191,17 @@ Un remito que vuelve a `issued` SHALL poder convertirse de nuevo.
 
 #### Scenario: El rol de compras no reabre el remito
 - **WHEN** un usuario con rol `purchases` intenta borrar una compra nacida de un remito
-- **THEN** la operación falla con `P0403 insufficient_role` y no se compensa nada
+- **THEN** la operación falla con `P0403 delivery_note_purchase_delete_forbidden` y no se compensa nada
+
+#### Scenario: Dos borrados concurrentes de la misma compra
+- **GIVEN** una compra nacida de un remito de compra
+- **WHEN** dos administradores la borran al mismo tiempo
+- **THEN** el dinero se compensa una sola vez, el historial registra una sola transición `converted → issued` y el segundo borrado termina sin efectos
+
+#### Scenario: Borrado viejo contra reconversión
+- **GIVEN** un borrado de la compra de un remito que quedó esperando detrás de otro borrado de la misma compra, y una reconversión del remito que se confirma en el medio
+- **WHEN** el borrado que esperaba continúa
+- **THEN** termina sin efectos y el remito sigue `converted`, con la compra de la reconversión viva
 
 ### Requirement: PDF del remito de compra
 El sistema SHALL generar el PDF del remito de compra con el mismo constructor y el mismo endpoint por id con tenencia que el remito de venta, con el título "REMITO DE COMPRA", el número `RC-…`, el bloque "Recibido de" con el proveedor y el número de su remito si existe, la sucursal a la que ingresa la mercadería, las cantidades con su unidad, el bloque de firma de quien recibe y la leyenda "Remito — documento no válido como factura". Los precios y el total SHALL aparecer sólo si se pide mostrarlos, y un remito anulado SHALL llevar el sello "ANULADO".
@@ -167,15 +215,15 @@ El sistema SHALL generar el PDF del remito de compra con el mismo constructor y 
 - **THEN** recibe 404 con el mismo cuerpo que para un remito inexistente
 
 ### Requirement: Envío del remito de compra al proveedor
-El sistema SHALL ofrecer en el detalle del remito de compra el menú compartido para ver, descargar y enviar el PDF por WhatsApp, con el teléfono del proveedor como destinatario si lo tiene, o el selector de contactos de WhatsApp si no lo tiene, y un texto que nombra el número del remito interno y, si existe, el número del remito del proveedor. Enviar SHALL NOT cambiar el estado del remito.
+El sistema SHALL ofrecer en el detalle del remito de compra el menú compartido para ver, descargar y enviar el PDF por WhatsApp, con el teléfono del proveedor como destinatario si lo tiene, o el selector de contactos de WhatsApp si no lo tiene, y un texto que nombra el número del remito interno y, si existe, el número del remito del proveedor. El archivo que se descarga o se comparte desde la pantalla SHALL llamarse `remito-compra-RC-<número>.pdf` (con `-con-precios` si los muestra), igual que el del endpoint. Si el proveedor no tiene teléfono, el detalle SHALL avisarlo junto al menú, con un enlace para cargarlo. Enviar SHALL NOT cambiar el estado del remito.
 
 #### Scenario: Proveedor sin teléfono
 - **GIVEN** un remito de compra de un proveedor sin teléfono
 - **WHEN** el usuario elige enviarlo por WhatsApp en escritorio
-- **THEN** se descarga el PDF y se abre WhatsApp sin destinatario, con el texto del remito
+- **THEN** se descarga el PDF `remito-compra-RC-…pdf` y se abre WhatsApp sin destinatario, con el texto del remito, y el detalle sugiere cargar el teléfono del proveedor
 
 ### Requirement: Pantallas del remito de compra
-El sistema SHALL exponer el remito de compra en `/remitos` con una pestaña "De compra" junto a "De venta" (`?sentido=venta|compra`, por defecto venta), con filtros de estado, búsqueda por proveedor, número `RC-…` o número del proveedor, y el resumen de remitos de compra pendientes. SHALL ofrecer el alta en `/remitos/nuevo?tipo=compra` (con `?proveedor=` opcional), la edición en `/remitos/[id]/editar` y el detalle en `/remitos/[id]`, con el formulario del remito parametrizado por sentido: proveedor obligatorio con alta en el lugar, número del remito del proveedor, sucursal de destino obligatoria y visible en todos los planes, precio que puede quedar vacío con aviso, y avisos de cuándo y cuánto stock entra o sale. El detalle SHALL mostrar las acciones Compartir, Editar, Compra y Anular según el estado y el rol, deshabilitando "Compra" con su motivo si falta un precio o el proveedor fue dado de baja. Las pantallas SHALL verificarse en escritorio y en móvil, con tema claro y oscuro.
+El sistema SHALL exponer el remito de compra en `/remitos` con una pestaña "De compra" junto a "De venta" (`?sentido=venta|compra`, por defecto venta), con filtros de estado, búsqueda por proveedor, número `RC-…` o número del proveedor, y el resumen de remitos de compra pendientes. SHALL ofrecer el alta en `/remitos/nuevo?tipo=compra` (con `?proveedor=` opcional), la edición en `/remitos/[id]/editar` y el detalle en `/remitos/[id]`, con el formulario del remito parametrizado por sentido: proveedor obligatorio con alta en el lugar (con teléfono opcional), número del remito del proveedor, sucursal de destino obligatoria y visible en todos los planes, precio de compra precargado desde el **costo** de catálogo del producto (nunca desde su precio de venta) que puede quedar vacío con aviso, y avisos de cuándo y cuánto stock entra o sale. En la edición, el mínimo de cada línea SHALL calcularse sobre el neto (lo aportado menos el stock vigente de la sucursal, nunca menos de cero) con un texto que no atribuya el origen del stock. Todos los textos que dependen del sentido (estado convertido, sucursal, avisos de stock, validación de contraparte, anulación, baja de sucursal, nombre del archivo) SHALL salir de una única definición por sentido. El listado SHALL marcar con "Sin precio" los remitos pendientes con alguna línea en precio cero y contarlos en el resumen. El detalle SHALL mostrar las acciones Compartir, Editar, Compra y Anular según el estado y el rol, deshabilitando "Compra" con su motivo si falta un precio o el proveedor fue dado de baja, y volver a la pestaña de compra del listado. Las pantallas SHALL verificarse en escritorio y en móvil, con tema claro y oscuro.
 
 #### Scenario: Entrar a la pestaña de compra
 - **WHEN** el usuario abre `/remitos?sentido=compra&estado=pendientes`
@@ -190,13 +238,26 @@ El sistema SHALL exponer el remito de compra en `/remitos` con una pestaña "De 
 - **WHEN** un usuario con rol `purchases` abre el detalle
 - **THEN** la acción "Compra" está deshabilitada con el motivo "Cargá el precio de compra de todas las líneas"
 
+#### Scenario: La línea de compra precarga el costo
+- **GIVEN** un producto con precio de venta $1.000 y costo de catálogo $600
+- **WHEN** el usuario lo agrega a un remito de compra, a mano o escaneando
+- **THEN** la línea propone $600 como precio de compra
+
+#### Scenario: Remito de compra convertido en el listado
+- **WHEN** el usuario ve en la pestaña De compra un remito convertido
+- **THEN** su estado dice "Convertido en compra"
+
 ### Requirement: Permisos sobre remitos de compra
-El sistema SHALL permitir emitir y editar remitos de compra a los roles `stock`, `admin` y `owner`; anularlos a `admin` y `owner`; y convertirlos en compra a `purchases`, `admin` y `owner`. Los permisos SHALL vivir en el catálogo de transiciones del tipo `delivery_note_purchase` y las capacidades del backend y del frontend SHALL coincidir con él. Cualquier miembro de la cuenta SHALL poder leer los remitos de compra y descargar su PDF.
+El sistema SHALL permitir emitir y editar remitos de compra a los roles `stock`, `admin` y `owner`; anularlos a `admin` y `owner`; y convertirlos en compra a `purchases`, `stock`, `admin` y `owner` (quien recibe la mercadería puede cerrar el ciclo sin recurrir a una compra directa, que volvería a sumar el stock). Los permisos SHALL vivir en el catálogo de transiciones del tipo `delivery_note_purchase` y las capacidades del backend y del frontend SHALL coincidir con él. Cualquier miembro de la cuenta SHALL poder leer los remitos de compra y descargar su PDF.
 
 #### Scenario: El vendedor no recibe mercadería
 - **WHEN** un usuario con rol `seller` intenta emitir un remito de compra
 - **THEN** la operación falla con `P0403 insufficient_role`
 
-#### Scenario: El depósito no convierte en compra
-- **WHEN** un usuario con rol `stock` intenta convertir un remito de compra
+#### Scenario: El vendedor no convierte en compra
+- **WHEN** un usuario con rol `seller` intenta convertir un remito de compra
 - **THEN** la operación falla con `P0403 insufficient_role` y el remito sigue `issued`
+
+#### Scenario: El depósito convierte en compra
+- **WHEN** un usuario con rol `stock` convierte un remito de compra con todos sus precios cargados
+- **THEN** la compra se crea y el remito queda `converted`

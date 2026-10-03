@@ -1,0 +1,45 @@
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=b8af5544-f6a1-4ca8-a4bd-92b616a1e378
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=3abe8fd8-7378-4c50-aaa7-832e0cd5f0ce
+[1] A: {"sub" : "ac23bc4a-15a4-4d18-a25c-596e03797491", "role" : "authenticated"} ac23bc4a-15a4-4d18-a25c-596e03797491 RES={"id": "5183896c-eb84-4036-9f0d-77c44287d1e8
+[1] B: {"sub" : "ac23bc4a-15a4-4d18-a25c-596e03797491", "role" : "authenticated"} ac23bc4a-15a4-4d18-a25c-596e03797491 ERROR:  stock_insuficiente para producto 485a70f
+PASS (1): dos emisiones por la última unidad -> un remito; la otra esperó el lock del producto y recibió stock_insuficiente.
+[2] A: {"sub" : "ac23bc4a-15a4-4d18-a25c-596e03797491", "role" : "authenticated"} ac23bc4a-15a4-4d18-a25c-596e03797491 RES={"id": "0a42bb44-d648-459c-b147-0db561de0348
+[2] B: {"sub" : "ac23bc4a-15a4-4d18-a25c-596e03797491", "role" : "authenticated"} ac23bc4a-15a4-4d18-a25c-596e03797491 RES={"id": "0a42bb44-d648-459c-b147-0db561de0348
+PASS (2): doble clic con la misma clave -> B esperó en el ON CONFLICT y devolvió el mismo remito con replayed = true; un solo descuento.
+[3a] A: {"sub" : "ac23bc4a-15a4-4d18-a25c-596e03797491", "role" : "authenticated"} ac23bc4a-15a4-4d18-a25c-596e03797491 RES={"id": "3723416f-8405-4f34-8272-d25accac3faf
+[3a] B: {"sub" : "ac23bc4a-15a4-4d18-a25c-596e03797491", "role" : "authenticated"} ac23bc4a-15a4-4d18-a25c-596e03797491 ERROR:  delivery_note_changed: el remito cambió
+PASS (3a): edición abierta vs anulación -> la anulación esperó el FOR UPDATE y recibió delivery_note_changed; Σ delta = -retenido.
+[3b] A: {"sub" : "ac23bc4a-15a4-4d18-a25c-596e03797491", "role" : "authenticated"} ac23bc4a-15a4-4d18-a25c-596e03797491 RES={"id": "7f523c3c-6621-4faa-bb82-f64259099f90
+[3b] B: {"sub" : "ac23bc4a-15a4-4d18-a25c-596e03797491", "role" : "authenticated"} ac23bc4a-15a4-4d18-a25c-596e03797491 ERROR:  delivery_note_invalid_state: el remito e
+PASS (3b): anulación abierta vs edición -> la edición recibió delivery_note_invalid_state; stock repuesto una sola vez, ledger en 0.
+[4a] A: {"sub" : "ac23bc4a-15a4-4d18-a25c-596e03797491", "role" : "authenticated"} ac23bc4a-15a4-4d18-a25c-596e03797491 RES=product_deleted  
+[4a] B: {"sub" : "ac23bc4a-15a4-4d18-a25c-596e03797491", "role" : "authenticated"} ac23bc4a-15a4-4d18-a25c-596e03797491 ERROR:  product_not_found: 882286b0-4c1d-4f02-87
+PASS (4a): baja del producto abierta vs emisión -> la emisión esperó el lock y, validando sobre la fila bloqueada, recibió product_not_found sin efectos.
+[4b] A: {"sub" : "ac23bc4a-15a4-4d18-a25c-596e03797491", "role" : "authenticated"} ac23bc4a-15a4-4d18-a25c-596e03797491 RES={"id": "e759acf3-7884-4b31-a8cb-0351aabaeb34
+[4b] B: {"sub" : "ac23bc4a-15a4-4d18-a25c-596e03797491", "role" : "authenticated"} ac23bc4a-15a4-4d18-a25c-596e03797491 RES=product_deleted 
+PASS (4b): emisión abierta vs baja -> la baja esperó al remito, que quedó emitido con el producto vivo al momento del lock.
+[5] A: {"sub" : "ac23bc4a-15a4-4d18-a25c-596e03797491", "role" : "authenticated"} ac23bc4a-15a4-4d18-a25c-596e03797491 RES={"total": 200.00, "replayed": false, "operat
+[5] B: {"sub" : "ac23bc4a-15a4-4d18-a25c-596e03797491", "role" : "authenticated"} ac23bc4a-15a4-4d18-a25c-596e03797491 ERROR:  delivery_note_invalid_state: el remito e
+PASS (5): dos conversiones del mismo remito -> una venta; la otra esperó el FOR UPDATE y recibió delivery_note_invalid_state; stock intacto.
+[5b] A: {"sub" : "ac23bc4a-15a4-4d18-a25c-596e03797491", "role" : "authenticated"} ac23bc4a-15a4-4d18-a25c-596e03797491 RES={"total": 100.00, "replayed": false, "operat
+[5b] B: {"sub" : "ac23bc4a-15a4-4d18-a25c-596e03797491", "role" : "authenticated"} ac23bc4a-15a4-4d18-a25c-596e03797491 RES={"total": 100.00, "replayed": true, "operati
+PASS (5b): doble clic con la misma clave -> la segunda esperó el remito e hizo replay de la misma venta.
+[6a] A: {"sub" : "ac23bc4a-15a4-4d18-a25c-596e03797491", "role" : "authenticated"} ac23bc4a-15a4-4d18-a25c-596e03797491 RES={"total": 100.00, "replayed": false, "operat
+[6a] B: {"sub" : "ac23bc4a-15a4-4d18-a25c-596e03797491", "role" : "authenticated"} ac23bc4a-15a4-4d18-a25c-596e03797491 ERROR:  delivery_note_locked_converted: el remit
+PASS (6a): conversión abierta vs anulación -> la anulación esperó y recibió P0423 delivery_note_locked_converted.
+[6b] A: {"sub" : "ac23bc4a-15a4-4d18-a25c-596e03797491", "role" : "authenticated"} ac23bc4a-15a4-4d18-a25c-596e03797491 RES={"id": "efc4171d-7af4-4ff8-99eb-eb86ecf3bffd
+[6b] B: {"sub" : "ac23bc4a-15a4-4d18-a25c-596e03797491", "role" : "authenticated"} ac23bc4a-15a4-4d18-a25c-596e03797491 ERROR:  delivery_note_invalid_state: el remito e
+PASS (6b): anulación abierta vs conversión -> la conversión recibió delivery_note_invalid_state; ninguna venta con el remito anulado.
+[7a] A: {"sub" : "ac23bc4a-15a4-4d18-a25c-596e03797491", "role" : "authenticated"} ac23bc4a-15a4-4d18-a25c-596e03797491 RES={"id": "63cb1996-902a-4fa6-8366-34e1ff76ad63
+[7a] B: {"sub" : "ac23bc4a-15a4-4d18-a25c-596e03797491", "role" : "authenticated"} ac23bc4a-15a4-4d18-a25c-596e03797491 ERROR:  delivery_note_changed: el remito cambió
+PASS (7a): edición abierta vs conversión -> la conversión esperó y recibió delivery_note_changed, sin venta.
+[7b] A: {"sub" : "ac23bc4a-15a4-4d18-a25c-596e03797491", "role" : "authenticated"} ac23bc4a-15a4-4d18-a25c-596e03797491 RES={"total": 100.00, "replayed": false, "operat
+[7b] B: {"sub" : "ac23bc4a-15a4-4d18-a25c-596e03797491", "role" : "authenticated"} ac23bc4a-15a4-4d18-a25c-596e03797491 ERROR:  delivery_note_locked_converted: el remit
+PASS (7b): conversión abierta vs edición -> la edición recibió P0423 delivery_note_locked_converted; versión intacta.
+[8] A: {"sub" : "ac23bc4a-15a4-4d18-a25c-596e03797491", "role" : "authenticated"} ac23bc4a-15a4-4d18-a25c-596e03797491 RES=deleted:true  
+[8] B: {"sub" : "ac23bc4a-15a4-4d18-a25c-596e03797491", "role" : "authenticated"} ac23bc4a-15a4-4d18-a25c-596e03797491 RES={"total": 200.00, "replayed": false, "operat
+PASS (8): borrado de la venta abierto vs reconversión -> la reconversión esperó el remito y convirtió; sin interbloqueo, una venta viva, stock intacto.
+[9] A: {"sub" : "ac23bc4a-15a4-4d18-a25c-596e03797491", "role" : "authenticated"} ac23bc4a-15a4-4d18-a25c-596e03797491 RES=deleted:true  
+[9] B: {"sub" : "ac23bc4a-15a4-4d18-a25c-596e03797491", "role" : "authenticated"} ac23bc4a-15a4-4d18-a25c-596e03797491 RES={"id": "c1b7ccf4-9b68-443d-a169-c934f8e39bd9
+PASS (9): borrado de la venta abierto vs anulación -> la anulación esperó, encontró el remito issued y repuso el stock una sola vez.
+GATE REMITOS-VENTA-RACE PASSED: 14 carreras (las 9 de D16, en los dos órdenes donde aplica) con bloqueo real verificado (residuo cero).

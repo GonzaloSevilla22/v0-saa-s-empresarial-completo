@@ -1,0 +1,85 @@
+PASS  (a) el diálogo dice que el stock NO se vuelve a descontar, con el número del remito  -> Pasar a venta
+
+R-00000026 · Cliente Demo QA
+
+Harina 000 (por kg)× 2,5 kg
+$ 3.000
+Alfajor artesanal× 4
+$ 2.000
+Total a cobrar
+$ 5.000
+
+El stock ya se descontó al emitir el remito R-00000026: esta venta
+PASS  (a) sin selector de sucursal (es la del remito)
+PASS  (a) muestra el total del remito (5.000), no el del catálogo remarcado
+shot humo-dialogo-efectivo-desktop-light docOverflow=0 elementOverflow=0
+shot humo-exito-desktop-light docOverflow=0 elementOverflow=0
+PASS  (a) el stock NO cambia (harina ni alfajor)  -> h 4997.5->4997.5 a 5006->5006
+PASS  (a) cero movimientos de stock nuevos en toda la cuenta  -> 56->56
+PASS  (a) los movimientos del remito siguen siendo los 2 de la emisión  -> 2->2
+PASS  (a) aparece UN movimiento de caja por el total del remito  -> 2->3
+PASS  (a) doble clic = UNA orden confirmada  -> confirmed orders 18->19
+PASS  (a) la orden nace con source_delivery_note_id del remito
+PASS  (a) la venta cobra el precio del remito (5.000), no el del catálogo (9.999)  -> 5000.00
+PASS  (a) remito en estado converted
+PASS  (a) el detalle del remito convertido muestra "Ver venta" hacia la orden  -> /ventas/ordenes/40d62748-0494-45b2-8d61-15e0c895ac8b
+PASS  (a) el detalle ya no ofrece Venta, Editar ni Anular
+shot humo-detalle-convertido-desktop-light docOverflow=0 elementOverflow=0
+PASS  (a) /ventas muestra "Desde remito R-…" con el número del remito  -> Desde remito R-00000026
+shot humo-ventas-badge-desktop-light docOverflow=0 elementOverflow=0
+PASS  (b) Facturar deja un comprobante de la venta de remito (pending_cae o authorized)  -> pending_cae
+shot humo-facturar-resultado-desktop-light docOverflow=0 elementOverflow=0
+PASS  (b) el diálogo de borrado trae la línea de D9 con el número del remito  -> ¿Eliminar esta operación (2 ítems)?
+
+Esta acción no se puede deshacer.
+
+El stock no vuelve: la mercadería quedó entregada con el remito R-00000027, que vuelve a quedar pendiente. Para devolverla al stock, anulá el remito.
+
+Se va a compensar:
+
+Se anulará el com
+shot humo-borrar-dialogo-desktop-light docOverflow=0 elementOverflow=0
+PASS  (b) con comprobante pending_cae sin marca el borrado lo ANULA (voided) en la misma transacción  -> antes=pending_cae después=voided
+PASS  (b) el remito vuelve a PENDIENTE (issued)  -> issued
+PASS  (b) el stock NO cambia al borrar la venta  -> h 4995->4995 a 5002->5002 mov 58->58
+PASS  (b) la caja se compensa (hay un movimiento nuevo de caja)  -> 4->5
+PASS  (b) los movimientos del remito siguen siendo los 2 de la emisión  -> 2
+PASS  (b) no queda ninguna orden viva del remito  -> canceled
+PASS  (b) el detalle vuelve a ofrecer Venta, Editar y Anular
+PASS  (c) borrar la venta (sin facturar) devuelve el remito a pendiente  -> issued
+PASS  (c) el stock no se repone ni se descuenta  -> [4992.5,4998,60] -> [4992.5,4998,60]
+shot humo-dialogo-credito-desktop-light docOverflow=0 elementOverflow=0
+PASS  (c) reconvertir a crédito carga la cuenta corriente por el total (5.000)  -> 5000.00|sale|2026-11-02
+PASS  (c) vencimiento por cascada = hoy + 30  -> 5000.00|sale|2026-11-02 esperado 2026-11-02
+PASS  (c) sin movimiento de caja ni banco
+PASS  (c) el stock sigue sin cambiar
+PASS  (c) la orden anterior queda cancelada y hay una viva nueva: 1 remito -> 1 venta viva  -> canceled,confirmed
+PASS  (c) remito converted otra vez
+PASS  (d) "Editar" deshabilitado con el motivo del remito  -> botones=1 title=No editable: la venta nació del remito R-00000028. Para corregirla, eliminá la venta, editá el remito y volvé a convertirlo.
+PASS  (d) el motivo nombra la salida (anulá o borrá la venta y rehacela desde el remito)  -> No editable: la venta nació del remito R-00000028. Para corregirla, eliminá la venta, editá el remito y volvé a convertirlo.
+shot humo-ventas-editar-bloqueado-desktop-light docOverflow=0 elementOverflow=0
+PASS  (d) la edición por API responde 409 con delivery_note_sale_locked  -> 409 {"type":"about:blank","title":"Conflicto","status":409,"detail":"delivery_note_sale_locked: la venta nació del remito R-00000028: para corregirla, eliminá la venta, editá el remito y volvé a convertir
+PASS  (d) sin efectos (stock, ventas, caja)
+PASS  (e) el detalle del remito convertido no ofrece Anular
+PASS  (e) POST /cancel sobre un convertido -> 409 delivery_note_locked_converted ("primero eliminá la venta")  -> 409 {"type":"about:blank","title":"Conflicto","status":409,"detail":"delivery_note_locked_converted: el remito ya se convirtió en venta: para anularlo, primero eliminá la venta","code":"delivery_note_lock
+PASS  (e) sin efectos y el remito sigue converted
+PASS  (e) editar el convertido por API -> 409 sin efectos  -> 409 {"type":"about:blank","title":"Conflicto","status":409,"detail":"delivery_note_locked_converted: el remito ya se convirtió en venta: para corregirlo, eliminá la
+PASS  (f) edición concurrente aplicada  -> 200 {"id":"b70a102a-b8c2-48f6-a0fc-db193b6b2fa6","account_id":"aa7b1776-c0e6-48f7-a348-1b237d3131a8","direction":"sale","branch_id":"5c3cb54c-d66d-40ef-9b
+shot humo-error-remito-cambio-desktop-light docOverflow=0 elementOverflow=0
+PASS  (f) delivery_note_changed traducido (el remito cambió)  -> El remito cambió mientras lo tenías abierto: recargalo y volvé a intentar.
+PASS  (f) nada escrito: sigue issued, sin órdenes, sin caja
+PASS  (f) el resumen recargó el total vigente (5.500)  -> $ 5.500
+PASS  (f) la 2ª confirmación convierte al total vigente (5.500)
+FAIL  (g) el paso terminó sin excepción  -> TimeoutError: locator.fill: Timeout 30000ms exceeded. | Call log: | [2m  - waiting for getByTestId('login-email')[22m |  @ http://localhost:3000/remitos/b70a102a-b8c2-48f6-a0fc-db193b6b2fa6
+PASS  (h) formulario de venta: registra la venta y BAJA el stock  -> 4989->4988
+PASS  (h) formulario de venta: la venta nueva NO nace de un remito (sin source_delivery_note_id)  -> 19
+PASS  (h) POS: registra la venta, BAJA el stock y mueve la caja  -> 4988->4987
+PASS  (h) presupuesto -> Venta: BAJA el stock (3) como siempre  -> 4987->4984
+PASS  (h) presupuesto -> Venta: la orden NO lleva source_delivery_note_id
+
+console errors: [
+  'Failed to load resource: the server responded with a status of 404 (Not Found)',
+  'Failed to load resource: the server responded with a status of 409 (Conflict)'
+]
+
+RESUMEN HUMO B: 49 PASS / 1 FAIL

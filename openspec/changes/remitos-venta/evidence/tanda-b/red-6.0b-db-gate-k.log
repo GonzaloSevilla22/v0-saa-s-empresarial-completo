@@ -1,0 +1,8 @@
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=ef3f5159-6485-4222-a283-ad23e9462d2e
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=c8a63f00-5198-4309-b353-43507c81be14
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=12f9aa2e-5dbf-497e-8b6e-e1ae70a57954
+ERROR:  GATE REMITOS-VENTA FAILED (abortó): P0001 / GATE REMITOS-VENTA FAILED (3 fallas):
+  FAIL (k) disparador: baja con un remito pendiente -> P0428 branch_has_pending_delivery_notes, salió P0428 branch_has_pending_delivery_notes: la sucursal tiene 1 remito(s) pendiente(s) — anulalos (un administrador o el dueño) antes de darla de baja
+  FAIL (k) rpc_deactivate_branch: baja con un remito pendiente -> P0428 branch_has_pending_delivery_notes, salió P0428 branch_has_pending_delivery_notes: la sucursal tiene 1 remito(s) pendiente(s) — anulalos (un administrador o el dueño) antes de darla de baja
+  FAIL (k) rpc_close_branch: baja con un remito pendiente -> P0428 branch_has_pending_delivery_notes, salió P0428 branch_has_pending_delivery_notes: la sucursal tiene 1 remito(s) pendiente(s) — anulalos (un administrador o el dueño) antes de darla de baja
+CONTEXT:  PL/pgSQL function inline_code_block line 940 at RAISE

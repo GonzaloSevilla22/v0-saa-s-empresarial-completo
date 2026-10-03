@@ -1,0 +1,127 @@
+
+=== desktop / light ===
+shot remito-pendiente-con-venta-desktop-light docOverflow=0 elementOverflow=0
+PASS  [desktop/light] CTA "Venta" del detalle visible dentro del viewport  -> {"x":666.90625,"y":188,"width":82.0625,"height":36}
+shot conv-dialogo-caja-cerrada-desktop-light docOverflow=0 elementOverflow=0
+PASS  [desktop/light] caja cerrada: confirmar deshabilitado con su motivo
+shot conv-dialogo-vacio-desktop-light docOverflow=0 elementOverflow=0
+PASS  [desktop/light] el foco entra al diálogo
+PASS  [desktop/light] sin forma de pago, confirmar deshabilitado
+PASS  [desktop/light] sin selector de sucursal: la del remito va fija
+PASS  [desktop/light] línea fija "El stock ya se descontó al emitir el remito"
+shot conv-dialogo-efectivo-desktop-light docOverflow=0 elementOverflow=0
+shot conv-dialogo-transferencia-desktop-light docOverflow=0 elementOverflow=0
+shot conv-dialogo-credito-desktop-light docOverflow=0 elementOverflow=0
+PASS  [desktop/light] CTA "Registrar venta" visible dentro del viewport  -> {"x":771.53125,"y":618.5,"width":127.46875,"height":40}
+PASS  [desktop/light] Tab no escapa del diálogo (12 pulsaciones)
+PASS  [desktop/light] Escape devuelve el foco al botón Venta  -> Venta
+shot conv-dialogo-error-cambio-desktop-light docOverflow=0 elementOverflow=0
+PASS  [desktop/light] error "el remito cambió" accionable  -> El remito cambió mientras lo tenías abierto: recargalo y volvé a intentar.
+shot conv-exito-desktop-light docOverflow=0 elementOverflow=0
+PASS  [desktop/light] el foco pasa al título "Venta registrada"  -> Venta registrada
+PASS  [desktop/light] "Facturar" ofrecido en el éxito
+shot remito-convertido-detalle-desktop-light docOverflow=0 elementOverflow=0
+PASS  [desktop/light] detalle convertido: "Ver venta" presente
+shot ventas-badge-desde-remito-desktop-light docOverflow=0 elementOverflow=0
+PASS  [desktop/light] "Editar" deshabilitado con el motivo del remito  -> 1
+shot ventas-borrar-dialogo-remito-desktop-light docOverflow=0 elementOverflow=0
+PASS  [desktop/light] el diálogo de borrado trae la línea de D9 con el número del remito  -> ¿Eliminar esta operación (2 ítems)?
+
+Esta acción no se puede deshacer.
+
+El stock no vuelve: la mercadería quedó entregada con el remito R-00000133, que vuelve a quedar pendiente. Para devolverla al st
+PASS  [desktop/light] botón "Eliminar" del diálogo visible dentro del viewport  -> {"x":787.71875,"y":490,"width":83.28125,"height":40}
+shot remito-cliente-baja-venta-deshabilitada-desktop-light docOverflow=0 elementOverflow=0
+PASS  [desktop/light] cliente dado de baja: Venta deshabilitada con leyenda
+console errors: [
+  'Failed to load resource: the server responded with a status of 404 (Not Found)',
+  'Failed to load resource: the server responded with a status of 409 (Conflict)'
+]
+respuestas >=400: [
+  '404 GET st:8000/cashboxes/f2de84ad-74a0-4c53-9832-202e76fd006c/current-session',
+  '409 POST lhost:8000/delivery-notes/9fbb16b1-f3da-46bb-84f5-cafe4ac6ff6e/convert'
+]
+
+=== desktop / dark ===
+shot remito-pendiente-con-venta-desktop-dark docOverflow=0 elementOverflow=0
+PASS  [desktop/dark] CTA "Venta" del detalle visible dentro del viewport  -> {"x":666.90625,"y":188,"width":82.0625,"height":36}
+shot conv-dialogo-caja-cerrada-desktop-dark docOverflow=0 elementOverflow=0
+PASS  [desktop/dark] caja cerrada: confirmar deshabilitado con su motivo
+shot conv-dialogo-vacio-desktop-dark docOverflow=0 elementOverflow=0
+PASS  [desktop/dark] el foco entra al diálogo
+PASS  [desktop/dark] sin forma de pago, confirmar deshabilitado
+PASS  [desktop/dark] sin selector de sucursal: la del remito va fija
+PASS  [desktop/dark] línea fija "El stock ya se descontó al emitir el remito"
+shot conv-dialogo-efectivo-desktop-dark docOverflow=0 elementOverflow=0
+shot conv-dialogo-transferencia-desktop-dark docOverflow=0 elementOverflow=0
+shot conv-dialogo-credito-desktop-dark docOverflow=0 elementOverflow=0
+PASS  [desktop/dark] CTA "Registrar venta" visible dentro del viewport  -> {"x":771.53125,"y":618.5,"width":127.46875,"height":40}
+PASS  [desktop/dark] Tab no escapa del diálogo (12 pulsaciones)
+PASS  [desktop/dark] Escape devuelve el foco al botón Venta  -> Venta
+shot conv-dialogo-error-cambio-desktop-dark docOverflow=0 elementOverflow=0
+PASS  [desktop/dark] error "el remito cambió" accionable  -> El remito cambió mientras lo tenías abierto: recargalo y volvé a intentar.
+shot conv-exito-desktop-dark docOverflow=0 elementOverflow=0
+PASS  [desktop/dark] el foco pasa al título "Venta registrada"  -> Venta registrada
+PASS  [desktop/dark] "Facturar" ofrecido en el éxito
+shot remito-convertido-detalle-desktop-dark docOverflow=0 elementOverflow=0
+PASS  [desktop/dark] detalle convertido: "Ver venta" presente
+shot ventas-badge-desde-remito-desktop-dark docOverflow=0 elementOverflow=0
+PASS  [desktop/dark] "Editar" deshabilitado con el motivo del remito  -> 1
+shot ventas-borrar-dialogo-remito-desktop-dark docOverflow=0 elementOverflow=0
+PASS  [desktop/dark] el diálogo de borrado trae la línea de D9 con el número del remito  -> ¿Eliminar esta operación (2 ítems)?
+
+Esta acción no se puede deshacer.
+
+El stock no vuelve: la mercadería quedó entregada con el remito R-00000137, que vuelve a quedar pendiente. Para devolverla al st
+PASS  [desktop/dark] botón "Eliminar" del diálogo visible dentro del viewport  -> {"x":787.71875,"y":490,"width":83.28125,"height":40}
+shot remito-cliente-baja-venta-deshabilitada-desktop-dark docOverflow=0 elementOverflow=0
+PASS  [desktop/dark] cliente dado de baja: Venta deshabilitada con leyenda
+console errors: [
+  'Failed to load resource: the server responded with a status of 404 (Not Found)',
+  'Failed to load resource: the server responded with a status of 409 (Conflict)'
+]
+respuestas >=400: [
+  '404 GET st:8000/cashboxes/f2de84ad-74a0-4c53-9832-202e76fd006c/current-session',
+  '409 POST lhost:8000/delivery-notes/b5da9fd7-c2b2-4cbc-ab8f-e42eb53025b3/convert'
+]
+
+=== mobile / light ===
+shot remito-pendiente-con-venta-mobile-light docOverflow=0 elementOverflow=0
+PASS  [mobile/light] CTA "Venta" del detalle visible dentro del viewport  -> {"x":108.890625,"y":248,"width":82.0625,"height":40}
+shot conv-dialogo-caja-cerrada-mobile-light docOverflow=0 elementOverflow=0
+PASS  [mobile/light] caja cerrada: confirmar deshabilitado con su motivo
+shot conv-dialogo-vacio-mobile-light docOverflow=0 elementOverflow=0
+PASS  [mobile/light] el foco entra al diálogo
+PASS  [mobile/light] sin forma de pago, confirmar deshabilitado
+PASS  [mobile/light] sin selector de sucursal: la del remito va fija
+PASS  [mobile/light] línea fija "El stock ya se descontó al emitir el remito"
+shot conv-dialogo-efectivo-mobile-light docOverflow=0 elementOverflow=0
+shot conv-dialogo-transferencia-mobile-light docOverflow=0 elementOverflow=0
+shot conv-dialogo-credito-mobile-light docOverflow=0 elementOverflow=0
+PASS  [mobile/light] CTA "Registrar venta" visible dentro del viewport  -> {"x":227.53125,"y":744,"width":127.46875,"height":44}
+PASS  [mobile/light] Tab no escapa del diálogo (12 pulsaciones)
+PASS  [mobile/light] Escape devuelve el foco al botón Venta  -> Venta
+shot conv-dialogo-error-cambio-mobile-light docOverflow=0 elementOverflow=0
+PASS  [mobile/light] error "el remito cambió" accionable  -> El remito cambió mientras lo tenías abierto: recargalo y volvé a intentar.
+shot conv-exito-mobile-light docOverflow=0 elementOverflow=0
+PASS  [mobile/light] el foco pasa al título "Venta registrada"  -> Venta registrada
+PASS  [mobile/light] "Facturar" ofrecido en el éxito
+shot remito-convertido-detalle-mobile-light docOverflow=0 elementOverflow=0
+PASS  [mobile/light] detalle convertido: "Ver venta" presente
+node:internal/modules/run_main:107
+    triggerUncaughtException(
+    ^
+
+locator.waitFor: Timeout 60000ms exceeded.
+Call log:
+[2m  - waiting for getByRole('link', { name: /Desde remito R-00000141/ }).filter({ visible: true }).first() to be visible[22m
+
+    at C:\Users\Usuario\Desktop\EIE\wt-remitos\openspec\changes\remitos-venta\evidence\tanda-b\scripts\visual-b.mjs:121:15 {
+  log: [
+    "  - waiting for getByRole('link', { name: /Desde remito R-00000141/ }).filter({ visible: true }).first() to be visible"
+  ],
+  name: 'TimeoutError'
+}
+
+Node.js v24.9.0
+finished

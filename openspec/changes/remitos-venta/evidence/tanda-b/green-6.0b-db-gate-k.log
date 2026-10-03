@@ -1,0 +1,4 @@
+NOTICE:  PASS (o1): helpers y disparadores sin EXECUTE para authenticated/anon; las 4 RPCs SECURITY DEFINER, con COMMENT, sin anon y con authenticated; tablas sólo de lectura para la API, sin políticas de escritura.
+DO
+NOTICE:  PASS (o2): catálogo delivery_note_sale con NULL -> issued y issued -> canceled (motivo, terminal).
+DO

@@ -1,0 +1,78 @@
+
+ RUN  v4.1.8 C:/Users/Usuario/Desktop/EIE/wt-remitos/frontend
+
+ ❯ __tests__/hooks/use-sales-delete-delivery-note.test.ts (6 tests | 5 failed) 285ms
+     × invalida los remitos además de lo que toca una venta 6ms
+     × invalida de verdad el detalle cacheado de un remito (la pantalla lo vuelve a pedir) 5ms
+     × no invalida de más: ninguna raíz fuera de la unión de venta y los remitos 1ms
+     × deleteSale (una fila) invalida deliveryNotes 103ms
+     × deleteSalesByOperation (la operación entera) invalida deliveryNotes 85ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  __tests__/hooks/use-sales-delete-delivery-note.test.ts > invalidateAfterSaleDelete > invalida los remitos además de lo que toca una venta
+TypeError: invalidateAfterSaleDelete is not a function
+ ❯ __tests__/hooks/use-sales-delete-delivery-note.test.ts:44:5
+     42|     const { queryClient } = setup()
+     43|     const spy = vi.spyOn(queryClient, "invalidateQueries")
+     44|     invalidateAfterSaleDelete(queryClient)
+       |     ^
+     45|     const roots = rootsOf(spy)
+     46|     expect(roots).toContain("deliveryNotes")
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/5]⎯
+
+ FAIL  __tests__/hooks/use-sales-delete-delivery-note.test.ts > invalidateAfterSaleDelete > invalida de verdad el detalle cacheado de un remito (la pantalla lo vuelve a pedir)
+TypeError: invalidateAfterSaleDelete is not a function
+ ❯ __tests__/hooks/use-sales-delete-delivery-note.test.ts:55:5
+     53|     expect(queryClient.getQueryState(["deliveryNotes", "detail", "dn-1…
+     54|
+     55|     invalidateAfterSaleDelete(queryClient)
+       |     ^
+     56|
+     57|     expect(queryClient.getQueryState(["deliveryNotes", "detail", "dn-1…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/5]⎯
+
+ FAIL  __tests__/hooks/use-sales-delete-delivery-note.test.ts > invalidateAfterSaleDelete > no invalida de más: ninguna raíz fuera de la unión de venta y los remitos
+TypeError: invalidateAfterSaleDelete is not a function
+ ❯ __tests__/hooks/use-sales-delete-delivery-note.test.ts:63:5
+     61|     const { queryClient } = setup()
+     62|     const spy = vi.spyOn(queryClient, "invalidateQueries")
+     63|     invalidateAfterSaleDelete(queryClient)
+       |     ^
+     64|     expect(new Set(rootsOf(spy))).toEqual(new Set([...SALE_INVALIDATED…
+     65|   })
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/5]⎯
+
+ FAIL  __tests__/hooks/use-sales-delete-delivery-note.test.ts > useSales — borrar una venta invalida los remitos > deleteSale (una fila) invalida deliveryNotes
+AssertionError: expected [ 'sales', 'customerAccounts', …(1) ] to include 'deliveryNotes'
+ ❯ __tests__/hooks/use-sales-delete-delivery-note.test.ts:80:26
+     78|
+     79|     expect(pythonClient.delete).toHaveBeenCalledWith("/sales/sale-1")
+     80|     expect(rootsOf(spy)).toContain("deliveryNotes")
+       |                          ^
+     81|   })
+     82|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/5]⎯
+
+ FAIL  __tests__/hooks/use-sales-delete-delivery-note.test.ts > useSales — borrar una venta invalida los remitos > deleteSalesByOperation (la operación entera) invalida deliveryNotes
+AssertionError: expected [ 'sales', 'customerAccounts', …(1) ] to include 'deliveryNotes'
+ ❯ __tests__/hooks/use-sales-delete-delivery-note.test.ts:94:26
+     92|
+     93|     expect(pythonClient.delete).toHaveBeenCalledWith("/sales?operation…
+     94|     expect(rootsOf(spy)).toContain("deliveryNotes")
+       |                          ^
+     95|   })
+     96|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/5]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  5 failed | 1 passed (6)
+   Start at  05:01:15
+   Duration  5.42s (transform 237ms, setup 378ms, import 1.05s, tests 285ms, environment 3.22s)
+

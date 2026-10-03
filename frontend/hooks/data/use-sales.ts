@@ -4,6 +4,7 @@ import { useState, useCallback, useMemo } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { pythonClient } from "@/lib/api/python-client"
 import { queryKeys } from "@/lib/query-keys"
+import { invalidateAfterSaleDelete } from "@/lib/query-invalidation"
 import type { Sale } from "@/lib/types"
 import { mapFiscalState, type FiscalReadModelRow } from "@/lib/fiscal-comprobante"
 import { roundUnitPrice, type SaleCartItem } from "@/lib/cart-utils"
@@ -303,20 +304,17 @@ export function useSales() {
     },
   })
 
+  // remitos-venta (D9/D11, task 7.7): borrar compensa cuenta corriente, caja,
+  // banco y stock, y devuelve a `issued` el remito del que nació la venta (si lo
+  // hay). La unión vive en `invalidateAfterSaleDelete` (con el panel de
+  // /cobranzas y el KPI del Tablero, que derivan del mismo saldo): nunca se
+  // repite la lista en la mutación ni en la pantalla.
   const deleteSaleMutation = useMutation({
     mutationFn: async (id: string) => {
       return pythonClient.delete<void>(`/sales/${id}`)
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.sales.all() })
-      // fix-supplier-account-ui-post-delete (bug 1, lado ventas): borrar una
-      // venta a crédito revierte el cargo — sin esto la UI seguía mostrando
-      // el saldo/movimiento ya reversado en DB.
-      queryClient.invalidateQueries({ queryKey: queryKeys.customerAccounts.all() })
-      // cobranzas-panel (D8): el panel /cobranzas y el KPI del Tablero derivan
-      // del mismo saldo — toda mutación que lo altera los invalida acá, en el
-      // hook, nunca en la pantalla.
-      queryClient.invalidateQueries({ queryKey: queryKeys.receivables.all() })
+      invalidateAfterSaleDelete(queryClient)
     },
   })
 
@@ -325,14 +323,7 @@ export function useSales() {
       return pythonClient.delete<void>(`/sales?operation_id=${operationId}`)
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.sales.all() })
-      // fix-supplier-account-ui-post-delete (bug 1, lado ventas): ver
-      // comentario arriba.
-      queryClient.invalidateQueries({ queryKey: queryKeys.customerAccounts.all() })
-      // cobranzas-panel (D8): el panel /cobranzas y el KPI del Tablero derivan
-      // del mismo saldo — toda mutación que lo altera los invalida acá, en el
-      // hook, nunca en la pantalla.
-      queryClient.invalidateQueries({ queryKey: queryKeys.receivables.all() })
+      invalidateAfterSaleDelete(queryClient)
     },
   })
 

@@ -27,6 +27,10 @@ vi.mock("@/hooks/data/use-suppliers", () => ({
   useSuppliers: () => useSuppliersMock(),
 }))
 
+// remitos-compra (5.7): la acción "Nuevo remito de compra" depende del rol.
+const useOrgRoleMock = vi.fn()
+vi.mock("@/hooks/useOrgRole", () => ({ useOrgRole: () => useOrgRoleMock() }))
+
 const usePlanLimitsMock = vi.fn()
 vi.mock("@/hooks/auth/use-plan-limits", () => ({
   usePlanLimits: () => usePlanLimitsMock(),
@@ -67,6 +71,8 @@ describe("ProveedoresPage", () => {
     useSuppliersMock.mockReturnValue(defaultSuppliersReturn())
     usePlanLimitsMock.mockReset()
     usePlanLimitsMock.mockReturnValue({ limits: { maxSuppliers: 20 } })
+    useOrgRoleMock.mockReset()
+    useOrgRoleMock.mockReturnValue({ role: "owner", roles: ["owner"], rolesResolved: true, isWriter: true, isLoading: false })
   })
 
   it("renders each supplier row with name and contact", () => {
@@ -156,5 +162,60 @@ describe("ProveedoresPage", () => {
     fireEvent.click(confirmBtn)
 
     await vi.waitFor(() => expect(toast.error).toHaveBeenCalledWith(detail))
+  })
+})
+
+// ── remitos-compra (D11, tarea 5.7): "Nuevo remito de compra" por fila ──────────
+
+describe("ProveedoresPage — acción 'Nuevo remito de compra' (remitos-compra 5.7)", () => {
+  const setRoles = (roles: string[]) =>
+    useOrgRoleMock.mockReturnValue({ role: "member", roles, rolesResolved: true, isWriter: false, isLoading: false })
+
+  it("cada fila ofrece 'Nuevo remito de compra' con el proveedor preseleccionado", () => {
+    render(<ProveedoresPage />)
+    for (const supplier of SUPPLIERS) {
+      const links = screen.getAllByRole("link", { name: `Nuevo remito de compra de ${supplier.name}` })
+      expect(links.length).toBeGreaterThan(0)
+      for (const link of links) {
+        expect(link).toHaveAttribute("href", `/remitos/nuevo?tipo=compra&proveedor=${supplier.id}`)
+      }
+    }
+  })
+
+  it.each([
+    [["owner"], true],
+    [["admin"], true],
+    [["stock"], true],
+    [["seller"], false],
+    [["purchases"], false],
+    [["cashier"], false],
+    [["viewer"], false],
+  ])("con roles %j la acción visible=%s (CAN_RECEIVE_PURCHASE)", (roles, visible) => {
+    setRoles(roles)
+    render(<ProveedoresPage />)
+    expect(screen.queryAllByRole("link", { name: /nuevo remito de compra de/i }).length > 0).toBe(visible)
+  })
+
+  it("el rol decidido sobre el CONJUNTO: un vendedor que además es encargado de stock sí la ve", () => {
+    setRoles(["seller", "stock"])
+    render(<ProveedoresPage />)
+    expect(screen.getAllByRole("link", { name: /nuevo remito de compra de/i }).length).toBeGreaterThan(0)
+  })
+
+  it("los botones de ícono de cada fila tienen un nombre accesible propio (no 'Cuenta corriente' repetido)", () => {
+    render(<ProveedoresPage />)
+    const names = screen
+      .getAllByTestId("supplier-account-sup-1")
+      .concat(screen.getAllByTestId("supplier-account-sup-2"))
+      .map((button) => button.getAttribute("aria-label"))
+    expect(names).toContain("Cuenta corriente de Distribuidora Mendoza")
+    expect(names).toContain("Cuenta corriente de Envases del Oeste")
+    expect(names.every((name) => !!name)).toBe(true)
+  })
+
+  it("la acción no rompe las otras: cuenta corriente sigue navegando a la cuenta", () => {
+    render(<ProveedoresPage />)
+    fireEvent.click(screen.getAllByTestId("supplier-account-sup-1")[0])
+    expect(pushMock).toHaveBeenCalledWith("/proveedores/sup-1/cuenta")
   })
 })

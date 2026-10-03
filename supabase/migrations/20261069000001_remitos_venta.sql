@@ -1634,7 +1634,7 @@ BEGIN
   v_pending_delivery_notes := public._branch_pending_delivery_notes(p_branch_id);
   IF v_pending_delivery_notes > 0 THEN
     RAISE EXCEPTION
-      'branch_has_pending_delivery_notes: la sucursal tiene % remito(s) pendiente(s) — convertilos o anulalos antes de darla de baja',
+      'branch_has_pending_delivery_notes: la sucursal tiene % remito(s) pendiente(s) — anulalos (un administrador o el dueño) antes de darla de baja',
       v_pending_delivery_notes
       USING ERRCODE = 'P0428';
   END IF;
@@ -1834,14 +1834,27 @@ BEGIN
     v_bad := v_bad || format('_branch_blocking_content cambió su RETURNS TABLE (%s columnas, se esperaban 5)', v_n);
   END IF;
 
-  -- Catálogo de la tanda A.
-  SELECT count(*) INTO v_n FROM public.document_status_transitions WHERE document_type = 'delivery_note_sale';
-  IF v_n <> 2 THEN
-    v_bad := v_bad || format('catálogo delivery_note_sale con %s filas (se esperaban 2)', v_n);
+  -- Catálogo de la tanda A: presencia por clave y atributos, NO conteo exacto.
+  -- CI reaplica esta migración al final de la cadena, cuando la tanda B ya
+  -- sembró sus propias filas (issued -> converted y converted -> issued, D3);
+  -- un conteo exacto la haría abortar con la cadena completa aplicada.
+  IF NOT EXISTS (SELECT 1 FROM public.document_status_transitions
+                 WHERE document_type = 'delivery_note_sale' AND from_status IS NULL AND to_status = 'issued'
+                   AND NOT is_terminal_to AND NOT requires_reason
+                   AND cardinality(allowed_role) = 4
+                   AND allowed_role @> ARRAY['seller', 'stock', 'admin', 'owner']) THEN
+    v_bad := v_bad || 'catálogo delivery_note_sale sin la fila NULL -> issued de la tanda A'::text;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.document_status_transitions
+                 WHERE document_type = 'delivery_note_sale' AND from_status = 'issued' AND to_status = 'canceled'
+                   AND is_terminal_to AND requires_reason
+                   AND cardinality(allowed_role) = 2
+                   AND allowed_role @> ARRAY['admin', 'owner']) THEN
+    v_bad := v_bad || 'catálogo delivery_note_sale sin la fila issued -> canceled de la tanda A'::text;
   END IF;
 
   IF array_length(v_bad, 1) > 0 THEN
     RAISE EXCEPTION E'remitos-venta (introspección FAILED):\n  %', array_to_string(v_bad, E'\n  ');
   END IF;
-  RAISE NOTICE 'remitos-venta (introspección OK): tablas, CHECK, FK, disparadores, RLS sin escritura, ACLs, una definición por función, cuerpos y COMMENT de los guards, catálogo delivery_note_sale con 2 filas.';
+  RAISE NOTICE 'remitos-venta (introspección OK): tablas, CHECK, FK, disparadores, RLS sin escritura, ACLs, una definición por función, cuerpos y COMMENT de los guards, las dos filas de la tanda A del catálogo delivery_note_sale.';
 END $$;

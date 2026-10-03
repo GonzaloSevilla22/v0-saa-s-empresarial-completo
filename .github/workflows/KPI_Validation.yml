@@ -1219,6 +1219,14 @@ jobs:
           # NOTHING. SIN tolerancia: exige el OK de su introspección, el schema
           # IDÉNTICO y, después de reconverger, que los cuatro cuerpos vuelvan
           # a ser los de esta migración.
+          #
+          # CONTRATO CON LA TANDA B (revisión adversarial F2): esta reaplicación
+          # corre DESPUÉS de todo lo demás, así que (a) su introspección valida
+          # el catálogo por presencia de las dos filas de la tanda A, no por
+          # conteo, y (b) vuelve a dejar los cuerpos de la tanda A en las
+          # funciones que la tanda B redefina (p. ej. _delivery_note_payload).
+          # La migración de la tanda B DEBE tener su propio paso de reaplicación
+          # DESPUÉS de este, y los gates de la tanda B corren después de ese paso.
           RV_OUT=$(psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261069000001_remitos_venta.sql 2>&1) || { echo "$RV_OUT"; echo "ERROR: el reapply de 20261069000001 falló (sin tolerancia)."; exit 1; }
           echo "$RV_OUT"
           if ! echo "$RV_OUT" | grep -qF 'remitos-venta (introspecci'; then

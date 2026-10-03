@@ -955,7 +955,7 @@ BEGIN
     ) AS t(label, sql)
   LOOP
     v_txt := pg_temp.rv_err(v_rec.sql);
-    IF v_txt NOT LIKE 'P0428 branch_has_pending_delivery_notes: la sucursal tiene 1 remito(s) pendiente(s)%' THEN
+    IF v_txt NOT LIKE 'P0428 branch_has_pending_delivery_notes: la sucursal tiene 1 remito(s) pendiente(s) — anulalos (un administrador o el dueño) antes de darla de baja%' THEN
       v_failures := v_failures || format('FAIL (k) %s: baja con un remito pendiente -> P0428 branch_has_pending_delivery_notes, salió %s', v_rec.label, v_txt);
     END IF;
   END LOOP;
@@ -1185,9 +1185,16 @@ DO $$
 DECLARE
   v_n int;
 BEGIN
-  SELECT count(*) INTO v_n FROM public.document_status_transitions WHERE document_type = 'delivery_note_sale';
-  IF v_n <> 2 THEN
-    RAISE EXCEPTION 'GATE REMITOS-VENTA FAILED (o2): delivery_note_sale debía tener 2 filas en la tanda A, tiene %', v_n;
+  -- Ninguna fila fuera del conjunto declarado: las dos de la tanda A y, cuando
+  -- la tanda B está aplicada, el par issued <-> converted (D3). Un conteo
+  -- exacto rompería al aplicar la tanda B (y el reapply de CI de esta migración).
+  SELECT count(*) INTO v_n
+  FROM   public.document_status_transitions
+  WHERE  document_type = 'delivery_note_sale'
+    AND  (from_status, to_status) IS DISTINCT FROM (NULL::text, 'issued'::text)
+    AND  (from_status, to_status) NOT IN (('issued', 'canceled'), ('issued', 'converted'), ('converted', 'issued'));
+  IF v_n <> 0 THEN
+    RAISE EXCEPTION 'GATE REMITOS-VENTA FAILED (o2): delivery_note_sale tiene % fila(s) fuera del conjunto declarado', v_n;
   END IF;
   IF NOT EXISTS (SELECT 1 FROM public.document_status_transitions
                  WHERE document_type = 'delivery_note_sale' AND from_status IS NULL AND to_status = 'issued'

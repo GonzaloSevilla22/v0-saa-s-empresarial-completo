@@ -11,16 +11,18 @@
  *
  * `remitos-venta` suma su tipo acá y en el `CHECK` de la tabla de secuencias:
  * `delivery_note_sale` -> `R`. El prefijo `R` es SÓLO del sentido venta: cada
- * sentido numera desde 1, así que el remito de compra (`remitos-compra`) elige
- * un prefijo propio y distinto. Por eso todo lugar que rotula un remito lo hace
- * con `formatDeliveryNoteNumber(direction, n)`, nunca con una `R` escrita a mano.
+ * sentido numera desde 1, así que el remito de compra (`remitos-compra`, D2)
+ * tiene el suyo: `delivery_note_purchase` -> `RC`. Por eso todo lugar que
+ * rotula un remito lo hace con `formatDeliveryNoteNumber(direction, n)`, nunca
+ * con una `R` escrita a mano.
  */
 
-export type InternalDocumentType = "quote" | "delivery_note_sale"
+export type InternalDocumentType = "quote" | "delivery_note_sale" | "delivery_note_purchase"
 
 const PREFIX_BY_TYPE: Record<InternalDocumentType, string> = {
   quote: "P",
   delivery_note_sale: "R",
+  delivery_note_purchase: "RC",
 }
 
 const PAD = 8
@@ -33,6 +35,7 @@ export function formatInternalDocumentNumber(type: InternalDocumentType, n: numb
 const QUERY_PATTERN_BY_TYPE: Record<InternalDocumentType, RegExp> = {
   quote: new RegExp(`^(?:${PREFIX_BY_TYPE.quote}-)?(\\d+)$`, "i"),
   delivery_note_sale: new RegExp(`^(?:${PREFIX_BY_TYPE.delivery_note_sale}-)?(\\d+)$`, "i"),
+  delivery_note_purchase: new RegExp(`^(?:${PREFIX_BY_TYPE.delivery_note_purchase}-)?(\\d+)$`, "i"),
 }
 
 /**
@@ -54,15 +57,12 @@ export function parseInternalDocumentNumberQuery(query: string, type: InternalDo
 
 /**
  * La etiqueta visible del número de un remito, según su SENTIDO (D2): `R-…` en
- * venta. `null` si el remito no tiene número (fila escrita en modo réplica).
- *
- * El remito de compra todavía no tiene prefijo (lo define `remitos-compra`, que
- * lo suma a `PREFIX_BY_TYPE` y a `numbering.py`): hasta entonces se muestra el
- * número rellenado sin prefijo — nunca con la `R` de venta, que lo haría
- * indistinguible de un remito de venta con el mismo número.
+ * venta y `RC-…` en compra. `null` si el remito no tiene número (fila escrita
+ * en modo réplica). Cada sentido numera desde 1, así que el mismo número se
+ * rotula distinto: nunca se imprime el de compra sin prefijo ni con la `R` de
+ * venta, que lo haría indistinguible de un remito de venta con el mismo número.
  */
 export function formatDeliveryNoteNumber(direction: "sale" | "purchase", n: number | null): string | null {
   if (n === null) return null
-  if (direction === "sale") return formatInternalDocumentNumber("delivery_note_sale", n)
-  return String(n).padStart(PAD, "0")
+  return formatInternalDocumentNumber(direction === "sale" ? "delivery_note_sale" : "delivery_note_purchase", n)
 }

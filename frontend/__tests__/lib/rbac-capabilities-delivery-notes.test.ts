@@ -12,7 +12,14 @@
 import { describe, it, expect } from "vitest"
 import fs from "node:fs"
 import path from "node:path"
-import { CAN_DELIVER_SALE, CAN_SELL, CAN_VOID_DELIVERY_NOTE, hasCapability } from "@/lib/rbac-capabilities"
+import {
+  CAN_CONVERT_PURCHASE_DELIVERY_NOTE,
+  CAN_DELIVER_SALE,
+  CAN_RECEIVE_PURCHASE,
+  CAN_SELL,
+  CAN_VOID_DELIVERY_NOTE,
+  hasCapability,
+} from "@/lib/rbac-capabilities"
 
 const ROOT = path.resolve(__dirname, "../../..")
 
@@ -110,5 +117,83 @@ describe("hasCapability con las capacidades del remito", () => {
   it("resuelto con varios roles, alguno habilitado -> sí (intersección, no igualdad)", () => {
     expect(hasCapability(["cashier", "stock"], CAN_DELIVER_SALE, true)).toBe(true)
     expect(hasCapability(["cashier", "stock"], CAN_VOID_DELIVERY_NOTE, true)).toBe(false)
+  })
+})
+
+// ── remitos-compra (D3/D12, tarea 4.4) ─────────────────────────────────────────
+
+/** Migraciones de remitos-compra, concatenadas: la tanda B suma sus filas en otra. */
+const PURCHASE_MIGRATIONS = fs
+  .readdirSync(path.join(ROOT, "supabase/migrations"))
+  .filter((file) => file.includes("remitos_compra") && file.endsWith(".sql"))
+  .map((file) => fs.readFileSync(path.join(ROOT, "supabase/migrations", file), "utf-8"))
+  .join("\n")
+
+/** `allowed_role` de una fila del catálogo `delivery_note_purchase`; `null` si todavía no existe. */
+function purchaseCatalogRoles(from: string | null, to: string): string[] | null {
+  const fromSql = from === null ? "NULL" : `'${from}'`
+  const row = new RegExp(
+    `\\('delivery_note_purchase',\\s*${fromSql},\\s*'${to}',\\s*(?:true|false),\\s*(?:true|false),\\s*ARRAY\\[([^\\]]*)\\]`,
+  ).exec(PURCHASE_MIGRATIONS)
+  if (!row) return null
+  return [...row[1].matchAll(/'([a-z_]+)'/g)].map((m) => m[1]).sort()
+}
+
+describe("CAN_RECEIVE_PURCHASE — emite y edita un remito de compra (suma stock)", () => {
+  it("es owner, admin y stock", () => {
+    expect([...CAN_RECEIVE_PURCHASE].sort()).toEqual(["admin", "owner", "stock"])
+  })
+
+  it("el vendedor no recibe mercadería: despacha, no recibe (a diferencia de CAN_DELIVER_SALE)", () => {
+    expect(hasCapability(["seller"], CAN_RECEIVE_PURCHASE, true)).toBe(false)
+    expect(hasCapability(["seller"], CAN_DELIVER_SALE, true)).toBe(true)
+  })
+
+  it("el rol stock recibe; purchases, cashier y accountant no", () => {
+    expect(hasCapability(["stock"], CAN_RECEIVE_PURCHASE, true)).toBe(true)
+    expect(hasCapability(["purchases"], CAN_RECEIVE_PURCHASE, true)).toBe(false)
+    expect(hasCapability(["cashier"], CAN_RECEIVE_PURCHASE, true)).toBe(false)
+    expect(hasCapability(["accountant"], CAN_RECEIVE_PURCHASE, true)).toBe(false)
+  })
+
+  const python = pythonCapability("CAN_RECEIVE_PURCHASE")
+  // `CAN_RECEIVE_PURCHASE` llega a `core/rbac.py` con la tanda de backend del mismo
+  // change (tarea 2.2); los contratos contra la FSM corren siempre.
+  it.runIf(python !== null)("coincide con CAN_RECEIVE_PURCHASE de backend/core/rbac.py", () => {
+    expect([...CAN_RECEIVE_PURCHASE].sort()).toEqual(python)
+  })
+
+  it("coincide con el allowed_role de NULL -> issued del catálogo delivery_note_purchase (la recepción)", () => {
+    expect(purchaseCatalogRoles(null, "issued")).not.toBeNull()
+    expect([...CAN_RECEIVE_PURCHASE].sort()).toEqual(purchaseCatalogRoles(null, "issued"))
+  })
+
+  it("anular un remito de compra sigue siendo CAN_VOID_DELIVERY_NOTE: coincide con issued -> canceled", () => {
+    expect(purchaseCatalogRoles("issued", "canceled")).not.toBeNull()
+    expect([...CAN_VOID_DELIVERY_NOTE].sort()).toEqual(purchaseCatalogRoles("issued", "canceled"))
+  })
+})
+
+describe("CAN_CONVERT_PURCHASE_DELIVERY_NOTE — convierte el remito en compra (tanda B, OQ-RC6)", () => {
+  it("es owner, admin, purchases y stock", () => {
+    expect([...CAN_CONVERT_PURCHASE_DELIVERY_NOTE].sort()).toEqual(["admin", "owner", "purchases", "stock"])
+  })
+
+  it("stock y purchases convierten (quien recibe cierra el ciclo); seller y cashier no", () => {
+    expect(hasCapability(["stock"], CAN_CONVERT_PURCHASE_DELIVERY_NOTE, true)).toBe(true)
+    expect(hasCapability(["purchases"], CAN_CONVERT_PURCHASE_DELIVERY_NOTE, true)).toBe(true)
+    expect(hasCapability(["seller"], CAN_CONVERT_PURCHASE_DELIVERY_NOTE, true)).toBe(false)
+    expect(hasCapability(["cashier"], CAN_CONVERT_PURCHASE_DELIVERY_NOTE, true)).toBe(false)
+  })
+
+  const python = pythonCapability("CAN_CONVERT_PURCHASE_DELIVERY_NOTE")
+  it.runIf(python !== null)("coincide con CAN_CONVERT_PURCHASE_DELIVERY_NOTE de backend/core/rbac.py", () => {
+    expect([...CAN_CONVERT_PURCHASE_DELIVERY_NOTE].sort()).toEqual(python)
+  })
+
+  // La fila `issued -> converted` de `delivery_note_purchase` la siembra la tanda B (6.3).
+  const converted = purchaseCatalogRoles("issued", "converted")
+  it.runIf(converted !== null)("coincide con el allowed_role de issued -> converted del catálogo (la conversión)", () => {
+    expect([...CAN_CONVERT_PURCHASE_DELIVERY_NOTE].sort()).toEqual(converted)
   })
 })

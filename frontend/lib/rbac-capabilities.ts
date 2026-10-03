@@ -49,6 +49,27 @@ export const CAN_VOID_DELIVERY_NOTE: readonly OrgRole[] = ["owner", "admin"]
 export const CAN_SELL: readonly OrgRole[] = ["owner", "admin", "seller", "cashier"]
 
 /**
+ * remitos-compra (D12) — recibir mercadería con un remito de compra (emitir y
+ * editar: suma stock). Espejo de `CAN_RECEIVE_PURCHASE` de `backend/core/rbac.py`
+ * y del `allowed_role` de `NULL -> issued` del catálogo `delivery_note_purchase`.
+ * Tiene el mismo contenido que el rol de depósito (`stock`) más owner/admin, pero
+ * va con nombre propio por acción, igual que `CAN_DELIVER_SALE`: si "depósito" y
+ * "recepción" divergen algún día cambia una constante y no todas las pantallas.
+ * El vendedor despacha pero NO recibe mercadería.
+ */
+export const CAN_RECEIVE_PURCHASE: readonly OrgRole[] = ["owner", "admin", "stock"]
+
+/**
+ * remitos-compra (D12, OQ-RC6) — convertir un remito de compra en compra (tanda
+ * B). Espejo de `CAN_CONVERT_PURCHASE_DELIVERY_NOTE` de `backend/core/rbac.py` y
+ * de `issued -> converted` del catálogo. Suma `stock` a `CAN_PURCHASE`: quien
+ * recibe la mercadería y tiene la factura en la mano tiene que poder cerrar el
+ * ciclo; si sólo pudiera registrar una compra directa, volvería a sumar el stock.
+ * Anular sigue siendo `CAN_VOID_DELIVERY_NOTE` (los dos sentidos).
+ */
+export const CAN_CONVERT_PURCHASE_DELIVERY_NOTE: readonly OrgRole[] = ["owner", "admin", "purchases", "stock"]
+
+/**
  * ¿Alguno de los roles activos del usuario habilita la capacidad?
  *
  * Mientras el conjunto no resolvió (`rolesResolved === false`) responde `true`:

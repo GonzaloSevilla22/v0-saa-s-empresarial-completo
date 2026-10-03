@@ -1,6 +1,6 @@
 /**
  * remitos-venta (tarea 5.3) — badge del estado de un remito: pendiente,
- * convertido en venta y anulado.
+ * convertido en venta o en compra (según el sentido) y anulado.
  *
  * Tokens semánticos (texto por rol sobre fondo tenue del mismo rol): el
  * contraste AA lo garantiza el remapeo de `theme.extend.textColor` y el gate
@@ -10,7 +10,7 @@
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 import { DELIVERY_NOTE_STATUS_LABELS } from "@/lib/delivery-note-status"
-import type { DeliveryNoteStatus } from "@/lib/delivery-note-types"
+import type { DeliveryNoteDirection, DeliveryNoteStatus } from "@/lib/delivery-note-types"
 
 const STATUS_CLASSES: Record<DeliveryNoteStatus, string> = {
   issued: "border-warning/40 bg-warning/10 text-warning",
@@ -20,17 +20,19 @@ const STATUS_CLASSES: Record<DeliveryNoteStatus, string> = {
 
 export interface DeliveryNoteStatusBadgeProps {
   status: DeliveryNoteStatus
+  /** Sentido del remito: decide si "convertido" se lee "en venta" o "en compra". Default venta. */
+  direction?: DeliveryNoteDirection
   className?: string
 }
 
-export function DeliveryNoteStatusBadge({ status, className }: DeliveryNoteStatusBadgeProps) {
+export function DeliveryNoteStatusBadge({ status, direction = "sale", className }: DeliveryNoteStatusBadgeProps) {
   return (
     <Badge
       variant="outline"
       data-status={status}
       className={cn("whitespace-nowrap", STATUS_CLASSES[status], className)}
     >
-      {DELIVERY_NOTE_STATUS_LABELS[status]}
+      {DELIVERY_NOTE_STATUS_LABELS[direction][status]}
     </Badge>
   )
 }

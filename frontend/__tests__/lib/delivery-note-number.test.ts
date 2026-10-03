@@ -70,11 +70,66 @@ describe("formatDeliveryNoteNumber — desde direction, nunca con un prefijo fij
     expect(formatDeliveryNoteNumber("sale", null)).toBeNull()
   })
 
-  it("compra: todavía sin prefijo propio (lo define remitos-compra): nunca se rotula con la R de venta", () => {
-    const label = formatDeliveryNoteNumber("purchase", 12)
-    expect(label).not.toBeNull()
-    expect(label).not.toMatch(/^R-/)
-    expect(label).toContain("00000012")
+  it("compra: RC-… (D2 de remitos-compra), nunca la R de venta ni el número pelado", () => {
+    expect(formatDeliveryNoteNumber("purchase", 12)).toBe("RC-00000012")
+    expect(formatDeliveryNoteNumber("purchase", 1)).toBe("RC-00000001")
+  })
+
+  it("compra: un número de más de 8 dígitos no se trunca", () => {
+    expect(formatDeliveryNoteNumber("purchase", 123456789)).toBe("RC-123456789")
+  })
+
+  it("compra sin número (fila escrita en modo réplica) no hay etiqueta", () => {
+    expect(formatDeliveryNoteNumber("purchase", null)).toBeNull()
+  })
+
+  it("el mismo número se rotula distinto según el sentido (cada sentido numera desde 1)", () => {
+    expect(formatDeliveryNoteNumber("sale", 7)).toBe("R-00000007")
+    expect(formatDeliveryNoteNumber("purchase", 7)).toBe("RC-00000007")
+  })
+})
+
+describe("formatInternalDocumentNumber — delivery_note_purchase (remitos-compra, D2)", () => {
+  it.each([
+    [1, "RC-00000001"],
+    [12, "RC-00000012"],
+    [99999999, "RC-99999999"],
+    [123456789, "RC-123456789"],
+  ])("%i -> %s", (n, expected) => {
+    expect(formatInternalDocumentNumber("delivery_note_purchase", n)).toBe(expected)
+  })
+})
+
+describe("parseInternalDocumentNumberQuery — formatos del remito de compra", () => {
+  it.each([
+    ["RC-12", 12],
+    ["rc-12", 12],
+    ["RC-00000012", 12],
+    ["  RC-00000012 ", 12],
+    ["12", 12],
+    ["00000012", 12],
+  ])("%j -> %j", (query, expected) => {
+    expect(parseInternalDocumentNumberQuery(query, "delivery_note_purchase")).toBe(expected)
+  })
+
+  it.each(["RC-", "RC-12-3", "RC-12a", "RC-0", "R-12", "R-00000012", "P-12", "Ramiro"])(
+    "%j no es un número de la pestaña de compra",
+    (query) => {
+      expect(parseInternalDocumentNumberQuery(query, "delivery_note_purchase")).toBeNull()
+    },
+  )
+
+  it("la R de venta no se lee en compra y la RC de compra no se lee en venta", () => {
+    expect(parseInternalDocumentNumberQuery("R-12", "delivery_note_sale")).toBe(12)
+    expect(parseInternalDocumentNumberQuery("R-12", "delivery_note_purchase")).toBeNull()
+    expect(parseInternalDocumentNumberQuery("RC-12", "delivery_note_sale")).toBeNull()
+    expect(parseInternalDocumentNumberQuery("RC-12", "delivery_note_purchase")).toBe(12)
+  })
+
+  it.each([1, 12, 4321, 99999999, 123456789])("lo que se imprime se vuelve a encontrar (%i)", (n) => {
+    expect(
+      parseInternalDocumentNumberQuery(formatInternalDocumentNumber("delivery_note_purchase", n), "delivery_note_purchase"),
+    ).toBe(n)
   })
 })
 

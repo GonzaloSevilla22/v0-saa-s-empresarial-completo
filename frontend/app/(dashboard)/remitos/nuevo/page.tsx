@@ -32,7 +32,7 @@ export default function NewDeliveryNotePage() {
 
   let body: React.ReactNode
   if (!hasCapability(roles, CAN_DELIVER_SALE, rolesResolved)) {
-    body = <DocumentNoPermission texts={DELIVERY_NOTE_PAGE_TEXTS} action="emitir remitos" />
+    body = <DocumentNoPermission texts={DELIVERY_NOTE_PAGE_TEXTS.sale} action="emitir remitos" />
   } else if (productsLoading || unitsLoading || branchesLoading) {
     body = <DocumentLoading label="Cargando…" />
   } else {

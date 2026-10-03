@@ -23,6 +23,10 @@
 --       con allowed_role NULL (sistema: la dispara sólo el borrado de la
 --       venta, que ya exige admin/owner por sales_order confirmed->canceled,
 --       D3): 24/18 pasó a 26/19 y las filas NULL pasan de 6 a 7.
+--       remitos-compra tanda A (20261071000001) sumó delivery_note_purchase:
+--       NULL->issued {stock,admin,owner} e issued->canceled {admin,owner}
+--       (D3): 26/19 pasó a 28/21. Las 7 NULL no cambian (la vuelta
+--       converted->issued sin rol de compra es de la tanda B).
 --   (2) segregación de funciones (11.2, RN-A4): un cashier CONFIRMA una
 --       venta (sales_order draft→confirmed) pero NO la ANULA
 --       (confirmed→canceled, requiere admin/owner); un stock completa una
@@ -82,8 +86,8 @@ BEGIN
   SELECT count(*), count(allowed_role) INTO v_total, v_populated
   FROM public.document_status_transitions;
 
-  IF v_total <> 26 OR v_populated <> 19 THEN
-    RAISE EXCEPTION 'GATE FAILED (1): se esperaban 26 filas / 19 pobladas, hay % / %', v_total, v_populated;
+  IF v_total <> 28 OR v_populated <> 21 THEN
+    RAISE EXCEPTION 'GATE FAILED (1): se esperaban 28 filas / 21 pobladas, hay % / %', v_total, v_populated;
   END IF;
 
   SELECT array_agg(document_type || ':' || COALESCE(from_status, 'NULL') || '->' || to_status ORDER BY document_type, from_status NULLS FIRST, to_status)
@@ -108,7 +112,7 @@ BEGIN
     RAISE EXCEPTION 'GATE FAILED (1): el conjunto EXACTO de las 7 filas NULL no coincide: %', v_null_set;
   END IF;
 
-  RAISE NOTICE 'PASS (1): allowed_role es text[], 19/26 pobladas, las 7 NULL son exactamente delivery_note_sale:converted->issued + fiscal_document(x4) + quote->expired(x2).';
+  RAISE NOTICE 'PASS (1): allowed_role es text[], 21/28 pobladas, las 7 NULL son exactamente delivery_note_sale:converted->issued + fiscal_document(x4) + quote->expired(x2).';
 END $$;
 
 
@@ -335,7 +339,13 @@ DECLARE
     -- listado arriba); delivery_note_sale:issued->converted lo produce el núcleo;
     -- rpc_delete_sale_operation (ya llamador) suma converted->issued.
     'delivery_note_sale:issued->converted', -- _c29_confirm_order_core (orden con origen de remito)
-    'delivery_note_sale:converted->issued'  -- rpc_delete_sale_operation (venta nacida de remito)
+    'delivery_note_sale:converted->issued', -- rpc_delete_sale_operation (venta nacida de remito)
+    -- remitos-compra tanda A (20261071000001): sin llamadores nuevos (5b).
+    -- El disparador gemelo de creación reutiliza trg_delivery_note_record_creation
+    -- con TG_ARGV = delivery_note_purchase, y rpc_cancel_delivery_note (ya
+    -- llamador) pasa a producir también la anulación de compra.
+    'delivery_note_purchase:NULL->issued',    -- trg_delivery_note_record_creation('delivery_note_purchase')
+    'delivery_note_purchase:issued->canceled' -- rpc_cancel_delivery_note (sentido compra)
   ];
   v_existing_triples text[];
   v_missing text[];

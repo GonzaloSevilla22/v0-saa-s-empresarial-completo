@@ -11,11 +11,11 @@ import { translateRpcError } from "@/hooks/data/use-branches"
 
 describe("translateRpcError — branch_has_pending_delivery_notes (P0428)", () => {
   const RAW =
-    "branch_has_pending_delivery_notes: la sucursal tiene 2 remito(s) pendiente(s) — convertilos o anulalos antes de darla de baja"
+    "branch_has_pending_delivery_notes: la sucursal tiene 2 remito(s) pendiente(s) — anulalos (un administrador o el dueño) antes de darla de baja"
 
   it("traduce a un mensaje que nombra los remitos y la salida", () => {
     expect(translateRpcError(RAW)).toBe(
-      "La sucursal tiene remitos pendientes. Convertilos o anulalos antes de darla de baja.",
+      "La sucursal tiene remitos pendientes. Anulalos (un administrador o el dueño) antes de darla de baja.",
     )
   })
 

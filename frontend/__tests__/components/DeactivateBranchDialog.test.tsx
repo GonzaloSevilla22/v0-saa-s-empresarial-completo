@@ -93,11 +93,12 @@ describe("DeactivateBranchDialog — remitos pendientes", () => {
     expect(paragraph(within(dialog), /Tiene 1 remito pendiente que retiene mercadería/i)).toBeInTheDocument()
   })
 
-  it("el título nombra la sucursal y el motivo (convertir o anular)", async () => {
+  it("el título nombra la sucursal y el motivo; la salida es sólo anular (la conversión llega con la tanda B)", async () => {
     mocks.deliveryNotes.mockReturnValue(notesResult(2))
     const { dialog } = await openDialog()
     expect(within(dialog).getByRole("heading", { name: /"Norte" tiene remitos pendientes/i })).toBeInTheDocument()
-    expect(within(dialog).getByText(/convertilos en venta o anulalos/i)).toBeInTheDocument()
+    expect(within(dialog).getByText(/anulalos \(un administrador o el dueño\)/i)).toBeInTheDocument()
+    expect(within(dialog).queryByText(/convertilos/i)).not.toBeInTheDocument()
   })
 
   it("con existencias Y remitos pendientes muestra los dos motivos y las dos salidas", async () => {

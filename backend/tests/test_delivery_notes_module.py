@@ -759,13 +759,13 @@ class TestServiceReads:
     @pytest.mark.parametrize(
         "q,number,text",
         [("R-12", 12, "R-12"), ("12", 12, "12"), ("00000012", 12, "00000012"), ("r-00000012", 12, "r-00000012"),
-         ("Ana", None, "Ana"), ("P-12", 12, "P-12")],
+         ("Ana", None, "Ana"), ("P-12", None, "P-12"), ("p-00000012", None, "p-00000012")],
     )
     async def test_search_formats(self, q, number, text):
         """Cada formato de búsqueda: el número del remito (R-12, 12,
-        00000012) o el nombre del cliente. Como en la definición de TypeScript,
-        el buscador reconoce cualquier prefijo conocido (P-12 también es el
-        número 12): qué documento se busca lo decide el listado."""
+        00000012) o el nombre del cliente. El prefijo de otro tipo (P-12, el de
+        un presupuesto) no es de este listado: se busca como texto, no trae
+        el remito número 12 (revisión adversarial F4)."""
         from backend.services import delivery_notes as svc
 
         repo = _repo()

@@ -44,19 +44,20 @@ describe("parseInternalDocumentNumberQuery — formatos del remito", () => {
     ["12", 12],
     ["00000012", 12],
   ])("%j -> %j", (query, expected) => {
-    expect(parseInternalDocumentNumberQuery(query)).toBe(expected)
+    expect(parseInternalDocumentNumberQuery(query, "delivery_note_sale")).toBe(expected)
   })
 
   it.each(["R-", "R-12-3", "R-12a", "RC-12", "R-0", "Ramiro"])("%j no es un número de documento", (query) => {
-    expect(parseInternalDocumentNumberQuery(query)).toBeNull()
+    expect(parseInternalDocumentNumberQuery(query, "delivery_note_sale")).toBeNull()
   })
 
-  it("los formatos del presupuesto se siguen leyendo", () => {
-    expect(parseInternalDocumentNumberQuery("P-12")).toBe(12)
+  it("los formatos del presupuesto se siguen leyendo en el listado de presupuestos, no en el de remitos", () => {
+    expect(parseInternalDocumentNumberQuery("P-12", "quote")).toBe(12)
+    expect(parseInternalDocumentNumberQuery("P-12", "delivery_note_sale")).toBeNull()
   })
 
   it.each([1, 12, 4321, 99999999, 123456789])("lo que se imprime se vuelve a encontrar (%i)", (n) => {
-    expect(parseInternalDocumentNumberQuery(formatInternalDocumentNumber("delivery_note_sale", n))).toBe(n)
+    expect(parseInternalDocumentNumberQuery(formatInternalDocumentNumber("delivery_note_sale", n), "delivery_note_sale")).toBe(n)
   })
 })
 

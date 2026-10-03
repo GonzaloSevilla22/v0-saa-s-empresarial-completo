@@ -282,7 +282,7 @@ async def list_delivery_notes(
     los `issued` del MISMO recorte (sentido, cliente, sucursal, búsqueda) sin
     importar el estado pedido: el encabezado no cambia al cambiar de pestaña.
     """
-    number = parse_internal_document_number_query(q)
+    number = parse_internal_document_number_query(q, "delivery_note_sale")
     rows, total = await repo.list_delivery_notes(
         account_id,
         page=page,

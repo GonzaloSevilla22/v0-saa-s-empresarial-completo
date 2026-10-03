@@ -30,20 +30,23 @@ export function formatInternalDocumentNumber(type: InternalDocumentType, n: numb
   return `${PREFIX_BY_TYPE[type]}-${String(n).padStart(PAD, "0")}`
 }
 
-const QUERY_PATTERN = new RegExp(
-  `^(?:(?:${Object.values(PREFIX_BY_TYPE).join("|")})-)?(\\d+)$`,
-  "i",
-)
+const QUERY_PATTERN_BY_TYPE: Record<InternalDocumentType, RegExp> = {
+  quote: new RegExp(`^(?:${PREFIX_BY_TYPE.quote}-)?(\\d+)$`, "i"),
+  delivery_note_sale: new RegExp(`^(?:${PREFIX_BY_TYPE.delivery_note_sale}-)?(\\d+)$`, "i"),
+}
 
 /**
  * El número que el usuario está buscando en el listado, o `null` si el texto
  * no es un número de documento (entonces se busca por nombre de cliente).
- * Acepta `P-12`, `12` y `00000012`, sin distinguir mayúsculas y con espacios.
+ * Acepta el prefijo del tipo del listado (`P-12` en presupuestos, `R-12` en
+ * remitos), el número solo (`12`) y el relleno (`00000012`), sin distinguir
+ * mayúsculas y con espacios. El prefijo de OTRO tipo no es de este listado:
+ * devuelve `null` y se busca como texto.
  * Un número es un entero positivo y seguro: nunca se compara contra un valor
  * que JavaScript tuvo que redondear.
  */
-export function parseInternalDocumentNumberQuery(query: string): number | null {
-  const match = QUERY_PATTERN.exec(query.trim())
+export function parseInternalDocumentNumberQuery(query: string, type: InternalDocumentType): number | null {
+  const match = QUERY_PATTERN_BY_TYPE[type].exec(query.trim())
   if (!match) return null
   const n = Number(match[1])
   return Number.isSafeInteger(n) && n > 0 ? n : null

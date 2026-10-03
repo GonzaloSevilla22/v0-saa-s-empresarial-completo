@@ -316,7 +316,7 @@ async def list_quotes(
         status=status,
         client_id=client_id,
         text=q,
-        number=parse_internal_document_number_query(q),
+        number=parse_internal_document_number_query(q, "quote"),
     )
     pages = -(-total // page_size) if total > 0 else 0
     return {"items": [_present(r) for r in rows], "total": total, "page": page, "pages": pages}

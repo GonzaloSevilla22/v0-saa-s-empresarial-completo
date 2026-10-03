@@ -26,14 +26,16 @@ _PAD = 8
 # redondeado.
 _MAX_SAFE_INTEGER = 9007199254740991
 
-# El buscador acepta el número con cualquiera de los prefijos conocidos, igual
-# que la definición de TypeScript (`frontend/lib/internal-document-number.ts`,
-# que arma su expresión con todos los prefijos): "P-12", "R-12", "12" o
-# "00000012". Qué documento es lo decide el listado que busca.
-_QUERY = re.compile(
-    rf"^(?:(?:{'|'.join(re.escape(prefix) for prefix in _PREFIX_BY_TYPE.values())})-)?([0-9]+)$",
-    re.IGNORECASE,
-)
+# El buscador de cada listado acepta el número con SU prefijo (o sin prefijo):
+# en presupuestos "P-12", "12" o "00000012"; en remitos "R-12", "12" o
+# "00000012". El prefijo de otro tipo no es de ese listado: se busca como texto
+# (si no, "R-12" en /presupuestos traería P-00000012, un documento distinto del
+# que el usuario escribió). Igual en la definición de TypeScript
+# (`frontend/lib/internal-document-number.ts`).
+_QUERY_BY_TYPE = {
+    document_type: re.compile(rf"^(?:{re.escape(prefix)}-)?([0-9]+)$", re.IGNORECASE)
+    for document_type, prefix in _PREFIX_BY_TYPE.items()
+}
 
 
 def format_internal_document_number(document_type: str, number: int | None) -> str | None:
@@ -50,14 +52,18 @@ def format_internal_document_number(document_type: str, number: int | None) -> s
     return f"{prefix}-{number:0{_PAD}d}"
 
 
-def parse_internal_document_number_query(text: str | None) -> int | None:
-    """El número que el usuario busca ("P-12", "R-12", "12", "00000012"), o `None` si
-    el texto no es un número de documento (entonces se busca por nombre).
+def parse_internal_document_number_query(text: str | None, document_type: str) -> int | None:
+    """El número que el usuario busca en el listado de `document_type` ("P-12" en
+    presupuestos, "R-12" en remitos, "12", "00000012"), o `None` si el texto no es
+    un número de documento de ESE tipo (entonces se busca por nombre).
 
     Un número de documento es un entero positivo: "0", "-5" y los textos mixtos
-    ("12a", "P-12-3") no lo son.
+    ("12a", "P-12-3") no lo son, y el prefijo de otro tipo tampoco.
     """
-    match = _QUERY.match((text or "").strip())
+    pattern = _QUERY_BY_TYPE.get(document_type)
+    if pattern is None:
+        raise ValueError(f"tipo de documento sin numeración interna: {document_type!r}")
+    match = pattern.match((text or "").strip())
     if match is None:
         return None
     value = int(match.group(1))

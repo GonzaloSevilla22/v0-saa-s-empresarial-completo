@@ -162,11 +162,13 @@ class SalesOrderRepository(BaseRepository):
                    fd.cae_due_date     AS fiscal_cae_due_date,
                    fd.comprobante_type AS fiscal_comprobante_type,
                    (fd.cae_submit_unconfirmed_at IS NOT NULL AND fd.status = 'pending_cae') AS fiscal_frozen,
-                   sq.number           AS source_quote_number
+                   sq.number           AS source_quote_number,
+                   sdn.number          AS source_delivery_note_number
             FROM public.sales_orders so
             LEFT JOIN public.payment_methods pm ON pm.id = so.payment_method_id
             LEFT JOIN public.fiscal_documents fd ON fd.id = so.fiscal_document_id AND fd.account_id = so.account_id
             LEFT JOIN public.quotes sq ON sq.id = so.source_quote_id AND sq.account_id = so.account_id
+            LEFT JOIN public.delivery_notes sdn ON sdn.id = so.source_delivery_note_id AND sdn.account_id = so.account_id
             WHERE so.account_id = $1::uuid
             ORDER BY so.created_at DESC
             """,
@@ -182,10 +184,12 @@ class SalesOrderRepository(BaseRepository):
         return await self.fetchrow(
             """
             SELECT so.*, pm.kind AS payment_method,
-                   sq.number AS source_quote_number
+                   sq.number AS source_quote_number,
+                   sdn.number AS source_delivery_note_number
             FROM public.sales_orders so
             LEFT JOIN public.payment_methods pm ON pm.id = so.payment_method_id
             LEFT JOIN public.quotes sq ON sq.id = so.source_quote_id AND sq.account_id = so.account_id
+            LEFT JOIN public.delivery_notes sdn ON sdn.id = so.source_delivery_note_id AND sdn.account_id = so.account_id
             WHERE so.id = $1::uuid AND so.account_id = $2::uuid
             """,
             sales_order_id,

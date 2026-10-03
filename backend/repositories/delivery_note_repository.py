@@ -4,7 +4,8 @@ Repositorio del remito de venta (remitos-venta tanda A, D13).
 Arquitectura 3 capas: sólo acceso a datos, sin lógica de negocio.
 
   - TODA escritura va por una RPC `SECURITY DEFINER` (`rpc_create_sale_delivery_note`,
-    `rpc_update_delivery_note`, `rpc_cancel_delivery_note`). NO hay
+    `rpc_update_delivery_note`, `rpc_cancel_delivery_note` y, desde la tanda B,
+    `rpc_convert_delivery_note_to_sale`). NO hay
     `INSERT`/`UPDATE`/`DELETE` sobre `delivery_notes` ni `delivery_note_items`
     (desde la migración 20261069000001 no existen políticas de escritura y el rol
     de la aplicación ni siquiera tiene el privilegio) y, sobre todo, NINGUNO
@@ -147,6 +148,38 @@ class DeliveryNoteRepository(CommercialIssuerMixin, BaseRepository):
         )
         return jsonb_value(raw)
 
+    async def convert_to_sale(
+        self,
+        delivery_note_id: str,
+        *,
+        idempotency_key: str,
+        expected_revision: int,
+        payment_method_id: str,
+        cash_session_id: str | None,
+        bank_account_id: str | None,
+        canal: str | None,
+    ) -> dict:
+        """`rpc_convert_delivery_note_to_sale`: convierte el remito `issued` en una
+        venta confirmada en UNA transacción (caja, cuenta corriente, banco,
+        historial, eventos) sobre el núcleo del POS, SIN volver a mover stock (lo
+        decide la base por el origen persistido de la orden, nunca un parámetro de
+        acá). Bloquea primero el remito, valida estado y versión y revierte todo
+        ante cualquier fallo. La sucursal es la del remito (no se elige). La
+        tenencia del remito, la forma de pago, la cuenta bancaria y la caja las
+        resuelve la RPC; acá sólo se transportan los ids."""
+        raw = await self._conn.fetchval(
+            "SELECT public.rpc_convert_delivery_note_to_sale("
+            "$1::text, $2::uuid, $3::integer, $4::uuid, $5::uuid, $6::uuid, $7::text)",
+            idempotency_key,
+            delivery_note_id,
+            expected_revision,
+            payment_method_id,
+            cash_session_id,
+            bank_account_id,
+            canal,
+        )
+        return jsonb_value(raw)
+
     # ── Lecturas (SELECT con account_id explícito) ────────────────────────────
 
     async def get_delivery_note(self, delivery_note_id: str, account_id: str) -> dict | None:
@@ -160,8 +193,20 @@ class DeliveryNoteRepository(CommercialIssuerMixin, BaseRepository):
                    c.name AS client_name, c.phone AS client_phone, c.tax_id AS client_tax_id,
                    (c.deleted_at IS NOT NULL) AS client_deleted,
                    b.name AS branch_name,
-                   NULL::uuid AS converted_sales_order_id,
-                   NULL::uuid AS converted_operation_id
+                   -- remitos-venta tanda B: la orden VIVA nacida del remito (a lo
+                   -- sumo una: índice único parcial). Mismo criterio que
+                   -- `_delivery_note_payload`: la cuenta va en el cruce y una orden
+                   -- cancelada (venta borrada) no cuenta.
+                   (SELECT so.id
+                      FROM public.sales_orders so
+                     WHERE so.source_delivery_note_id = dn.id
+                       AND so.account_id = dn.account_id
+                       AND so.status <> 'canceled') AS converted_sales_order_id,
+                   (SELECT so.sale_operation_id
+                      FROM public.sales_orders so
+                     WHERE so.source_delivery_note_id = dn.id
+                       AND so.account_id = dn.account_id
+                       AND so.status <> 'canceled') AS converted_operation_id
             {_DN_FROM}
             WHERE dn.id = $1::uuid AND dn.account_id = $2::uuid
             """,

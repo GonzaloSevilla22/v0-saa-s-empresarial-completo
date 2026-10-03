@@ -6,8 +6,9 @@ traducción de errores; las reglas de dominio (tenencia, estados, versión,
 stock, snapshots, numeración, idempotencia) viven en las RPCs `SECURITY
 DEFINER` y se invocan desde el repositorio.
 
-  - Emitir y editar exigen `CAN_DELIVER_SALE` y anular exige
-    `CAN_VOID_DELIVERY_NOTE`, ambas evaluadas sobre el CONJUNTO de roles activos
+  - Emitir y editar exigen `CAN_DELIVER_SALE`, anular exige
+    `CAN_VOID_DELIVERY_NOTE` y convertir en venta exige `CAN_SELL` (el cajero
+    convierte pero no emite; el depósito emite pero no convierte), todas evaluadas sobre el CONJUNTO de roles activos
     (`require_account_role`): un cajero recibe 403 sin llegar a la RPC. Anular es
     una capacidad SENSIBLE (devuelve stock): la base manda y el claim no alcanza.
     La RPC vuelve a verificar el rol antes de escribir (defensa en profundidad,
@@ -39,11 +40,12 @@ from fastapi import HTTPException
 
 from backend.core.errors import ProblemHTTPException, problem_from_pg_error
 from backend.core.guards import require_account_role
-from backend.core.rbac import CAN_DELIVER_SALE, CAN_VOID_DELIVERY_NOTE
+from backend.core.rbac import CAN_DELIVER_SALE, CAN_SELL, CAN_VOID_DELIVERY_NOTE
 from backend.core.timezone import today_in_argentina
 from backend.repositories.delivery_note_repository import DeliveryNoteRepository
 from backend.schemas.delivery_notes import (
     DeliveryNoteCancelIn,
+    DeliveryNoteConvertIn,
     DeliveryNoteCreateIn,
     DeliveryNoteItemIn,
     DeliveryNoteUpdateIn,
@@ -227,6 +229,55 @@ async def cancel_delivery_note(
             delivery_note_id, expected_revision=payload.revision, reason=payload.reason
         )
     return await _reload(repo, written, account_id)
+
+
+async def convert_delivery_note(
+    repo: DeliveryNoteRepository,
+    auth: dict,
+    account_id: str,
+    delivery_note_id: str,
+    payload: DeliveryNoteConvertIn,
+    idempotency_key: str,
+    *,
+    conn,
+) -> dict:
+    """Convierte el remito en venta, atómicamente (`rpc_convert_delivery_note_to_sale`).
+
+    Guard: `CAN_SELL`. La venta NO vuelve a mover stock (el remito ya lo
+    descontó al emitirse) y eso lo decide la base por el origen persistido de la
+    orden, no un parámetro de este contrato. Todo lo demás lo decide la RPC bajo
+    el lock del remito: tenencia de cada id del payload, estado
+    (`delivery_note_invalid_state`), versión (`delivery_note_changed`), cliente
+    vivo (`delivery_note_client_unavailable`), sucursal del remito activa
+    (`branch_closed`, 422), caja y forma de pago, e idempotencia
+    (`idempotency_key_conflict` si la clave ya convirtió OTRO documento).
+    Cualquier fallo revierte la orden y la transición: no queda un remito
+    `converted` sin venta. Nada se pre-valida acá para no abrir una ventana entre
+    el chequeo y el lock.
+
+    `idempotency_key` ya llega resuelto por el router (header obligatorio). Un
+    `ValueError` si no llegó es un bug de cableado, no un error del usuario: sin
+    clave la conversión no es reintentable y se corta antes de la base.
+    """
+    if not idempotency_key:
+        raise ValueError("convert_delivery_note: falta la clave de idempotencia resuelta por el router")
+    await _require_capability(conn, auth, CAN_SELL)
+    with _pg_errors_as_problems():
+        result = await repo.convert_to_sale(
+            delivery_note_id,
+            idempotency_key=idempotency_key,
+            expected_revision=payload.expected_revision,
+            payment_method_id=str(payload.payment_method_id),
+            cash_session_id=_uid(payload.cash_session_id),
+            bank_account_id=_uid(payload.bank_account_id),
+            canal=payload.canal,
+        )
+    return {
+        **result,
+        "delivery_note_number_label": format_internal_document_number(
+            "delivery_note_sale", result.get("delivery_note_number")
+        ),
+    }
 
 
 # ── Lecturas ──────────────────────────────────────────────────────────────────

@@ -160,6 +160,41 @@ class DeliveryNoteCancelIn(BaseModel):
         return v.strip() if isinstance(v, str) else v
 
 
+class DeliveryNoteConvertIn(BaseModel):
+    """Conversión del remito en venta con un toque (`rpc_convert_delivery_note_to_sale`).
+
+    `expected_revision` es la versión del remito que el usuario VIO al
+    confirmar: si otro lo editó mientras tanto, la RPC responde
+    `delivery_note_changed` (409) y no cobra un total que nadie confirmó. La
+    forma de pago es del catálogo (`payment_method_id`). Caja y cuenta bancaria
+    son opcionales y los guards de tenencia viven en la RPC.
+
+    NO hay `branch_id`: la venta se imputa a la sucursal del remito, que es de
+    donde salió el stock (D7). Tampoco `idempotency_key`: viaja SIEMPRE por el
+    header `Idempotency-Key`, sin el fallback deprecado del body.
+    """
+    expected_revision: int = Field(ge=1)
+    payment_method_id: uuid.UUID
+    cash_session_id:   Optional[uuid.UUID] = None
+    bank_account_id:   Optional[uuid.UUID] = None
+    canal:             Optional[str] = Field(default=None, max_length=40)
+
+
+class DeliveryNoteConvertOut(BaseModel):
+    """Resultado de la conversión: el remito, la orden de venta confirmada y la
+    operación de venta. `replayed = true` cuando la misma clave ya había
+    convertido ESTE remito (el reintento no escribe nada)."""
+    model_config = ConfigDict(from_attributes=True)
+
+    delivery_note_id:           uuid.UUID
+    delivery_note_number:       Optional[int] = None
+    delivery_note_number_label: Optional[str] = None
+    sales_order_id:             uuid.UUID
+    operation_id:               uuid.UUID
+    total:                      Decimal
+    replayed:                   bool = False
+
+
 class DeliveryNoteOut(BaseModel):
     """Remito con sus líneas y su historial."""
     model_config = ConfigDict(from_attributes=True)
@@ -190,8 +225,9 @@ class DeliveryNoteOut(BaseModel):
     created_at:         datetime.datetime
     updated_by:         Optional[uuid.UUID] = None
     updated_at:         Optional[datetime.datetime] = None
-    # La orden y la operación de venta nacidas de la conversión (tanda B); null
-    # hasta entonces.
+    # La orden y la operación de venta VIVAS nacidas de la conversión (tanda B,
+    # derivadas de `sales_orders.source_delivery_note_id`); null mientras el remito
+    # no esté convertido o si la venta se borró y volvió a `issued`.
     converted_sales_order_id: Optional[uuid.UUID] = None
     converted_operation_id:   Optional[uuid.UUID] = None
     # Nombre del emisor tal como lo imprime el PDF (sólo en `GET /delivery-notes/{id}`):

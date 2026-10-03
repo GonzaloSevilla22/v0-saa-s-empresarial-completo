@@ -44,7 +44,7 @@ const onConfirm = vi.fn()
 
 /** El párrafo cuyo texto completo (con los <strong>) cumple el patrón. */
 const paragraph = (scope: ReturnType<typeof within>, pattern: RegExp) =>
-  scope.getByText((_, element) => element?.tagName === "P" && pattern.test(element.textContent ?? ""))
+  scope.getByText((_content: string, element: Element | null) => element?.tagName === "P" && pattern.test(element.textContent ?? ""))
 
 async function openDialog() {
   const user = userEvent.setup()

@@ -5,7 +5,7 @@
  */
 import React from "react"
 import { describe, it, expect, vi, beforeEach } from "vitest"
-import { render, screen, waitFor, fireEvent } from "@testing-library/react"
+import { render, screen, waitFor, fireEvent, within, cleanup } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import "@testing-library/jest-dom"
 
@@ -30,6 +30,7 @@ vi.mock("@/hooks/data/use-products", () => ({
     products: [
       { id: "p-a", name: "Producto A", baseUnitId: "u-u" },
       { id: "p-b", name: "Producto B", baseUnitId: "u-kg" },
+      { id: "11111111-1111-4111-8111-111111111111", name: "Producto Uuid", baseUnitId: "u-u" },
     ],
   }),
 }))
@@ -200,5 +201,136 @@ describe("CancelDeliveryNoteDialog", () => {
   it("al abrir el foco queda en el motivo", async () => {
     renderDialog()
     await waitFor(() => expect(screen.getByLabelText(/motivo/i)).toHaveFocus())
+  })
+})
+
+// ── remitos-compra (D11, tarea 5.3): la anulación por sentido ──────────────────
+
+const UUID_PRODUCT = "11111111-1111-4111-8111-111111111111"
+
+function purchaseNote(overrides: Partial<DeliveryNoteApiRow> = {}): DeliveryNoteApiRow {
+  return deliveryNote({
+    direction: "purchase",
+    number: 7,
+    number_label: "RC-00000007",
+    client_id: null,
+    client_name: null,
+    supplier_id: "s-1",
+    supplier_name: "Distribuidora Sur",
+    supplier_reference: "0004-00001234",
+    items: [item({ id: "i-1", product_id: "p-a", quantity: "10", quantity_base: "10" })],
+    ...overrides,
+  })
+}
+
+describe("CancelDeliveryNoteDialog — remito de compra", () => {
+  it("enumera lo que SALE de la sucursal, junto por producto", () => {
+    renderDialog(
+      purchaseNote({
+        items: [
+          item({ id: "i-1", product_id: "p-a", quantity: "6", quantity_base: "6" }),
+          item({ id: "i-2", product_id: "p-a", quantity: "4", quantity_base: "4", line_no: 2 }),
+        ],
+      }),
+    )
+    expect(screen.getByText("Salen de Sucursal Centro: 10 × Producto A")).toBeInTheDocument()
+    expect(screen.queryByText(/Vuelven a/)).not.toBeInTheDocument()
+  })
+
+  it("el título y el botón siguen hablando del remito, con el número RC", () => {
+    renderDialog(purchaseNote())
+    expect(screen.getByRole("dialog", { name: "Anular RC-00000007" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /anular remito/i })).toBeInTheDocument()
+  })
+
+  it("el placeholder del motivo es el de compra, no el de venta", () => {
+    renderDialog(purchaseNote())
+    expect(screen.getByLabelText(/motivo/i)).toHaveAttribute("placeholder", "Ej.: el proveedor se llevó la mercadería")
+    cleanup()
+    renderDialog(deliveryNote())
+    expect(screen.getByLabelText(/motivo/i)).toHaveAttribute("placeholder", "Ej: el cliente devolvió la mercadería")
+  })
+
+  it("al anular manda el motivo y la revisión, y el toast dice que el stock SALIÓ", async () => {
+    const user = userEvent.setup()
+    renderDialog(purchaseNote({ revision: 3 }))
+    await user.type(screen.getByLabelText(/motivo/i), "El proveedor se llevó todo")
+    await user.click(screen.getByRole("button", { name: /anular remito/i }))
+    await waitFor(() => expect(mocks.mutateAsync).toHaveBeenCalledTimes(1))
+    expect(mocks.mutateAsync).toHaveBeenCalledWith({
+      deliveryNoteId: "dn-1",
+      payload: { reason: "El proveedor se llevó todo", revision: 3 },
+    })
+    expect(mocks.toastSuccess).toHaveBeenCalledWith("Remito RC-00000007 anulado: el stock salió de Sucursal Centro")
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false))
+  })
+
+  it("ante delivery_note_stock_consumed deja el diálogo abierto y muestra lo que queda con las dos salidas", async () => {
+    const user = userEvent.setup()
+    mocks.mutateAsync.mockRejectedValue(
+      new Error("delivery_note_stock_consumed: de Producto A en la sucursal quedan 3, el remito necesita restar 10"),
+    )
+    renderDialog(purchaseNote())
+    await user.type(screen.getByLabelText(/motivo/i), "Motivo válido")
+    await user.click(screen.getByRole("button", { name: /anular remito/i }))
+
+    const alert = await screen.findByRole("alert", { name: /mercadería consumida/i })
+    expect(alert).toHaveTextContent(/quedan 3/)
+    expect(alert).toHaveTextContent(/restar 10/)
+    expect(within(alert).getByRole("link", { name: "Editar el remito" })).toHaveAttribute("href", "/remitos/dn-1/editar")
+    expect(within(alert).getByRole("link", { name: "Ajustar stock" })).toHaveAttribute("href", "/stock")
+    // No se anuló nada: el diálogo sigue abierto con el motivo escrito y sin toast de éxito.
+    expect(onOpenChange).not.toHaveBeenCalledWith(false)
+    expect(screen.getByLabelText(/motivo/i)).toHaveValue("Motivo válido")
+    expect(mocks.toastSuccess).not.toHaveBeenCalled()
+  })
+
+  it("si el servidor nombra el producto por uuid, 'Ajustar stock' lleva a ese producto y el nombre se resuelve", async () => {
+    const user = userEvent.setup()
+    mocks.mutateAsync.mockRejectedValue(
+      new Error(`delivery_note_stock_consumed: de ${UUID_PRODUCT} en la sucursal quedan 0.5, el remito necesita restar 2`),
+    )
+    renderDialog(purchaseNote())
+    await user.type(screen.getByLabelText(/motivo/i), "Motivo válido")
+    await user.click(screen.getByRole("button", { name: /anular remito/i }))
+    const alert = await screen.findByRole("alert", { name: /mercadería consumida/i })
+    expect(alert).toHaveTextContent("«Producto Uuid»")
+    expect(within(alert).getByRole("link", { name: "Ajustar stock" })).toHaveAttribute(
+      "href",
+      `/stock?product=${UUID_PRODUCT}`,
+    )
+  })
+
+  it("el aviso de mercadería consumida se limpia al reabrir el diálogo", async () => {
+    const user = userEvent.setup()
+    mocks.mutateAsync.mockRejectedValue(new Error("delivery_note_stock_consumed"))
+    const note = purchaseNote()
+    const { rerender } = render(<CancelDeliveryNoteDialog deliveryNote={note} open onOpenChange={onOpenChange} />)
+    await user.type(screen.getByLabelText(/motivo/i), "Motivo válido")
+    await user.click(screen.getByRole("button", { name: /anular remito/i }))
+    await screen.findByRole("alert", { name: /mercadería consumida/i })
+    rerender(<CancelDeliveryNoteDialog deliveryNote={note} open={false} onOpenChange={onOpenChange} />)
+    rerender(<CancelDeliveryNoteDialog deliveryNote={note} open onOpenChange={onOpenChange} />)
+    expect(screen.queryByRole("alert", { name: /mercadería consumida/i })).not.toBeInTheDocument()
+  })
+
+  it("otro error en compra (remito modificado) sigue siendo un toast y no abre el aviso de stock", async () => {
+    const user = userEvent.setup()
+    mocks.mutateAsync.mockRejectedValue(new Error("delivery_note_changed: el remito cambió"))
+    renderDialog(purchaseNote())
+    await user.type(screen.getByLabelText(/motivo/i), "Motivo válido")
+    await user.click(screen.getByRole("button", { name: /anular remito/i }))
+    await waitFor(() => expect(mocks.toastError).toHaveBeenCalled())
+    expect(screen.queryByRole("alert", { name: /mercadería consumida/i })).not.toBeInTheDocument()
+  })
+
+  it("en venta el mismo error de stock no abre el aviso de compra (el camino de venta no cambia)", async () => {
+    const user = userEvent.setup()
+    mocks.mutateAsync.mockRejectedValue(new Error("delivery_note_stock_consumed"))
+    renderDialog(deliveryNote())
+    await user.type(screen.getByLabelText(/motivo/i), "Motivo válido")
+    await user.click(screen.getByRole("button", { name: /anular remito/i }))
+    await waitFor(() => expect(mocks.toastError).toHaveBeenCalled())
+    expect(screen.queryByRole("link", { name: "Editar el remito" })).not.toBeInTheDocument()
   })
 })

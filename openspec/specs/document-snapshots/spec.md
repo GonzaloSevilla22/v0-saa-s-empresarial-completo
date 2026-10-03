@@ -3,9 +3,7 @@
 Immutable snapshots of product metadata (name, SKU, cost, IVA rate) frozen at the moment a document line is created, preventing historical cost/margin calculations from being corrupted when product masters are updated. Foundational pattern for Model V3.
 
 ---
-
 ## Requirements
-
 ### Requirement: Columnas snapshot en las líneas de documento
 
 El sistema SHALL agregar, de forma aditiva y NULLABLE, las columnas snapshot `name_snapshot TEXT`, `sku_snapshot TEXT`, `unit_cost_snapshot NUMERIC(15,2)` e `iva_rate_snapshot NUMERIC(5,2)` a las tablas de líneas `sale_items`, `purchase_items`, `quote_items` y `sales_order_items`. Estas columnas SHALL congelar el nombre, SKU, costo unitario y alícuota de IVA del maestro (`products`) vigentes al momento en que la línea se persiste. Ninguna columna existente SHALL ser eliminada ni cambiada de tipo por este requisito.
@@ -42,7 +40,9 @@ Toda ruta de creación de línea confirmada SHALL congelar `name_snapshot`, `sku
 - **THEN** la línea queda con `name_snapshot` igual al nombre del payload y `sku_snapshot`/`unit_cost_snapshot`/`iva_rate_snapshot` en NULL, sin error
 
 ### Requirement: Política de snapshot al editar una línea de operación
-El sistema SHALL preservar el snapshot congelado de una línea cuando una edición de la operación NO cambia el producto de esa línea: `name_snapshot`, `sku_snapshot`, `unit_cost_snapshot` e `iva_rate_snapshot` MUST conservar el valor que tenían antes de la edición, y solo `quantity`, `price` y `subtotal` SHALL recalcularse desde el payload editado. Cuando la edición **cambia el producto** de la línea, o agrega una línea que la operación no tenía, el sistema SHALL congelar un snapshot **fresco** desde el maestro `products` en la misma transacción de la edición. La correspondencia entre la línea previa y la nueva SHALL resolverse por `product_id` de forma determinística. Una edición NO SHALL re-precificar con el costo actual una línea cuyo producto no cambió.
+El sistema SHALL preservar el snapshot congelado de una línea cuando una edición de una operación de **venta o compra** NO cambia el producto de esa línea: `name_snapshot`, `sku_snapshot`, `unit_cost_snapshot` e `iva_rate_snapshot` MUST conservar el valor que tenían antes de la edición, y solo `quantity`, `price` y `subtotal` SHALL recalcularse desde el payload editado. Cuando la edición **cambia el producto** de la línea, o agrega una línea que la operación no tenía, el sistema SHALL congelar un snapshot **fresco** desde el maestro `products` en la misma transacción de la edición. La correspondencia entre la línea previa y la nueva SHALL resolverse por `product_id` de forma determinística. Una edición NO SHALL re-precificar con el costo actual una línea cuyo producto no cambió.
+
+Esta política protege el costo histórico de una operación ya realizada. NOT SHALL aplicarse al presupuesto (`quote_items`), que se edita por reemplazo completo antes de confirmarse y re-congela los snapshots de todas sus líneas en cada edición, según el requirement de edición de la spec `quote`.
 
 #### Scenario: corregir la cantidad no re-precifica la historia
 
@@ -73,6 +73,12 @@ El sistema SHALL preservar el snapshot congelado de una línea cuando una edici�
 - **GIVEN** una compra cuyo header congeló `unit_cost_snapshot` al crearse
 - **WHEN** se edita la operación de compra sin cambiar el producto
 - **THEN** tanto la fila de `purchases` como su `purchase_items` conservan el `unit_cost_snapshot` original y reflejan la cantidad o el precio editados
+
+#### Scenario: el presupuesto no se rige por esta política
+
+- **GIVEN** un presupuesto cuya línea congeló `unit_cost_snapshot = 500` y un producto cuyo costo hoy es `products.cost = 600`
+- **WHEN** se edita el presupuesto sin cambiar el producto de esa línea
+- **THEN** la línea queda con `unit_cost_snapshot = 600`, según la spec `quote`
 
 ### Requirement: Costo unitario congelado en el ledger de stock
 
@@ -144,3 +150,4 @@ El backfill de líneas inexistentes SHALL entregarse como script ejecutable a ma
 - **GIVEN** una venta histórica sin fila en `sale_items`, cuyo header no tiene ningún costo congelado
 - **WHEN** corre el backfill de líneas inexistentes
 - **THEN** la línea creada tiene `unit_cost_snapshot = NULL` y `snapshot_backfilled = true`, y el margen calculado para esa venta es idéntico al que el sistema devolvía antes del backfill
+

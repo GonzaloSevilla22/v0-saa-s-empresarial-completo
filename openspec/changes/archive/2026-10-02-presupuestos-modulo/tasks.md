@@ -447,7 +447,7 @@
 
 ## 9. Post-merge (por tanda)
 
-- [ ] 9.1 Tanda A, verificación en prod (sólo lectura):
+- [x] 9.1 (verificado en prod 2026-10-02, SELECT-only: `MAX(version) = 20261067000001` sobre 314 migraciones; columnas nuevas de `quotes` —`number`, `notes`, `sent_at`, `updated_at`, `updated_by`, `revision`, `valid_until`—, `quote_items.line_no`, `accounts.default_quote_validity_days` y `internal_document_sequences` presentes; `rpc_create_quote`/`rpc_update_quote`/`rpc_transition_quote`/`rpc_delete_quote`/`rpc_set_default_quote_validity` `SECURITY DEFINER` con `EXECUTE` para `authenticated` y sin `anon`; `rpc_accept_quote` y `_next_internal_document_number` sin `authenticated`; 0 políticas de escritura y 0 privilegios INSERT/UPDATE/DELETE de `authenticated` sobre `quotes` y `quote_items` (SELECT sí); cron `quotes-expire-sweep` activo `5 3 * * *`; `default_quote_validity_days = 15` en todas las cuentas; filas `expired → draft` y `rejected → draft` presentes y `accepted` como único `is_terminal_to` de `quote`; 0 `quotes` con `number` o `valid_until` NULL; Render live `95eb8dd7`, `/health` ok, `GET /quotes` sin token 401) Tanda A, verificación en prod (sólo lectura):
   - `MAX(version) = 20261067000001`;
   - columnas, `UNIQUE` y disparador;
   - las 4 políticas de escritura ausentes;
@@ -458,16 +458,16 @@
   - `count(*) FILTER (WHERE number IS NULL OR valid_until IS NULL) = 0` en `quotes`.
   
   Verificar el deploy de Render (`GET /deploys`) y dispararlo si no corrió.
-- [ ] 9.2 **[PO]** Humo de la tanda A en prod: crear un presupuesto para un cliente real con teléfono → descargarlo → enviarlo por WhatsApp desde el celular, en Android y en iPhone (llega el PDF adjunto) → editarlo → rechazar uno y reabrirlo editándolo → duplicar → eliminar un borrador.
-- [ ] 9.3 Tanda B, verificación en prod (sólo lectura):
+- [ ] 9.2 (PENDIENTE: humo real del PO, no verificable por un agente) **[PO]** Humo de la tanda A en prod: crear un presupuesto para un cliente real con teléfono → descargarlo → enviarlo por WhatsApp desde el celular, en Android y en iPhone (llega el PDF adjunto) → editarlo → rechazar uno y reabrirlo editándolo → duplicar → eliminar un borrador.
+- [x] 9.3 (verificado en prod 2026-10-02, SELECT-only: `MAX(version) = 20261068000001` sobre 315 migraciones; `rpc_convert_quote_to_sale(p_idempotency_key text, p_quote_id uuid, p_expected_revision integer, p_payment_method_id uuid, p_branch_id uuid, p_cash_session_id uuid, p_bank_account_id uuid, p_canal text)` `SECURITY DEFINER`, una sola definición, `EXECUTE` para `authenticated` y sin `anon`; `_quote_accept_core(p_quote_id uuid, p_branch_id uuid)` y `rpc_accept_quote(p_quote_id uuid)` sin `authenticated` ni `anon`; `rpc_accept_quote` delega en el núcleo y conserva su `COMMENT`; la conversión bloquea los productos `ORDER BY p.id FOR UPDATE` antes del núcleo; `_c29_confirm_order_core` con su firma de 9 args y una sola definición (no se tocó); `sales_orders.source_quote_id` presente; 0 `quotes` y 0 órdenes desde presupuesto (punto de partida); Render live `dad7852a`, `/health` ok, `POST /quotes/{id}/convert` sin token 401; `deploy.yml` run 37067202973 success) Tanda B, verificación en prod (sólo lectura):
   - `MAX(version) = 20261068000001`;
   - una sola definición de `rpc_accept_quote`, que delega en el núcleo;
   - `_quote_accept_core` y `rpc_accept_quote` sin `EXECUTE` para `authenticated`;
   - `rpc_convert_quote_to_sale` sin `anon`;
   - `COMMENT` de `rpc_accept_quote` conservado.
-- [ ] 9.4 **[PO]** Humo de la tanda B en prod: presupuesto → **Venta** en efectivo con caja abierta (el stock baja y aparece en caja, y `/caja` se actualiza sin recargar) → la venta aparece en `/ventas` con "Desde presupuesto" → **Facturar** → comprobante autorizado. Otra conversión a crédito (cargo en la cuenta corriente del cliente).
-- [ ] 9.5 Al día siguiente del merge de A, confirmar en `cron.job_run_details` que `quotes-expire-sweep` corrió sin error.
-- [ ] 9.6 Archivar el change (`/opsx:archive`) cuando 9.1–9.5 estén cerrados. Verificar en **HEAD** que los requirements se sincronizaron a `openspec/specs/{quote,sales-order,internal-document-numbering,commercial-document-pdf,document-status-history,document-snapshots}` (gotchas de archive: diffear, no contar). Después, editar a mano la sección "Implementation Notes" de `openspec/specs/quote/spec.md`, que no forma parte de ningún delta y sigue diciendo "INSERT/UPDATE directo … con is_account_writer": pasa a escritura sólo por RPC, sin políticas de escritura, sin endpoint `accept`.
+- [ ] 9.4 (PENDIENTE: humo real del PO, no verificable por un agente) **[PO]** Humo de la tanda B en prod: presupuesto → **Venta** en efectivo con caja abierta (el stock baja y aparece en caja, y `/caja` se actualiza sin recargar) → la venta aparece en `/ventas` con "Desde presupuesto" → **Facturar** → comprobante autorizado. Otra conversión a crédito (cargo en la cuenta corriente del cliente).
+- [ ] 9.5 (PENDIENTE: la primera corrida del cron es 2026-10-03 03:05 UTC; al 2026-10-02 hay 0 corridas en `cron.job_run_details`) Al día siguiente del merge de A, confirmar en `cron.job_run_details` que `quotes-expire-sweep` corrió sin error.
+- [x] 9.6 (archivado el 2026-10-02 con 9.2, 9.4 y 9.5 abiertos por decisión del orquestador —son externos/post-merge y quedan registrados en `CHANGES.md` como pendientes del PO—; la sección "Implementation Notes" de `openspec/specs/quote/spec.md` se editó a mano en el mismo PR de archive) Archivar el change (`/opsx:archive`) cuando 9.1–9.5 estén cerrados. Verificar en **HEAD** que los requirements se sincronizaron a `openspec/specs/{quote,sales-order,internal-document-numbering,commercial-document-pdf,document-status-history,document-snapshots}` (gotchas de archive: diffear, no contar). Después, editar a mano la sección "Implementation Notes" de `openspec/specs/quote/spec.md`, que no forma parte de ningún delta y sigue diciendo "INSERT/UPDATE directo … con is_account_writer": pasa a escritura sólo por RPC, sin políticas de escritura, sin endpoint `accept`.
 
 ---
 

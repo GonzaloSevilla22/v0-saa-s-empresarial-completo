@@ -537,6 +537,8 @@ Números: **el siguiente libre** al momento de cada apply (se re-mide `ls supaba
 - **R7** (emitir `stock`/`admin`/`owner`; anular `admin`/`owner`) → D3, D12. **Quién convierte no está firmado** (OQ-R7 sólo cubrió emitir y anular): es la recomendación de OQ-RC6.
 - **R8** (1 remito → 1 compra; sin gate de plan; descarga y WhatsApp; proveedor obligatorio y número del proveedor) → D1, D8, D11.
 
+**Registro de tarea 0.1 (2026-10-03)**: el PO firmó el 2026-09-29 «no necesito el remito legal. Andá con todo lo recomendado» y «quiero que tanto el remito como los presupuestos se puedan modificar». OQ-RC1..OQ-RC11 se adoptan por su recomendación (default declarado); el PO fue informado el 2026-10-03 y no eligió alternativas.
+
 **Las OQ-RC de abajo son nuevas de este propose.** Se adoptan por su recomendación como default declarado, salvo que el PO elija otra alternativa antes del apply (tarea 0.1).
 
 ## Open Questions

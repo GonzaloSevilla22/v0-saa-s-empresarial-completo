@@ -52,10 +52,19 @@ describe("movementLabel — movimientos del remito", () => {
     ).toEqual({ text: "Anulación de remito R-00000012", href: "/remitos/dn-1" })
   })
 
-  it("el número se formatea según el sentido: un remito de compra NO lleva la R de venta", () => {
+  it("el número se formatea según el sentido: un remito de compra lleva RC-, no la R de venta (remitos-compra D2)", () => {
     const { text } = movementLabel({ type: "purchase", referenceType: "delivery_note", referenceId: "dn-2" }, "Compra", refs)
-    expect(text).toBe("Remito 00000007")
-    expect(text).not.toMatch(/R-/)
+    expect(text).toBe("Remito RC-00000007")
+    expect(text).not.toMatch(/(^|\s)R-/)
+  })
+
+  it("edición y anulación de un remito de compra: 'Edición de remito RC-…' / 'Anulación de remito RC-…'", () => {
+    expect(
+      movementLabel({ type: "purchase_return", referenceType: "delivery_note_update", referenceId: "dn-2" }, "Dev. compra", refs),
+    ).toEqual({ text: "Edición de remito RC-00000007", href: "/remitos/dn-2" })
+    expect(
+      movementLabel({ type: "purchase_return", referenceType: "delivery_note_reversal", referenceId: "dn-2" }, "Dev. compra", refs),
+    ).toEqual({ text: "Anulación de remito RC-00000007", href: "/remitos/dn-2" })
   })
 
   it("si el remito no tiene número, o no se pudo resolver, dice 'Remito' sin número y conserva el enlace", () => {

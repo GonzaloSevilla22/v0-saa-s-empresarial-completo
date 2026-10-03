@@ -22,6 +22,7 @@ os.environ.setdefault("AUTH_ALLOW_HS256_FALLBACK", "true")
 import re
 import time
 import uuid
+from typing import Any, NamedTuple
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import jwt
@@ -131,6 +132,62 @@ def named_rpc_arg(captured: dict, name: str):
     match = re.search(rf"\b{name}\s*=>\s*\$(\d+)", captured["query"])
     assert match is not None, f"{name} no viaja como argumento nombrado en la RPC"
     return captured["args"][int(match.group(1)) - 1]
+
+
+class EffectiveRoute(NamedTuple):
+    """Una ruta tal como la sirve la app: con prefijo y verbos ya resueltos.
+
+    `route` es la ruta SUBYACENTE (`APIRoute`, `WebSocketRoute`, ...) para poder
+    discriminar por tipo; `path`/`methods` son los EFECTIVOS (con el prefijo del
+    `include_router`). `methods` es vacío en una ruta que no es HTTP.
+    """
+
+    route: Any
+    path: str | None
+    methods: frozenset[str]
+
+
+def effective_routes(app) -> list[EffectiveRoute]:
+    """Rutas EFECTIVAS de `app`, igual en FastAPI viejo y nuevo.
+
+    FastAPI <= 0.136 aplanaba `include_router`: `app.routes` traía cada ruta
+    con su prefijo. Desde 0.142 trae un contenedor opaco (`_IncludedRouter`) por
+    cada `include_router`, sin `path` ni `methods`, y lo efectivo se pide por
+    `fastapi.routing.iter_route_contexts`. `requirements.txt` declara
+    `fastapi>=0.111`, así que CI corre la última y local puede correr otra:
+    el test de registro de remitos pasaba en local y fallaba en CI porque un
+    `{(m, r.path) for r in app.routes if hasattr(r, "methods")}` filtra los
+    contenedores y deja sólo `/docs`, `/redoc` y `/openapi.json`.
+
+    Peor que fallar: un candado del tipo "no hay rutas WebSocket" que itera
+    `app.routes` pasa a ser vacuo (siempre verde) bajo el contrato nuevo. Todo
+    test que inspeccione la tabla de rutas de la app pasa por acá.
+    Candado de este helper: `test_effective_routes_helper.py`.
+    """
+    from fastapi import routing as fastapi_routing
+
+    iter_route_contexts = getattr(fastapi_routing, "iter_route_contexts", None)
+    if iter_route_contexts is None:
+        # FastAPI con `include_router` aplanado: `app.routes` ya es lo efectivo.
+        return [
+            EffectiveRoute(route, getattr(route, "path", None), frozenset(getattr(route, "methods", None) or ()))
+            for route in app.routes
+        ]
+    effective: list[EffectiveRoute] = []
+    for context in iter_route_contexts(app.routes):
+        # Un `APIRoute` trae `path`/`methods` efectivos en el propio contexto;
+        # el resto (WebSocket, `Route`, `Mount`) los trae en `starlette_route`
+        # —el contexto deja `path=""` para ésos— y ése es el que tiene el
+        # prefijo del `include_router`.
+        source = getattr(context, "starlette_route", None) or context
+        effective.append(
+            EffectiveRoute(
+                context.original_route,
+                source.path,
+                frozenset(getattr(source, "methods", None) or ()),
+            )
+        )
+    return effective
 
 
 @pytest.fixture

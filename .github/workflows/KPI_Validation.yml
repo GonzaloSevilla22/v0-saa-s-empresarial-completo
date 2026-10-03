@@ -1206,6 +1206,51 @@ jobs:
           fi
           echo "20261068000001 idempotente: introspección OK y schema IDÉNTICO al previo a este paso."
 
+          # remitos-venta tanda A (2026-10-02): reaplicación de 20261069000001
+          # AL FINAL de la cadena, DESPUÉS de los eslabones que vuelven a dejar
+          # cuerpos viejos de las funciones que esta migración reescribe desde
+          # el cuerpo vivo: 20261014000001 (_branch_assert_empty con 3 tokens),
+          # 20261062000001 (fn_product_base_unit_guard / fn_uom_in_use_guard
+          # sin delivery_note_items) y 20261067000001 (_quote_validate_items
+          # con el guard de producto embebido). Idempotente por construcción:
+          # CREATE TABLE/INDEX IF NOT EXISTS, DROP CONSTRAINT IF EXISTS + ADD
+          # con la lista completa, CREATE OR REPLACE con la misma firma, DROP
+          # POLICY/TRIGGER IF EXISTS + CREATE, catálogo con ON CONFLICT DO
+          # NOTHING. SIN tolerancia: exige el OK de su introspección, el schema
+          # IDÉNTICO y, después de reconverger, que los cuatro cuerpos vuelvan
+          # a ser los de esta migración.
+          #
+          # CONTRATO CON LA TANDA B (revisión adversarial F2): esta reaplicación
+          # corre DESPUÉS de todo lo demás, así que (a) su introspección valida
+          # el catálogo por presencia de las dos filas de la tanda A, no por
+          # conteo, y (b) vuelve a dejar los cuerpos de la tanda A en las
+          # funciones que la tanda B redefina (p. ej. _delivery_note_payload).
+          # La migración de la tanda B DEBE tener su propio paso de reaplicación
+          # DESPUÉS de este, y los gates de la tanda B corren después de ese paso.
+          RV_OUT=$(psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261069000001_remitos_venta.sql 2>&1) || { echo "$RV_OUT"; echo "ERROR: el reapply de 20261069000001 falló (sin tolerancia)."; exit 1; }
+          echo "$RV_OUT"
+          if ! echo "$RV_OUT" | grep -qF 'remitos-venta (introspecci'; then
+            echo "ERROR: el reapply de 20261069000001 no imprimió el OK de su bloque de introspección."
+            exit 1
+          fi
+          RV_BODIES=$(psql -tA "$DSN" -c "SELECT
+              (SELECT prosrc FROM pg_proc WHERE oid = 'public._branch_assert_empty(uuid)'::regprocedure) LIKE '%branch_has_pending_delivery_notes%'
+              AND (SELECT prosrc FROM pg_proc WHERE oid = 'public._branch_assert_empty(uuid)'::regprocedure) LIKE '%public._branch_pending_delivery_notes(p_branch_id)%'
+              AND (SELECT prosrc FROM pg_proc WHERE oid = 'public.fn_product_base_unit_guard()'::regprocedure) LIKE '%public.delivery_note_items dni%'
+              AND (SELECT prosrc FROM pg_proc WHERE oid = 'public.fn_uom_in_use_guard()'::regprocedure) LIKE '%delivery_note_items%'
+              AND (SELECT prosrc FROM pg_proc WHERE oid = 'public._quote_validate_items(uuid, jsonb)'::regprocedure) LIKE '%public._assert_document_product(p_account_id, v_pid)%'")
+          if [ "$RV_BODIES" != "t" ]; then
+            echo "ERROR: después de reaplicar 20261069000001, _branch_assert_empty / los guards de unidad / _quote_validate_items no quedaron con el cuerpo de esta migración (¿un eslabón posterior los pisó?)."
+            exit 1
+          fi
+          schema_snapshot > /tmp/schema_after_rv_reapply.txt
+          if ! diff -u /tmp/schema_before_reapply.txt /tmp/schema_after_rv_reapply.txt > /tmp/schema_diff_rv.txt; then
+            echo "NOT IDEMPOTENT: reaplicar 20261069000001 cambió el schema (constraints + firmas de función + ACLs):"
+            cat /tmp/schema_diff_rv.txt
+            exit 1
+          fi
+          echo "20261069000001 idempotente: introspección OK, cuerpos reescritos reconvergidos y schema IDÉNTICO al previo a este paso."
+
       # -v ON_ERROR_STOP=1 is required: without it psql prints RAISE EXCEPTION
       # errors but still exits 0, so failing assertions show green in CI.
       - name: Run deterministic KPI tests
@@ -2756,3 +2801,39 @@ jobs:
       # RAISE ante el replay del núcleo falla (2).
       - name: Run presupuesto a venta race gate (dos conexiones)
         run: DB_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres bash supabase/tests/test_presupuesto_a_venta_race.sh
+
+      # remitos-venta tanda A (2026-10-02, governance MEDIA con tramo ALTO:
+      # escribe el ledger de stock). `supabase start` ya aplicó
+      # 20261069000001; este paso EJECUTA rpc_create_sale_delivery_note,
+      # rpc_update_delivery_note, rpc_cancel_delivery_note y
+      # rpc_get_delivery_note con usuarios reales (owner, admin, seller, stock,
+      # cashier, viewer): (a) emisión con descuento por par producto-sucursal,
+      # movimiento sale/delivery_note, 450 g -> 0,45 kg y número R propio;
+      # (b) rechazos con cero efectos (huella de la cuenta) y faltante P0409;
+      # (c) idempotencia (replay, clave por usuario, clave ajena -> conflict);
+      # (d) roles; (e) edición con par espejo SÓLO en los pares que cambian,
+      # faltante sobre el neto, traslado de sucursal, snapshots acarreados,
+      # producto dado de baja, sucursal vigente inactiva -> P0422; (f) fila
+      # forjada por PostgREST que no se convierte en stock; (g) anulación;
+      # (h) invariante Σ delta = Δ stock = -retenido; (i) sin escritura
+      # directa; (j) guards de unidad con líneas del remito; (k) baja de
+      # sucursal con remito pendiente -> P0428 branch_has_pending_delivery_notes
+      # por los tres caminos; (l) regresión de _quote_validate_items; (m) sin
+      # caja/banco/cuenta corriente/eventos; (n) numeración sin huecos; (o)
+      # ACLs y catálogo; residuo cero.
+      - name: Run remitos venta gate
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_remitos_venta.sql
+
+      # remitos-venta tanda A: carreras con DOS conexiones reales y bloqueo
+      # verificado en pg_stat_activity — última unidad (stock_insuficiente),
+      # misma clave (replay, nunca 23505), edición vs anulación en los dos
+      # órdenes (delivery_note_changed / invalid_state, ledger cuadrado) y
+      # emisión vs baja del producto en los dos órdenes (TOCTOU del lock).
+      - name: Run remitos venta race gate (dos conexiones)
+        run: DB_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres bash supabase/tests/test_remitos_venta_race.sh
+
+      # remitos-venta (internal-document-numbering, D2): el mismo gate de
+      # numeración concurrente, parametrizado por tipo — N=20 sesiones emiten
+      # a la vez el primer remito de venta de una cuenta -> R 1..20.
+      - name: Run internal document numbering race gate (remito de venta)
+        run: DOC_TYPE=delivery_note_sale N=20 DB_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres bash supabase/tests/test_internal_document_numbering_race.sh

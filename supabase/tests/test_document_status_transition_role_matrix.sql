@@ -14,6 +14,10 @@
 --       quote: expired->draft y rejected->draft, con allowed_role
 --       {seller,admin,owner} (D4): 20/14 pasó a 22/16. El conjunto de las 6
 --       filas NULL no cambia (las dos nuevas no son de sistema).
+--       remitos-venta tanda A (20261069000001) sumó delivery_note_sale:
+--       NULL->issued {seller,stock,admin,owner} e issued->canceled
+--       {admin,owner} (D3): 22/16 pasó a 24/18. Las 6 NULL no cambian (la
+--       vuelta converted->issued sin rol es de la tanda B).
 --   (2) segregación de funciones (11.2, RN-A4): un cashier CONFIRMA una
 --       venta (sales_order draft→confirmed) pero NO la ANULA
 --       (confirmed→canceled, requiere admin/owner); un stock completa una
@@ -73,8 +77,8 @@ BEGIN
   SELECT count(*), count(allowed_role) INTO v_total, v_populated
   FROM public.document_status_transitions;
 
-  IF v_total <> 22 OR v_populated <> 16 THEN
-    RAISE EXCEPTION 'GATE FAILED (1): se esperaban 22 filas / 16 pobladas, hay % / %', v_total, v_populated;
+  IF v_total <> 24 OR v_populated <> 18 THEN
+    RAISE EXCEPTION 'GATE FAILED (1): se esperaban 24 filas / 18 pobladas, hay % / %', v_total, v_populated;
   END IF;
 
   SELECT array_agg(document_type || ':' || COALESCE(from_status, 'NULL') || '->' || to_status ORDER BY document_type, from_status NULLS FIRST, to_status)
@@ -95,7 +99,7 @@ BEGIN
     RAISE EXCEPTION 'GATE FAILED (1): el conjunto EXACTO de las 6 filas NULL no coincide: %', v_null_set;
   END IF;
 
-  RAISE NOTICE 'PASS (1): allowed_role es text[], 16/22 pobladas, las 6 NULL son exactamente fiscal_document(x4) + quote->expired(x2).';
+  RAISE NOTICE 'PASS (1): allowed_role es text[], 18/24 pobladas, las 6 NULL son exactamente fiscal_document(x4) + quote->expired(x2).';
 END $$;
 
 
@@ -313,7 +317,10 @@ DECLARE
     'quote:draft->expired',              -- _expire_overdue_quotes (actor uuid cero)
     'quote:sent->expired',               -- _expire_overdue_quotes (actor uuid cero)
     'quote:expired->draft',              -- rpc_update_quote (reapertura al editar, D5)
-    'quote:rejected->draft'              -- rpc_update_quote (reapertura al editar, D5)
+    'quote:rejected->draft',             -- rpc_update_quote (reapertura al editar, D5)
+    -- remitos-venta tanda A (20261069000001): los 2 llamadores nuevos (5b).
+    'delivery_note_sale:NULL->issued',   -- trg_delivery_note_record_creation('delivery_note_sale')
+    'delivery_note_sale:issued->canceled' -- rpc_cancel_delivery_note
   ];
   v_existing_triples text[];
   v_missing text[];
@@ -331,11 +338,11 @@ BEGIN
   END LOOP;
 
   IF array_length(v_missing, 1) > 0 THEN
-    RAISE EXCEPTION 'GATE FAILED (5): % de los pares (document_type,from,to) que producen los 16 llamadores vivos de record_status_transition NO están catalogados en document_status_transitions: % -- una creación no catalogada hoy pasa SIN chequeo de rol (D17/11.7, exención conservadora), así que un caller nuevo/modificado que produzca uno de estos pares debe agregarlo a la matriz.',
+    RAISE EXCEPTION 'GATE FAILED (5): % de los pares (document_type,from,to) que producen los 18 llamadores vivos de record_status_transition NO están catalogados en document_status_transitions: % -- una creación no catalogada hoy pasa SIN chequeo de rol (D17/11.7, exención conservadora), así que un caller nuevo/modificado que produzca uno de estos pares debe agregarlo a la matriz.',
       array_length(v_missing, 1), v_missing;
   END IF;
 
-  RAISE NOTICE 'PASS (5): las % triples (document_type,from,to) que producen los 16 llamadores vivos de record_status_transition están TODAS catalogadas en document_status_transitions.', array_length(v_expected_triples, 1);
+  RAISE NOTICE 'PASS (5): las % triples (document_type,from,to) que producen los 18 llamadores vivos de record_status_transition están TODAS catalogadas en document_status_transitions.', array_length(v_expected_triples, 1);
 END $$;
 
 
@@ -391,7 +398,12 @@ DECLARE
     -- (rpc_update_quote) — bloque (5).
     'rpc_update_quote',
     'rpc_transition_quote',
-    '_expire_overdue_quotes'
+    '_expire_overdue_quotes',
+    -- remitos-venta tanda A (20261069000001): 17o-18o llamadores. Producen
+    -- delivery_note_sale:NULL->issued (disparador de creación, tipo por
+    -- TG_ARGV) e issued->canceled (anulación con motivo) — bloque (5).
+    'trg_delivery_note_record_creation',
+    'rpc_cancel_delivery_note'
   ];
   v_actual_callers   text[];
   v_missing_callers  text[];
@@ -445,5 +457,5 @@ BEGIN
       array_length(v_new_callers, 1), v_new_callers;
   END IF;
 
-  RAISE NOTICE 'PASS (5b): el conjunto de % funciones que invocan record_status_transition sigue siendo EXACTAMENTE el de los 16 llamadores conocidos -- sin altas ni bajas sin revisar.', array_length(v_expected_callers, 1);
+  RAISE NOTICE 'PASS (5b): el conjunto de % funciones que invocan record_status_transition sigue siendo EXACTAMENTE el de los 18 llamadores conocidos -- sin altas ni bajas sin revisar.', array_length(v_expected_callers, 1);
 END $$;

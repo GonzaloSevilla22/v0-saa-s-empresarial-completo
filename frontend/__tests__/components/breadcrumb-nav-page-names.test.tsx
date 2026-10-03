@@ -153,3 +153,33 @@ describe("BreadcrumbNav — nombres de página (H17)", () => {
     expect(screen.queryByText("Detalle de presupuesto")).not.toBeInTheDocument()
   })
 })
+
+// remitos-venta (D11, task 5.7): las 4 rutas del remito con nombre propio; las
+// dinámicas no pueden mostrar el uuid capitalizado ni «Editar» a secas.
+describe("breadcrumb — remitos", () => {
+  it.each([
+    ["/remitos", "Remitos"],
+    ["/remitos/nuevo", "Nuevo remito"],
+  ] as Array<[string, string]>)("%s muestra «%s»", (ruta, nombre) => {
+    renderAt(ruta)
+    expect(screen.getByText(nombre)).toBeInTheDocument()
+    expect(screen.queryByText("ALIADATA")).not.toBeInTheDocument()
+  })
+
+  it("el detalle de un remito muestra «Detalle de remito», no el uuid", () => {
+    renderAt("/remitos/0b0c1a2b-3d4e-4f60-8a9b-0c1d2e3f4a5b")
+    expect(screen.getByText("Detalle de remito")).toBeInTheDocument()
+    expect(screen.queryByText(/0b0c1a2b/)).not.toBeInTheDocument()
+  })
+
+  it("la edición de un remito muestra «Editar remito», no «Editar»", () => {
+    renderAt("/remitos/0b0c1a2b-3d4e-4f60-8a9b-0c1d2e3f4a5b/editar")
+    expect(screen.getByText("Editar remito")).toBeInTheDocument()
+    expect(screen.queryByText("Editar")).not.toBeInTheDocument()
+  })
+
+  it("«nuevo» nunca cae en la regla del detalle (la ruta completa gana)", () => {
+    renderAt("/remitos/nuevo")
+    expect(screen.queryByText("Detalle de remito")).not.toBeInTheDocument()
+  })
+})

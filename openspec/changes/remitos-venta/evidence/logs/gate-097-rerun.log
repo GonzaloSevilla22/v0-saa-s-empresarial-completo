@@ -1,0 +1,13 @@
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=e202d33a-1122-4b65-8034-4fee14459382
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=a5796b86-9fc5-4af8-bbe7-455139fc0123
+  iter 1: PASS (c1 esperó a c2, P0404 tras el commit, 0 comprobantes en el PV inactivo)
+  iter 2: PASS (c1 esperó a c2, P0404 tras el commit, 0 comprobantes en el PV inactivo)
+  iter 3: PASS (c1 esperó a c2, P0404 tras el commit, 0 comprobantes en el PV inactivo)
+  iter 4: PASS (c1 esperó a c2, P0404 tras el commit, 0 comprobantes en el PV inactivo)
+  iter 5: PASS (c1 esperó a c2, P0404 tras el commit, 0 comprobantes en el PV inactivo)
+  iter 6: PASS (c1 esperó a c2, P0404 tras el commit, 0 comprobantes en el PV inactivo)
+  iter 7: PASS (c1 esperó a c2, P0404 tras el commit, 0 comprobantes en el PV inactivo)
+  iter 8: PASS (c1 esperó a c2, P0404 tras el commit, 0 comprobantes en el PV inactivo)
+  iter 9: PASS (c1 esperó a c2, P0404 tras el commit, 0 comprobantes en el PV inactivo)
+  iter 10: PASS (c1 esperó a c2, P0404 tras el commit, 0 comprobantes en el PV inactivo)
+PASS: test_punto_venta_predeterminado_race.sh — 10 iteración(es), TOCTOU cerrado (FOR SHARE espera y re-evalúa; nunca un pending_cae en un PV que quedó inactivo).

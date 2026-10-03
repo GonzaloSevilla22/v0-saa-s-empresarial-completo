@@ -671,6 +671,21 @@ class TestServiceListing:
         assert [i["number_label"] for i in page["items"]] == ["P-00000012", "P-00000013"]
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("q,number", [("R-12", None), ("r-00000012", None), ("12", 12), ("p-12", 12)])
+    async def test_search_only_reads_the_quote_prefix(self, q, number):
+        """Revisión adversarial F4: "R-12" (prefijo de remito) en /presupuestos
+        se busca como texto; antes traía el presupuesto P-00000012."""
+        from backend.services import quotes as svc
+
+        repo = AsyncMock()
+        repo.list_quotes.return_value = ([], 0)
+
+        await svc.list_quotes(repo, ACCOUNT_ID, page=0, page_size=25, status=None, client_id=None, q=q)
+
+        kwargs = repo.list_quotes.await_args.kwargs
+        assert kwargs["number"] == number and kwargs["text"] == q
+
+    @pytest.mark.asyncio
     async def test_empty_listing_has_zero_pages(self):
         from backend.services import quotes as svc
 

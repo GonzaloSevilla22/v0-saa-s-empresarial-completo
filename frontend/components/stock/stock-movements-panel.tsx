@@ -24,6 +24,7 @@
  */
 
 import { useState, useEffect, useCallback, useMemo, useRef, memo } from "react"
+import Link from "next/link"
 import { createClient } from "@/lib/supabase/client"
 import * as Collapsible from "@radix-ui/react-collapsible"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -48,6 +49,13 @@ import { useProducts } from "@/hooks/data/use-products"
 import { useUnitsOfMeasure } from "@/hooks/use-units-of-measure"
 import { resolveUnit } from "@/lib/unit-utils"
 import { formatQuantity } from "@/lib/format-unit"
+// remitos-venta (D11, 5.9): el remito escribe movimientos con el mismo `type` que
+// la venta; se rotulan por `reference_type` con el número resuelto aparte.
+import {
+  isDeliveryNoteReference,
+  movementLabel,
+  type DeliveryNoteMovementRef,
+} from "@/lib/stock-movement-label"
 
 // ── Movement metadata ────────────────────────────────────────────────────────
 
@@ -111,9 +119,28 @@ function mapMovement(row: any): StockMovement {
 
 // ── Single row ────────────────────────────────────────────────────────────────
 
+/**
+ * El rótulo de un movimiento (fila y CSV, uno solo): el del `type`, salvo los del
+ * remito, que se distinguen por `reference_type` y llevan su número.
+ */
+function labelOf(m: StockMovement, deliveryNotes?: ReadonlyMap<string, DeliveryNoteMovementRef>) {
+  const meta = MOVEMENT_META[m.type] ?? MOVEMENT_META.adjustment
+  return movementLabel(m, meta.label, deliveryNotes)
+}
+
 // Exportada para el test de fila (ventas-unidades-conversion 6.2).
-export const MovementRow = memo(function MovementRow({ m, unitSymbol }: { m: StockMovement; unitSymbol?: string }) {
+export const MovementRow = memo(function MovementRow({
+  m,
+  unitSymbol,
+  deliveryNotes,
+}: {
+  m: StockMovement
+  unitSymbol?: string
+  /** Número y sentido de los remitos de la página, por id (segunda consulta del panel). */
+  deliveryNotes?: ReadonlyMap<string, DeliveryNoteMovementRef>
+}) {
   const meta  = MOVEMENT_META[m.type] ?? MOVEMENT_META.adjustment
+  const label = labelOf(m, deliveryNotes)
   const delta = m.quantityDelta
   const isPos = delta > 0
 
@@ -129,14 +156,23 @@ export const MovementRow = memo(function MovementRow({ m, unitSymbol }: { m: Sto
         </p>
       </div>
 
-      {/* Type badge */}
+      {/* Type badge — un movimiento del remito lleva su número y enlaza al remito */}
       <div className="w-[120px] shrink-0 pt-0.5">
         <span className={cn(
-          "inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-medium border",
+          "inline-flex items-start gap-1 px-1.5 py-0.5 rounded text-[11px] font-medium border leading-tight",
           meta.bg,
         )}>
-          {meta.icon}
-          {meta.label}
+          <span className="mt-px shrink-0">{meta.icon}</span>
+          {label.href ? (
+            <Link
+              href={label.href}
+              className="break-words underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              {label.text}
+            </Link>
+          ) : (
+            label.text
+          )}
         </span>
       </div>
 
@@ -172,13 +208,15 @@ export const MovementRow = memo(function MovementRow({ m, unitSymbol }: { m: Sto
 
 // ── CSV export ────────────────────────────────────────────────────────────────
 
-function exportCsv(movements: StockMovement[]) {
+function exportCsv(movements: StockMovement[], deliveryNotes?: ReadonlyMap<string, DeliveryNoteMovementRef>) {
   const header = ["N°", "Fecha", "Hora", "Tipo", "Producto", "Delta", "Antes", "Después", "Motivo", "Notas", "Grupo operación"]
   const rows = movements.map((m) => [
     m.movementNumber ?? "",
     format(parseISO(m.createdAt), "dd/MM/yyyy"),
     format(parseISO(m.createdAt), "HH:mm"),
-    MOVEMENT_META[m.type]?.label ?? m.type,
+    // El mismo rótulo que la fila: sin esto el kardex exportado diría "Venta" y
+    // "Dev. venta" para un movimiento del remito.
+    labelOf(m, deliveryNotes).text,
     m.productName ?? "",
     m.quantityDelta,
     m.quantityBefore ?? "",
@@ -221,6 +259,9 @@ export function StockMovementsPanel({ productId }: StockMovementsPanelProps) {
 
   const [open,      setOpen]      = useState(false)
   const [movements, setMovements] = useState<StockMovement[]>([])
+  // remitos-venta (5.9): número y sentido de los remitos que aparecen en lo ya
+  // cargado, por id. Vacío si la segunda consulta falla: la fila dice "Remito".
+  const [deliveryNotes, setDeliveryNotes] = useState<ReadonlyMap<string, DeliveryNoteMovementRef>>(new Map())
   const [loading,   setLoading]   = useState(false)
   const [hasMore,   setHasMore]   = useState(true)
   const [filter,    setFilter]    = useState<FilterTab>("all")
@@ -234,6 +275,36 @@ export function StockMovementsPanel({ productId }: StockMovementsPanelProps) {
    * in React Strict Mode.
    */
   const pageRef = useRef(0)
+
+  /**
+   * remitos-venta (D11, 5.9): una segunda consulta por página, sólo con los
+   * `reference_id` de los movimientos del remito, para rotularlos con su número.
+   * La RLS de SELECT de los miembros ya la acota a la cuenta. Si falla (red,
+   * RLS), no se rompe nada: esas filas dicen "Remito" sin número.
+   */
+  const resolveDeliveryNotes = useCallback(async (page: StockMovement[]) => {
+    const ids = [
+      ...new Set(
+        page
+          .filter((m) => isDeliveryNoteReference(m.referenceType) && m.referenceId)
+          .map((m) => m.referenceId as string),
+      ),
+    ]
+    if (ids.length === 0) return
+    try {
+      const { data, error } = await supabase.from("delivery_notes").select("id, number, direction").in("id", ids)
+      if (error || !data) return
+      setDeliveryNotes((prev) => {
+        const next = new Map(prev)
+        for (const note of data as Array<{ id: string; number: number | null; direction: "sale" | "purchase" }>) {
+          next.set(note.id, { number: note.number, direction: note.direction })
+        }
+        return next
+      })
+    } catch {
+      // Sin número, pero el panel sigue andando.
+    }
+  }, [supabase])
 
   /**
    * Fetch one page of movements.
@@ -276,6 +347,7 @@ export function StockMovementsPanel({ productId }: StockMovementsPanelProps) {
 
     if (!error && data) {
       const mapped = data.map(mapMovement)
+      void resolveDeliveryNotes(mapped)
       setMovements((prev) => reset ? mapped : [...prev, ...mapped])
       setHasMore(data.length === PAGE_SIZE)
       // Update the ref (not state) — avoids triggering extra renders / closures
@@ -283,7 +355,7 @@ export function StockMovementsPanel({ productId }: StockMovementsPanelProps) {
     }
 
     setLoading(false)
-  }, [supabase, productId]) // note: no `page` or `filter` in deps — both passed explicitly
+  }, [supabase, productId, resolveDeliveryNotes]) // note: no `page` or `filter` in deps — both passed explicitly
 
   /**
    * Fetch (or re-fetch) whenever the panel opens OR the filter changes.
@@ -415,7 +487,7 @@ export function StockMovementsPanel({ productId }: StockMovementsPanelProps) {
                 variant="ghost"
                 size="sm"
                 className="h-11 min-w-11 md:h-7 md:min-w-0 px-2 hidden sm:inline-flex"
-                onClick={() => exportCsv(filtered)}
+                onClick={() => exportCsv(filtered, deliveryNotes)}
                 title="Exportar CSV"
               >
                 <Download className="h-3.5 w-3.5" />
@@ -456,7 +528,7 @@ export function StockMovementsPanel({ productId }: StockMovementsPanelProps) {
                 </div>
               ) : (
                 filtered.map((m) => (
-                  <MovementRow key={m.id} m={m} unitSymbol={unitSymbolByProduct.get(m.productId)} />
+                  <MovementRow key={m.id} m={m} unitSymbol={unitSymbolByProduct.get(m.productId)} deliveryNotes={deliveryNotes} />
                 ))
               )}
             </div>

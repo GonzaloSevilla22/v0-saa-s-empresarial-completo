@@ -149,8 +149,56 @@ const PAYMENT_METHOD_INVALID_ERROR = /payment_method_not_found|payment_method_in
 const BANK_ACCOUNT_INVALID_ERROR = /bank_account_not_found_or_inactive/
 const BANK_PERIOD_RECONCILED_ERROR = /bank_period_reconciled/
 
+// remitos-venta (D11, tarea 4.5): literales de las RPCs del remito
+// (`rpc_create_sale_delivery_note`/`rpc_update_delivery_note`/
+// `rpc_cancel_delivery_note`) y, en la tanda B, de la conversión y de la vida
+// posterior de la venta nacida de un remito. Mismo mapa que venta, compra y
+// presupuesto — no un segundo mapa. `stock_insuficiente`, `branch_closed`,
+// `idempotency_key_conflict`, `insufficient_role` y `payment_method_required`
+// se reutilizan; el contexto `documentLabel: "remito"` ajusta el texto de los
+// que hablaban de "la venta".
+const DELIVERY_NOTE_NOT_FOUND_ERROR = /delivery_note_not_found/
+const DELIVERY_NOTE_CHANGED_ERROR = /delivery_note_changed/
+const DELIVERY_NOTE_REVISION_REQUIRED_ERROR = /delivery_note_revision_required/
+const DELIVERY_NOTE_INVALID_STATE_ERROR = /delivery_note_invalid_state/
+const DELIVERY_NOTE_LOCKED_CONVERTED_ERROR = /delivery_note_locked_converted/
+const DELIVERY_NOTE_CLIENT_UNAVAILABLE_ERROR = /delivery_note_client_unavailable/
+const DELIVERY_NOTE_CLIENT_REQUIRED_ERROR = /delivery_note_client_required/
+const DELIVERY_NOTE_BRANCH_REQUIRED_ERROR = /delivery_note_branch_required/
+const DELIVERY_NOTE_BRANCH_INACTIVE_ERROR = /delivery_note_branch_inactive/
+const DELIVERY_NOTE_PRODUCT_REQUIRED_ERROR = /delivery_note_product_required/
+const DELIVERY_NOTE_ITEMS_REQUIRED_ERROR = /delivery_note_items_required/
+const DELIVERY_NOTE_TOO_MANY_ITEMS_ERROR = /delivery_note_too_many_items/
+// El RAISE lleva la línea ("(línea 3)") detrás del texto.
+const DELIVERY_NOTE_LINE_QUANTITY_ERROR = /delivery_note_line_invalid_quantity(?:.*?\(línea (\d+)\))?/
+const DELIVERY_NOTE_LINE_PRICE_ERROR = /delivery_note_line_invalid_price(?:.*?\(línea (\d+)\))?/
+const DELIVERY_NOTE_LINE_SUBTOTAL_ERROR = /delivery_note_line_invalid_subtotal(?:.*?\(línea (\d+)\))?/
+const DELIVERY_NOTE_ADDRESS_TOO_LONG_ERROR = /delivery_note_address_too_long/
+const DELIVERY_NOTE_NOTES_TOO_LONG_ERROR = /delivery_note_notes_too_long/
+// `el producto <uuid> fue dado de baja: … lo entregado (3.0000), no aumentarlo (5.0000)`.
+const DELIVERY_NOTE_PRODUCT_UNAVAILABLE_ERROR =
+  /delivery_note_product_unavailable:\s*el producto\s+([0-9a-f-]{36}).*?\(([\d.]+)\).*?\(([\d.]+)\)/is
+const DELIVERY_NOTE_PRODUCT_UNAVAILABLE_BARE_ERROR = /delivery_note_product_unavailable/
+const DELIVERY_NOTE_CANCEL_REASON_REQUIRED_ERROR = /delivery_note_cancel_reason_required/
+const DELIVERY_NOTE_CANCEL_REASON_TOO_LONG_ERROR = /delivery_note_cancel_reason_too_long/
+const DELIVERY_NOTE_SALE_LOCKED_ERROR = /delivery_note_sale_locked/
+const DELIVERY_NOTE_ORDER_MISMATCH_ERROR = /delivery_note_order_mismatch/
+// 409 que mapea el service de remitos ante un `40P01` (interbloqueo): la
+// transacción revirtió entera, así que reintentar con la misma clave es seguro.
+const CONCURRENT_UPDATE_RETRY_ERROR = /concurrent_update_retry/
+
 const fmtMoney = (n: number) =>
   n.toLocaleString("es-AR", { style: "currency", currency: "ARS" })
+
+/**
+ * remitos-venta (D11): el documento sobre el que se operó. Los textos que
+ * hablaban de "la venta" (stock insuficiente, cliente inexistente, rol) cambian
+ * cuando el documento es un remito. Default `"venta"`: todo caller existente
+ * sigue exactamente igual.
+ */
+export interface OperationErrorContext {
+  documentLabel?: "venta" | "remito"
+}
 
 /**
  * Convierte el error crudo de una RPC de operación en un mensaje accionable.
@@ -161,8 +209,10 @@ export function humanizeOperationError(
   message: string,
   lookupProductName?: ProductNameLookup,
   branchName?: string | null,
+  context?: OperationErrorContext,
 ): HumanizedOperationError {
   if (!message) return { message: "Error desconocido" }
+  const isRemito = context?.documentLabel === "remito"
 
   // presupuestos-modulo: el estado y la edición primero — son los rechazos que
   // el usuario más ve y cada uno nombra qué hacer en vez de repetir el literal.
@@ -234,6 +284,164 @@ export function humanizeOperationError(
     }
   }
 
+  // remitos-venta: el estado y la edición primero, como en el presupuesto —
+  // cada mensaje nombra qué hacer en vez de repetir el literal.
+  if (DELIVERY_NOTE_NOT_FOUND_ERROR.test(message)) {
+    return {
+      message:
+        "El remito no existe o es de otra cuenta. Volvé al listado de remitos y elegilo de ahí.",
+    }
+  }
+
+  if (DELIVERY_NOTE_CHANGED_ERROR.test(message)) {
+    return {
+      message: "El remito cambió mientras lo tenías abierto: recargalo y volvé a intentar.",
+    }
+  }
+
+  if (DELIVERY_NOTE_REVISION_REQUIRED_ERROR.test(message)) {
+    return {
+      message:
+        "Falta la versión del remito que estabas viendo. Recargá la pantalla y volvé a intentar: no se guardó nada.",
+    }
+  }
+
+  if (DELIVERY_NOTE_INVALID_STATE_ERROR.test(message)) {
+    return {
+      message:
+        "El remito ya no está en un estado que permita esta acción (puede que ya se haya convertido en venta o anulado). " +
+        "Actualizá la pantalla para ver cómo quedó.",
+    }
+  }
+
+  if (DELIVERY_NOTE_LOCKED_CONVERTED_ERROR.test(message)) {
+    return {
+      message:
+        "Este remito ya se convirtió en una venta y no se puede modificar ni anular. " +
+        "Para corregirlo, eliminá la venta: el remito vuelve a quedar pendiente.",
+    }
+  }
+
+  if (DELIVERY_NOTE_SALE_LOCKED_ERROR.test(message)) {
+    return {
+      message:
+        "Esta venta nació de un remito y no se puede editar: el stock ya se descontó con el remito. " +
+        "Para corregirla, eliminá la venta, editá el remito y volvé a convertirlo.",
+    }
+  }
+
+  if (DELIVERY_NOTE_ORDER_MISMATCH_ERROR.test(message)) {
+    return {
+      message:
+        "La venta no coincide con el remito (cambió el cliente, la sucursal o las líneas): no se registró nada. " +
+        "Actualizá el remito y volvé a convertirlo.",
+    }
+  }
+
+  if (DELIVERY_NOTE_CLIENT_UNAVAILABLE_ERROR.test(message)) {
+    return {
+      message:
+        "El cliente del remito fue dado de baja. Editá el remito y elegí un cliente vigente.",
+    }
+  }
+
+  if (DELIVERY_NOTE_CLIENT_REQUIRED_ERROR.test(message)) {
+    return { message: "Elegí el cliente al que le entregás la mercadería." }
+  }
+
+  if (DELIVERY_NOTE_BRANCH_REQUIRED_ERROR.test(message)) {
+    return { message: "Elegí la sucursal de la que sale la mercadería: de ahí se descuenta el stock." }
+  }
+
+  if (DELIVERY_NOTE_BRANCH_INACTIVE_ERROR.test(message)) {
+    return {
+      message:
+        "La sucursal del remito está desactivada o cerrada: no se guardó ningún cambio. " +
+        "Reactivala desde Sucursales para editar o anular el remito.",
+    }
+  }
+
+  if (DELIVERY_NOTE_PRODUCT_REQUIRED_ERROR.test(message)) {
+    return {
+      message:
+        "Cada línea del remito necesita un producto: el remito documenta mercadería que sale del depósito, no conceptos sueltos.",
+    }
+  }
+
+  if (DELIVERY_NOTE_ITEMS_REQUIRED_ERROR.test(message)) {
+    return { message: "El remito necesita al menos un producto. Agregá una línea." }
+  }
+
+  if (DELIVERY_NOTE_TOO_MANY_ITEMS_ERROR.test(message)) {
+    return {
+      message: "Un remito admite hasta 500 líneas. Dividilo en más de un remito.",
+    }
+  }
+
+  const lineQuantityMatch = message.match(DELIVERY_NOTE_LINE_QUANTITY_ERROR)
+  if (lineQuantityMatch) {
+    return {
+      message: `La cantidad debe ser mayor que 0${lineQuantityMatch[1] ? ` (línea ${lineQuantityMatch[1]})` : ""}. Corregila o quitá la línea.`,
+    }
+  }
+
+  const linePriceMatch = message.match(DELIVERY_NOTE_LINE_PRICE_ERROR)
+  if (linePriceMatch) {
+    return {
+      message: `El precio no puede ser negativo${linePriceMatch[1] ? ` (línea ${linePriceMatch[1]})` : ""}. Corregilo y volvé a intentar.`,
+    }
+  }
+
+  const lineSubtotalMatch = message.match(DELIVERY_NOTE_LINE_SUBTOTAL_ERROR)
+  if (lineSubtotalMatch) {
+    return {
+      message: `El subtotal no puede ser negativo${lineSubtotalMatch[1] ? ` (línea ${lineSubtotalMatch[1]})` : ""}. Corregilo y volvé a intentar.`,
+    }
+  }
+
+  if (DELIVERY_NOTE_ADDRESS_TOO_LONG_ERROR.test(message)) {
+    return { message: "El domicilio de entrega admite hasta 500 caracteres. Acortalo y volvé a intentar." }
+  }
+
+  if (DELIVERY_NOTE_NOTES_TOO_LONG_ERROR.test(message)) {
+    return { message: "Las notas admiten hasta 2.000 caracteres. Acortalas y volvé a intentar." }
+  }
+
+  const dnProductMatch = message.match(DELIVERY_NOTE_PRODUCT_UNAVAILABLE_ERROR)
+  if (dnProductMatch) {
+    const [, productId, rawHeld, rawRequired] = dnProductMatch
+    const name = lookupProductName?.(productId)
+    const producto = name ? `«${name}»` : "uno de los productos"
+    const held = Number(rawHeld) // "3.0000" → 3, sin los 4 decimales internos
+    const required = Number(rawRequired)
+    return {
+      message:
+        `${name ? `«${name}»` : "Uno de los productos"} fue dado de baja del catálogo: se puede conservar o reducir lo entregado (${held.toLocaleString("es-AR")}), ` +
+        `pero no aumentarlo (pediste ${required.toLocaleString("es-AR")}). Bajá la cantidad de ${producto} o quitá la línea.`,
+    }
+  }
+  if (DELIVERY_NOTE_PRODUCT_UNAVAILABLE_BARE_ERROR.test(message)) {
+    return {
+      message:
+        "Uno de los productos fue dado de baja del catálogo: se puede conservar o reducir lo entregado, pero no aumentarlo.",
+    }
+  }
+
+  if (DELIVERY_NOTE_CANCEL_REASON_REQUIRED_ERROR.test(message)) {
+    return { message: "Escribí el motivo de la anulación para poder anular el remito." }
+  }
+
+  if (DELIVERY_NOTE_CANCEL_REASON_TOO_LONG_ERROR.test(message)) {
+    return { message: "El motivo de la anulación admite hasta 500 caracteres. Acortalo y volvé a intentar." }
+  }
+
+  if (CONCURRENT_UPDATE_RETRY_ERROR.test(message)) {
+    return {
+      message:
+        "Otra operación tocó los mismos productos al mismo tiempo. Volvé a intentarlo: no se guardó nada.",
+    }
+  }
+
   if (PRODUCT_IS_PARENT_ERROR.test(message)) {
     return {
       message:
@@ -250,6 +458,13 @@ export function humanizeOperationError(
   }
 
   if (INSUFFICIENT_ROLE_ERROR.test(message)) {
+    if (isRemito) {
+      return {
+        message:
+          "Tu rol no permite esta acción sobre remitos. Emitir y editar: vendedor, depósito, administrador o dueño; " +
+          "anular: administrador o dueño. Pedile al dueño o a un administrador de la cuenta que te asigne el rol.",
+      }
+    }
     return {
       message:
         "Tu rol no permite realizar esta acción. Pedile al dueño o a un administrador de la cuenta que te asigne el rol de vendedor.",
@@ -317,11 +532,15 @@ export function humanizeOperationError(
     const productId = stockMatch[1] ?? stockMatch[2]
     const name = lookupProductName?.(productId)
     const producto = name ? `«${name}»` : "uno de los productos"
-    const sucursal = branchName ? `la sucursal ${branchName}` : "la sucursal de esta operación"
+    const sucursal = branchName
+      ? `la sucursal ${branchName}`
+      : isRemito
+        ? "la sucursal del remito"
+        : "la sucursal de esta operación"
     return {
       message:
         `No hay stock de ${producto} en ${sucursal}. ` +
-        `Puede haber unidades en otra sucursal: revisá el stock por sucursal o cambiá la sucursal de la venta.`,
+        `Puede haber unidades en otra sucursal: revisá el stock por sucursal o cambiá la sucursal ${isRemito ? "del remito" : "de la venta"}.`,
       action: {
         label: "Transferir stock",
         href: `/stock?product=${productId}`,
@@ -399,6 +618,9 @@ export function humanizeOperationError(
   }
 
   if (CLIENT_NOT_FOUND_ERROR.test(message)) {
+    // remitos-venta (D11): en un remito sólo es alcanzable con un cliente dado
+    // de baja después de emitir — la salida es elegir uno vigente.
+    if (isRemito) return { message: "Cliente dado de baja — elegí uno vigente" }
     return {
       message:
         "El cliente seleccionado no existe o no pertenece a esta cuenta. Elegí un cliente del listado o dejá el campo vacío.",

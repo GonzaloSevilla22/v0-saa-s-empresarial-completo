@@ -23,6 +23,13 @@ emoji) se sustituye por `?` en vez de hacer fallar el documento. No se usa
 
 Tabla: la API de tablas de `fpdf2` envuelve el texto de cada celda y REPITE la
 fila de cabecera en cada página cuando las líneas no entran en una.
+
+Remito (remitos-venta D8): la vista suma `origin_label` ("Sale de: …", bajo los
+datos del cliente) y `signature_block` (recuadro "Recibí conforme" con Firma,
+Aclaración, DNI y Fecha, que NO se parte entre páginas: si no entra en lo que
+queda de la página, pasa entero a la siguiente). Sin precios (`show_prices`
+falso) la tabla queda con descripción y cantidad y no hay total. Ambos campos
+tienen default retrocompatible: el presupuesto se dibuja igual que antes.
 """
 from __future__ import annotations
 
@@ -41,6 +48,13 @@ _WARNING = (185, 28, 28)                              # rojo del sello (VENCIDO 
 _CURRENCY = "ARS"
 
 _STAMP_COLORS = {"ACEPTADO": EMERALD}
+
+# Bloque de firma de recepción del remito: título + cuatro renglones.
+_SIGNATURE_ROW_HEIGHT = 10
+_SIGNATURE_TITLE_HEIGHT = 8
+_SIGNATURE_PADDING = 3
+_SIGNATURE_HEIGHT = _SIGNATURE_TITLE_HEIGHT + 4 * _SIGNATURE_ROW_HEIGHT + 2 * _SIGNATURE_PADDING
+_SIGNATURE_FIELDS = ("Firma:", "Aclaración:", "DNI:", "Fecha:")
 
 
 def _pdf_text(text: str | None) -> str:
@@ -129,14 +143,21 @@ def _recipient_block(pdf: _CommercialPdf, view: CommercialDocumentView) -> None:
     pdf.multi_cell(115, 6, _pdf_text(recipient.name), new_x="LMARGIN", new_y="NEXT")
     pdf.set_font("Helvetica", "", 9.5)
     pdf.set_text_color(*GRAY)
+    address = recipient.address
+    if address and view.kind == "delivery_note":
+        address = f"Entrega: {address}"
     details = [
         f"CUIT/DNI: {recipient.tax_id}" if recipient.tax_id else None,
         f"Tel: {recipient.phone}" if recipient.phone else None,
-        recipient.address,
+        address,
     ]
     for detail in details:
         if detail:
             pdf.multi_cell(115, 4.8, _pdf_text(detail), new_x="LMARGIN", new_y="NEXT")
+    if view.origin_label:
+        pdf.set_font("Helvetica", "B", 9.5)
+        pdf.set_text_color(*SLATE)
+        pdf.multi_cell(115, 5.2, _pdf_text(view.origin_label), new_x="LMARGIN", new_y="NEXT")
     bottom = pdf.get_y()
 
     if view.status_stamp:
@@ -214,6 +235,35 @@ def _total_and_notes(pdf: _CommercialPdf, view: CommercialDocumentView) -> None:
         pdf.multi_cell(_CONTENT_WIDTH, 5, _pdf_text(view.notes), new_x="LMARGIN", new_y="NEXT")
 
 
+def _signature_block(pdf: _CommercialPdf) -> None:
+    """Recuadro "Recibí conforme" del remito. Entero en una página: si no entra
+    en lo que queda, pasa completo a la siguiente (el pie con la leyenda está en
+    todas)."""
+    pdf.ln(6)
+    if pdf.will_page_break(_SIGNATURE_HEIGHT):
+        pdf.add_page()
+    top = pdf.get_y()
+    pdf.set_draw_color(*GRAY)
+    pdf.set_line_width(0.3)
+    pdf.rect(_MARGIN, top, _CONTENT_WIDTH, _SIGNATURE_HEIGHT, style="D")
+
+    pdf.set_xy(_MARGIN + 3, top + _SIGNATURE_PADDING)
+    pdf.set_font("Helvetica", "B", 10)
+    pdf.set_text_color(*SLATE)
+    pdf.cell(_CONTENT_WIDTH - 6, _SIGNATURE_TITLE_HEIGHT - 2, "Recibí conforme", new_x="LMARGIN", new_y="NEXT")
+
+    pdf.set_font("Helvetica", "", 9.5)
+    pdf.set_text_color(*GRAY)
+    y = top + _SIGNATURE_PADDING + _SIGNATURE_TITLE_HEIGHT
+    for label in _SIGNATURE_FIELDS:
+        pdf.set_xy(_MARGIN + 3, y)
+        pdf.cell(28, _SIGNATURE_ROW_HEIGHT, _pdf_text(label), new_x="RIGHT", new_y="TOP")
+        line_y = y + _SIGNATURE_ROW_HEIGHT - 2
+        pdf.line(_MARGIN + 32, line_y, _PAGE_WIDTH - _MARGIN - 4, line_y)
+        y += _SIGNATURE_ROW_HEIGHT
+    pdf.set_xy(_MARGIN, top + _SIGNATURE_HEIGHT)
+
+
 def build_commercial_document_pdf(view: CommercialDocumentView) -> bytes:
     """Bytes del PDF de un documento comercial no fiscal."""
     pdf = _CommercialPdf(view.legend)
@@ -222,4 +272,6 @@ def build_commercial_document_pdf(view: CommercialDocumentView) -> bytes:
     _recipient_block(pdf, view)
     _lines_table(pdf, view)
     _total_and_notes(pdf, view)
+    if view.signature_block:
+        _signature_block(pdf)
     return bytes(pdf.output())

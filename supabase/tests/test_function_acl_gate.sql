@@ -231,7 +231,26 @@ DECLARE
     -- ninguna pantalla muestra. La tanda B la reemplaza por el núcleo interno
     -- de la conversión. NUNCA re-otorgar. Candado de comportamiento:
     -- bloque (h) de supabase/tests/test_presupuestos_modulo.sql.
-    'public.rpc_accept_quote(uuid)'
+    'public.rpc_accept_quote(uuid)',
+    -- remitos-venta tanda A (20261069000001): los helpers del remito. Reciben
+    -- el account_id / el remito / los pares POR PARÁMETRO y escriben el
+    -- ledger de stock (apply/reverse: branch_stock + stock_movements) o lo
+    -- deciden (held_pairs: lo retenido): expuestos a `authenticated` serían la
+    -- primitiva para mover stock de cualquier cuenta por PostgREST. Son
+    -- SECURITY INVOKER (los invocan sólo las RPCs DEFINER del remito), así que
+    -- el chequeo (4) — que mira SECURITY DEFINER — no los alcanza: este
+    -- chequeo (3) es su candado. NUNCA otorgar. Candado de comportamiento:
+    -- bloques (i) y (o1) de supabase/tests/test_remitos_venta.sql.
+    'public._assert_document_product(uuid, uuid)',
+    'public._delivery_note_assert_role(uuid, text)',
+    'public._delivery_note_lock_products(uuid, uuid[])',
+    'public._delivery_note_validate_items(uuid, uuid, jsonb, jsonb)',
+    'public._delivery_note_insert_items(uuid, uuid, jsonb, jsonb)',
+    'public._delivery_note_held_pairs(uuid)',
+    'public._delivery_note_apply_stock(uuid, uuid, uuid, jsonb)',
+    'public._delivery_note_reverse_held(uuid, uuid, uuid, jsonb, text, text)',
+    'public._delivery_note_payload(uuid)',
+    'public._branch_pending_delivery_notes(uuid)'
   ];
   -- Allowlist del chequeo (4) — helpers internos que HOY siguen expuestos a
   -- `authenticated`. Cada entrada necesita su justificación.

@@ -24,7 +24,7 @@ import {
   Banknote, BarChart3, BookOpen, Boxes, Briefcase, Brain, Calculator, ChartPie,
   CircleUser, Crown, CreditCard, FileText, FolderDown, GitCompare, GraduationCap, Globe,
   HandCoins, Landmark, LayoutDashboard, LayoutGrid, MapPin, MessageSquare,
-  Package, Receipt, Scan, ShieldCheck, ShoppingBag, ShoppingCart, Sparkles,
+  Package, PackageCheck, Receipt, Scan, ShieldCheck, ShoppingBag, ShoppingCart, Sparkles,
   Tags, TrendingUp, Truck, Users, Wallet, Warehouse, Zap,
 } from "lucide-react"
 
@@ -86,6 +86,8 @@ describe("app-sidebar — módulos por grupo (título + href exactos)", () => {
         ["POS — Venta Rápida", "/ventas/pos"],
         // presupuestos-modulo (D10, task 5.9): entre el POS y Compras.
         ["Presupuestos", "/presupuestos"],
+        // remitos-venta (D11, task 5.7): la entrega documentada, después del presupuesto.
+        ["Remitos", "/remitos"],
         ["Compras", "/compras"],
         ["Gastos", "/gastos"],
         ["Caja", "/caja"],
@@ -153,7 +155,7 @@ describe("app-sidebar — módulos por grupo (título + href exactos)", () => {
 // tienen que seguir alcanzables, exactamente una vez.
 const HREFS_DEL_MENU_VIEJO = [
   "/dashboard",
-  "/ventas", "/ventas/pos", "/presupuestos", "/compras", "/gastos", "/caja", "/banco", "/cobranzas",
+  "/ventas", "/ventas/pos", "/presupuestos", "/remitos", "/compras", "/gastos", "/caja", "/banco", "/cobranzas",
   "/productos", "/stock", "/clientes", "/proveedores", "/sucursales",
   "/copiloto-ia", "/insights", "/estadisticas", "/rentabilidad",
   "/reportes/comparativo", "/reportes/sucursal", "/reportes/centros-costo",
@@ -165,8 +167,8 @@ const HREFS_DEL_MENU_VIEJO = [
 describe("app-sidebar — las rutas no se rompen", () => {
   const hrefsNuevos = [dashboardItem.href, ...navGroups.flatMap((g) => g.items.map((i) => i.href))]
 
-  it("el menú nuevo expone las 31 rutas (las 30 de siempre más /presupuestos), sin perder ni inventar ninguna", () => {
-    expect(hrefsNuevos).toHaveLength(31)
+  it("el menú nuevo expone las 32 rutas (las 30 de siempre más /presupuestos y /remitos), sin perder ni inventar ninguna", () => {
+    expect(hrefsNuevos).toHaveLength(32)
     expect([...hrefsNuevos].sort()).toEqual([...HREFS_DEL_MENU_VIEJO].sort())
   })
 
@@ -186,6 +188,7 @@ describe("app-sidebar — cada módulo conserva su ícono y sus gates de plan", 
     ["Operaciones", "Ventas", ShoppingCart, false, false],
     ["Operaciones", "POS — Venta Rápida", Scan, false, false],
     ["Operaciones", "Presupuestos", FileText, false, false],
+    ["Operaciones", "Remitos", PackageCheck, false, false],
     ["Operaciones", "Compras", ShoppingBag, false, false],
     ["Operaciones", "Gastos", Receipt, false, false],
     ["Operaciones", "Caja", Banknote, false, false],
@@ -215,10 +218,10 @@ describe("app-sidebar — cada módulo conserva su ícono y sus gates de plan", 
     ["Mi Cuenta", "Exportaciones", FolderDown, false, false],
   ]
 
-  it("el mapa cubre exactamente los 30 módulos de los grupos (el Tablero se testea aparte)", () => {
+  it("el mapa cubre exactamente los 31 módulos de los grupos (el Tablero se testea aparte)", () => {
     const enElMapa = MAPA.map(([grupo, titulo]) => `${grupo} › ${titulo}`)
     const enElMenu = navGroups.flatMap((g) => g.items.map((i) => `${g.label} › ${i.title}`))
-    expect(enElMenu).toHaveLength(30)
+    expect(enElMenu).toHaveLength(31)
     expect([...enElMapa].sort()).toEqual([...enElMenu].sort())
   })
 
@@ -257,14 +260,23 @@ describe("app-sidebar — adyacencias que se conservan", () => {
     expect(libro).toBe(formas + 1)
   })
 
-  it("Presupuestos va entre el POS y Compras (se cotiza antes de vender)", () => {
+  it("Presupuestos va después del POS (se cotiza antes de vender) y Remitos inmediatamente después de Presupuestos", () => {
     const items = navGroups.find((g) => g.label === "Operaciones")?.items ?? []
     const pos = items.findIndex((i) => i.title === "POS — Venta Rápida")
     const presupuestos = items.findIndex((i) => i.title === "Presupuestos")
+    const remitos = items.findIndex((i) => i.title === "Remitos")
     const compras = items.findIndex((i) => i.title === "Compras")
     expect(pos).toBeGreaterThanOrEqual(0)
     expect(presupuestos).toBe(pos + 1)
-    expect(compras).toBe(presupuestos + 1)
+    expect(remitos).toBe(presupuestos + 1)
+    expect(compras).toBe(remitos + 1)
+  })
+
+  it("Remitos es del grupo Operaciones y no tiene gate de plan", () => {
+    const remitos = navGroups.flatMap((g) => g.items).find((i) => i.title === "Remitos")
+    expect(remitos?.href).toBe("/remitos")
+    expect(remitos?.pro).toBe(false)
+    expect(remitos?.proOnly).toBe(false)
   })
 
   it("Caja, Banco y Cobranzas conviven en Operaciones (la cobranza es una tarea diaria)", () => {

@@ -2,10 +2,13 @@
 Vista pura de un documento comercial (presupuestos-modulo D8).
 
 `CommercialDocumentView` es lo que el render dibuja, ya resuelto: textos,
-fechas, importes y el sello. `build_quote_view` es una función PURA (sin I/O,
-sin reloj propio: recibe `today`) que lo arma desde el presupuesto, sus líneas,
-el cliente y el emisor. Los remitos sumarán su constructor (`kind =
-'delivery_note'`, `show_prices` configurable) sin tocar el render.
+fechas, importes y el sello. `build_quote_view` y `build_delivery_note_view` son
+funciones PURAS (sin I/O, sin reloj propio: reciben `today`) que la arman desde
+el documento, sus líneas, el cliente y el emisor. El remito (`kind =
+'delivery_note'`) suma dos campos opcionales a la vista, con default
+retrocompatible para el presupuesto: `signature_block` (el bloque "Recibí
+conforme") y `origin_label` ("Sale de: Sucursal Centro"); y su `show_prices`
+sale del pedido de cada descarga, no del documento (remitos-venta D8).
 """
 from __future__ import annotations
 
@@ -24,6 +27,9 @@ NO_CLIENT_NAME = "Sin cliente"
 NO_DESCRIPTION = "Sin descripción"
 
 _LEGEND_BASE = "Presupuesto — documento no válido como factura."
+
+DELIVERY_NOTE_TITLE = "REMITO"
+_DELIVERY_NOTE_LEGEND = "Remito — documento no válido como factura."
 
 # Estados en los que el presupuesto todavía se puede aceptar: si su validez ya
 # pasó (el barrido todavía no lo marcó), para el usuario ya venció.
@@ -56,7 +62,7 @@ class CommercialLine:
 
 @dataclass(frozen=True)
 class CommercialDocumentView:
-    kind: str                         # 'quote' (los remitos sumarán 'delivery_note')
+    kind: str                         # 'quote' | 'delivery_note'
     title: str
     number_label: str | None
     issued_on: datetime.date
@@ -69,6 +75,9 @@ class CommercialDocumentView:
     total: Decimal
     notes: str | None
     legend: str
+    # Aditivos del remito (default retrocompatible: el presupuesto no cambia).
+    signature_block: bool = False     # recuadro "Recibí conforme" que no se parte entre páginas
+    origin_label: str | None = None   # "Sale de: Sucursal Centro"
 
 
 def format_quantity(quantity: Decimal | int | float | str) -> str:
@@ -143,4 +152,49 @@ def build_quote_view(
         total=Decimal(str(quote["total"])),
         notes=_text(quote.get("notes")),
         legend=_legend(valid_until),
+    )
+
+
+def build_delivery_note_view(
+    delivery_note: Mapping[str, Any],
+    lines: Sequence[Mapping[str, Any]],
+    client: Mapping[str, Any],
+    branch: Mapping[str, Any],
+    issuer: CommercialIssuer,
+    show_prices: bool,
+    today: datetime.date,
+) -> CommercialDocumentView:
+    """Vista del PDF de un remito. Pura.
+
+    Sin precios por defecto: el documento que viaja con la mercadería no los
+    muestra, y `show_prices` los incluye sólo cuando se pide explícitamente (la
+    tabla y el total siguen ese flag). El número se formatea desde el SENTIDO
+    del remito (`delivery_note_<direction>`), nunca con un prefijo fijo. El sello
+    "ANULADO" es sólo del estado `canceled`: un remito convertido es la misma
+    entrega, no un documento distinto. `issued_on` es la fecha de negocio de la
+    emisión (un `date`, sin zona); `today` sólo cubre un remito sin ella.
+    """
+    direction = delivery_note.get("direction") or "sale"
+    branch_name = _text(branch.get("name"))
+    return CommercialDocumentView(
+        kind="delivery_note",
+        title=DELIVERY_NOTE_TITLE,
+        number_label=format_internal_document_number(f"delivery_note_{direction}", delivery_note.get("number")),
+        issued_on=delivery_note.get("issued_on") or today,
+        valid_until=None,
+        status_stamp="ANULADO" if delivery_note["status"] == "canceled" else None,
+        issuer=issuer,
+        recipient=CommercialRecipient(
+            name=_text(client.get("name")) or NO_CLIENT_NAME,
+            tax_id=_text(client.get("tax_id")),
+            phone=_text(client.get("phone")),
+            address=_text(delivery_note.get("delivery_address")),
+        ),
+        lines=tuple(_line(raw) for raw in lines),
+        show_prices=show_prices,
+        total=Decimal(str(delivery_note["total"])),
+        notes=_text(delivery_note.get("notes")),
+        legend=_DELIVERY_NOTE_LEGEND,
+        signature_block=True,
+        origin_label=f"Sale de: {branch_name}" if branch_name else None,
     )

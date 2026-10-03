@@ -364,3 +364,20 @@ La escritura de presupuestos (crear, editar, transicionar, eliminar) exige `owne
 
 ### RN-P6 — La conversión de un presupuesto en venta es atómica y al precio del presupuesto (`presupuestos-modulo`, tanda B)
 "Pasar a venta" (`rpc_convert_quote_to_sale`) acepta el presupuesto y confirma la venta con el núcleo del POS en **una sola transacción**: stock por sucursal, caja, banco y cuenta corriente con vencimiento por cascada se resuelven igual que en el POS, con la forma de pago elegida en el momento. La venta cobra el **precio congelado del presupuesto**, nunca el del catálogo. Se bloquea primero el presupuesto, después —por id ascendente— los productos de las líneas; la idempotencia se lee bajo el lock (doble clic = misma venta). Sólo se convierte un presupuesto `draft`/`sent`, no vencido (día de Mendoza) y con la versión que el usuario confirmó (`quote_changed` si cambió); un producto dado de baja, un cliente dado de baja o un producto padre lo impiden antes de escribir nada. Una línea de servicio (sin producto) se convierte; la venta resultante no se edita desde `/ventas` (se elimina y se vuelve a vender desde el presupuesto duplicado). Facturar es una acción posterior explícita.
+
+### RN-R1 — El remito de venta es interno, descuenta stock al emitirse y no es una venta (`remitos-venta`, tanda A, 2026-10-03)
+El remito (`R-00000001`, correlativo por cuenta y sentido) es un documento **interno, no válido como factura**: no pasa por ARCA ni lleva CAI. Se emite directo (sin borrador) para un cliente y una sucursal de origen, con líneas **sólo de producto**, y **descuenta stock al emitirse**, con la misma normalización de unidad (RN-24) y el mismo control de faltante (`P0409`) que la venta; la emisión es idempotente (`Idempotency-Key`: un doble clic no descuenta dos veces). No es una venta: no toca caja, banco ni cuenta corriente y **no entra en los KPI de ventas ni de ingresos**. Emitir lo hacen `seller`, `stock`, `admin` y `owner`.
+
+### RN-R2 — Un remito pendiente se edita con espejo de stock sólo sobre lo que cambia
+Mientras está `issued` se puede editar (líneas, cantidades, precios, cliente, sucursal, domicilio, notas). El stock se ajusta con el par espejo REVERSE+APPLY **sólo en los pares producto-sucursal cuyo neto cambia**, y el control de faltante se hace sobre ese **neto** (subir una cantidad pide sólo la diferencia; cambiar sólo las notas no mueve stock; cambiar la sucursal traslada el existente). La edición no cambia el estado ni escribe historial: su rastro es el ledger más `updated_at`/`updated_by`/`revision`. Una versión vieja se rechaza con `delivery_note_changed` (409) y no escribe nada.
+
+### RN-R3 — Anular un remito exige motivo, repone el stock y es terminal
+Anular (`issued -> canceled`) la hacen sólo `admin` y `owner`, exige un motivo, repone **sólo lo que el remito retiene** (leído de sus líneas, no del ledger) con movimientos `delivery_note_reversal`, y deja el documento terminal e inmutable (`P0423` ante cualquier edición o anulación posterior). Un remito anulado sigue visible y su PDF lleva el sello ANULADO.
+
+### RN-R4 — Un remito pendiente bloquea la baja de su sucursal; sus líneas bloquean el cambio de unidad
+Mientras haya remitos `issued` en una sucursal, no se puede dar de baja (`P0428 branch_has_pending_delivery_notes`, en el punto de decisión que cubre los cuatro caminos de baja). Las líneas del remito entran a la definición única de "unidad en uso": no se puede cambiar la unidad base de un producto ni retirar una unidad que un remito referencia (`P0409`).
+
+### RN-R5 — El PDF del remito no muestra precios salvo que se pida
+El PDF sale sin precios ni total por defecto y con la opción "Mostrar precios"; incluye el bloque de recepción (firma, aclaración, DNI, fecha) y la leyenda "documento no válido como factura". Precio y subtotal se guardan siempre. Se descarga o se envía por WhatsApp; sin link público ni email. Sin gate de plan.
+
+> La conversión del remito en venta (sin segundo descuento de stock) y la vida posterior de esa venta llegan con la tanda B de `remitos-venta`; sus reglas se agregan con ella.

@@ -25,6 +25,7 @@ from backend.routers import (
     clients,
     cost_centers,
     customer_accounts,
+    delivery_notes,
     expenses,
     fiscal,
     health,
@@ -195,6 +196,8 @@ app.include_router(cash.router)
 app.include_router(quotes.router)
 app.include_router(quotes.settings_router)
 app.include_router(sales_orders.router)
+# remitos-venta
+app.include_router(delivery_notes.router)
 # C-25 v20-outbox-activation
 app.include_router(outbox.router)
 # C-30 v21-customer-supplier-accounts

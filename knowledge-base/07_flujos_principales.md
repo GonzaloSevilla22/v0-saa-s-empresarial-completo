@@ -249,3 +249,27 @@ Usuario (owner/admin/seller) → /presupuestos/[id] → "Venta"
     └── Éxito: "Venta generada", badge "Desde presupuesto" en /ventas, "Facturar" opcional
         Error (stock, caja cerrada, versión vieja): no queda ningún efecto parcial
 ```
+
+---
+
+## Flujo 11: Remito de venta (`remitos-venta`, tanda A)
+
+```
+Usuario (seller/stock/admin/owner) → /remitos/nuevo
+    │   cliente + sucursal de origen + líneas (sólo producto); domicilio opcional
+    │
+    ├── POST /delivery-notes  (header Idempotency-Key)
+    │       └── RPC rpc_create_sale_delivery_note — UNA transacción:
+    │           ├── Guards: producto vivo de la cuenta, unidad compatible, faltante por sucursal (P0409)
+    │           ├── Número R-00000001 por cuenta y sentido; historial NULL → issued
+    │           └── Stock: un movimiento sale/delivery_note por par producto-sucursal
+    │
+    ├── PUT /delivery-notes/{id}  (revision esperada; sólo issued)
+    │       └── Espejo REVERSE+APPLY únicamente en los pares cuyo neto cambia;
+    │           faltante controlado sobre el neto; versión vieja → delivery_note_changed
+    │
+    ├── GET /delivery-notes/{id}/pdf?show_prices=  → descarga o WhatsApp (sin precios por defecto)
+    │
+    └── POST /delivery-notes/{id}/cancel  (admin/owner, motivo)
+            └── Repone lo retenido (delivery_note_reversal); estado terminal canceled
+```

@@ -22,8 +22,16 @@
 # ESTO NO SE PUEDE PROBAR EN UN SOLO .sql: una sesión nunca compite contra sí
 # misma.
 #
+# Parametrizado por tipo de secuencia (remitos-venta, tasks.md 1.12): con
+# DOC_TYPE=delivery_note_sale las N sesiones emiten el PRIMER remito de venta
+# de la cuenta por rpc_create_sale_delivery_note (cada una con su clave de
+# idempotencia, una unidad de un producto con stock N), y se exige lo mismo
+# sobre delivery_notes. El default (quote) no cambia.
+#
 # Uso:
 #   DB_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres \
+#     bash supabase/tests/test_internal_document_numbering_race.sh
+#   DOC_TYPE=delivery_note_sale DB_URL=... \
 #     bash supabase/tests/test_internal_document_numbering_race.sh
 # =============================================================================
 set -uo pipefail
@@ -31,6 +39,12 @@ set -uo pipefail
 DB_URL="${DB_URL:-postgresql://postgres:postgres@127.0.0.1:54322/postgres}"
 ADVISORY_KEY=961067001
 N="${N:-20}"
+DOC_TYPE="${DOC_TYPE:-quote}"
+case "$DOC_TYPE" in
+  quote)              DOC_TABLE=quotes;         FIXTURE_EMAIL=internal-numbering-race@test.local ;;
+  delivery_note_sale) DOC_TABLE=delivery_notes; FIXTURE_EMAIL=internal-numbering-race-dn@test.local ;;
+  *) echo "GATE INTERNAL-DOCUMENT-NUMBERING-RACE FAILED: DOC_TYPE desconocido: $DOC_TYPE" >&2; exit 1 ;;
+esac
 TMP_DIR="$(mktemp -d)"
 
 q() { psql "$DB_URL" -v ON_ERROR_STOP=1 -X -q -t -A -c "$1"; }
@@ -66,6 +80,7 @@ BEGIN
   DELETE FROM public.profiles              WHERE id = v_user;
   DELETE FROM public.email_logs            WHERE user_id = v_user;
   DELETE FROM public.analytics_events      WHERE user_id = v_user;
+  DELETE FROM public.operation_idempotency WHERE user_id = v_user;
   DELETE FROM auth.users                   WHERE id = v_user;
   SET session_replication_role = DEFAULT;
 END \$\$;
@@ -77,8 +92,8 @@ SQL
 fail() { echo "GATE INTERNAL-DOCUMENT-NUMBERING-RACE FAILED: $*" >&2; cleanup; exit 1; }
 
 # ── Fixture: cuenta real vía handle_new_user, sin fila de secuencia ──────────
-psql "$DB_URL" -v ON_ERROR_STOP=1 -X -q -t -A >/dev/null <<'SQL' || fail "no se pudo armar el fixture"
-DO $$
+psql "$DB_URL" -v ON_ERROR_STOP=1 -X -q -t -A >/dev/null <<SQL || fail "no se pudo armar el fixture"
+DO \$\$
 DECLARE
   v_user    uuid := gen_random_uuid();
   v_account uuid;
@@ -86,7 +101,7 @@ DECLARE
   v_product uuid;
 BEGIN
   INSERT INTO auth.users (id, aud, role, email, created_at, updated_at, raw_user_meta_data)
-  VALUES (v_user, 'authenticated', 'authenticated', 'internal-numbering-race@test.local', now(), now(),
+  VALUES (v_user, 'authenticated', 'authenticated', '$FIXTURE_EMAIL', now(), now(),
           jsonb_build_object('name', 'Gate Numeración Race', 'phone', '', 'locality', '', 'province', ''));
   SELECT account_id INTO v_account FROM public.account_members WHERE user_id = v_user ORDER BY created_at LIMIT 1;
   IF v_account IS NULL THEN
@@ -95,18 +110,22 @@ BEGIN
   INSERT INTO public.clients (user_id, account_id, name) VALUES (v_user, v_account, 'Cliente Race') RETURNING id INTO v_client;
   INSERT INTO public.products (user_id, account_id, name, sku, cost, price)
   VALUES (v_user, v_account, 'Producto Race', 'NUM-RACE-1', 10, 20) RETURNING id INTO v_product;
+  -- remitos-venta: stock para que cada una de las N emisiones descuente 1
+  -- (inocuo para el presupuesto, que no toca stock).
+  PERFORM public.c21_apply_branch_stock_delta(v_account, v_product, public.c26_default_branch(v_account), $N);
   IF EXISTS (SELECT 1 FROM public.internal_document_sequences WHERE account_id = v_account) THEN
     RAISE EXCEPTION 'SETUP FAILED: la cuenta nueva ya tiene fila de secuencia';
   END IF;
-END $$;
+END \$\$;
 SQL
-USER_ID=$(q "SELECT id FROM auth.users WHERE email = 'internal-numbering-race@test.local' ORDER BY created_at DESC LIMIT 1;")
+USER_ID=$(q "SELECT id FROM auth.users WHERE email = '$FIXTURE_EMAIL' ORDER BY created_at DESC LIMIT 1;")
 [ -n "$USER_ID" ] || fail "el fixture no creó el usuario"
 ACCOUNT_ID=$(q "SELECT account_id FROM public.account_members WHERE user_id = '$USER_ID' ORDER BY created_at LIMIT 1;")
 CLIENT_ID=$(q "SELECT id FROM public.clients WHERE account_id = '$ACCOUNT_ID' LIMIT 1;")
 PRODUCT_ID=$(q "SELECT id FROM public.products WHERE account_id = '$ACCOUNT_ID' LIMIT 1;")
-[ -n "$ACCOUNT_ID" ] && [ -n "$CLIENT_ID" ] && [ -n "$PRODUCT_ID" ] || fail "el fixture no devolvió cuenta/cliente/producto"
-echo "fixture: account=$ACCOUNT_ID, $N sesiones"
+BRANCH_ID=$(q "SELECT public.c26_default_branch('$ACCOUNT_ID'::uuid);")
+[ -n "$ACCOUNT_ID" ] && [ -n "$CLIENT_ID" ] && [ -n "$PRODUCT_ID" ] && [ -n "$BRANCH_ID" ] || fail "el fixture no devolvió cuenta/cliente/producto/sucursal"
+echo "fixture: account=$ACCOUNT_ID, $N sesiones, tipo $DOC_TYPE"
 
 # ── Portero: advisory EXCLUSIVO, retenido hasta que lo terminemos ────────────
 psql "$DB_URL" -X -q -t -A >/dev/null 2>&1 <<SQL &
@@ -125,17 +144,24 @@ done
 # ── N sesiones: esperan el advisory compartido y crean el presupuesto ────────
 WORKER_PIDS=()
 for i in $(seq 1 "$N"); do
+  if [ "$DOC_TYPE" = "quote" ]; then
+    CALL="public.rpc_create_quote(
+  '$CLIENT_ID'::uuid, NULL, NULL, NULL,
+  jsonb_build_array(jsonb_build_object('product_id', '$PRODUCT_ID'::uuid, 'unit_id', NULL,
+                                       'quantity', 1, 'price', 20, 'subtotal', 20, 'description', NULL)))"
+  else
+    CALL="public.rpc_create_sale_delivery_note(
+  'numbering-race-$i', '$CLIENT_ID'::uuid, '$BRANCH_ID'::uuid, NULL, NULL,
+  jsonb_build_array(jsonb_build_object('product_id', '$PRODUCT_ID'::uuid, 'unit_id', NULL,
+                                       'quantity', 1, 'price', 20, 'subtotal', 20)))"
+  fi
   psql "$DB_URL" -X -q -t -A > "$TMP_DIR/w$i.out" 2>&1 <<SQL &
 SET statement_timeout = '60s';
 BEGIN;
 SELECT set_config('request.jwt.claims', json_build_object('sub', '$USER_ID', 'role', 'authenticated')::text, true);
 SELECT set_config('request.jwt.claim.sub', '$USER_ID', true);
 SELECT pg_advisory_xact_lock_shared($ADVISORY_KEY);
-SELECT 'NUM=' || (public.rpc_create_quote(
-  '$CLIENT_ID'::uuid, NULL, NULL, NULL,
-  jsonb_build_array(jsonb_build_object('product_id', '$PRODUCT_ID'::uuid, 'unit_id', NULL,
-                                       'quantity', 1, 'price', 20, 'subtotal', 20, 'description', NULL))
-)->>'number');
+SELECT 'NUM=' || ($CALL->>'number');
 COMMIT;
 SQL
   WORKER_PIDS+=($!)
@@ -167,12 +193,12 @@ if [ "$NUMS" != "$EXPECTED" ]; then
 fi
 
 DB_CHECK=$(q "SELECT count(*) || '/' || count(DISTINCT number) || '/' || COALESCE(min(number), 0) || '/' || COALESCE(max(number), 0)
-              FROM public.quotes WHERE account_id = '$ACCOUNT_ID';")
+              FROM public.$DOC_TABLE WHERE account_id = '$ACCOUNT_ID';")
 [ "$DB_CHECK" = "$N/$N/1/$N" ] || fail "en la base: filas/distintos/min/max = $DB_CHECK, se esperaba $N/$N/1/$N"
-SEQ=$(q "SELECT last_number FROM public.internal_document_sequences WHERE account_id = '$ACCOUNT_ID' AND document_type = 'quote';")
+SEQ=$(q "SELECT last_number FROM public.internal_document_sequences WHERE account_id = '$ACCOUNT_ID' AND document_type = '$DOC_TYPE';")
 [ "$SEQ" = "$N" ] || fail "internal_document_sequences quedó en $SEQ, se esperaba $N"
 
-echo "PASS: $N altas concurrentes del primer presupuesto de una cuenta sin fila de secuencia recibieron 1..$N, sin huecos ni repetidos; la secuencia quedó en $N."
+echo "PASS ($DOC_TYPE): $N altas concurrentes del primer documento de una cuenta sin fila de secuencia recibieron 1..$N, sin huecos ni repetidos; la secuencia quedó en $N."
 
 cleanup
 LEFT=$(q "SELECT count(*) FROM auth.users WHERE id = '$USER_ID';")

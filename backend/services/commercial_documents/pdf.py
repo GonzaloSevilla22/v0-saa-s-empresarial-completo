@@ -30,6 +30,11 @@ Aclaración, DNI y Fecha, que NO se parte entre páginas: si no entra en lo que
 queda de la página, pasa entero a la siguiente). Sin precios (`show_prices`
 falso) la tabla queda con descripción y cantidad y no hay total. Ambos campos
 tienen default retrocompatible: el presupuesto se dibuja igual que antes.
+
+Remito de compra (remitos-compra D10): el bloque de la contraparte lleva el
+rótulo de la vista (`recipient_label`: "Cliente" o "Recibido de") y, si la vista
+la trae, la línea `reference_label` ("Remito del proveedor N° …"). Con los
+defaults el dibujo es el de siempre.
 """
 from __future__ import annotations
 
@@ -137,7 +142,7 @@ def _recipient_block(pdf: _CommercialPdf, view: CommercialDocumentView) -> None:
     top = pdf.get_y()
     pdf.set_font("Helvetica", "B", 10)
     pdf.set_text_color(*GRAY)
-    pdf.cell(0, 5, "Cliente", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(0, 5, _pdf_text(view.recipient_label), new_x="LMARGIN", new_y="NEXT")
     pdf.set_font("Helvetica", "B", 12)
     pdf.set_text_color(*SLATE)
     pdf.multi_cell(115, 6, _pdf_text(recipient.name), new_x="LMARGIN", new_y="NEXT")
@@ -154,6 +159,8 @@ def _recipient_block(pdf: _CommercialPdf, view: CommercialDocumentView) -> None:
     for detail in details:
         if detail:
             pdf.multi_cell(115, 4.8, _pdf_text(detail), new_x="LMARGIN", new_y="NEXT")
+    if view.reference_label:
+        pdf.multi_cell(115, 4.8, _pdf_text(view.reference_label), new_x="LMARGIN", new_y="NEXT")
     if view.origin_label:
         pdf.set_font("Helvetica", "B", 9.5)
         pdf.set_text_color(*SLATE)

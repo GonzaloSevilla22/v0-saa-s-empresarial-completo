@@ -47,15 +47,15 @@ export default function EditDeliveryNotePage() {
 
   let body: React.ReactNode
   if (!hasCapability(roles, CAN_DELIVER_SALE, rolesResolved)) {
-    body = <DocumentNoPermission texts={DELIVERY_NOTE_PAGE_TEXTS} action="editar remitos" />
+    body = <DocumentNoPermission texts={DELIVERY_NOTE_PAGE_TEXTS.sale} action="editar remitos" />
   } else if (isError) {
-    body = <DocumentLoadError texts={DELIVERY_NOTE_PAGE_TEXTS} />
+    body = <DocumentLoadError texts={DELIVERY_NOTE_PAGE_TEXTS.sale} />
   } else if (isLoading || !note || productsLoading || unitsLoading || branchesLoading) {
-    body = <DocumentLoading label={DELIVERY_NOTE_PAGE_TEXTS.loadingLabel} />
+    body = <DocumentLoading label={DELIVERY_NOTE_PAGE_TEXTS.sale.loadingLabel} />
   } else if (note.status === "converted") {
     body = (
       <DocumentNotEditable
-        texts={DELIVERY_NOTE_PAGE_TEXTS}
+        texts={DELIVERY_NOTE_PAGE_TEXTS.sale}
         message={humanizeOperationError("delivery_note_locked_converted", undefined, null, { documentLabel: "remito" }).message}
         link={
           note.converted_sales_order_id
@@ -68,7 +68,7 @@ export default function EditDeliveryNotePage() {
     const reason = canceledReason(note.history)
     body = (
       <DocumentNotEditable
-        texts={DELIVERY_NOTE_PAGE_TEXTS}
+        texts={DELIVERY_NOTE_PAGE_TEXTS.sale}
         message="Este remito está anulado y no se puede modificar."
         link={{ href: detailHref, label: "Ver el remito" }}
       >

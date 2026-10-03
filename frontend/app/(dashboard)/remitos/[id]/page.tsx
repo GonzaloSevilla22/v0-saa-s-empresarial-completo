@@ -83,8 +83,8 @@ export default function DeliveryNoteDetailPage() {
     [deliveryNoteId, showPrices],
   )
 
-  if (isError) return <DocumentLoadError texts={DELIVERY_NOTE_PAGE_TEXTS} />
-  if (isLoading || !note) return <DocumentLoading label={DELIVERY_NOTE_PAGE_TEXTS.loadingLabel} />
+  if (isError) return <DocumentLoadError texts={DELIVERY_NOTE_PAGE_TEXTS.sale} />
+  if (isLoading || !note) return <DocumentLoading label={DELIVERY_NOTE_PAGE_TEXTS.sale.loadingLabel} />
 
   const generatedFiscal = generatedOrder ? mapFiscalState(generatedOrder) : null
   const actions = deliveryNoteActions(note.status, {

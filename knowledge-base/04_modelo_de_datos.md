@@ -271,6 +271,34 @@ Escritura sólo por RPC (`rpc_create_quote`, `rpc_update_quote`, `rpc_transition
 
 ---
 
+### `delivery_notes` / `delivery_note_items` — Remitos (`remitos-venta`, tanda A, 2026-10-03)
+```sql
+-- delivery_notes
+id UUID PK, account_id UUID NOT NULL
+direction TEXT NOT NULL            -- CHECK IN ('sale','purchase'); 'purchase' sin escritor hasta remitos-compra
+branch_id UUID NOT NULL            -- sucursal de origen: de ahí sale (y a ahí vuelve) el stock
+client_id UUID NULL, supplier_id UUID NULL, supplier_reference TEXT NULL
+  -- CHECK de contraparte: sale = client_id NOT NULL y supplier_id NULL; purchase = al revés
+number BIGINT                      -- correlativo por cuenta y sentido (R-00000001), asignado por disparador
+status TEXT NOT NULL               -- CHECK IN ('issued','converted','canceled'); sin borrador
+issued_on DATE NOT NULL            -- hoy (ART), no editable
+delivery_address TEXT NULL (<=500), notes TEXT NULL (<=2000)
+total NUMERIC(15,2), revision INTEGER NOT NULL DEFAULT 1 (>=1)   -- versión optimista; sube en cada edición
+created_by/created_at, updated_by/updated_at
+UNIQUE (account_id, direction, number)
+-- delivery_note_items (sólo líneas con producto)
+delivery_note_id, account_id, line_no, product_id NOT NULL, unit_id NULL
+quantity NUMERIC(15,4) > 0, price >= 0, subtotal >= 0   -- por unidad de la línea; se guardan siempre, el PDF puede no mostrarlos
+name_snapshot, sku_snapshot, unit_cost_snapshot, iva_rate_snapshot
+quantity_base NUMERIC(15,4) > 0    -- cantidad en unidad base: lo que el remito RETIENE del stock
+```
+- RLS de sólo lectura por cuenta; la escritura es únicamente por `rpc_create_sale_delivery_note`, `rpc_update_delivery_note` y `rpc_cancel_delivery_note` (`SECURITY DEFINER`); los helpers `_delivery_note_*` no tienen `EXECUTE` para `authenticated`.
+- `CHECK` ampliados de forma aditiva: `internal_document_sequences.document_type` y los dos de la FSM (`document_status_history`, `document_status_transitions`) suman `delivery_note_sale`; `operation_idempotency.operation_kind` suma `delivery_note_sale`; `stock_movements.reference_type` suma `delivery_note`, `delivery_note_update` y `delivery_note_reversal`.
+- El catálogo de transiciones `delivery_note_sale` tiene, en la tanda A, `NULL -> issued` (seller/stock/admin/owner) e `issued -> canceled` (admin/owner, motivo obligatorio, terminal). `issued -> converted` y `converted -> issued` llegan con la tanda B.
+- Lo que el remito retiene se lee de `quantity_base` de sus líneas (escrita sólo por sus RPCs), nunca sumando el ledger, que los roles de aplicación pueden insertar por PostgREST.
+
+---
+
 ### `stock_movements` — Libro Mayor de Stock (Ledger)
 ```sql
 id                  UUID    PK

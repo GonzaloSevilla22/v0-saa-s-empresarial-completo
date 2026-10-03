@@ -381,10 +381,14 @@
     - KPI de remitos pendientes en el Tablero (OQ-RV12);
     - las alternativas de OQ-RV que el PO no eligió;
   - la coordinación con #607.
+  - [x] **Tanda A**: ficha en `CHANGES.md` (decisiones, verificación con conteos, humo, red-team, defectos abiertos, candidatos y coordinación con #607). El orden de locks de la tanda B y su ficha quedan para su PR.
+  - [ ] Tanda B.
 - [ ] 9.2 KB:
   - `knowledge-base/04_modelo_de_datos.md`: tablas y columna nuevas;
   - `05_reglas_de_negocio.md`: regla del remito (stock al emitir, edición con espejo, anulación con motivo, conversión sin doble descuento, venta inmutable, borrado que reabre);
   - `06_funcionalidades.md` y `07_flujos_principales.md`: flujo del remito.
+  - [x] **Tanda A**: 04 (tablas y `CHECK`), 05 (RN-R1..R5: stock al emitir, edición con espejo, anulación con motivo, bloqueo de baja de sucursal, PDF sin precios; no es venta en KPI), 06 (módulo) y 07 (flujo 11). Las reglas de conversión, borrado y edición de la venta nacida del remito se agregan con la tanda B.
+  - [ ] Tanda B.
 - [ ] 9.3 Puntero del `CLAUDE.md`: **no se edita en este change** (instrucción del workflow). Se anota en `CHANGES.md` que el ítem del roadmap se actualiza en el archive, con `python scripts/ci/check_docs_sync.py --fix` en ese PR.
 
 ## 10. Post-merge (por tanda)

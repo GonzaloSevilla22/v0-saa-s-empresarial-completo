@@ -12,15 +12,20 @@
  * tres pestañas la activa se decide comparando la RUTA de cada una: la regla
  * anterior (`historial = !cuenta`) habría marcado "Historial" también sobre
  * "Presupuestos".
+ *
+ * remitos-venta (D11, tarea 5.8): suma "Nuevo remito" (`CAN_DELIVER_SALE`) y
+ * "Ver remitos" (cualquier miembro), sin pestaña nueva (OQ-RV10). Los dos
+ * enlaces usan el contrato de query params de `/remitos` (`?cliente=`). En móvil
+ * son botones de sólo ícono con `aria-label` propio y distinto.
  */
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { ArrowLeft, Plus } from "lucide-react"
+import { ArrowLeft, PackageCheck, PackagePlus, Plus } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useClient } from "@/hooks/data/use-clients"
 import { useOrgRole } from "@/hooks/useOrgRole"
-import { CAN_QUOTE, hasCapability } from "@/lib/rbac-capabilities"
+import { CAN_DELIVER_SALE, CAN_QUOTE, hasCapability } from "@/lib/rbac-capabilities"
 import { cn } from "@/lib/utils"
 
 interface ClientDetailHeaderProps {
@@ -32,6 +37,7 @@ export function ClientDetailHeader({ clientId }: ClientDetailHeaderProps) {
   const { data: client, isLoading } = useClient(clientId)
   const { roles, rolesResolved } = useOrgRole()
   const canQuote = hasCapability(roles, CAN_QUOTE, rolesResolved)
+  const canDeliver = hasCapability(roles, CAN_DELIVER_SALE, rolesResolved)
 
   const tabs = [
     { label: "Historial de compras", href: `/clientes/${clientId}` },
@@ -55,17 +61,33 @@ export function ClientDetailHeader({ clientId }: ClientDetailHeaderProps) {
             {client?.email || client?.phone || "—"}
           </p>
         </div>
-        {canQuote && (
-          <Button asChild size="sm" className="shrink-0 gap-1.5">
-            <Link
-              href={`/presupuestos/nuevo?cliente=${encodeURIComponent(clientId)}`}
-              aria-label="Nuevo presupuesto"
-            >
-              <Plus className="h-4 w-4" aria-hidden="true" />
-              <span className="hidden sm:inline" aria-hidden="true">Nuevo presupuesto</span>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <Button asChild variant="outline" size="sm" className="gap-1.5">
+            <Link href={`/remitos?cliente=${encodeURIComponent(clientId)}`} aria-label="Ver remitos">
+              <PackageCheck className="h-4 w-4" aria-hidden="true" />
+              <span className="hidden lg:inline" aria-hidden="true">Ver remitos</span>
             </Link>
           </Button>
-        )}
+          {canDeliver && (
+            <Button asChild variant="outline" size="sm" className="gap-1.5">
+              <Link href={`/remitos/nuevo?cliente=${encodeURIComponent(clientId)}`} aria-label="Nuevo remito">
+                <PackagePlus className="h-4 w-4" aria-hidden="true" />
+                <span className="hidden lg:inline" aria-hidden="true">Nuevo remito</span>
+              </Link>
+            </Button>
+          )}
+          {canQuote && (
+            <Button asChild size="sm" className="gap-1.5">
+              <Link
+                href={`/presupuestos/nuevo?cliente=${encodeURIComponent(clientId)}`}
+                aria-label="Nuevo presupuesto"
+              >
+                <Plus className="h-4 w-4" aria-hidden="true" />
+                <span className="hidden sm:inline" aria-hidden="true">Nuevo presupuesto</span>
+              </Link>
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Pestañas — enlaces reales (no un widget ARIA tab controlado por JS):

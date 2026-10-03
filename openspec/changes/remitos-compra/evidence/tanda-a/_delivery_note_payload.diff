@@ -1,0 +1,16 @@
+--- prod-vivo/_delivery_note_payload
++++ 20261071000001/_delivery_note_payload
+@@ -10,6 +10,13 @@
+               'client_name',   (SELECT c.name FROM public.clients c WHERE c.id = dn.client_id),
+               'client_phone',  (SELECT c.phone FROM public.clients c WHERE c.id = dn.client_id),
+               'client_deleted', (SELECT c.deleted_at IS NOT NULL FROM public.clients c WHERE c.id = dn.client_id),
++              -- remitos-compra (D7/D11): contraparte del sentido compra y
++              -- cuántas líneas siguen con precio 0 (no se puede convertir).
++              'supplier_name',  (SELECT s.name FROM public.suppliers s WHERE s.id = dn.supplier_id AND s.account_id = dn.account_id),
++              'supplier_phone', (SELECT s.phone FROM public.suppliers s WHERE s.id = dn.supplier_id AND s.account_id = dn.account_id),
++              'supplier_deleted', (SELECT s.deleted_at IS NOT NULL FROM public.suppliers s WHERE s.id = dn.supplier_id AND s.account_id = dn.account_id),
++              'missing_price_count', (SELECT count(*) FROM public.delivery_note_items mi
++                                      WHERE mi.delivery_note_id = dn.id AND mi.price = 0),
+               'branch_name',   (SELECT b.name FROM public.branches b WHERE b.id = dn.branch_id),
+               -- remitos-venta tanda B: la orden VIVA nacida del remito (a lo
+               -- sumo una, índice único parcial); NULL si no está convertido.

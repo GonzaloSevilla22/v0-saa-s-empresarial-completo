@@ -1,0 +1,40 @@
+--- prod-vivo/_delivery_note_assert_role
++++ 20261071000001/_delivery_note_assert_role
+@@ -4,36 +4,7 @@
+ STABLE
+ SET search_path TO 'public'
+ AS $function$
+-DECLARE
+-  v_from  text;
+-  v_to    text;
+-  v_roles text[];
+-  v_label text;
+ BEGIN
+-  CASE p_mode
+-    WHEN 'issue'   THEN v_from := NULL;     v_to := 'issued';    v_label := 'emitir o editar remitos (requiere vendedor, stock, administrador o dueño)';
+-    WHEN 'void'    THEN v_from := 'issued'; v_to := 'canceled';  v_label := 'anular remitos (requiere administrador o dueño)';
+-    WHEN 'convert' THEN v_from := 'issued'; v_to := 'converted'; v_label := 'convertir remitos en venta (requiere vendedor, cajero, administrador o dueño)';
+-    ELSE
+-      RAISE EXCEPTION 'delivery_note_role_mode_invalid: %', p_mode USING ERRCODE = 'P0400';
+-  END CASE;
+-
+-  IF NOT public.is_account_writer(p_account_id) THEN
+-    RAISE EXCEPTION 'unauthorized' USING ERRCODE = 'P0401';
+-  END IF;
+-
+-  SELECT t.allowed_role INTO v_roles
+-  FROM   public.document_status_transitions t
+-  WHERE  t.document_type = 'delivery_note_sale'
+-    AND  t.from_status IS NOT DISTINCT FROM v_from
+-    AND  t.to_status = v_to;
+-  IF v_roles IS NULL THEN
+-    RAISE EXCEPTION 'delivery_note_role_mode_unavailable: la operación % no está catalogada', p_mode
+-      USING ERRCODE = 'P0409';
+-  END IF;
+-
+-  IF NOT (public.account_user_active_roles(p_account_id, auth.uid()) && v_roles) THEN
+-    RAISE EXCEPTION 'insufficient_role: tu rol no permite %', v_label USING ERRCODE = 'P0403';
+-  END IF;
++  PERFORM public._delivery_note_assert_role_dir(p_account_id, p_mode, 'sale');
+ END;
+ $function$

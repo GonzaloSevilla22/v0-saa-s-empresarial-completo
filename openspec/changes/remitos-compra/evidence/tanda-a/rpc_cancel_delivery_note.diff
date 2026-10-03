@@ -1,0 +1,54 @@
+--- prod-vivo/rpc_cancel_delivery_note
++++ 20261071000001/rpc_cancel_delivery_note
+@@ -15,19 +15,24 @@
+     RAISE EXCEPTION 'Not authenticated' USING ERRCODE = 'insufficient_privilege';
+   END IF;
+ 
++  -- remitos-compra (D6): sin filtro de sentido; rol, historial y textos salen
++  -- de la fila del remito.
+   SELECT * INTO v_dn
+   FROM   public.delivery_notes
+   WHERE  id = p_delivery_note_id
+     AND  account_id IN (SELECT public.current_account_ids())
+-    AND  direction = 'sale'
+   FOR UPDATE;
+   IF NOT FOUND THEN
+     RAISE EXCEPTION 'delivery_note_not_found: %', p_delivery_note_id USING ERRCODE = 'P0404';
+   END IF;
+ 
+-  PERFORM public._delivery_note_assert_role(v_dn.account_id, 'void');
++  PERFORM public._delivery_note_assert_role_dir(v_dn.account_id, 'void', v_dn.direction);
+ 
+   IF v_dn.status = 'converted' THEN
++    IF v_dn.direction = 'purchase' THEN
++      RAISE EXCEPTION 'delivery_note_locked_converted: el remito ya se convirtió en compra: para anularlo, primero eliminá la compra'
++        USING ERRCODE = 'P0423';
++    END IF;
+     RAISE EXCEPTION 'delivery_note_locked_converted: el remito ya se convirtió en venta: para anularlo, primero eliminá la venta'
+       USING ERRCODE = 'P0423';
+   END IF;
+@@ -52,7 +57,7 @@
+     RAISE EXCEPTION 'delivery_note_cancel_reason_too_long: el motivo admite hasta 500 caracteres' USING ERRCODE = 'P0400';
+   END IF;
+ 
+-  -- Autosuficiente (D9/D16): nunca reponer stock en una sucursal que no opera.
++  -- Autosuficiente (D9/D16): nunca mover stock en una sucursal que no opera.
+   IF NOT EXISTS (
+     SELECT 1 FROM public.branches
+     WHERE id = v_dn.branch_id AND is_active = TRUE AND status IS DISTINCT FROM 'closed'
+@@ -66,11 +71,14 @@
+   FROM   public.delivery_note_items i WHERE i.delivery_note_id = v_dn.id;
+   PERFORM public._delivery_note_lock_products(v_dn.account_id, v_products);
+ 
++  -- Venta: repone lo retenido. Compra: resta lo aportado, con gate
++  -- (P0409 delivery_note_stock_consumed si ya se consumió; el RAISE revierte
++  -- todo, ningún par queda restado a medias).
+   PERFORM public._delivery_note_reverse_held(v_dn.account_id, v_dn.id, gen_random_uuid(),
+                                              public._delivery_note_held_pairs(v_dn.id),
+                                              'delivery_note_reversal', 'delivery_note_cancel');
+ 
+-  PERFORM public.record_status_transition(v_dn.account_id, 'delivery_note_sale', v_dn.id,
++  PERFORM public.record_status_transition(v_dn.account_id, 'delivery_note_' || v_dn.direction, v_dn.id,
+                                           'issued', 'canceled', v_uid, v_reason);
+   UPDATE public.delivery_notes
+   SET    status = 'canceled', updated_at = now(), updated_by = v_uid

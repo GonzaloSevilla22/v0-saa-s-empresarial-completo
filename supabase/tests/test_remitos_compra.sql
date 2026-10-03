@@ -778,7 +778,9 @@ BEGIN
   v_r := pg_temp.rcp_issue('rc-e9', v_sup, v_x, jsonb_build_array(pg_temp.rcp_line(v_pdel, 3, 1)));
   v_dn12 := (v_r->>'id')::uuid;
   v_rc_expected := v_rc_expected + 1;
+  SET session_replication_role = replica;  -- RN-B4 no deja dar de baja un producto con stock
   UPDATE public.products SET deleted_at = now() WHERE id = v_pdel;
+  SET session_replication_role = DEFAULT;
   v_txt := pg_temp.rcp_err(pg_temp.rcp_update_sql(v_dn12, 1, v_sup, v_x, jsonb_build_array(pg_temp.rcp_line(v_pdel, 3, 9))));
   IF v_txt <> 'OK' THEN
     v_failures := v_failures || format('FAIL (e9): conservar un producto dado de baja debía funcionar, salió %s', v_txt);

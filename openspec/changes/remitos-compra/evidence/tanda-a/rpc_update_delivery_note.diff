@@ -1,0 +1,94 @@
+--- prod-vivo/rpc_update_delivery_note
++++ 20261071000001/rpc_update_delivery_note
+@@ -10,14 +10,7 @@
+   v_branch   RECORD;
+   v_address  text;
+   v_notes    text;
+-  v_products uuid[];
+-  v_old      jsonb;
+-  v_new      jsonb;
+   v_valid    jsonb;
+-  v_carry    jsonb;
+-  v_rev      jsonb;
+-  v_app      jsonb;
+-  v_op_group uuid;
+ BEGIN
+   v_uid := auth.uid();
+   IF v_uid IS NULL THEN
+@@ -98,38 +91,12 @@
+     RAISE EXCEPTION 'delivery_note_items_required: el remito necesita al menos una línea' USING ERRCODE = 'P0400';
+   END IF;
+ 
+-  -- Lock de la unión de productos (vigentes + nuevos) ANTES de validar.
+-  SELECT array_agg(DISTINCT x.pid) INTO v_products
+-  FROM (
+-    SELECT i.product_id AS pid FROM public.delivery_note_items i WHERE i.delivery_note_id = v_dn.id
+-    UNION
+-    SELECT NULLIF(e->>'product_id', '')::uuid FROM jsonb_array_elements(p_items) AS e WHERE jsonb_typeof(e) = 'object'
+-  ) x
+-  WHERE x.pid IS NOT NULL;
+-  PERFORM public._delivery_note_lock_products(v_dn.account_id, v_products);
+-
+-  -- Lo retenido por las líneas VIGENTES, antes de tocarlas.
+-  v_old := public._delivery_note_held_pairs(v_dn.id);
+-
+-  v_valid := public._delivery_note_validate_items(v_dn.account_id, p_branch_id, p_items, v_old);
+-
+-  -- Política canónica de operaciones (D6): el producto que sigue acarrea sus
+-  -- cuatro snapshots (ante varias líneas, la de menor line_no).
+-  SELECT COALESCE(jsonb_object_agg(s.product_id::text, jsonb_build_object(
+-           'name_snapshot', s.name_snapshot, 'sku_snapshot', s.sku_snapshot,
+-           'unit_cost_snapshot', s.unit_cost_snapshot, 'iva_rate_snapshot', s.iva_rate_snapshot)), '{}'::jsonb)
+-  INTO   v_carry
+-  FROM  (SELECT DISTINCT ON (i.product_id) i.product_id, i.name_snapshot, i.sku_snapshot,
+-                i.unit_cost_snapshot, i.iva_rate_snapshot
+-         FROM   public.delivery_note_items i
+-         WHERE  i.delivery_note_id = v_dn.id
+-         ORDER BY i.product_id, i.line_no, i.id) s;
+-
+-  DELETE FROM public.delivery_note_items WHERE delivery_note_id = v_dn.id;
++  -- remitos-compra (D5): el reemplazo de líneas y las patas de stock viven en
++  -- el núcleo compartido (fija branch_id antes de recalcular lo retenido).
++  v_valid := public._delivery_note_replace_content(v_dn.id, p_branch_id, p_items);
+ 
+   UPDATE public.delivery_notes
+   SET    client_id        = p_client_id,
+-         branch_id        = p_branch_id,
+          delivery_address = v_address,
+          notes            = v_notes,
+          total            = (v_valid->>'total')::numeric,
+@@ -138,34 +105,6 @@
+          revision         = revision + 1
+   WHERE  id = v_dn.id;
+ 
+-  PERFORM public._delivery_note_insert_items(v_dn.account_id, v_dn.id, v_valid->'lines', v_carry);
+-
+-  v_new := public._delivery_note_held_pairs(v_dn.id);
+-
+-  -- Pares que cambian: retenido <> requerido por (producto, sucursal). Los
+-  -- demás no escriben nada (una edición de precio no ensucia el kardex).
+-  WITH o AS (
+-    SELECT e, (e->>'product_id')::uuid AS pid, (e->>'branch_id')::uuid AS bid, (e->>'quantity')::numeric AS qty
+-    FROM jsonb_array_elements(v_old) e
+-  ), n AS (
+-    SELECT e, (e->>'product_id')::uuid AS pid, (e->>'branch_id')::uuid AS bid, (e->>'quantity')::numeric AS qty
+-    FROM jsonb_array_elements(v_new) e
+-  ), changed AS (
+-    SELECT o.e AS old_e, n.e AS new_e
+-    FROM o FULL JOIN n ON n.pid = o.pid AND n.bid = o.bid
+-    WHERE COALESCE(o.qty, 0) <> COALESCE(n.qty, 0)
+-  )
+-  SELECT COALESCE(jsonb_agg(old_e) FILTER (WHERE old_e IS NOT NULL), '[]'::jsonb),
+-         COALESCE(jsonb_agg(new_e) FILTER (WHERE new_e IS NOT NULL), '[]'::jsonb)
+-  INTO   v_rev, v_app
+-  FROM   changed;
+-
+-  v_op_group := gen_random_uuid();
+-  -- Reversa primero: el control de faltante es sobre el neto.
+-  PERFORM public._delivery_note_reverse_held(v_dn.account_id, v_dn.id, v_op_group, v_rev,
+-                                             'delivery_note_update', 'delivery_note_edit');
+-  PERFORM public._delivery_note_apply_stock(v_dn.account_id, v_dn.id, v_op_group, v_app);
+-
+   RETURN public._delivery_note_payload(v_dn.id);
+ END;
+ $function$

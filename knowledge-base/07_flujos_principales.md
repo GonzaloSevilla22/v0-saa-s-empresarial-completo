@@ -277,7 +277,7 @@ Usuario (seller/stock/admin/owner) → /remitos/nuevo
 ## Flujo 12: Remito a venta (`remitos-venta`, tanda B)
 
 ```
-Usuario (seller/admin/owner) → /remitos/{id} → "Venta"  (remito issued, cliente vivo)
+Usuario (seller/cashier/admin/owner) → /remitos/{id} → "Venta"  (remito issued, cliente vivo)
     │   forma de pago (efectivo / transferencia / crédito / …); sin selector de sucursal
     │
     ├── POST /delivery-notes/{id}/convert  (header Idempotency-Key, revision esperada)

@@ -1,0 +1,6 @@
+shard 1 rc=0
+shard 2 rc=0
+shard 3 rc=1
+shard 4 rc=0
+shard 5 rc=0
+alldone

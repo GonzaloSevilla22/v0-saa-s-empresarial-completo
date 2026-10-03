@@ -1,0 +1,9 @@
+
+ RUN  v4.1.8 C:/Users/Usuario/Desktop/EIE/wt-remitos/frontend
+
+
+ Test Files  1 passed (1)
+      Tests  8 passed (8)
+   Start at  10:27:19
+   Duration  13.48s (transform 627ms, setup 444ms, import 987ms, tests 7.44s, environment 4.03s)
+

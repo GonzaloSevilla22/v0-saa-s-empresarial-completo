@@ -37,10 +37,11 @@ import { getDeleteCompensation } from "@/lib/delete-compensation"
 import { DeleteOperationDialog } from "@/components/shared/delete-operation-dialog"
 import { exportToCSV } from "@/lib/excel"
 import { formatMoney, formatUnitPrice, formatDate, type Currency } from "@/lib/format"
+import { formatDeliveryNoteNumber } from "@/lib/internal-document-number"
 import { formatQuantity } from "@/lib/format-unit"
 import { resolveUnit } from "@/lib/unit-utils"
 import { SaleReceiptButton } from "@/components/ventas/sale-receipt-button"
-import { SourceQuoteBadge } from "@/components/ventas/SourceQuoteBadge"
+import { SourceDocumentBadge } from "@/components/ventas/SourceDocumentBadge"
 import type { Sale, Client, SaleFiscalState, UnitOfMeasure } from "@/lib/types"
 import { ProductDisplay } from "@/components/shared/product-display"
 import type { PaginationMeta, PageSizeOption } from "@/lib/pagination-utils"
@@ -76,6 +77,42 @@ const PAYMENT_LOCKED_REASON =
 // prioridad — un bloqueo fiscal o de pago es el que el usuario tiene que ver.
 const SERVICE_LINES_REASON =
   "Incluye conceptos sin producto de un presupuesto: no se edita desde acá. Para corregirla, eliminala y volvé a venderla desde el presupuesto duplicado."
+
+// remitos-venta (D9): una venta nacida de un remito no se edita — el stock ya
+// salió con el remito y el editor, que siempre reemplaza líneas (REVERSE+APPLY),
+// lo repondría y lo descontaría de nuevo. El servidor lo rechaza con P0423
+// `delivery_note_sale_locked` ANTES que cualquier otro guard, así que el motivo
+// va primero. El token viene del servidor (`edit_locked_reason`); uno que no
+// conocemos también bloquea (fail-closed): la UI no adivina "se puede".
+const DELIVERY_NOTE_SALE_LOCKED = "delivery_note_sale_locked"
+const UNKNOWN_EDIT_LOCK_REASON = "No editable: el servidor no permite editar esta operación."
+
+function editLockedReasonText(token: string | null | undefined, remitoLabel: string | null): string | null {
+  if (!token) return null
+  if (token !== DELIVERY_NOTE_SALE_LOCKED) return UNKNOWN_EDIT_LOCK_REASON
+  const origen = remitoLabel ? `del remito ${remitoLabel}` : "de un remito"
+  return `No editable: la venta nació ${origen}. Para corregirla, eliminá la venta, editá el remito y volvé a convertirlo.`
+}
+
+/** Badge de origen de la operación: presupuesto o remito (nunca los dos: una venta nace de un solo documento). */
+function OperationSourceBadge({ op, className }: { op: SaleOperation; className?: string }) {
+  if (op.sourceDeliveryNoteId) {
+    return (
+      <SourceDocumentBadge
+        kind="delivery_note"
+        documentId={op.sourceDeliveryNoteId}
+        documentNumber={op.sourceDeliveryNoteNumber ?? null}
+        className={className}
+      />
+    )
+  }
+  if (op.sourceQuoteId) {
+    return (
+      <SourceDocumentBadge kind="quote" documentId={op.sourceQuoteId} documentNumber={op.sourceQuoteNumber} className={className} />
+    )
+  }
+  return null
+}
 
 // venta-editable-sin-cae: el motivo NOMBRA LA CAUSA REAL, que es lo que pidió
 // el PO. Tres causas distintas comparten P0423 en el servidor y la acción que
@@ -443,7 +480,13 @@ export function SaleOperationsList({
           const fiscalReason =
             fiscalBlockedReason(op.fiscal) ??
             (op.isFiscallyLocked ? FISCAL_LOCKED_FALLBACK_REASON : null)
+          // remitos-venta (D9): primero, porque es el primer guard de la RPC de edición.
+          const remitoLabel =
+            op.sourceDeliveryNoteNumber === null || op.sourceDeliveryNoteNumber === undefined
+              ? null
+              : formatDeliveryNoteNumber("sale", op.sourceDeliveryNoteNumber)
           const editBlockedReason =
+            editLockedReasonText(op.editLockedReason, remitoLabel) ??
             fiscalReason ??
             (op.isPaymentLocked ? PAYMENT_LOCKED_REASON : null) ??
             (op.hasServiceLines ? SERVICE_LINES_REASON : null)
@@ -459,6 +502,7 @@ export function SaleOperationsList({
             {
               ...op,
               fiscalBlockedReason: fiscalReason,
+              sourceDeliveryNoteLabel: remitoLabel,
               voidsPendingFiscalDocument: op.fiscal?.voidable ? op.fiscal.label : null,
             },
             "cliente",
@@ -523,9 +567,7 @@ export function SaleOperationsList({
                     <span className="text-sm font-bold text-success tabular-nums">{formatMoney(op.total, op.currency)}</span>
                   </div>
                   <PaymentMethodBadge name={op.items[0]?.paymentMethodName} />
-                  {op.sourceQuoteId && (
-                    <SourceQuoteBadge quoteId={op.sourceQuoteId} quoteNumber={op.sourceQuoteNumber} />
-                  )}
+                  <OperationSourceBadge op={op} />
                 </div>
 
                 {/* Desktop */}
@@ -545,9 +587,7 @@ export function SaleOperationsList({
                       </span>
                       <PaymentMethodBadge name={op.items[0]?.paymentMethodName} layout="inline" />
                     </div>
-                    {op.sourceQuoteId && (
-                      <SourceQuoteBadge quoteId={op.sourceQuoteId} quoteNumber={op.sourceQuoteNumber} className="ml-[1.375rem]" />
-                    )}
+                    <OperationSourceBadge op={op} className="ml-[1.375rem]" />
                   </div>
                   <span className="text-sm text-muted-foreground truncate">{op.clientName}</span>
                   <div className="flex justify-center">

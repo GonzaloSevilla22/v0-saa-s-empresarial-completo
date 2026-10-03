@@ -57,6 +57,10 @@ interface SaleApiRow extends FiscalReadModelRow {
   // presupuestos-modulo (tanda B, 6.6/6.10): derivados de lectura del servidor.
   source_quote_id?: string | null
   source_quote_number?: number | null
+  // remitos-venta (tanda B, D9/D13): remito de origen y motivo de no edición.
+  source_delivery_note_id?: string | null
+  source_delivery_note_number?: number | null
+  edit_locked_reason?: string | null
   has_service_lines?: boolean
 }
 
@@ -132,6 +136,9 @@ function mapSale(s: SaleApiRow): Sale {
     hasBankMovement:  s.has_bank_movement  ?? false,
     sourceQuoteId:     s.source_quote_id ?? null,
     sourceQuoteNumber: s.source_quote_number ?? null,
+    sourceDeliveryNoteId:     s.source_delivery_note_id ?? null,
+    sourceDeliveryNoteNumber: s.source_delivery_note_number ?? null,
+    editLockedReason:         s.edit_locked_reason ?? null,
     hasServiceLines:   s.has_service_lines ?? false,
   }
 }

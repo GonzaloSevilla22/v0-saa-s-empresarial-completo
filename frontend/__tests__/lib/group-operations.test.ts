@@ -96,6 +96,35 @@ describe("groupSalesByOperation — contexto edicion-preserva-contexto", () => {
   })
 })
 
+describe("groupSalesByOperation — origen remito y motivo de no edición (remitos-venta 7.6)", () => {
+  it("expone el remito de origen de la operación (id, número) y el motivo de no edición", () => {
+    const [op] = groupSalesByOperation([
+      makeSale({ sourceDeliveryNoteId: "dn-3", sourceDeliveryNoteNumber: 7, editLockedReason: "delivery_note_sale_locked" }),
+    ])
+    expect(op.sourceDeliveryNoteId).toBe("dn-3")
+    expect(op.sourceDeliveryNoteNumber).toBe(7)
+    expect(op.editLockedReason).toBe("delivery_note_sale_locked")
+  })
+
+  it("sin origen remito: null (no undefined)", () => {
+    const [op] = groupSalesByOperation([makeSale()])
+    expect(op.sourceDeliveryNoteId).toBeNull()
+    expect(op.sourceDeliveryNoteNumber).toBeNull()
+    expect(op.editLockedReason).toBeNull()
+  })
+
+  it("en una operación agrupada gana la primera fila que trae el origen y el motivo", () => {
+    const [op] = groupSalesByOperation([
+      makeSale({ id: "s1" }),
+      makeSale({ id: "s2", sourceDeliveryNoteId: "dn-3", sourceDeliveryNoteNumber: 7, editLockedReason: "delivery_note_sale_locked" }),
+    ])
+    expect(op.isGrouped).toBe(true)
+    expect(op.sourceDeliveryNoteId).toBe("dn-3")
+    expect(op.sourceDeliveryNoteNumber).toBe(7)
+    expect(op.editLockedReason).toBe("delivery_note_sale_locked")
+  })
+})
+
 describe("groupSalesByOperation — origen presupuesto y líneas de servicio (presupuestos-modulo 6.10)", () => {
   it("expone el origen presupuesto de la operación (id y número)", () => {
     const [op] = groupSalesByOperation([makeSale({ sourceQuoteId: "q-9", sourceQuoteNumber: 12 })])

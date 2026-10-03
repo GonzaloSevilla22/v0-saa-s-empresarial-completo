@@ -111,6 +111,9 @@ export function DeleteOperationDialog({
           <AlertDialogDescription asChild>
             <div className="space-y-2 text-sm text-muted-foreground">
               <p>Esta acción no se puede deshacer.</p>
+              {info.notes?.map((note) => (
+                <p key={note} className="text-foreground">{note}</p>
+              ))}
               {info.compensations.length > 0 && (
                 <div className="rounded-md border border-border bg-accent/30 p-3">
                   <p className="mb-1.5 font-medium text-foreground">Se va a compensar:</p>

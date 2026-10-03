@@ -54,6 +54,13 @@ export interface SaleOperation {
   sourceQuoteId: string | null
   /** Número interno del presupuesto de origen; null en uno anterior al módulo. */
   sourceQuoteNumber: number | null
+  /** remitos-venta (D9/D13): remito de venta del que nació la operación. La PRIMERA fila que
+   * lo trae (todas comparten la misma orden de venta). null = no nació de un remito. */
+  sourceDeliveryNoteId?: string | null
+  /** Número interno del remito de origen. */
+  sourceDeliveryNoteNumber?: number | null
+  /** remitos-venta (D9): motivo (token) por el que el servidor no deja editar la operación. */
+  editLockedReason?: string | null
   /** presupuestos-modulo (OQ-P16): ALGUNA fila de la operación es un concepto sin
    * producto (línea de servicio). Un OR: una operación mixta también lo es. */
   hasServiceLines: boolean
@@ -79,6 +86,9 @@ export function groupSalesByOperation(sales: Sale[]): SaleOperation[] {
       op.hasBankMovement = op.hasBankMovement || !!sale.hasBankMovement
       op.sourceQuoteId = op.sourceQuoteId ?? sale.sourceQuoteId ?? null
       op.sourceQuoteNumber = op.sourceQuoteNumber ?? sale.sourceQuoteNumber ?? null
+      op.sourceDeliveryNoteId = op.sourceDeliveryNoteId ?? sale.sourceDeliveryNoteId ?? null
+      op.sourceDeliveryNoteNumber = op.sourceDeliveryNoteNumber ?? sale.sourceDeliveryNoteNumber ?? null
+      op.editLockedReason = op.editLockedReason ?? sale.editLockedReason ?? null
       op.hasServiceLines = op.hasServiceLines || !!sale.hasServiceLines
     } else {
       map.set(key, {
@@ -103,6 +113,9 @@ export function groupSalesByOperation(sales: Sale[]): SaleOperation[] {
         hasBankMovement: !!sale.hasBankMovement,
         sourceQuoteId: sale.sourceQuoteId ?? null,
         sourceQuoteNumber: sale.sourceQuoteNumber ?? null,
+        sourceDeliveryNoteId: sale.sourceDeliveryNoteId ?? null,
+        sourceDeliveryNoteNumber: sale.sourceDeliveryNoteNumber ?? null,
+        editLockedReason: sale.editLockedReason ?? null,
         hasServiceLines: !!sale.hasServiceLines,
       })
     }

@@ -15,6 +15,11 @@
  *      el diálogo enumera qué libro se va a compensar antes de confirmar.
  *   3. Sin nada de lo anterior → borrable, confirmación simple.
  *
+ * remitos-venta (D9): una venta nacida de un remito, además, NO devuelve stock al
+ * borrarse (la mercadería quedó entregada con el remito) y deja el remito otra
+ * vez pendiente. No es una compensación de un libro: va en `notes`, aparte de
+ * la lista "Se va a compensar".
+ *
  * `party` sólo cambia el texto del ítem de cuenta corriente (cliente vs.
  * proveedor) — no hay lógica de negocio nueva acá, sólo redacción.
  */
@@ -61,6 +66,14 @@ export interface DeletableOperationFlags {
    * no los observó y su redacción sería otra).
    */
   reversesStock?: boolean
+  /**
+   * remitos-venta (D9): remito de venta del que nació la operación. Cuando viene,
+   * borrar la venta devuelve el remito a pendiente SIN reponer stock, y el
+   * diálogo lo avisa (`notes`). Lo pasa el listado de ventas; ausente en el resto.
+   */
+  sourceDeliveryNoteId?: string | null
+  /** Etiqueta del remito de origen (`R-00000007`), o null si es anterior a la numeración. */
+  sourceDeliveryNoteLabel?: string | null
 }
 
 export interface DeleteCompensationInfo {
@@ -72,6 +85,9 @@ export interface DeleteCompensationInfo {
    * operación no tiene dinero posteado — el diálogo confirma sin enumerar
    * (task 9.5). */
   compensations: string[]
+  /** Avisos que NO son una compensación de un libro (p. ej. el stock que no vuelve
+   * al borrar una venta nacida de un remito). Ausente o vacío = ninguno. */
+  notes?: string[]
 }
 
 /** Fallback genérico: lo usan los callers que no derivan el motivo por causa
@@ -178,5 +194,15 @@ export function getDeleteCompensation(
     )
   }
 
-  return { deletable: true, blockedReason: null, compensations }
+  // remitos-venta (D9): el remito vuelve a pendiente y el stock NO se repone — la
+  // mercadería ya salió con el remito. Redacción fija (D9); sin número no se inventa uno.
+  const notes: string[] = []
+  if (flags.sourceDeliveryNoteId) {
+    const remito = flags.sourceDeliveryNoteLabel ? `el remito ${flags.sourceDeliveryNoteLabel}` : "el remito"
+    notes.push(
+      `El stock no vuelve: la mercadería quedó entregada con ${remito}, que vuelve a quedar pendiente. Para devolverla al stock, anulá el remito.`,
+    )
+  }
+
+  return { deletable: true, blockedReason: null, compensations, notes }
 }

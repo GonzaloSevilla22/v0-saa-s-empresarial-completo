@@ -526,6 +526,13 @@ export interface Sale {
   sourceQuoteId?: string | null
   /** Número interno del presupuesto de origen (`P-00000012` lo arma la interfaz). */
   sourceQuoteNumber?: number | null
+  /** remitos-venta (D9/D13): remito de venta del que nació la venta (derivado de lectura). null = no nació de un remito. */
+  sourceDeliveryNoteId?: string | null
+  /** Número interno del remito de origen (`R-00000007` lo arma la interfaz). */
+  sourceDeliveryNoteNumber?: number | null
+  /** remitos-venta (D9): token con el motivo por el que el servidor no deja editar la operación
+   * (hoy `delivery_note_sale_locked`). Derivado de lectura; la autoridad al editar es la RPC (P0423). */
+  editLockedReason?: string | null
   /** presupuestos-modulo (OQ-P16): la operación incluye conceptos sin producto (líneas de servicio); el editor de /ventas no las rehidrata. */
   hasServiceLines?: boolean
 }

@@ -332,7 +332,7 @@
 
 ## 8. Verificación
 
-- [ ] 8.1 Suites completas por tanda:
+- [x] 8.1 Suites completas por tanda:
   - backend `-m "not integration"` con cobertura ≥ 87 % + integración;
   - vitest completo; `tsc` sin errores nuevos contra el baseline;
   - todos los gates de `KPI_Validation.yml` sobre `db reset` limpio, en el orden real del workflow.
@@ -340,7 +340,7 @@
   Explicar cualquier diferencia contra el baseline de 0.6.
   - [x] **Tanda A** (resultado en "Resultado del grupo 8, parte A", más abajo).
   - [x] **Tanda B** (resultado en "Resultado del grupo 8, parte B", más abajo).
-- [ ] 8.2 **Verificación visual, 4 combinaciones** (desktop y 375 px × claro y oscuro) de `/remitos`, `/remitos/nuevo`, `/remitos/[id]` (los 3 estados), `/remitos/[id]/editar`, `CancelDeliveryNoteDialog`, la cabecera de la ficha del cliente (`ClientDetailHeader` a 375 px: sin desborde y `aria-label` distintos en los botones de ícono), las filas de remito del panel de `/stock`, `DeactivateBranchDialog` con remitos pendientes y, en B, `ConvertDeliveryNoteDialog`, el badge y el diálogo de borrado de `/ventas`. Medir:
+- [x] 8.2 **Verificación visual, 4 combinaciones** (desktop y 375 px × claro y oscuro) de `/remitos`, `/remitos/nuevo`, `/remitos/[id]` (los 3 estados), `/remitos/[id]/editar`, `CancelDeliveryNoteDialog`, la cabecera de la ficha del cliente (`ClientDetailHeader` a 375 px: sin desborde y `aria-label` distintos en los botones de ícono), las filas de remito del panel de `/stock`, `DeactivateBranchDialog` con remitos pendientes y, en B, `ConvertDeliveryNoteDialog`, el badge y el diálogo de borrado de `/ventas`. Medir:
   - desbordes horizontales: 0 propios;
   - contraste (gate `token-contrast-aa`);
   - CTA visible en móvil.
@@ -348,12 +348,12 @@
   Capturas en `evidence/visual/`.
   - [x] **Tanda A**: todas las pantallas de A en las 4 combinaciones (40 capturas). En B falta `ConvertDeliveryNoteDialog`, el badge y el diálogo de borrado de `/ventas` y el estado `converted` del detalle (no existe en A).
   - [x] **Tanda B** (ver "Resultado del grupo 8, parte B": diálogo de conversión en sus estados, éxito, detalle convertido, badge y diálogo de borrado en las 4 combinaciones, 0 desbordes propios).
-- [ ] 8.3 **Humo local** con el stack completo:
+- [x] 8.3 **Humo local** con el stack completo:
   - **A**: emitir → stock baja en `/stock` con el rótulo → editar (subir, bajar, precio, sucursal) → PDF con y sin precios → WhatsApp (escritorio y emulación móvil) → anular con motivo → stock vuelve; baja de sucursal bloqueada con un remito pendiente;
   - **B**: convertir en efectivo y a crédito → el stock no cambia → badge en `/ventas` → Facturar → borrar la venta → el remito vuelve a pendiente y el stock no cambia → reconvertir.
   - [x] **Tanda A** (47 comprobaciones por la UI real sobre una base recién reseteada).
   - [x] **Tanda B** (54 comprobaciones por la UI real sobre una base recién reseteada; ver "Resultado del grupo 8, parte B").
-- [ ] 8.4 **Red-team** contra el stack local (GoTrue + PostgREST + FastAPI + Postgres), molde de `presupuestos-modulo/evidence/redteam/`:
+- [x] 8.4 **Red-team** contra el stack local (GoTrue + PostgREST + FastAPI + Postgres), molde de `presupuestos-modulo/evidence/redteam/`:
   - escritura directa por PostgREST sobre las tablas, helpers y `sales_orders`;
   - fila forjada en `stock_movements` contra un remito pendiente, seguida de anulación y de edición: el stock devuelto es sólo lo retenido; y la misma fila **no** se puede revertir por `rpc_reverse_stock_movement` (no admite `delivery_note*`), con el control positivo de que una fila forjada `reference_type='sale'` sí se revierte hoy por esa función (preexistente, candidato de 9.1);
   - doble `POST /delivery-notes` con la misma `Idempotency-Key`;
@@ -429,7 +429,7 @@
 
 ## 9. Documentación
 
-- [ ] 9.1 `CHANGES.md`:
+- [x] 9.1 `CHANGES.md`:
   - ficha del change, con los hallazgos;
   - el orden de locks nuevo (`delivery_notes` primero en la conversión, al final en el borrado de la venta) junto a la regla global;
   - candidatos que deja, cada uno con su motivo:
@@ -446,13 +446,13 @@
     - las alternativas de OQ-RV que el PO no eligió;
   - la coordinación con #607.
   - [x] **Tanda A**: ficha en `CHANGES.md` (decisiones, verificación con conteos, humo, red-team, defectos abiertos, candidatos y coordinación con #607). El orden de locks de la tanda B y su ficha quedan para su PR.
-  - [ ] Tanda B.
-- [ ] 9.2 KB:
+  - [x] **Tanda B**: ficha ampliada en `CHANGES.md` (diff del núcleo contra el cuerpo vivo, orden de locks, migración `20261070000001`, verificación con conteos, humo 54/54, red-team 81/81, visual 68/68, candidatos y pendientes; el 9.5 de `presupuestos-modulo` quedó cerrado).
+- [x] 9.2 KB:
   - `knowledge-base/04_modelo_de_datos.md`: tablas y columna nuevas;
   - `05_reglas_de_negocio.md`: regla del remito (stock al emitir, edición con espejo, anulación con motivo, conversión sin doble descuento, venta inmutable, borrado que reabre);
   - `06_funcionalidades.md` y `07_flujos_principales.md`: flujo del remito.
   - [x] **Tanda A**: 04 (tablas y `CHECK`), 05 (RN-R1..R5: stock al emitir, edición con espejo, anulación con motivo, bloqueo de baja de sucursal, PDF sin precios; no es venta en KPI), 06 (módulo) y 07 (flujo 11). Las reglas de conversión, borrado y edición de la venta nacida del remito se agregan con la tanda B.
-  - [ ] Tanda B.
+  - [x] **Tanda B**: 04 (`sales_orders.source_delivery_note_id`, índice único parcial, catálogo con 4 filas), 05 (RN-R6..R8: conversión sin doble descuento decidida por el origen persistido, borrado que devuelve el remito a pendiente sin tocar stock, venta de remito no editable y remito convertido no anulable ni editable), 06 (botón Venta, badge, bloqueo con motivo) y 07 (flujo 12, remito → venta).
 - [ ] 9.3 Puntero del `CLAUDE.md`: **no se edita en este change** (instrucción del workflow). Se anota en `CHANGES.md` que el ítem del roadmap se actualiza en el archive, con `python scripts/ci/check_docs_sync.py --fix` en ese PR.
 
 ## 10. Post-merge (por tanda)
@@ -510,6 +510,10 @@
 | 6.9 (carreras de la conversión) | supabase/tests/test_remitos_venta_race.sh | 2 conexiones reales (dentro del contenedor) | 6 carreras de la tanda A PASS | — (carreras nuevas sobre RPC inexistente) | 14/14 PASS | misma clave vs claves distintas; conversión vs anulación y vs edición en los dos órdenes; borrado vs reconversión y vs anulación | — |
 | 6.10 (gates existentes y CI) | test_document_status_transition_role_matrix.sql, test_function_acl_gate.sql, KPI_Validation.yml | SQL gate + workflow | 24/18 PASS antes de la migración | con la migración: GATE FAILED (1) 26/19 vs 24/18 | PASS 26/19, 26 triples, 19 llamadores | introspección de la migración aplicada dos veces; reapply en la cadena después de 20261069000001 | bloque de reapply de 20261062000001 retirado |
 | 7.1/7.2 (backend de la conversión) | backend/tests/test_delivery_note_convert.py, test_delivery_note_convert_integration.py | Unit con dobles + integración (Postgres real) | 435 unit focalizados + 112 con integración PASS (0 en rojo antes) | 83 de 107 en rojo: `DeliveryNoteConvertIn` inexistente, `convert_delivery_note` inexistente, `convert_to_sale` inexistente, ruta 404, `KeyError source_delivery_note_id`; integración: ImportError del contrato | 107 unit + 15 integración PASS; suite completa 3456 PASS, cobertura 95,02 % | roles x 8 (cajero/vendedor/admin/dueño sí; depósito/compras/contador/visor no), 15 literales de la RPC + 2 del lado de la venta, completitud contra el cuerpo de la RPC, replay 200, clave en el body rechazada, 6 cuerpos inválidos, cash sin sesión, revisión vieja, forma de pago y remito ajenos, misma clave sobre otro remito, cliente de baja y sucursal inactiva, precio y snapshot del remito tras renombrar el producto, borrado (stock idéntico, remito a issued, reconversión), borrado con sucursal inactiva, edición bloqueada, anular un convertido, ciclo borrar-editar-reconvertir | JOIN de ventas y órdenes verificados con `account_id`; el CUIT del gate SQL se pasó a la allow-list |
+| 7.3/7.4 (ConvertDeliveryNoteDialog, useConvertDeliveryNote, `branchReadOnly`) | frontend/__tests__/components/ConvertDeliveryNoteDialog.test.tsx, hooks/use-convert-delivery-note.test.tsx, SaleCheckoutFields | Componente + hook | ConvertQuoteDialog, SaleCheckoutFields y use-quotes PASS antes | 7 de 10 en rojo (módulos inexistentes) | 6 archivos / 111 PASS | efectivo, transferencia con cuenta, crédito con saldo, caja cerrada con motivo, `delivery_note_changed`, replay que también invalida, fallo que no invalida, clave igual en reintento y distinta tras éxito; sucursal fija sin selector | molde de ConvertQuoteDialog reutilizado, sin copia |
+| 7.5 (acción Venta en el detalle) | frontend/__tests__/DeliveryNoteDetailPage.test.tsx | Página | detalle del remito 28 PASS | 10 de 38 en rojo | 2 archivos / 73 PASS | matriz estados × roles, cliente de baja con motivo bajo el botón, el diálogo sigue montado al pasar a convertido para mostrar el éxito, "Ver venta" | — |
+| 7.6 (badge y Editar bloqueado en /ventas) | frontend/__tests__/lib/group-operations.test.ts y los 4 archivos de /ventas | Unit + componente | /ventas y agrupado PASS antes | 17 de 65 en rojo | 7 archivos / 84 PASS | origen `null` y no `undefined`, gana la primera fila con origen, motivo de no edición, nota de D9 en el borrado | SourceQuoteBadge generalizado a SourceDocumentBadge |
+| 7.7 (invalidación tras borrar la venta) | frontend/__tests__/hooks/use-sales-delete-delivery-note.test.ts | Unit (React Query) | use-sales PASS antes | 5 de 6 en rojo | 3 archivos / 31 PASS | `deleteSale` y `deleteSalesByOperation` invalidan remitos; el éxito no invalida de más | `invalidateAfterSaleDelete` en la capa canónica |
 | 8.5 F4 (buscador por tipo) | backend/tests/test_internal_document_number.py, fixtures/internal_document_number_cases.json, test_quotes_module.py, test_delivery_notes_module.py; frontend/__tests__/lib/internal-document-number.test.ts, delivery-note-number.test.ts | Unit (contrato compartido) | 40 pytest + 72 vitest PASS | 30 pytest y 8 vitest en rojo (el parser no recibía el tipo) | 446 pytest focalizados y 72 vitest PASS | `R-12` en presupuestos y `P-12` en remitos dan texto, no número; `12`/`00000012` valen en ambos; tipo desconocido -> ValueError | — |
 | 6.0b (DB: texto de baja de sucursal) | supabase/tests/test_remitos_venta.sql (k), supabase/migrations/20261070000001 (sección 6b) | SQL gate (Postgres real) | test_remitos_venta + test_remito_a_venta PASS | gate (k) con "convertilos en venta o anulalos": FAIL en los 3 caminos de baja | PASS (RAISE reescrito desde el cuerpo vivo, introspección propia) | reaplicación de la cadena de CI idempotente (A y después B) | sólo el texto del mensaje |
 | 8.1-8.4 (verificación B) | evidence/tanda-b/scripts/humo-b.mjs, redteam-b.mjs, visual-b.mjs; 107 pasos de KPI_Validation.yml | Humo UI real, red-team HTTP/PostgREST, visual 4 combinaciones, suites completas | pytest 3.456 / vitest 5.374 / 105 gates (2 artefactos locales verificados con shim) | n/a (verificación; los defectos hallados fueron de los scripts: columna de `fiscal_documents`, ledger de claves por `operation_kind`, restock entre corridas, paginación de /ventas) | humo 54/54, red-team 81/81, visual 68/68 | red-team sobre base sucia y limpia, humo completo y reintento de (g) | scripts re-ejecutables |

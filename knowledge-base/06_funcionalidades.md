@@ -78,7 +78,8 @@
 - Entrada "Remitos" en el grupo Operaciones del menú; desde la ficha del cliente, "Nuevo remito" y "Ver remitos"
 - Los movimientos del remito se rotulan en `/stock` ("Remito R-…", edición y anulación) y en su exportación CSV
 - La baja de una sucursal con remitos pendientes se bloquea y el diálogo enlaza a `/remitos` filtrado
-- Pendiente (tanda B): botón "Venta" que convierte el remito sin volver a descontar stock
+- Botón "Venta" (tanda B): convierte el remito pendiente en venta (efectivo, transferencia, crédito, etc.) con los precios del remito y sin volver a descontar stock; el remito pasa a convertido con "Ver venta"
+- `/ventas`: badge "Desde remito R-…", "Editar" bloqueado con el motivo y, al borrar, la aclaración de que el stock no vuelve y el remito queda pendiente
 
 ---
 

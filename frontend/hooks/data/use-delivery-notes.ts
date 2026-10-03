@@ -33,8 +33,7 @@ import type {
   DeliveryNoteApiRow,
   DeliveryNoteCancelInput,
   DeliveryNoteListFilters,
-  DeliveryNoteListItem,
-  Paginated,
+  DeliveryNotePage,
   UpdateDeliveryNoteInput,
 } from "@/lib/delivery-note-types"
 
@@ -76,8 +75,8 @@ function deliveryNotesListPath(filters: DeliveryNoteListFilters): string {
 export function useDeliveryNotes(filters: DeliveryNoteListFilters = {}) {
   return useQuery({
     queryKey: queryKeys.deliveryNotes.list(filters),
-    queryFn: (): Promise<Paginated<DeliveryNoteListItem>> =>
-      pythonClient.get<Paginated<DeliveryNoteListItem>>(deliveryNotesListPath(filters)),
+    queryFn: (): Promise<DeliveryNotePage> =>
+      pythonClient.get<DeliveryNotePage>(deliveryNotesListPath(filters)),
     placeholderData: keepPreviousData,
     staleTime: 30 * 1000,
   })

@@ -97,7 +97,8 @@ export interface DeliveryNoteItemApiRow {
 export interface DeliveryNoteHistoryEntry {
   from_status: DeliveryNoteStatus | null
   to_status: DeliveryNoteStatus
-  performed_by: string
+  /** Quién hizo la transición; `null` en filas que no la registraron. */
+  performed_by: string | null
   /** Instante de la transición (`document_status_history.occurred_at`). */
   occurred_at: string
   reason: string | null
@@ -109,12 +110,17 @@ export interface DeliveryNoteApiRow {
   direction: DeliveryNoteDirection
   /** Número interno por cuenta y sentido; `null` sólo en filas sin numerar. */
   number: number | null
+  /** El número ya formateado por el servidor (`R-00000012`); `null` sin numerar. */
+  number_label?: string | null
   status: DeliveryNoteStatus
   /** Versión del contenido: se incrementa en cada edición. */
   revision: number
   client_id: string | null
   client_name: string | null
   client_phone: string | null
+  client_tax_id?: string | null
+  /** Nombre del emisor tal como lo imprime el PDF (sólo en el detalle). */
+  issuer_name?: string | null
   /** El cliente fue dado de baja después de emitir (D11: hay que elegir otro para editar). */
   client_deleted?: boolean
   branch_id: string
@@ -125,7 +131,7 @@ export interface DeliveryNoteApiRow {
   notes: string | null
   total: string | number
   created_at: string
-  created_by: string
+  created_by: string | null
   updated_at: string | null
   updated_by: string | null
   /** Tanda B: la orden de venta generada al convertir (`converted`), si existe. */
@@ -142,6 +148,8 @@ export interface DeliveryNoteListItem {
   id: string
   direction: DeliveryNoteDirection
   number: number | null
+  /** El número ya formateado por el servidor (`R-00000012`); `null` sin numerar. */
+  number_label?: string | null
   status: DeliveryNoteStatus
   revision?: number
   client_id: string | null
@@ -151,10 +159,21 @@ export interface DeliveryNoteListItem {
   branch_name: string | null
   issued_on: string
   /** Cantidad de líneas del remito. */
-  items_count?: number
+  item_count?: number
   total: string | number
   created_at: string
   updated_at: string | null
+}
+
+/** Remitos pendientes (`issued`) del mismo recorte del listado, sin importar el estado pedido. */
+export interface DeliveryNoteSummary {
+  pending_count: number
+  pending_total: string | number
+}
+
+/** `{items,total,page,pages}` más el resumen de pendientes del encabezado de `/remitos`. */
+export interface DeliveryNotePage extends Paginated<DeliveryNoteListItem> {
+  summary: DeliveryNoteSummary
 }
 
 export interface DeliveryNoteListFilters {

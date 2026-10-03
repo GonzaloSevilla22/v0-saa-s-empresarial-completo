@@ -68,6 +68,34 @@ export interface DeliveryNoteCancelInput {
   revision: number
 }
 
+/**
+ * Conversión del remito en venta (tanda B, D7): `POST /delivery-notes/{id}/convert`.
+ * La clave de idempotencia viaja por el header `Idempotency-Key`, nunca acá, y NO
+ * hay `branch_id`: la venta se imputa a la sucursal del remito, de donde salió el
+ * stock. Con `kind = cash` el servidor exige la sesión abierta de esa sucursal.
+ */
+export interface DeliveryNoteConvertInput {
+  /** La revisión que el usuario vio al confirmar (`delivery_note_changed` si cambió). */
+  expected_revision: number
+  payment_method_id: string
+  /** Con `kind = cash`, siempre la sesión abierta de la sucursal del remito. */
+  cash_session_id?: string | null
+  bank_account_id?: string | null
+  canal?: string | null
+}
+
+export interface DeliveryNoteConvertResult {
+  delivery_note_id: string
+  delivery_note_number: number | null
+  /** `R-00000012`, derivada por el servidor. */
+  delivery_note_number_label: string | null
+  sales_order_id: string
+  operation_id: string
+  total: string | number
+  /** `true` si la clave ya había convertido ESTE remito: se muestra igual. */
+  replayed: boolean
+}
+
 // ── Salida ─────────────────────────────────────────────────────────────────────
 
 export interface DeliveryNoteItemApiRow {

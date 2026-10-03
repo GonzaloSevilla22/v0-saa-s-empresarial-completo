@@ -20,7 +20,11 @@
  *     para que la próxima emisión sea otra operación. Editar y anular no llevan
  *     clave: las protege la `revision` esperada (un reenvío llega con la versión
  *     vieja y rebota con `delivery_note_changed` sin efectos).
- *   - Sin `useConvertDeliveryNote`: la conversión en venta es de la tanda B.
+ *   - Convertir en venta (`useConvertDeliveryNote`, tanda B) lleva su clave de
+ *     idempotencia por header, pero la clave la pone QUIEN LLAMA: es POR remito
+ *     y el diálogo tiene que poder renovarla ante `idempotency_key_conflict`
+ *     (molde de `useConvertQuote`). Invalida los remitos y todo lo que toca una
+ *     venta (`invalidateAfterSale`); el remito NO vuelve a mover stock.
  */
 
 import { keepPreviousData, useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query"
@@ -28,10 +32,13 @@ import { pythonClient } from "@/lib/api/python-client"
 import { fetchDocumentPdf, type PdfDisposition } from "@/lib/api/document-pdf"
 import { useIdempotencyKey } from "@/hooks/use-idempotency-key"
 import { queryKeys } from "@/lib/query-keys"
+import { invalidateAfterSale } from "@/lib/query-invalidation"
 import type {
   CreateDeliveryNoteInput,
   DeliveryNoteApiRow,
   DeliveryNoteCancelInput,
+  DeliveryNoteConvertInput,
+  DeliveryNoteConvertResult,
   DeliveryNoteListFilters,
   DeliveryNotePage,
   UpdateDeliveryNoteInput,
@@ -168,6 +175,38 @@ export function useCancelDeliveryNote() {
       }),
     onSuccess: () => {
       invalidateAfterDeliveryNoteMutation(queryClient)
+    },
+  })
+}
+
+/**
+ * Convierte un remito pendiente en venta, de forma atómica (D7). El stock NO se
+ * vuelve a descontar: ya salió al emitir el remito. POST /delivery-notes/{id}/convert.
+ *
+ * La clave de idempotencia viaja por header y la elige quien llama (una por
+ * remito). `replayed: true` es un éxito más: la venta ya existe. Invalida
+ * `deliveryNotes.*` más todo lo que toca una venta (`invalidateAfterSale`),
+ * también en el replay.
+ */
+export function useConvertDeliveryNote() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({
+      deliveryNoteId,
+      payload,
+      idempotencyKey,
+    }: {
+      deliveryNoteId: string
+      payload: DeliveryNoteConvertInput
+      idempotencyKey: string
+    }): Promise<DeliveryNoteConvertResult> =>
+      pythonClient.post<DeliveryNoteConvertResult>(`/delivery-notes/${deliveryNoteId}/convert`, payload, {
+        "Idempotency-Key": idempotencyKey,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.deliveryNotes.all() })
+      invalidateAfterSale(queryClient)
     },
   })
 }

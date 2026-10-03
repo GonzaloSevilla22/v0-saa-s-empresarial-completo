@@ -1,48 +1,60 @@
 "use client"
 
 /**
- * /remitos — listado de remitos de venta (remitos-venta D11, tarea 5.4).
+ * /remitos — listado de remitos (remitos-venta D11, tarea 5.4; remitos-compra D11,
+ * tarea 5.4).
  *
- * El filtro de estado, la búsqueda (nombre del cliente o número: "R-12", "12",
- * "00000012") y la paginación los resuelve el SERVIDOR; la pantalla sólo pide.
- * Siempre pide `direction=sale`: en este change el remito sólo tiene sentido de
- * venta y NO hay pestañas de sentido (OQ-RV6) — `remitos-compra` las suma sin
- * cambiar el contrato.
+ * Dos pestañas de SENTIDO, **De venta** (la que abre por defecto) y **De compra**,
+ * con `?sentido=venta|compra`: cada una pide `GET /delivery-notes?direction=…`. Las
+ * dos se muestran a todo miembro de la cuenta (la lectura es libre); lo que se
+ * habilita por rol es el alta de cada sentido (`CAN_DELIVER_SALE` /
+ * `CAN_RECEIVE_PURCHASE`). El estado, la búsqueda, el resumen y la paginación los
+ * resuelve el SERVIDOR; la pantalla sólo pide.
  *
  * **Contrato único de la URL** (D11), en castellano como el `?cliente=` de
- * /presupuestos/nuevo y combinable: `?estado=todos|pendientes|convertidos|anulados`
- * preselecciona la pestaña, y `?sucursal=<id>` y `?cliente=<id>` se aplican como
- * chips removibles. Los únicos enlaces que llegan filtrados lo usan: el de
- * `DeactivateBranchDialog` y el "Ver remitos" de la ficha del cliente. La pantalla
- * mantiene la URL en sintonía con lo que se ve (`router.replace`), así que un
- * listado filtrado se puede copiar y volver a abrir.
+ * /presupuestos/nuevo y combinable: `?sentido=` elige la pestaña de sentido,
+ * `?estado=todos|pendientes|convertidos|anulados` la de estado, y `?sucursal=<id>`,
+ * `?cliente=<id>` (venta) y `?proveedor=<id>` (compra) se aplican como chips
+ * removibles. Los enlaces que llegan filtrados lo usan: el de
+ * `DeactivateBranchDialog`, el "Ver remitos" de la ficha del cliente y los de
+ * /proveedores. La pantalla mantiene la URL en sintonía con lo que se ve
+ * (`router.replace`), así que un listado filtrado se puede copiar y volver a abrir.
  *
- * Encabezado: el resumen "N remitos pendientes por $ X" que calcula el servidor
- * sobre el mismo recorte, sin importar la pestaña (no cambia al cambiar de
- * pestaña). Tabla en escritorio y tarjetas en móvil, con el mismo contenido.
- * "Nuevo remito" sólo con `CAN_DELIVER_SALE`, decidido sobre el CONJUNTO de roles.
+ * Encabezado: el resumen "N remitos pendientes por $ X" (en compra, "N remitos de
+ * compra pendientes por $ X (M sin precio)": el importe está incompleto mientras
+ * alguna línea esté en precio 0) que calcula el servidor sobre el mismo recorte, sin
+ * importar la pestaña de estado. Tabla en escritorio y tarjetas en móvil, con el
+ * mismo contenido. Todos los textos que dependen del sentido salen de
+ * `DELIVERY_NOTE_SCREEN_TEXTS`.
  */
 import { useEffect, useState } from "react"
 import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { ChevronLeft, ChevronRight, PackageCheck, Plus, Search, X } from "lucide-react"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { DeliveryNoteStatusBadge } from "@/components/delivery-notes/DeliveryNoteStatusBadge"
+import { DELIVERY_NOTE_SCREEN_TEXTS } from "@/components/delivery-notes/delivery-note-page-texts"
 import { useBranches } from "@/hooks/data/use-branches"
 import { useClients } from "@/hooks/data/use-clients"
 import { useDeliveryNotes } from "@/hooks/data/use-delivery-notes"
+import { useSuppliers } from "@/hooks/data/use-suppliers"
 import { useOrgRole } from "@/hooks/useOrgRole"
 import { useDebounce } from "@/hooks/ui/use-debounce"
 import {
   DELIVERY_NOTE_ESTADO_TABS,
+  DELIVERY_NOTE_SENTIDO_TABS,
+  directionFromSentido,
   parseDeliveryNoteEstadoParam,
+  parseDeliveryNoteSentidoParam,
   type DeliveryNoteEstado,
+  type DeliveryNoteSentido,
 } from "@/lib/delivery-note-status"
 import type { DeliveryNoteListItem } from "@/lib/delivery-note-types"
 import { formatDate, formatMoney } from "@/lib/format"
-import { CAN_DELIVER_SALE, hasCapability } from "@/lib/rbac-capabilities"
+import { CAN_DELIVER_SALE, CAN_RECEIVE_PURCHASE, hasCapability } from "@/lib/rbac-capabilities"
 
 const PAGE_SIZE = 25
 const SEARCH_DEBOUNCE_MS = 300
@@ -51,12 +63,27 @@ function numberLabel(note: DeliveryNoteListItem): string {
   return note.number_label ?? "—"
 }
 
-/** `/remitos?estado=…&sucursal=…&cliente=…`, sólo con lo que no es el valor por defecto. */
-function buildListHref(pathname: string, estado: DeliveryNoteEstado, branchId?: string, clientId?: string): string {
+/** Un pendiente con líneas en precio 0 todavía no se puede convertir: su total subestima lo recibido. */
+function hasMissingPrice(note: DeliveryNoteListItem): boolean {
+  return note.direction === "purchase" && note.status === "issued" && (note.missing_price_count ?? 0) > 0
+}
+
+interface ListFilters {
+  sentido: DeliveryNoteSentido
+  estado: DeliveryNoteEstado
+  branchId?: string
+  clientId?: string
+  supplierId?: string
+}
+
+/** `/remitos?sentido=…&estado=…&sucursal=…&cliente=…&proveedor=…`, sólo con lo que no es el valor por defecto. */
+function buildListHref(pathname: string, filters: ListFilters): string {
   const params = new URLSearchParams()
-  if (estado !== "todos") params.set("estado", estado)
-  if (branchId) params.set("sucursal", branchId)
-  if (clientId) params.set("cliente", clientId)
+  if (filters.sentido !== "venta") params.set("sentido", filters.sentido)
+  if (filters.estado !== "todos") params.set("estado", filters.estado)
+  if (filters.branchId) params.set("sucursal", filters.branchId)
+  if (filters.clientId) params.set("cliente", filters.clientId)
+  if (filters.supplierId) params.set("proveedor", filters.supplierId)
   const query = params.toString()
   return query ? `${pathname}?${query}` : pathname
 }
@@ -90,41 +117,67 @@ function FilterChip({
   )
 }
 
+function NoPriceBadge({ noteId }: { noteId: string }) {
+  return (
+    <Badge
+      variant="outline"
+      data-testid={`delivery-note-no-price-${noteId}`}
+      className="whitespace-nowrap border-warning/40 bg-warning/10 text-warning"
+    >
+      Sin precio
+    </Badge>
+  )
+}
+
 export default function DeliveryNotesPage() {
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const paramsKey = searchParams.toString()
 
+  const [sentido, setSentido] = useState<DeliveryNoteSentido>(() => parseDeliveryNoteSentidoParam(searchParams.get("sentido")))
   const [estado, setEstado] = useState<DeliveryNoteEstado>(() => parseDeliveryNoteEstadoParam(searchParams.get("estado")))
   const [branchFilter, setBranchFilter] = useState<string | undefined>(() => searchParams.get("sucursal") ?? undefined)
   const [clientFilter, setClientFilter] = useState<string | undefined>(() => searchParams.get("cliente") ?? undefined)
+  const [supplierFilter, setSupplierFilter] = useState<string | undefined>(() => searchParams.get("proveedor") ?? undefined)
   const [searchInput, setSearchInput] = useState("")
   const [page, setPage] = useState(0)
   const search = useDebounce(searchInput.trim(), SEARCH_DEBOUNCE_MS)
 
   // Una navegación externa a /remitos?… (sin remontar la página) re-lee la URL.
   useEffect(() => {
+    setSentido(parseDeliveryNoteSentidoParam(searchParams.get("sentido")))
     setEstado(parseDeliveryNoteEstadoParam(searchParams.get("estado")))
     setBranchFilter(searchParams.get("sucursal") ?? undefined)
     setClientFilter(searchParams.get("cliente") ?? undefined)
+    setSupplierFilter(searchParams.get("proveedor") ?? undefined)
     setPage(0)
-    // `paramsKey` resume los tres parámetros; `searchParams` cambia de identidad en cada render.
+    // `paramsKey` resume los parámetros; `searchParams` cambia de identidad en cada render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paramsKey])
 
+  const direction = directionFromSentido(sentido)
+  const isPurchase = direction === "purchase"
+  const texts = DELIVERY_NOTE_SCREEN_TEXTS[direction].list
+
   const { roles, rolesResolved } = useOrgRole()
-  const canDeliver = hasCapability(roles, CAN_DELIVER_SALE, rolesResolved)
+  const canCreate = hasCapability(roles, isPurchase ? CAN_RECEIVE_PURCHASE : CAN_DELIVER_SALE, rolesResolved)
   const { branches } = useBranches()
   const { clients } = useClients()
+  const { suppliers } = useSuppliers()
 
   const activeTab = DELIVERY_NOTE_ESTADO_TABS.find((t) => t.value === estado) ?? DELIVERY_NOTE_ESTADO_TABS[0]
 
+  // La contraparte del otro sentido no aplica: un cliente no filtra remitos de compra.
+  const activeClient = isPurchase ? undefined : clientFilter
+  const activeSupplier = isPurchase ? supplierFilter : undefined
+
   const { data, isLoading, isError } = useDeliveryNotes({
-    direction: "sale",
+    direction,
     status: activeTab.status,
     branchId: branchFilter,
-    clientId: clientFilter,
+    clientId: activeClient,
+    supplierId: activeSupplier,
     q: search || undefined,
     page,
     pageSize: PAGE_SIZE,
@@ -134,26 +187,55 @@ export default function DeliveryNotesPage() {
   const pages = data?.pages ?? 0
   const summary = data?.summary
 
-  function syncUrl(nextEstado: DeliveryNoteEstado, nextBranch?: string, nextClient?: string) {
-    router.replace(buildListHref(pathname, nextEstado, nextBranch, nextClient), { scroll: false })
+  function syncUrl(next: ListFilters) {
+    router.replace(buildListHref(pathname, next), { scroll: false })
+  }
+
+  function current(overrides: Partial<ListFilters> = {}): ListFilters {
+    return {
+      sentido,
+      estado,
+      branchId: branchFilter,
+      clientId: activeClient,
+      supplierId: activeSupplier,
+      ...overrides,
+    }
+  }
+
+  function selectSentido(next: DeliveryNoteSentido) {
+    if (next === sentido) return
+    setSentido(next)
+    // Cliente y proveedor son contrapartes de sentidos distintos, y la búsqueda
+    // (cliente / proveedor / R- / RC-) significa otra cosa en cada pestaña.
+    setClientFilter(undefined)
+    setSupplierFilter(undefined)
+    setSearchInput("")
+    setPage(0)
+    syncUrl({ sentido: next, estado, branchId: branchFilter })
   }
 
   function selectTab(next: DeliveryNoteEstado) {
     setEstado(next)
     setPage(0)
-    syncUrl(next, branchFilter, clientFilter)
+    syncUrl(current({ estado: next }))
   }
 
   function removeBranchFilter() {
     setBranchFilter(undefined)
     setPage(0)
-    syncUrl(estado, undefined, clientFilter)
+    syncUrl(current({ branchId: undefined }))
   }
 
   function removeClientFilter() {
     setClientFilter(undefined)
     setPage(0)
-    syncUrl(estado, branchFilter, undefined)
+    syncUrl(current({ clientId: undefined }))
+  }
+
+  function removeSupplierFilter() {
+    setSupplierFilter(undefined)
+    setPage(0)
+    syncUrl(current({ supplierId: undefined }))
   }
 
   function changeSearch(value: string) {
@@ -162,35 +244,34 @@ export default function DeliveryNotesPage() {
   }
 
   const branchFilterName = branchFilter ? (branches.find((b) => b.id === branchFilter)?.name ?? null) : null
-  const clientFilterName = clientFilter ? (clients.find((c) => c.id === clientFilter)?.name ?? null) : null
+  const clientFilterName = activeClient ? (clients.find((c) => c.id === activeClient)?.name ?? null) : null
+  const supplierFilterName = activeSupplier ? (suppliers.find((s) => s.id === activeSupplier)?.name ?? null) : null
 
   const emptyText = (() => {
-    if (search) {
-      return {
-        title: "Ningún remito coincide con la búsqueda",
-        body: "Probá con el nombre del cliente o con el número (por ejemplo R-12).",
-      }
-    }
+    if (search) return texts.emptySearch
     if (estado !== "todos") {
       return {
         title: `No hay remitos ${activeTab.label.toLowerCase()}`,
         body: "Cuando algún remito llegue a este estado, va a aparecer acá.",
       }
     }
-    if (clientFilter) {
-      return { title: "Este cliente todavía no tiene remitos", body: "Cuando le entregues mercadería con un remito, va a aparecer acá." }
-    }
-    if (branchFilter) {
-      return { title: "Esta sucursal no tiene remitos", body: "Cuando salga mercadería de esta sucursal con un remito, va a aparecer acá." }
-    }
-    return {
-      title: "Todavía no hay remitos",
-      body: "Un remito documenta la mercadería que entregás antes de cobrar. El remito descuenta stock al emitirse y se convierte en venta cuando cobrás.",
-    }
+    if (activeClient || activeSupplier) return texts.emptyCounterpart
+    if (branchFilter) return texts.emptyBranch
+    return texts.emptyDefault
   })()
-  const showEmptyCta = canDeliver && estado === "todos" && !search && !clientFilter && !branchFilter
+  const showEmptyCta = canCreate && estado === "todos" && !search && !activeClient && !activeSupplier && !branchFilter
 
-  const newHref = clientFilter ? `/remitos/nuevo?cliente=${encodeURIComponent(clientFilter)}` : "/remitos/nuevo"
+  const newParams = new URLSearchParams()
+  if (isPurchase) newParams.set("tipo", "compra")
+  if (activeClient) newParams.set("cliente", activeClient)
+  if (activeSupplier) newParams.set("proveedor", activeSupplier)
+  const newQuery = newParams.toString()
+  const newHref = newQuery ? `/remitos/nuevo?${newQuery}` : "/remitos/nuevo"
+
+  const counterpartName = (note: DeliveryNoteListItem): string =>
+    (isPurchase ? note.supplier_name : note.client_name) ?? texts.counterpartMissing
+
+  const missingPriceCount = summary?.pending_missing_price_count ?? 0
 
   return (
     <div className="flex flex-col gap-6 min-w-0">
@@ -198,18 +279,33 @@ export default function DeliveryNotesPage() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <h1 className="text-2xl font-bold text-foreground tracking-tight">Remitos</h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Entregá mercadería con un remito: descuenta stock al emitirse y lo pasás a venta cuando cobrás.
-          </p>
+          <p className="text-sm text-muted-foreground mt-1">{texts.subtitle}</p>
         </div>
-        {canDeliver && (
+        {canCreate && (
           <Button asChild className="gap-2 shrink-0">
             <Link href={newHref}>
               <Plus className="h-4 w-4" aria-hidden="true" />
-              Nuevo remito
+              {texts.newCta}
             </Link>
           </Button>
         )}
+      </div>
+
+      {/* ── Sentido ── */}
+      <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Filtrar por sentido">
+        {DELIVERY_NOTE_SENTIDO_TABS.map((t) => (
+          <Button
+            key={t.value}
+            type="button"
+            variant={sentido === t.value ? "default" : "outline"}
+            size="sm"
+            className="h-8 text-xs"
+            aria-pressed={sentido === t.value}
+            onClick={() => selectSentido(t.value)}
+          >
+            {t.label}
+          </Button>
+        ))}
       </div>
 
       {summary && (
@@ -220,17 +316,20 @@ export default function DeliveryNotesPage() {
           {summary.pending_count > 0 ? (
             <>
               <span className="font-semibold tabular-nums">
-                {summary.pending_count} {summary.pending_count === 1 ? "remito pendiente" : "remitos pendientes"}
+                {summary.pending_count} {texts.pendingNoun(summary.pending_count)}
               </span>{" "}
               por <span className="font-semibold tabular-nums">{formatMoney(Number(summary.pending_total))}</span>
+              {isPurchase && missingPriceCount > 0 ? (
+                <span className="text-warning tabular-nums"> ({missingPriceCount} sin precio)</span>
+              ) : null}
             </>
           ) : (
-            <span className="text-muted-foreground">No hay remitos pendientes de convertir en venta.</span>
+            <span className="text-muted-foreground">{texts.summaryNoPending}</span>
           )}
         </p>
       )}
 
-      {(branchFilter || clientFilter) && (
+      {(branchFilter || activeClient || activeSupplier) && (
         <div className="flex flex-wrap items-center gap-2" aria-label="Filtros aplicados">
           {branchFilter && (
             <FilterChip
@@ -240,12 +339,20 @@ export default function DeliveryNotesPage() {
               onRemove={removeBranchFilter}
             />
           )}
-          {clientFilter && (
+          {activeClient && (
             <FilterChip
               testId="delivery-note-client-filter"
               label={`Cliente: ${clientFilterName ?? "seleccionado"}`}
               removeLabel="Quitar filtro de cliente"
               onRemove={removeClientFilter}
+            />
+          )}
+          {activeSupplier && (
+            <FilterChip
+              testId="delivery-note-supplier-filter"
+              label={`Proveedor: ${supplierFilterName ?? "seleccionado"}`}
+              removeLabel="Quitar filtro de proveedor"
+              onRemove={removeSupplierFilter}
             />
           )}
         </div>
@@ -275,8 +382,8 @@ export default function DeliveryNotesPage() {
           />
           <Input
             type="search"
-            aria-label="Buscar por cliente o número"
-            placeholder="Buscar por cliente o número (R-12)"
+            aria-label={texts.searchLabel}
+            placeholder={texts.searchPlaceholder}
             value={searchInput}
             onChange={(e) => changeSearch(e.target.value)}
             className="pl-9 bg-background border-border text-foreground"
@@ -318,13 +425,16 @@ export default function DeliveryNotesPage() {
           <Card className="hidden border-border bg-card min-w-0 md:block">
             <CardContent className="p-0">
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[820px] text-sm">
+                <table className={isPurchase ? "w-full min-w-[980px] text-sm" : "w-full min-w-[820px] text-sm"}>
                   <thead>
                     <tr className="border-b border-border text-left">
                       <th scope="col" className="px-4 py-3 font-medium text-muted-foreground">Número</th>
-                      <th scope="col" className="px-4 py-3 font-medium text-muted-foreground">Cliente</th>
+                      <th scope="col" className="px-4 py-3 font-medium text-muted-foreground">{texts.counterpartHeader}</th>
+                      {isPurchase && (
+                        <th scope="col" className="px-4 py-3 font-medium text-muted-foreground">Remito del proveedor</th>
+                      )}
                       <th scope="col" className="px-4 py-3 font-medium text-muted-foreground">Fecha</th>
-                      <th scope="col" className="px-4 py-3 font-medium text-muted-foreground">Sucursal</th>
+                      <th scope="col" className="px-4 py-3 font-medium text-muted-foreground">{texts.branchHeader}</th>
                       <th scope="col" className="px-4 py-3 text-right font-medium text-muted-foreground">Ítems</th>
                       <th scope="col" className="px-4 py-3 text-right font-medium text-muted-foreground">Total</th>
                       <th scope="col" className="px-4 py-3 font-medium text-muted-foreground">Estado</th>
@@ -342,9 +452,12 @@ export default function DeliveryNotesPage() {
                             {numberLabel(note)}
                           </Link>
                         </td>
-                        <td className="px-4 py-3 max-w-[240px] truncate text-foreground">
-                          {note.client_name ?? "Sin cliente"}
-                        </td>
+                        <td className="px-4 py-3 max-w-[240px] truncate text-foreground">{counterpartName(note)}</td>
+                        {isPurchase && (
+                          <td className="px-4 py-3 max-w-[180px] truncate tabular-nums text-muted-foreground">
+                            {note.supplier_reference || "—"}
+                          </td>
+                        )}
                         <td className="px-4 py-3 whitespace-nowrap tabular-nums text-muted-foreground">
                           {formatDate(note.issued_on)}
                         </td>
@@ -354,7 +467,10 @@ export default function DeliveryNotesPage() {
                           {formatMoney(Number(note.total))}
                         </td>
                         <td className="px-4 py-3">
-                          <DeliveryNoteStatusBadge status={note.status} />
+                          <div className="flex flex-wrap items-center gap-1">
+                            <DeliveryNoteStatusBadge status={note.status} direction={note.direction} />
+                            {hasMissingPrice(note) && <NoPriceBadge noteId={note.id} />}
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -375,10 +491,16 @@ export default function DeliveryNotesPage() {
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
-                      <p className="font-medium text-foreground truncate">{note.client_name ?? "Sin cliente"}</p>
-                      <p className="text-xs text-muted-foreground">{numberLabel(note)}</p>
+                      <p className="font-medium text-foreground truncate">{counterpartName(note)}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {numberLabel(note)}
+                        {isPurchase && note.supplier_reference ? ` · Remito ${note.supplier_reference}` : ""}
+                      </p>
                     </div>
-                    <DeliveryNoteStatusBadge status={note.status} />
+                    <div className="flex shrink-0 flex-col items-end gap-1">
+                      <DeliveryNoteStatusBadge status={note.status} direction={note.direction} />
+                      {hasMissingPrice(note) && <NoPriceBadge noteId={`${note.id}-card`} />}
+                    </div>
                   </div>
                   <div className="flex items-end justify-between gap-2 text-xs">
                     <div className="flex min-w-0 flex-col text-muted-foreground">

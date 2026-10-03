@@ -78,3 +78,63 @@ describe("DELIVERY_NOTE_SCREEN_TEXTS[direction] — alta y edición", () => {
     expect(DELIVERY_NOTE_SCREEN_TEXTS.purchase.editSubtitle).toBe(DELIVERY_NOTE_SCREEN_TEXTS.sale.editSubtitle)
   })
 })
+
+// ── remitos-compra (tarea 5.4): los textos del listado, por sentido ─────────────
+
+describe("DELIVERY_NOTE_SCREEN_TEXTS[direction].list — el listado /remitos", () => {
+  it("venta: los textos de siempre", () => {
+    const list = DELIVERY_NOTE_SCREEN_TEXTS.sale.list
+    expect(list.subtitle).toBe("Entregá mercadería con un remito: descuenta stock al emitirse y lo pasás a venta cuando cobrás.")
+    expect(list.newCta).toBe("Nuevo remito")
+    expect(list.searchLabel).toBe("Buscar por cliente o número")
+    expect(list.searchPlaceholder).toBe("Buscar por cliente o número (R-12)")
+    expect(list.counterpartHeader).toBe("Cliente")
+    expect(list.counterpartMissing).toBe("Sin cliente")
+    expect(list.branchHeader).toBe("Sucursal")
+    expect(list.summaryNoPending).toBe("No hay remitos pendientes de convertir en venta.")
+    expect(list.emptyDefault).toEqual({
+      title: "Todavía no hay remitos",
+      body: "Un remito documenta la mercadería que entregás antes de cobrar. El remito descuenta stock al emitirse y se convierte en venta cuando cobrás.",
+    })
+  })
+
+  it("compra: recibir suma stock y se convierte en compra cuando llega la factura", () => {
+    const list = DELIVERY_NOTE_SCREEN_TEXTS.purchase.list
+    expect(list.newCta).toBe("Nuevo remito de compra")
+    expect(list.searchLabel).toBe("Buscar por proveedor o número")
+    expect(list.searchPlaceholder).toBe("Buscar por proveedor, número (RC-12) o N° del proveedor")
+    expect(list.counterpartHeader).toBe("Proveedor")
+    expect(list.counterpartMissing).toBe("Sin proveedor")
+    expect(list.branchHeader).toBe("Destino")
+    expect(list.summaryNoPending).toBe("No hay remitos de compra pendientes de convertir en compra.")
+    expect(list.emptyDefault).toEqual({
+      title: "Todavía no hay remitos de compra",
+      body: "El remito de compra suma stock al recibir la mercadería y se convierte en compra cuando llega la factura.",
+    })
+  })
+
+  it("el sustantivo de los pendientes cambia de número y de sentido", () => {
+    expect(DELIVERY_NOTE_SCREEN_TEXTS.sale.list.pendingNoun(1)).toBe("remito pendiente")
+    expect(DELIVERY_NOTE_SCREEN_TEXTS.sale.list.pendingNoun(4)).toBe("remitos pendientes")
+    expect(DELIVERY_NOTE_SCREEN_TEXTS.purchase.list.pendingNoun(1)).toBe("remito de compra pendiente")
+    expect(DELIVERY_NOTE_SCREEN_TEXTS.purchase.list.pendingNoun(3)).toBe("remitos de compra pendientes")
+  })
+
+  it("los vacíos filtrados nombran a la contraparte y a la sucursal de cada sentido", () => {
+    expect(DELIVERY_NOTE_SCREEN_TEXTS.sale.list.emptyCounterpart.title).toBe("Este cliente todavía no tiene remitos")
+    expect(DELIVERY_NOTE_SCREEN_TEXTS.purchase.list.emptyCounterpart.title).toBe(
+      "Este proveedor todavía no tiene remitos de compra",
+    )
+    expect(DELIVERY_NOTE_SCREEN_TEXTS.sale.list.emptyBranch.title).toBe("Esta sucursal no tiene remitos")
+    expect(DELIVERY_NOTE_SCREEN_TEXTS.purchase.list.emptyBranch.title).toBe("Esta sucursal no tiene remitos de compra")
+  })
+
+  it("la búsqueda sin resultados sugiere el formato de búsqueda de cada sentido", () => {
+    expect(DELIVERY_NOTE_SCREEN_TEXTS.sale.list.emptySearch.body).toBe(
+      "Probá con el nombre del cliente o con el número (por ejemplo R-12).",
+    )
+    expect(DELIVERY_NOTE_SCREEN_TEXTS.purchase.list.emptySearch.body).toBe(
+      "Probá con el nombre del proveedor, con el número (por ejemplo RC-12) o con el N° de remito del proveedor.",
+    )
+  })
+})

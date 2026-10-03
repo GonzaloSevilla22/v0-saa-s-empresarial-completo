@@ -1,0 +1,49 @@
+BEGIN
+CREATE FUNCTION
+SET
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=432ba4a7-25f8-46f3-be4f-4b432de08391
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=53b7d05d-57e8-43fa-b0ba-7fd69e79a303
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=9c49e5d6-0d3b-4135-9d02-daf46256df13
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=6ceeeaf1-d10e-4f16-9c9b-899af9879f2d
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=5fd04e74-1410-4a45-a385-1d9e49315f14
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=dee05d8c-f066-414f-ad3d-50ad8349a542
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=6a9a54de-c644-4ef5-b359-f6bcec7a8847
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=54af2ee9-68ba-4e39-9176-08e2260669db
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=c77ddc4a-e1e2-4be9-98a4-a25dfbc636a6
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=1b6e9e20-3956-46de-a1c5-e168e386f77b
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=1abfc4fb-19df-4f59-8ba8-0958d6b35557
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=99f5047e-9354-40fc-9709-f2bedbf98d8b
+NOTICE:  PASS (z): el núcleo, con una orden cuyo origen es un remito válido, no descuenta ni escribe movimientos y congela los snapshots de la orden.
+NOTICE:  PASS (n): los 10 orígenes inválidos (otra cuenta, anulado, convertido, otro cliente, otra sucursal, producto, unidad, cantidad, línea de más, sin líneas) rebotan con P0409 delivery_note_order_mismatch sin efectos.
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=79793391-3b58-46dd-8da0-eb9de406e530
+NOTICE:  PASS (a): conversión cash — stock idéntico, 0 movimientos, caja, SaleConfirmed, orden confirmed con origen, remito converted sin subir revisión, historiales, snapshots del remito (renombrado y costo remarcado) y payload con la venta.
+NOTICE:  PASS (g/h/i): replay sin efectos, clave ajena -> idempotency_key_conflict, segunda conversión -> delivery_note_invalid_state.
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=c51c14e0-a379-42a1-ae64-5c34468788a6
+NOTICE:  PASS (j/k/l): versión vieja, parámetros, forma de pago ajena, rol stock, remito ajeno e inexistente y cash sin sesión rebotan sin efectos; el cajero convierte con el precio del remito.
+NOTICE:  PASS (b): conversión a crédito como authenticated por el vendedor — cargo con vencimiento por cascada (30 días), sin caja ni stock.
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=f3ca2f88-83ce-4a06-8891-0ad22b71a30d
+NOTICE:  PASS (c/d): transferencia con movimiento bancario en la sucursal del remito; producto dado de baja después de emitir convierte con su snapshot.
+NOTICE:  PASS (e/f): cliente dado de baja -> delivery_note_client_unavailable; sucursal desactivada o cerrada -> P0422 branch_closed; cero efectos.
+NOTICE:  PASS (m): rpc_quick_sale y rpc_convert_quote_to_sale siguen descontando con su movimiento sale/sale; el P0423 de dinero de una venta POS no cambia.
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=840cf9c1-2f8f-4a6d-927c-2322fe01bcd5
+NOTICE:  PASS (o): borrar la venta compensa caja o cuenta corriente, cancela la orden, deja el stock idéntico y devuelve el remito a issued con historial y motivo; reconvertir funciona; el vendedor no borra.
+NOTICE:  PASS (p): borrar la venta con la sucursal del remito desactivada o cerrada -> P0422 delivery_note_branch_inactive sin efectos; reactivada, procede.
+ERROR:  GATE REMITO-A-VENTA FAILED (abortó): P0001 / GATE REMITO-A-VENTA FAILED:
+  FAIL (q): editar la venta nacida del remito debía dar P0423 delivery_note_sale_locked, vino P0423 operation_has_cash_movement_immutable: la operación tiene un movimiento de caja posteado y no puede editarse — emití una nota de crédito y registrá una venta nueva
+  FAIL (q): editar una venta de remito SIN dinero posteado debía dar P0423 sin tocar stock (vino OK, stock 45.0000 -> 47.0000)
+  FAIL (s): una venta nacida de un remito tiene movimientos de stock propios
+CONTEXT:  PL/pgSQL function inline_code_block line 888 at RAISE
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
+ROLLBACK

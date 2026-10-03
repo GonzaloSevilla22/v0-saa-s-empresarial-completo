@@ -1,0 +1,29 @@
+SET
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=43aa3f4a-5828-4366-b68d-ef053d08d5e8
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=556f5d94-ed61-40d3-8309-fa37bfebf6bd
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=f497f4a6-d2be-4108-856f-fc975b01a4f0
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=394e3bb8-3e06-428a-a6c0-6e64da9c44c6
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=69099df9-33f8-4ea0-b0ed-a39258c2f755
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=114de543-6e0f-42f1-adf1-3619bbfbaf95
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=783225e1-c057-42db-9ab4-38d75fac8d3c
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=e6b5290e-e87e-4151-8470-fdb17eed7dc4
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=39019693-04ed-4adb-90e5-2c781e1344cc
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=301b9920-1694-4093-9bfa-54adf56a2fb8
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=cd612213-ba74-4af3-ae4f-099e23901cfa
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=a1cd91c8-a4cc-454d-9d1c-ac9af0531328
+NOTICE:  CONTROL (z): FAIL (z) DOBLE DESCUENTO: el núcleo descontó stock para una orden con origen de remito (P1 en X 41.0000 -> 39.0000) | FAIL (z) DOBLE DESCUENTO: el núcleo escribió movimientos de stock para una orden con origen de remito
+NOTICE:  CONTROL (n): FAIL (n) remito de otra cuenta: se esperaba P0409 delivery_note_order_mismatch, vino OK|{"total": 1000.00, "order_id": "eecc9445-b9d1-44c8-a6e4-eeed896e2b67", "replayed": false, "operation_id": "db0cb91d-9ec3-4b9b-adb0-267880e8dc46", "fiscal_doc_id": null, "sales_order_id": "eecc9445-b9d1-44c8-a6e4-eeed896e2b67"} | FAIL (n) remito anulado: se esperaba P0409 delivery_note_order_mismatch, vino OK|{"total": 1000.00, "order_id": "ce7542b3-e04b-4eac-b65d-0844bf21f80b", "replayed": false, "operation_id": "db9cee38-4c7c-4cf8-8f02-60e4a9d4849d", "fiscal_doc_id": null, "sales_order_id": "ce7542b3-e04b-4eac-b65d-0844bf21f80b"} | FAIL (n) remito convertido: se esperaba P0409 delivery_note_order_mismatch, vino OK|{"total": 1000.00, "order_id": "f946ef59-3b2b-4d19-b19c-90413fbcd1ac", "replayed": false, "operation_id": "ff1b29f4-d3c5-4e70-af28-8ceb9e3a3481", "fiscal_doc_id": null, "sales_order_id": "f946ef59-3b2b-4d19-b19c-90413fbcd1ac"} | FAIL (n) otro cliente: se esperaba P0409 delivery_note_order_mismatch, vino OK|{"total": 1000.00, "order_id": "e8d21f01-6747-42bf-9fac-1e42f6c27fa7", "replayed": false, "operation_id": "c18203ee-f27e-4c25-837e-d2a23f3a97eb", "fiscal_doc_id": null, "sales_order_id": "e8d21f01-6747-42bf-9fac-1e42f6c27fa7"} | FAIL (n) otra sucursal: se esperaba P0409 delivery_note_order_mismatch, vino ERR|23505|duplicate key value violates unique constraint "sales_orders_source_delivery_note_id_uq" | FAIL (n) otro producto: se esperaba P0409 delivery_note_order_mismatch, vino ERR|23505|duplicate key value violates unique constraint "sales_orders_source_delivery_note_id_uq" | FAIL (n) otra unidad: se esperaba P0409 delivery_note_order_mismatch, vino ERR|23505|duplicate key value violates unique constraint "sales_orders_source_delivery_note_id_uq" | FAIL (n) otra cantidad: se esperaba P0409 delivery_note_order_mismatch, vino ERR|23505|duplicate key value violates unique constraint "sales_orders_source_delivery_note_id_uq" | FAIL (n) una línea de más: se esperaba P0409 delivery_note_order_mismatch, vino ERR|23505|duplicate key value violates unique constraint "sales_orders_source_delivery_note_id_uq" | FAIL (n) sin líneas de producto: se esperaba P0409 delivery_note_order_mismatch, vino ERR|23505|duplicate key value violates unique constraint "sales_orders_source_delivery_note_id_uq" | FAIL (n): un origen inválido dejó efectos (so=1 so_status=confirmed:1 soi=1 sales=1 sale_items=1 sm=16 bs=153.0000 cash=0 cam=1 bank=0 events=2 history=14 fiscal= idem=13 dn=canceled:1:1,converted:1:1,issued:10:10 -> so=5 so_status=confirmed:5 soi=5 sales=5 sale_items=5 sm=20 bs=149.0000 cash=0 cam=5 bank=0 events=10 history=18 fiscal= idem=17 dn=canceled:1:1,converted:1:1,issued:10:10)
+ERROR:  GATE REMITO-A-VENTA FAILED (abortó): 42883 / function "public.rpc_convert_delivery_note_to_sale(text,uuid,integer,uuid,uuid,uuid,text)" does not exist
+CONTEXT:  PL/pgSQL function inline_code_block line 862 at RAISE

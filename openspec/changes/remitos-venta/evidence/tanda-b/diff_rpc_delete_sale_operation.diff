@@ -1,0 +1,109 @@
+--- vivo/rpc_delete_sale_operation (md5 checkpoint 6.1)
++++ 20261070000001/rpc_delete_sale_operation
+@@ -22,6 +22,11 @@
+   v_bank_row             RECORD;
+   v_reversed_type        text;
+   v_voided_doc           jsonb;   -- venta-editable-sin-cae
++  -- remitos-venta (D9): venta nacida de un remito.
++  v_source_dn            uuid;
++  v_so_branch_id         uuid;
++  v_dn_label             text;
++  v_dn_status            text;
+ BEGIN
+   v_uid := (SELECT auth.uid());
+   IF v_uid IS NULL THEN
+@@ -98,6 +103,39 @@
+     v_reference_ids := v_reference_ids || v_sales_order_id;
+   END IF;
+ 
++  -- ── remitos-venta (D9): venta nacida de un remito ─────────────────────────
++  -- La sucursal del remito (= la de la orden) tiene que estar activa y no
++  -- cerrada ANTES de cualquier efecto: el guard de baja de sucursal no cuenta
++  -- los remitos converted, así que una sucursal se puede vaciar y desactivar
++  -- con un remito convertido; sin este guard, borrar la venta devolvería el
++  -- remito a issued en una sucursal muerta (la conversión lo rechazaría y la
++  -- anulación devolvería stock a una sucursal que no opera). FOR SHARE: una
++  -- desactivación concurrente espera a este commit.
++  IF v_sales_order_id IS NOT NULL THEN
++    SELECT so.source_delivery_note_id, so.branch_id INTO v_source_dn, v_so_branch_id
++    FROM public.sales_orders so
++    WHERE so.id = v_sales_order_id;
++  END IF;
++
++  IF v_source_dn IS NOT NULL THEN
++    SELECT COALESCE('R-' || lpad(dn.number::text, 8, '0'), 'del remito') INTO v_dn_label
++    FROM public.delivery_notes dn
++    WHERE dn.id = v_source_dn;
++
++    PERFORM 1
++    FROM public.branches b
++    WHERE b.id = v_so_branch_id
++      AND b.account_id = v_account_id
++      AND b.is_active = TRUE
++      AND b.status IS DISTINCT FROM 'closed'
++    FOR SHARE;
++
++    IF NOT FOUND THEN
++      RAISE EXCEPTION 'delivery_note_branch_inactive: la sucursal del remito % está desactivada o cerrada — reactivala antes de eliminar la venta', v_dn_label
++        USING ERRCODE = 'P0422';
++    END IF;
++  END IF;
++
+   -- ── Guard fiscal (P0423) — MISMO helper que rpc_atomic_update_sale_operation ──
+   -- venta-editable-sin-cae (D2): un comprobante pendiente que NO salió hacia
+   -- ARCA se ANULA acá mismo (misma transacción que el borrado), para que el
+@@ -174,9 +212,15 @@
+   END LOOP;
+ 
+   -- ── Reversa de stock (rpc_reverse_stock_movement, sin cambios — #417) ─────
+-  FOR v_row IN SELECT unnest(v_sale_ids) AS id LOOP
+-    PERFORM public.rpc_reverse_stock_movement(v_row.id, 'sale', COALESCE(p_reason, 'Venta eliminada'));
+-  END LOOP;
++  -- remitos-venta (D9): una venta nacida de un remito NO repone stock: la
++  -- mercadería quedó entregada con el remito, que vuelve a pendiente más
++  -- abajo (para devolverla al stock se anula el remito). El salto es
++  -- explícito: no depende de que esas filas sales no tengan movimientos.
++  IF v_source_dn IS NULL THEN
++    FOR v_row IN SELECT unnest(v_sale_ids) AS id LOOP
++      PERFORM public.rpc_reverse_stock_movement(v_row.id, 'sale', COALESCE(p_reason, 'Venta eliminada'));
++    END LOOP;
++  END IF;
+ 
+   -- ── Contable: emitir SaleOperationDeleted (async, vía outbox) ────────────
+   INSERT INTO public.events
+@@ -204,6 +248,30 @@
+     );
+   END IF;
+ 
++  -- ── remitos-venta (D9, R5): el remito vuelve a pendiente ─────────────────
++  -- Lock del remito AL FINAL (sales -> sales_orders -> fiscal_documents ->
++  -- delivery_notes). La orden ya pasó a canceled, así que el índice único
++  -- parcial queda libre y el remito se puede volver a convertir. La
++  -- transición converted -> issued no tiene rol propio: este borrado ya
++  -- registró sales_order confirmed -> canceled, que exige admin/owner.
++  IF v_source_dn IS NOT NULL AND v_sales_order_id IS NOT NULL AND v_so_status = 'confirmed' THEN
++    SELECT dn.status INTO v_dn_status
++    FROM public.delivery_notes dn
++    WHERE dn.id = v_source_dn
++    FOR UPDATE;
++
++    IF v_dn_status = 'converted' THEN
++      PERFORM public.record_status_transition(
++        v_account_id, 'delivery_note_sale', v_source_dn, 'converted', 'issued',
++        v_uid, format('Venta eliminada (operación %s)', v_operation_key)
++      );
++
++      UPDATE public.delivery_notes
++      SET status = 'issued', updated_at = now(), updated_by = v_uid
++      WHERE id = v_source_dn;
++    END IF;
++  END IF;
++
+   -- ── DELETE + limpieza de idempotencia ─────────────────────────────────────
+   DELETE FROM public.sales WHERE id = ANY(v_sale_ids);
+ 
+@@ -212,4 +280,3 @@
+   RETURN true;
+ END;
+ $function$
+-

@@ -252,7 +252,7 @@ DECLARE
   v_x uuid; v_y uuid; v_z uuid; v_branch_b uuid;
   v_cashbox_x uuid; v_session_x uuid;
   v_bank_a uuid;
-  v_pm_cash uuid; v_pm_credit uuid; v_pm_transfer uuid; v_pm_cash_b uuid;
+  v_pm_cash uuid; v_pm_credit uuid; v_pm_transfer uuid; v_pm_cash_b uuid; v_pm_other uuid;
   v_c1 uuid; v_c2 uuid; v_c_gone uuid; v_client_b uuid;
   v_u uuid; v_u2 uuid;
   v_p1 uuid; v_p2 uuid; v_pren uuid; v_pdead uuid; v_ppos uuid; v_pq uuid; v_product_b uuid;
@@ -260,7 +260,7 @@ DECLARE
 
   v_dn_core uuid; v_dn_mm uuid; v_dn_canc uuid; v_dn_fake uuid; v_dn_b uuid;
   v_dn_cash uuid; v_dn_credit uuid; v_dn_transfer uuid; v_dn_dead uuid; v_dn_gone uuid;
-  v_dn_z uuid; v_dn_other uuid; v_dn_stk uuid;
+  v_dn_z uuid; v_dn_other uuid; v_dn_stk uuid; v_dn_nomoney uuid;
 
   v_key_cash      text;
   v_order_cash    uuid;
@@ -353,9 +353,11 @@ BEGIN
   WHERE account_id = v_account_a AND kind = 'credit' AND is_active AND deleted_at IS NULL ORDER BY sort_order LIMIT 1;
   SELECT id INTO v_pm_transfer FROM public.payment_methods
   WHERE account_id = v_account_a AND kind = 'transfer' AND is_active AND deleted_at IS NULL ORDER BY sort_order LIMIT 1;
+  SELECT id INTO v_pm_other FROM public.payment_methods
+  WHERE account_id = v_account_a AND kind = 'other' AND is_active AND deleted_at IS NULL ORDER BY sort_order LIMIT 1;
   SELECT id INTO v_pm_cash_b FROM public.payment_methods
   WHERE account_id = v_account_b AND kind = 'cash' AND is_active AND deleted_at IS NULL ORDER BY sort_order LIMIT 1;
-  IF v_pm_cash IS NULL OR v_pm_credit IS NULL OR v_pm_transfer IS NULL OR v_pm_cash_b IS NULL THEN
+  IF v_pm_cash IS NULL OR v_pm_credit IS NULL OR v_pm_transfer IS NULL OR v_pm_cash_b IS NULL OR v_pm_other IS NULL THEN
     RAISE EXCEPTION 'SETUP FAILED: faltan formas de pago sembradas';
   END IF;
 
@@ -390,7 +392,7 @@ BEGIN
   PERFORM public.c21_apply_branch_stock_delta(v_account_a, v_p1,    v_z, 10);
   PERFORM public.c21_apply_branch_stock_delta(v_account_a, v_p2,    v_x, 50);
   PERFORM public.c21_apply_branch_stock_delta(v_account_a, v_pren,  v_x, 10);
-  PERFORM public.c21_apply_branch_stock_delta(v_account_a, v_pdead, v_x, 10);
+  PERFORM public.c21_apply_branch_stock_delta(v_account_a, v_pdead, v_x, 1);  -- el remito se lleva la última: la baja (RN-B4) exige stock 0
   PERFORM public.c21_apply_branch_stock_delta(v_account_a, v_ppos,  v_x, 10);
   PERFORM public.c21_apply_branch_stock_delta(v_account_a, v_pq,    v_x, 10);
   PERFORM public.c21_apply_branch_stock_delta(v_account_b, v_product_b, v_branch_b, 10);
@@ -429,6 +431,8 @@ BEGIN
                      pg_temp.rc_line(v_p1, 1, 1000, 1000, v_u)));
   v_dn_stk      := pg_temp.rc_issue(v_tag || 'dn-stk', v_c1, v_x, jsonb_build_array(
                      pg_temp.rc_line(v_p1, 1, 1000, 1000, v_u)));
+  v_dn_nomoney  := pg_temp.rc_issue(v_tag || 'dn-nomoney', v_c1, v_x, jsonb_build_array(
+                     pg_temp.rc_line(v_p2, 3, 500, 1500, v_u)));
   PERFORM public.rpc_cancel_delivery_note(v_dn_canc, 1, 'Gate RaV: anulado para el origen inválido');
   PERFORM pg_temp.rc_as(v_owner_b);
   v_dn_b        := pg_temp.rc_issue(v_tag || 'dn-b', v_client_b, v_branch_b, jsonb_build_array(
@@ -864,6 +868,28 @@ BEGIN
       v_failures := v_failures || format('FAIL (q): la edición rechazada dejó efectos o anuló el comprobante pendiente (%s -> %s, comprobante %s)',
                                          v_before, v_after, (SELECT status FROM public.fiscal_documents WHERE id = v_fiscal_doc));
     END IF;
+    -- Venta SIN dinero posteado (forma de pago 'other'): ningún guard de
+    -- caja, cuenta corriente ni banco la frena. Sin el P0423 propio, la
+    -- edición repondría las 3 unidades que el remito sigue reteniendo.
+    v_r := pg_temp.rc_convert(v_tag || 'nomoney', v_dn_nomoney, 1, v_pm_other);
+    IF v_r NOT LIKE 'OK|%' THEN
+      v_failures := v_failures || format('FAIL (q): no se pudo convertir el remito sin dinero: %s', v_r);
+    ELSE
+      SELECT array_agg(id) INTO v_sale_ids FROM public.sales
+      WHERE operation_id = (substr(v_r, 4)::jsonb->>'operation_id')::uuid;
+      v_s2 := pg_temp.rc_stock(v_p2, v_x);
+      v_before := pg_temp.rc_effects(v_account_a);
+      v_txt := pg_temp.rc_err(format(
+        'SELECT public.rpc_atomic_update_sale_operation(%L::uuid[], %L::uuid, %L::date, %L, %L::jsonb)',
+        v_sale_ids, v_c1, v_today, 'ARS',
+        jsonb_build_array(jsonb_build_object('product_id', v_p2, 'amount', 500, 'quantity', 1, 'unit_id', v_u))));
+      IF v_txt NOT LIKE 'P0423 delivery_note_sale_locked%' OR pg_temp.rc_stock(v_p2, v_x) <> v_s2
+         OR pg_temp.rc_effects(v_account_a) IS DISTINCT FROM v_before THEN
+        v_failures := v_failures || format('FAIL (q): editar una venta de remito SIN dinero posteado debía dar P0423 sin tocar stock (vino %s, stock %s -> %s)',
+                                           v_txt, v_s2, pg_temp.rc_stock(v_p2, v_x));
+      END IF;
+    END IF;
+    v_before := pg_temp.rc_effects(v_account_a);
     v_txt := pg_temp.rc_err(format('SELECT public.rpc_cancel_delivery_note(%L::uuid, 1, %L)', v_dn_cash, 'Gate RaV: anular convertido'));
     IF v_txt NOT LIKE 'P0423 delivery_note_locked_converted%' OR pg_temp.rc_effects(v_account_a) IS DISTINCT FROM v_before THEN
       v_failures := v_failures || format('FAIL (r): anular un remito convertido debía dar P0423 sin efectos, vino %s', v_txt);
@@ -1159,7 +1185,7 @@ BEGIN
   IF position('delivery_note_branch_inactive' IN v_src) = 0
      OR position('delivery_note_branch_inactive' IN v_src) > position('_fiscal_void_pending_for_sale_edit' IN v_src)
      OR position('IF v_source_dn IS NULL THEN' IN v_src) = 0
-     OR position('IF v_source_dn IS NULL THEN' IN v_src) > position('rpc_reverse_stock_movement' IN v_src)
+     OR position('IF v_source_dn IS NULL THEN' IN v_src) > position('PERFORM public.rpc_reverse_stock_movement' IN v_src)
      OR position('''converted'', ''issued''' IN v_src) = 0 THEN
     v_bad := v_bad || 'rpc_delete_sale_operation no tiene el guard de sucursal antes del fiscal, el salto de la reversa o la reapertura del remito'::text;
   END IF;

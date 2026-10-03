@@ -1,0 +1,45 @@
+PASS  desborde 0: compra-listado mobile light
+PASS  desborde 0: compra-listado-filtros-chips mobile light
+PASS  desborde 0: compra-nuevo-vacio mobile light
+PASS  desborde 0: compra-nuevo-con-linea-sin-precio mobile light
+PASS  desborde 0: compra-editar mobile light
+PASS  desborde 0: compra-detalle-pendiente mobile light
+PASS  desborde 0: compra-detalle-anulado mobile light
+PASS  desborde 0: compra-anular-dialogo mobile light
+PASS  desborde 0: compra-anular-rechazo-consumida mobile light
+PASS  desborde 0: proveedores-listado mobile light
+PASS  /proveedores light: aria-label distintos en botones de ícono (375 px)  -> Nuevo remito de compra de Proveedor Demo QA | Cuenta corriente de Proveedor Demo QA | Editar Proveedor Demo QA | Eliminar Proveedor Demo QA | Nuevo remito de compra de Proveedor Dos QA | Cuenta corriente de Proveedor Dos QA | Editar Proveedor Dos QA | Eliminar Proveedor Dos QA
+PASS  desborde 0: proveedor-cuenta-cabecera mobile light
+   (preexistente, no propio) stock-movimientos-remito-compra mobile: scroller ["420>341"]
+PASS  desborde 0: stock-movimientos-remito-compra mobile light
+PASS  baja de sucursal mobile light: un enlace por sentido (&sentido=venta y &sentido=compra)  -> /sucursales/f74dacb1-9f9f-4b08-8259-724b270bbadb/stock | /remitos?estado=pendientes&sucursal=f74dacb1-9f9f-4b08-8259-724b270bbadb&sentido=venta | /remitos?estado=pendientes&sucursal=f74dacb1-9f9f-4b08-8259-724b270bbadb&sentido=compra
+PASS  desborde 0: sucursales-baja-remitos-ambos-sentidos mobile light
+PASS  desborde 0: compras-form mobile light
+PASS  consola sin errores (mobile light; los 404/409 de red esperados aparte)
+PASS  desborde 0: compra-listado mobile dark
+PASS  desborde 0: compra-listado-filtros-chips mobile dark
+PASS  desborde 0: compra-nuevo-vacio mobile dark
+PASS  desborde 0: compra-nuevo-con-linea-sin-precio mobile dark
+PASS  desborde 0: compra-editar mobile dark
+PASS  desborde 0: compra-detalle-pendiente mobile dark
+PASS  desborde 0: compra-detalle-anulado mobile dark
+PASS  desborde 0: compra-anular-dialogo mobile dark
+PASS  desborde 0: compra-anular-rechazo-consumida mobile dark
+PASS  desborde 0: proveedores-listado mobile dark
+PASS  /proveedores dark: aria-label distintos en botones de ícono (375 px)  -> Nuevo remito de compra de Proveedor Demo QA | Cuenta corriente de Proveedor Demo QA | Editar Proveedor Demo QA | Eliminar Proveedor Demo QA | Nuevo remito de compra de Proveedor Dos QA | Cuenta corriente de Proveedor Dos QA | Editar Proveedor Dos QA | Eliminar Proveedor Dos QA
+PASS  desborde 0: proveedor-cuenta-cabecera mobile dark
+   (preexistente, no propio) stock-movimientos-remito-compra mobile: scroller ["420>341"]
+PASS  desborde 0: stock-movimientos-remito-compra mobile dark
+PASS  baja de sucursal mobile dark: un enlace por sentido (&sentido=venta y &sentido=compra)  -> /sucursales/f74dacb1-9f9f-4b08-8259-724b270bbadb/stock | /remitos?estado=pendientes&sucursal=f74dacb1-9f9f-4b08-8259-724b270bbadb&sentido=venta | /remitos?estado=pendientes&sucursal=f74dacb1-9f9f-4b08-8259-724b270bbadb&sentido=compra
+PASS  desborde 0: sucursales-baja-remitos-ambos-sentidos mobile dark
+PASS  desborde 0: compras-form mobile dark
+PASS  consola sin errores (mobile dark; los 404/409 de red esperados aparte)
+PASS  anular (compra): al abrir, el foco queda dentro del diálogo
+PASS  anular (compra): Tab no escapa del diálogo (8 Tab)
+PASS  anular (compra): Escape cierra
+PASS  anular (compra): al cerrar, el foco vuelve al botón "Anular"  -> Anular
+PASS  proveedor: se elige con teclado (Enter, flechas, Enter)  -> Proveedor Dos QA
+PASS  baja de sucursal: foco dentro del diálogo al abrir
+PASS  baja de sucursal: Tab no escapa
+PASS  baja de sucursal: Escape cierra
+RESUMEN visual: 42/42 PASS

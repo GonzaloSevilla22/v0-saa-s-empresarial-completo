@@ -1,0 +1,11 @@
+PASS  (g) depósito: ve Editar y NO "Anular"
+PASS  (g) depósito: puede abrir "Nuevo remito de compra"
+PASS  (g) vendedor: "Nuevo remito de compra" muestra el estado sin permiso (sin formulario)  -> Toggle Sidebar Nuevo remito Notificaciones Nuevo remito de compra  Registrá la mercadería que recibís de un proveedor. Emitir el remito suma
+PASS  (g) vendedor: la pestaña De compra no ofrece el CTA "Nuevo remito de compra"
+PASS  (g) vendedor: lee el remito pero sin Editar ni Anular
+PASS  (g) cajero: sin permiso (sin formulario)
+PASS  (g) admin: ve Editar y "Anular"
+PASS  (h) desde /proveedores abre el formulario con el proveedor precargado  -> Proveedor Dos QA
+PASS  (h) en la cuenta: "Ver remitos" -> /remitos?sentido=compra&proveedor=<id> y "Nuevo remito" precarga  -> /remitos?sentido=compra&proveedor=df5a60d5-86c4-4706-b7dd-cd44969253b0 /remitos/nuevo?tipo=compra&proveedor=df5a60d5-86c4-4706-b7dd-cd44969253b0
+console errors: ["Failed to load resource: the server responded with a status of 404 (Not Found)"]
+RESUMEN humo compra: 9/9 PASS

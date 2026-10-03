@@ -1,0 +1,8 @@
+PASS  (h) vendedor: ve el remito y Editar, pero NO "Anular"
+PASS  (h) vendedor: puede abrir "Nuevo remito"
+PASS  (h) cajero: "Nuevo remito" muestra el estado sin permiso (sin formulario)  -> Toggle Sidebar Nuevo remito Notificaciones Nuevo remito  Documentá la mercadería que entregás. Emitir un remito descuent
+PASS  (h) cajero: el listado no ofrece el CTA "Nuevo remito"
+PASS  (h) depósito: ve Editar y NO "Anular"
+PASS  (h) admin: ve "Anular"
+console errors: []
+RESUMEN humo: 6/6 PASS

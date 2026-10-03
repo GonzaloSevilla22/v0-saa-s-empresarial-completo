@@ -398,11 +398,14 @@ async def test_assign_base_unit_with_other_unit_lines_but_no_stock_nor_movements
     assert len(updates) == 1
 
 
-# (k) Repositorio: la consulta de líneas en otra unidad recorre las SEIS
-#     tablas de líneas, sólo el producto y las variantes que HEREDAN (base
-#     propia NULL — misma regla que trg_product_base_unit_guard), ignora las
-#     líneas sin unidad, compara contra la unidad que se asigna y filtra la
-#     cuenta en products y en cada tabla de líneas (regla dura de tenencia).
+# (k) Repositorio: la consulta de líneas en otra unidad recorre las SIETE
+#     tablas de líneas (las seis de siempre más `delivery_note_items`, que suma
+#     remitos-venta D14: sin ella un producto con stock y un remito en Unidad
+#     admitía asignarle Kilogramo), sólo el producto y las variantes que
+#     HEREDAN (base propia NULL — misma regla que trg_product_base_unit_guard),
+#     ignora las líneas sin unidad, compara contra la unidad que se asigna y
+#     filtra la cuenta en products y en cada tabla de líneas (regla dura de
+#     tenencia).
 async def test_repo_other_unit_lines_query_scope():
     repo, conn = _repo_with([True])
 
@@ -411,7 +414,23 @@ async def test_repo_other_unit_lines_query_scope():
     assert args == [PRODUCT_ID, str(TEST_ACCOUNT_ID), UNIT_KG]
     assert "p.account_id = $2" in sql
     assert "p.parent_id = $1::uuid AND p.base_unit_id IS NULL" in sql
-    for table in ("sales", "purchases", "sale_items", "purchase_items", "sales_order_items", "quote_items"):
+    for table in (
+        "sales", "purchases", "sale_items", "purchase_items", "sales_order_items", "quote_items",
+        "delivery_note_items",
+    ):
         assert f"FROM {table} l " in sql, table
-    assert sql.count("l.account_id = $2") == 6
-    assert sql.count("l.unit_id IS NOT NULL AND l.unit_id <> $3::uuid") == 6
+    assert sql.count("l.account_id = $2") == 7
+    assert sql.count("l.unit_id IS NOT NULL AND l.unit_id <> $3::uuid") == 7
+
+
+# remitos-venta (tarea 2.5, D14): un remito de venta con una línea en una unidad
+# distinta de la que se asigna cuenta como historia que se reinterpretaría. La
+# consulta nombra `delivery_note_items` como las demás tablas de líneas, con la
+# cuenta explícita (el guard de tenencia es de cada tabla, no de la RLS).
+async def test_repo_other_unit_lines_query_includes_delivery_note_items_scoped_by_account():
+    from backend.repositories.product_repository import _GROUP_HAS_LINES_IN_OTHER_UNIT_SQL as sql
+
+    assert "EXISTS (SELECT 1 FROM delivery_note_items l WHERE l.product_id = p.id AND l.account_id = $2" in sql
+    # la rama del remito compara la unidad igual que las otras seis
+    branch = sql[sql.index("FROM delivery_note_items l"):]
+    assert "l.unit_id IS NOT NULL AND l.unit_id <> $3::uuid" in branch.split("OR EXISTS")[0]

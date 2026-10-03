@@ -128,30 +128,52 @@
 
 ## 2. Backend tanda A (3 capas)
 
-- [ ] 2.1 **RED**: `backend/tests/test_delivery_notes_module.py` (unit con dobles) + `test_delivery_notes_module_integration.py` (Postgres real) con:
+- [x] 2.1 **RED**: `backend/tests/test_delivery_notes_module.py` (unit con dobles) + `test_delivery_notes_module_integration.py` (Postgres real) con:
   - schemas (`direction: Literal["sale"]`, topes, `product_id` obligatorio);
   - endpoints `GET/POST /delivery-notes`, `GET/PUT /delivery-notes/{id}` y `POST /delivery-notes/{id}/cancel`;
   - `POST /delivery-notes` sin `Idempotency-Key` rechazado por `require_idempotency_key`; misma clave dos veces → un remito (integración);
   - mapeo RFC 7807 de cada literal SQL;
   - 404 cross-tenant idéntico al inexistente;
   - capacidades por rol.
-- [ ] 2.2 `core/rbac.py`: `CAN_DELIVER_SALE` y `CAN_VOID_DELIVERY_NOTE` (D13), más el test que lee las migraciones y falla si divergen de los `allowed_role` de `delivery_note` (molde de `TestCanQuote`). Verificar que `is_sensitive_capability(CAN_VOID_DELIVERY_NOTE)` es verdadero y documentarlo en el comentario.
-- [ ] 2.3 `schemas/delivery_notes.py`, `repositories/delivery_note_repository.py` (todo por RPC o `SELECT` con `account_id` explícito), `services/delivery_notes.py` y `routers/delivery_notes.py`. Registrar el router.
-- [ ] 2.4 Listado paginado `{items,total,page,pages}` con filtros `status`, `q` (cliente o número `R-…`), `client_id`, `branch_id` (lo usa el diálogo de baja de sucursal, D10) y `direction=sale`, más el resumen de pendientes (cantidad y total).
-- [ ] 2.5 `product_repository._GROUP_HAS_LINES_IN_OTHER_UNIT_SQL` suma `delivery_note_items` (D14), con un caso de test que hoy pasa en falso (RED) y después traba.
-- [ ] 2.6 `services/delivery_notes.py`: `asyncpg.DeadlockDetectedError` (`40P01`) → `409 concurrent_update_retry` RFC 7807, con test (D4). (El número del remito en el kardex **no** pasa por el backend: el panel de `/stock` lee `stock_movements` directo y lo resuelve él, tarea 5.9.)
-- [ ] 2.7 TRIANGULATE: ≥ 2 casos por comportamiento (cada rol × cada operación, cada error tipado, cada formato de búsqueda). Cobertura ≥ 87 % sin bajar la global.
+- [x] 2.2 `core/rbac.py`: `CAN_DELIVER_SALE` y `CAN_VOID_DELIVERY_NOTE` (D13), más el test que lee las migraciones y falla si divergen de los `allowed_role` de `delivery_note` (molde de `TestCanQuote`). Verificar que `is_sensitive_capability(CAN_VOID_DELIVERY_NOTE)` es verdadero y documentarlo en el comentario.
+- [x] 2.3 `schemas/delivery_notes.py`, `repositories/delivery_note_repository.py` (todo por RPC o `SELECT` con `account_id` explícito), `services/delivery_notes.py` y `routers/delivery_notes.py`. Registrar el router.
+- [x] 2.4 Listado paginado `{items,total,page,pages}` con filtros `status`, `q` (cliente o número `R-…`), `client_id`, `branch_id` (lo usa el diálogo de baja de sucursal, D10) y `direction=sale`, más el resumen de pendientes (cantidad y total).
+- [x] 2.5 `product_repository._GROUP_HAS_LINES_IN_OTHER_UNIT_SQL` suma `delivery_note_items` (D14), con un caso de test que hoy pasa en falso (RED) y después traba.
+- [x] 2.6 `services/delivery_notes.py`: `asyncpg.DeadlockDetectedError` (`40P01`) → `409 concurrent_update_retry` RFC 7807, con test (D4). (El número del remito en el kardex **no** pasa por el backend: el panel de `/stock` lee `stock_movements` directo y lo resuelve él, tarea 5.9.)
+- [x] 2.7 TRIANGULATE: ≥ 2 casos por comportamiento (cada rol × cada operación, cada error tipado, cada formato de búsqueda). Cobertura ≥ 87 % sin bajar la global.
+  **Resultado del grupo 2 (apply tanda A, 2026-10-02)**:
+  - **RED**: `test_delivery_notes_module.py` (240 casos con las parametrizaciones) falló en la colección con `ModuleNotFoundError: backend.schemas.delivery_notes` (los cuatro módulos nuevos no existían). Para 2.5, el caso (k) de `test_ventas_unidades_conversion_base_unit_lock.py` actualizado a SIETE tablas y el caso nuevo de `delivery_note_items` fallaron antes de tocar la consulta.
+  - **GREEN**: `core/rbac.py` (`CAN_DELIVER_SALE`, `CAN_VOID_DELIVERY_NOTE`), `schemas/delivery_notes.py`, `repositories/delivery_note_repository.py`, `services/delivery_notes.py`, `routers/delivery_notes.py` (registrado en `main.py`) y `product_repository._GROUP_HAS_LINES_IN_OTHER_UNIT_SQL` con la séptima tabla. Integración (`-m integration`, Postgres local con la migración aplicada): 18 casos contra la base real, residuo cero.
+  - **Contrato HTTP** (lo consume el frontend):
+    - `GET /delivery-notes?direction=&status=issued|converted|canceled&client_id=&branch_id=&q=&page=&page_size=`: envelope `{items, total, page, pages}` **más** `summary: {pending_count, pending_total}`. El resumen cuenta los `issued` del mismo recorte (sentido, cliente, sucursal, búsqueda) **sin** importar `status`. Cada fila trae `number_label`, `branch_name`, `client_name`, `item_count`.
+    - `POST /delivery-notes`: `Idempotency-Key` obligatoria por header (sin la clave → 422 `idempotency_key_required`; el cuerpo no la acepta). Cuerpo `{direction?: "sale", client_id, branch_id, delivery_address?, notes?, items[{product_id, unit_id?, quantity, price, subtotal}]}`. Respuesta **201** con el remito completo y `replayed: false`; un reintento con la misma clave responde **200** con el mismo remito y `replayed: true`.
+    - `GET /delivery-notes/{id}`: remito completo (`items` con `unit_symbol`, `quantity_base`, `product_deleted` y snapshots; `history`; `client_deleted`; `branch_name`; `number_label`; `converted_sales_order_id`/`converted_operation_id` = null en A; `issuer_name`).
+    - `PUT /delivery-notes/{id}`: reemplazo completo `{revision, client_id, branch_id, delivery_address|null, notes|null, items[]}`; sin clave de idempotencia (la protege `revision`).
+    - `POST /delivery-notes/{id}/cancel`: `{revision, reason (3-500)}`; sólo admin/owner.
+    - `GET /delivery-notes/{id}/pdf?disposition=inline|attachment&show_prices=false`.
+    - Errores RFC 7807 con `code` = literal del RAISE. Un `40P01` sale como 409 `concurrent_update_retry`.
+  - **Desvíos declarados**:
+    - La clave de búsqueda del listado acepta cualquier prefijo conocido (`P-12` y `R-12` dan 12), igual que la definición de TypeScript; qué documento se busca lo decide el listado.
+    - Se extrajo `repositories/commercial_document_support.py` (`jsonb_value`, `like_pattern`, `CommercialIssuerMixin`) para no duplicar con `QuoteRepository`, que pasó a usarlo (sin cambio de comportamiento: sus 224 casos siguen verdes).
+    - El caso (k) preexistente de `test_ventas_unidades_conversion_base_unit_lock.py` contaba SEIS tablas: se actualizó a siete (es el contrato que 2.5 cambia a propósito).
+    - Anular es capacidad sensible (`is_sensitive_capability(CAN_VOID_DELIVERY_NOTE)` verdadero): el guard consulta la base aunque el claim traiga los roles; un claim `owner` desactualizado no autoriza una anulación (caso propio).
+  - **Cobertura**: suite completa `-m "not integration"` como en `Backend_Tests.yml`: **3326 passed, 1 skipped, cobertura 95,00 %** (piso 87 %). Los módulos nuevos quedan en 97-100 %. `check_backend_table_refs.py` contra el schema real: OK (166 archivos).
 
 ## 3. PDF del remito (tanda A)
 
-- [ ] 3.1 **RED**: `backend/tests/test_commercial_document_pdf.py` suma casos de remito leídos con `pypdf`:
+- [x] 3.1 **RED**: `backend/tests/test_commercial_document_pdf.py` suma casos de remito leídos con `pypdf`:
   - "REMITO", el número, la sucursal de origen, las cantidades con su unidad, el bloque de firma y "no válido como factura";
   - **sin** precios ni total por defecto, y **con** ellos con `show_prices`;
   - sello "ANULADO";
   - 80 líneas con la firma sin partirse.
-- [ ] 3.2 `CommercialDocumentView` suma `signature_block` y `origin_label` con defaults retrocompatibles. El render los dibuja. `build_delivery_note_view` es pura, en `services/commercial_documents/view.py`. Los casos de presupuesto existentes tienen que seguir verdes sin tocarlos.
-- [ ] 3.3 `GET /delivery-notes/{id}/pdf?disposition=&show_prices=`: 200 en todo estado, 404 ajeno o inexistente, 422 en parámetros inválidos, 401 sin sesión, nombre `remito-R-….pdf`. El emisor sale de `rpc_commercial_issuer` (sin cambios).
-- [ ] 3.4 Numeración visible: prefijo `R` en `numbering.py` y en `frontend/lib/internal-document-number.ts`, con casos nuevos en el fixture compartido `internal_document_number_cases.json` (pytest y vitest leen el mismo).
+- [x] 3.2 `CommercialDocumentView` suma `signature_block` y `origin_label` con defaults retrocompatibles. El render los dibuja. `build_delivery_note_view` es pura, en `services/commercial_documents/view.py`. Los casos de presupuesto existentes tienen que seguir verdes sin tocarlos.
+- [x] 3.3 `GET /delivery-notes/{id}/pdf?disposition=&show_prices=`: 200 en todo estado, 404 ajeno o inexistente, 422 en parámetros inválidos, 401 sin sesión, nombre `remito-R-….pdf`. El emisor sale de `rpc_commercial_issuer` (sin cambios).
+- [ ] 3.4 Numeración visible (**mitad backend hecha, falta la mitad frontend**, ver el resultado del grupo 3): prefijo `R` en `numbering.py` y en `frontend/lib/internal-document-number.ts`, con casos nuevos en el fixture compartido `internal_document_number_cases.json` (pytest y vitest leen el mismo).
+  **Resultado del grupo 3 (apply tanda A, 2026-10-02)**:
+  - **RED**: las clases de remito agregadas a `test_commercial_document_pdf.py` fallaron (`build_delivery_note_view` inexistente, `signature_block`/`origin_label` ausentes de la vista); el control negativo del presupuesto (sin firma ni origen) pasaba de entrada.
+  - **GREEN/TRIANGULATE**: 32 casos nuevos leídos con `pypdf` (91 en el archivo), entre ellos el bloque de firma parametrizado con 13 cantidades de líneas (1 a 80) que verifica que "Recibí conforme", "Firma", "Aclaración" y "DNI" quedan en la misma página, una sola vez, y que la leyenda está en todas las páginas. Los 59 casos de presupuesto y recibos previos siguen verdes sin tocarlos.
+  - `view.py`: `build_delivery_note_view` pura; `numbering.py`: prefijo `R` por tipo de secuencia `delivery_note_sale` y búsqueda con cualquier prefijo conocido; fixture compartido con 3 casos de formato y 6 de búsqueda de remito.
+  - **Pendiente de la otra mitad de 3.4 (frontend, fuera de este agente)**: `frontend/lib/internal-document-number.ts` tiene que sumar el tipo `delivery_note_sale` con prefijo `R` (el vitest que lee el fixture compartido falla hasta entonces: `formatInternalDocumentNumber("delivery_note_sale", …)`).
 
 ## 4. Frontend tanda A: datos, helpers y hooks
 
@@ -328,3 +350,6 @@
 | 1.9 (baja de sucursal) | test_remitos_venta.sql (k) | SQL gate | test_sucursal_guard_vaciado PASS | baja con remito pendiente OK por disparador/rpc_deactivate_branch | P0428 branch_has_pending_delivery_notes x3 caminos | remito de compra también bloquea; anulado + vaciado, procede | predicado único _branch_pending_delivery_notes |
 | 1.11 (gates existentes) | test_document_status_transition_role_matrix.sql, test_function_acl_gate.sql | SQL gate | 22/16 PASS antes de la migración | 24/18 vs 22/16 | PASS | control negativo GRANT -> ACL GATE (3) FAILED | — |
 | 1.12 (carreras) | test_internal_document_numbering_race.sh, test_remitos_venta_race.sh | 2+ conexiones reales | quote 1..20 PASS | — (script nuevo) | delivery_note_sale 1..20; 6 carreras PASS | quote sigue PASS con el parámetro | — |
+| 2.1-2.7 (backend 3 capas) | backend/tests/test_delivery_notes_module.py, test_delivery_notes_module_integration.py | Unit con dobles + integración (Postgres real) | 332 backend focalizados PASS (0.6) | ModuleNotFoundError backend.schemas.delivery_notes | 240 unit + 18 integración PASS | cada rol x operación, 29 literales SQL, 6 formatos de búsqueda, 40P01, 404 cross-tenant, replay 200/201 | mixin `commercial_document_support` compartido con `QuoteRepository` (224 casos PASS) |
+| 2.5 (guard de unidad en el repo) | test_ventas_unidades_conversion_base_unit_lock.py | Unit | 18/18 PASS | (k) actualizado a 7 tablas + caso nuevo de `delivery_note_items`: FAIL | 18/18 PASS | tenencia (`account_id = $2` x7) | — |
+| 3.1-3.4 (PDF y numeración) | backend/tests/test_commercial_document_pdf.py, fixtures/internal_document_number_cases.json | Unit (pypdf) | 59 casos de presupuesto/recibos PASS | build_delivery_note_view inexistente, vista sin `signature_block` (31 en rojo) | 91 PASS | con/sin precios, ANULADO, 13 largos de tabla para el bloque de firma, prefijo `R`, búsqueda `R-12` | — |

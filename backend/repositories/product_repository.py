@@ -86,8 +86,9 @@ SELECT EXISTS (
 # producto sin base admite líneas en cualquier unidad base: kg, L, u). True si
 # el producto o alguna variante que HEREDA (base propia NULL — misma regla que
 # trg_product_base_unit_guard) tiene una línea con unidad distinta de la que
-# se asigna, en cualquiera de las seis tablas de líneas. Las líneas sin unidad
-# no declaran ninguna. `account_id = $2` en products Y en cada tabla de líneas
+# se asigna, en cualquiera de las siete tablas de líneas (remitos-venta D14 suma
+# `delivery_note_items`: el remito retiene stock en la unidad base y lo
+# reinterpretaría igual). Las líneas sin unidad no declaran ninguna. `account_id = $2` en products Y en cada tabla de líneas
 # es el guard de tenencia (regla dura: la RLS es red, no guard único).
 _GROUP_HAS_LINES_IN_OTHER_UNIT_SQL = """
 SELECT EXISTS (
@@ -107,6 +108,8 @@ SELECT EXISTS (
          OR EXISTS (SELECT 1 FROM sales_order_items l WHERE l.product_id = p.id AND l.account_id = $2
                        AND l.unit_id IS NOT NULL AND l.unit_id <> $3::uuid)
          OR EXISTS (SELECT 1 FROM quote_items l WHERE l.product_id = p.id AND l.account_id = $2
+                       AND l.unit_id IS NOT NULL AND l.unit_id <> $3::uuid)
+         OR EXISTS (SELECT 1 FROM delivery_note_items l WHERE l.product_id = p.id AND l.account_id = $2
                        AND l.unit_id IS NOT NULL AND l.unit_id <> $3::uuid)
        )
 )
@@ -166,7 +169,7 @@ class ProductRepository(BaseRepository):
     async def has_lines_in_other_unit(self, product_id: str, account_id: str, unit_id: str) -> bool:
         """ventas-unidades-conversion (cuarta revisión): True si el producto o
         una variante que hereda su unidad tiene alguna línea (ventas, compras,
-        sus ítems, pedidos o presupuestos) grabada con una unidad explícita
+        sus ítems, pedidos, presupuestos o remitos) grabada con una unidad explícita
         distinta de `unit_id` — la que se le quiere asignar como base."""
         return bool(await self._conn.fetchval(_GROUP_HAS_LINES_IN_OTHER_UNIT_SQL, product_id, account_id, unit_id))
 

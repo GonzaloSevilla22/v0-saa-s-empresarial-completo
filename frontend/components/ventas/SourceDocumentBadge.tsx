@@ -16,7 +16,7 @@
  */
 
 import Link from "next/link"
-import { FileText, Truck } from "lucide-react"
+import { FileText, PackageCheck } from "lucide-react"
 import { formatDeliveryNoteNumber, formatInternalDocumentNumber } from "@/lib/internal-document-number"
 import { cn } from "@/lib/utils"
 
@@ -43,7 +43,8 @@ const KIND_META: Record<
     word: "remito",
     href: (id) => `/remitos/${id}`,
     format: (n) => formatDeliveryNoteNumber("sale", n),
-    Icon: Truck,
+    // PackageCheck: el ícono de Remitos en todas sus superficies (D11); Truck es el de Proveedores.
+    Icon: PackageCheck,
   },
 }
 

@@ -1,0 +1,10 @@
+
+ RUN  v4.1.8 C:/Users/Usuario/Desktop/EIE/wt-remitos/frontend
+
+Not implemented: navigation to another Document
+
+ Test Files  3 passed (3)
+      Tests  79 passed (79)
+   Start at  09:49:19
+   Duration  11.67s (transform 1.14s, setup 1.30s, import 5.60s, tests 6.68s, environment 12.17s)
+

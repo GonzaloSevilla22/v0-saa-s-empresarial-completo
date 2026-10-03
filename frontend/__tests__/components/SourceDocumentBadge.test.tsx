@@ -25,6 +25,14 @@ describe("SourceDocumentBadge", () => {
     expect(link).toHaveAttribute("href", "/remitos/dn-3")
   })
 
+  // Revisión adversarial 8.5 (RB-05): `Truck` es el ícono de Proveedores; el
+  // remito usa `PackageCheck` en todas sus superficies (D11).
+  it("remito: el ícono es PackageCheck (el de Remitos), no Truck (el de Proveedores)", () => {
+    const { container } = render(<SourceDocumentBadge kind="delivery_note" documentId="dn-3" documentNumber={7} />)
+    expect(container.querySelector("svg.lucide-package-check")).not.toBeNull()
+    expect(container.querySelector("svg.lucide-truck")).toBeNull()
+  })
+
   it("un documento sin número enlaza igual y no inventa uno (los dos tipos)", () => {
     const { unmount } = render(<SourceDocumentBadge kind="quote" documentId="q-old" documentNumber={null} />)
     expect(screen.getByRole("link", { name: "Desde presupuesto" })).toHaveAttribute("href", "/presupuestos/q-old")

@@ -443,6 +443,36 @@ describe("ConvertDeliveryNoteDialog — el remito cambió (recarga sin cerrar)",
     await submitWith(new PythonApiError("payment_method_required", 400, { code: "payment_method_required" }))
     expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ["deliveryNotes", "detail", "dn-1"] })
   })
+
+  // Revisión adversarial 8.5 (RB-06): tras `delivery_note_invalid_state` el detalle
+  // recargado ya no está `issued`; el diálogo no puede seguir ofreciendo una
+  // confirmación que va a fallar con el mismo error en cada reintento.
+  it.each([
+    ["converted", /ya fue convertido en venta/i],
+    ["canceled", /ya fue anulado/i],
+  ] as const)(
+    "tras invalid_state, con el remito recargado en %s: avisa el estado y sólo deja Cerrar",
+    async (status, message) => {
+      const { onOpenChange, rerenderWith } = await submitWith(
+        new PythonApiError("delivery_note_invalid_state", 409, { code: "delivery_note_invalid_state" }),
+      )
+
+      rerenderWith(note({ status }))
+
+      const dialog = screen.getByRole("dialog")
+      expect(within(dialog).getByText(message)).toBeInTheDocument()
+      expect(within(dialog).queryByRole("button", { name: /^registrar venta$/i })).not.toBeInTheDocument()
+      expect(within(dialog).queryByLabelText("Forma de pago")).not.toBeInTheDocument()
+      fireEvent.click(within(dialog).getByRole("button", { name: /^cerrar$/i }))
+      expect(onOpenChange).toHaveBeenCalledWith(false)
+    },
+  )
+
+  it("un remito pendiente (issued) sigue mostrando el formulario completo", () => {
+    renderDialog(note({ status: "issued" }))
+    expect(screen.getByRole("button", { name: /^registrar venta$/i })).toBeInTheDocument()
+    expect(screen.queryByText(/ya fue (convertido|anulado)/i)).not.toBeInTheDocument()
+  })
 })
 
 describe("ConvertDeliveryNoteDialog — errores accionables (el diálogo no se cierra)", () => {

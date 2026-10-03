@@ -171,6 +171,11 @@ function ConvertDeliveryNoteDialogBody({ deliveryNote, open, onOpenChange }: Con
 
   const numberLabel = deliveryNote.number_label
   const total = Number(deliveryNote.total)
+  // El remito de la pantalla ya no es el pendiente que se abrió (otro usuario lo
+  // convirtió o lo anuló y el detalle se recargó): no se ofrece una confirmación
+  // que fallaría con el mismo error en cada reintento. `done` manda: tras el
+  // éxito propio el remito también pasa a `converted` y se sigue viendo el recibo.
+  const staleStatus = deliveryNote.status !== "issued" ? deliveryNote.status : null
 
   return (
     <ResponsiveModal open={open} onOpenChange={handleOpenChange} title="Pasar a venta">
@@ -182,6 +187,19 @@ function ConvertDeliveryNoteDialogBody({ deliveryNote, open, onOpenChange }: Con
             replayed={done.replayed}
             onClose={() => onOpenChange(false)}
           />
+        ) : staleStatus ? (
+          <div className="flex min-w-0 flex-col gap-4">
+            <p role="status" className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm text-foreground">
+              El remito{numberLabel ? ` ${numberLabel}` : ""}{" "}
+              {staleStatus === "converted" ? "ya fue convertido en venta" : "ya fue anulado"}: no hay nada para
+              registrar.
+            </p>
+            <div className="flex justify-end">
+              <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+                Cerrar
+              </Button>
+            </div>
+          </div>
         ) : (
           <>
             <section aria-label="Resumen del remito" className="flex min-w-0 flex-col gap-2">

@@ -35,3 +35,13 @@ export function buildDeliveryNoteShareText({
   const business = businessName?.trim()
   return business ? `${sentence} ${business}` : sentence
 }
+
+/**
+ * Nombre del archivo del PDF: `remito-R-00000012.pdf`. La variante con precios
+ * lleva `-con-precios` para que nadie confunda, en una carpeta de descargas, el
+ * remito que se le puede mandar a un tercero con el que muestra los importes.
+ */
+export function deliveryNoteFileName(numberLabel: string | null, showPrices: boolean): string {
+  const base = numberLabel ? `remito-${numberLabel}` : "remito"
+  return showPrices ? `${base}-con-precios.pdf` : `${base}.pdf`
+}

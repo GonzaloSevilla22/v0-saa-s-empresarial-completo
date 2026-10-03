@@ -8,6 +8,7 @@ import {
   DELIVERY_NOTE_ESTADO_TABS,
   DELIVERY_NOTE_STATUS_LABELS,
   canceledReason,
+  deliveryNoteHistoryLabel,
   deliveryNoteActions,
   parseDeliveryNoteEstadoParam,
   type DeliveryNoteActionContext,
@@ -182,5 +183,28 @@ describe("canceledReason", () => {
         entry({ to_status: "canceled", reason: "nueva", occurred_at: "2026-10-02T11:00:00Z" }),
       ]),
     ).toBe("nueva")
+  })
+})
+
+describe("deliveryNoteHistoryLabel", () => {
+  const entry = (from: DeliveryNoteHistoryEntry["from_status"], to: DeliveryNoteHistoryEntry["to_status"]): DeliveryNoteHistoryEntry => ({
+    from_status: from,
+    to_status: to,
+    performed_by: "u-1",
+    occurred_at: "2026-10-02T12:00:00Z",
+    reason: null,
+  })
+
+  it.each([
+    [null, "issued", "Emitido"],
+    ["issued", "converted", "Convertido en venta"],
+    ["issued", "canceled", "Anulado"],
+    ["converted", "issued", "Vuelto a pendiente"],
+  ] as const)("la transición %s -> %s se lee '%s'", (from, to, label) => {
+    expect(deliveryNoteHistoryLabel(entry(from, to))).toBe(label)
+  })
+
+  it("una transición no prevista cae al rótulo del estado de destino", () => {
+    expect(deliveryNoteHistoryLabel(entry("canceled", "canceled"))).toBe("Anulado")
   })
 })

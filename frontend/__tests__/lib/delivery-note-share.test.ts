@@ -3,7 +3,7 @@
  * que acompaña al PDF del remito por WhatsApp. Función pura.
  */
 import { describe, it, expect } from "vitest"
-import { buildDeliveryNoteShareText } from "@/lib/delivery-note-share"
+import { buildDeliveryNoteShareText, deliveryNoteFileName } from "@/lib/delivery-note-share"
 
 describe("buildDeliveryNoteShareText", () => {
   it("el texto completo de D11", () => {
@@ -46,5 +46,20 @@ describe("buildDeliveryNoteShareText", () => {
   it("sin número de remito (fila sin numerar) omite el número y no inventa uno", () => {
     const text = buildDeliveryNoteShareText({ clientName: "Ana", numberLabel: null, issuedOn: "2026-10-02" })
     expect(text).toBe("Hola Ana, te envío el remito de la mercadería entregada el 02/10/2026.")
+  })
+})
+
+describe("deliveryNoteFileName", () => {
+  it("sin precios: remito-R-00000012.pdf", () => {
+    expect(deliveryNoteFileName("R-00000012", false)).toBe("remito-R-00000012.pdf")
+  })
+
+  it("con precios el nombre lo distingue para no confundir las dos variantes", () => {
+    expect(deliveryNoteFileName("R-00000012", true)).toBe("remito-R-00000012-con-precios.pdf")
+  })
+
+  it("sin número (fila sin numerar) no inventa uno", () => {
+    expect(deliveryNoteFileName(null, false)).toBe("remito.pdf")
+    expect(deliveryNoteFileName(null, true)).toBe("remito-con-precios.pdf")
   })
 })

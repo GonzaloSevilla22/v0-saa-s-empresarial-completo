@@ -138,3 +138,14 @@ export function canceledReason(history: readonly DeliveryNoteHistoryEntry[]): st
   const reason = latest?.reason?.trim()
   return reason ? reason : null
 }
+
+/**
+ * Cómo se lee una transición en el historial del detalle. "Emitido" (alta),
+ * "Vuelto a pendiente" (se eliminó la venta nacida del remito) y, para el resto,
+ * el rótulo del estado de destino.
+ */
+export function deliveryNoteHistoryLabel(entry: DeliveryNoteHistoryEntry): string {
+  if (entry.from_status === null && entry.to_status === "issued") return "Emitido"
+  if (entry.from_status === "converted" && entry.to_status === "issued") return "Vuelto a pendiente"
+  return DELIVERY_NOTE_STATUS_LABELS[entry.to_status]
+}

@@ -21,14 +21,14 @@ const NO_ROLES: DeliveryNoteActionContext = { canDeliver: false, canSell: false,
 describe("DELIVERY_NOTE_STATUS_LABELS", () => {
   it("tiene un rótulo para cada estado del catálogo", () => {
     for (const status of DELIVERY_NOTE_STATUSES) {
-      expect(DELIVERY_NOTE_STATUS_LABELS[status]).toBeTruthy()
+      expect(DELIVERY_NOTE_STATUS_LABELS.sale[status]).toBeTruthy()
     }
   })
 
   it("nombra el estado como lo ve el usuario: pendiente, convertido en venta, anulado", () => {
-    expect(DELIVERY_NOTE_STATUS_LABELS.issued).toBe("Pendiente")
-    expect(DELIVERY_NOTE_STATUS_LABELS.converted).toBe("Convertido en venta")
-    expect(DELIVERY_NOTE_STATUS_LABELS.canceled).toBe("Anulado")
+    expect(DELIVERY_NOTE_STATUS_LABELS.sale.issued).toBe("Pendiente")
+    expect(DELIVERY_NOTE_STATUS_LABELS.sale.converted).toBe("Convertido en venta")
+    expect(DELIVERY_NOTE_STATUS_LABELS.sale.canceled).toBe("Anulado")
   })
 })
 

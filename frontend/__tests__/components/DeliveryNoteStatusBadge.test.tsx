@@ -22,6 +22,20 @@ describe("DeliveryNoteStatusBadge", () => {
     expect(screen.getByText(label)).toBeInTheDocument()
   })
 
+  it.each([
+    ["issued", "Pendiente"],
+    ["converted", "Convertido en compra"],
+    ["canceled", "Anulado"],
+  ] as const)("remitos-compra: con direction purchase el estado %s se rotula '%s'", (status, label) => {
+    render(<DeliveryNoteStatusBadge status={status} direction="purchase" />)
+    expect(screen.getByText(label)).toBeInTheDocument()
+  })
+
+  it("remitos-compra: con direction sale (explícito) el convertido sigue siendo 'en venta'", () => {
+    render(<DeliveryNoteStatusBadge status="converted" direction="sale" />)
+    expect(screen.getByText("Convertido en venta")).toBeInTheDocument()
+  })
+
   it("expone el estado para pruebas y lectores (data-status)", () => {
     const { container } = render(<DeliveryNoteStatusBadge status="converted" />)
     expect(container.firstElementChild).toHaveAttribute("data-status", "converted")
@@ -29,7 +43,7 @@ describe("DeliveryNoteStatusBadge", () => {
 
   it("cada estado tiene rótulo y ninguno usa literales de paleta de Tailwind", () => {
     for (const status of DELIVERY_NOTE_STATUSES) {
-      expect(DELIVERY_NOTE_STATUS_LABELS[status]).toBeTruthy()
+      expect(DELIVERY_NOTE_STATUS_LABELS.sale[status]).toBeTruthy()
       const { container, unmount } = render(<DeliveryNoteStatusBadge status={status} />)
       const classes = container.firstElementChild?.className ?? ""
       expect(classes).not.toMatch(/\b(bg|text|border)-(red|green|yellow|blue|amber|emerald|slate|gray)-\d{2,3}\b/)

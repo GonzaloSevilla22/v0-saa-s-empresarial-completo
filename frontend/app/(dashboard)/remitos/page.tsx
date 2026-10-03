@@ -425,7 +425,7 @@ export default function DeliveryNotesPage() {
           <Card className="hidden border-border bg-card min-w-0 md:block">
             <CardContent className="p-0">
               <div className="overflow-x-auto">
-                <table className={isPurchase ? "w-full min-w-[980px] text-sm" : "w-full min-w-[820px] text-sm"}>
+                <table className={isPurchase ? "w-full min-w-[900px] text-sm" : "w-full min-w-[820px] text-sm"}>
                   <thead>
                     <tr className="border-b border-border text-left">
                       <th scope="col" className="px-4 py-3 font-medium text-muted-foreground">Número</th>

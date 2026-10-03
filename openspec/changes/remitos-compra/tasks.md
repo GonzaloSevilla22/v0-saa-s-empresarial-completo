@@ -170,7 +170,8 @@
 
 ## 9. Documentación
 
-- [ ] 9.1 `CHANGES.md`:
+- [x] 9.1a **Tanda A** (2026-10-03): ficha del change en `CHANGES.md` (pedido textual, sign-off, D1-D16 en una línea, migración `20261071000001`, verificación con conteos, humo, red-team, defectos abiertos, orden de locks, coordinación y candidatos que deja).
+- [ ] 9.1b **Tanda B**: completar la ficha con la conversión, el borrado y la edición de la compra nacida de un remito. Lo que sigue es el detalle original de 9.1:
   - ficha del change, con los hallazgos;
   - el orden de locks (`delivery_notes` primero en la conversión a compra, al final en el borrado de la compra) junto a la regla global;
   - candidatos que deja, cada uno con su motivo:
@@ -189,8 +190,9 @@
     - link público y envío por email del remito;
     - importador CSV de remitos;
   - la coordinación con `remitos-venta` tanda B y con #607, incluido el orden de los pasos de reaplicación en CI y, si la tanda A de compra mergea antes que `20261070000001`, que esa migración debe re-partir del `_delivery_note_payload` vivo (D15).
-- [ ] 9.2 KB: `knowledge-base/04_modelo_de_datos.md` (`purchases.source_delivery_note_id`, sentido compra de `delivery_notes`), `05_reglas_de_negocio.md` (regla del remito de compra: suma al recibir, edición con faltante sobre el neto, anulación bloqueada si se consumió, conversión sin doble suma, compra inmutable, borrado que reabre), `06_funcionalidades.md` y `07_flujos_principales.md` (flujo de recepción → compra).
-- [ ] 9.3 Puntero del `CLAUDE.md`: **no se edita en este change** (instrucción del workflow). Se anota en `CHANGES.md` que el ítem del roadmap se actualiza en el archive, con `python scripts/ci/check_docs_sync.py --fix` en ese PR.
+- [x] 9.2a **Tanda A** (2026-10-03): KB `04` (sentido compra, FSM, numeración `RC`, movimientos), `05` (RN-RC1..RC5), `06` (módulo De compra) y `07` (Flujo 13). Nada en `CLAUDE.md`.
+- [ ] 9.2b **Tanda B** KB: `knowledge-base/04_modelo_de_datos.md` (`purchases.source_delivery_note_id`, sentido compra de `delivery_notes`), `05_reglas_de_negocio.md` (regla del remito de compra: suma al recibir, edición con faltante sobre el neto, anulación bloqueada si se consumió, conversión sin doble suma, compra inmutable, borrado que reabre), `06_funcionalidades.md` y `07_flujos_principales.md` (flujo de recepción → compra).
+- [x] 9.3 Puntero del `CLAUDE.md`: **no se edita en este change** (instrucción del workflow). Se anota en `CHANGES.md` que el ítem del roadmap se actualiza en el archive, con `python scripts/ci/check_docs_sync.py --fix` en ese PR.
 
 ## 10. Post-merge (por tanda)
 

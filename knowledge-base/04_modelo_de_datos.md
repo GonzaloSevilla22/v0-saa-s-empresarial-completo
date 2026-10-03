@@ -275,7 +275,7 @@ Escritura sólo por RPC (`rpc_create_quote`, `rpc_update_quote`, `rpc_transition
 ```sql
 -- delivery_notes
 id UUID PK, account_id UUID NOT NULL
-direction TEXT NOT NULL            -- CHECK IN ('sale','purchase'); 'purchase' sin escritor hasta remitos-compra
+direction TEXT NOT NULL            -- CHECK IN ('sale','purchase'); 'purchase' lo escribe remitos-compra desde la tanda A
 branch_id UUID NOT NULL            -- sucursal de origen: de ahí sale (y a ahí vuelve) el stock
 client_id UUID NULL, supplier_id UUID NULL, supplier_reference TEXT NULL
   -- CHECK de contraparte: sale = client_id NOT NULL y supplier_id NULL; purchase = al revés
@@ -297,6 +297,10 @@ quantity_base NUMERIC(15,4) > 0    -- cantidad en unidad base: lo que el remito 
 - El catálogo de transiciones `delivery_note_sale` tiene, en la tanda A, `NULL -> issued` (seller/stock/admin/owner) e `issued -> canceled` (admin/owner, motivo obligatorio, terminal). `issued -> converted` y `converted -> issued` llegan con la tanda B.
 - **Tanda B (2026-10-03)**: `sales_orders.source_delivery_note_id uuid NULL` (FK `NO ACTION` a `delivery_notes`) + índice único parcial `sales_orders_source_delivery_note_id_uq` (una sola orden viva por remito; una orden cancelada no impide reconvertir). Sin política de escritura nueva: sólo la escribe `rpc_convert_delivery_note_to_sale`. El catálogo `delivery_note_sale` suma `issued -> converted` y `converted -> issued` (4 filas; la vuelta sólo la dispara el borrado de la venta). Migración `20261070000001_remitos_venta_conversion.sql`.
 - Lo que el remito retiene se lee de `quantity_base` de sus líneas (escrita sólo por sus RPCs), nunca sumando el ledger, que los roles de aplicación pueden insertar por PostgREST.
+- **Sentido compra (`remitos-compra`, tanda A, 2026-10-03, migración `20261071000001_remitos_compra.sql`)**: `direction = 'purchase'` usa las mismas tablas sin `ALTER TABLE`. `supplier_id` obligatorio (y `client_id` nulo, por el `CHECK` de contraparte), `supplier_reference` = número del remito del proveedor (opcional, <= 100), `branch_id` = sucursal de **destino** (a la que entra la mercadería), `delivery_address` siempre nulo. En las líneas, `price` es el precio de compra por unidad de la línea (admite 0 al recibir) y `unit_cost_snapshot` es el costo de catálogo; `subtotal` y `total` los calcula el servidor (`round(price x quantity, 2)`).
+- Numeración `RC-00000001`, correlativa por cuenta con secuencia propia (`internal_document_sequences.document_type = 'delivery_note_purchase'`). FSM `delivery_note_purchase`: `NULL -> issued` (stock/admin/owner) e `issued -> canceled` (admin/owner, motivo obligatorio, terminal); `issued -> converted` y su vuelta llegan con la tanda B. `operation_idempotency.operation_kind` suma `delivery_note_purchase`.
+- Stock: la recepción escribe movimientos `type = 'purchase'` con `reference_type = 'delivery_note'` (la edición, `delivery_note_update`; la anulación, `purchase_return` con `delivery_note_reversal`). Escritura sólo por `rpc_create_purchase_delivery_note`, `rpc_update_purchase_delivery_note` y `rpc_cancel_delivery_note` (esta última sirve a los dos sentidos); los helpers `_delivery_note_*` leen el sentido de la fila del remito.
+- Tanda B (pendiente): `purchases.source_delivery_note_id`, puente remito -> compra en cada fila de la operación.
 
 ---
 

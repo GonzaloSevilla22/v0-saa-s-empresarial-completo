@@ -81,6 +81,15 @@
 - Botón "Venta" (tanda B): convierte el remito pendiente en venta (efectivo, transferencia, crédito, etc.) con los precios del remito y sin volver a descontar stock; el remito pasa a convertido con "Ver venta"
 - `/ventas`: badge "Desde remito R-…", "Editar" bloqueado con el motivo y, al borrar, la aclaración de que el stock no vuelve y el remito queda pendiente
 
+### Remitos de compra (`remitos-compra`, tanda A — 2026-10-03)
+
+- `/remitos` gana la pestaña **De compra** (`?sentido=compra`): columnas con proveedor y número del proveedor, badge "Sin precio", búsqueda por proveedor, `RC-00000001` o número del proveedor, y resumen de pendientes con cuántos tienen líneas sin precio.
+- `/remitos/nuevo?tipo=compra` (y `?proveedor=`) y `/remitos/[id]/editar`: proveedor (con alta inline y teléfono opcional), número del remito del proveedor, sucursal "Ingresa a" y líneas con el costo de catálogo precargado; precio 0 permitido.
+- Recibir **suma stock**; editar ajusta sólo lo que cambia (bloquea bajar lo ya vendido); anular (admin/owner, con motivo) lo resta y se bloquea si la mercadería ya se consumió.
+- `/remitos/[id]`: PDF "Remito de compra" sin precios por defecto con "Mostrar precios", descarga y WhatsApp al teléfono del proveedor.
+- Desde `/proveedores` y la cuenta corriente del proveedor: "Nuevo remito de compra" y "Ver remitos". Los movimientos se rotulan "Remito RC-…" en `/stock` y su CSV; la baja de proveedor o de sucursal con remitos pendientes se bloquea.
+- Botón "Compra" (conversión a compra) y badge en `/compras`: tanda B, pendiente.
+
 ---
 
 ## Épica 3: Clientes

@@ -316,7 +316,7 @@
   - `lib/delivery-note-types.ts`: `DeliveryNoteConvertInput`/`DeliveryNoteConvertResult` (contrato de `backend/schemas/delivery_notes.py`: sin `branch_id` ni clave en el cuerpo).
   - `lib/operation-errors.ts`: con `documentLabel: "remito"`, `branch_closed` manda a reactivar la sucursal del remito (el texto de siempre decía "elegí otra sucursal", que la conversión no ofrece); `delivery_note_branch_inactive` suma "o para eliminar su venta" (es el rechazo del borrado de la venta, D9).
   - Evidencia: `evidence/tanda-b/red-7.3-frontend.log` (el diálogo no existe, el hook no existe, 2 de 5 de `SaleCheckoutFields` fallan por la prop) y `green-7.3-frontend.log` (111 tests en 6 archivos, incluidos `ConvertQuoteDialog` y los de `operation-errors`).
-- [ ] 7.5 Detalle del remito: acción "Venta" (`CAN_SELL`, sólo `issued`). Estado `converted` con "Ver venta" y el comprobante.
+- [x] 7.5 Detalle del remito: acción "Venta" (`CAN_SELL`, sólo `issued`). Estado `converted` con "Ver venta" y el comprobante.
 - [ ] 7.6 `/ventas`: badge "Desde remito R-…" en el listado y el detalle (en su propia línea, como el de presupuesto), generalizando `SourceQuoteBadge` a `SourceDocumentBadge` (tipo + número + `href`) que usan los dos orígenes. "Editar" deshabilitado con el motivo. Diálogo de borrado con la línea de D9.
 - [x] 7.7 Invalidación tras borrar una venta: `invalidateAfterSaleDelete` en `lib/query-invalidation.ts` (incluye `deliveryNotes.all()`), usada por `deleteSaleMutation`, `deleteSalesByOperationMutation` y el borrado de orden. RED: test de hook que asserta la invalidación de remitos.
 

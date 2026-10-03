@@ -106,7 +106,7 @@ export function DeactivateBranchDialog({
                     {pendingCount === 1 ? "remito pendiente que retiene" : "remitos pendientes que retienen"}{" "}
                     mercadería de esta sucursal. No se puede desactivar mientras haya alguno.
                   </p>
-                  <p>Anulalos (un administrador o el dueño) y volvé a intentarlo.</p>
+                  <p>Convertilos en venta o anulalos (un administrador o el dueño) y volvé a intentarlo.</p>
                 </>
               )}
               {!hasContent && <p>La sucursal está vacía de existencias. Los registros históricos se conservan.</p>}

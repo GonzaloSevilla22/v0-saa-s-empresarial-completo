@@ -273,3 +273,27 @@ Usuario (seller/stock/admin/owner) → /remitos/nuevo
     └── POST /delivery-notes/{id}/cancel  (admin/owner, motivo)
             └── Repone lo retenido (delivery_note_reversal); estado terminal canceled
 ```
+
+## Flujo 12: Remito a venta (`remitos-venta`, tanda B)
+
+```
+Usuario (seller/cashier/admin/owner) → /remitos/{id} → "Venta"  (remito issued, cliente vivo)
+    │   forma de pago (efectivo / transferencia / crédito / …); sin selector de sucursal
+    │
+    ├── POST /delivery-notes/{id}/convert  (header Idempotency-Key, revision esperada)
+    │       └── RPC rpc_convert_delivery_note_to_sale — UNA transacción:
+    │           ├── Lock del remito primero; idempotencia bajo el lock; estado, versión,
+    │           │   cliente vivo, sucursal activa y no cerrada
+    │           ├── Orden + líneas copiadas del remito (precios y snapshots del remito),
+    │           │   con source_delivery_note_id
+    │           ├── _c29_confirm_order_core: revalida remito y líneas (P0409) y NO mueve stock;
+    │           │   caja / cuenta corriente / banco / fiscal / outbox como cualquier venta
+    │           └── Remito issued → converted (historial)
+    │
+    ├── Facturar (opcional): como cualquier venta
+    │
+    └── Borrar la venta (admin/owner)
+            └── Compensa caja, cuenta corriente, banco y comprobante pendiente; NO repone stock;
+                el remito vuelve a issued y se puede reconvertir
+```
+Editar la venta nacida de un remito está bloqueado (`delivery_note_sale_locked`); un remito convertido no se anula ni se edita.

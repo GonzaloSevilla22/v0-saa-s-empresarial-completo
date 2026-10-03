@@ -1,0 +1,210 @@
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=1c062833-f0a8-4d44-a60e-979fe8fd3755
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=05b502c7-a038-4e8c-8f84-7c22fa83c120
+[1] A: {"sub" : "04d7711c-407a-4480-b0ef-381b21af9edc", "role" : "authenticated"} 04d7711c-407a-4480-b0ef-381b21af9edc RES={"id": "d7806ef8-d1ff-4039-a06d-d4d2f53b3a41
+[1] B: {"sub" : "04d7711c-407a-4480-b0ef-381b21af9edc", "role" : "authenticated"} 04d7711c-407a-4480-b0ef-381b21af9edc ERROR:  stock_insuficiente para producto 4fbfff3
+PASS (1): dos emisiones por la última unidad -> un remito; la otra esperó el lock del producto y recibió stock_insuficiente.
+[2] A: {"sub" : "04d7711c-407a-4480-b0ef-381b21af9edc", "role" : "authenticated"} 04d7711c-407a-4480-b0ef-381b21af9edc RES={"id": "ad17dca8-b4b3-4268-8fd8-efcdd9813ac6
+[2] B: {"sub" : "04d7711c-407a-4480-b0ef-381b21af9edc", "role" : "authenticated"} 04d7711c-407a-4480-b0ef-381b21af9edc RES={"id": "ad17dca8-b4b3-4268-8fd8-efcdd9813ac6
+PASS (2): doble clic con la misma clave -> B esperó en el ON CONFLICT y devolvió el mismo remito con replayed = true; un solo descuento.
+[3a] A: {"sub" : "04d7711c-407a-4480-b0ef-381b21af9edc", "role" : "authenticated"} 04d7711c-407a-4480-b0ef-381b21af9edc RES={"id": "7fe6e8f5-b467-4251-bcdc-d2ace3e349dc
+[3a] B: {"sub" : "04d7711c-407a-4480-b0ef-381b21af9edc", "role" : "authenticated"} 04d7711c-407a-4480-b0ef-381b21af9edc ERROR:  delivery_note_changed: el remito cambió
+PASS (3a): edición abierta vs anulación -> la anulación esperó el FOR UPDATE y recibió delivery_note_changed; Σ delta = -retenido.
+[3b] A: {"sub" : "04d7711c-407a-4480-b0ef-381b21af9edc", "role" : "authenticated"} 04d7711c-407a-4480-b0ef-381b21af9edc RES={"id": "ebc648cc-13fc-413d-88bd-bf6c2833811a
+[3b] B: {"sub" : "04d7711c-407a-4480-b0ef-381b21af9edc", "role" : "authenticated"} 04d7711c-407a-4480-b0ef-381b21af9edc ERROR:  delivery_note_invalid_state: el remito e
+PASS (3b): anulación abierta vs edición -> la edición recibió delivery_note_invalid_state; stock repuesto una sola vez, ledger en 0.
+[4a] A: {"sub" : "04d7711c-407a-4480-b0ef-381b21af9edc", "role" : "authenticated"} 04d7711c-407a-4480-b0ef-381b21af9edc RES=product_deleted  
+[4a] B: {"sub" : "04d7711c-407a-4480-b0ef-381b21af9edc", "role" : "authenticated"} 04d7711c-407a-4480-b0ef-381b21af9edc ERROR:  product_not_found: 72f8ccbd-896f-4040-99
+PASS (4a): baja del producto abierta vs emisión -> la emisión esperó el lock y, validando sobre la fila bloqueada, recibió product_not_found sin efectos.
+[4b] A: {"sub" : "04d7711c-407a-4480-b0ef-381b21af9edc", "role" : "authenticated"} 04d7711c-407a-4480-b0ef-381b21af9edc RES={"id": "ffb75233-b8c9-4072-844b-d094dcc098d5
+[4b] B: {"sub" : "04d7711c-407a-4480-b0ef-381b21af9edc", "role" : "authenticated"} 04d7711c-407a-4480-b0ef-381b21af9edc RES=product_deleted 
+PASS (4b): emisión abierta vs baja -> la baja esperó al remito, que quedó emitido con el producto vivo al momento del lock.
+[5] A: {"sub" : "04d7711c-407a-4480-b0ef-381b21af9edc", "role" : "authenticated"} 04d7711c-407a-4480-b0ef-381b21af9edc RES={"total": 200.00, "replayed": false, "operat
+[5] B: {"sub" : "04d7711c-407a-4480-b0ef-381b21af9edc", "role" : "authenticated"} 04d7711c-407a-4480-b0ef-381b21af9edc ERROR:  delivery_note_invalid_state: el remito e
+PASS (5): dos conversiones del mismo remito -> una venta; la otra esperó el FOR UPDATE y recibió delivery_note_invalid_state; stock intacto.
+[5b] A: {"sub" : "04d7711c-407a-4480-b0ef-381b21af9edc", "role" : "authenticated"} 04d7711c-407a-4480-b0ef-381b21af9edc RES={"total": 100.00, "replayed": false, "operat
+[5b] B: {"sub" : "04d7711c-407a-4480-b0ef-381b21af9edc", "role" : "authenticated"} 04d7711c-407a-4480-b0ef-381b21af9edc RES={"total": 100.00, "replayed": true, "operati
+PASS (5b): doble clic con la misma clave -> la segunda esperó el remito e hizo replay de la misma venta.
+[6a] A: {"sub" : "04d7711c-407a-4480-b0ef-381b21af9edc", "role" : "authenticated"} 04d7711c-407a-4480-b0ef-381b21af9edc RES={"total": 100.00, "replayed": false, "operat
+[6a] B: {"sub" : "04d7711c-407a-4480-b0ef-381b21af9edc", "role" : "authenticated"} 04d7711c-407a-4480-b0ef-381b21af9edc ERROR:  delivery_note_locked_converted: el remit
+PASS (6a): conversión abierta vs anulación -> la anulación esperó y recibió P0423 delivery_note_locked_converted.
+[6b] A: {"sub" : "04d7711c-407a-4480-b0ef-381b21af9edc", "role" : "authenticated"} 04d7711c-407a-4480-b0ef-381b21af9edc RES={"id": "acd70c45-b770-47b9-acdf-c93f94db78c5
+[6b] B: {"sub" : "04d7711c-407a-4480-b0ef-381b21af9edc", "role" : "authenticated"} 04d7711c-407a-4480-b0ef-381b21af9edc ERROR:  delivery_note_invalid_state: el remito e
+PASS (6b): anulación abierta vs conversión -> la conversión recibió delivery_note_invalid_state; ninguna venta con el remito anulado.
+[7a] A: {"sub" : "04d7711c-407a-4480-b0ef-381b21af9edc", "role" : "authenticated"} 04d7711c-407a-4480-b0ef-381b21af9edc RES={"id": "ee560457-d211-4c48-9592-86a9bd1d59d0
+[7a] B: {"sub" : "04d7711c-407a-4480-b0ef-381b21af9edc", "role" : "authenticated"} 04d7711c-407a-4480-b0ef-381b21af9edc ERROR:  delivery_note_changed: el remito cambió
+PASS (7a): edición abierta vs conversión -> la conversión esperó y recibió delivery_note_changed, sin venta.
+[7b] A: {"sub" : "04d7711c-407a-4480-b0ef-381b21af9edc", "role" : "authenticated"} 04d7711c-407a-4480-b0ef-381b21af9edc RES={"total": 100.00, "replayed": false, "operat
+[7b] B: {"sub" : "04d7711c-407a-4480-b0ef-381b21af9edc", "role" : "authenticated"} 04d7711c-407a-4480-b0ef-381b21af9edc ERROR:  delivery_note_locked_converted: el remit
+PASS (7b): conversión abierta vs edición -> la edición recibió P0423 delivery_note_locked_converted; versión intacta.
+[8] A: {"sub" : "04d7711c-407a-4480-b0ef-381b21af9edc", "role" : "authenticated"} 04d7711c-407a-4480-b0ef-381b21af9edc RES=deleted:true  
+[8] B: {"sub" : "04d7711c-407a-4480-b0ef-381b21af9edc", "role" : "authenticated"} 04d7711c-407a-4480-b0ef-381b21af9edc RES={"total": 200.00, "replayed": false, "operat
+PASS (8): borrado de la venta abierto vs reconversión -> la reconversión esperó el remito y convirtió; sin interbloqueo, una venta viva, stock intacto.
+[9] A: {"sub" : "04d7711c-407a-4480-b0ef-381b21af9edc", "role" : "authenticated"} 04d7711c-407a-4480-b0ef-381b21af9edc RES=deleted:true  
+[9] B: {"sub" : "04d7711c-407a-4480-b0ef-381b21af9edc", "role" : "authenticated"} 04d7711c-407a-4480-b0ef-381b21af9edc RES={"id": "ce7e4e26-ff07-422d-bd42-50157dc2e575
+PASS (9): borrado de la venta abierto vs anulación -> la anulación esperó, encontró el remito issued y repuso el stock una sola vez.
+[10] A: {"sub" : "04d7711c-407a-4480-b0ef-381b21af9edc", "role" : "authenticated"} 04d7711c-407a-4480-b0ef-381b21af9edc ERROR:  deadlock detected DETAIL:  Process 3039 
+[10] B: {"sub" : "04d7711c-407a-4480-b0ef-381b21af9edc", "role" : "authenticated"} 04d7711c-407a-4480-b0ef-381b21af9edc RES={"id": "3b5a0faa-c2a8-455e-a2c8-701230766953
+GATE REMITOS-VENTA-RACE FAILED: (10) interbloqueo entre la conversión y la emisión de otro remito
+--- 1.a ---
+{"sub" : "04d7711c-407a-4480-b0ef-381b21af9edc", "role" : "authenticated"}
+04d7711c-407a-4480-b0ef-381b21af9edc
+RES={"id": "d7806ef8-d1ff-4039-a06d-d4d2f53b3a41", "items": [{"id": "ba3815b7-4a49-4496-9f0c-5797f4c8d374", "price": 100, "line_no": 1, "unit_id": null, "quantity": 1.0000, "subtotal": 100.00, "account_id": "8cb12e5b-c4fd-4a5d-9451-ad02b249b359", "created_at": "2026-10-03T12:52:23.905291+00:00", "product_id": "4fbfff3b-2050-416d-be92-fc19a353bf4c", "unit_symbol": null, "sku_snapshot": "RV-RACE-LAST", "name_snapshot": "RV Race Última", "quantity_base": 1.0000, "product_deleted": false, "delivery_note_id": "d7806ef8-d1ff-4039-a06d-d4d2f53b3a41", "iva_rate_snapshot": null, "unit_cost_snapshot": 10.00}], "notes": null, "total": 100.00, "number": 1, "status": "issued", "history": [{"reason": null, "to_status": "issued", "from_status": null, "occurred_at": "2026-10-03T12:52:23.905291+00:00", "performed_by": "04d7711c-407a-4480-b0ef-381b21af9edc"}], "replayed": false, "revision": 1, "branch_id": "b60e9135-82f7-4f60-95cc-e5e21e7f11f1", "client_id": "664670f2-c044-4db2-8724-fd64b58bb932", "direction": "sale", "issued_on": "2026-10-03", "account_id": "8cb12e5b-c4fd-4a5d-9451-ad02b249b359", "created_at": "2026-10-03T12:52:23.905291+00:00", "created_by": "04d7711c-407a-4480-b0ef-381b21af9edc", "updated_at": null, "updated_by": null, "branch_name": "Casa Central", "client_name": "Cliente RV Race", "supplier_id": null, "client_phone": null, "document_type": "delivery_note_sale", "client_deleted": false, "delivery_address": null, "supplier_reference": null, "converted_operation_id": null, "converted_sales_order_id": null}
+
+--- 1.b ---
+{"sub" : "04d7711c-407a-4480-b0ef-381b21af9edc", "role" : "authenticated"}
+04d7711c-407a-4480-b0ef-381b21af9edc
+ERROR:  stock_insuficiente para producto 4fbfff3b-2050-416d-be92-fc19a353bf4c: disponible 0.0000, solicitado 1.0000
+CONTEXT:  PL/pgSQL function _delivery_note_apply_stock(uuid,uuid,uuid,jsonb) line 26 at RAISE
+SQL statement "SELECT public._delivery_note_apply_stock(v_account_id, v_dn_id, gen_random_uuid(),
+                                            public._delivery_note_held_pairs(v_dn_id))"
+PL/pgSQL function rpc_create_sale_delivery_note(text,uuid,uuid,text,text,jsonb) line 111 at PERFORM
+--- 10.a ---
+{"sub" : "04d7711c-407a-4480-b0ef-381b21af9edc", "role" : "authenticated"}
+04d7711c-407a-4480-b0ef-381b21af9edc
+ERROR:  deadlock detected
+DETAIL:  Process 3039 waits for ShareLock on transaction 2845; blocked by process 3071.
+Process 3071 waits for ShareLock on transaction 2842; blocked by process 3039.
+HINT:  See server log for query details.
+CONTEXT:  while locking tuple (0,17) in relation "products"
+SQL statement "SELECT 1 FROM ONLY "public"."products" x WHERE "id" OPERATOR(pg_catalog.=) $1 FOR KEY SHARE OF x"
+SQL statement "INSERT INTO public.sales_order_items
+    (sales_order_id, account_id, product_id, unit_id, quantity, price, subtotal,
+     name_snapshot, sku_snapshot, unit_cost_snapshot, iva_rate_snapshot)
+  SELECT v_sales_order, v_dn.account_id, i.product_id, i.unit_id, i.quantity, i.price, i.subtotal,
+         i.name_snapshot, i.sku_snapshot, i.unit_cost_snapshot, i.iva_rate_snapshot
+  FROM public.delivery_note_items i
+  WHERE i.delivery_note_id = v_dn.id
+  ORDER BY i.line_no, i.id"
+PL/pgSQL function rpc_convert_delivery_note_to_sale(text,uuid,integer,uuid,uuid,uuid,text) line 117 at SQL statement
+--- 10.b ---
+{"sub" : "04d7711c-407a-4480-b0ef-381b21af9edc", "role" : "authenticated"}
+04d7711c-407a-4480-b0ef-381b21af9edc
+RES={"id": "3b5a0faa-c2a8-455e-a2c8-701230766953", "items": [{"id": "d5a6f22e-6268-4b72-b2f2-632daa6e933e", "price": 100, "line_no": 1, "unit_id": null, "quantity": 1.0000, "subtotal": 100.00, "account_id": "8cb12e5b-c4fd-4a5d-9451-ad02b249b359", "created_at": "2026-10-03T12:55:02.561619+00:00", "product_id": "ad006e7f-3614-4ec0-9bea-80b33fa76e79", "unit_symbol": null, "sku_snapshot": "RV-RACE-K2", "name_snapshot": "RV Race K2", "quantity_base": 1.0000, "product_deleted": false, "delivery_note_id": "3b5a0faa-c2a8-455e-a2c8-701230766953", "iva_rate_snapshot": null, "unit_cost_snapshot": 10.00}, {"id": "a6e28351-e327-4f60-8bca-b55fbf236933", "price": 100, "line_no": 2, "unit_id": null, "quantity": 1.0000, "subtotal": 100.00, "account_id": "8cb12e5b-c4fd-4a5d-9451-ad02b249b359", "created_at": "2026-10-03T12:55:02.561619+00:00", "product_id": "f8768f80-d3bb-4c03-8fc3-6b5524c3f400", "unit_symbol": null, "sku_snapshot": "RV-RACE-K1", "name_snapshot": "RV Race K1", "quantity_base": 1.0000, "product_deleted": false, "delivery_note_id": "3b5a0faa-c2a8-455e-a2c8-701230766953", "iva_rate_snapshot": null, "unit_cost_snapshot": 10.00}], "notes": null, "total": 200.00, "number": 15, "status": "issued", "history": [{"reason": null, "to_status": "issued", "from_status": null, "occurred_at": "2026-10-03T12:55:02.561619+00:00", "performed_by": "04d7711c-407a-4480-b0ef-381b21af9edc"}], "replayed": false, "revision": 1, "branch_id": "b60e9135-82f7-4f60-95cc-e5e21e7f11f1", "client_id": "664670f2-c044-4db2-8724-fd64b58bb932", "direction": "sale", "issued_on": "2026-10-03", "account_id": "8cb12e5b-c4fd-4a5d-9451-ad02b249b359", "created_at": "2026-10-03T12:55:02.561619+00:00", "created_by": "04d7711c-407a-4480-b0ef-381b21af9edc", "updated_at": null, "updated_by": null, "branch_name": "Casa Central", "client_name": "Cliente RV Race", "supplier_id": null, "client_phone": null, "document_type": "delivery_note_sale", "client_deleted": false, "delivery_address": null, "supplier_reference": null, "converted_operation_id": null, "converted_sales_order_id": null}
+--- 2.a ---
+{"sub" : "04d7711c-407a-4480-b0ef-381b21af9edc", "role" : "authenticated"}
+04d7711c-407a-4480-b0ef-381b21af9edc
+RES={"id": "ad17dca8-b4b3-4268-8fd8-efcdd9813ac6", "items": [{"id": "9151ed19-bd71-4bc1-a1fa-5e15404af23e", "price": 100, "line_no": 1, "unit_id": null, "quantity": 2.0000, "subtotal": 200.00, "account_id": "8cb12e5b-c4fd-4a5d-9451-ad02b249b359", "created_at": "2026-10-03T12:52:32.427006+00:00", "product_id": "24782639-a00b-4388-ab32-fd4e51c9f810", "unit_symbol": null, "sku_snapshot": "RV-RACE-IDEM", "name_snapshot": "RV Race Idem", "quantity_base": 2.0000, "product_deleted": false, "delivery_note_id": "ad17dca8-b4b3-4268-8fd8-efcdd9813ac6", "iva_rate_snapshot": null, "unit_cost_snapshot": 10.00}], "notes": null, "total": 200.00, "number": 2, "status": "issued", "history": [{"reason": null, "to_status": "issued", "from_status": null, "occurred_at": "2026-10-03T12:52:32.427006+00:00", "performed_by": "04d7711c-407a-4480-b0ef-381b21af9edc"}], "replayed": false, "revision": 1, "branch_id": "b60e9135-82f7-4f60-95cc-e5e21e7f11f1", "client_id": "664670f2-c044-4db2-8724-fd64b58bb932", "direction": "sale", "issued_on": "2026-10-03", "account_id": "8cb12e5b-c4fd-4a5d-9451-ad02b249b359", "created_at": "2026-10-03T12:52:32.427006+00:00", "created_by": "04d7711c-407a-4480-b0ef-381b21af9edc", "updated_at": null, "updated_by": null, "branch_name": "Casa Central", "client_name": "Cliente RV Race", "supplier_id": null, "client_phone": null, "document_type": "delivery_note_sale", "client_deleted": false, "delivery_address": null, "supplier_reference": null, "converted_operation_id": null, "converted_sales_order_id": null}
+
+--- 2.b ---
+{"sub" : "04d7711c-407a-4480-b0ef-381b21af9edc", "role" : "authenticated"}
+04d7711c-407a-4480-b0ef-381b21af9edc
+RES={"id": "ad17dca8-b4b3-4268-8fd8-efcdd9813ac6", "items": [{"id": "9151ed19-bd71-4bc1-a1fa-5e15404af23e", "price": 100, "line_no": 1, "unit_id": null, "quantity": 2.0000, "subtotal": 200.00, "account_id": "8cb12e5b-c4fd-4a5d-9451-ad02b249b359", "created_at": "2026-10-03T12:52:32.427006+00:00", "product_id": "24782639-a00b-4388-ab32-fd4e51c9f810", "unit_symbol": null, "sku_snapshot": "RV-RACE-IDEM", "name_snapshot": "RV Race Idem", "quantity_base": 2.0000, "product_deleted": false, "delivery_note_id": "ad17dca8-b4b3-4268-8fd8-efcdd9813ac6", "iva_rate_snapshot": null, "unit_cost_snapshot": 10.00}], "notes": null, "total": 200.00, "number": 2, "status": "issued", "history": [{"reason": null, "to_status": "issued", "from_status": null, "occurred_at": "2026-10-03T12:52:32.427006+00:00", "performed_by": "04d7711c-407a-4480-b0ef-381b21af9edc"}], "replayed": true, "revision": 1, "branch_id": "b60e9135-82f7-4f60-95cc-e5e21e7f11f1", "client_id": "664670f2-c044-4db2-8724-fd64b58bb932", "direction": "sale", "issued_on": "2026-10-03", "account_id": "8cb12e5b-c4fd-4a5d-9451-ad02b249b359", "created_at": "2026-10-03T12:52:32.427006+00:00", "created_by": "04d7711c-407a-4480-b0ef-381b21af9edc", "updated_at": null, "updated_by": null, "branch_name": "Casa Central", "client_name": "Cliente RV Race", "supplier_id": null, "client_phone": null, "document_type": "delivery_note_sale", "client_deleted": false, "delivery_address": null, "supplier_reference": null, "converted_operation_id": null, "converted_sales_order_id": null}
+--- 3a.a ---
+{"sub" : "04d7711c-407a-4480-b0ef-381b21af9edc", "role" : "authenticated"}
+04d7711c-407a-4480-b0ef-381b21af9edc
+RES={"id": "7fe6e8f5-b467-4251-bcdc-d2ace3e349dc", "items": [{"id": "930d42b5-62f6-4862-98d1-1da3af337028", "price": 100, "line_no": 1, "unit_id": null, "quantity": 5.0000, "subtotal": 500.00, "account_id": "8cb12e5b-c4fd-4a5d-9451-ad02b249b359", "created_at": "2026-10-03T12:52:43.571158+00:00", "product_id": "256d908d-cd9f-44aa-be79-2532f4016da9", "unit_symbol": null, "sku_snapshot": "RV-RACE-EDIT", "name_snapshot": "RV Race Edit", "quantity_base": 5.0000, "product_deleted": false, "delivery_note_id": "7fe6e8f5-b467-4251-bcdc-d2ace3e349dc", "iva_rate_snapshot": null, "unit_cost_snapshot": 10.00}], "notes": null, "total": 500.00, "number": 3, "status": "issued", "history": [{"reason": null, "to_status": "issued", "from_status": null, "occurred_at": "2026-10-03T12:52:39.379939+00:00", "performed_by": "04d7711c-407a-4480-b0ef-381b21af9edc"}], "revision": 2, "branch_id": "b60e9135-82f7-4f60-95cc-e5e21e7f11f1", "client_id": "664670f2-c044-4db2-8724-fd64b58bb932", "direction": "sale", "issued_on": "2026-10-03", "account_id": "8cb12e5b-c4fd-4a5d-9451-ad02b249b359", "created_at": "2026-10-03T12:52:39.379939+00:00", "created_by": "04d7711c-407a-4480-b0ef-381b21af9edc", "updated_at": "2026-10-03T12:52:43.571158+00:00", "updated_by": "04d7711c-407a-4480-b0ef-381b21af9edc", "branch_name": "Casa Central", "client_name": "Cliente RV Race", "supplier_id": null, "client_phone": null, "document_type": "delivery_note_sale", "client_deleted": false, "delivery_address": null, "supplier_reference": null, "converted_operation_id": null, "converted_sales_order_id": null}
+
+--- 3a.b ---
+{"sub" : "04d7711c-407a-4480-b0ef-381b21af9edc", "role" : "authenticated"}
+04d7711c-407a-4480-b0ef-381b21af9edc
+ERROR:  delivery_note_changed: el remito cambió desde que lo abriste (versión 1 vs 2) — recargalo
+CONTEXT:  PL/pgSQL function rpc_cancel_delivery_note(uuid,integer,text) line 37 at RAISE
+--- 3b.a ---
+{"sub" : "04d7711c-407a-4480-b0ef-381b21af9edc", "role" : "authenticated"}
+04d7711c-407a-4480-b0ef-381b21af9edc
+RES={"id": "ebc648cc-13fc-413d-88bd-bf6c2833811a", "items": [{"id": "9ab9c520-6470-4021-8e6d-c09bbeb69207", "price": 100, "line_no": 1, "unit_id": null, "quantity": 4.0000, "subtotal": 400.00, "account_id": "8cb12e5b-c4fd-4a5d-9451-ad02b249b359", "created_at": "2026-10-03T12:52:52.843092+00:00", "product_id": "256d908d-cd9f-44aa-be79-2532f4016da9", "unit_symbol": null, "sku_snapshot": "RV-RACE-EDIT", "name_snapshot": "RV Race Edit", "quantity_base": 4.0000, "product_deleted": false, "delivery_note_id": "ebc648cc-13fc-413d-88bd-bf6c2833811a", "iva_rate_snapshot": null, "unit_cost_snapshot": 10.00}], "notes": null, "total": 400.00, "number": 4, "status": "canceled", "history": [{"reason": null, "to_status": "issued", "from_status": null, "occurred_at": "2026-10-03T12:52:52.843092+00:00", "performed_by": "04d7711c-407a-4480-b0ef-381b21af9edc"}, {"reason": "carrera", "to_status": "canceled", "from_status": "issued", "occurred_at": "2026-10-03T12:52:56.934304+00:00", "performed_by": "04d7711c-407a-4480-b0ef-381b21af9edc"}], "revision": 1, "branch_id": "b60e9135-82f7-4f60-95cc-e5e21e7f11f1", "client_id": "664670f2-c044-4db2-8724-fd64b58bb932", "direction": "sale", "issued_on": "2026-10-03", "account_id": "8cb12e5b-c4fd-4a5d-9451-ad02b249b359", "created_at": "2026-10-03T12:52:52.843092+00:00", "created_by": "04d7711c-407a-4480-b0ef-381b21af9edc", "updated_at": "2026-10-03T12:52:56.934304+00:00", "updated_by": "04d7711c-407a-4480-b0ef-381b21af9edc", "branch_name": "Casa Central", "client_name": "Cliente RV Race", "supplier_id": null, "client_phone": null, "document_type": "delivery_note_sale", "client_deleted": false, "delivery_address": null, "supplier_reference": null, "converted_operation_id": null, "converted_sales_order_id": null}
+
+--- 3b.b ---
+{"sub" : "04d7711c-407a-4480-b0ef-381b21af9edc", "role" : "authenticated"}
+04d7711c-407a-4480-b0ef-381b21af9edc
+ERROR:  delivery_note_invalid_state: el remito está canceled y no se puede editar
+CONTEXT:  PL/pgSQL function rpc_update_delivery_note(uuid,integer,uuid,uuid,text,text,jsonb) line 39 at RAISE
+--- 4a.a ---
+{"sub" : "04d7711c-407a-4480-b0ef-381b21af9edc", "role" : "authenticated"}
+04d7711c-407a-4480-b0ef-381b21af9edc
+RES=product_deleted
+
+--- 4a.b ---
+{"sub" : "04d7711c-407a-4480-b0ef-381b21af9edc", "role" : "authenticated"}
+04d7711c-407a-4480-b0ef-381b21af9edc
+ERROR:  product_not_found: 72f8ccbd-896f-4040-9993-9421a9bf4a17
+CONTEXT:  PL/pgSQL function _assert_document_product(uuid,uuid) line 9 at RAISE
+SQL statement "SELECT public._assert_document_product(p_account_id, v_pid)"
+PL/pgSQL function _delivery_note_validate_items(uuid,uuid,jsonb,jsonb) line 69 at PERFORM
+PL/pgSQL function rpc_create_sale_delivery_note(text,uuid,uuid,text,text,jsonb) line 98 at assignment
+--- 4b.a ---
+{"sub" : "04d7711c-407a-4480-b0ef-381b21af9edc", "role" : "authenticated"}
+04d7711c-407a-4480-b0ef-381b21af9edc
+RES={"id": "ffb75233-b8c9-4072-844b-d094dcc098d5", "items": [{"id": "0d8c9984-bdc4-47f3-a76c-86b05f96f97d", "price": 100, "line_no": 1, "unit_id": null, "quantity": 1.0000, "subtotal": 100.00, "account_id": "8cb12e5b-c4fd-4a5d-9451-ad02b249b359", "created_at": "2026-10-03T12:53:19.356781+00:00", "product_id": "b1bef2e2-a93d-49d4-94e7-b485feb4000f", "unit_symbol": null, "sku_snapshot": "RV-RACE-DEL2", "name_snapshot": "RV Race Baja 2", "quantity_base": 1.0000, "product_deleted": false, "delivery_note_id": "ffb75233-b8c9-4072-844b-d094dcc098d5", "iva_rate_snapshot": null, "unit_cost_snapshot": 10.00}], "notes": null, "total": 100.00, "number": 5, "status": "issued", "history": [{"reason": null, "to_status": "issued", "from_status": null, "occurred_at": "2026-10-03T12:53:19.356781+00:00", "performed_by": "04d7711c-407a-4480-b0ef-381b21af9edc"}], "replayed": false, "revision": 1, "branch_id": "b60e9135-82f7-4f60-95cc-e5e21e7f11f1", "client_id": "664670f2-c044-4db2-8724-fd64b58bb932", "direction": "sale", "issued_on": "2026-10-03", "account_id": "8cb12e5b-c4fd-4a5d-9451-ad02b249b359", "created_at": "2026-10-03T12:53:19.356781+00:00", "created_by": "04d7711c-407a-4480-b0ef-381b21af9edc", "updated_at": null, "updated_by": null, "branch_name": "Casa Central", "client_name": "Cliente RV Race", "supplier_id": null, "client_phone": null, "document_type": "delivery_note_sale", "client_deleted": false, "delivery_address": null, "supplier_reference": null, "converted_operation_id": null, "converted_sales_order_id": null}
+
+--- 4b.b ---
+{"sub" : "04d7711c-407a-4480-b0ef-381b21af9edc", "role" : "authenticated"}
+04d7711c-407a-4480-b0ef-381b21af9edc
+RES=product_deleted
+--- 5.a ---
+{"sub" : "04d7711c-407a-4480-b0ef-381b21af9edc", "role" : "authenticated"}
+04d7711c-407a-4480-b0ef-381b21af9edc
+RES={"total": 200.00, "replayed": false, "operation_id": "de638d72-4797-4959-a4fc-a3a59c56964b", "sales_order_id": "73a68459-231b-4d8a-8bf0-409fa891d6fc", "delivery_note_id": "e67eef66-dd6d-466a-965a-56fd73073595", "delivery_note_number": 6}
+
+--- 5.b ---
+{"sub" : "04d7711c-407a-4480-b0ef-381b21af9edc", "role" : "authenticated"}
+04d7711c-407a-4480-b0ef-381b21af9edc
+ERROR:  delivery_note_invalid_state: el remito está converted y no se puede convertir
+CONTEXT:  PL/pgSQL function rpc_convert_delivery_note_to_sale(text,uuid,integer,uuid,uuid,uuid,text) line 71 at RAISE
+--- 5b.a ---
+{"sub" : "04d7711c-407a-4480-b0ef-381b21af9edc", "role" : "authenticated"}
+04d7711c-407a-4480-b0ef-381b21af9edc
+RES={"total": 100.00, "replayed": false, "operation_id": "7158a0b5-d0a4-4474-9711-c03a1e9127da", "sales_order_id": "05b58df1-ad96-4b5e-a4c7-ae47effefca7", "delivery_note_id": "b9dedeef-b599-44f5-8090-1b84f84d932a", "delivery_note_number": 7}
+
+--- 5b.b ---
+{"sub" : "04d7711c-407a-4480-b0ef-381b21af9edc", "role" : "authenticated"}
+04d7711c-407a-4480-b0ef-381b21af9edc
+RES={"total": 100.00, "replayed": true, "operation_id": "7158a0b5-d0a4-4474-9711-c03a1e9127da", "sales_order_id": "05b58df1-ad96-4b5e-a4c7-ae47effefca7", "delivery_note_id": "b9dedeef-b599-44f5-8090-1b84f84d932a", "delivery_note_number": 7}
+--- 6a.a ---
+{"sub" : "04d7711c-407a-4480-b0ef-381b21af9edc", "role" : "authenticated"}
+04d7711c-407a-4480-b0ef-381b21af9edc
+RES={"total": 100.00, "replayed": false, "operation_id": "1221a907-55ee-46de-a257-2a2dec5124a5", "sales_order_id": "eece3541-7d2b-47b7-8d90-c915d98b5c74", "delivery_note_id": "694ce75c-f9c3-4fe3-871a-1c7d22342687", "delivery_note_number": 8}
+
+--- 6a.b ---
+{"sub" : "04d7711c-407a-4480-b0ef-381b21af9edc", "role" : "authenticated"}
+04d7711c-407a-4480-b0ef-381b21af9edc
+ERROR:  delivery_note_locked_converted: el remito ya se convirtió en venta: para anularlo, primero eliminá la venta
+CONTEXT:  PL/pgSQL function rpc_cancel_delivery_note(uuid,integer,text) line 26 at RAISE
+--- 6b.a ---
+{"sub" : "04d7711c-407a-4480-b0ef-381b21af9edc", "role" : "authenticated"}
+04d7711c-407a-4480-b0ef-381b21af9edc
+RES={"id": "acd70c45-b770-47b9-acdf-c93f94db78c5", "items": [{"id": "d862e93c-361c-4592-a090-d22906e46f9b", "price": 100, "line_no": 1, "unit_id": null, "quantity": 1.0000, "subtotal": 100.00, "account_id": "8cb12e5b-c4fd-4a5d-9451-ad02b249b359", "created_at": "2026-10-03T12:54:01.106173+00:00", "product_id": "2e43fd42-560c-4846-a5fa-1a063cadf2ee", "unit_symbol": null, "sku_snapshot": "RV-RACE-CONV", "name_snapshot": "RV Race Conv", "quantity_base": 1.0000, "product_deleted": false, "delivery_note_id": "acd70c45-b770-47b9-acdf-c93f94db78c5", "iva_rate_snapshot": null, "unit_cost_snapshot": 10.00}], "notes": null, "total": 100.00, "number": 9, "status": "canceled", "history": [{"reason": null, "to_status": "issued", "from_status": null, "occurred_at": "2026-10-03T12:54:01.106173+00:00", "performed_by": "04d7711c-407a-4480-b0ef-381b21af9edc"}, {"reason": "carrera", "to_status": "canceled", "from_status": "issued", "occurred_at": "2026-10-03T12:54:04.290323+00:00", "performed_by": "04d7711c-407a-4480-b0ef-381b21af9edc"}], "revision": 1, "branch_id": "b60e9135-82f7-4f60-95cc-e5e21e7f11f1", "client_id": "664670f2-c044-4db2-8724-fd64b58bb932", "direction": "sale", "issued_on": "2026-10-03", "account_id": "8cb12e5b-c4fd-4a5d-9451-ad02b249b359", "created_at": "2026-10-03T12:54:01.106173+00:00", "created_by": "04d7711c-407a-4480-b0ef-381b21af9edc", "updated_at": "2026-10-03T12:54:04.290323+00:00", "updated_by": "04d7711c-407a-4480-b0ef-381b21af9edc", "branch_name": "Casa Central", "client_name": "Cliente RV Race", "supplier_id": null, "client_phone": null, "document_type": "delivery_note_sale", "client_deleted": false, "delivery_address": null, "supplier_reference": null, "converted_operation_id": null, "converted_sales_order_id": null}
+
+--- 6b.b ---
+{"sub" : "04d7711c-407a-4480-b0ef-381b21af9edc", "role" : "authenticated"}
+04d7711c-407a-4480-b0ef-381b21af9edc
+ERROR:  delivery_note_invalid_state: el remito está canceled y no se puede convertir
+CONTEXT:  PL/pgSQL function rpc_convert_delivery_note_to_sale(text,uuid,integer,uuid,uuid,uuid,text) line 71 at RAISE
+--- 7a.a ---
+{"sub" : "04d7711c-407a-4480-b0ef-381b21af9edc", "role" : "authenticated"}
+04d7711c-407a-4480-b0ef-381b21af9edc
+RES={"id": "ee560457-d211-4c48-9592-86a9bd1d59d0", "items": [{"id": "ef766efa-e176-426e-bbe6-da11e8107b94", "price": 100, "line_no": 1, "unit_id": null, "quantity": 2.0000, "subtotal": 200.00, "account_id": "8cb12e5b-c4fd-4a5d-9451-ad02b249b359", "created_at": "2026-10-03T12:54:15.233055+00:00", "product_id": "2e43fd42-560c-4846-a5fa-1a063cadf2ee", "unit_symbol": null, "sku_snapshot": "RV-RACE-CONV", "name_snapshot": "RV Race Conv", "quantity_base": 2.0000, "product_deleted": false, "delivery_note_id": "ee560457-d211-4c48-9592-86a9bd1d59d0", "iva_rate_snapshot": null, "unit_cost_snapshot": 10.00}], "notes": null, "total": 200.00, "number": 10, "status": "issued", "history": [{"reason": null, "to_status": "issued", "from_status": null, "occurred_at": "2026-10-03T12:54:12.362344+00:00", "performed_by": "04d7711c-407a-4480-b0ef-381b21af9edc"}], "revision": 2, "branch_id": "b60e9135-82f7-4f60-95cc-e5e21e7f11f1", "client_id": "664670f2-c044-4db2-8724-fd64b58bb932", "direction": "sale", "issued_on": "2026-10-03", "account_id": "8cb12e5b-c4fd-4a5d-9451-ad02b249b359", "created_at": "2026-10-03T12:54:12.362344+00:00", "created_by": "04d7711c-407a-4480-b0ef-381b21af9edc", "updated_at": "2026-10-03T12:54:15.233055+00:00", "updated_by": "04d7711c-407a-4480-b0ef-381b21af9edc", "branch_name": "Casa Central", "client_name": "Cliente RV Race", "supplier_id": null, "client_phone": null, "document_type": "delivery_note_sale", "client_deleted": false, "delivery_address": null, "supplier_reference": null, "converted_operation_id": null, "converted_sales_order_id": null}
+
+--- 7a.b ---
+{"sub" : "04d7711c-407a-4480-b0ef-381b21af9edc", "role" : "authenticated"}
+04d7711c-407a-4480-b0ef-381b21af9edc
+ERROR:  delivery_note_changed: el remito cambió desde que lo abriste (versión 1 vs 2) — recargalo
+CONTEXT:  PL/pgSQL function rpc_convert_delivery_note_to_sale(text,uuid,integer,uuid,uuid,uuid,text) line 75 at RAISE
+--- 7b.a ---
+{"sub" : "04d7711c-407a-4480-b0ef-381b21af9edc", "role" : "authenticated"}
+04d7711c-407a-4480-b0ef-381b21af9edc
+RES={"total": 100.00, "replayed": false, "operation_id": "aafcb7ab-717e-436f-976e-3b68180ac12c", "sales_order_id": "d4ef83c1-b1b5-4b7e-83ec-56a9be1f9357", "delivery_note_id": "a4d08e69-cd54-4bd4-a8d0-50e6b0a8878c", "delivery_note_number": 11}
+
+--- 7b.b ---
+{"sub" : "04d7711c-407a-4480-b0ef-381b21af9edc", "role" : "authenticated"}
+04d7711c-407a-4480-b0ef-381b21af9edc
+ERROR:  delivery_note_locked_converted: el remito ya se convirtió en venta: para corregirlo, eliminá la venta y el remito vuelve a quedar pendiente
+CONTEXT:  PL/pgSQL function rpc_update_delivery_note(uuid,integer,uuid,uuid,text,text,jsonb) line 35 at RAISE
+--- 8.a ---
+{"sub" : "04d7711c-407a-4480-b0ef-381b21af9edc", "role" : "authenticated"}
+04d7711c-407a-4480-b0ef-381b21af9edc
+RES=deleted:true
+
+--- 8.b ---
+{"sub" : "04d7711c-407a-4480-b0ef-381b21af9edc", "role" : "authenticated"}
+04d7711c-407a-4480-b0ef-381b21af9edc
+RES={"total": 200.00, "replayed": false, "operation_id": "59ad7010-07f3-40dc-9d8a-c59387b44ff0", "sales_order_id": "f390c94f-fbe9-4d91-b517-5c524dc07a4b", "delivery_note_id": "5c30b138-b380-46e3-8640-419568df9ec6", "delivery_note_number": 12}
+--- 9.a ---
+{"sub" : "04d7711c-407a-4480-b0ef-381b21af9edc", "role" : "authenticated"}
+04d7711c-407a-4480-b0ef-381b21af9edc
+RES=deleted:true
+
+--- 9.b ---
+{"sub" : "04d7711c-407a-4480-b0ef-381b21af9edc", "role" : "authenticated"}
+04d7711c-407a-4480-b0ef-381b21af9edc
+RES={"id": "ce7e4e26-ff07-422d-bd42-50157dc2e575", "items": [{"id": "47cfc717-22b6-44e7-b1a6-cd2b9643ac4c", "price": 100, "line_no": 1, "unit_id": null, "quantity": 3.0000, "subtotal": 300.00, "account_id": "8cb12e5b-c4fd-4a5d-9451-ad02b249b359", "created_at": "2026-10-03T12:54:42.865749+00:00", "product_id": "2e43fd42-560c-4846-a5fa-1a063cadf2ee", "unit_symbol": null, "sku_snapshot": "RV-RACE-CONV", "name_snapshot": "RV Race Conv", "quantity_base": 3.0000, "product_deleted": false, "delivery_note_id": "ce7e4e26-ff07-422d-bd42-50157dc2e575", "iva_rate_snapshot": null, "unit_cost_snapshot": 10.00}], "notes": null, "total": 300.00, "number": 13, "status": "canceled", "history": [{"reason": null, "to_status": "issued", "from_status": null, "occurred_at": "2026-10-03T12:54:42.865749+00:00", "performed_by": "04d7711c-407a-4480-b0ef-381b21af9edc"}, {"reason": null, "to_status": "converted", "from_status": "issued", "occurred_at": "2026-10-03T12:54:44.15002+00:00", "performed_by": "04d7711c-407a-4480-b0ef-381b21af9edc"}, {"reason": "Venta eliminada (operación a24b8a88-42d4-4d4e-be25-1d3ac8923187)", "to_status": "issued", "from_status": "converted", "occurred_at": "2026-10-03T12:54:48.245399+00:00", "performed_by": "04d7711c-407a-4480-b0ef-381b21af9edc"}, {"reason": "carrera", "to_status": "canceled", "from_status": "issued", "occurred_at": "2026-10-03T12:54:49.965268+00:00", "performed_by": "04d7711c-407a-4480-b0ef-381b21af9edc"}], "revision": 1, "branch_id": "b60e9135-82f7-4f60-95cc-e5e21e7f11f1", "client_id": "664670f2-c044-4db2-8724-fd64b58bb932", "direction": "sale", "issued_on": "2026-10-03", "account_id": "8cb12e5b-c4fd-4a5d-9451-ad02b249b359", "created_at": "2026-10-03T12:54:42.865749+00:00", "created_by": "04d7711c-407a-4480-b0ef-381b21af9edc", "updated_at": "2026-10-03T12:54:49.965268+00:00", "updated_by": "04d7711c-407a-4480-b0ef-381b21af9edc", "branch_name": "Casa Central", "client_name": "Cliente RV Race", "supplier_id": null, "client_phone": null, "document_type": "delivery_note_sale", "client_deleted": false, "delivery_address": null, "supplier_reference": null, "converted_operation_id": null, "converted_sales_order_id": null}

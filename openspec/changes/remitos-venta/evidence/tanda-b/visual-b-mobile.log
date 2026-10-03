@@ -1,0 +1,90 @@
+
+=== mobile / light ===
+shot remito-pendiente-con-venta-mobile-light docOverflow=0 elementOverflow=0
+PASS  [mobile/light] CTA "Venta" del detalle visible dentro del viewport  -> {"x":108.890625,"y":248,"width":82.0625,"height":40}
+shot conv-dialogo-caja-cerrada-mobile-light docOverflow=0 elementOverflow=0
+PASS  [mobile/light] caja cerrada: confirmar deshabilitado con su motivo
+shot conv-dialogo-vacio-mobile-light docOverflow=0 elementOverflow=0
+PASS  [mobile/light] el foco entra al diálogo
+PASS  [mobile/light] sin forma de pago, confirmar deshabilitado
+PASS  [mobile/light] sin selector de sucursal: la del remito va fija
+PASS  [mobile/light] línea fija "El stock ya se descontó al emitir el remito"
+shot conv-dialogo-efectivo-mobile-light docOverflow=0 elementOverflow=0
+shot conv-dialogo-transferencia-mobile-light docOverflow=0 elementOverflow=0
+shot conv-dialogo-credito-mobile-light docOverflow=0 elementOverflow=0
+PASS  [mobile/light] CTA "Registrar venta" visible dentro del viewport  -> {"x":227.53125,"y":744,"width":127.46875,"height":44}
+PASS  [mobile/light] Tab no escapa del diálogo (12 pulsaciones)
+PASS  [mobile/light] Escape devuelve el foco al botón Venta  -> Venta
+shot conv-dialogo-error-cambio-mobile-light docOverflow=0 elementOverflow=0
+PASS  [mobile/light] error "el remito cambió" accionable  -> El remito cambió mientras lo tenías abierto: recargalo y volvé a intentar.
+shot conv-exito-mobile-light docOverflow=0 elementOverflow=0
+PASS  [mobile/light] el foco pasa al título "Venta registrada"  -> Venta registrada
+PASS  [mobile/light] "Facturar" ofrecido en el éxito
+shot remito-convertido-detalle-mobile-light docOverflow=0 elementOverflow=0
+PASS  [mobile/light] detalle convertido: "Ver venta" presente
+shot ventas-badge-desde-remito-mobile-light docOverflow=0 elementOverflow=0
+PASS  [mobile/light] "Editar" deshabilitado con el motivo del remito  -> 1
+shot ventas-borrar-dialogo-remito-mobile-light docOverflow=0 elementOverflow=0
+PASS  [mobile/light] el diálogo de borrado trae la línea de D9 con el número del remito  -> ¿Eliminar esta operación (2 ítems)?
+
+Esta acción no se puede deshacer.
+
+El stock no vuelve: la mercadería quedó entregada con el remito R-00000144, que vuelve a quedar pendiente. Para devolverla al st
+PASS  [mobile/light] botón "Eliminar" del diálogo visible dentro del viewport  -> {"x":25,"y":478,"width":325,"height":44}
+shot remito-cliente-baja-venta-deshabilitada-mobile-light docOverflow=0 elementOverflow=0
+PASS  [mobile/light] cliente dado de baja: Venta deshabilitada con leyenda
+console errors: [
+  'Failed to load resource: the server responded with a status of 404 (Not Found)',
+  'Failed to load resource: the server responded with a status of 409 (Conflict)'
+]
+respuestas >=400: [
+  '404 GET st:8000/cashboxes/f2de84ad-74a0-4c53-9832-202e76fd006c/current-session',
+  '409 POST lhost:8000/delivery-notes/4551c703-394a-4f2f-bfcf-07f7cdba3fd0/convert'
+]
+
+=== mobile / dark ===
+shot remito-pendiente-con-venta-mobile-dark docOverflow=0 elementOverflow=0
+PASS  [mobile/dark] CTA "Venta" del detalle visible dentro del viewport  -> {"x":108.890625,"y":248,"width":82.0625,"height":40}
+shot conv-dialogo-caja-cerrada-mobile-dark docOverflow=0 elementOverflow=0
+PASS  [mobile/dark] caja cerrada: confirmar deshabilitado con su motivo
+shot conv-dialogo-vacio-mobile-dark docOverflow=0 elementOverflow=0
+PASS  [mobile/dark] el foco entra al diálogo
+PASS  [mobile/dark] sin forma de pago, confirmar deshabilitado
+PASS  [mobile/dark] sin selector de sucursal: la del remito va fija
+PASS  [mobile/dark] línea fija "El stock ya se descontó al emitir el remito"
+shot conv-dialogo-efectivo-mobile-dark docOverflow=0 elementOverflow=0
+shot conv-dialogo-transferencia-mobile-dark docOverflow=0 elementOverflow=0
+shot conv-dialogo-credito-mobile-dark docOverflow=0 elementOverflow=0
+PASS  [mobile/dark] CTA "Registrar venta" visible dentro del viewport  -> {"x":227.53125,"y":744,"width":127.46875,"height":44}
+PASS  [mobile/dark] Tab no escapa del diálogo (12 pulsaciones)
+PASS  [mobile/dark] Escape devuelve el foco al botón Venta  -> Venta
+shot conv-dialogo-error-cambio-mobile-dark docOverflow=0 elementOverflow=0
+PASS  [mobile/dark] error "el remito cambió" accionable  -> El remito cambió mientras lo tenías abierto: recargalo y volvé a intentar.
+shot conv-exito-mobile-dark docOverflow=0 elementOverflow=0
+PASS  [mobile/dark] el foco pasa al título "Venta registrada"  -> Venta registrada
+PASS  [mobile/dark] "Facturar" ofrecido en el éxito
+shot remito-convertido-detalle-mobile-dark docOverflow=0 elementOverflow=0
+PASS  [mobile/dark] detalle convertido: "Ver venta" presente
+shot ventas-badge-desde-remito-mobile-dark docOverflow=0 elementOverflow=0
+PASS  [mobile/dark] "Editar" deshabilitado con el motivo del remito  -> 1
+shot ventas-borrar-dialogo-remito-mobile-dark docOverflow=0 elementOverflow=0
+PASS  [mobile/dark] el diálogo de borrado trae la línea de D9 con el número del remito  -> ¿Eliminar esta operación (2 ítems)?
+
+Esta acción no se puede deshacer.
+
+El stock no vuelve: la mercadería quedó entregada con el remito R-00000148, que vuelve a quedar pendiente. Para devolverla al st
+PASS  [mobile/dark] botón "Eliminar" del diálogo visible dentro del viewport  -> {"x":25,"y":478,"width":325,"height":44}
+shot remito-cliente-baja-venta-deshabilitada-mobile-dark docOverflow=0 elementOverflow=0
+PASS  [mobile/dark] cliente dado de baja: Venta deshabilitada con leyenda
+console errors: [
+  'Failed to load resource: the server responded with a status of 404 (Not Found)',
+  'Failed to load resource: the server responded with a status of 409 (Conflict)'
+]
+respuestas >=400: [
+  '404 GET st:8000/cashboxes/f2de84ad-74a0-4c53-9832-202e76fd006c/current-session',
+  '409 POST lhost:8000/delivery-notes/a3d572fe-8a77-413f-ba0b-e9d22600e6a0/convert'
+]
+
+shots=24 conDesborde=0
+RESUMEN: 34 PASS / 0 FAIL; consola con errores: 4
+finished

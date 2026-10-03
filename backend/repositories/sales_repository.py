@@ -187,6 +187,18 @@ class SalesRepository(BaseRepository):
                    -- misma cuenta: nunca se muestra el número de un presupuesto ajeno.
                    so.source_quote_id                       AS source_quote_id,
                    sq.number                                AS source_quote_number,
+                   -- remitos-venta (tanda B, D13): el remito que originó la venta,
+                   -- derivado de sales_orders.source_delivery_note_id (sin columnas
+                   -- denormalizadas), con la misma cuenta en el cruce. Y el motivo
+                   -- por el que la operación NO se edita: una venta nacida de un
+                   -- remito es inmutable (P0423 delivery_note_sale_locked) porque
+                   -- editarla repondría stock que el remito retiene. Es el mismo
+                   -- token del RAISE, para que la UI deshabilite "Editar" con la
+                   -- explicación antes de llegar al error.
+                   so.source_delivery_note_id               AS source_delivery_note_id,
+                   sdn.number                               AS source_delivery_note_number,
+                   CASE WHEN so.source_delivery_note_id IS NOT NULL THEN 'delivery_note_sale_locked' END
+                                                            AS edit_locked_reason,
                    -- presupuestos-modulo (D6, OQ-P16): la operación incluye alguna
                    -- línea de servicio. Es de la OPERACIÓN, no de la fila: toda ella
                    -- se ve sin edición en /ventas. Derivado de lectura, sin columna.
@@ -210,6 +222,7 @@ class SalesRepository(BaseRepository):
                   AND pos_pm.deleted_at IS NULL
             LEFT JOIN fiscal_documents fd ON fd.id = so.fiscal_document_id
             LEFT JOIN quotes sq ON sq.id = so.source_quote_id AND sq.account_id = so.account_id
+            LEFT JOIN delivery_notes sdn ON sdn.id = so.source_delivery_note_id AND sdn.account_id = so.account_id
             -- Descripción de una línea de servicio: una fila de `sales` sin
             -- producto ni línea de venta, emparejada con la línea sin producto de
             -- la misma orden por precio, cantidad, subtotal y unidad. LIMIT 1: dos

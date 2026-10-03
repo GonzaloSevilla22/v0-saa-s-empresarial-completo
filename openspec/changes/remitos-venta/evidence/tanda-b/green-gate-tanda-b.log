@@ -1,0 +1,18 @@
+SET
+NOTICE:  PASS (z): el núcleo, con una orden cuyo origen es un remito válido, no descuenta ni escribe movimientos y congela los snapshots de la orden.
+NOTICE:  PASS (n): los 10 orígenes inválidos (otra cuenta, anulado, convertido, otro cliente, otra sucursal, producto, unidad, cantidad, línea de más, sin líneas) rebotan con P0409 delivery_note_order_mismatch sin efectos.
+NOTICE:  PASS (a): conversión cash — stock idéntico, 0 movimientos, caja, SaleConfirmed, orden confirmed con origen, remito converted sin subir revisión, historiales, snapshots del remito (renombrado y costo remarcado) y payload con la venta.
+NOTICE:  PASS (g/h/i): replay sin efectos, clave ajena -> idempotency_key_conflict, segunda conversión -> delivery_note_invalid_state.
+NOTICE:  PASS (j/k/l): versión vieja, parámetros, forma de pago ajena, rol stock, remito ajeno e inexistente y cash sin sesión rebotan sin efectos; el cajero convierte con el precio del remito.
+NOTICE:  PASS (b): conversión a crédito como authenticated por el vendedor — cargo con vencimiento por cascada (30 días), sin caja ni stock.
+NOTICE:  PASS (c/d): transferencia con movimiento bancario en la sucursal del remito; producto dado de baja después de emitir convierte con su snapshot.
+NOTICE:  PASS (e/f): cliente dado de baja -> delivery_note_client_unavailable; sucursal desactivada o cerrada -> P0422 branch_closed; cero efectos.
+NOTICE:  PASS (m): rpc_quick_sale y rpc_convert_quote_to_sale siguen descontando con su movimiento sale/sale; el P0423 de dinero de una venta POS no cambia.
+NOTICE:  PASS (q/r): editar la venta nacida del remito -> P0423 delivery_note_sale_locked sin efectos (comprobante pendiente intacto, stock y movimientos sin cambios); anular un convertido -> P0423.
+NOTICE:  PASS (o): borrar la venta compensa caja o cuenta corriente, cancela la orden, deja el stock idéntico y devuelve el remito a issued con historial y motivo; reconvertir funciona; el vendedor no borra.
+NOTICE:  PASS (p): borrar la venta con la sucursal del remito desactivada o cerrada -> P0422 delivery_note_branch_inactive sin efectos; reactivada, procede.
+NOTICE:  PASS (s): ninguna venta nacida de remito tiene movimientos propios y el ledger de cada remito vivo cuadra con sus líneas.
+NOTICE:  GATE REMITO-A-VENTA PASSED: núcleo con origen de remito sin doble descuento, 10 orígenes inválidos, conversión cash/credit/transfer con snapshots del remito, guards, idempotencia, roles, borrado que reabre el remito sin tocar stock, edición bloqueada y regresiones — residuo cero.
+DO
+NOTICE:  PASS (u): introspección — ACLs, una definición, rama del núcleo, guard de sucursal antes del fiscal y salto de la reversa en el borrado, P0423 antes del fiscal en la edición, orden de la conversión, columna/FK/índice y catálogo de 4 filas.
+DO

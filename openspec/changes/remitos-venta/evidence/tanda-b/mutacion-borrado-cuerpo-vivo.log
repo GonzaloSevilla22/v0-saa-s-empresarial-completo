@@ -1,0 +1,51 @@
+BEGIN
+CREATE FUNCTION
+SET
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=c99013c1-caf6-49c2-8ba3-9b9220aa1058
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=f5fdb28a-acdc-45a6-95f2-2e8dcbdfc315
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=60245341-a86b-4219-bb7e-95348ed101a5
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=f446a7ec-487c-4435-924f-4ac02743d1d9
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=86b617c6-7691-4cb8-a3fe-74e2995375c7
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=1db84e14-5b46-45a9-bd99-3975687ac194
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=f30fc11f-608d-4b85-bba5-bb903ad4ff08
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=0a1cee44-5b1b-431e-be75-ee4fb21e9d5e
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=b725fcba-2a96-4393-863e-590f70b2970e
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=367d7dad-2e5d-4ca5-b282-283b8a679a79
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=9397e3ed-a5c5-4035-acf4-b173609a235e
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=b49551c7-d488-47bb-8226-614ea3829944
+NOTICE:  PASS (z): el núcleo, con una orden cuyo origen es un remito válido, no descuenta ni escribe movimientos y congela los snapshots de la orden.
+NOTICE:  PASS (n): los 10 orígenes inválidos (otra cuenta, anulado, convertido, otro cliente, otra sucursal, producto, unidad, cantidad, línea de más, sin líneas) rebotan con P0409 delivery_note_order_mismatch sin efectos.
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=d96a00b5-e35f-45a9-96aa-299e07339d7f
+NOTICE:  PASS (a): conversión cash — stock idéntico, 0 movimientos, caja, SaleConfirmed, orden confirmed con origen, remito converted sin subir revisión, historiales, snapshots del remito (renombrado y costo remarcado) y payload con la venta.
+NOTICE:  PASS (g/h/i): replay sin efectos, clave ajena -> idempotency_key_conflict, segunda conversión -> delivery_note_invalid_state.
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=6e1edad5-a1c1-4729-bdd9-8f650251a31b
+NOTICE:  PASS (j/k/l): versión vieja, parámetros, forma de pago ajena, rol stock, remito ajeno e inexistente y cash sin sesión rebotan sin efectos; el cajero convierte con el precio del remito.
+NOTICE:  PASS (b): conversión a crédito como authenticated por el vendedor — cargo con vencimiento por cascada (30 días), sin caja ni stock.
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=e118cb23-5d44-4cc5-a6eb-1d4b8b56afce
+NOTICE:  PASS (c/d): transferencia con movimiento bancario en la sucursal del remito; producto dado de baja después de emitir convierte con su snapshot.
+NOTICE:  PASS (e/f): cliente dado de baja -> delivery_note_client_unavailable; sucursal desactivada o cerrada -> P0422 branch_closed; cero efectos.
+NOTICE:  PASS (m): rpc_quick_sale y rpc_convert_quote_to_sale siguen descontando con su movimiento sale/sale; el P0423 de dinero de una venta POS no cambia.
+NOTICE:  PASS (q/r): editar la venta nacida del remito -> P0423 delivery_note_sale_locked sin efectos (comprobante pendiente intacto, stock y movimientos sin cambios); anular un convertido -> P0423.
+NOTICE:  PASS (s): ninguna venta nacida de remito tiene movimientos propios y el ledger de cada remito vivo cuadra con sus líneas.
+ROLLBACK
+ERROR:  GATE REMITO-A-VENTA FAILED (abortó): P0001 / GATE REMITO-A-VENTA FAILED:
+  FAIL (o): el remito no volvió a issued con historial converted->issued y motivo (estado converted)
+  FAIL (o): reconvertir el remito reabierto falló o tocó stock: ERR|P0409|delivery_note_invalid_state: el remito está converted y no se puede convertir
+  FAIL (o): borrar la venta a crédito (compensación, remito issued, stock): OK
+  FAIL (p): sucursal desactivada debía dar P0422 delivery_note_branch_inactive sin efectos: OK (so=9 so_status=canceled:2,confirmed:7 soi=11 sales=7 sale_items=7 sm=18 bs=140.0000 cash=4 cam=5 bank=1 events=17 history=43 fiscal=voided:1 idem=20 dn=canceled:1:1,converted:7:8,issued:5:5 -> so=9 so_status=canceled:3,confirmed:6 soi=11 sales=6 sale_items=6 sm=18 bs=140.0000 cash=4 cam=5 bank=2 events=18 history=44 fiscal=voided:1 idem=19 dn=canceled:1:1,converted:7:8,issued:5:5)
+  FAIL (p): sucursal cerrada debía dar P0422 delivery_note_branch_inactive sin efectos: OK
+  FAIL (p): con la sucursal reactivada el borrado debía proceder y compensar el banco: OK
+CONTEXT:  PL/pgSQL function inline_code_block line 888 at RAISE
+ERROR:  current transaction is aborted, commands ignored until end of transaction block

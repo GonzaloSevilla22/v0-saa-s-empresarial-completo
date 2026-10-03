@@ -357,7 +357,7 @@ export function humanizeOperationError(
     return {
       message:
         "La sucursal del remito está desactivada o cerrada: no se guardó ningún cambio. " +
-        "Reactivala desde Sucursales para editar o anular el remito.",
+        "Reactivala desde Sucursales para editar o anular el remito, o para eliminar su venta.",
     }
   }
 
@@ -635,6 +635,15 @@ export function humanizeOperationError(
   }
 
   if (BRANCH_CLOSED_ERROR.test(message)) {
+    // remitos-venta (D7): la conversión de un remito se imputa a SU sucursal, que
+    // no se elige — "elegí otra sucursal" no tiene salida. Se reactiva la del remito.
+    if (isRemito) {
+      return {
+        message:
+          "La sucursal del remito está cerrada o desactivada: no se registró la venta. " +
+          "Reabrila o reactivala desde Sucursales y volvé a intentar.",
+      }
+    }
     return {
       message:
         "La sucursal está cerrada y no admite operaciones: no se guardó nada. Elegí otra sucursal o reabrila desde Sucursales.",

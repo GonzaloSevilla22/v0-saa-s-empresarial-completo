@@ -6,10 +6,17 @@
  * caja y saldo del cliente con cuenta corriente.
  *
  * Es CONTROLADO y no conoce el presupuesto: lo compone `ConvertQuoteDialog` y lo
- * va a reutilizar `remitos-venta` sin refactor. Arma lo que ya existe
+ * reutiliza `ConvertDeliveryNoteDialog` (remitos-venta) sin refactor. Arma lo que ya existe
  * (`BranchSelect`, `PaymentMethodSelect`, `BankAccountDestinationSelect`) y no
  * decide nada por su cuenta: lo derivado (kind, sesión de caja, bloqueo) viene de
  * `useSaleCheckout`, que el contenedor también usa para el botón de confirmar.
+ *
+ * `branchReadOnly` (remitos-venta, D7): la sucursal NO se elige, se muestra por
+ * nombre. La usa la conversión de un remito, que se imputa a la sucursal de donde
+ * salió el stock: una venta en otra sucursal desalinearía la caja de su stock. Es
+ * aditiva — sin ella (el presupuesto) el campo es el `BranchSelect` de siempre — y
+ * muestra el nombre aunque el plan no tenga módulo de sucursales (el selector, en
+ * cambio, no se renderiza en esos planes).
  *
  * El texto del bloqueo vive en un elemento con `id` estable
  * (`SALE_CHECKOUT_REASON_ID`) para que el botón lo referencie con
@@ -38,6 +45,10 @@ interface SaleCheckoutFieldsProps {
   clientId: string | null
   checkout: SaleCheckoutState
   disabled?: boolean
+  /** La sucursal viene dada por el documento y no se elige (conversión de un remito). */
+  branchReadOnly?: boolean
+  /** Nombre a mostrar con `branchReadOnly`; sin él se dice que es la del remito, sin inventar una. */
+  branchName?: string | null
 }
 
 export function SaleCheckoutFields({
@@ -50,6 +61,8 @@ export function SaleCheckoutFields({
   clientId,
   checkout,
   disabled = false,
+  branchReadOnly = false,
+  branchName = null,
 }: SaleCheckoutFieldsProps) {
   const isCredit = checkout.kind === "credit"
   const { data: customerAccount } = useCustomerAccount(isCredit ? clientId : null)
@@ -58,12 +71,18 @@ export function SaleCheckoutFields({
     <fieldset disabled={disabled} className="flex min-w-0 flex-col gap-4 border-0 p-0">
       <div className="flex flex-col gap-2">
         <Label className="text-sm text-foreground">Sucursal</Label>
-        <BranchSelect
-          value={branchId}
-          onChange={onBranchChange}
-          placeholder="Sucursal por defecto"
-          className="bg-background border-border text-foreground"
-        />
+        {branchReadOnly ? (
+          <p className="min-w-0 break-words rounded-md border border-border bg-muted/40 px-3 py-2 text-sm font-medium text-foreground">
+            {branchName ?? "La sucursal del remito"}
+          </p>
+        ) : (
+          <BranchSelect
+            value={branchId}
+            onChange={onBranchChange}
+            placeholder="Sucursal por defecto"
+            className="bg-background border-border text-foreground"
+          />
+        )}
       </div>
 
       <PaymentMethodSelect

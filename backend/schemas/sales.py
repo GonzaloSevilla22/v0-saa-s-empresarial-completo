@@ -199,6 +199,16 @@ class SaleItemOut(BaseModel):
     # del formulario no lo tiene.
     source_quote_id: uuid.UUID | None = None
     source_quote_number: int | None = None
+    # remitos-venta (tanda B, D13): el remito de venta que originó la venta
+    # (`sales_orders.source_delivery_note_id → delivery_notes`, derivado de
+    # lectura) para el indicador "Desde remito R-NNNNNNNN" de /ventas. El
+    # número es el del remito; la etiqueta la arma la interfaz.
+    source_delivery_note_id: uuid.UUID | None = None
+    source_delivery_note_number: int | None = None
+    # Motivo por el que la operación no se edita (hoy un único token:
+    # `delivery_note_sale_locked`). Derivado de lectura, sin columna: la
+    # autoridad al editar sigue siendo la RPC (P0423).
+    edit_locked_reason: str | None = None
     # presupuestos-modulo (D6, OQ-P16): la OPERACIÓN incluye alguna fila sin
     # producto (línea de servicio de un presupuesto convertido). El editor de
     # /ventas no la edita: la acción "Editar" se deshabilita con su motivo.

@@ -1,0 +1,84 @@
+PASS  (0) control positivo: B emite su propio remito  -> {"id":"6a41b7db-d40d-4eec-95a6-222478e9a823","account_id":"52f7d88a-0e53-4fe3-ba89-95b81984b506","di
+PASS  (1) rpc_convert_delivery_note_to_sale como anon -> 401/403  -> 401
+PASS  (1) rol stock por PostgREST -> rechazado (P0403 insufficient_role)  -> 500 {"code":"P0403","details":null,"hint":null,"message":"insufficient_role: tu rol no permite convertir remitos en venta (requiere vendedor, cajero, administrador o dueño)"}
+PASS  (1) tenant B por PostgREST sobre el remito de A -> delivery_note_not_found (P0404)  -> 500 {"code":"P0404","details":null,"hint":null,"message":"delivery_note_not_found: 652f2088-4a73-4cb6-828b-162b20eba406"}
+PASS  (1) p_expected_revision NULL -> P0400 delivery_note_revision_required  -> 500 {"code":"P0400","details":null,"hint":null,"message":"delivery_note_revision_required: falta la versión del remito que se convierte"}
+PASS  (1) clave vacía -> P0400  -> 500 {"code":"P0400","details":null,"hint":null,"message":"idempotency_key is required"}
+PASS  (1) sin forma de pago -> P0400 payment_method_required  -> 500 {"code":"P0400","details":null,"hint":null,"message":"payment_method_required: la conversión exige una forma de pago del catálogo"}
+PASS  (1) parámetro inexistente p_skip_stock -> rechazado (PGRST202): la firma no admite saltear el stock  -> 404 {"code":"PGRST202","details":"Searched for the function public.rpc_convert_delivery_note_to_sale with parameters p_delivery_note_id, p_expected_revision, p_idempotency_key, p_payment_method_id, p_skip_stock or with a sin
+PASS  (1) la RPC pública no tiene parámetro de stock/skip y el núcleo ninguno de stock, remito ni skip (la decisión la toma la columna persistida de la orden)  -> p_idempotency_key text, p_delivery_note_id uuid, p_expected_revision integer, p_payment_method_id uuid, p_cash_session_id uuid DEFAULT NULL::uuid, p_bank_account_id uuid DEFAULT NULL::uuid, p_canal text DEFAULT NULL::text || p_idempotency_key text, p_sales_order_id uuid, p_payment_method text, p_cas
+PASS  (1) PATCH directo para marcar un BORRADOR sin origen con un remito no tiene efecto (vector de "confirmar sin descontar stock")  -> 200 []
+PASS  (1) INSERT directo de una orden con origen de remito rechazado  -> 403 {"code":"42501","details":null,"hint":null,"message":"new row violates row-level security policy for table \"sales_orders\""}
+PASS  (1) _delivery_note_payload no está expuesto a authenticated  -> 403
+PASS  (1) ningún efecto de la superficie PostgREST  -> [{"h":4997.5,"a":5006,"e":1,"t":3,"ac":20,"cash":0,"bank":0,"cust":0,"mov":2,"orders":"0","sales":"0","dns":"1/1","events":"0"},{"h":4997.5,"a":5006,"e":1,"t":3,"ac":20,"cash":0,"bank":0,"cust":0,"mov":2,"orders":"0","sales":"0","dns":"1/1","events":"0"}]
+PASS  (1) control positivo: el vendedor convierte por PostgREST  -> 200 {"total":5000,"replayed":false,"operation_id":"7aacf3f9-b61d-45b9-a82a-f9cc92a57b37","sales_order_id":"eccb0ead-db98-40d4-bdf7-636332621baf","delivery_note_id":"652f2088-4a73-4cb6-828b-162b20eba406","delivery_note_number
+PASS  (2) control positivo: la primera conversión con la clave responde 200 replayed:false  -> 200 {"delivery_note_id":"422ad1ea-5106-4012-a28c-02aa246be0ad","delivery_note_number":2,"delivery_note_number_label":"R-00000002","sales_order_id":"830ca070-b4fb-44b4-b96f-67d9c9a485f2","operation_id":"9de944c8-27f0-4cea-b74
+PASS  (2) replay misma clave + mismo remito -> 200 replayed:true, misma orden  -> 200 {"delivery_note_id":"422ad1ea-5106-4012-a28c-02aa246be0ad","delivery_note_number":2,"delivery_note_number_label":"R-00000002","sales_order_id":"830ca070-b4fb-44b4-b96f-67d9c9a485f2","operation_id":"9de944c8-27f0-4cea-b74
+PASS  (2) el replay no escribe nada
+PASS  (2) la MISMA clave sobre OTRO remito -> 409 idempotency_key_conflict  -> 409 {"type":"about:blank","title":"Conflicto","status":409,"detail":"idempotency_key_conflict: la clave ya se usó para otra operación","code":"idempotency_key_conflict"}
+PASS  (2) el otro remito queda intacto (issued, sin orden)
+PASS  (2) el conflicto no deja huérfanas ni movimientos  -> [{"h":4992.5,"a":4998,"e":1,"t":3,"ac":20,"cash":0,"bank":0,"cust":0,"mov":6,"orders":"2","sales":"4","dns":"3/1","events":"2"},{"h":4992.5,"a":4998,"e":1,"t":3,"ac":20,"cash":0,"bank":0,"cust":0,"mov":6,"orders":"2","sales":"4","dns":"3/1","events":"2"}]
+PASS  (2) la clave de una emisión usada para convertir NO hace replay de la emisión: convierte ESE remito (operation_kind distinto)  -> 200 {"delivery_note_id":"9d793bd7-106a-405c-b99d-b8714832d61f","delivery_note_number":5,"delivery_note_number_label":"R-00000005","sales_order_id":"557980aa-627f-4cc3-a96a-5534c3d95d3b","operation_id":"5ea6f939-e00d-44f8-89c
+PASS  (2) sin Idempotency-Key -> 422  -> 422 {"type":"about:blank","title":"Error de validación","status":422,"detail":"Falta la clave de idempotencia: enviar el header 'Idempotency-Key' (o, en su defecto, 'idempotency_key' en el body).","code":"idempotency_key_req
+PASS  (2) clave sólo en el body (fallback deprecado) NO se acepta para la conversión -> 422  -> 422 {"type":"about:blank","title":"Error de validación","status":422,"detail":"Falta la clave de idempotencia: enviar el header 'Idempotency-Key' (o, en su defecto, 'idempotency_key' en el body).","code":"idempotency_key_req
+PASS  (2) tras los ataques la conversión legítima funciona  -> 200 {"delivery_note_id":"67ea59ef-2cab-4d49-beea-a20928d9b9de","delivery_note_number":3,"delivery_note_number_label":"R-00000003","sales_order_id":"a531e27b-9c6d-465a-af10-f4400faa4108","operation_id":"3cada642-f8ff-4fa7-8a1
+PASS  (3) rol stock convirtiendo por HTTP -> 403  -> 403 {"type":"about:blank","title":"Prohibido","status":403,"detail":"Rol de cuenta insuficiente: se requiere admin o cashier o owner o seller","code":"insufficient_role"}
+PASS  (3) remito de A convertido por B -> 404  -> 404 {"type":"about:blank","title":"No encontrado","status":404,"detail":"delivery_note_not_found: a366e42d-4111-4eba-9872-84fe6b515c4d","code":"delivery_note_not_found"}
+PASS  (3) remito de B convertido por A -> 404  -> 404 {"type":"about:blank","title":"No encontrado","status":404,"detail":"delivery_note_not_found: 6a41b7db-d40d-4eec-95a6-222478e9a823","code":"delivery_note_not_found"}
+PASS  (3) forma de pago ajena -> 4xx  -> 404 {"type":"about:blank","title":"No encontrado","status":404,"detail":"payment_method_not_found: 89f1351f-86fc-400e-9d81-3e8fffd24ff4 no pertenece a la cuenta o no existe","code":"payment_method_not_found"}
+PASS  (3) forma de pago inexistente -> 4xx  -> 404
+PASS  (3) remito inexistente -> 404  -> 404
+PASS  (3) id no uuid -> 422  -> 422
+PASS  (3) sin expected_revision -> 422  -> 422
+PASS  (3) expected_revision 0 -> 422  -> 422
+PASS  (3) versión vieja/ajena -> 409 delivery_note_changed  -> 409 {"type":"about:blank","title":"Conflicto","status":409,"detail":"delivery_note_changed: el remito cambió desde que lo abriste (versión 8 vs 1) — recargalo","code":"delivery_note_changed"}
+PASS  (3) efectivo con sesión de caja inexistente -> 4xx  -> 422 {"type":"about:blank","title":"Error de validación","status":422,"detail":"cash_optin_requires_open_session: la sesión de caja debe estar abierta y pertenecer a la sucursal efectiva de la venta","code":"cash_optin_requir
+PASS  (3) efectivo SIN sesión de caja -> 4xx (cash_requires_session)  -> 400 {"type":"about:blank","title":"Solicitud inválida","status":400,"detail":"cash_requires_session: payment_method=cash exige cash_session_id","code":"cash_requires_session"} sesión=true
+PASS  (3) cuenta bancaria inexistente -> 4xx  -> 404 {"type":"about:blank","title":"No encontrado","status":404,"detail":"bank_account_not_found_or_inactive: 74220adb-b73e-4f03-befb-0b499d2ce2fd no pertenece a la cuenta, no existe, está inactiva o borrada","code":"bank_acc
+PASS  (3) campos extra (branch_id, skip_stock, force) se ignoran o se rechazan, nunca se obedecen  -> 200
+PASS  (3)   ...y la venta quedó en la sucursal del remito, con el stock intacto  -> 5c3cb54c-d66d-40ef-9b0d-cd05878f8adf
+PASS  (3) remito ANULADO -> 409 delivery_note_invalid_state  -> 409 {"type":"about:blank","title":"Conflicto","status":409,"detail":"delivery_note_invalid_state: el remito está canceled y no se puede convertir","code":"delivery_note_invalid_state"}
+PASS  (3) remito ya CONVERTIDO (otra clave) -> 409 delivery_note_invalid_state  -> 409 {"type":"about:blank","title":"Conflicto","status":409,"detail":"delivery_note_invalid_state: el remito está converted y no se puede convertir","code":"delivery_note_invalid_state"}
+PASS  (3) cliente dado de baja -> 4xx delivery_note_client_unavailable  -> 404 {"type":"about:blank","title":"No encontrado","status":404,"detail":"delivery_note_client_unavailable: el cliente del remito fue dado de baja: editá el remito y elegí un cliente vigente","code":"delivery_note_client_unav
+PASS  (3)   ...sin efectos
+PASS  (3) producto dado de baja tras emitir: la conversión igual procede (usa los snapshots del remito)  -> 200 {"delivery_note_id":"7325daa0-31ce-476f-9b7c-131c1e7fbc91","delivery_note_number":9,"delivery_note_number_label":"R-00000009","sales_order_id":"b57f10b9-6959-4c21-b3f2-293ef5ca891c","operation_id":"279980aa-a644-4f09-86a
+PASS  (3) control positivo: el cajero convierte (forma que no es caja)  -> 200 {"delivery_note_id":"68ef57f1-4acc-4544-a54f-aa8f0256eadc","delivery_note_number":10,"delivery_note_number_label":"R-00000010","sales_order_id":"24902bd8-d702-4689-89c7-eda24317f39c","operation_id":"93cbad07-ea40-40b2-9c
+PASS  (3) control positivo: el vendedor convierte  -> 200 {"delivery_note_id":"8f9d1020-3dd4-45ac-8ff2-0df8c4c3abe9","delivery_note_number":11,"delivery_note_number_label":"R-00000011","sales_order_id":"5df44da6-5335-427a-92b5-7397a38248f1","operation_id":"f78d4295-2aa4-41e8-8d
+PASS  (3) control positivo: el admin convierte  -> 200 {"delivery_note_id":"c8bc82b7-68fb-47b6-a7e5-3e88b700e68a","delivery_note_number":12,"delivery_note_number_label":"R-00000012","sales_order_id":"2dd3d011-3de3-4019-83dd-037f98e59804","operation_id":"3de5e829-c434-47a0-a2
+PASS  (4) F1 orden de A con origen un remito de B -> rechazada por el núcleo  -> 500 {"code":"P0404","details":null,"hint":null,"message":"client_not_found: 341c2735-3097-40b2-b419-f6566601ea7e"}
+PASS  (4)   ...sin efectos (stock, caja, ventas)  -> [{"h":4977.5,"a":4970,"e":0,"t":3,"ac":20,"cash":0,"bank":0,"cust":0,"mov":26,"orders":"10","sales":"17","dns":"14/4","events":"9"},{"h":4977.5,"a":4970,"e":0,"t":3,"ac":20,"cash":0,"bank":0,"cust":0,"mov":26,"orders":"10","sales":"17","dns":"14/4","events":"9"}]
+PASS  (4) F2 origen inexistente: la FK impide siquiera fabricar la orden (23503)  -> Error: ERROR:  insert or update on table "sales_orders" violates foreign key constraint "sales_orders_source_delivery_no
+PASS  (4) F3 remito ya convertido: el índice único parcial impide fabricar una 2ª orden viva (23505)  -> Error: ERROR:  duplicate key value violates unique constraint "sales_orders_source_delivery_note_id_uq"
+DETAIL:  Key (source_delivery_note_i
+PASS  (4) F4 líneas distintas a las del remito -> P0409 delivery_note_order_mismatch  -> 500 {"code":"P0409","details":null,"hint":null,"message":"delivery_note_order_mismatch: las líneas de la orden e16963bf-7eed-4ed4-beb3-4f9ca6ba1720 no son las del remito"}
+PASS  (4)   ...sin efectos
+PASS  (4) F5 origen = remito ANULADO -> rechazada  -> 500 {"code":"P0409","details":null,"hint":null,"message":"delivery_note_order_mismatch: la orden 7b7bc06b-b257-4dac-a2a4-8c0e7b42902e no corresponde a un remito de venta pendiente de la misma cuenta, cliente y sucursal"}
+PASS  (4)   ...sin efectos
+PASS  (4) F6 sucursal de la orden distinta de la del remito -> rechazada  -> 500 {"code":"P0409","details":null,"hint":null,"message":"delivery_note_order_mismatch: la orden 00e0beb9-1b1b-4e42-b1d1-8c00c109cee6 no corresponde a un remito de venta pendiente de la misma cuenta, cliente y sucursal"}
+PASS  (4) F7 cliente de la orden distinto del remito -> rechazada  -> 500 {"code":"P0409","details":null,"hint":null,"message":"delivery_note_order_mismatch: la orden e28c253e-8660-42f0-9bba-65057c00c205 no corresponde a un remito de venta pendiente de la misma cuenta, cliente y sucursal"}
+PASS  (4)   ...sin efectos tras F6-F7 (las órdenes fabricadas ya retiradas)  -> [{"h":4975,"a":4966,"e":0,"t":3,"ac":20,"cash":0,"bank":0,"cust":0,"mov":32,"orders":"10","sales":"19","dns":"16/4","events":"10"},{"h":4975,"a":4966,"e":0,"t":3,"ac":20,"cash":0,"bank":0,"cust":0,"mov":32,"orders":"10","sales":"19","dns":"16/4","events":"10"}]
+PASS  (4) F8 B no puede confirmar la orden de A por el núcleo  -> 500 {"code":"P0401","details":null,"hint":null,"message":"unauthorized"}
+PASS  (4) control positivo: una orden exacta confirma por el núcleo SIN mover stock (rama de remito)  -> 200 {"total":5000,"replayed":false,"operation_id":"a2190b85-f67f-42ad-b1f8-0f7b01dfb5b5","fiscal_doc_id":null,"sales_order_id":"79e81246-e66b-4160-bdca-8c8f3afd53d4"} mov 34->34
+PASS  (4) control: el núcleo registró la venta (sales +1) pero sin movimientos
+PASS  (5) editar la venta de un remito por la API (owner) -> 409 delivery_note_sale_locked  -> 409 {"type":"about:blank","title":"Conflicto","status":409,"detail":"delivery_note_sale_locked: la venta nació del remito R-00000018: para corregirla, eliminá la venta, editá el remito y volvé a convertirlo","code":"P0423"}
+PASS  (5) ...ni el admin (lo frena la ownership previa o el guard del remito; en ambos casos sin efectos)  -> 403 {"type":"about:blank","title":"Prohibido","status":403,"detail":"Permission denied: sale belongs to another user","code":"P0403"}
+PASS  (5) tampoco por PostgREST directo -> P0423  -> 500 {"code":"P0423","details":null,"hint":null,"message":"delivery_note_sale_locked: la venta nació del remito R-00000018: para corregirla, eliminá la venta, editá el remito y volvé a convertirlo"}
+PASS  (5) sin efectos
+PASS  (5) control positivo: una venta normal SÍ se edita  -> 200 {"ok":true,"operation_id":"07db1ea4-a889-4e0c-8dac-e66e9e1bd30f","voided_fiscal_document":null}
+PASS  (6) setup: remito en la sucursal 2 emitido y convertido  -> 200 {"delivery_note_id":"6192b8dc-244a-4ff5-8254-de7e7e0e7951","delivery_note_number":19,"delivery_note_number_label":"R-00000019","sales_order_id":"d2bcdf95-e9de-4601-8e1e-0b6222426230","operation_id":"02fe0702-a2a5-4242-af
+PASS  (6) borrar con la sucursal del remito desactivada -> 4xx P0422 delivery_note_branch_inactive  -> 422 {"type":"about:blank","title":"Error de validación","status":422,"detail":"delivery_note_branch_inactive: la sucursal del remito R-00000019 está desactivada o cerrada — reactivala antes de eliminar la venta","code":"P042
+PASS  (6) cero efectos: remito sigue converted, orden viva, stock y caja iguales  -> [{"h":4970,"a":4946,"e":0,"t":3,"ac":20,"cash":0,"bank":0,"cust":0,"mov":40,"orders":"13","sales":"25","dns":"19/5","events":"14"},{"h":4970,"a":4946,"e":0,"t":3,"ac":20,"cash":0,"bank":0,"cust":0,"mov":40,"orders":"13","sales":"25","dns":"19/5","events":"14"}]
+PASS  (6) control positivo: reactivada la sucursal, el borrado procede y el remito vuelve a issued  -> 204 issued
+PASS  (6)   ...sin tocar el stock (los movimientos no cambian)  -> 40->40
+PASS  (7) 10 conversiones concurrentes (claves distintas) del MISMO remito -> exactamente 1 venta  -> 200,409,409,409,409,409,409,409,409,409 :: confirmed
+PASS  (7)   ...los otros 9 son 409 sin 5xx  -> 200,409,409,409,409,409,409,409,409,409
+PASS  (7)   ...el stock NO cambió y hay UN solo movimiento de caja  -> cash 0->1 mov 42->42
+PASS  (7) 10 conversiones con la MISMA clave -> 1 nueva + 9 replays, una sola venta y un solo movimiento de caja  -> 1/9 200,200,200,200,200,200,200,200,200,200
+PASS  (7) misma clave sobre 2 remitos en paralelo -> sólo uno convierte, el otro 409 y revierte sin dejar borradores  -> 409,200 converted,issued drafts=0
+PASS  (7) conversión vs anulación en paralelo: gana exactamente una y el estado es coherente  -> 200/409 converted confirmed
+PASS  (8) control: la fila forjada entra por PostgREST (política preexistente)  -> 201
+PASS  (8) rpc_reverse_stock_movement NO acepta reference_type delivery_note: el stock no se mueve  -> 500 {"code":"P0400","details":null,"hint":null,"message":"rpc_reverse_stock_movement: p_reference_type debe ser purchase o sale (recibido: delivery_note)"} stock 0->0
+PASS  (8) borrar la venta del remito con la fila forjada presente no repone stock  -> 204 stock 0->0
+PASS  (8) control positivo preexistente: reference_type=sale forjada SÍ se revierte (candidato 9.1)  -> forja 201 rpc 200 stock 0->1
+
+RESUMEN RED-TEAM B: 81/81 PASS

@@ -101,6 +101,11 @@ class SalesOrderOut(BaseModel):
     # derivado de `source_quote_id → quotes` (sin columna denormalizada); la
     # etiqueta "P-00000012" la arma la interfaz con `formatInternalDocumentNumber`.
     source_quote_number: Optional[int] = None
+    # remitos-venta (tanda B, D13): el remito de venta de origen y su número
+    # visible, derivados de `source_delivery_note_id → delivery_notes` (sin
+    # columna denormalizada); la etiqueta "R-00000012" la arma la interfaz.
+    source_delivery_note_id:     Optional[uuid.UUID] = None
+    source_delivery_note_number: Optional[int] = None
     status:             SalesOrderStatus
     # qa-integral-modulos (G8/D6): la columna sales_orders.payment_method (TEXT
     # legacy) fue retirada por limpiezas-pagos-admin — el repo DERIVA este campo

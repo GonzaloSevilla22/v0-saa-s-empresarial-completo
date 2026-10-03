@@ -7,10 +7,10 @@ Routes:
   GET    /delivery-notes/{id}               → detalle con líneas e historial
   PUT    /delivery-notes/{id}               → edición, reemplazo completo con `revision`
   POST   /delivery-notes/{id}/cancel        → anulación con motivo (repone stock; admin/owner)
+  POST   /delivery-notes/{id}/convert       → conversión atómica en venta, sin volver a mover stock (Idempotency-Key)
   GET    /delivery-notes/{id}/pdf           → PDF (inline | attachment), sin precios por defecto
 
-No hay `DELETE`: un remito nunca se borra, se anula. La conversión en venta
-(`POST /delivery-notes/{id}/convert`) es de la tanda B.
+No hay `DELETE`: un remito nunca se borra, se anula.
 
 Regla dura: routers hacen validación + DI únicamente. Toda la lógica de negocio
 y los guards en services/delivery_notes.py.
@@ -30,6 +30,8 @@ from backend.core.idempotency import require_idempotency_key
 from backend.repositories.delivery_note_repository import DeliveryNoteRepository
 from backend.schemas.delivery_notes import (
     DeliveryNoteCancelIn,
+    DeliveryNoteConvertIn,
+    DeliveryNoteConvertOut,
     DeliveryNoteCreateIn,
     DeliveryNoteOut,
     DeliveryNotePageOut,
@@ -152,6 +154,35 @@ async def cancel_delivery_note(
     segunda anulación → 409 `delivery_note_invalid_state`)."""
     return await delivery_notes_service.cancel_delivery_note(
         repo, auth, str(account_id), str(delivery_note_id), payload, conn=conn
+    )
+
+
+@router.post("/delivery-notes/{delivery_note_id}/convert", response_model=DeliveryNoteConvertOut)
+async def convert_delivery_note(
+    delivery_note_id: uuid.UUID,
+    request: Request,
+    payload: DeliveryNoteConvertIn,
+    auth: dict = Depends(get_current_user),
+    repo: DeliveryNoteRepository = Depends(get_delivery_note_repo),
+    conn: asyncpg.Connection = Depends(get_db_conn),
+    account_id: uuid.UUID = Depends(get_account_id),
+):
+    """Convierte el remito en venta en UNA transacción: crea la orden en la
+    sucursal del remito y la confirma con los mismos efectos de caja, cuenta
+    corriente, banco y eventos del POS, pero SIN volver a descontar stock (el
+    remito ya lo retiró al emitirse). Requiere `CAN_SELL`. `expected_revision` es
+    la versión que el usuario vio: otra versión → 409 `delivery_note_changed`.
+
+    La conversión escribe dinero, así que es idempotente: `Idempotency-Key` por
+    header, OBLIGATORIA (sin ella → 422 `idempotency_key_required`; el cuerpo no
+    la acepta). Un reintento con la misma clave sobre el mismo remito responde
+    200 con `replayed: true` y no escribe nada; la misma clave sobre otro
+    documento → 409 `idempotency_key_conflict`. Un remito ya convertido o anulado
+    → 409 `delivery_note_invalid_state`.
+    """
+    key = await require_idempotency_key(request, None)
+    return await delivery_notes_service.convert_delivery_note(
+        repo, auth, str(account_id), str(delivery_note_id), payload, key, conn=conn
     )
 
 

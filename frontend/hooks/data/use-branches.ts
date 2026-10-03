@@ -59,11 +59,10 @@ export function translateRpcError(message: string): string {
   if (message.includes("branch_has_pending_transfers"))
     return "La sucursal tiene transferencias de stock sin completar. Esperá a que terminen antes de darla de baja."
   // remitos-venta (D10): cuarto motivo de P0428 — un remito pendiente (venta o
-  // compra) en la sucursal. El texto es neutro respecto del sentido. Dice sólo
-  // la salida que existe en la tanda A (anular, sólo admin/owner); "convertilos
-  // en venta" se suma con la conversión (tanda B).
+  // compra) en la sucursal. El texto es neutro respecto del sentido y nombra las
+  // dos salidas (tanda B): convertirlos en venta o anularlos (sólo admin/owner).
   if (message.includes("branch_has_pending_delivery_notes"))
-    return "La sucursal tiene remitos pendientes. Anulalos (un administrador o el dueño) antes de darla de baja."
+    return "La sucursal tiene remitos pendientes. Convertilos en venta o anulalos (un administrador o el dueño) antes de darla de baja."
   if (message.includes("branch_delete_forbidden"))
     return "No se puede borrar una sucursal — desactivala en su lugar."
   if (message.includes("last_active_branch"))    return "No podés cerrar la única sucursal operativa de tu cuenta."

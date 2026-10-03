@@ -1333,7 +1333,7 @@ class TestRouterIsRegistered:
         assert ("PUT", "/delivery-notes/{delivery_note_id}") in routes
         assert ("POST", "/delivery-notes/{delivery_note_id}/cancel") in routes
         assert ("GET", "/delivery-notes/{delivery_note_id}/pdf") in routes
-        # la conversión es de la tanda B
-        assert ("POST", "/delivery-notes/{delivery_note_id}/convert") not in routes
+        # la conversión es de la tanda B (cubierta en test_delivery_note_convert.py)
+        assert ("POST", "/delivery-notes/{delivery_note_id}/convert") in routes
         # sin borrado: un remito nunca se borra, se anula
         assert ("DELETE", "/delivery-notes/{delivery_note_id}") not in routes

@@ -5,7 +5,10 @@
  *  - cabecera: número, estado, cliente (enlace), sucursal de origen, fecha,
  *    domicilio y "Modificado el …" sólo con `revision > 1`;
  *  - acciones por estado y rol (matriz de D11), decididas con `hasCapability`
- *    sobre el CONJUNTO de roles; en la tanda A "Venta" no se muestra;
+ *    sobre el CONJUNTO de roles; "Venta" (tanda B, `CAN_SELL`) sólo en un remito
+ *    pendiente: abre `ConvertDeliveryNoteDialog`, se deshabilita explicando el
+ *    motivo si el cliente fue dado de baja y el diálogo sigue montado mientras
+ *    está abierto aunque el remito pase a convertido;
  *  - `DocumentShareMenu` con el switch "Mostrar precios" (apagado por defecto)
  *    FUERA del desplegable y con su Label; el menú se monta con `key={showPrices}`
  *    para descartar la precarga: cambiar el switch y enviar comparte la variante
@@ -30,6 +33,7 @@ const mocks = vi.hoisted(() => ({
   shareMounts: vi.fn(),
   shareProps: vi.fn(),
   cancelDialog: vi.fn(),
+  convertDialog: vi.fn(),
 }))
 
 vi.mock("next/navigation", () => ({
@@ -82,6 +86,24 @@ vi.mock("@/components/delivery-notes/CancelDeliveryNoteDialog", () => ({
       <div role="dialog" aria-label="Anular remito (mock)">
         <button type="button" onClick={() => props.onOpenChange(false)}>
           cerrar anulación
+        </button>
+      </div>
+    ) : null
+  },
+}))
+
+vi.mock("@/components/delivery-notes/ConvertDeliveryNoteDialog", () => ({
+  ConvertDeliveryNoteDialog: (props: {
+    deliveryNote: { id: string; status: string }
+    open: boolean
+    onOpenChange: (open: boolean) => void
+  }) => {
+    mocks.convertDialog(props)
+    return props.open ? (
+      <div role="dialog" aria-label="Pasar a venta (mock)">
+        <span data-testid="convert-dialog-note-status">{props.deliveryNote.status}</span>
+        <button type="button" onClick={() => props.onOpenChange(false)}>
+          cerrar venta
         </button>
       </div>
     ) : null
@@ -293,13 +315,14 @@ describe("DeliveryNoteDetailPage — acciones por estado y rol (D11)", () => {
   })
 
   it.each([
-    [["owner"], { editar: true, anular: true }],
-    [["admin"], { editar: true, anular: true }],
-    [["seller"], { editar: true, anular: false }],
-    [["stock"], { editar: true, anular: false }],
-    [["cashier"], { editar: false, anular: false }],
-    [["viewer"], { editar: false, anular: false }],
-    [["cashier", "admin"], { editar: true, anular: true }],
+    [["owner"], { editar: true, anular: true, venta: true }],
+    [["admin"], { editar: true, anular: true, venta: true }],
+    [["seller"], { editar: true, anular: false, venta: true }],
+    [["stock"], { editar: true, anular: false, venta: false }],
+    [["cashier"], { editar: false, anular: false, venta: true }],
+    [["viewer"], { editar: false, anular: false, venta: false }],
+    [["cashier", "admin"], { editar: true, anular: true, venta: true }],
+    [["stock", "cashier"], { editar: true, anular: false, venta: true }],
   ])("remito pendiente con roles %j", (roles, expected) => {
     setRoles(roles)
     render(<DeliveryNoteDetailPage />)
@@ -307,8 +330,75 @@ describe("DeliveryNoteDetailPage — acciones por estado y rol (D11)", () => {
     expect(a.compartir).toBeInTheDocument()
     expect(!!a.editar).toBe(expected.editar)
     expect(!!a.anular).toBe(expected.anular)
-    // Tanda A: "Venta" todavía no existe, ni siquiera para quien podría convertir.
-    expect(a.venta).not.toBeInTheDocument()
+    // "Venta" (CAN_SELL): el cajero cobra lo que se llevó; el depósito (stock) emite pero no cobra.
+    expect(!!a.venta).toBe(expected.venta)
+  })
+
+  it("Venta abre el diálogo de conversión con ESTE remito y Cancelar lo cierra", () => {
+    render(<DeliveryNoteDetailPage />)
+    expect(screen.queryByRole("dialog", { name: /pasar a venta/i })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: /^venta$/i }))
+    expect(screen.getByRole("dialog", { name: /pasar a venta/i })).toBeInTheDocument()
+    expect(mocks.convertDialog.mock.calls.at(-1)?.[0].deliveryNote.id).toBe("dn-1")
+    fireEvent.click(screen.getByRole("button", { name: /cerrar venta/i }))
+    expect(screen.queryByRole("dialog", { name: /pasar a venta/i })).not.toBeInTheDocument()
+  })
+
+  it("cliente dado de baja: Venta queda deshabilitada y el motivo está visible y asociado al botón", () => {
+    mocks.useDeliveryNote.mockReturnValue({ data: note({ client_deleted: true }), isLoading: false, isError: false })
+    render(<DeliveryNoteDetailPage />)
+
+    const venta = screen.getByRole("button", { name: /^venta$/i })
+    expect(venta).toBeDisabled()
+    expect(venta).toHaveAccessibleDescription(/el cliente fue dado de baja: editá el remito y elegí uno vigente/i)
+    expect(screen.getByText(/el cliente fue dado de baja: editá el remito y elegí uno vigente/i)).toBeVisible()
+    fireEvent.click(venta)
+    expect(screen.queryByRole("dialog", { name: /pasar a venta/i })).not.toBeInTheDocument()
+  })
+
+  it("un remito con cliente vigente no muestra ningún motivo bajo los botones", () => {
+    render(<DeliveryNoteDetailPage />)
+    expect(screen.queryByText(/el cliente fue dado de baja: editá el remito/i)).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /^venta$/i })).toBeEnabled()
+  })
+
+  it("al convertir, el remito pasa a convertido pero el diálogo SIGUE montado (si no, 'Venta registrada' desaparecería)", () => {
+    const view = render(<DeliveryNoteDetailPage />)
+    fireEvent.click(screen.getByRole("button", { name: /^venta$/i }))
+    expect(screen.getByRole("dialog", { name: /pasar a venta/i })).toBeInTheDocument()
+
+    mocks.useDeliveryNote.mockReturnValue({
+      data: note({ status: "converted", converted_sales_order_id: "so-7" }),
+      isLoading: false,
+      isError: false,
+    })
+    view.rerender(<DeliveryNoteDetailPage />)
+
+    expect(screen.getByRole("dialog", { name: /pasar a venta/i })).toBeInTheDocument()
+    expect(screen.getByTestId("convert-dialog-note-status")).toHaveTextContent("converted")
+    // Y el detalle ya no ofrece convertir de nuevo.
+    expect(screen.queryByRole("button", { name: /^venta$/i })).not.toBeInTheDocument()
+    expect(screen.getByRole("link", { name: /ver venta/i })).toHaveAttribute("href", "/ventas/ordenes/so-7")
+  })
+
+  it("el diálogo no se monta en un remito convertido o anulado que nunca lo abrió", () => {
+    mocks.useDeliveryNote.mockReturnValue({
+      data: note({ status: "converted", converted_sales_order_id: "so-7" }),
+      isLoading: false,
+      isError: false,
+    })
+    const { unmount } = render(<DeliveryNoteDetailPage />)
+    expect(mocks.convertDialog).not.toHaveBeenCalled()
+    unmount()
+    mocks.useDeliveryNote.mockReturnValue({ data: note({ status: "canceled" }), isLoading: false, isError: false })
+    render(<DeliveryNoteDetailPage />)
+    expect(mocks.convertDialog).not.toHaveBeenCalled()
+  })
+
+  it("sin CAN_SELL el diálogo tampoco se monta", () => {
+    setRoles(["stock"])
+    render(<DeliveryNoteDetailPage />)
+    expect(mocks.convertDialog).not.toHaveBeenCalled()
   })
 
   it("Editar lleva a la pantalla de edición del remito", () => {

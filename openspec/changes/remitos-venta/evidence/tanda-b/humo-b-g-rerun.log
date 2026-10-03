@@ -1,0 +1,9 @@
+PASS  (g) depósito: sin botón Venta en el detalle del remito pendiente
+PASS  (g) depósito: sí puede editar (regresión de la tanda A)
+PASS  (g) depósito convirtiendo por API -> 403  -> 403 {"type":"about:blank","title":"Prohibido","status":403,"detail":"Rol de cuenta insuficiente: se requiere admin o cashier o owner o seller","code":"insufficient_
+PASS  (g) sin efectos
+PASS  (g) consola del depósito sin errores propios
+
+console errors: ninguno
+
+RESUMEN HUMO B: 5 PASS / 0 FAIL

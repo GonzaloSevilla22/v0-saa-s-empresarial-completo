@@ -1,0 +1,229 @@
+........................................................................ [  2%]
+........................................................................ [  4%]
+........................................................................ [  6%]
+........................................................................ [  8%]
+........................................................................ [ 10%]
+........................................................................ [ 12%]
+........................................................................ [ 14%]
+........................................................................ [ 16%]
+........................................................................ [ 18%]
+........................................................................ [ 20%]
+........................................................................ [ 22%]
+........................................................................ [ 24%]
+........................................................................ [ 27%]
+........................................................................ [ 29%]
+........................................................................ [ 31%]
+........................................................................ [ 33%]
+........................................................................ [ 35%]
+........................................................................ [ 37%]
+........................................................................ [ 39%]
+........................................................................ [ 41%]
+........................................................................ [ 43%]
+........................................................................ [ 45%]
+........................................................................ [ 47%]
+........................................................................ [ 49%]
+........................................................................ [ 52%]
+........................................................................ [ 54%]
+........................................................................ [ 56%]
+........................................................................ [ 58%]
+........................................................................ [ 60%]
+........................................................................ [ 62%]
+s....................................................................... [ 64%]
+........................................................................ [ 66%]
+........................................................................ [ 68%]
+........................................................................ [ 70%]
+........................................................................ [ 72%]
+........................................................................ [ 74%]
+........................................................................ [ 77%]
+........................................................................ [ 79%]
+........................................................................ [ 81%]
+........................................................................ [ 83%]
+........................................................................ [ 85%]
+........................................................................ [ 87%]
+........................................................................ [ 89%]
+........................................................................ [ 91%]
+........................................................................ [ 93%]
+........................................................................ [ 95%]
+........................................................................ [ 97%]
+........................................................................ [ 99%]
+.                                                                        [100%]
+============================== warnings summary ===============================
+tests/test_v22_subscription_payment_invoicing.py::TestEmitSubscriptionPaymentRouter::test_non_admin_gets_403
+  C:\Users\Usuario\Desktop\EIE\v0-saa-s-empresarial-completo\backend\.venv\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=============================== tests coverage ================================
+______________ coverage: platform win32, python 3.13.12-final-0 _______________
+
+Name                                                        Stmts   Miss  Cover
+-------------------------------------------------------------------------------
+backend\__init__.py                                             0      0   100%
+backend\core\__init__.py                                        0      0   100%
+backend\core\auth.py                                           68      0   100%
+backend\core\client_activity.py                                14      0   100%
+backend\core\config.py                                         44      0   100%
+backend\core\cors.py                                           23      0   100%
+backend\core\database.py                                       42      4    90%
+backend\core\deps.py                                           10      0   100%
+backend\core\errors.py                                         60      2    97%
+backend\core\guards.py                                         35      3    91%
+backend\core\idempotency.py                                    11      0   100%
+backend\core\rbac.py                                           14      0   100%
+backend\core\redis_client.py                                   15      7    53%
+backend\core\timezone.py                                       17      0   100%
+backend\main.py                                                81      7    91%
+backend\repositories\__init__.py                                0      0   100%
+backend\repositories\_account_aging_sql.py                      5      0   100%
+backend\repositories\account_charge_repository.py              13      0   100%
+backend\repositories\bank_account_repository.py                45      9    80%
+backend\repositories\bank_reconciliation_repository.py         44      0   100%
+backend\repositories\base.py                                   40      1    98%
+backend\repositories\billing_repository.py                     17      0   100%
+backend\repositories\branch_repository.py                      28      3    89%
+backend\repositories\cash_session_repository.py                43      0   100%
+backend\repositories\cashbox_repository.py                     10      0   100%
+backend\repositories\client_address_repository.py              22      1    95%
+backend\repositories\client_repository.py                      51      1    98%
+backend\repositories\commercial_document_support.py            16      0   100%
+backend\repositories\cost_center_repository.py                 18      0   100%
+backend\repositories\customer_account_repository.py            40      0   100%
+backend\repositories\delivery_note_repository.py               40      0   100%
+backend\repositories\expense_repository.py                     41      2    95%
+backend\repositories\fiscal_document_repository.py             36      1    97%
+backend\repositories\fiscal_profile_repository.py              12      0   100%
+backend\repositories\journal_entry_repository.py               33      0   100%
+backend\repositories\member_repository.py                      23      0   100%
+backend\repositories\outbox_repository.py                      10      3    70%
+backend\repositories\payment_method_repository.py              31      0   100%
+backend\repositories\plan_limits_repository.py                 18      0   100%
+backend\repositories\point_of_sale_repository.py               28      2    93%
+backend\repositories\product_category_repository.py            23      0   100%
+backend\repositories\product_repository.py                     73      2    97%
+backend\repositories\purchase_repository.py                    57      8    86%
+backend\repositories\quote_repository.py                       40      0   100%
+backend\repositories\sales_order_repository.py                 30      4    87%
+backend\repositories\sales_repository.py                       50      6    88%
+backend\repositories\scale_settings_repository.py              21      1    95%
+backend\repositories\statistics_repository.py                  28      0   100%
+backend\repositories\stock_repository.py                       15      1    93%
+backend\repositories\subscriptions_repository.py               45      1    98%
+backend\repositories\supplier_account_repository.py            39      0   100%
+backend\repositories\supplier_repository.py                    24      0   100%
+backend\routers\__init__.py                                     0      0   100%
+backend\routers\auth.py                                         8      0   100%
+backend\routers\bank_accounts.py                               19      0   100%
+backend\routers\bank_movements.py                              17      0   100%
+backend\routers\bank_reconciliation.py                         57      5    91%
+backend\routers\branches.py                                    34      2    94%
+backend\routers\cash.py                                        46      1    98%
+backend\routers\client_addresses.py                            31      0   100%
+backend\routers\clients.py                                     37      0   100%
+backend\routers\cost_centers.py                                29      0   100%
+backend\routers\customer_accounts.py                           53      0   100%
+backend\routers\delivery_notes.py                              42      1    98%
+backend\routers\expenses.py                                    35      0   100%
+backend\routers\fiscal.py                                     100      3    97%
+backend\routers\health.py                                       5      0   100%
+backend\routers\journal_entries.py                             17      0   100%
+backend\routers\members.py                                     25      0   100%
+backend\routers\outbox.py                                      13      0   100%
+backend\routers\payment_methods.py                             35      0   100%
+backend\routers\payments.py                                   118      6    95%
+backend\routers\product_categories.py                          34      0   100%
+backend\routers\products.py                                    44      0   100%
+backend\routers\purchases.py                                   35      0   100%
+backend\routers\quotes.py                                      50      1    98%
+backend\routers\sales.py                                       43      0   100%
+backend\routers\sales_orders.py                                31      0   100%
+backend\routers\scale_settings.py                              19      0   100%
+backend\routers\statistics.py                                  30      0   100%
+backend\routers\stock.py                                       22      1    95%
+backend\routers\supplier_accounts.py                           51      0   100%
+backend\routers\suppliers.py                                   28      0   100%
+backend\schemas\__init__.py                                     0      0   100%
+backend\schemas\auth.py                                        12      0   100%
+backend\schemas\bank_accounts.py                               34      0   100%
+backend\schemas\bank_movements.py                              17      0   100%
+backend\schemas\bank_reconciliation.py                        126      0   100%
+backend\schemas\branches.py                                    40      0   100%
+backend\schemas\cash.py                                       110      0   100%
+backend\schemas\client_addresses.py                            32      0   100%
+backend\schemas\clients.py                                     71      0   100%
+backend\schemas\common.py                                       9      0   100%
+backend\schemas\cost_centers.py                                18      0   100%
+backend\schemas\customer_accounts.py                          116      0   100%
+backend\schemas\delivery_notes.py                             157      0   100%
+backend\schemas\expenses.py                                    87      0   100%
+backend\schemas\fiscal.py                                     126      0   100%
+backend\schemas\journal_entries.py                             27      0   100%
+backend\schemas\members.py                                     26      0   100%
+backend\schemas\payment_methods.py                             33      0   100%
+backend\schemas\payments.py                                    88      0   100%
+backend\schemas\product_categories.py                          23      0   100%
+backend\schemas\products.py                                   109      0   100%
+backend\schemas\purchases.py                                   73      0   100%
+backend\schemas\quotes.py                                     170      4    98%
+backend\schemas\sales.py                                      120      0   100%
+backend\schemas\sales_orders.py                               148      5    97%
+backend\schemas\scale_settings.py                             118      3    97%
+backend\schemas\statistics.py                                 124      0   100%
+backend\schemas\stock.py                                       13      0   100%
+backend\schemas\supplier_accounts.py                          109      2    98%
+backend\schemas\suppliers.py                                   43      1    98%
+backend\scripts\__init__.py                                     0      0   100%
+backend\scripts\backfill_fecha_comprobante.py                  30      8    73%
+backend\scripts\tenancy_cross_tenant_concurrency_check.py      90     90     0%
+backend\services\__init__.py                                    0      0   100%
+backend\services\account_charges.py                            11      0   100%
+backend\services\bank_accounts.py                              21      9    57%
+backend\services\bank_movements.py                              9      0   100%
+backend\services\bank_reconciliation.py                        37      5    86%
+backend\services\branches.py                                   32      8    75%
+backend\services\cash.py                                       35      2    94%
+backend\services\client_addresses.py                           46      2    96%
+backend\services\clients.py                                    57      5    91%
+backend\services\commercial_documents\__init__.py               0      0   100%
+backend\services\commercial_documents\issuer.py                24      0   100%
+backend\services\commercial_documents\numbering.py             24      0   100%
+backend\services\commercial_documents\pdf.py                  184      1    99%
+backend\services\commercial_documents\view.py                  77      0   100%
+backend\services\cost_centers.py                               33      1    97%
+backend\services\customer_accounts.py                          63      1    98%
+backend\services\delivery_notes.py                            105      1    99%
+backend\services\expenses.py                                   61      3    95%
+backend\services\fiscal\__init__.py                             0      0   100%
+backend\services\fiscal\adapter_factory.py                     18      2    89%
+backend\services\fiscal\cae_relay_processor.py                119      2    98%
+backend\services\fiscal\comprobante.py                         12      0   100%
+backend\services\fiscal\fecha_backfill.py                      33      0   100%
+backend\services\fiscal\fiscal_document_port.py                52      0   100%
+backend\services\fiscal\fiscal_profile_service.py             135     13    90%
+backend\services\fiscal\invoice_pdf.py                        404     13    97%
+backend\services\fiscal\invoice_print_service.py               19      0   100%
+backend\services\fiscal\invoice_type_resolver.py               14      0   100%
+backend\services\fiscal\platform_credential_provider.py        32      2    94%
+backend\services\fiscal\ticket_cache_port.py                    8      0   100%
+backend\services\fiscal\wsaa_ticket_cache.py                   47     47     0%
+backend\services\fiscal\wsfe_adapter.py                       312     45    86%
+backend\services\fiscal\wsfe_stub_adapter.py                   40      2    95%
+backend\services\journal_entries.py                             7      0   100%
+backend\services\members.py                                    22      0   100%
+backend\services\payment_methods.py                            59      1    98%
+backend\services\payments.py                                  139     13    91%
+backend\services\product_categories.py                         62      1    98%
+backend\services\products.py                                  187     12    94%
+backend\services\purchases.py                                  44      1    98%
+backend\services\quotes.py                                    109      3    97%
+backend\services\receipts.py                                  178      0   100%
+backend\services\sales.py                                      59      2    97%
+backend\services\sales_orders.py                               50      1    98%
+backend\services\scale_settings.py                             19      1    95%
+backend\services\statistics.py                                 87      3    97%
+backend\services\stock.py                                      18      2    89%
+backend\services\subscriptions.py                             262      5    98%
+backend\services\supplier_accounts.py                          59      7    88%
+backend\services\suppliers.py                                  38      1    97%
+-------------------------------------------------------------------------------
+TOTAL                                                        8413    419    95%
+3456 passed, 1 skipped, 75 deselected, 1 warning in 454.18s (0:07:34)

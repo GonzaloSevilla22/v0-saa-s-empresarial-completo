@@ -183,3 +183,65 @@ describe("DeleteOperationDialog", () => {
     expect(onConfirm).toHaveBeenCalledTimes(1)
   })
 })
+
+// remitos-venta (tanda B, 7.6, D9): borrar la venta nacida de un remito NO
+// devuelve stock (la mercadería quedó entregada) y el remito vuelve a pendiente.
+// No es una compensación de un libro: es una advertencia propia, separada de la
+// lista "Se va a compensar".
+describe("getDeleteCompensation — venta nacida de un remito (remitos-venta D9)", () => {
+  const LINE = /el stock no vuelve: la mercadería quedó entregada con el remito R-00000007, que vuelve a quedar pendiente\. para devolverla al stock, anulá el remito\./i
+
+  it("con remito de origen suma la línea de D9 en `notes`, NO en las compensaciones", () => {
+    const info = getDeleteCompensation({ sourceDeliveryNoteId: "dn-3", sourceDeliveryNoteLabel: "R-00000007", hasAccountCharge: true })
+    expect(info.deletable).toBe(true)
+    expect(info.notes).toHaveLength(1)
+    expect(info.notes?.[0]).toMatch(LINE)
+    expect(info.compensations).toHaveLength(1)
+    expect(info.compensations.some((c) => /stock/i.test(c))).toBe(false)
+  })
+
+  it("sin remito de origen no hay ninguna nota", () => {
+    expect(getDeleteCompensation({ hasAccountCharge: true }).notes ?? []).toEqual([])
+    expect(getDeleteCompensation({ sourceDeliveryNoteId: null, sourceDeliveryNoteLabel: null }).notes ?? []).toEqual([])
+  })
+
+  it("un remito de origen sin número igual avisa, sin inventar uno", () => {
+    const info = getDeleteCompensation({ sourceDeliveryNoteId: "dn-old", sourceDeliveryNoteLabel: null })
+    expect(info.notes?.[0]).toMatch(/quedó entregada con el remito, que vuelve a quedar pendiente/i)
+  })
+
+  it("si la venta no es borrable (comprobante enviado a ARCA) no hay nota: el remito no se reabre", () => {
+    const info = getDeleteCompensation({ isFiscallyLocked: true, sourceDeliveryNoteId: "dn-3", sourceDeliveryNoteLabel: "R-00000007" })
+    expect(info.deletable).toBe(false)
+    expect(info.notes ?? []).toEqual([])
+  })
+})
+
+describe("DeleteOperationDialog — nota del remito de origen", () => {
+  it("el diálogo muestra la nota de D9 aparte de la lista de compensaciones", () => {
+    render(
+      <DeleteOperationDialog
+        label="esta venta"
+        info={getDeleteCompensation({ sourceDeliveryNoteId: "dn-3", sourceDeliveryNoteLabel: "R-00000007", hasAccountCharge: true })}
+        onConfirm={vi.fn()}
+        isDeleting={false}
+      />,
+    )
+    fireEvent.click(screen.getByTestId("delete-operation-trigger"))
+    expect(screen.getByText(/el stock no vuelve: la mercadería quedó entregada con el remito R-00000007/i)).toBeInTheDocument()
+    expect(screen.getByText("Se va a compensar:")).toBeInTheDocument()
+  })
+
+  it("sin notas, el diálogo no agrega ningún párrafo extra", () => {
+    render(
+      <DeleteOperationDialog
+        label="esta venta"
+        info={getDeleteCompensation({ hasAccountCharge: true })}
+        onConfirm={vi.fn()}
+        isDeleting={false}
+      />,
+    )
+    fireEvent.click(screen.getByTestId("delete-operation-trigger"))
+    expect(screen.queryByText(/el stock no vuelve/i)).not.toBeInTheDocument()
+  })
+})

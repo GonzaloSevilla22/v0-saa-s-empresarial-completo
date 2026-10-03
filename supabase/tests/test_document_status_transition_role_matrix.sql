@@ -18,6 +18,11 @@
 --       NULL->issued {seller,stock,admin,owner} e issued->canceled
 --       {admin,owner} (D3): 22/16 pasó a 24/18. Las 6 NULL no cambian (la
 --       vuelta converted->issued sin rol es de la tanda B).
+--       remitos-venta tanda B (20261070000001) sumó delivery_note_sale:
+--       issued->converted {seller,cashier,admin,owner} y converted->issued
+--       con allowed_role NULL (sistema: la dispara sólo el borrado de la
+--       venta, que ya exige admin/owner por sales_order confirmed->canceled,
+--       D3): 24/18 pasó a 26/19 y las filas NULL pasan de 6 a 7.
 --   (2) segregación de funciones (11.2, RN-A4): un cashier CONFIRMA una
 --       venta (sales_order draft→confirmed) pero NO la ANULA
 --       (confirmed→canceled, requiere admin/owner); un stock completa una
@@ -77,8 +82,8 @@ BEGIN
   SELECT count(*), count(allowed_role) INTO v_total, v_populated
   FROM public.document_status_transitions;
 
-  IF v_total <> 24 OR v_populated <> 18 THEN
-    RAISE EXCEPTION 'GATE FAILED (1): se esperaban 24 filas / 18 pobladas, hay % / %', v_total, v_populated;
+  IF v_total <> 26 OR v_populated <> 19 THEN
+    RAISE EXCEPTION 'GATE FAILED (1): se esperaban 26 filas / 19 pobladas, hay % / %', v_total, v_populated;
   END IF;
 
   SELECT array_agg(document_type || ':' || COALESCE(from_status, 'NULL') || '->' || to_status ORDER BY document_type, from_status NULLS FIRST, to_status)
@@ -86,6 +91,10 @@ BEGIN
   FROM public.document_status_transitions WHERE allowed_role IS NULL;
 
   IF v_null_set <> ARRAY[
+    -- remitos-venta tanda B (D3): la vuelta del remito a pendiente al borrar
+    -- la venta. Sin rol propio (tercera exención de record_status_transition):
+    -- el borrado ya registró sales_order confirmed->canceled ({admin,owner}).
+    'delivery_note_sale:converted->issued',
     'fiscal_document:NULL->pending_cae',
     'fiscal_document:pending_cae->authorized',
     'fiscal_document:pending_cae->rejected',
@@ -96,10 +105,10 @@ BEGIN
     'quote:draft->expired',
     'quote:sent->expired'
   ] THEN
-    RAISE EXCEPTION 'GATE FAILED (1): el conjunto EXACTO de las 6 filas NULL no coincide: %', v_null_set;
+    RAISE EXCEPTION 'GATE FAILED (1): el conjunto EXACTO de las 7 filas NULL no coincide: %', v_null_set;
   END IF;
 
-  RAISE NOTICE 'PASS (1): allowed_role es text[], 18/24 pobladas, las 6 NULL son exactamente fiscal_document(x4) + quote->expired(x2).';
+  RAISE NOTICE 'PASS (1): allowed_role es text[], 19/26 pobladas, las 7 NULL son exactamente delivery_note_sale:converted->issued + fiscal_document(x4) + quote->expired(x2).';
 END $$;
 
 
@@ -320,7 +329,13 @@ DECLARE
     'quote:rejected->draft',             -- rpc_update_quote (reapertura al editar, D5)
     -- remitos-venta tanda A (20261069000001): los 2 llamadores nuevos (5b).
     'delivery_note_sale:NULL->issued',   -- trg_delivery_note_record_creation('delivery_note_sale')
-    'delivery_note_sale:issued->canceled' -- rpc_cancel_delivery_note
+    'delivery_note_sale:issued->canceled', -- rpc_cancel_delivery_note
+    -- remitos-venta tanda B (20261070000001): el 19o llamador
+    -- (rpc_convert_delivery_note_to_sale) produce sales_order:NULL->draft (ya
+    -- listado arriba); delivery_note_sale:issued->converted lo produce el núcleo;
+    -- rpc_delete_sale_operation (ya llamador) suma converted->issued.
+    'delivery_note_sale:issued->converted', -- _c29_confirm_order_core (orden con origen de remito)
+    'delivery_note_sale:converted->issued'  -- rpc_delete_sale_operation (venta nacida de remito)
   ];
   v_existing_triples text[];
   v_missing text[];
@@ -338,11 +353,11 @@ BEGIN
   END LOOP;
 
   IF array_length(v_missing, 1) > 0 THEN
-    RAISE EXCEPTION 'GATE FAILED (5): % de los pares (document_type,from,to) que producen los 18 llamadores vivos de record_status_transition NO están catalogados en document_status_transitions: % -- una creación no catalogada hoy pasa SIN chequeo de rol (D17/11.7, exención conservadora), así que un caller nuevo/modificado que produzca uno de estos pares debe agregarlo a la matriz.',
+    RAISE EXCEPTION 'GATE FAILED (5): % de los pares (document_type,from,to) que producen los 19 llamadores vivos de record_status_transition NO están catalogados en document_status_transitions: % -- una creación no catalogada hoy pasa SIN chequeo de rol (D17/11.7, exención conservadora), así que un caller nuevo/modificado que produzca uno de estos pares debe agregarlo a la matriz.',
       array_length(v_missing, 1), v_missing;
   END IF;
 
-  RAISE NOTICE 'PASS (5): las % triples (document_type,from,to) que producen los 18 llamadores vivos de record_status_transition están TODAS catalogadas en document_status_transitions.', array_length(v_expected_triples, 1);
+  RAISE NOTICE 'PASS (5): las % triples (document_type,from,to) que producen los 19 llamadores vivos de record_status_transition están TODAS catalogadas en document_status_transitions.', array_length(v_expected_triples, 1);
 END $$;
 
 
@@ -403,7 +418,11 @@ DECLARE
     -- delivery_note_sale:NULL->issued (disparador de creación, tipo por
     -- TG_ARGV) e issued->canceled (anulación con motivo) — bloque (5).
     'trg_delivery_note_record_creation',
-    'rpc_cancel_delivery_note'
+    'rpc_cancel_delivery_note',
+    -- remitos-venta tanda B (20261070000001): 19o llamador. Produce
+    -- sales_order:NULL->draft; el par delivery_note_sale:issued->converted lo
+    -- produce _c29_confirm_order_core (revisión 8.5, RB-02), ya llamador.
+    'rpc_convert_delivery_note_to_sale'
   ];
   v_actual_callers   text[];
   v_missing_callers  text[];
@@ -457,5 +476,5 @@ BEGIN
       array_length(v_new_callers, 1), v_new_callers;
   END IF;
 
-  RAISE NOTICE 'PASS (5b): el conjunto de % funciones que invocan record_status_transition sigue siendo EXACTAMENTE el de los 18 llamadores conocidos -- sin altas ni bajas sin revisar.', array_length(v_expected_callers, 1);
+  RAISE NOTICE 'PASS (5b): el conjunto de % funciones que invocan record_status_transition sigue siendo EXACTAMENTE el de los 19 llamadores conocidos -- sin altas ni bajas sin revisar.', array_length(v_expected_callers, 1);
 END $$;

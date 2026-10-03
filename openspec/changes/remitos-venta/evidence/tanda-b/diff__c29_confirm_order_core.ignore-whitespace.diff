@@ -1,0 +1,137 @@
+--- vivo/_c29_confirm_order_core (md5 prod bbe8ac0f..., re-verificado 2026-10-03)
++++ 20261070000001/_c29_confirm_order_core (revisión 8.5)
+@@ -31,6 +31,11 @@
+   -- rpc_create_sale_operation_v2, de donde se copia el predicado.
+   v_cash_session_status  text;
+   v_cash_session_branch  uuid;
++  -- remitos-venta (D7): la orden nació de un remito — lo decide la columna
++  -- persistida de la orden (sales_orders.source_delivery_note_id), NUNCA un
++  -- parámetro: la firma no cambia.
++  v_from_delivery_note   boolean := false;
++  v_dn                   RECORD;
+ BEGIN
+   v_uid := auth.uid();
+   IF v_uid IS NULL THEN
+@@ -81,6 +86,58 @@
+     END IF;
+   END IF;
+ 
++  -- ╔═══ remitos-venta (D7): orden nacida de un remito ═════════════════════╗
++  -- El remito YA descontó el stock al emitirse: esta orden no lo vuelve a
++  -- mover (rama del loop de más abajo). Antes de la primera escritura se
++  -- revalida TODO, de forma autosuficiente (un guard que delega no es guard):
++  -- una orden fabricada con un source_delivery_note_id válido pero con otro
++  -- cliente, otra sucursal u otras líneas, o apuntando a un remito ajeno,
++  -- anulado o ya convertido, rebota acá en lugar de regalar mercadería.
++  -- El FOR UPDATE es un no-op si la conversión ya tiene el remito.
++  IF v_order.source_delivery_note_id IS NOT NULL THEN
++    SELECT * INTO v_dn
++    FROM public.delivery_notes
++    WHERE id = v_order.source_delivery_note_id
++    FOR UPDATE;
++
++    IF NOT FOUND
++       OR v_dn.account_id <> v_account_id
++       OR v_dn.direction <> 'sale'
++       OR v_dn.status <> 'issued'
++       OR v_dn.client_id IS DISTINCT FROM v_order.client_id
++       OR v_dn.branch_id <> v_order.branch_id THEN
++      RAISE EXCEPTION 'delivery_note_order_mismatch: la orden % no corresponde a un remito de venta pendiente de la misma cuenta, cliente y sucursal', p_sales_order_id
++        USING ERRCODE = 'P0409';
++    END IF;
++
++    -- Multiconjunto de líneas (producto, unidad, cantidad) idéntico al del
++    -- remito: dos EXCEPT ALL vacíos.
++    IF EXISTS (
++         SELECT soi.product_id, soi.unit_id, soi.quantity
++         FROM public.sales_order_items soi
++         WHERE soi.sales_order_id = p_sales_order_id
++         EXCEPT ALL
++         SELECT dni.product_id, dni.unit_id, dni.quantity
++         FROM public.delivery_note_items dni
++         WHERE dni.delivery_note_id = v_dn.id
++       )
++       OR EXISTS (
++         SELECT dni.product_id, dni.unit_id, dni.quantity
++         FROM public.delivery_note_items dni
++         WHERE dni.delivery_note_id = v_dn.id
++         EXCEPT ALL
++         SELECT soi.product_id, soi.unit_id, soi.quantity
++         FROM public.sales_order_items soi
++         WHERE soi.sales_order_id = p_sales_order_id
++       ) THEN
++      RAISE EXCEPTION 'delivery_note_order_mismatch: las líneas de la orden % no son las del remito', p_sales_order_id
++        USING ERRCODE = 'P0409';
++    END IF;
++
++    v_from_delivery_note := true;
++  END IF;
++  -- ╚════════════════════════════════════════════════════════════════════════╝
++
+   -- ─── pos-catalogo-pagos (D2): resolver el kind — el cliente no elige la
+   -- taxonomía, la RPC la deriva del catálogo y no le cree al texto que
+   -- venga junto. Va con los demás guards de entrada, antes de tocar stock.
+@@ -267,6 +324,41 @@
+     v_total := v_total + v_item.subtotal;
+ 
+     IF v_item.product_id IS NOT NULL THEN
++      -- remitos-venta (D7): con origen de remito se saltean el FOR UPDATE del
++      -- producto, la normalización, el gate, el delta y el movimiento — no hay
++      -- stock que proteger (el remito ya lo descontó) y un FOR UPDATE sólo
++      -- sumaría superficie de interbloqueo contra otros remitos (los locks de
++      -- FK de las líneas ya los tomó rpc_convert_delivery_note_to_sale, por id,
++      -- antes de insertarlas: acá se vuelven a tomar sin esperar). La existencia del
++      -- producto la garantiza la FK de delivery_note_items. Se conservan la
++      -- fila legacy sales y sale_items, que toma los CUATRO snapshots de la
++      -- línea de la orden (copiados del remito, sin re-leer el maestro:
++      -- nombre y SKU del remito aunque el producto se haya renombrado, costo
++      -- congelado al salir la mercadería — OQ-RV3/OQ-RV4).
++      IF v_from_delivery_note THEN
++        INSERT INTO public.sales
++          (user_id, account_id, client_id, product_id, amount, quantity,
++           unit_id, total, currency, date, operation_id, branch_id, canal,
++           payment_method_id)
++        VALUES
++          (v_uid, v_account_id, v_order.client_id, v_item.product_id,
++           v_item.price, v_item.quantity,
++           v_item.unit_id, v_item.subtotal, 'ARS', public.reporting_local_today(),
++           v_new_op_id, v_gate_branch, v_canal, p_payment_method_id)
++        RETURNING id INTO v_new_sale_id;
++
++        INSERT INTO public.sale_items (
++          sale_id, product_id, account_id, variant_id, quantity, unit_id, price, subtotal,
++          name_snapshot, sku_snapshot, unit_cost_snapshot, iva_rate_snapshot
++        ) VALUES (
++          v_new_sale_id, v_item.product_id, v_account_id, NULL,
++          v_item.quantity, v_item.unit_id, v_item.price, v_item.subtotal,
++          v_item.name_snapshot, v_item.sku_snapshot, v_item.unit_cost_snapshot, v_item.iva_rate_snapshot
++        );
++
++        CONTINUE;
++      END IF;
++
+       -- v3-snapshot-pattern: se agrega sku, cost al lock existente.
+       SELECT id, user_id, name, sku, cost INTO v_product
+       FROM public.products
+@@ -455,6 +547,21 @@
+     fiscal_document_id  = v_fiscal_doc_id
+   WHERE id = p_sales_order_id;
+ 
++  -- remitos-venta (D7, revisión adversarial 8.5 RB-02): el remito de origen
++  -- queda `converted` EN EL NÚCLEO, en la misma transacción que la confirmación,
++  -- y no en la RPC de conversión. Una orden idéntica al remito confirmada por
++  -- cualquier camino (rpc_confirm_sales_order, llamada directa al núcleo) dejaría
++  -- si no el remito `issued` con la venta viva: anulable (reponiendo stock) y,
++  -- al borrar la venta, repuesto dos veces. No sube la revisión (no cambia el
++  -- contenido). Un replay no llega acá: devolvió antes de confirmar.
++  IF v_from_delivery_note THEN
++    PERFORM public.record_status_transition(
++      v_account_id, 'delivery_note_sale', v_dn.id, 'issued', 'converted', v_uid, NULL);
++    UPDATE public.delivery_notes
++    SET status = 'converted', updated_at = now(), updated_by = v_uid
++    WHERE id = v_dn.id;
++  END IF;
++
+   RETURN jsonb_build_object(
+     'sales_order_id',  p_sales_order_id,
+     'operation_id',    v_new_op_id,

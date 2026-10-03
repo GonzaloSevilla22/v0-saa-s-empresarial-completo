@@ -1,0 +1,216 @@
+
+ RUN  v4.1.8 C:/Users/Usuario/Desktop/EIE/wt-remitos/frontend
+
+ ❯ __tests__/components/ConvertDeliveryNoteDialog.test.tsx (0 test)
+ ❯ __tests__/hooks/use-convert-delivery-note.test.tsx (5 tests | 5 failed) 55ms
+     × POST /delivery-notes/{id}/convert con la clave por header y el cuerpo del contrato 34ms
+     × dos remitos distintos usan su propia ruta y su propia clave 3ms
+     × un éxito invalida los remitos y la unión de lo que toca una venta 5ms
+     × el replay (replayed: true) también invalida: la venta ya existe 6ms
+     × un fallo propaga el error tal cual y no invalida nada 3ms
+ ❯ __tests__/components/SaleCheckoutFields.test.tsx (5 tests | 2 failed) 105ms
+     × con branchReadOnly: muestra el NOMBRE de la sucursal y no ofrece ningún selector 17ms
+     × con branchReadOnly y sin nombre resuelto: no inventa uno, dice que es la del remito 6ms
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  __tests__/components/ConvertDeliveryNoteDialog.test.tsx [ __tests__/components/ConvertDeliveryNoteDialog.test.tsx ]
+Error: Failed to resolve import "@/components/delivery-notes/ConvertDeliveryNoteDialog" from "__tests__/components/ConvertDeliveryNoteDialog.test.tsx". Does the file exist?
+  Plugin: vite:import-analysis
+  File: C:/Users/Usuario/Desktop/EIE/wt-remitos/frontend/__tests__/components/ConvertDeliveryNoteDialog.test.tsx:110:0
+  144 |  const __vi_import_4__ = await import("@/lib/api/python-api-error");
+  145 |  const __vi_import_5__ = await import("react/jsx-dev-runtime");
+  146 |  const __vi_import_6__ = await import("@/components/delivery-notes/ConvertDeliveryNoteDialog");
+      |                                       ^
+  147 |  /**
+  148 |  * remitos-venta (tanda B, 7.3/7.4, D7/D11) — `ConvertDeliveryNoteDialog`: la
+ ❯ TransformPluginContext._formatLog ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:30602:39
+ ❯ TransformPluginContext.error ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:30599:14
+ ❯ normalizeUrl ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:27842:18
+ ❯ ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:27905:30
+ ❯ TransformPluginContext.transform ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:27873:4
+ ❯ EnvironmentPluginContainer.transform ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:30387:14
+ ❯ loadAndTransform ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:24646:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/8]⎯
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 7 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  __tests__/components/SaleCheckoutFields.test.tsx > SaleCheckoutFields — sucursal > con branchReadOnly: muestra el NOMBRE de la sucursal y no ofrece ningún selector
+Error: [2mexpect([22m[31melement[39m[2m).not.toBeInTheDocument()[22m
+
+[31mexpected document not to contain element, found <select
+  aria-label="Selector de sucursal"
+  data-placeholder="Sucursal por defecto"
+>
+  <option
+    value=""
+  >
+    Sucursal por defecto
+  </option>
+  <option
+    value="b-1"
+  >
+    Central
+  </option>
+  <option
+    value="b-2"
+  >
+    Norte
+  </option>
+</select> instead[39m
+ ❯ __tests__/components/SaleCheckoutFields.test.tsx:86:65
+     84|     renderFields({ branchReadOnly: true, branchName: "Sucursal Centro"…
+     85|
+     86|     expect(screen.queryByLabelText("Selector de sucursal")).not.toBeIn…
+       |                                                                 ^
+     87|     expect(screen.getByText("Sucursal Centro")).toBeInTheDocument()
+     88|     expect(screen.getByText("Sucursal")).toBeInTheDocument()
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/8]⎯
+
+ FAIL  __tests__/components/SaleCheckoutFields.test.tsx > SaleCheckoutFields — sucursal > con branchReadOnly y sin nombre resuelto: no inventa uno, dice que es la del remito
+Error: [2mexpect([22m[31melement[39m[2m).not.toBeInTheDocument()[22m
+
+[31mexpected document not to contain element, found <select
+  aria-label="Selector de sucursal"
+  data-placeholder="Sucursal por defecto"
+>
+  <option
+    value=""
+  >
+    Sucursal por defecto
+  </option>
+  <option
+    value="b-1"
+  >
+    Central
+  </option>
+  <option
+    value="b-2"
+  >
+    Norte
+  </option>
+</select> instead[39m
+ ❯ __tests__/components/SaleCheckoutFields.test.tsx:94:65
+     92|     renderFields({ branchReadOnly: true, branchName: null })
+     93|
+     94|     expect(screen.queryByLabelText("Selector de sucursal")).not.toBeIn…
+       |                                                                 ^
+     95|     expect(screen.getByText(/sucursal del remito/i)).toBeInTheDocument…
+     96|   })
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/8]⎯
+
+ FAIL  __tests__/hooks/use-convert-delivery-note.test.tsx > useConvertDeliveryNote > POST /delivery-notes/{id}/convert con la clave por header y el cuerpo del contrato
+TypeError: useConvertDeliveryNote is not a function
+ ❯ renderHook.wrapper.wrapper __tests__/hooks/use-convert-delivery-note.test.tsx:66:41
+     64|   it("POST /delivery-notes/{id}/convert con la clave por header y el c…
+     65|     const { wrapper } = setup()
+     66|     const { result } = renderHook(() => useConvertDeliveryNote(), { wr…
+       |                                         ^
+     67|
+     68|     let out: DeliveryNoteConvertResult | undefined
+ ❯ TestComponent ../node_modules/.pnpm/@testing-library+react@16.3_019c8b90c88a1cc11c541bca58ce838f/node_modules/@testing-library/react/dist/pure.js:330:27
+ ❯ Object.react_stack_bottom_frame ../node_modules/.pnpm/react-dom@19.2.3_react@19.2.3/node_modules/react-dom/cjs/react-dom-client.development.js:25904:20
+ ❯ renderWithHooks ../node_modules/.pnpm/react-dom@19.2.3_react@19.2.3/node_modules/react-dom/cjs/react-dom-client.development.js:7662:22
+ ❯ updateFunctionComponent ../node_modules/.pnpm/react-dom@19.2.3_react@19.2.3/node_modules/react-dom/cjs/react-dom-client.development.js:10166:19
+ ❯ beginWork ../node_modules/.pnpm/react-dom@19.2.3_react@19.2.3/node_modules/react-dom/cjs/react-dom-client.development.js:11778:18
+ ❯ runWithFiberInDEV ../node_modules/.pnpm/react-dom@19.2.3_react@19.2.3/node_modules/react-dom/cjs/react-dom-client.development.js:874:13
+ ❯ performUnitOfWork ../node_modules/.pnpm/react-dom@19.2.3_react@19.2.3/node_modules/react-dom/cjs/react-dom-client.development.js:17641:22
+ ❯ workLoopSync ../node_modules/.pnpm/react-dom@19.2.3_react@19.2.3/node_modules/react-dom/cjs/react-dom-client.development.js:17469:41
+ ❯ renderRootSync ../node_modules/.pnpm/react-dom@19.2.3_react@19.2.3/node_modules/react-dom/cjs/react-dom-client.development.js:17450:11
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/8]⎯
+
+ FAIL  __tests__/hooks/use-convert-delivery-note.test.tsx > useConvertDeliveryNote > dos remitos distintos usan su propia ruta y su propia clave
+TypeError: useConvertDeliveryNote is not a function
+ ❯ renderHook.wrapper.wrapper __tests__/hooks/use-convert-delivery-note.test.tsx:85:41
+     83|   it("dos remitos distintos usan su propia ruta y su propia clave", as…
+     84|     const { wrapper } = setup()
+     85|     const { result } = renderHook(() => useConvertDeliveryNote(), { wr…
+       |                                         ^
+     86|
+     87|     await act(async () => {
+ ❯ TestComponent ../node_modules/.pnpm/@testing-library+react@16.3_019c8b90c88a1cc11c541bca58ce838f/node_modules/@testing-library/react/dist/pure.js:330:27
+ ❯ Object.react_stack_bottom_frame ../node_modules/.pnpm/react-dom@19.2.3_react@19.2.3/node_modules/react-dom/cjs/react-dom-client.development.js:25904:20
+ ❯ renderWithHooks ../node_modules/.pnpm/react-dom@19.2.3_react@19.2.3/node_modules/react-dom/cjs/react-dom-client.development.js:7662:22
+ ❯ updateFunctionComponent ../node_modules/.pnpm/react-dom@19.2.3_react@19.2.3/node_modules/react-dom/cjs/react-dom-client.development.js:10166:19
+ ❯ beginWork ../node_modules/.pnpm/react-dom@19.2.3_react@19.2.3/node_modules/react-dom/cjs/react-dom-client.development.js:11778:18
+ ❯ runWithFiberInDEV ../node_modules/.pnpm/react-dom@19.2.3_react@19.2.3/node_modules/react-dom/cjs/react-dom-client.development.js:874:13
+ ❯ performUnitOfWork ../node_modules/.pnpm/react-dom@19.2.3_react@19.2.3/node_modules/react-dom/cjs/react-dom-client.development.js:17641:22
+ ❯ workLoopSync ../node_modules/.pnpm/react-dom@19.2.3_react@19.2.3/node_modules/react-dom/cjs/react-dom-client.development.js:17469:41
+ ❯ renderRootSync ../node_modules/.pnpm/react-dom@19.2.3_react@19.2.3/node_modules/react-dom/cjs/react-dom-client.development.js:17450:11
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/8]⎯
+
+ FAIL  __tests__/hooks/use-convert-delivery-note.test.tsx > useConvertDeliveryNote > un éxito invalida los remitos y la unión de lo que toca una venta
+TypeError: useConvertDeliveryNote is not a function
+ ❯ renderHook.wrapper.wrapper __tests__/hooks/use-convert-delivery-note.test.tsx:103:41
+    101|     const { wrapper, queryClient } = setup()
+    102|     const spy = vi.spyOn(queryClient, "invalidateQueries")
+    103|     const { result } = renderHook(() => useConvertDeliveryNote(), { wr…
+       |                                         ^
+    104|
+    105|     await act(async () => {
+ ❯ TestComponent ../node_modules/.pnpm/@testing-library+react@16.3_019c8b90c88a1cc11c541bca58ce838f/node_modules/@testing-library/react/dist/pure.js:330:27
+ ❯ Object.react_stack_bottom_frame ../node_modules/.pnpm/react-dom@19.2.3_react@19.2.3/node_modules/react-dom/cjs/react-dom-client.development.js:25904:20
+ ❯ renderWithHooks ../node_modules/.pnpm/react-dom@19.2.3_react@19.2.3/node_modules/react-dom/cjs/react-dom-client.development.js:7662:22
+ ❯ updateFunctionComponent ../node_modules/.pnpm/react-dom@19.2.3_react@19.2.3/node_modules/react-dom/cjs/react-dom-client.development.js:10166:19
+ ❯ beginWork ../node_modules/.pnpm/react-dom@19.2.3_react@19.2.3/node_modules/react-dom/cjs/react-dom-client.development.js:11778:18
+ ❯ runWithFiberInDEV ../node_modules/.pnpm/react-dom@19.2.3_react@19.2.3/node_modules/react-dom/cjs/react-dom-client.development.js:874:13
+ ❯ performUnitOfWork ../node_modules/.pnpm/react-dom@19.2.3_react@19.2.3/node_modules/react-dom/cjs/react-dom-client.development.js:17641:22
+ ❯ workLoopSync ../node_modules/.pnpm/react-dom@19.2.3_react@19.2.3/node_modules/react-dom/cjs/react-dom-client.development.js:17469:41
+ ❯ renderRootSync ../node_modules/.pnpm/react-dom@19.2.3_react@19.2.3/node_modules/react-dom/cjs/react-dom-client.development.js:17450:11
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/8]⎯
+
+ FAIL  __tests__/hooks/use-convert-delivery-note.test.tsx > useConvertDeliveryNote > el replay (replayed: true) también invalida: la venta ya existe
+TypeError: useConvertDeliveryNote is not a function
+ ❯ renderHook.wrapper.wrapper __tests__/hooks/use-convert-delivery-note.test.tsx:118:41
+    116|     const { wrapper, queryClient } = setup()
+    117|     const spy = vi.spyOn(queryClient, "invalidateQueries")
+    118|     const { result } = renderHook(() => useConvertDeliveryNote(), { wr…
+       |                                         ^
+    119|
+    120|     await act(async () => {
+ ❯ TestComponent ../node_modules/.pnpm/@testing-library+react@16.3_019c8b90c88a1cc11c541bca58ce838f/node_modules/@testing-library/react/dist/pure.js:330:27
+ ❯ Object.react_stack_bottom_frame ../node_modules/.pnpm/react-dom@19.2.3_react@19.2.3/node_modules/react-dom/cjs/react-dom-client.development.js:25904:20
+ ❯ renderWithHooks ../node_modules/.pnpm/react-dom@19.2.3_react@19.2.3/node_modules/react-dom/cjs/react-dom-client.development.js:7662:22
+ ❯ updateFunctionComponent ../node_modules/.pnpm/react-dom@19.2.3_react@19.2.3/node_modules/react-dom/cjs/react-dom-client.development.js:10166:19
+ ❯ beginWork ../node_modules/.pnpm/react-dom@19.2.3_react@19.2.3/node_modules/react-dom/cjs/react-dom-client.development.js:11778:18
+ ❯ runWithFiberInDEV ../node_modules/.pnpm/react-dom@19.2.3_react@19.2.3/node_modules/react-dom/cjs/react-dom-client.development.js:874:13
+ ❯ performUnitOfWork ../node_modules/.pnpm/react-dom@19.2.3_react@19.2.3/node_modules/react-dom/cjs/react-dom-client.development.js:17641:22
+ ❯ workLoopSync ../node_modules/.pnpm/react-dom@19.2.3_react@19.2.3/node_modules/react-dom/cjs/react-dom-client.development.js:17469:41
+ ❯ renderRootSync ../node_modules/.pnpm/react-dom@19.2.3_react@19.2.3/node_modules/react-dom/cjs/react-dom-client.development.js:17450:11
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/8]⎯
+
+ FAIL  __tests__/hooks/use-convert-delivery-note.test.tsx > useConvertDeliveryNote > un fallo propaga el error tal cual y no invalida nada
+TypeError: useConvertDeliveryNote is not a function
+ ❯ renderHook.wrapper.wrapper __tests__/hooks/use-convert-delivery-note.test.tsx:132:41
+    130|     const { wrapper, queryClient } = setup()
+    131|     const spy = vi.spyOn(queryClient, "invalidateQueries")
+    132|     const { result } = renderHook(() => useConvertDeliveryNote(), { wr…
+       |                                         ^
+    133|
+    134|     await act(async () => {
+ ❯ TestComponent ../node_modules/.pnpm/@testing-library+react@16.3_019c8b90c88a1cc11c541bca58ce838f/node_modules/@testing-library/react/dist/pure.js:330:27
+ ❯ Object.react_stack_bottom_frame ../node_modules/.pnpm/react-dom@19.2.3_react@19.2.3/node_modules/react-dom/cjs/react-dom-client.development.js:25904:20
+ ❯ renderWithHooks ../node_modules/.pnpm/react-dom@19.2.3_react@19.2.3/node_modules/react-dom/cjs/react-dom-client.development.js:7662:22
+ ❯ updateFunctionComponent ../node_modules/.pnpm/react-dom@19.2.3_react@19.2.3/node_modules/react-dom/cjs/react-dom-client.development.js:10166:19
+ ❯ beginWork ../node_modules/.pnpm/react-dom@19.2.3_react@19.2.3/node_modules/react-dom/cjs/react-dom-client.development.js:11778:18
+ ❯ runWithFiberInDEV ../node_modules/.pnpm/react-dom@19.2.3_react@19.2.3/node_modules/react-dom/cjs/react-dom-client.development.js:874:13
+ ❯ performUnitOfWork ../node_modules/.pnpm/react-dom@19.2.3_react@19.2.3/node_modules/react-dom/cjs/react-dom-client.development.js:17641:22
+ ❯ workLoopSync ../node_modules/.pnpm/react-dom@19.2.3_react@19.2.3/node_modules/react-dom/cjs/react-dom-client.development.js:17469:41
+ ❯ renderRootSync ../node_modules/.pnpm/react-dom@19.2.3_react@19.2.3/node_modules/react-dom/cjs/react-dom-client.development.js:17450:11
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/8]⎯
+
+
+ Test Files  3 failed (3)
+      Tests  7 failed | 3 passed (10)
+   Start at  05:04:38
+   Duration  7.40s (transform 331ms, setup 1.34s, import 2.94s, tests 160ms, environment 11.36s)
+

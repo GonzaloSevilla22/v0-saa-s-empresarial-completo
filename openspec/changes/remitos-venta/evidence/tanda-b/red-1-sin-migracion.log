@@ -1,0 +1,29 @@
+SET
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=889c2156-2eb3-405d-a022-f402f04161d7
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=c35b956d-7d17-481d-b750-9e283a25b784
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=c7cee56a-cf5e-4cd4-a1af-571555c729e0
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=de056e45-e999-4b9c-bb5e-b6733252184b
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=0cc511a1-8540-4c07-a1df-7d634d5256f3
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=c5b8cbc2-8904-4b42-8fe7-632b458c6b90
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=8df2873d-0399-41ee-bd8f-f3fd3cfb8d7c
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=52d2c529-6890-4c18-b1ae-5340e8e24dd0
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=27631857-eaf0-4216-8102-89034326b36b
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=a34f6ee7-bd95-4047-91f2-b3beefe9fab2
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=c1c49520-72c7-41c2-8f7d-d4af0df40ae7
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=68c35797-a75c-4b4f-83ef-b5c87d75fbfa
+NOTICE:  CONTROL (z): FAIL (z): el núcleo rechazó una orden con origen de remito VÁLIDO: ERR|42703|column "source_delivery_note_id" of relation "sales_orders" does not exist
+NOTICE:  CONTROL (n): FAIL (n) remito de otra cuenta: se esperaba P0409 delivery_note_order_mismatch, vino ERR|42703|column "source_delivery_note_id" of relation "sales_orders" does not exist | FAIL (n) remito anulado: se esperaba P0409 delivery_note_order_mismatch, vino ERR|42703|column "source_delivery_note_id" of relation "sales_orders" does not exist | FAIL (n) remito convertido: se esperaba P0409 delivery_note_order_mismatch, vino ERR|42703|column "source_delivery_note_id" of relation "sales_orders" does not exist | FAIL (n) otro cliente: se esperaba P0409 delivery_note_order_mismatch, vino ERR|42703|column "source_delivery_note_id" of relation "sales_orders" does not exist | FAIL (n) otra sucursal: se esperaba P0409 delivery_note_order_mismatch, vino ERR|42703|column "source_delivery_note_id" of relation "sales_orders" does not exist | FAIL (n) otro producto: se esperaba P0409 delivery_note_order_mismatch, vino ERR|42703|column "source_delivery_note_id" of relation "sales_orders" does not exist | FAIL (n) otra unidad: se esperaba P0409 delivery_note_order_mismatch, vino ERR|42703|column "source_delivery_note_id" of relation "sales_orders" does not exist | FAIL (n) otra cantidad: se esperaba P0409 delivery_note_order_mismatch, vino ERR|42703|column "source_delivery_note_id" of relation "sales_orders" does not exist | FAIL (n) una línea de más: se esperaba P0409 delivery_note_order_mismatch, vino ERR|42703|column "source_delivery_note_id" of relation "sales_orders" does not exist | FAIL (n) sin líneas de producto: se esperaba P0409 delivery_note_order_mismatch, vino ERR|42703|column "source_delivery_note_id" of relation "sales_orders" does not exist
+ERROR:  GATE REMITO-A-VENTA FAILED (abortó): 42883 / function "public.rpc_convert_delivery_note_to_sale(text,uuid,integer,uuid,uuid,uuid,text)" does not exist
+CONTEXT:  PL/pgSQL function inline_code_block line 862 at RAISE

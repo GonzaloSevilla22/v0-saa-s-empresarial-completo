@@ -46,3 +46,19 @@ export function invalidateAfterSale(queryClient: QueryClient): void {
   queryClient.invalidateQueries({ queryKey: queryKeys.cashMovements.all() })
   queryClient.invalidateQueries({ queryKey: queryKeys.bankAccounts.all() })
 }
+
+/**
+ * remitos-venta (D9/D11, task 7.7): lo que invalida el BORRADO de una venta.
+ *
+ * Borrar compensa los mismos libros que la venta escribió (cuenta corriente,
+ * caja, banco y stock), así que comparte la unión de `invalidateAfterSale`. Y
+ * suma `deliveryNotes`: borrar una venta nacida de un remito lo devuelve a
+ * `issued` en la misma transacción (R5). Sin invalidar los remitos, `/remitos`
+ * mostraría "Convertido" con "Ver venta" apuntando a una orden cancelada hasta
+ * recargar. Una definición para `deleteSaleMutation` y
+ * `deleteSalesByOperationMutation`.
+ */
+export function invalidateAfterSaleDelete(queryClient: QueryClient): void {
+  invalidateAfterSale(queryClient)
+  queryClient.invalidateQueries({ queryKey: queryKeys.deliveryNotes.all() })
+}

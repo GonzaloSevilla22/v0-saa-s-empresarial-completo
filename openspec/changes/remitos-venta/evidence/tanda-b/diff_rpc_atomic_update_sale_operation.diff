@@ -1,0 +1,42 @@
+--- vivo/rpc_atomic_update_sale_operation (md5 checkpoint 6.1)
++++ 20261070000001/rpc_atomic_update_sale_operation
+@@ -46,6 +46,7 @@
+   -- venta-editable-vs-promocion-legacy (20261061000001):
+   v_locked              integer;  -- filas de la operación tomadas con FOR UPDATE
+   v_resync_id           uuid;     -- orden re-apuntada que se recalcula (N3)
++  v_dn_label            text;     -- remitos-venta (D9): remito de origen de la venta
+ BEGIN
+   -- Identity always comes from the JWT — never from caller input
+   v_uid := (SELECT auth.uid());
+@@ -121,6 +122,26 @@
+     END IF;
+   END IF;
+ 
++  -- remitos-venta (D9): una venta nacida de un remito NO se edita. El editor
++  -- siempre reemplaza líneas (REVERSE + APPLY) y la REVERSE, sin movimiento
++  -- propio de esas filas sales, cae a la normalización de la línea y
++  -- REPONDRÍA stock que el remito sigue reteniendo (la APPLY lo descontaría
++  -- de nuevo; una reducción dejaría reposición de más que la anulación del
++  -- remito duplicaría). Va ANTES del bloque fiscal para no anular un
++  -- comprobante pendiente por una edición que igual se rechaza, y bloquea la
++  -- operación entera (también la cabecera).
++  SELECT COALESCE('R-' || lpad(dn.number::text, 8, '0'), 'de origen') INTO v_dn_label
++  FROM   public.sales s
++  JOIN   public.sales_orders so ON so.sale_operation_id = s.operation_id
++  JOIN   public.delivery_notes dn ON dn.id = so.source_delivery_note_id
++  WHERE  s.id = ANY(p_sale_ids)
++  LIMIT  1;
++
++  IF FOUND THEN
++    RAISE EXCEPTION 'delivery_note_sale_locked: la venta nació del remito %: para corregirla, eliminá la venta, editá el remito y volvé a convertirlo', v_dn_label
++      USING ERRCODE = 'P0423';
++  END IF;
++
+   -- edicion-preserva-contexto (F2, design §D5) + venta-editable-sin-cae (D2):
+   -- guard fiscal — SHALL correr antes de cualquier reversa/eliminación/
+   -- reaplicación, de modo que una operación bloqueada quede intacta si el
+@@ -665,4 +686,3 @@
+                             'voided_fiscal_document', v_voided_doc);
+ END;
+ $function$
+-

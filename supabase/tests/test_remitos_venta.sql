@@ -955,7 +955,7 @@ BEGIN
     ) AS t(label, sql)
   LOOP
     v_txt := pg_temp.rv_err(v_rec.sql);
-    IF v_txt NOT LIKE 'P0428 branch_has_pending_delivery_notes: la sucursal tiene 1 remito(s) pendiente(s) — anulalos (un administrador o el dueño) antes de darla de baja%' THEN
+    IF v_txt NOT LIKE 'P0428 branch_has_pending_delivery_notes: la sucursal tiene 1 remito(s) pendiente(s) — convertilos en venta o anulalos (un administrador o el dueño) antes de darla de baja%' THEN
       v_failures := v_failures || format('FAIL (k) %s: baja con un remito pendiente -> P0428 branch_has_pending_delivery_notes, salió %s', v_rec.label, v_txt);
     END IF;
   END LOOP;

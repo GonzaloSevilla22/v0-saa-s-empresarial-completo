@@ -35,6 +35,8 @@
 --      converted_operation_id pasan de NULL fijo a derivarse de la orden viva
 --      del remito (desvío aditivo declarado: la tanda A los dejó anunciados
 --      para esta tanda).
+--   7. _branch_assert_empty (tanda A): el RAISE de P0428 branch_has_pending_delivery_notes
+--      ofrece "convertilos en venta o anulalos" (6.0b); sólo cambia el texto.
 --
 -- Orden de locks: la conversión toma delivery_notes PRIMERO y después sólo
 -- CREA filas de venta (no bloquea filas existentes de sales), así que no
@@ -1909,6 +1911,74 @@ COMMENT ON FUNCTION public._delivery_note_payload(uuid) IS
 
 
 -- =============================================================================
+-- 6b. _branch_assert_empty: el texto de baja ofrece convertir o anular (6.0b)
+-- =============================================================================
+-- Desde su cuerpo vivo (== el de 20261069000001, md5 verificado contra el stack
+-- local y prod): UNICO cambio, el mensaje del RAISE de
+-- branch_has_pending_delivery_notes, que desde esta tanda ofrece la salida de
+-- "convertilos en venta" ademas de anularlos. El token, el errcode P0428, las
+-- tres condiciones previas y el COMMENT vivo no cambian (CREATE OR REPLACE con
+-- la misma firma conserva ACL y COMMENT). CI reaplica 20261069000001 antes que
+-- esta migracion, que vuelve a dejar este cuerpo.
+CREATE OR REPLACE FUNCTION public._branch_assert_empty(p_branch_id uuid)
+ RETURNS void
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_content RECORD;
+  v_pending_delivery_notes bigint;
+BEGIN
+  SELECT * INTO v_content
+  FROM public._branch_blocking_content(p_branch_id);
+
+  -- Orden de evaluación D2: 1) existencias, 2) caja abierta, 3) transferencias.
+  IF v_content.total_qty <> 0 THEN
+    IF v_content.other_active_branches = 0 THEN
+      -- La única sucursal activa de la cuenta: no hay a dónde transferir.
+      RAISE EXCEPTION
+        'branch_has_stock: la sucursal tiene % unidades en % producto(s) y es la única sucursal activa de la cuenta — creá otra sucursal para poder transferirle el stock antes de darla de baja',
+        v_content.total_qty, v_content.product_count
+        USING ERRCODE = 'P0428';
+    ELSE
+      RAISE EXCEPTION
+        'branch_has_stock: la sucursal tiene % unidades en % producto(s) — transferí el stock a otra sucursal antes de darla de baja',
+        v_content.total_qty, v_content.product_count
+        USING ERRCODE = 'P0428';
+    END IF;
+  END IF;
+
+  IF v_content.cash_session_open THEN
+    RAISE EXCEPTION
+      'branch_has_open_cash_session: la sucursal tiene una sesión de caja abierta — cerrala antes de darla de baja'
+      USING ERRCODE = 'P0428';
+  END IF;
+
+  IF v_content.pending_transfers > 0 THEN
+    RAISE EXCEPTION
+      'branch_has_pending_transfers: la sucursal tiene % transferencia(s) de stock sin completar — esperá a que terminen antes de darla de baja',
+      v_content.pending_transfers
+      USING ERRCODE = 'P0428';
+  END IF;
+
+  -- remitos-venta (D10): 4) remitos pendientes, sin importar el sentido. Una
+  -- sucursal dada de baja con un remito issued dejaría a la conversión sin
+  -- sucursal y a la anulación reponiendo stock en una sucursal que no opera.
+  v_pending_delivery_notes := public._branch_pending_delivery_notes(p_branch_id);
+  IF v_pending_delivery_notes > 0 THEN
+    RAISE EXCEPTION
+      'branch_has_pending_delivery_notes: la sucursal tiene % remito(s) pendiente(s) — convertilos en venta o anulalos (un administrador o el dueño) antes de darla de baja',
+      v_pending_delivery_notes
+      USING ERRCODE = 'P0428';
+  END IF;
+
+  -- Nada bloquea: la baja puede proceder.
+END;
+$function$;
+
+
+-- =============================================================================
 -- 7. Introspección final
 -- =============================================================================
 DO $$
@@ -2027,6 +2097,19 @@ BEGIN
   WHERE oid = 'public._delivery_note_payload(uuid)'::regprocedure;
   IF position('so.source_delivery_note_id = dn.id' IN v_src) = 0 THEN
     v_bad := v_bad || '_delivery_note_payload no deriva la venta generada'::text;
+  END IF;
+
+  -- _branch_assert_empty: el texto nuevo, el token y el errcode, y el COMMENT vivo.
+  SELECT replace(prosrc, E'', '') INTO v_src FROM pg_proc
+  WHERE oid = 'public._branch_assert_empty(uuid)'::regprocedure;
+  IF position('convertilos en venta o anulalos (un administrador o el dueño)' IN v_src) = 0
+     OR position('branch_has_pending_delivery_notes' IN v_src) = 0
+     OR position('public._branch_pending_delivery_notes(p_branch_id)' IN v_src) = 0
+     OR position('branch_has_stock' IN v_src) = 0
+     OR position('branch_has_open_cash_session' IN v_src) = 0
+     OR position('branch_has_pending_transfers' IN v_src) = 0
+     OR obj_description('public._branch_assert_empty(uuid)'::regprocedure, 'pg_proc') NOT LIKE 'sucursal-guard-vaciado-auditoria%' THEN
+    v_bad := v_bad || '_branch_assert_empty sin el texto "convertilos en venta o anulalos" o sin sus cuatro condiciones'::text;
   END IF;
 
   -- Los COMMENT vivos de las tres reescritas siguen siendo los mismos.

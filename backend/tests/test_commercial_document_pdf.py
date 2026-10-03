@@ -577,3 +577,170 @@ class TestPdfEndpoint:
     async def test_without_a_session_it_is_401(self, async_client, repo_override):
         resp = await async_client.get(f"/quotes/{QUOTE_ID}/pdf")
         assert resp.status_code == 401
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# remitos-venta (tanda A, grupo 3) — el remito sobre el MISMO constructor
+#
+# Strict TDD: escritos antes que `build_delivery_note_view`, que los campos
+# aditivos `signature_block` / `origin_label` de la vista y que su dibujo en el
+# render. Los casos de presupuesto de arriba NO se tocan: son el safety net de
+# que el cambio es aditivo.
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _dn(**over) -> dict:
+    base = {
+        "id": "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee",
+        "account_id": ACCOUNT_ID,
+        "direction": "sale",
+        "status": "issued",
+        "number": 12,
+        "issued_on": datetime.date(2026, 10, 2),
+        "delivery_address": "San Martín 123, Mendoza",
+        "notes": None,
+        "total": Decimal("1800.50"),
+    }
+    base.update(over)
+    return base
+
+
+BRANCH = {"name": "Sucursal Centro"}
+
+
+def _dn_view(dn=None, lines=None, client=None, branch=None, issuer=None, show_prices=False, today=TODAY):
+    from backend.services.commercial_documents.view import build_delivery_note_view
+
+    return build_delivery_note_view(
+        dn or _dn(),
+        lines if lines is not None else [_line("Tornillo", "2", "750", "1500", unit_symbol="kg")],
+        client or CLIENT,
+        branch or BRANCH,
+        issuer or _issuer(),
+        show_prices,
+        today,
+    )
+
+
+class TestBuildDeliveryNoteView:
+    def test_title_number_origin_and_date(self):
+        view = _dn_view()
+
+        assert view.kind == "delivery_note" and view.title == "REMITO"
+        assert view.number_label == "R-00000012"
+        assert view.issued_on == datetime.date(2026, 10, 2)
+        assert view.valid_until is None
+        assert view.origin_label == "Sale de: Sucursal Centro"
+        assert view.signature_block is True
+
+    def test_prices_are_hidden_by_default_and_shown_on_request(self):
+        assert _dn_view().show_prices is False
+        assert _dn_view(show_prices=True).show_prices is True
+
+    def test_the_legend_is_the_delivery_note_one(self):
+        assert _dn_view().legend == "Remito — documento no válido como factura."
+
+    def test_the_delivery_address_is_the_recipients_address(self):
+        view = _dn_view()
+        assert view.recipient.address == "San Martín 123, Mendoza"
+        assert view.recipient.name == "Ana Pérez" and view.recipient.phone == "2615550000"
+        assert _dn_view(_dn(delivery_address=None)).recipient.address is None
+        assert _dn_view(_dn(delivery_address="   ")).recipient.address is None
+
+    @pytest.mark.parametrize("status,stamp", [("issued", None), ("converted", None), ("canceled", "ANULADO")])
+    def test_only_a_canceled_note_is_stamped(self, status, stamp):
+        assert _dn_view(_dn(status=status)).status_stamp == stamp
+
+    def test_lines_carry_quantity_with_unit_symbol(self):
+        view = _dn_view(lines=[_line("Harina", "0.45", "1000", "450", unit_symbol="kg"), _line("Tornillo", "3", "10", "30")])
+        assert [(l.description, l.quantity_label) for l in view.lines] == [("Harina", "0,45 kg"), ("Tornillo", "3")]
+
+    def test_number_label_follows_the_direction_not_a_fixed_prefix(self):
+        assert _dn_view(_dn(number=7)).number_label == "R-00000007"
+        assert _dn_view(_dn(number=None)).number_label is None
+
+    def test_total_and_notes_are_carried(self):
+        view = _dn_view(_dn(notes="Dejar con el encargado", total=Decimal("99.90")))
+        assert view.total == Decimal("99.90") and view.notes == "Dejar con el encargado"
+
+    def test_a_branch_without_name_has_no_origin_label(self):
+        assert _dn_view(branch={"name": None}).origin_label is None
+
+
+class TestQuoteViewIsUnchangedByTheAdditiveFields:
+    def test_quote_defaults(self):
+        view = _view()
+        assert view.signature_block is False and view.origin_label is None
+
+    def test_quote_pdf_has_no_signature_block_nor_origin(self):
+        text = _pdf_text(_pdf(_view()))
+        assert "Recibí conforme" not in text and "Sale de:" not in text
+        assert "Firma" not in text and "Aclaración" not in text
+
+
+def _flat(text: str) -> str:
+    return " ".join(text.split())
+
+
+class TestBuildDeliveryNotePdf:
+    def test_default_pdf_has_the_required_content_and_no_prices(self):
+        pdf = _pdf(_dn_view(_dn(notes="Dejar con el encargado")))
+        text = _pdf_text(pdf)
+        flat = _flat(text)
+
+        assert len(PdfReader(io.BytesIO(pdf)).pages) == 1
+        assert "REMITO" in text and "R-00000012" in text
+        assert "Sale de: Sucursal Centro" in flat
+        assert "Ana Pérez" in text and "San Martín 123, Mendoza" in flat
+        assert "Tornillo" in text and "2 kg" in flat
+        assert "02/10/2026" in text
+        assert "Dejar con el encargado" in text
+        for word in ("Recibí conforme", "Firma", "Aclaración", "DNI", "Fecha"):
+            assert word in flat, word
+        assert "Remito — documento no válido como factura." in flat
+        # sin precios: ni columnas, ni importes, ni total
+        assert "$" not in text and "TOTAL" not in text and "P. unit." not in text and "Subtotal" not in text
+
+    def test_with_prices_the_unit_price_subtotal_and_total_are_printed(self):
+        text = _pdf_text(_pdf(_dn_view(show_prices=True)))
+        assert "$ 750,00" in text and "$ 1.500,00" in text
+        assert "TOTAL" in text and "$ 1.800,50" in text
+        assert "P. unit." in text and "Subtotal" in text
+
+    def test_a_canceled_note_carries_the_stamp_and_an_issued_one_does_not(self):
+        assert "ANULADO" in _pdf_text(_pdf(_dn_view(_dn(status="canceled"))))
+        for status in ("issued", "converted"):
+            assert "ANULADO" not in _pdf_text(_pdf(_dn_view(_dn(status=status)))), status
+
+    def test_a_note_without_delivery_address_or_origin_is_still_generated(self):
+        text = _pdf_text(_pdf(_dn_view(_dn(delivery_address=None), branch={"name": None})))
+        assert "REMITO" in text and "Sale de:" not in text and "Recibí conforme" in text
+
+    @pytest.mark.parametrize("count", [1, 12, 20, 24, 28, 32, 36, 40, 44, 48, 52, 56, 80])
+    def test_the_signature_block_never_splits_across_pages(self, count):
+        """Con cualquier cantidad de líneas el bloque de firma queda ENTERO en
+        una página (si no entra, pasa completo a la siguiente), y el pie con la
+        leyenda está en todas."""
+        lines = [_line(f"Artículo {i:03d}", "1", "10", "10") for i in range(count)]
+        pages = _pages(_pdf(_dn_view(lines=lines)))
+        words = ("Recibí conforme", "Firma", "Aclaración", "DNI")
+
+        holders = [n for n, page in enumerate(pages) if "Recibí conforme" in page]
+        assert len(holders) == 1, f"el bloque de firma aparece {len(holders)} veces"
+        page = _flat(pages[holders[0]])
+        for word in words:
+            assert word in page, f"{word!r} quedó en otra página que 'Recibí conforme' (líneas={count})"
+        for number, text in enumerate(pages, start=1):
+            assert "no válido como factura" in _flat(text), f"la página {number} perdió la leyenda"
+        everything = "\n".join(pages)
+        assert "Artículo 000" in everything and f"Artículo {count - 1:03d}" in everything
+
+    def test_eighty_lines_without_prices_repeat_the_table_header(self):
+        lines = [_line(f"Artículo {i:03d}", "1", "10", "10") for i in range(80)]
+        pages = _pages(_pdf(_dn_view(lines=lines)))
+        assert len(pages) >= 2
+        for number, page in enumerate(pages, start=1):
+            assert "Descripción" in page and "Cant." in page, f"la página {number} no repite la cabecera"
+
+    def test_quantity_label_keeps_the_unit_for_fractional_quantities(self):
+        text = _pdf_text(_pdf(_dn_view(lines=[_line("Harina 000", "0.45", "1000", "450", unit_symbol="kg")])))
+        assert "0,45 kg" in _flat(text)

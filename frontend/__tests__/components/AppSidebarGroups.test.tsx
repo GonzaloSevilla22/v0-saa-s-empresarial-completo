@@ -100,7 +100,7 @@ describe("getVisibleGroups — reglas de visibilidad (puras)", () => {
   it("con el módulo de sucursales ve los 6 grupos completos", () => {
     const visibles = getVisibleGroups(navGroups, { isAdmin: false, hasBranchesModule: true })
     expect(visibles.map((g) => g.label)).toEqual(GRUPOS)
-    expect(visibles.flatMap((g) => g.items)).toHaveLength(30)
+    expect(visibles.flatMap((g) => g.items)).toHaveLength(31)
   })
 
   it("sin el módulo de sucursales se ocultan Sucursales y Por Sucursal", () => {
@@ -108,7 +108,7 @@ describe("getVisibleGroups — reglas de visibilidad (puras)", () => {
     const titulos = visibles.flatMap((g) => g.items.map((i) => i.title))
     expect(titulos).not.toContain("Sucursales")
     expect(titulos).not.toContain("Por Sucursal")
-    expect(titulos).toHaveLength(28)
+    expect(titulos).toHaveLength(29)
   })
 
   it("el admin no ve Operaciones ni Catálogo, pero sí los otros cuatro", () => {
@@ -161,7 +161,7 @@ describe("AppSidebar — cerrado hasta que lo tocan", () => {
 })
 
 describe("AppSidebar — abrir y cerrar categorías", () => {
-  it("tocar Operaciones muestra sus 8 módulos con sus rutas", async () => {
+  it("tocar Operaciones muestra sus 9 módulos con sus rutas", async () => {
     const user = userEvent.setup()
     renderSidebar()
 
@@ -172,6 +172,7 @@ describe("AppSidebar — abrir y cerrar categorías", () => {
       ["Ventas", "/ventas"],
       ["POS — Venta Rápida", "/ventas/pos"],
       ["Presupuestos", "/presupuestos"],
+      ["Remitos", "/remitos"],
       ["Compras", "/compras"],
       ["Gastos", "/gastos"],
       ["Caja", "/caja"],
@@ -484,7 +485,7 @@ describe("AppSidebar — riel colapsado de escritorio", () => {
     }
   })
 
-  it("el desplegable de Operaciones ofrece los 8 módulos como enlaces con su ruta", async () => {
+  it("el desplegable de Operaciones ofrece los 9 módulos como enlaces con su ruta", async () => {
     const user = userEvent.setup()
     renderSidebar({ defaultOpen: false })
 
@@ -496,6 +497,7 @@ describe("AppSidebar — riel colapsado de escritorio", () => {
       "Ventas",
       "POS — Venta Rápida",
       "Presupuestos",
+      "Remitos",
       "Compras",
       "Gastos",
       "Caja",
@@ -506,6 +508,7 @@ describe("AppSidebar — riel colapsado de escritorio", () => {
       "/ventas",
       "/ventas/pos",
       "/presupuestos",
+      "/remitos",
       "/compras",
       "/gastos",
       "/caja",
@@ -516,7 +519,7 @@ describe("AppSidebar — riel colapsado de escritorio", () => {
     expect(within(menu).getByText("Operaciones")).toBeInTheDocument()
   })
 
-  it("ninguna ruta queda inalcanzable: entre los 6 desplegables se llega a los 30 módulos", async () => {
+  it("ninguna ruta queda inalcanzable: entre los 6 desplegables se llega a los 31 módulos", async () => {
     h.hasBranchesModule = true
     const user = userEvent.setup()
     renderSidebar({ defaultOpen: false })
@@ -533,7 +536,7 @@ describe("AppSidebar — riel colapsado de escritorio", () => {
     }
 
     const esperados = navGroups.flatMap((g) => g.items.map((i) => i.href))
-    expect(hrefs).toHaveLength(30)
+    expect(hrefs).toHaveLength(31)
     expect([...hrefs].sort()).toEqual([...esperados].sort())
   })
 

@@ -1,0 +1,54 @@
+PASS  (a) remito emitido con el número siguiente (R-00000001 en cuenta limpia)  -> R-00000001|issued|rev1|027c1c0a-6400-430f-bfb9-5b6b6c185ad0
+PASS  (a) stock baja exacto (harina -2,5; alfajor -4)  -> h 50->47.5 a 100->96
+PASS  (a) 2 movimientos sale/delivery_note con referencia al remito  -> sale/delivery_note:-2.5 sale/delivery_note:-4
+PASS  (a) /stock muestra "Remito R-…" en el historial de movimientos  -> 2 filas
+PASS  (b1) el formulario frena la línea que supera el stock y nombra el producto  -> «Producto escaso QA»: Stock insuficiente (disponible: 1 u) en Casa Central. Puede haber unidades en otra sucursal: transferilas o elegí otra sucursal.
+
+Transferir stock | 
+PASS  (b1) no se agregó la línea al remito (carrito vacío)
+PASS  (b2) el servidor rechaza con un mensaje que nombra el producto  -> No hay stock de «Producto escaso QA» en la sucursal Casa Central. Puede haber unidades en otra sucursal: revisá el stock por sucursal o cambiá la sucursal del remito.
+
+Transferir stock | 
+PASS  (b2) nada escrito: sin remito nuevo, stock del alfajor intacto, sigue en /remitos/nuevo  -> dn 1->1 alf 96->96 http://localhost:3000/remitos/nuevo
+PASS  (c) el resumen del ajuste se muestra antes de guardar  -> Vuelven 2 kg de Harina 000 (por kg), 4 × Alfajor artesanal, 2 × Aceite QA a Casa Central · Salen 3 kg de Harina 000 (por kg), 1 × Alfajor artesanal, 2 × Lote de tres QA de Casa Central
+PASS  (c) harina -1 (neto de 2->3), alfajor +3, aceite +2, lote de tres -2  -> h 45.5->44.5 a 92->95 ac 18->20 t 3->1
+PASS  (c) la revisión subió a 2 y el remito sigue pendiente  -> R-00000002|issued|rev2|027c1c0a-6400-430f-bfb9-5b6b6c185ad0
+PASS  (c) invariante: Σ delta de movimientos = -Σ cantidad base de las líneas  -> -6 vs 6
+PASS  (c) A=2/B=1 -> A=2/B=3: un solo par espejo sobre B (2 movimientos) y cero sobre A  -> movs 2->4 harina 1 alf 3 h 42.5->42.5 a 94->92
+PASS  (c) cambiar sólo las notas no mueve stock (0 movimientos nuevos)  -> 4->4
+PASS  (c) cambiar a una sucursal sin stock de uno de los productos se frena sin escribir  -> Scanner listo | No alcanza el stock de Sucursal Norte QA para: Harina 000 (por kg). Bajá las cantidades, transferí stock o elegí otra sucursal. | Vuelven 2 kg de Harina 000 (por kg), 3 × Alfajor artes
+PASS  (c2) cambiar la sucursal traslada el stock (Casa Central +3, Norte -3)  -> br1 89->92 br2 10->7
+PASS  (d) la edición paralela por API entra (200)  -> 200
+PASS  (d) cartel "Remito modificado" con recarga, sin escribir nada  -> stock 90->87->87 R-00000005|issued|rev2|027c1c0a-6400-430f-bfb9-5b6b6c185ad0
+PASS  (d) tras recargar, el formulario muestra lo que dejó el otro usuario (5)  -> cantidad 5
+PASS  (e) sin motivo no se puede confirmar
+PASS  (e) el stock se repone (harina +1,5; alfajor +2)  -> h 41->42.5 a 85->87
+PASS  (e) remito terminal: canceled + motivo en el historial
+PASS  (e) sin acciones: no hay Editar ni Anular
+PASS  (f) PDF 200 application/pdf con nombre remito-R-…  -> 200 application/pdf attachment; filename="remito-R-00000007.pdf"
+PASS  (f) la descarga por la UI con "Mostrar precios" encendido trae nombre con precios  -> remito-R-00000007-con-precios.pdf
+PASS  (g) WhatsApp abre wa.me con el teléfono normalizado (54 + dígitos)  -> https://wa.me/5492615550202?text=Hola%20Cliente%20Demo%20QA%2C%20te%20env%C3%ADo%20el%20remito%20R-00000008%20de%20la%20mercader%C3%ADa%20entregada%20el%2003%2F
+PASS  (g) el texto del mensaje nombra el número del remito  -> https://wa.me/5492615550202?text=Hola Cliente Demo QA, te envío el remito R-00000008 de la mercadería entregada el 03/10/2026. Mi Negocio
+PASS  (h) vendedor: ve el remito y Editar, pero NO "Anular"
+PASS  (h) vendedor: puede abrir "Nuevo remito"
+PASS  (h) cajero: "Nuevo remito" muestra el estado sin permiso (sin formulario)  -> Toggle Sidebar Nuevo remito Notificaciones Nuevo remito  Documentá la mercadería que entregás. Emitir un remito descuent
+PASS  (h) cajero: el listado no ofrece el CTA "Nuevo remito"
+PASS  (h) depósito: ve Editar y NO "Anular"
+PASS  (h) admin: ve "Anular"
+PASS  (i) "Nuevo remito" desde la ficha abre el formulario con el cliente precargado  -> Cliente Dos QA
+PASS  (i) "Ver remitos" apunta a /remitos?cliente=<id>  -> /remitos?cliente=cd0dd857-0f72-45e3-af24-a08c81e9b04f
+PASS  (j) la sucursal quedó sin existencias y con un remito pendiente
+PASS  (j) el diálogo avisa de los remitos pendientes y enlaza a /remitos?estado=pendientes&sucursal=<id>  -> /remitos?estado=pendientes&sucursal=8825c190-313b-4706-8b58-9bdc2a8ec7eb :: "Sucursal Sur QA 57494" tiene remitos pendientes Tiene 1 remito pendiente que retiene mercadería de esta sucursal. No se puede desactivar mientras haya alguno. Convertilos en venta o anulalos y volv
+PASS  (j) no se ofrece "Desactivar" mientras hay remitos pendientes
+PASS  (j) la baja directa en la base se rechaza con P0428 branch_has_pending_delivery_notes  -> Error: ERROR:  branch_has_pending_delivery_notes: la sucursal tiene 1 remito(s) pendiente(s) — convertilos o anulalos antes de darla de baja
+CONTEXT:  PL/pgSQL 
+PASS  (j) la sucursal sigue activa
+PASS  (j) anulado el remito, el motivo del bloqueo ya no es el remito (la mercadería volvió: existencias)  -> Error: ERROR:  branch_has_stock: la sucursal tiene 5.0000 unidades en 1 producto(s) — transferí el stock a otra sucursal antes de darla de b
+PASS  (j) vaciada la sucursal y sin remitos pendientes, la baja procede
+PASS  (k) formulario de venta: se registra la venta y baja el stock 1  -> sales 0->1 stock 83->82
+PASS  (k) el movimiento de la venta sigue siendo sale/sale (no es de remito)  -> sale/sale
+PASS  (k) POS: se registra la venta y baja el stock 1  -> stock 82->81
+PASS  (k) presupuesto: se crea (201)  -> 201
+PASS  (k) presupuesto: se comparte (descarga del PDF con nombre de presupuesto)  -> presupuesto-P-00000001.pdf
+console errors: ["Failed to load resource: the server responded with a status of 409 (Conflict)","Failed to load resource: the server responded with a status of 409 (Conflict)","Failed to load resource: the server responded with a status of 404 (Not Found)","Failed to load resource: the server responded with a status of 404 (Not Found)"]
+RESUMEN humo: 47/47 PASS

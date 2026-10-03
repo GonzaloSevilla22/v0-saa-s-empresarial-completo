@@ -1,0 +1,103 @@
+===== pdf\remito-anulado.pdf (1 pagina/s)
+Mi Negocio REMITO
+N° R-00000006
+Fecha: 03/10/2026
+Cliente
+Cliente Demo QA
+Tel: 261 555-0202
+Sale de: Casa Central
+ANULADO
+Descripción Cant.
+Harina 000 (por kg) 1,5
+Alfajor artesanal 2
+Recibí conforme
+Firma:
+Aclaración:
+DNI:
+Fecha:
+Remito — documento no válido como factura.
+Página 1/1
+
+===== pdf\remito-con-precios.pdf (1 pagina/s)
+Mi Negocio REMITO
+N° R-00000007
+Fecha: 03/10/2026
+Cliente
+Cliente Demo QA
+Tel: 261 555-0202
+Sale de: Casa Central
+Descripción Cant. P. unit. Subtotal
+Harina 000 (por kg) 1,5 $ 1.200,00 $ 1.800,00
+Alfajor artesanal 2 $ 500,00 $ 1.000,00
+TOTAL $ 2.800,00
+Notas
+Entregar por la puerta lateral
+Recibí conforme
+Firma:
+Aclaración:
+DNI:
+Fecha:
+Remito — documento no válido como factura.
+Página 1/1
+
+===== pdf\remito-sin-precios.pdf (1 pagina/s)
+Mi Negocio REMITO
+N° R-00000007
+Fecha: 03/10/2026
+Cliente
+Cliente Demo QA
+Tel: 261 555-0202
+Sale de: Casa Central
+Descripción Cant.
+Harina 000 (por kg) 1,5
+Alfajor artesanal 2
+Notas
+Entregar por la puerta lateral
+Recibí conforme
+Firma:
+Aclaración:
+DNI:
+Fecha:
+Remito — documento no válido como factura.
+Página 1/1
+
+===== pdf\remito-ui-unidades.pdf (1 pagina/s)
+Mi Negocio REMITO
+N° R-00000001
+Fecha: 03/10/2026
+Cliente
+Cliente Demo QA
+Tel: 261 555-0202
+Sale de: Casa Central
+Descripción Cant.
+Harina 000 (por kg) 2,5 kg
+Alfajor artesanal 4 u
+Recibí conforme
+Firma:
+Aclaración:
+DNI:
+Fecha:
+Remito — documento no válido como factura.
+Página 1/1
+
+===== pdf\ui-con-precios-remito-R-00000007-con-precios.pdf (1 pagina/s)
+Mi Negocio REMITO
+N° R-00000007
+Fecha: 03/10/2026
+Cliente
+Cliente Demo QA
+Tel: 261 555-0202
+Sale de: Casa Central
+Descripción Cant. P. unit. Subtotal
+Harina 000 (por kg) 1,5 $ 1.200,00 $ 1.800,00
+Alfajor artesanal 2 $ 500,00 $ 1.000,00
+TOTAL $ 2.800,00
+Notas
+Entregar por la puerta lateral
+Recibí conforme
+Firma:
+Aclaración:
+DNI:
+Fecha:
+Remito — documento no válido como factura.
+Página 1/1

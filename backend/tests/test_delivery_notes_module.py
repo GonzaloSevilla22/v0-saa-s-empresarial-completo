@@ -33,6 +33,7 @@ from backend.tests.conftest import (
     TEST_ACCOUNT_ID,
     TEST_USER_ID,
     account_roles_fetchval,
+    effective_routes,
     make_token,
 )
 
@@ -1320,7 +1321,12 @@ class TestRouterIsRegistered:
     def test_the_routes_exist_with_the_agreed_verbs(self):
         from backend.main import app
 
-        routes = {(m, r.path) for r in app.routes if hasattr(r, "methods") for m in r.methods}
+        # `app.routes` NO sirve para esto: desde FastAPI 0.142 devuelve un
+        # contenedor opaco por cada `include_router` (sin `path` ni `methods`),
+        # así que este test pasaba en local (0.136) y fallaba en CI (la última)
+        # viendo sólo `/docs`, `/redoc` y `/openapi.json`. `effective_routes`
+        # entrega las rutas efectivas, con prefijo, en cualquiera de las dos.
+        routes = {(m, r.path) for r in effective_routes(app) for m in r.methods}
         assert ("GET", "/delivery-notes") in routes
         assert ("POST", "/delivery-notes") in routes
         assert ("GET", "/delivery-notes/{delivery_note_id}") in routes

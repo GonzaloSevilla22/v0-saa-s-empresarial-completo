@@ -26,6 +26,7 @@ import re
 from starlette.routing import WebSocketRoute
 
 from backend.core import auth as auth_module
+from backend.tests.conftest import effective_routes
 
 BACKEND_ROOT = pathlib.Path(auth_module.__file__).resolve().parents[1]
 
@@ -48,7 +49,10 @@ def test_openapi_has_no_ws_route():
     invitación."""
     from backend.main import app
 
-    paths = {getattr(route, "path", "") for route in app.routes}
+    # `effective_routes` y no `app.routes`: desde FastAPI 0.142 éste devuelve un
+    # contenedor opaco por cada `include_router`, y este candado pasaba SIEMPRE
+    # aunque hubiera un `/ws/...` montado (verificado montándolo a propósito).
+    paths = {route.path or "" for route in effective_routes(app)}
     ws_paths = {p for p in paths if p.startswith("/ws")}
 
     assert ws_paths == set(), f"quedaron rutas de WebSocket registradas: {ws_paths}"
@@ -64,9 +68,9 @@ def test_no_ws_router_registered():
     from backend.main import app
 
     websocket_routes = [
-        getattr(route, "path", repr(route))
-        for route in app.routes
-        if isinstance(route, WebSocketRoute)
+        route.path or repr(route.route)
+        for route in effective_routes(app)
+        if isinstance(route.route, WebSocketRoute)
     ]
 
     assert websocket_routes == [], (

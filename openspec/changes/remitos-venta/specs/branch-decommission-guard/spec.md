@@ -57,7 +57,7 @@ La verificación SHALL leer el **ledger canónico de stock por sucursal** que el
 
 - **GIVEN** una sucursal sin existencias, sin sesión de caja abierta ni transferencias en vuelo, con un remito de venta `issued` emitido desde ella
 - **WHEN** se intenta desactivarla o cerrarla
-- **THEN** la operación es rechazada con el mismo código de baja de sucursal, el mensaje nombra el remito pendiente y la acción de convertirlo o anularlo, y la sucursal sigue activa
+- **THEN** la operación es rechazada con el mismo código de baja de sucursal, el mensaje nombra la cantidad de remitos pendientes y la salida disponible para resolverlos (anularlos, sólo un administrador o el dueño; con la conversión en venta, también convertirlos), y la sucursal sigue activa
 
 #### Scenario: Un remito de compra pendiente también bloquea
 - **GIVEN** una sucursal vacía con un remito de compra `issued`

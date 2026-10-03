@@ -29,7 +29,7 @@ def test_format_matches_the_shared_fixture(case):
 def test_query_parsing_matches_the_shared_fixture(case):
     from backend.services.commercial_documents.numbering import parse_internal_document_number_query
 
-    assert parse_internal_document_number_query(case["query"]) == case["expected"]
+    assert parse_internal_document_number_query(case["query"], case["document_type"]) == case["expected"]
 
 
 def test_fixture_is_not_empty_and_covers_the_three_search_formats():
@@ -43,6 +43,23 @@ def test_unknown_document_type_is_rejected():
 
     with pytest.raises(ValueError):
         format_internal_document_number("remito", 1)
+
+
+def test_a_foreign_prefix_is_text_not_a_number():
+    # Revisión adversarial F4: "R-12" en /presupuestos no puede traer P-00000012.
+    from backend.services.commercial_documents.numbering import parse_internal_document_number_query
+
+    assert parse_internal_document_number_query("R-12", "quote") is None
+    assert parse_internal_document_number_query("P-12", "delivery_note_sale") is None
+    assert parse_internal_document_number_query("R-12", "delivery_note_sale") == 12
+    assert parse_internal_document_number_query("P-12", "quote") == 12
+
+
+def test_query_for_an_unknown_document_type_is_rejected():
+    from backend.services.commercial_documents.numbering import parse_internal_document_number_query
+
+    with pytest.raises(ValueError):
+        parse_internal_document_number_query("12", "remito")
 
 
 def test_none_number_has_no_label():

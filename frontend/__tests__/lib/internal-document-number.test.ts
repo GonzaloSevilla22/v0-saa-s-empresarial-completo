@@ -24,6 +24,7 @@ interface FormatCase {
 interface QueryCase {
   name: string
   query: string
+  document_type: InternalDocumentType
   expected: number | null
 }
 
@@ -51,12 +52,18 @@ describe("parseInternalDocumentNumberQuery — contrato compartido con pytest", 
     expect(fixture.query_cases.some((c) => c.expected === null)).toBe(true)
   })
   it.each(fixture.query_cases.map((c) => [c.name, c] as const))("%s", (_name, c) => {
-    expect(parseInternalDocumentNumberQuery(c.query)).toBe(c.expected)
+    expect(parseInternalDocumentNumberQuery(c.query, c.document_type)).toBe(c.expected)
   })
 })
 
 describe("ida y vuelta", () => {
   it.each([1, 12, 4321, 99999999, 123456789])("lo que se imprime se vuelve a encontrar (%i)", (n) => {
-    expect(parseInternalDocumentNumberQuery(formatInternalDocumentNumber("quote", n))).toBe(n)
+    expect(parseInternalDocumentNumberQuery(formatInternalDocumentNumber("quote", n), "quote")).toBe(n)
+  })
+  it.each([1, 12, 123456789])("también para el remito de venta (%i)", (n) => {
+    const label = formatInternalDocumentNumber("delivery_note_sale", n)
+    expect(parseInternalDocumentNumberQuery(label, "delivery_note_sale")).toBe(n)
+    // El prefijo del otro tipo no es de este listado: se busca como texto.
+    expect(parseInternalDocumentNumberQuery(label, "quote")).toBeNull()
   })
 })

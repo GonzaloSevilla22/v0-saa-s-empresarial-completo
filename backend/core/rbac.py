@@ -45,6 +45,23 @@ CAN_ACCOUNT: frozenset[str] = frozenset({"owner", "admin", "accountant"})
 # conversión compromete una cotización, no sólo cobra un mostrador.
 CAN_QUOTE: frozenset[str] = frozenset({"owner", "admin", "seller"})
 
+# remitos-venta (D13): emitir y editar un remito de venta, y anularlo. ESPEJAN
+# los `allowed_role` de las transiciones `NULL -> issued` y `issued -> canceled`
+# de `delivery_note_sale` del catálogo `document_status_transitions`
+# (migración 20261069000001): un test
+# (`backend/tests/test_delivery_notes_module.py::TestCapabilities`) lee esa
+# migración y falla si divergen. `stock` emite y edita (carga lo que sale del
+# depósito) pero no anula; el cajero lee y convierte en venta (`CAN_SELL`) pero
+# no emite.
+#
+# `CAN_VOID_DELIVERY_NOTE` tiene el MISMO contenido que `CAN_CONFIGURE`, así
+# que `is_sensitive_capability` lo trata como sensible: la autoridad es la base
+# (el pivot de roles) y no el claim del token. Es deliberado para una acción que
+# DEVUELVE stock al depósito: ante un claim desactualizado el error queda del
+# lado seguro.
+CAN_DELIVER_SALE: frozenset[str] = frozenset({"owner", "admin", "seller", "stock"})
+CAN_VOID_DELIVERY_NOTE: frozenset[str] = frozenset({"owner", "admin"})
+
 # auth-hardening-jwt-cookies D12 — registro EXPLÍCITO de las capacidades para
 # las que la base es la autoridad y el claim es sólo un caché.
 #

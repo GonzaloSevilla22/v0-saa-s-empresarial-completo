@@ -3,47 +3,35 @@
  * presupuesto (alta, edición y detalle): cargando, error de carga y falta de
  * permiso. Una sola redacción para los tres, con las regiones ARIA correctas
  * (`status` para lo informativo, `alert` para el error).
+ *
+ * remitos-venta (D11, tarea 4.9): la implementación vive ahora en
+ * `components/shared/DocumentPageStates.tsx`, parametrizada por documento; estos
+ * tres nombres se conservan (los usan las páginas del presupuesto) y muestran
+ * exactamente lo mismo que antes.
  */
-import Link from "next/link"
-import { ArrowLeft } from "lucide-react"
-import { Button } from "@/components/ui/button"
+import {
+  DocumentLoadError,
+  DocumentLoading,
+  DocumentNoPermission,
+  type DocumentPageTexts,
+} from "@/components/shared/DocumentPageStates"
 
-export function QuoteLoading({ label = "Cargando presupuesto…" }: { label?: string }) {
-  return (
-    <p className="px-4 py-10 text-center text-sm text-muted-foreground" role="status">
-      {label}
-    </p>
-  )
+const QUOTE_TEXTS: DocumentPageTexts = {
+  singular: "presupuesto",
+  loadingLabel: "Cargando presupuesto…",
+  backHref: "/presupuestos",
+  backLabel: "Volver a presupuestos",
+  permissionHint: "Pedile a un administrador del negocio que te habilite como vendedor.",
+}
+
+export function QuoteLoading({ label = QUOTE_TEXTS.loadingLabel }: { label?: string }) {
+  return <DocumentLoading label={label} />
 }
 
 export function QuoteLoadError() {
-  return (
-    <div className="flex flex-col items-center gap-3 px-4 py-10 text-center">
-      <p role="alert" className="text-sm text-destructive">
-        No se pudo cargar el presupuesto. Puede que no exista o que sea de otra cuenta.
-      </p>
-      <Button asChild variant="outline" size="sm" className="gap-2">
-        <Link href="/presupuestos">
-          <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-          Volver a presupuestos
-        </Link>
-      </Button>
-    </div>
-  )
+  return <DocumentLoadError texts={QUOTE_TEXTS} />
 }
 
 export function QuoteNoPermission({ action }: { action: string }) {
-  return (
-    <div className="flex flex-col items-center gap-3 px-4 py-10 text-center">
-      <p role="status" className="max-w-md text-sm text-muted-foreground">
-        Tu rol no permite {action}. Pedile a un administrador del negocio que te habilite como vendedor.
-      </p>
-      <Button asChild variant="outline" size="sm" className="gap-2">
-        <Link href="/presupuestos">
-          <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-          Volver a presupuestos
-        </Link>
-      </Button>
-    </div>
-  )
+  return <DocumentNoPermission texts={QUOTE_TEXTS} action={action} />
 }

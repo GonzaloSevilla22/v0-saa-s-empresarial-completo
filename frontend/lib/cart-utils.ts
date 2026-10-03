@@ -300,6 +300,22 @@ export interface CartStockOptions {
    * `stockWarning` con el disponible.
    */
   enforceStock: boolean
+  /**
+   * remitos-venta (D11): el disponible de un producto en la SUCURSAL de la
+   * operación, en su unidad base. Cuando está presente, el alta manual y el
+   * escaneo (sus tres ramas) lo usan EN LUGAR de `product.stock`, que es el
+   * agregado del catálogo: con stock en otra sucursal, el agregado dejaría pasar
+   * lo que el servidor rechaza. En una edición, el llamador le suma lo que el
+   * documento ya retiene (todas las líneas cuentan contra ese disponible — por
+   * eso las líneas del remito no llevan `source: "persisted"`). Ausente, nada
+   * cambia: la venta y el presupuesto siguen con `product.stock`.
+   */
+  availableFor?: (productId: string) => number
+}
+
+/** El disponible contra el que se valida: el de la sucursal si se lo pasó, si no el del catálogo. */
+function availableStockOf(options: CartStockOptions, productId: string, catalogStock: number): number {
+  return options.availableFor ? options.availableFor(productId) : catalogStock
 }
 
 /** Lo que el usuario dejó "en preparación" antes de agregarlo al carrito. */
@@ -342,8 +358,9 @@ export function addManualLineToCart(
   cart: SaleCartItem[],
   staged: StagedCartLine,
   ctx: CartContext,
-  { enforceStock }: CartStockOptions,
+  stockOptions: CartStockOptions,
 ): AddManualLineResult {
+  const { enforceStock } = stockOptions
   const { product, unitPrice, quantity, discount, unitId } = staged
   const selectedUnit = resolveUnit(unitId, ctx.unitsById)
   const baseUnit = resolveUnit(product.baseUnitId, ctx.unitsById)
@@ -351,8 +368,9 @@ export function addManualLineToCart(
 
   // D7/OQ-9: chequeo ACUMULATIVO — todas las líneas del mismo producto
   // (`persisted` excluida) más lo nuevo, no sólo la que se está tocando.
-  const exceeded = exceedsStock(cart, product.id, quantityBase, product.stock)
-  const warning = insufficientStockMessage(product.stock, baseUnit)
+  const available = availableStockOf(stockOptions, product.id, product.stock)
+  const exceeded = exceedsStock(cart, product.id, quantityBase, available)
+  const warning = insufficientStockMessage(available, baseUnit)
   if (exceeded && enforceStock) {
     return { ok: false, reason: "insufficient_stock", message: warning }
   }
@@ -411,8 +429,9 @@ export function applyScanToCart(
   cart: SaleCartItem[],
   scan: ScanResult,
   ctx: CartContext,
-  { enforceStock }: CartStockOptions,
+  stockOptions: CartStockOptions,
 ): ApplyScanResult {
+  const { enforceStock } = stockOptions
   if (scan.kind === "error") return { kind: "rejected", label: scan.message }
 
   if (scan.kind === "product") {
@@ -427,8 +446,9 @@ export function applyScanToCart(
     if (isProductoMedible(baseUnit)) return askQuantity
 
     // Un producto por unidades también suma stock (fix F3, PR #599).
-    const exceeded = exceedsStock(cart, product.id, unitInputMin(baseUnit), product.stock)
-    const warning = insufficientStockMessage(product.stock, baseUnit)
+    const available = availableStockOf(stockOptions, product.id, product.stock)
+    const exceeded = exceedsStock(cart, product.id, unitInputMin(baseUnit), available)
+    const warning = insufficientStockMessage(available, baseUnit)
     if (exceeded && enforceStock) return { kind: "rejected", label: warning }
 
     const added = addScannedProductLine(cart, product, { unitsById: ctx.unitsById, products: ctx.products })
@@ -440,7 +460,7 @@ export function applyScanToCart(
   // scan.kind === "scale_line" (D7): una línea nueva, nunca fusionada (D8).
   const { line } = scan
   const lineProduct = ctx.products.find((p) => p.id === line.productId)
-  const stock = lineProduct?.stock ?? 0
+  const stock = availableStockOf(stockOptions, line.productId, lineProduct?.stock ?? 0)
   const exceeded = exceedsStock(cart, line.productId, line.quantityBase ?? line.quantity, stock)
   const warning = insufficientStockMessage(stock, resolveUnit(lineProduct?.baseUnitId, ctx.unitsById))
   if (exceeded && enforceStock) return { kind: "rejected", label: warning }
@@ -500,4 +520,51 @@ export function updateLineSubtotal(items: SaleCartItem[], id: string, newSubtota
         }
       : item,
   )
+}
+
+
+// ─── remitos-venta (D11) — validación contra el disponible por sucursal ────────
+
+/**
+ * Tope de cada input de cantidad (en la unidad de la LÍNEA), para
+ * `CartItemList.maxQtyMap`: lo que deja el disponible del producto una vez
+ * descontadas las demás líneas del mismo producto. Nunca baja de 0 — lo que ya
+ * no alcanza (p. ej. al cambiar de sucursal) se señala con
+ * `linesExceedingAvailable`, no con un tope negativo.
+ */
+export function maxQuantityPerLine(
+  items: SaleCartItem[],
+  availableFor: (productId: string) => number,
+  ctx: CartContext,
+): Record<string, number> {
+  const map: Record<string, number> = {}
+  for (const item of items) {
+    const baseUnit = resolveUnit(ctx.products.find((p) => p.id === item.productId)?.baseUnitId, ctx.unitsById)
+    const lineUnit = resolveUnit(item.unitId, ctx.unitsById)
+    // Misma lectura que `toBaseQuantity`, sin su redondeo a 4 decimales (un
+    // factor de miligramos se redondearía a 0): sin unidad, la cantidad tal cual.
+    const factor = lineUnit ? lineUnit.factor / (baseUnit?.factor ?? 1) : 1
+    const others = items
+      .filter((other) => other.id !== item.id && other.productId === item.productId)
+      .reduce((sum, other) => sum + (other.quantityBase ?? 0), 0)
+    const room = Math.max(0, availableFor(item.productId) - others)
+    map[item.id] = factor > 0 ? Math.floor((room / factor) * 10_000 + 1e-9) / 10_000 : 0
+  }
+  return map
+}
+
+/**
+ * Ids de las líneas cuyo producto, sumadas todas sus líneas, supera el
+ * disponible. Sirve para re-validar el carrito entero al cambiar de sucursal y
+ * marcar las que no alcanzan SIN borrarlas (reutiliza `exceedsStock`).
+ */
+export function linesExceedingAvailable(
+  items: Pick<SaleCartItem, "id" | "productId" | "source" | "quantityBase">[],
+  availableFor: (productId: string) => number,
+): string[] {
+  const exceeding = new Set<string>()
+  for (const productId of new Set(items.map((item) => item.productId))) {
+    if (exceedsStock(items, productId, 0, availableFor(productId))) exceeding.add(productId)
+  }
+  return items.filter((item) => exceeding.has(item.productId)).map((item) => item.id)
 }

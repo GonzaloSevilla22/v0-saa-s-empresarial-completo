@@ -50,6 +50,11 @@ const PAGE_NAMES: Record<string, string> = {
   // detalle y la edición son rutas dinámicas (ver `nameFromQuoteRoute`).
   "/presupuestos":            "Presupuestos",
   "/presupuestos/nuevo":      "Nuevo presupuesto",
+  // remitos-venta (D11): igual que presupuestos — la lista y el alta tienen
+  // nombre propio; el detalle y la edición son rutas dinámicas
+  // (ver `nameFromDeliveryNoteRoute`).
+  "/remitos":                 "Remitos",
+  "/remitos/nuevo":           "Nuevo remito",
   "/caja":                    "Caja",
   "/banco":                   "Banco",
   // cobranzas-panel (task 5.6): pantalla de uso diario — nombre propio en el
@@ -94,6 +99,17 @@ function nameFromQuoteRoute(pathname: string): string | undefined {
 }
 
 /**
+ * remitos-venta (D11): `/remitos/<id>` ("Detalle de remito") y
+ * `/remitos/<id>/editar` ("Editar remito"), por el mismo mecanismo que los
+ * presupuestos. "nuevo" nunca llega acá: su ruta completa está en `PAGE_NAMES`.
+ */
+function nameFromDeliveryNoteRoute(pathname: string): string | undefined {
+  const match = /^\/remitos\/[^/]+(\/editar)?$/.exec(pathname)
+  if (!match) return undefined
+  return match[1] ? "Editar remito" : "Detalle de remito"
+}
+
+/**
  * H17 (spec responsive-shell): una ruta sin nombre mapeado deriva un nombre
  * legible del último segmento ("/x/detalle-final" → "Detalle final") en lugar
  * de mostrar solo la marca. El literal queda únicamente para la raíz.
@@ -108,7 +124,11 @@ function nameFromLastSegment(pathname: string): string {
 export function BreadcrumbNav() {
   const pathname = usePathname()
   const name =
-    PAGE_NAMES[pathname] ?? nameFromPrefix(pathname) ?? nameFromQuoteRoute(pathname) ?? nameFromLastSegment(pathname)
+    PAGE_NAMES[pathname] ??
+    nameFromPrefix(pathname) ??
+    nameFromQuoteRoute(pathname) ??
+    nameFromDeliveryNoteRoute(pathname) ??
+    nameFromLastSegment(pathname)
   const [tutorialOpen, setTutorialOpen] = useState(false)
 
   const tutorialEntry = getTutorialByPathname(pathname)

@@ -1,0 +1,58 @@
+PASS  desborde 0: remitos-listado desktop light
+PASS  desborde 0: remitos-listado-filtros-chips desktop light
+PASS  desborde 0: remito-nuevo-vacio desktop light
+PASS  desborde 0: remito-editar desktop light
+PASS  desborde 0: remito-detalle-pendiente desktop light
+PASS  desborde 0: remito-detalle-anulado desktop light
+PASS  desborde 0: remito-anular-dialogo desktop light
+PASS  desborde 0: cliente-ficha-cabecera desktop light
+PASS  desborde 0: stock-movimientos-remito desktop light
+PASS  desborde 0: sucursales-baja-con-remitos desktop light
+PASS  consola sin errores (desktop light; los 404/409 de red esperados aparte)
+PASS  desborde 0: remitos-listado desktop dark
+PASS  desborde 0: remitos-listado-filtros-chips desktop dark
+PASS  desborde 0: remito-nuevo-vacio desktop dark
+PASS  desborde 0: remito-editar desktop dark
+PASS  desborde 0: remito-detalle-pendiente desktop dark
+PASS  desborde 0: remito-detalle-anulado desktop dark
+PASS  desborde 0: remito-anular-dialogo desktop dark
+PASS  desborde 0: cliente-ficha-cabecera desktop dark
+PASS  desborde 0: stock-movimientos-remito desktop dark
+PASS  desborde 0: sucursales-baja-con-remitos desktop dark
+PASS  consola sin errores (desktop dark; los 404/409 de red esperados aparte)
+PASS  desborde 0: remitos-listado mobile light
+PASS  desborde 0: remitos-listado-filtros-chips mobile light
+PASS  desborde 0: remito-nuevo-vacio mobile light
+PASS  desborde 0: remito-editar mobile light
+PASS  desborde 0: remito-detalle-pendiente mobile light
+PASS  desborde 0: remito-detalle-anulado mobile light
+PASS  desborde 0: remito-anular-dialogo mobile light
+   (preexistente, no propio) cliente-ficha-cabecera mobile: scroller horizontal propio ["420>341"]
+PASS  desborde 0: cliente-ficha-cabecera mobile light
+PASS  ficha del cliente light: aria-label distintos en botones de ícono (375 px)  -> Volver a clientes | Ver remitos | Nuevo remito | Nuevo presupuesto | Primera página | Página anterior | Página siguiente | Última página
+   (preexistente, no propio) stock-movimientos-remito mobile: scroller horizontal propio ["420>341"]
+PASS  desborde 0: stock-movimientos-remito mobile light
+PASS  desborde 0: sucursales-baja-con-remitos mobile light
+PASS  consola sin errores (mobile light; los 404/409 de red esperados aparte)
+PASS  desborde 0: remitos-listado mobile dark
+PASS  desborde 0: remitos-listado-filtros-chips mobile dark
+PASS  desborde 0: remito-nuevo-vacio mobile dark
+PASS  desborde 0: remito-editar mobile dark
+PASS  desborde 0: remito-detalle-pendiente mobile dark
+PASS  desborde 0: remito-detalle-anulado mobile dark
+PASS  desborde 0: remito-anular-dialogo mobile dark
+   (preexistente, no propio) cliente-ficha-cabecera mobile: scroller horizontal propio ["420>341"]
+PASS  desborde 0: cliente-ficha-cabecera mobile dark
+PASS  ficha del cliente dark: aria-label distintos en botones de ícono (375 px)  -> Volver a clientes | Ver remitos | Nuevo remito | Nuevo presupuesto | Primera página | Página anterior | Página siguiente | Última página
+   (preexistente, no propio) stock-movimientos-remito mobile: scroller horizontal propio ["420>341"]
+PASS  desborde 0: stock-movimientos-remito mobile dark
+PASS  desborde 0: sucursales-baja-con-remitos mobile dark
+PASS  consola sin errores (mobile dark; los 404/409 de red esperados aparte)
+PASS  anular: al abrir, el foco queda dentro del diálogo
+PASS  anular: Tab no escapa del diálogo (8 Tab)
+PASS  anular: Escape cierra
+PASS  anular: al cerrar, el foco vuelve al botón "Anular"  -> Anular
+PASS  baja de sucursal: foco dentro del diálogo al abrir
+PASS  baja de sucursal: Tab no escapa
+PASS  baja de sucursal: Escape cierra
+RESUMEN visual: 53/53 PASS

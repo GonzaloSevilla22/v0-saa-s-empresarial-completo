@@ -69,6 +69,19 @@
 
 ---
 
+### Remitos de venta (`remitos-venta`, tanda A — 2026-10-03)
+
+- `/remitos`: listado paginado por estado (pendientes, convertidos, anulados), búsqueda por cliente o número (`R-00000001`), filtros por cliente y sucursal que viajan en la URL, resumen de pendientes y tarjetas en móvil
+- `/remitos/nuevo` y `/remitos/[id]/editar` con el editor de líneas de la venta (buscador, lector, balanza, unidades); cliente y sucursal obligatorios, domicilio de entrega precargado desde el cliente; el formulario frena el faltante contra el stock de la **sucursal elegida** y muestra qué stock vuelve y cuál sale al editar
+- Emitir **descuenta stock**; editar ajusta el stock sólo en lo que cambia; anular (admin/owner, con motivo) lo repone
+- `/remitos/[id]`: acciones por estado y rol, historial, PDF sin precios por defecto con la opción "Mostrar precios", descarga y WhatsApp
+- Entrada "Remitos" en el grupo Operaciones del menú; desde la ficha del cliente, "Nuevo remito" y "Ver remitos"
+- Los movimientos del remito se rotulan en `/stock` ("Remito R-…", edición y anulación) y en su exportación CSV
+- La baja de una sucursal con remitos pendientes se bloquea y el diálogo enlaza a `/remitos` filtrado
+- Pendiente (tanda B): botón "Venta" que convierte el remito sin volver a descontar stock
+
+---
+
 ## Épica 3: Clientes
 
 - Crear cliente con nombre, email y teléfono

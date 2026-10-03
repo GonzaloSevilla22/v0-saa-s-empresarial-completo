@@ -24,9 +24,13 @@ from __future__ import annotations
 
 import datetime
 import json
-from typing import Any
 
 from backend.repositories.base import BaseRepository
+from backend.repositories.commercial_document_support import (
+    CommercialIssuerMixin,
+    jsonb_value as _jsonb,
+    like_pattern as _like_pattern,
+)
 
 # Abierto con la validez ya pasada (día de negocio ART): el barrido todavía no
 # lo marcó `expired`, pero para el usuario ya venció (design D7). Un único
@@ -69,22 +73,7 @@ _LIST_PROJECTION = f"""
 """
 
 
-def _jsonb(value: Any) -> Any:
-    """asyncpg devuelve jsonb como str cuando no hay codec registrado."""
-    return json.loads(value) if isinstance(value, str) else value
-
-
-def _like_pattern(text: str | None) -> str | None:
-    """`%texto%` con los comodines de LIKE escapados: el usuario busca "50%",
-    no "cualquier cosa que empiece con 50"."""
-    text = (text or "").strip()
-    if not text:
-        return None
-    escaped = text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-    return f"%{escaped}%"
-
-
-class QuoteRepository(BaseRepository):
+class QuoteRepository(CommercialIssuerMixin, BaseRepository):
     """Presupuestos y sus líneas — escritura por RPC, lectura con tenencia."""
 
     # ── Escrituras (una RPC por operación) ───────────────────────────────────
@@ -292,9 +281,3 @@ class QuoteRepository(BaseRepository):
             "SELECT default_quote_validity_days FROM public.accounts WHERE id = $1::uuid",
             account_id,
         )
-
-    async def get_commercial_issuer(self, account_id: str) -> dict:
-        """Datos del emisor para el PDF comercial vía `rpc_commercial_issuer`
-        (definer, con guard de membresía): ver el docstring del módulo."""
-        raw = await self._conn.fetchval("SELECT public.rpc_commercial_issuer($1::uuid)", account_id)
-        return _jsonb(raw)

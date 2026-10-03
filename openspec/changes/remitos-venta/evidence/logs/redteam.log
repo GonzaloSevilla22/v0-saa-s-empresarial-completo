@@ -1,0 +1,82 @@
+PASS  (0) control positivo: emitir 201  -> 201 R-00000011
+PASS  (0) control positivo: GET propio 200
+PASS  (1) owner: INSERT directo en delivery_notes rechazado  -> 403 {"code":"42501","details":null,"hint":"Grant the required privileges to the curr
+PASS  (1) owner: INSERT directo en delivery_note_items rechazado  -> 403
+PASS  (1) owner: PATCH directo no cambia el remito
+PASS  (1) owner: PATCH directo no cambia las líneas
+PASS  (1) owner: DELETE directo no borra remito ni líneas
+PASS  (1) seller: INSERT directo en delivery_notes rechazado  -> 403 {"code":"42501","details":null,"hint":"Grant the required privileges to the curr
+PASS  (1) seller: INSERT directo en delivery_note_items rechazado  -> 403
+PASS  (1) seller: PATCH directo no cambia el remito
+PASS  (1) seller: PATCH directo no cambia las líneas
+PASS  (1) seller: DELETE directo no borra remito ni líneas
+PASS  (1) b: INSERT directo en delivery_notes rechazado  -> 403 {"code":"42501","details":null,"hint":"Grant the required privileges to the curr
+PASS  (1) b: INSERT directo en delivery_note_items rechazado  -> 403
+PASS  (1) b: PATCH directo no cambia el remito
+PASS  (1) b: PATCH directo no cambia las líneas
+PASS  (1) b: DELETE directo no borra remito ni líneas
+PASS  (1) control positivo: SELECT propio por PostgREST devuelve la fila
+PASS  (1) SELECT de otra cuenta por PostgREST devuelve 0 filas  -> []
+PASS  (1) SELECT de líneas ajenas devuelve 0 filas
+PASS  (1) anon no lee delivery_notes  -> 401
+PASS  (1) helper interno _delivery_note_apply_stock no expuesto a authenticated  -> 404
+PASS  (1) helper interno _delivery_note_reverse_held no expuesto a authenticated  -> 404
+PASS  (1) helper interno _delivery_note_lock_products no expuesto a authenticated  -> 404
+PASS  (1) helper interno _delivery_note_insert_items no expuesto a authenticated  -> 404
+PASS  (1) helper interno _delivery_note_held_pairs no expuesto a authenticated  -> 404
+PASS  (2) get de remito ajeno = 404 idéntico al inexistente  -> ajeno 404/delivery_note_not_found inexistente 404/delivery_note_not_found
+PASS  (2) pdf de remito ajeno = 404 idéntico al inexistente  -> ajeno 404/delivery_note_not_found inexistente 404/delivery_note_not_found
+PASS  (2) put de remito ajeno = 404 idéntico al inexistente  -> ajeno 404/delivery_note_not_found inexistente 404/delivery_note_not_found
+PASS  (2) cancel de remito ajeno = 404 idéntico al inexistente  -> ajeno 404/delivery_note_not_found inexistente 404/delivery_note_not_found
+PASS  (2) el remito ajeno quedó intacto
+PASS  (2) el listado de B no contiene remitos de A  -> total 0
+PASS  (3) producto de otra cuenta -> 404 sin efectos  -> 404 product_not_found
+PASS  (3) cliente de otra cuenta -> 404 sin efectos  -> 404 client_not_found
+PASS  (3) sucursal de otra cuenta -> 404 sin efectos  -> 404 branch_not_found
+PASS  (3) unidad inexistente -> rechazo sin efectos  -> 404 P0404
+PASS  (3) sin ítems -> rechazo sin efectos  -> 422
+PASS  (3) cantidad negativa -> rechazo sin efectos  -> 422
+PASS  (3) control positivo: con datos propios emite
+PASS  (3) PUT con producto ajeno -> 404 sin efectos  -> 404 product_not_found
+PASS  (3) PUT con cliente ajeno -> 404 sin efectos  -> 404 client_not_found
+PASS  (4) control positivo: admin anula  -> 200 stock 75->78
+PASS  (4) segunda anulación rechazada sin efectos  -> 409 delivery_note_invalid_state
+PASS  (4) anulación con revisión vieja sobre un anulado rechazada  -> 409 delivery_note_invalid_state
+PASS  (4) editar un anulado rechazado sin efectos  -> 409 delivery_note_invalid_state
+PASS  (4) historial: una sola anulación registrada  -> 1
+PASS  (4) anular sin motivo (sólo espacios) rechazado  -> 422 validation_error
+PASS  (5) seller emite  -> 201
+PASS  (5) stock emite  -> 201
+PASS  (5) admin y owner emiten
+PASS  (5) cashier NO emite (403, sin efectos)  -> 403 insufficient_role
+PASS  (5) seller NO anula (403) y el stock no cambia  -> 403 insufficient_role
+PASS  (5) stock NO anula (403) y el stock no cambia  -> 403 insufficient_role
+PASS  (5) cashier NO anula (403) y el stock no cambia  -> 403 insufficient_role
+PASS  (5) stock edita su remito  -> 200
+PASS  (5) cashier NO edita (403)  -> 403
+PASS  (5) control positivo: admin y owner anulan  -> 200 200
+PASS  (5) los roles leen el listado  -> 200,200,200
+PASS  (6) misma Idempotency-Key concurrente: un remito, ambos 2xx, uno replayed  -> 201/200 replayed false/true
+PASS  (6) un solo movimiento de stock por la clave repetida  -> 1
+PASS  (6) tercer reintento: 200 replayed, sin descuento extra  -> 200 true
+PASS  (6) misma clave con otro cuerpo: replay del original, no crea otro  -> 200
+PASS  (6) sin Idempotency-Key -> 422  -> 422 idempotency_key_required
+PASS  (6) la misma clave de otra cuenta no hace replay del remito ajeno  -> 201
+PASS  (7) exactamente 3 de 10 pasan  -> 201,409,201,409,409,409,409,201,409,409
+PASS  (7) el resto responde 409 stock_insuficiente (no 500)  -> 409/stock_insuficiente 409/stock_insuficiente 409/stock_insuficiente 409/stock_insuficiente 409/stock_insuficiente 409/stock_insuficiente 409/stock_insuficiente
+PASS  (7) stock final 0, nunca negativo  -> 3 -> 0
+PASS  (7) 3 remitos y 3 movimientos, números consecutivos sin hueco
+PASS  (7) la numeración de la cuenta no tiene huecos  -> 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22
+PASS  (7) ningún branch_stock negativo en la cuenta  -> 0
+PASS  (8) 6 ediciones con la misma revisión: 1 gana, 5 conflicto  -> 409/delivery_note_changed 409/delivery_note_changed 409/delivery_note_changed 409/delivery_note_changed 200/ 409/delivery_note_changed
+PASS  (8) los 5 perdedores dicen delivery_note_changed  -> delivery_note_changed,delivery_note_changed,delivery_note_changed,delivery_note_changed,delivery_note_changed
+PASS  (8) el stock refleja SÓLO la edición ganadora  -> qty 6 stock 19->14
+PASS  (8) edición vs anulación: gana exactamente una; el stock es coherente  -> 200/409 issued stock 12->9
+PASS  (9) control positivo: la fila forjada entra por PostgREST (RLS preexistente, candidato 9.1)  -> 201
+PASS  (9) edición sólo de precio: cero movimientos nuevos y stock igual (no usa la fila forjada)  -> 200
+PASS  (9) la anulación devuelve sólo lo retenido por las líneas (+1), no lo forjado  -> stock 0->1
+PASS  (9) rpc_reverse_stock_movement NO acepta reference_type delivery_note (stock intacto)  -> rpc 500 {"code":"P0400","details":null,"hint":null,"message":"rpc_reverse_stock_movement: p_reference_type debe ser pu
+PASS  (9) control positivo preexistente: reference_type=sale forjada SI se revierte (candidato 9.1)  -> forja 201 rpc 200 stock 1->2 [{"id":"8220018e-8253-43e1-ba43-b56e51af0603","type":"sale_return","notes":"Cont
+PASS  (10) remito anulado: Σ delta de sus movimientos = 0  -> 0
+
+RESUMEN: 80/80 PASS

@@ -24,6 +24,31 @@ export const CAN_QUOTE: readonly OrgRole[] = ["owner", "admin", "seller"]
 export const CAN_CONFIGURE: readonly OrgRole[] = ["owner", "admin"]
 
 /**
+ * remitos-venta (D13) — emitir y editar un remito de venta. Espejo de
+ * `CAN_DELIVER_SALE` de `backend/core/rbac.py` y del `allowed_role` de la
+ * transición `NULL -> issued` del catálogo `delivery_note_sale`: el vendedor y
+ * el rol de depósito (`stock`) despachan mercadería; el cajero cobra pero no
+ * emite remitos.
+ */
+export const CAN_DELIVER_SALE: readonly OrgRole[] = ["owner", "admin", "seller", "stock"]
+
+/**
+ * remitos-venta (D13) — anular un remito (devuelve stock). Espejo de
+ * `CAN_VOID_DELIVERY_NOTE` de `backend/core/rbac.py` y de `issued -> canceled`
+ * del catálogo. Coincide con `CAN_CONFIGURE`, así que `is_sensitive_capability`
+ * la trata como sensible (la autoridad es la base, no el claim): es deliberado
+ * para una acción que mueve stock. `stock` y `seller` emiten pero no anulan.
+ */
+export const CAN_VOID_DELIVERY_NOTE: readonly OrgRole[] = ["owner", "admin"]
+
+/**
+ * Vender y cobrar. Espejo de `CAN_SELL` de `backend/core/rbac.py`. El remito lo
+ * usa para convertirse en venta (tanda B, OQ-RV2): el cajero cobra cuando el
+ * cliente viene a pagar lo que se llevó; el rol `stock` emite pero no cobra.
+ */
+export const CAN_SELL: readonly OrgRole[] = ["owner", "admin", "seller", "cashier"]
+
+/**
  * ¿Alguno de los roles activos del usuario habilita la capacidad?
  *
  * Mientras el conjunto no resolvió (`rolesResolved === false`) responde `true`:

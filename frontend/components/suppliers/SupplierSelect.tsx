@@ -13,6 +13,11 @@
  * (dado de baja) depende del contexto del caller, así que llega por
  * `unresolvedHint`.
  *
+ * `frozenOption`: el proveedor de un remito ya recibido que después se dio de
+ * baja. No está en la lista viva, así que sin esta opción el valor caería al
+ * placeholder y el remito parecería "sin proveedor"; con ella se ve congelado
+ * ("Proveedor Viejo (dado de baja)") hasta que se elija uno vigente.
+ *
  * `askPhone` (default `false`, lo que `purchase-form` muestra hoy): suma un
  * teléfono OPCIONAL al alta inline. El remito de compra lo activa porque el
  * WhatsApp al proveedor depende de ese número.
@@ -36,11 +41,20 @@ export interface SupplierSelectProps {
   askPhone?: boolean
   /** `id` del rótulo, para `aria-labelledby` (default: uno propio por instancia). */
   labelId?: string
+  /** Opción extra para un proveedor que ya no está en la lista (dado de baja). No se duplica si sigue vivo. */
+  frozenOption?: { value: string; label: string } | null
   /** Aviso bajo el selector (p. ej. "Proveedor actual no disponible (dado de baja)"); `null` no muestra nada. */
   unresolvedHint?: string | null
 }
 
-export function SupplierSelect({ value, onChange, askPhone = false, labelId, unresolvedHint = null }: SupplierSelectProps) {
+export function SupplierSelect({
+  value,
+  onChange,
+  askPhone = false,
+  labelId,
+  frozenOption = null,
+  unresolvedHint = null,
+}: SupplierSelectProps) {
   const generatedId = useId()
   const resolvedLabelId = labelId ?? `supplier-select-label-${generatedId}`
   const { suppliers, addSupplier } = useSuppliers()
@@ -48,7 +62,10 @@ export function SupplierSelect({ value, onChange, askPhone = false, labelId, unr
   const [newSupplierName, setNewSupplierName] = useState("")
   const [newSupplierPhone, setNewSupplierPhone] = useState("")
 
-  const supplierOptions = useMemo(() => suppliers.map((s) => ({ value: s.id, label: s.name })), [suppliers])
+  const supplierOptions = useMemo(() => {
+    const options = suppliers.map((s) => ({ value: s.id, label: s.name }))
+    return frozenOption && !options.some((o) => o.value === frozenOption.value) ? [frozenOption, ...options] : options
+  }, [suppliers, frozenOption])
 
   // Crea el proveedor y lo preselecciona sin perder nada de lo que el caller ya cargó.
   async function handleCreateSupplier() {

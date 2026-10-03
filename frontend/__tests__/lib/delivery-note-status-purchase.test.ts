@@ -319,3 +319,21 @@ describe("DELIVERY_NOTE_TEXTS — la tabla de textos por sentido (D11)", () => {
     })
   })
 })
+
+// ── remitos-compra (tarea 5.1): el toast del alta, por sentido ─────────────────
+
+describe("DELIVERY_NOTE_TEXTS.emitToast — el aviso de un remito recién emitido o recibido", () => {
+  it("venta: 'emitido: se descontó el stock de …', con y sin número", () => {
+    expect(DELIVERY_NOTE_TEXTS.sale.emitToast("R-00000012", "Centro")).toBe(
+      "Remito R-00000012 emitido: se descontó el stock de Centro",
+    )
+    expect(DELIVERY_NOTE_TEXTS.sale.emitToast(null, "Centro")).toBe("Remito emitido: se descontó el stock de Centro")
+  })
+
+  it("compra: 'recibido: se sumó el stock a …', con y sin número", () => {
+    expect(DELIVERY_NOTE_TEXTS.purchase.emitToast("RC-00000012", "Centro")).toBe(
+      "Remito RC-00000012 recibido: se sumó el stock a Centro",
+    )
+    expect(DELIVERY_NOTE_TEXTS.purchase.emitToast(undefined, "Norte")).toBe("Remito recibido: se sumó el stock a Norte")
+  })
+})

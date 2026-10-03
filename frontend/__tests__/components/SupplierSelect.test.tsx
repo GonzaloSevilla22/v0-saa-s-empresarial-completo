@@ -226,3 +226,48 @@ describe("SupplierSelect — askPhone: el alta inline suma un teléfono opcional
     expect(screen.getByPlaceholderText(/tel[eé]fono \(opcional\)/i)).toHaveValue("")
   })
 })
+
+// ── remitos-compra (tarea 5.1): el proveedor congelado de un remito ya recibido ──
+
+describe("SupplierSelect — frozenOption (proveedor dado de baja que sigue en el remito)", () => {
+  it("suma la opción congelada a la lista para que el valor resuelva en vez de caer al placeholder", () => {
+    suppliersMock = [{ id: "sup-1", name: "Distribuidora Andina" }]
+    render(
+      <SupplierSelect
+        value="sup-viejo"
+        onChange={vi.fn()}
+        frozenOption={{ value: "sup-viejo", label: "Proveedor Viejo (dado de baja)" }}
+      />,
+    )
+    expect(screen.getByTestId("supplier-option-sup-viejo")).toHaveTextContent("Proveedor Viejo (dado de baja)")
+    expect(screen.getByTestId("supplier-option-sup-1")).toBeInTheDocument()
+    expect(screen.getByTestId("searchable-select")).toHaveAttribute("data-value", "sup-viejo")
+  })
+
+  it("no la duplica si el proveedor sigue en la lista", () => {
+    suppliersMock = [{ id: "sup-1", name: "Distribuidora Andina" }]
+    render(<SupplierSelect value="sup-1" onChange={vi.fn()} frozenOption={{ value: "sup-1", label: "Otro rótulo" }} />)
+    expect(screen.getAllByTestId("supplier-option-sup-1")).toHaveLength(1)
+    expect(screen.getByTestId("supplier-option-sup-1")).toHaveTextContent("Distribuidora Andina")
+  })
+
+  it("sin la prop la lista es la de siempre", () => {
+    suppliersMock = [{ id: "sup-1", name: "Distribuidora Andina" }]
+    render(<SupplierSelect value={null} onChange={vi.fn()} />)
+    expect(screen.getAllByTestId(/^supplier-option-/)).toHaveLength(1)
+  })
+
+  it("elegir otro proveedor desde la opción congelada avisa con el id nuevo", () => {
+    suppliersMock = [{ id: "sup-1", name: "Distribuidora Andina" }]
+    const onChange = vi.fn()
+    render(
+      <SupplierSelect
+        value="sup-viejo"
+        onChange={onChange}
+        frozenOption={{ value: "sup-viejo", label: "Proveedor Viejo (dado de baja)" }}
+      />,
+    )
+    fireEvent.click(screen.getByTestId("supplier-option-sup-1"))
+    expect(onChange).toHaveBeenCalledWith("sup-1")
+  })
+})

@@ -15,6 +15,7 @@ import { describe, it, expect, vi } from "vitest"
 import { render, screen, fireEvent } from "@testing-library/react"
 import "@testing-library/jest-dom"
 
+import type { StagedCartLine } from "@/lib/cart-utils"
 import type { Product, UnitOfMeasure } from "@/lib/types"
 
 const KG: UnitOfMeasure = { id: "u-kg", name: "Kilogramo", symbol: "kg", type: "weight", factor: 1, isSystem: true }
@@ -56,8 +57,8 @@ vi.mock("@/components/shared/product-picker", () => ({
 
 const { StagedProductLine } = await import("@/components/shared/StagedProductLine")
 
-function renderLine(props: { priceSource?: "price" | "cost"; onAdd?: (line: unknown) => boolean } = {}) {
-  const onAdd = props.onAdd ?? vi.fn(() => true)
+function renderLine(props: { priceSource?: "price" | "cost"; onAdd?: (line: StagedCartLine) => boolean } = {}) {
+  const onAdd = props.onAdd ?? vi.fn((line: StagedCartLine) => Boolean(line))
   render(
     <StagedProductLine
       products={PRODUCTS}
@@ -65,7 +66,7 @@ function renderLine(props: { priceSource?: "price" | "cost"; onAdd?: (line: unkn
       units={UNITS}
       unitsById={UNITS_BY_ID}
       currency="ARS"
-      onAdd={onAdd as (line: never) => boolean}
+      onAdd={onAdd}
       priceSource={props.priceSource}
     />,
   )

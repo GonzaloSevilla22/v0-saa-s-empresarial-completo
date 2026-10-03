@@ -264,6 +264,8 @@ export interface DeliveryNoteDirectionTexts {
   canceledNotice: (branchName: string) => string
   /** Aviso de un remito convertido. */
   convertedNotice: string
+  /** Toast de un alta exitosa (venta: emitido y descontado; compra: recibido y sumado). */
+  emitToast: (numberLabel: string | null | undefined, branchName: string) => string
   /** Toast de una anulación exitosa. */
   cancelToast: (numberLabel: string, branchName: string) => string
   cancelReasonPlaceholder: string
@@ -283,6 +285,10 @@ export const DELIVERY_NOTE_TEXTS: Record<DeliveryNoteDirection, DeliveryNoteDire
     branchLabel: "Sale de:",
     canceledNotice: (branchName) => `Remito anulado: el stock volvió a ${branchName}.`,
     convertedNotice: "Este remito se convirtió en una venta. El stock ya se había descontado al emitirlo.",
+    emitToast: (numberLabel, branchName) =>
+      numberLabel
+        ? `Remito ${numberLabel} emitido: se descontó el stock de ${branchName}`
+        : `Remito emitido: se descontó el stock de ${branchName}`,
     cancelToast: (numberLabel, branchName) => `Remito ${numberLabel} anulado: el stock volvió a ${branchName}`,
     cancelReasonPlaceholder: "Ej: el cliente devolvió la mercadería",
     convertLabel: "Venta",
@@ -298,6 +304,10 @@ export const DELIVERY_NOTE_TEXTS: Record<DeliveryNoteDirection, DeliveryNoteDire
     branchLabel: "Ingresa a:",
     canceledNotice: (branchName) => `Remito anulado: el stock salió de ${branchName}.`,
     convertedNotice: "Este remito se convirtió en una compra; el stock ya se había sumado al recibirlo.",
+    emitToast: (numberLabel, branchName) =>
+      numberLabel
+        ? `Remito ${numberLabel} recibido: se sumó el stock a ${branchName}`
+        : `Remito recibido: se sumó el stock a ${branchName}`,
     cancelToast: (numberLabel, branchName) => `Remito ${numberLabel} anulado: el stock salió de ${branchName}`,
     cancelReasonPlaceholder: "Ej.: el proveedor se llevó la mercadería",
     convertLabel: "Compra",

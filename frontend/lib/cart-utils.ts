@@ -194,6 +194,23 @@ export function exceedsStock(
   return sumBase + addBase > stock
 }
 
+/**
+ * remitos-compra (D11): de dónde sale el precio de una línea NUEVA. `"price"`
+ * (default) es el precio de venta del catálogo — venta, presupuesto y POS;
+ * `"cost"` es el costo, para el remito de compra (la mercadería se recibe a lo
+ * que cuesta, no a lo que se vende).
+ */
+export type CartPriceSource = "price" | "cost"
+
+/**
+ * El precio de catálogo de un producto según la fuente. `cost` nulo es dato
+ * ausente (productos-costo-nullable): la línea entra a 0, nunca al precio de
+ * venta.
+ */
+export function catalogPriceOf(product: Pick<Product, "price" | "cost">, source: CartPriceSource = "price"): number {
+  return source === "cost" ? (product.cost ?? 0) : product.price
+}
+
 export interface AddScannedProductLineContext {
   unitsById: Map<string, UnitOfMeasure>
   /** Catálogo completo — para resolver el nombre del producto con su padre. */
@@ -222,6 +239,7 @@ export function addScannedProductLine(
   items: SaleCartItem[],
   product: Product,
   ctx: AddScannedProductLineContext,
+  priceSource: CartPriceSource = "price",
 ): AddScannedProductLineResult {
   const baseUnit = resolveUnit(product.baseUnitId, ctx.unitsById)
 
@@ -257,14 +275,15 @@ export function addScannedProductLine(
   }
 
   const parent = product.parentId ? ctx.products.find((p) => p.id === product.parentId) : undefined
+  const catalogPrice = catalogPriceOf(product, priceSource)
   const newLine: SaleCartItem = {
     id: crypto.randomUUID(),
     productId: product.id,
     productName: getCanonicalLabel(product, parent),
-    unitPrice: product.price,
+    unitPrice: catalogPrice,
     quantity: addQty,
     discount: 0,
-    subtotal: calcSaleSubtotal(product.price, addQty, 0),
+    subtotal: calcSaleSubtotal(catalogPrice, addQty, 0),
     // F4: la línea nueva nace con la MISMA unidad que el alta manual
     // (`product.baseUnitId`), no `undefined` — así un escaneo posterior del
     // mismo producto la encuentra y fusiona en vez de crear una tercera.
@@ -311,6 +330,13 @@ export interface CartStockOptions {
    * cambia: la venta y el presupuesto siguen con `product.stock`.
    */
   availableFor?: (productId: string) => number
+  /**
+   * remitos-compra (D11): la fuente del precio de las líneas NUEVAS que crea un
+   * código (`applyScanToCart`). Ausente = `"price"`: nada cambia para venta,
+   * presupuesto y POS. En el alta MANUAL no actúa: el precio ya viene en la línea
+   * en preparación (`StagedProductLine` lee la misma fuente).
+   */
+  priceSource?: CartPriceSource
 }
 
 /** El disponible contra el que se valida: el de la sucursal si se lo pasó, si no el del catálogo. */
@@ -451,7 +477,12 @@ export function applyScanToCart(
     const warning = insufficientStockMessage(available, baseUnit)
     if (exceeded && enforceStock) return { kind: "rejected", label: warning }
 
-    const added = addScannedProductLine(cart, product, { unitsById: ctx.unitsById, products: ctx.products })
+    const added = addScannedProductLine(
+      cart,
+      product,
+      { unitsById: ctx.unitsById, products: ctx.products },
+      stockOptions.priceSource,
+    )
     if ("needsQuantity" in added) return askQuantity // defensivo: ya se descartó arriba
     // Sólo el nombre: el indicador del lector ya antepone su propio "✓" (F9).
     return { kind: "added", items: added.items, label: product.name, stockWarning: exceeded ? warning : undefined }
@@ -464,9 +495,19 @@ export function applyScanToCart(
   const exceeded = exceedsStock(cart, line.productId, line.quantityBase ?? line.quantity, stock)
   const warning = insufficientStockMessage(stock, resolveUnit(lineProduct?.baseUnitId, ctx.unitsById))
   if (exceeded && enforceStock) return { kind: "rejected", label: warning }
+  // La etiqueta trae el importe de VENTA: en compra se reprecia al costo y se
+  // conserva el peso leído (la línea sigue siendo una pesada propia, `source: "scale"`).
+  const pricedLine =
+    stockOptions.priceSource === "cost" && lineProduct
+      ? {
+          ...line,
+          unitPrice: catalogPriceOf(lineProduct, "cost"),
+          subtotal: calcSaleSubtotal(catalogPriceOf(lineProduct, "cost"), line.quantity, 0),
+        }
+      : line
   return {
     kind: "added",
-    items: [...cart, { id: crypto.randomUUID(), ...line }],
+    items: [...cart, { id: crypto.randomUUID(), ...pricedLine }],
     label: line.productName,
     stockWarning: exceeded ? warning : undefined,
   }

@@ -34,14 +34,15 @@ import { useIdempotencyKey } from "@/hooks/use-idempotency-key"
 import { queryKeys } from "@/lib/query-keys"
 import { invalidateAfterSale } from "@/lib/query-invalidation"
 import type {
-  CreateDeliveryNoteInput,
   DeliveryNoteApiRow,
   DeliveryNoteCancelInput,
   DeliveryNoteConvertInput,
   DeliveryNoteConvertResult,
+  DeliveryNoteCreatePayload,
+  DeliveryNoteDirection,
   DeliveryNoteListFilters,
   DeliveryNotePage,
-  UpdateDeliveryNoteInput,
+  DeliveryNoteUpdatePayload,
 } from "@/lib/delivery-note-types"
 
 // ── Invalidación ───────────────────────────────────────────────────────────────
@@ -59,7 +60,7 @@ function invalidateAfterDeliveryNoteMutation(queryClient: QueryClient): void {
 
 // ── Listado ────────────────────────────────────────────────────────────────────
 
-/** `/delivery-notes?direction=…&status=…&q=…&client_id=…&branch_id=…&page=…&page_size=…`, sólo con lo que hay. */
+/** `/delivery-notes?direction=…&status=…&q=…&client_id=…&supplier_id=…&branch_id=…&page=…&page_size=…`, sólo con lo que hay. */
 function deliveryNotesListPath(filters: DeliveryNoteListFilters): string {
   const params = new URLSearchParams()
   if (filters.direction) params.set("direction", filters.direction)
@@ -67,6 +68,7 @@ function deliveryNotesListPath(filters: DeliveryNoteListFilters): string {
   const q = filters.q?.trim()
   if (q) params.set("q", q)
   if (filters.clientId) params.set("client_id", filters.clientId)
+  if (filters.supplierId) params.set("supplier_id", filters.supplierId)
   if (filters.branchId) params.set("branch_id", filters.branchId)
   if (filters.page !== undefined) params.set("page", String(filters.page))
   if (filters.pageSize !== undefined) params.set("page_size", String(filters.pageSize))
@@ -106,20 +108,25 @@ export function useDeliveryNote(deliveryNoteId: string | null) {
 // ── Escritura ──────────────────────────────────────────────────────────────────
 
 /**
- * Emite un remito de venta: descuenta el stock de la sucursal elegida en la
- * misma transacción (si no alcanza, nada se guarda). POST /delivery-notes.
+ * Emite un remito: en venta descuenta el stock de la sucursal elegida en la
+ * misma transacción (si no alcanza, nada se guarda); en compra (`"purchase"`)
+ * SUMA lo recibido a la sucursal de destino. POST /delivery-notes.
  *
  * La clave de idempotencia sale de `useIdempotencyKey("delivery-note-create")`
- * y viaja por header (nunca en el cuerpo): un reintento tras una respuesta
- * perdida cae en el replay del servidor y no descuenta dos veces. Se resetea en
- * cada éxito — un replay también lo es: la respuesta trae el remito igual.
+ * (venta) o de `"delivery-note-purchase-create"` (compra): cada sentido es una
+ * intención distinta y no comparten clave. Viaja por header (nunca en el
+ * cuerpo): un reintento tras una respuesta perdida cae en el replay del servidor
+ * y no mueve el stock dos veces. Se resetea en cada éxito — un replay también
+ * lo es: la respuesta trae el remito igual.
  */
-export function useCreateDeliveryNote() {
+export function useCreateDeliveryNote(direction: DeliveryNoteDirection = "sale") {
   const queryClient = useQueryClient()
-  const { idempotencyKey, resetIdempotencyKey } = useIdempotencyKey("delivery-note-create")
+  const { idempotencyKey, resetIdempotencyKey } = useIdempotencyKey(
+    direction === "purchase" ? "delivery-note-purchase-create" : "delivery-note-create",
+  )
 
   return useMutation({
-    mutationFn: (payload: CreateDeliveryNoteInput): Promise<DeliveryNoteApiRow> =>
+    mutationFn: (payload: DeliveryNoteCreatePayload): Promise<DeliveryNoteApiRow> =>
       pythonClient.post<DeliveryNoteApiRow>("/delivery-notes", payload, {
         "Idempotency-Key": idempotencyKey,
       }),
@@ -131,10 +138,13 @@ export function useCreateDeliveryNote() {
 }
 
 /**
- * Edita un remito pendiente: reemplazo completo, con la `revision` que se
- * cargó. El servidor ajusta el stock sólo en los pares producto-sucursal que
- * cambian y controla el faltante sobre el neto. PUT /delivery-notes/{id} —
- * `delivery_note_changed` (409) si otro usuario lo modificó antes.
+ * Edita un remito pendiente (de los dos sentidos): reemplazo completo, con la
+ * `revision` que se cargó. El servidor ajusta el stock sólo en los pares
+ * producto-sucursal que cambian y controla el faltante sobre el neto (en compra,
+ * `delivery_note_stock_consumed` si la mercadería ya no está). PUT
+ * /delivery-notes/{id} — `delivery_note_changed` (409) si otro usuario lo
+ * modificó antes y `delivery_note_direction_mismatch` si el cuerpo no es del
+ * sentido guardado.
  */
 export function useUpdateDeliveryNote() {
   const queryClient = useQueryClient()
@@ -145,7 +155,7 @@ export function useUpdateDeliveryNote() {
       payload,
     }: {
       deliveryNoteId: string
-      payload: UpdateDeliveryNoteInput
+      payload: DeliveryNoteUpdatePayload
     }): Promise<DeliveryNoteApiRow> =>
       pythonClient.put<DeliveryNoteApiRow>(`/delivery-notes/${deliveryNoteId}`, payload),
     onSuccess: () => {
@@ -155,8 +165,11 @@ export function useUpdateDeliveryNote() {
 }
 
 /**
- * Anula un remito pendiente: exige motivo, repone el stock que retiene y deja
- * el documento `canceled` (sólo admin/owner). POST /delivery-notes/{id}/cancel.
+ * Anula un remito pendiente (de los dos sentidos): exige motivo, deshace su
+ * efecto sobre el stock y deja el documento `canceled` (sólo admin/owner). En
+ * venta repone lo retenido; en compra RESTA lo recibido y el servidor rechaza con
+ * `delivery_note_stock_consumed`, sin efectos, si ya no está.
+ * POST /delivery-notes/{id}/cancel.
  */
 export function useCancelDeliveryNote() {
   const queryClient = useQueryClient()

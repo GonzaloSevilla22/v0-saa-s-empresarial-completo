@@ -10,10 +10,11 @@
  *
  * El payload de detalle es `to_jsonb(delivery_notes)` más los nombres de
  * cliente y sucursal, las líneas y el historial (`_delivery_note_payload`).
- * El remito de VENTA es el único sentido que escribe este change, pero el
- * modelo ya es de los dos sentidos: `direction` viaja en cada fila y el número
+ * El modelo es de los dos sentidos: `direction` viaja en cada fila y el número
  * visible se formatea desde él (`lib/internal-document-number.ts`), nunca con
- * un prefijo fijo.
+ * un prefijo fijo. `remitos-compra` suma el sentido compra (`supplier_*`,
+ * `supplier_reference`, `missing_price_count`): la contraparte es el proveedor y
+ * la sucursal es la de DESTINO (a la que entra la mercadería).
  */
 import type { Paginated } from "@/lib/quote-types"
 
@@ -38,7 +39,7 @@ export interface DeliveryNoteItemInput {
 }
 
 export interface CreateDeliveryNoteInput {
-  /** Sólo `"sale"` en este change; el backend rechaza cualquier otro valor. */
+  /** Remito de venta: la unión discriminada del backend despacha por este valor. */
   direction: "sale"
   client_id: string
   /** Obligatoria: de ahí sale el stock (`delivery_note_branch_required`). */
@@ -54,6 +55,8 @@ export interface CreateDeliveryNoteInput {
  * (`delivery_note_changed` si cambió mientras editaba).
  */
 export interface UpdateDeliveryNoteInput {
+  /** Opcional en venta (el backend lo asume); en compra es obligatorio y se valida contra el sentido guardado. */
+  direction?: "sale"
   client_id: string
   branch_id: string
   delivery_address: string | null
@@ -61,6 +64,44 @@ export interface UpdateDeliveryNoteInput {
   revision: number
   items: DeliveryNoteItemInput[]
 }
+
+/**
+ * Recepción de un remito de COMPRA (D13): `POST /delivery-notes` con
+ * `direction: "purchase"`. El proveedor es obligatorio y `branch_id` es la
+ * sucursal a la que ENTRA la mercadería. Sin domicilio de entrega. Precio 0
+ * admitido al recibir (OQ-RC1: el remito llega sin precios y la factura
+ * después); el servidor ignora `subtotal` y calcula `round(price × quantity, 2)`.
+ */
+export interface CreatePurchaseDeliveryNoteInput {
+  direction: "purchase"
+  supplier_id: string
+  branch_id: string
+  /** N° del remito del proveedor (opcional, hasta 100 caracteres). */
+  supplier_reference?: string | null
+  notes?: string | null
+  items: DeliveryNoteItemInput[]
+}
+
+/**
+ * Edición de un remito de compra: reemplazo completo. `direction` es
+ * obligatorio: si no coincide con el sentido guardado el servidor responde
+ * `409 delivery_note_direction_mismatch`.
+ */
+export interface UpdatePurchaseDeliveryNoteInput {
+  direction: "purchase"
+  supplier_id: string
+  branch_id: string
+  supplier_reference: string | null
+  notes: string | null
+  revision: number
+  items: DeliveryNoteItemInput[]
+}
+
+/** Lo que acepta `POST /delivery-notes`, según el sentido. */
+export type DeliveryNoteCreatePayload = CreateDeliveryNoteInput | CreatePurchaseDeliveryNoteInput
+
+/** Lo que acepta `PUT /delivery-notes/{id}`, según el sentido. */
+export type DeliveryNoteUpdatePayload = UpdateDeliveryNoteInput | UpdatePurchaseDeliveryNoteInput
 
 /** Anulación (D16): motivo de 3 a 500 caracteres y la revisión que se mostró. */
 export interface DeliveryNoteCancelInput {
@@ -151,6 +192,17 @@ export interface DeliveryNoteApiRow {
   issuer_name?: string | null
   /** El cliente fue dado de baja después de emitir (D11: hay que elegir otro para editar). */
   client_deleted?: boolean
+  /** Compra: el proveedor que entregó la mercadería (`null` en venta). */
+  supplier_id?: string | null
+  supplier_name?: string | null
+  supplier_phone?: string | null
+  supplier_tax_id?: string | null
+  /** N° del remito del proveedor, tal como lo cargó quien recibió. */
+  supplier_reference?: string | null
+  /** El proveedor fue dado de baja después de recibir: hay que elegir otro para editar. */
+  supplier_deleted?: boolean
+  /** Compra: líneas con precio 0 (no se puede convertir hasta cargarlas). 0 en venta. */
+  missing_price_count?: number
   branch_id: string
   branch_name: string | null
   /** Día ART de la emisión (`YYYY-MM-DD`): fecha de negocio, no instante. */
@@ -183,6 +235,12 @@ export interface DeliveryNoteListItem {
   client_id: string | null
   client_name: string | null
   client_phone?: string | null
+  /** Compra: proveedor y número de su remito (`null` en venta). */
+  supplier_id?: string | null
+  supplier_name?: string | null
+  supplier_reference?: string | null
+  /** Compra: líneas con precio 0, para el badge "Sin precio". */
+  missing_price_count?: number
   branch_id: string
   branch_name: string | null
   issued_on: string
@@ -197,6 +255,11 @@ export interface DeliveryNoteListItem {
 export interface DeliveryNoteSummary {
   pending_count: number
   pending_total: string | number
+  /**
+   * Compra: cuántos de los pendientes tienen alguna línea sin precio (su total
+   * subestima lo recibido). Ausente en venta.
+   */
+  pending_missing_price_count?: number
 }
 
 /** `{items,total,page,pages}` más el resumen de pendientes del encabezado de `/remitos`. */
@@ -208,9 +271,11 @@ export interface DeliveryNoteListFilters {
   /** Sin él, el listado trae los dos sentidos (lo usa el guard de baja de sucursal). */
   direction?: DeliveryNoteDirection
   status?: DeliveryNoteStatus
-  /** Nombre del cliente o número (`R-12`, `12`, `00000012`). */
+  /** Nombre del cliente/proveedor, número del proveedor o número del remito (`R-12`, `RC-12`, `12`, `00000012`). */
   q?: string
   clientId?: string
+  /** Compra: sólo los remitos de este proveedor (chip `?proveedor=`). */
+  supplierId?: string
   branchId?: string
   page?: number
   pageSize?: number

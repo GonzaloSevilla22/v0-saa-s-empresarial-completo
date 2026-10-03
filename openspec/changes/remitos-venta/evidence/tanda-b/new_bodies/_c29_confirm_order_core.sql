@@ -326,8 +326,10 @@ BEGIN
     IF v_item.product_id IS NOT NULL THEN
       -- remitos-venta (D7): con origen de remito se saltean el FOR UPDATE del
       -- producto, la normalización, el gate, el delta y el movimiento — no hay
-      -- stock que proteger (el remito ya lo descontó) y el lock sólo sumaría
-      -- superficie de interbloqueo contra otros remitos. La existencia del
+      -- stock que proteger (el remito ya lo descontó) y un FOR UPDATE sólo
+      -- sumaría superficie de interbloqueo contra otros remitos (los locks de
+      -- FK de las líneas ya los tomó rpc_convert_delivery_note_to_sale, por id,
+      -- antes de insertarlas: acá se vuelven a tomar sin esperar). La existencia del
       -- producto la garantiza la FK de delivery_note_items. Se conservan la
       -- fila legacy sales y sale_items, que toma los CUATRO snapshots de la
       -- línea de la orden (copiados del remito, sin re-leer el maestro:
@@ -545,6 +547,21 @@ BEGIN
     fiscal_document_id  = v_fiscal_doc_id
   WHERE id = p_sales_order_id;
 
+  -- remitos-venta (D7, revisión adversarial 8.5 RB-02): el remito de origen
+  -- queda `converted` EN EL NÚCLEO, en la misma transacción que la confirmación,
+  -- y no en la RPC de conversión. Una orden idéntica al remito confirmada por
+  -- cualquier camino (rpc_confirm_sales_order, llamada directa al núcleo) dejaría
+  -- si no el remito `issued` con la venta viva: anulable (reponiendo stock) y,
+  -- al borrar la venta, repuesto dos veces. No sube la revisión (no cambia el
+  -- contenido). Un replay no llega acá: devolvió antes de confirmar.
+  IF v_from_delivery_note THEN
+    PERFORM public.record_status_transition(
+      v_account_id, 'delivery_note_sale', v_dn.id, 'issued', 'converted', v_uid, NULL);
+    UPDATE public.delivery_notes
+    SET status = 'converted', updated_at = now(), updated_by = v_uid
+    WHERE id = v_dn.id;
+  END IF;
+
   RETURN jsonb_build_object(
     'sales_order_id',  p_sales_order_id,
     'operation_id',    v_new_op_id,
@@ -554,3 +571,5 @@ BEGIN
   );
 END;
 $function$
+
+

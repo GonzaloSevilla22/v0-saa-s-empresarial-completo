@@ -480,6 +480,28 @@ BEGIN
            AND si.iva_rate_snapshot IS NOT DISTINCT FROM di.iva_rate_snapshot) THEN
       v_failures := v_failures || 'FAIL (z): sale_items no tomó los cuatro snapshots de la línea de la orden'::text;
     END IF;
+
+    -- Revisión adversarial 8.5 (RB-02): el remito lo deja `converted` el NÚCLEO,
+    -- no sólo la RPC de conversión. Una orden idéntica al remito confirmada por
+    -- cualquier camino no puede dejar el remito `issued` con la venta viva: el
+    -- remito seguiría anulable (reponiendo stock) y el stock se repondría dos
+    -- veces (la anulación y la baja de la venta).
+    IF pg_temp.rc_status(v_dn_core) IS DISTINCT FROM 'converted' THEN
+      v_failures := v_failures || format('FAIL (z) RB-02: el remito quedó %s tras confirmar su orden por el núcleo (se esperaba converted)',
+                                         pg_temp.rc_status(v_dn_core));
+    END IF;
+    IF pg_temp.rc_rev(v_dn_core) IS DISTINCT FROM 1 THEN
+      v_failures := v_failures || format('FAIL (z) RB-02: la transición del remito subió la revisión (%s)', pg_temp.rc_rev(v_dn_core));
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM public.document_status_history h
+                   WHERE h.document_type = 'delivery_note_sale' AND h.document_id = v_dn_core
+                     AND h.from_status = 'issued' AND h.to_status = 'converted') THEN
+      v_failures := v_failures || 'FAIL (z) RB-02: no quedó el historial issued -> converted del remito'::text;
+    END IF;
+    v_txt := pg_temp.rc_err(format('SELECT public.rpc_cancel_delivery_note(%L::uuid, 1, ''Gate RaV: anular un convertido por el núcleo'')', v_dn_core));
+    IF v_txt NOT LIKE 'P0423 delivery_note_locked_converted%' THEN
+      v_failures := v_failures || format('FAIL (z) RB-02: el remito de una orden confirmada por el núcleo seguía anulable: %s', v_txt);
+    END IF;
   END IF;
   IF COALESCE(array_length(v_failures, 1), 0) = v_fail_before THEN
     RAISE NOTICE 'PASS (z): el núcleo, con una orden cuyo origen es un remito válido, no descuenta ni escribe movimientos y congela los snapshots de la orden.';
@@ -1175,6 +1197,11 @@ BEGIN
      OR position('v_item.unit_cost_snapshot' IN v_src) = 0 THEN
     v_bad := v_bad || '_c29_confirm_order_core no tiene la rama v_from_delivery_note de D7'::text;
   END IF;
+  -- RB-02: el núcleo deja el remito converted DESPUÉS de confirmar la orden.
+  IF position('''issued'', ''converted''' IN v_src) = 0
+     OR position('''issued'', ''converted''' IN v_src) < position('sale_operation_id   = v_new_op_id' IN v_src) THEN
+    v_bad := v_bad || '_c29_confirm_order_core no deja el remito converted tras confirmar la orden'::text;
+  END IF;
   IF position('p_skip_stock' IN v_src) > 0 THEN
     v_bad := v_bad || '_c29_confirm_order_core expone un parámetro de salto de stock (prohibido por D7)'::text;
   END IF;
@@ -1205,12 +1232,20 @@ BEGIN
     WHERE oid = 'public.rpc_convert_delivery_note_to_sale(text,uuid,integer,uuid,uuid,uuid,text)'::regprocedure;
     IF NOT (position('FOR UPDATE' IN v_src) > 0
             AND position('FOR UPDATE' IN v_src) < position('operation_idempotency' IN v_src)
-            AND position('operation_idempotency' IN v_src) < position('_c29_confirm_order_core' IN v_src)
-            AND position('_c29_confirm_order_core' IN v_src) < position('''issued'', ''converted''' IN v_src)) THEN
-      v_bad := v_bad || 'rpc_convert_delivery_note_to_sale no respeta el orden lock -> idempotencia -> núcleo -> transición'::text;
+            AND position('operation_idempotency' IN v_src) < position('FROM public.products p' IN v_src)
+            AND position('FROM public.products p' IN v_src) < position('INSERT INTO public.sales_orders' IN v_src)
+            AND position('INSERT INTO public.sales_orders' IN v_src) < position('_c29_confirm_order_core' IN v_src)) THEN
+      v_bad := v_bad || 'rpc_convert_delivery_note_to_sale no respeta el orden remito -> idempotencia -> productos por id -> orden -> núcleo'::text;
     END IF;
-    IF position('FROM public.products' IN v_src) > 0 THEN
-      v_bad := v_bad || 'rpc_convert_delivery_note_to_sale lee o bloquea products (la conversión no lockea productos, D7)'::text;
+    -- Revisión adversarial 8.5 (RB-01): la conversión toma FOR KEY SHARE de los
+    -- productos por id ANTES de insertar líneas (las FK los toman en el orden del
+    -- remito); nunca FOR UPDATE, porque no mueve stock ni toca productos.
+    IF position('FOR KEY SHARE;' IN v_src) = 0 OR v_src ~ 'FROM public\.products p[^;]*FOR UPDATE' THEN
+      v_bad := v_bad || 'rpc_convert_delivery_note_to_sale sin FOR KEY SHARE de sus productos por id (o con FOR UPDATE sobre products)'::text;
+    END IF;
+    -- RB-02: la transición issued -> converted es del núcleo, no de la RPC.
+    IF position('''issued'', ''converted''' IN v_src) > 0 THEN
+      v_bad := v_bad || 'rpc_convert_delivery_note_to_sale hace la transición issued->converted que es del núcleo'::text;
     END IF;
   END IF;
 

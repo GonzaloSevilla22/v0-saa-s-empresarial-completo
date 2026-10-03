@@ -332,9 +332,9 @@ DECLARE
     'delivery_note_sale:issued->canceled', -- rpc_cancel_delivery_note
     -- remitos-venta tanda B (20261070000001): el 19o llamador
     -- (rpc_convert_delivery_note_to_sale) produce sales_order:NULL->draft (ya
-    -- listado arriba) y delivery_note_sale:issued->converted;
+    -- listado arriba); delivery_note_sale:issued->converted lo produce el núcleo;
     -- rpc_delete_sale_operation (ya llamador) suma converted->issued.
-    'delivery_note_sale:issued->converted', -- rpc_convert_delivery_note_to_sale
+    'delivery_note_sale:issued->converted', -- _c29_confirm_order_core (orden con origen de remito)
     'delivery_note_sale:converted->issued'  -- rpc_delete_sale_operation (venta nacida de remito)
   ];
   v_existing_triples text[];
@@ -420,7 +420,8 @@ DECLARE
     'trg_delivery_note_record_creation',
     'rpc_cancel_delivery_note',
     -- remitos-venta tanda B (20261070000001): 19o llamador. Produce
-    -- sales_order:NULL->draft y delivery_note_sale:issued->converted.
+    -- sales_order:NULL->draft; el par delivery_note_sale:issued->converted lo
+    -- produce _c29_confirm_order_core (revisión 8.5, RB-02), ya llamador.
     'rpc_convert_delivery_note_to_sale'
   ];
   v_actual_callers   text[];

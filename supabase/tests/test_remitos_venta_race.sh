@@ -44,6 +44,11 @@
 #   (8)  borrado de la venta abierto vs reconversión -> la reconversión espera
 #        el remito (que el borrado toma AL FINAL) y convierte; sin
 #        interbloqueo, una sola orden viva, stock intacto;
+#   (10) conversión de un remito [HI, LO] pausada tras su primera línea vs
+#        emisión de OTRO remito con los mismos dos productos (lock ascendente
+#        por id) -> sin interbloqueo (40P01): la conversión toma FOR KEY SHARE de
+#        sus productos en orden ascendente de id ANTES de insertar líneas, no en
+#        el orden de línea que le imponen las FK (revisión adversarial 8.5, RB-01).
 #   (9)  borrado de la venta abierto vs anulación del remito convertido -> la
 #        anulación espera, encuentra el remito issued y lo anula reponiendo el
 #        stock UNA sola vez (ledger en 0). El orden inverso no es una carrera:
@@ -69,6 +74,7 @@ GATE_PID=""
 
 cleanup() {
   [ -n "${GATE_PID:-}" ] && kill "$GATE_PID" 2>/dev/null
+  psql "$DB_URL" -X -q -t -A -c "DROP TRIGGER IF EXISTS zzz_rvrace_pause ON public.sales_order_items; DROP FUNCTION IF EXISTS public.zzz_rvrace_pause();" >/dev/null 2>&1
   psql "$DB_URL" -X -q -t -A -c "
     SELECT pg_terminate_backend(pid) FROM pg_stat_activity
     WHERE application_name LIKE '${RUN}%' AND pid <> pg_backend_pid();" >/dev/null 2>&1
@@ -143,6 +149,13 @@ BEGIN
   INSERT INTO public.products (user_id, account_id, name, sku, cost, price)
   VALUES (v_user, v_account, 'RV Race Baja 2', 'RV-RACE-DEL2', 10, 100) RETURNING id INTO v_p;
   PERFORM public.c21_apply_branch_stock_delta(v_account, v_p, v_branch, 1);
+  -- K1/K2: 100 c/u (carrera 10: dos productos en común entre conversión y emisión).
+  INSERT INTO public.products (user_id, account_id, name, sku, cost, price)
+  VALUES (v_user, v_account, 'RV Race K1', 'RV-RACE-K1', 10, 100) RETURNING id INTO v_p;
+  PERFORM public.c21_apply_branch_stock_delta(v_account, v_p, v_branch, 100);
+  INSERT INTO public.products (user_id, account_id, name, sku, cost, price)
+  VALUES (v_user, v_account, 'RV Race K2', 'RV-RACE-K2', 10, 100) RETURNING id INTO v_p;
+  PERFORM public.c21_apply_branch_stock_delta(v_account, v_p, v_branch, 100);
   -- CONV: 100 (tanda B, conversiones).
   INSERT INTO public.products (user_id, account_id, name, sku, cost, price)
   VALUES (v_user, v_account, 'RV Race Conv', 'RV-RACE-CONV', 10, 100) RETURNING id INTO v_p;
@@ -160,6 +173,10 @@ P_EDIT=$(q "SELECT id FROM public.products WHERE account_id = '$ACCOUNT_ID' AND 
 P_DEL1=$(q "SELECT id FROM public.products WHERE account_id = '$ACCOUNT_ID' AND sku = 'RV-RACE-DEL1';")
 P_DEL2=$(q "SELECT id FROM public.products WHERE account_id = '$ACCOUNT_ID' AND sku = 'RV-RACE-DEL2';")
 P_CONV=$(q "SELECT id FROM public.products WHERE account_id = '$ACCOUNT_ID' AND sku = 'RV-RACE-CONV';")
+# HI/LO: de los dos productos de la carrera 10, el de id mayor y el de id menor.
+P_LO=$(q "SELECT id FROM public.products WHERE account_id = '$ACCOUNT_ID' AND sku IN ('RV-RACE-K1','RV-RACE-K2') ORDER BY id ASC LIMIT 1;")
+P_HI=$(q "SELECT id FROM public.products WHERE account_id = '$ACCOUNT_ID' AND sku IN ('RV-RACE-K1','RV-RACE-K2') ORDER BY id DESC LIMIT 1;")
+[ -n "$P_LO" ] && [ -n "$P_HI" ] && [ "$P_LO" != "$P_HI" ] || fail "el fixture no devolvió los dos productos de la carrera 10"
 PM_CREDIT=$(q "SELECT id FROM public.payment_methods WHERE account_id = '$ACCOUNT_ID' AND kind = 'credit' AND is_active AND deleted_at IS NULL ORDER BY sort_order LIMIT 1;")
 [ -n "$P_CONV" ] && [ -n "$PM_CREDIT" ] || fail "el fixture no devolvió el producto o la forma de pago a crédito de la tanda B"
 [ -n "$ACCOUNT_ID" ] && [ -n "$CLIENT_ID" ] && [ -n "$BRANCH_ID" ] && [ -n "$P_LAST" ] && [ -n "$P_IDEM" ] \
@@ -174,6 +191,12 @@ issue_sql() {  # $1 = clave, $2 = producto, $3 = cantidad
   echo "SELECT 'RES=' || public.rpc_create_sale_delivery_note('$1', '$CLIENT_ID'::uuid, '$BRANCH_ID'::uuid, NULL, NULL,
           jsonb_build_array(jsonb_build_object('product_id', '$2'::uuid, 'unit_id', NULL,
             'quantity', $3, 'price', 100, 'subtotal', $3 * 100)))::text;"
+}
+issue2_sql() {  # $1 = clave, $2 = producto de la línea 1, $3 = producto de la línea 2 (1 unidad c/u)
+  echo "SELECT 'RES=' || public.rpc_create_sale_delivery_note('$1', '$CLIENT_ID'::uuid, '$BRANCH_ID'::uuid, NULL, NULL,
+          jsonb_build_array(
+            jsonb_build_object('product_id', '$2'::uuid, 'unit_id', NULL, 'quantity', 1, 'price', 100, 'subtotal', 100),
+            jsonb_build_object('product_id', '$3'::uuid, 'unit_id', NULL, 'quantity', 1, 'price', 100, 'subtotal', 100)))::text;"
 }
 update_sql() { # $1 = remito, $2 = versión, $3 = producto, $4 = cantidad
   echo "SELECT 'RES=' || public.rpc_update_delivery_note('$1'::uuid, $2, '$CLIENT_ID'::uuid, '$BRANCH_ID'::uuid, NULL, NULL,
@@ -199,6 +222,16 @@ new_note() {  # $1 = clave, $2 = producto, $3 = cantidad
 BEGIN;
 $CLAIMS
 $(issue_sql "$1" "$2" "$3")
+COMMIT;
+SQL
+}
+
+# Alta de dos líneas fuera de carrera. Devuelve el id del remito.
+new_note2() {  # $1 = clave, $2 = producto línea 1, $3 = producto línea 2
+  psql "$DB_URL" -v ON_ERROR_STOP=1 -X -q -t -A <<SQL | grep -o '"id": "[0-9a-f-]*"' | head -1 | grep -o '[0-9a-f-]\{36\}'
+BEGIN;
+$CLAIMS
+$(issue2_sql "$1" "$2" "$3")
 COMMIT;
 SQL
 }
@@ -402,6 +435,34 @@ S1=$(stock "$P_CONV")
 [ "$(q "SELECT ($S1 - $S0) = 3 AND $(sum_delta "$R9") = 0;")" = "t" ] || fail "(9) el stock debía reponerse UNA vez (3) y el ledger cerrar en 0 ($S0 -> $S1, Σ $(sum_delta "$R9"))"
 echo "PASS (9): borrado de la venta abierto vs anulación -> la anulación esperó, encontró el remito issued y repuso el stock una sola vez."
 
+# ── (10) conversión [HI, LO] pausada tras su 1ª línea vs emisión de otro remito ─
+# La FK de sales_order_items.product_id toma FOR KEY SHARE sobre cada producto en
+# el orden en que se insertan las líneas (el del remito), y la emisión toma
+# FOR UPDATE en orden ascendente de id: con dos productos en común y orden
+# inverso es un ciclo (40P01). Para que el ciclo sea determinista, un disparador
+# AFTER ROW de nombre posterior al de la FK (se dispara DESPUÉS de su chequeo, fila
+# por fila) pausa la conversión justo después de la línea de HI, esperando el
+# portero de la carrera; la emisión de otro remito arranca en ese hueco.
+R10=$(new_note2 "${RUN}-10" "$P_HI" "$P_LO"); [ -n "$R10" ] || fail "no se emitió el remito de (10)"
+psql "$DB_URL" -v ON_ERROR_STOP=1 -X -q -t -A >/dev/null <<SQL || fail "(10) no se pudo armar el disparador de pausa"
+CREATE OR REPLACE FUNCTION public.zzz_rvrace_pause() RETURNS trigger LANGUAGE plpgsql AS \$f\$
+BEGIN
+  PERFORM pg_advisory_xact_lock_shared($ADVISORY_KEY);
+  RETURN NULL;
+END;
+\$f\$;
+CREATE TRIGGER zzz_rvrace_pause AFTER INSERT ON public.sales_order_items
+  FOR EACH ROW WHEN (NEW.product_id = '$P_HI'::uuid) EXECUTE FUNCTION public.zzz_rvrace_pause();
+SQL
+race "10" "$(convert_sql "${RUN}-10-conv" "$R10" 1)" "$(issue2_sql "${RUN}-10-emit" "$P_LO" "$P_HI")"
+q "DROP TRIGGER IF EXISTS zzz_rvrace_pause ON public.sales_order_items; DROP FUNCTION IF EXISTS public.zzz_rvrace_pause();" >/dev/null
+if grep -qi 'deadlock' "$TMP_DIR/10.a" "$TMP_DIR/10.b"; then fail "(10) interbloqueo entre la conversión y la emisión de otro remito"; fi
+grep -q '"replayed": false' "$TMP_DIR/10.a" || fail "(10) la conversión debía completarse"
+grep -q '"replayed": false' "$TMP_DIR/10.b" || fail "(10) la emisión debía completarse después de la conversión"
+[ "$(dn_status "$R10")" = "converted" ] || fail "(10) el remito debía quedar converted"
+[ "$(live_orders "$R10")" = "1" ] || fail "(10) se esperaba exactamente una venta viva"
+echo "PASS (10): conversión pausada tras su primera línea vs emisión de otro remito con los mismos productos en orden inverso -> sin 40P01; la emisión esperó el FOR KEY SHARE ordenado de la conversión."
+
 # Ningún remito sin número, todos correlativos.
 [ "$(q "SELECT count(*) = max(number) AND count(*) = count(DISTINCT number) FROM public.delivery_notes WHERE account_id = '$ACCOUNT_ID';")" = "t" ] \
   || fail "la numeración de los remitos de la carrera tiene huecos o repetidos"
@@ -409,4 +470,4 @@ echo "PASS (9): borrado de la venta abierto vs anulación -> la anulación esper
 cleanup
 LEFT=$(q "SELECT count(*) FROM auth.users WHERE id = '$USER_ID';")
 [ "$LEFT" = "0" ] || { echo "GATE REMITOS-VENTA-RACE FAILED: quedó el usuario del fixture" >&2; exit 1; }
-echo "GATE REMITOS-VENTA-RACE PASSED: 14 carreras (las 9 de D16, en los dos órdenes donde aplica) con bloqueo real verificado (residuo cero)."
+echo "GATE REMITOS-VENTA-RACE PASSED: 15 carreras (las 9 de D16, en los dos órdenes donde aplica, más la 10 de la revisión 8.5) con bloqueo real verificado (residuo cero)."

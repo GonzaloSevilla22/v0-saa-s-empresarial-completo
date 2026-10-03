@@ -26,6 +26,11 @@ A lo sumo una orden no cancelada SHALL referenciar el mismo remito.
 - **WHEN** se la confirma
 - **THEN** el stock de A no cambia, no se escribe ningún movimiento de stock y la orden queda `confirmed`
 
+#### Scenario: El remito de origen queda convertido por la propia confirmación
+- **GIVEN** una orden `draft` idéntica a un remito pendiente, confirmada por cualquier camino (no sólo la conversión)
+- **WHEN** se la confirma
+- **THEN** el remito queda `converted` en la misma transacción, con el historial `issued → converted` y sin subir su versión, y anularlo falla con `P0423 delivery_note_locked_converted` (nunca queda un remito `issued` con la venta viva)
+
 #### Scenario: Nombre congelado del remito
 - **GIVEN** una orden creada desde un remito cuyo producto se renombró después de emitirlo
 - **WHEN** se la confirma

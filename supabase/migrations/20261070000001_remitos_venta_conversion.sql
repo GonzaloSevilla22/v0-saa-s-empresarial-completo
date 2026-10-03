@@ -20,8 +20,11 @@
 --      rpc_convert_quote_to_sale: lock del remito -> idempotencia bajo el lock
 --      -> estado / versión / cliente vivo / sucursal activa y no cerrada ->
 --      orden + líneas copiadas del remito (precios y snapshots del remito, sin
---      re-leer el maestro) -> núcleo -> RAISE ante replay ajeno -> transición
---      issued -> converted. No bloquea productos.
+--      re-leer el maestro) -> núcleo (que deja el remito converted). FOR KEY SHARE
+--      de los productos del remito en orden ascendente de id ANTES de insertar
+--      líneas (sin FOR UPDATE: la conversión no mueve stock), para que las FK de
+--      las líneas no tomen esos locks en el orden del remito y se crucen con
+--      una emisión que los toma por id (revisión adversarial 8.5, RB-01).
 --   4. rpc_delete_sale_operation, desde su cuerpo vivo: con origen de remito,
 --      la sucursal del remito (FOR SHARE) tiene que estar activa y no cerrada
 --      ANTES del guard fiscal y de cualquier compensación (P0422
@@ -441,8 +444,10 @@ BEGIN
     IF v_item.product_id IS NOT NULL THEN
       -- remitos-venta (D7): con origen de remito se saltean el FOR UPDATE del
       -- producto, la normalización, el gate, el delta y el movimiento — no hay
-      -- stock que proteger (el remito ya lo descontó) y el lock sólo sumaría
-      -- superficie de interbloqueo contra otros remitos. La existencia del
+      -- stock que proteger (el remito ya lo descontó) y un FOR UPDATE sólo
+      -- sumaría superficie de interbloqueo contra otros remitos (los locks de
+      -- FK de las líneas ya los tomó rpc_convert_delivery_note_to_sale, por id,
+      -- antes de insertarlas: acá se vuelven a tomar sin esperar). La existencia del
       -- producto la garantiza la FK de delivery_note_items. Se conservan la
       -- fila legacy sales y sale_items, que toma los CUATRO snapshots de la
       -- línea de la orden (copiados del remito, sin re-leer el maestro:
@@ -660,6 +665,21 @@ BEGIN
     fiscal_document_id  = v_fiscal_doc_id
   WHERE id = p_sales_order_id;
 
+  -- remitos-venta (D7, revisión adversarial 8.5 RB-02): el remito de origen
+  -- queda `converted` EN EL NÚCLEO, en la misma transacción que la confirmación,
+  -- y no en la RPC de conversión. Una orden idéntica al remito confirmada por
+  -- cualquier camino (rpc_confirm_sales_order, llamada directa al núcleo) dejaría
+  -- si no el remito `issued` con la venta viva: anulable (reponiendo stock) y,
+  -- al borrar la venta, repuesto dos veces. No sube la revisión (no cambia el
+  -- contenido). Un replay no llega acá: devolvió antes de confirmar.
+  IF v_from_delivery_note THEN
+    PERFORM public.record_status_transition(
+      v_account_id, 'delivery_note_sale', v_dn.id, 'issued', 'converted', v_uid, NULL);
+    UPDATE public.delivery_notes
+    SET status = 'converted', updated_at = now(), updated_by = v_uid
+    WHERE id = v_dn.id;
+  END IF;
+
   RETURN jsonb_build_object(
     'sales_order_id',  p_sales_order_id,
     'operation_id',    v_new_op_id,
@@ -794,6 +814,23 @@ BEGIN
       USING ERRCODE = 'P0422';
   END IF;
 
+  -- 5b. Locks de FK de las líneas, en orden ascendente de id (revisión
+  -- adversarial 8.5, RB-01). Insertar líneas toma FOR KEY SHARE de cada producto
+  -- por la FK, en el orden de las líneas del remito; la emisión, edición y
+  -- anulación de remitos toman FOR UPDATE por id ascendente, y KEY SHARE bloquea
+  -- a FOR UPDATE: con dos productos en común y orden inverso es un ciclo (40P01).
+  -- Tomando acá los mismos locks, antes y por id, quedan en el mismo orden global
+  -- que el resto (remito -> productos por id -> núcleo). Es KEY SHARE y no FOR
+  -- UPDATE porque la conversión no mueve stock ni modifica productos. Sin filtro
+  -- de baja: la FK los toma igual y un producto dado de baja se convierte.
+  PERFORM 1
+  FROM public.products p
+  WHERE p.account_id = v_dn.account_id
+    AND p.id = ANY (ARRAY(SELECT i.product_id FROM public.delivery_note_items i
+                          WHERE i.delivery_note_id = v_dn.id))
+  ORDER BY p.id
+  FOR KEY SHARE;
+
   -- 6. Orden draft con origen de remito, en la sucursal del remito (de donde
   -- salió el stock), y sus líneas copiadas del remito con precios y snapshots
   -- (sin re-leer el maestro, OQ-RV13).
@@ -817,7 +854,7 @@ BEGIN
 
   -- 7. Confirmación con el núcleo del POS, sin tipo de comprobante (facturar
   -- es una acción posterior explícita). El núcleo ve source_delivery_note_id,
-  -- revalida el remito y NO mueve stock.
+  -- revalida el remito, NO mueve stock y deja el remito converted (8.5, RB-02).
   v_sale := public._c29_confirm_order_core(
     p_idempotency_key,
     v_sales_order,
@@ -837,14 +874,8 @@ BEGIN
       USING ERRCODE = 'P0409';
   END IF;
 
-  -- 8. Transición del remito (no sube la revisión: no cambia el contenido).
-  PERFORM public.record_status_transition(
-    v_dn.account_id, 'delivery_note_sale', v_dn.id, 'issued', 'converted', v_uid, NULL);
-  UPDATE public.delivery_notes
-  SET status = 'converted', updated_at = now(), updated_by = v_uid
-  WHERE id = v_dn.id;
-
-  -- 9. Resultado
+  -- 8. Resultado (la transición issued -> converted ya la hizo el núcleo, en
+  -- la misma transacción).
   RETURN jsonb_build_object(
     'delivery_note_id',     v_dn.id,
     'delivery_note_number', v_dn.number,
@@ -865,8 +896,8 @@ COMMENT ON FUNCTION public.rpc_convert_delivery_note_to_sale(text, uuid, integer
   'idempotency_key_conflict) -> estado (P0409 delivery_note_invalid_state) y versión (P0409 delivery_note_changed) '
   '-> cliente vivo (P0404 delivery_note_client_unavailable) -> sucursal del remito activa y no cerrada (P0422 '
   'branch_closed) -> orden draft con source_delivery_note_id en la sucursal del remito y líneas copiadas con sus '
-  'precios y snapshots -> _c29_confirm_order_core (que con ese origen no mueve stock) -> transición issued->converted. '
-  'No bloquea productos. Devuelve {delivery_note_id, delivery_note_number, sales_order_id, operation_id, total, replayed}.';
+  'precios y snapshots -> _c29_confirm_order_core (que con ese origen no mueve stock y deja el remito converted). '
+  'Toma FOR KEY SHARE de los productos del remito por id ascendente antes de insertar líneas (sin FOR UPDATE). Devuelve {delivery_note_id, delivery_note_number, sales_order_id, operation_id, total, replayed}.';
 
 
 -- =============================================================================
@@ -2062,8 +2093,10 @@ BEGIN
      OR position('delivery_note_order_mismatch' IN v_src) = 0
      OR position('IF v_from_delivery_note THEN' IN v_src) = 0
      OR position('IF v_from_delivery_note THEN' IN v_src) > position('FROM public.products' IN v_src)
-     OR position('v_item.iva_rate_snapshot' IN v_src) = 0 THEN
-    v_bad := v_bad || '_c29_confirm_order_core sin la rama v_from_delivery_note'::text;
+     OR position('v_item.iva_rate_snapshot' IN v_src) = 0
+     OR position('''issued'', ''converted''' IN v_src) = 0
+     OR position('''issued'', ''converted''' IN v_src) < position('sale_operation_id   = v_new_op_id' IN v_src) THEN
+    v_bad := v_bad || '_c29_confirm_order_core sin la rama v_from_delivery_note o sin dejar el remito converted tras confirmar la orden'::text;
   END IF;
 
   SELECT replace(prosrc, E'\r', '') INTO v_src FROM pg_proc
@@ -2087,10 +2120,13 @@ BEGIN
   WHERE oid = 'public.rpc_convert_delivery_note_to_sale(text,uuid,integer,uuid,uuid,uuid,text)'::regprocedure;
   IF NOT (position('FOR UPDATE' IN v_src) > 0
           AND position('FOR UPDATE' IN v_src) < position('FROM public.operation_idempotency' IN v_src)
-          AND position('FROM public.operation_idempotency' IN v_src) < position('public._c29_confirm_order_core(' IN v_src)
-          AND position('public._c29_confirm_order_core(' IN v_src) < position('''issued'', ''converted''' IN v_src))
-     OR position('FROM public.products' IN v_src) > 0 THEN
-    v_bad := v_bad || 'rpc_convert_delivery_note_to_sale fuera del orden lock -> idempotencia -> núcleo -> transición, o bloquea productos'::text;
+          AND position('FROM public.operation_idempotency' IN v_src) < position('FROM public.products p' IN v_src)
+          AND position('FROM public.products p' IN v_src) < position('INSERT INTO public.sales_orders' IN v_src)
+          AND position('INSERT INTO public.sales_orders' IN v_src) < position('public._c29_confirm_order_core(' IN v_src))
+     OR position('FOR KEY SHARE;' IN v_src) = 0
+     OR v_src ~ 'FROM public\.products p[^;]*FOR UPDATE'
+     OR position('''issued'', ''converted''' IN v_src) > 0 THEN
+    v_bad := v_bad || 'rpc_convert_delivery_note_to_sale fuera del orden remito -> idempotencia -> productos por id (FOR KEY SHARE, nunca FOR UPDATE) -> orden -> núcleo, o hace él la transición que es del núcleo'::text;
   END IF;
 
   SELECT replace(prosrc, E'\r', '') INTO v_src FROM pg_proc
@@ -2100,7 +2136,7 @@ BEGIN
   END IF;
 
   -- _branch_assert_empty: el texto nuevo, el token y el errcode, y el COMMENT vivo.
-  SELECT replace(prosrc, E'', '') INTO v_src FROM pg_proc
+  SELECT replace(prosrc, E'\r', '') INTO v_src FROM pg_proc
   WHERE oid = 'public._branch_assert_empty(uuid)'::regprocedure;
   IF position('convertilos en venta o anulalos (un administrador o el dueño)' IN v_src) = 0
      OR position('branch_has_pending_delivery_notes' IN v_src) = 0

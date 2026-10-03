@@ -1,12 +1,14 @@
 """
-Router del remito de venta (remitos-venta tanda A, D8/D13).
+Router del remito de venta (remitos-venta tanda A, D8/D13) y del de compra
+(remitos-compra tanda A, D13): una sola ruta por operación que despacha por el
+`direction` del cuerpo (un cuerpo sin `direction` es de venta).
 
 Routes:
   GET    /delivery-notes                    → listado paginado {items,total,page,pages} + summary
-  POST   /delivery-notes                    → emisión: descuenta stock (Idempotency-Key obligatoria)
+  POST   /delivery-notes                    → emisión: descuenta stock (venta) o suma stock (compra) (Idempotency-Key obligatoria)
   GET    /delivery-notes/{id}               → detalle con líneas e historial
-  PUT    /delivery-notes/{id}               → edición, reemplazo completo con `revision`
-  POST   /delivery-notes/{id}/cancel        → anulación con motivo (repone stock; admin/owner)
+  PUT    /delivery-notes/{id}               → edición, reemplazo completo con `revision` (otro sentido que el guardado → 409)
+  POST   /delivery-notes/{id}/cancel        → anulación con motivo (repone stock en venta, lo resta en compra; admin/owner)
   POST   /delivery-notes/{id}/convert       → conversión atómica en venta, sin volver a mover stock (Idempotency-Key)
   GET    /delivery-notes/{id}/pdf           → PDF (inline | attachment), sin precios por defecto
 
@@ -32,11 +34,11 @@ from backend.schemas.delivery_notes import (
     DeliveryNoteCancelIn,
     DeliveryNoteConvertIn,
     DeliveryNoteConvertOut,
-    DeliveryNoteCreateIn,
+    DeliveryNoteCreateBody,
     DeliveryNoteOut,
     DeliveryNotePageOut,
     DeliveryNoteStatus,
-    DeliveryNoteUpdateIn,
+    DeliveryNoteUpdateBody,
 )
 from backend.services import delivery_notes as delivery_notes_service
 
@@ -60,14 +62,20 @@ async def list_delivery_notes(
     ),
     status: DeliveryNoteStatus | None = Query(None),
     client_id: uuid.UUID | None = Query(None),
+    supplier_id: uuid.UUID | None = Query(None, description="sólo los remitos de compra de este proveedor"),
     branch_id: uuid.UUID | None = Query(None),
-    q: str | None = Query(None, max_length=100, description="nombre del cliente o número (R-12, 12, 00000012)"),
+    q: str | None = Query(
+        None,
+        max_length=100,
+        description="cliente o proveedor, número del remito del proveedor, o número (R-12 / RC-12, 12, 00000012)",
+    ),
     auth: dict = Depends(get_current_user),
     repo: DeliveryNoteRepository = Depends(get_delivery_note_repo),
     account_id: uuid.UUID = Depends(get_account_id),
 ):
     """Listado paginado del recorte pedido, más `summary` con los remitos
-    pendientes (`issued`) del mismo recorte sin importar el estado."""
+    pendientes (`issued`) del mismo recorte sin importar el estado. En el sentido
+    compra el resumen suma `pending_missing_price_count`."""
     return await delivery_notes_service.list_delivery_notes(
         repo,
         str(account_id),
@@ -78,6 +86,7 @@ async def list_delivery_notes(
         client_id=str(client_id) if client_id is not None else None,
         branch_id=str(branch_id) if branch_id is not None else None,
         q=q,
+        supplier_id=str(supplier_id) if supplier_id is not None else None,
     )
 
 
@@ -85,21 +94,23 @@ async def list_delivery_notes(
 async def create_delivery_note(
     request: Request,
     response: Response,
-    payload: DeliveryNoteCreateIn,
+    payload: DeliveryNoteCreateBody,
     auth: dict = Depends(get_current_user),
     repo: DeliveryNoteRepository = Depends(get_delivery_note_repo),
     conn: asyncpg.Connection = Depends(get_db_conn),
     account_id: uuid.UUID = Depends(get_account_id),
 ):
-    """Emite el remito: lo numera, descuenta el stock de la sucursal y lo deja
-    `issued`. Requiere `CAN_DELIVER_SALE`.
+    """Emite el remito: lo numera y lo deja `issued`. En venta (cuerpo sin
+    `direction`, o `direction: "sale"`) descuenta el stock de la sucursal y requiere
+    `CAN_DELIVER_SALE`; en compra (`direction: "purchase"`) SUMA el stock de la
+    sucursal de destino y requiere `CAN_RECEIVE_PURCHASE`.
 
     La emisión mueve stock, así que es idempotente: `Idempotency-Key` por header,
     OBLIGATORIA (sin ella → 422 `idempotency_key_required`; el cuerpo no la
     acepta). Un reintento con la misma clave responde 200 con el mismo remito y
     `replayed: true`, sin escribir nada; la misma clave sobre otra operación → 409
-    `idempotency_key_conflict`. Sin stock suficiente en la sucursal → 409
-    `stock_insuficiente` sin efecto alguno.
+    `idempotency_key_conflict`. En venta, sin stock suficiente en la sucursal →
+    409 `stock_insuficiente` sin efecto alguno.
     """
     key = await require_idempotency_key(request, None)
     record = await delivery_notes_service.create_delivery_note(
@@ -123,15 +134,16 @@ async def get_delivery_note(
 @router.put("/delivery-notes/{delivery_note_id}", response_model=DeliveryNoteOut)
 async def update_delivery_note(
     delivery_note_id: uuid.UUID,
-    payload: DeliveryNoteUpdateIn,
+    payload: DeliveryNoteUpdateBody,
     auth: dict = Depends(get_current_user),
     repo: DeliveryNoteRepository = Depends(get_delivery_note_repo),
     conn: asyncpg.Connection = Depends(get_db_conn),
     account_id: uuid.UUID = Depends(get_account_id),
 ):
     """Edición (reemplazo completo) mientras el remito no esté convertido ni
-    anulado. `revision` es la versión que el usuario vio: otra versión → 409
-    `delivery_note_changed`. La edición no lleva `Idempotency-Key`: la protege la
+    anulado. El sentido del cuerpo tiene que ser el del remito guardado (otro → 409
+    `delivery_note_direction_mismatch`). `revision` es la versión que el usuario
+    vio: otra versión → 409 `delivery_note_changed`. La edición no lleva `Idempotency-Key`: la protege la
     versión esperada (un reenvío llega con la versión vieja y rebota sin
     efectos)."""
     return await delivery_notes_service.update_delivery_note(
@@ -148,8 +160,10 @@ async def cancel_delivery_note(
     conn: asyncpg.Connection = Depends(get_db_conn),
     account_id: uuid.UUID = Depends(get_account_id),
 ):
-    """Anula el remito con motivo y repone al stock lo que retiene. Sólo
-    admin/owner (`CAN_VOID_DELIVERY_NOTE`, sensible: decide la base). Tampoco
+    """Anula el remito con motivo y revierte lo que movió: repone al stock lo que
+    retiene (venta) o resta lo que aportó (compra, y si ya se consumió → 409
+    `delivery_note_stock_consumed` sin efectos). Sólo admin/owner
+    (`CAN_VOID_DELIVERY_NOTE`, sensible: decide la base). Tampoco
     lleva `Idempotency-Key`: la protege la versión esperada y el estado (una
     segunda anulación → 409 `delivery_note_invalid_state`)."""
     return await delivery_notes_service.cancel_delivery_note(

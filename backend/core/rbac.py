@@ -62,6 +62,27 @@ CAN_QUOTE: frozenset[str] = frozenset({"owner", "admin", "seller"})
 CAN_DELIVER_SALE: frozenset[str] = frozenset({"owner", "admin", "seller", "stock"})
 CAN_VOID_DELIVERY_NOTE: frozenset[str] = frozenset({"owner", "admin"})
 
+# remitos-compra (D12): recibir (emitir y editar) un remito de compra y convertirlo
+# en compra. `CAN_RECEIVE_PURCHASE` ESPEJA la fila `NULL -> issued` de
+# `delivery_note_purchase` del catálogo `document_status_transitions` (migración
+# 20261071000001) y la anulación reutiliza `CAN_VOID_DELIVERY_NOTE`, que espeja
+# `issued -> canceled` en los dos sentidos: un test
+# (`test_delivery_notes_module.py::TestPurchaseCapabilities`) lee las migraciones
+# y falla si divergen.
+#
+# `CAN_RECEIVE_PURCHASE` tiene hoy el MISMO contenido que `CAN_STOCK`, pero va con
+# nombre propio por acción (igual que `CAN_DELIVER_SALE` y `CAN_VOID_DELIVERY_NOTE`
+# arriba): si un día "depósito" y "recepción de mercadería" divergen, cambia una
+# constante y no todas las pantallas de stock. El vendedor NO recibe mercadería.
+#
+# `CAN_CONVERT_PURCHASE_DELIVERY_NOTE` suma `stock` a `CAN_PURCHASE` (OQ-RC6):
+# hoy cualquier escritor registra compras directas, que vuelven a sumar el stock;
+# si quien recibió no pudiera convertir, su único camino con la factura en la mano
+# sería esa doble suma. La conversión es de la tanda B; su fila del catálogo
+# (`issued -> converted`) y el test que la ata llegan con ella.
+CAN_RECEIVE_PURCHASE: frozenset[str] = frozenset({"owner", "admin", "stock"})
+CAN_CONVERT_PURCHASE_DELIVERY_NOTE: frozenset[str] = frozenset({"owner", "admin", "purchases", "stock"})
+
 # auth-hardening-jwt-cookies D12 — registro EXPLÍCITO de las capacidades para
 # las que la base es la autoridad y el claim es sólo un caché.
 #

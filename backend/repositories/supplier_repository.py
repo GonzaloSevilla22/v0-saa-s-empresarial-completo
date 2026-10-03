@@ -67,6 +67,21 @@ class SupplierRepository(BaseRepository):
             return None
         return row.get("balance")
 
+    async def count_pending_purchase_delivery_notes(self, supplier_id: str, account_id: str) -> int:
+        """remitos-compra (OQ-RC11): cuántos remitos de compra PENDIENTES (`issued`)
+        tiene el proveedor en la cuenta del caller. Los convertidos, los anulados y
+        los de otra cuenta no cuentan. El `delete_supplier` lo usa para bloquear el
+        borrado: el soft delete lo sacaría de las listas y dejaría inalcanzables
+        esos remitos (y la deuda futura que su conversión a crédito le carga)."""
+        count = await self._conn.fetchval(
+            "SELECT count(*) FROM public.delivery_notes"
+            " WHERE supplier_id = $1 AND account_id = $2"
+            " AND direction = 'purchase' AND status = 'issued'",
+            supplier_id,
+            account_id,
+        )
+        return int(count or 0)
+
     async def create(self, account_id: str, data: dict) -> asyncpg.Record | None:
         # Mirror exacto de ClientRepository.create() (mismas 7 columnas). Hasta
         # el fix de 20261009000001 STEP 1, suppliers.company_id era NOT NULL

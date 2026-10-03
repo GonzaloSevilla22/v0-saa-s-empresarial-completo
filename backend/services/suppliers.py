@@ -68,7 +68,13 @@ async def delete_supplier(repo: SupplierRepository, auth: dict, account_id: str,
     ERRCODE nuevo): el soft delete sacaría al proveedor de todas las listas y
     su cuenta corriente (solo alcanzable desde la fila del proveedor) quedaría
     inalcanzable — deuda invisible (los $116.550 del QA). Saldo 0 o sin cuenta
-    siguen borrando; el flujo de pago/ajuste existente permite saldar primero."""
+    siguen borrando; el flujo de pago/ajuste existente permite saldar primero.
+
+    remitos-compra (OQ-RC11): un remito de compra pendiente (`issued`) es la misma
+    clase de deuda (mercadería recibida sin comprar, que la conversión a crédito
+    le carga al proveedor) y el borrado también lo dejaría inalcanzable: se
+    bloquea con el MISMO 409 `P0409` y el conteo en el mensaje. Los remitos
+    convertidos o anulados, o de otra cuenta, no impiden el borrado."""
     require_role(auth, ["user", "admin"])
     existing = await repo.get_by_id(supplier_id, account_id)
     if existing is None:
@@ -81,6 +87,18 @@ async def delete_supplier(repo: SupplierRepository, auth: dict, account_id: str,
                 "El proveedor tiene saldo abierto en su cuenta corriente "
                 f"($ {_format_ars(balance)}). Registrá el pago o ajustá la "
                 "cuenta antes de borrarlo."
+            ),
+            code="P0409",
+        )
+    pending = await repo.count_pending_purchase_delivery_notes(supplier_id, account_id)
+    if pending:
+        raise ProblemHTTPException(
+            status_code=409,
+            detail=(
+                "El proveedor tiene 1 remito de compra pendiente: convertilo o anulalo antes de borrarlo."
+                if pending == 1
+                else f"El proveedor tiene {pending} remitos de compra pendientes: "
+                "convertilos o anulalos antes de borrarlo."
             ),
             code="P0409",
         )

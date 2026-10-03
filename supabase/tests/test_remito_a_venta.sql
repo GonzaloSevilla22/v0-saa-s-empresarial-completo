@@ -399,7 +399,7 @@ BEGIN
 
   -- Perfil fiscal monotributista (para dejar un comprobante pendiente en (q)).
   INSERT INTO public.fiscal_profiles (account_id, cuit, iva_condition, ambiente, delegacion_autorizada)
-  VALUES (v_account_a, '20434343438', 'monotributista', 'homologacion', true) RETURNING id INTO v_fp;
+  VALUES (v_account_a, '20123456786', 'monotributista', 'homologacion', true) RETURNING id INTO v_fp;
   INSERT INTO public.points_of_sale (fiscal_profile_id, account_id, numero, is_active)
   VALUES (v_fp, v_account_a, 9701, true) RETURNING id INTO v_pv;
 

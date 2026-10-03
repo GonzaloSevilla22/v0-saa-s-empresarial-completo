@@ -1,0 +1,6 @@
+PASS  (c2) cambiar la sucursal traslada el stock (Casa Central +3, Norte -3)  -> br1 100018->100021 br2 100005->100002
+PASS  (d) la edición paralela por API entra (200)  -> 200
+FAIL  (d) el paso terminó sin excepción  -> TimeoutError: locator.waitFor: Timeout 30000ms exceeded.
+console errors: []
+RESUMEN humo: 2/3 PASS
+FALLAN: (d) el paso terminó sin excepción

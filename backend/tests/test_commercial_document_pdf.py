@@ -744,3 +744,137 @@ class TestBuildDeliveryNotePdf:
     def test_quantity_label_keeps_the_unit_for_fractional_quantities(self):
         text = _pdf_text(_pdf(_dn_view(lines=[_line("Harina 000", "0.45", "1000", "450", unit_symbol="kg")])))
         assert "0,45 kg" in _flat(text)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# remitos-compra (tanda A, grupo 3) — el remito de COMPRA sobre el MISMO
+# constructor, con la vista parametrizada por sentido
+#
+# Strict TDD: escritos antes que la parametrización de `build_delivery_note_view`
+# por `direction` y que los campos aditivos `recipient_label` / `reference_label`
+# de la vista y su dibujo en el render. Los casos de presupuesto y de remito de
+# venta de arriba NO se tocan: son el safety net de que el cambio es aditivo.
+# ══════════════════════════════════════════════════════════════════════════════
+
+SUPPLIER = {"name": "Distribuidora Sur", "tax_id": "30111111112", "phone": "2615550404"}
+
+
+def _purchase_dn(**over) -> dict:
+    base = {
+        "direction": "purchase",
+        "number": 12,
+        "delivery_address": None,
+        "supplier_reference": "0003-00001234",
+        "total": Decimal("665.33"),
+    }
+    base.update(over)
+    return _dn(**base)
+
+
+def _purchase_view(dn=None, lines=None, supplier=None, branch=None, show_prices=False, today=TODAY):
+    from backend.services.commercial_documents.view import build_delivery_note_view
+
+    return build_delivery_note_view(
+        dn or _purchase_dn(),
+        lines if lines is not None else [_line("Harina", "0.333", "999", "332.67", unit_symbol="kg")],
+        supplier or SUPPLIER,
+        branch or BRANCH,
+        _issuer(),
+        show_prices,
+        today,
+    )
+
+
+class TestBuildPurchaseDeliveryNoteView:
+    def test_title_number_origin_recipient_and_the_suppliers_own_number(self):
+        view = _purchase_view()
+
+        assert view.kind == "delivery_note" and view.title == "REMITO DE COMPRA"
+        assert view.number_label == "RC-00000012"
+        assert view.origin_label == "Ingresa a: Sucursal Centro"
+        assert view.recipient_label == "Recibido de"
+        assert view.recipient.name == "Distribuidora Sur" and view.recipient.tax_id == "30111111112"
+        assert view.reference_label == "Remito del proveedor N° 0003-00001234"
+        assert view.signature_block is True
+        assert view.recipient.address is None
+
+    def test_without_the_suppliers_number_there_is_no_reference_label(self):
+        assert _purchase_view(_purchase_dn(supplier_reference=None)).reference_label is None
+        assert _purchase_view(_purchase_dn(supplier_reference="   ")).reference_label is None
+
+    def test_prices_hidden_by_default_the_legend_and_the_stamp_follow_the_sale_rules(self):
+        assert _purchase_view().show_prices is False
+        assert _purchase_view(show_prices=True).show_prices is True
+        assert _purchase_view().legend == "Remito — documento no válido como factura."
+        assert _purchase_view(_purchase_dn(status="canceled")).status_stamp == "ANULADO"
+        assert _purchase_view(_purchase_dn(status="converted")).status_stamp is None
+
+    def test_the_total_is_the_servers_not_the_sum_of_the_rounded_lines(self):
+        """D1: con dos líneas de 0,333 kg a $999 los subtotales (332,67 + 332,67)
+        suman 665,34 y el total del remito es 665,33: el PDF imprime el del servidor."""
+        lines = [_line("Harina", "0.333", "999", "332.67", unit_symbol="kg")] * 2
+        view = _purchase_view(lines=lines)
+        assert view.total == Decimal("665.33")
+        assert sum(line.subtotal for line in view.lines) == Decimal("665.34")
+
+    def test_a_supplier_without_name_has_a_fallback_and_a_branch_without_name_no_origin(self):
+        assert _purchase_view(supplier={"name": None}).recipient.name == "Sin proveedor"
+        assert _purchase_view(branch={"name": None}).origin_label is None
+
+    def test_the_sale_view_keeps_its_labels(self):
+        view = _dn_view()
+        assert view.title == "REMITO" and view.number_label == "R-00000012"
+        assert view.recipient_label == "Cliente" and view.reference_label is None
+        assert view.origin_label == "Sale de: Sucursal Centro"
+
+
+class TestBuildPurchaseDeliveryNotePdf:
+    def test_default_pdf_has_the_purchase_content_and_no_prices(self):
+        pdf = _pdf(_purchase_view(_purchase_dn(notes="Llegó en dos pallets")))
+        text = _pdf_text(pdf)
+        flat = _flat(text)
+
+        assert len(PdfReader(io.BytesIO(pdf)).pages) == 1
+        assert "REMITO DE COMPRA" in text and "RC-00000012" in text
+        assert "Recibido de" in text and "Cliente" not in text
+        assert "Distribuidora Sur" in text and "30111111112" in text
+        assert "Remito del proveedor N° 0003-00001234" in flat
+        assert "Ingresa a: Sucursal Centro" in flat
+        assert "Harina" in text and "0,333 kg" in flat
+        assert "02/10/2026" in text and "Llegó en dos pallets" in text
+        for word in ("Recibí conforme", "Firma", "Aclaración", "DNI", "Fecha"):
+            assert word in flat, word
+        assert "Remito — documento no válido como factura." in flat
+        # sin precios: ni columnas, ni importes, ni total
+        assert "$" not in text and "TOTAL" not in text and "P. unit." not in text and "Subtotal" not in text
+        # un remito de compra no tiene domicilio de entrega
+        assert "Entrega:" not in flat and "Sale de:" not in flat
+
+    def test_with_prices_the_unit_price_subtotals_and_the_servers_total_are_printed(self):
+        lines = [_line("Harina", "0.333", "999", "332.67", unit_symbol="kg")] * 2
+        text = _pdf_text(_pdf(_purchase_view(lines=lines, show_prices=True)))
+
+        assert "$ 999,00" in text and "$ 332,67" in text
+        assert "TOTAL" in text and "$ 665,33" in text
+        assert "$ 665,34" not in text, "el total impreso no se recalcula sumando subtotales"
+        assert "P. unit." in text and "Subtotal" in text
+
+    def test_a_canceled_note_carries_the_stamp_and_an_issued_one_does_not(self):
+        assert "ANULADO" in _pdf_text(_pdf(_purchase_view(_purchase_dn(status="canceled"))))
+        for status in ("issued", "converted"):
+            assert "ANULADO" not in _pdf_text(_pdf(_purchase_view(_purchase_dn(status=status)))), status
+
+    def test_without_the_suppliers_number_or_tax_id_the_document_is_still_generated(self):
+        pdf = _pdf(_purchase_view(_purchase_dn(supplier_reference=None), supplier={"name": "Proveedor Chico"}))
+        text = _pdf_text(pdf)
+        assert "Proveedor Chico" in text and "Remito del proveedor" not in text and "CUIT/DNI" not in text
+        assert "Recibí conforme" in text
+
+    @pytest.mark.parametrize("count", [1, 24, 52, 80])
+    def test_the_signature_block_never_splits_across_pages_either(self, count):
+        lines = [_line(f"Artículo {i:03d}", "1", "10", "10") for i in range(count)]
+        pages = _pages(_pdf(_purchase_view(lines=lines)))
+        holders = [n for n, page in enumerate(pages) if "Recibí conforme" in page]
+        assert len(holders) == 1
+        for number, page in enumerate(pages, start=1):
+            assert "no válido como factura" in _flat(page), number

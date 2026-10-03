@@ -1,14 +1,17 @@
 """
-Service del remito de venta (remitos-venta tanda A, D4/D5/D13).
+Service del remito de venta (remitos-venta tanda A, D4/D5/D13) y del de compra
+(remitos-compra tanda A, D4-D6/D12/D13).
 
 Regla dura: NO lógica de negocio en routers. Acá viven los guards de rol y la
 traducción de errores; las reglas de dominio (tenencia, estados, versión,
 stock, snapshots, numeración, idempotencia) viven en las RPCs `SECURITY
 DEFINER` y se invocan desde el repositorio.
 
-  - Emitir y editar exigen `CAN_DELIVER_SALE`, anular exige
-    `CAN_VOID_DELIVERY_NOTE` y convertir en venta exige `CAN_SELL` (el cajero
-    convierte pero no emite; el depósito emite pero no convierte), todas evaluadas sobre el CONJUNTO de roles activos
+  - Emitir y editar exigen `CAN_DELIVER_SALE` (venta) o `CAN_RECEIVE_PURCHASE`
+    (compra: el vendedor NO recibe mercadería), anular exige
+    `CAN_VOID_DELIVERY_NOTE` en los dos sentidos y convertir en venta exige
+    `CAN_SELL` (el cajero convierte pero no emite; el depósito emite pero no
+    convierte), todas evaluadas sobre el CONJUNTO de roles activos
     (`require_account_role`): un cajero recibe 403 sin llegar a la RPC. Anular es
     una capacidad SENSIBLE (devuelve stock): la base manda y el claim no alcanza.
     La RPC vuelve a verificar el rol antes de escribir (defensa en profundidad,
@@ -23,6 +26,16 @@ DEFINER` y se invocan desde el repositorio.
     mismos productos sale como 409 `concurrent_update_retry` (D4): la
     transacción revirtió entera y la emisión es idempotente, así que reintentar
     es seguro. Ningún código del backend reintenta solo.
+  - Un `PUT` cuyo cuerpo es de un sentido distinto del que el remito tiene
+    guardado sale como 409 `delivery_note_direction_mismatch`. La RPC de cada
+    sentido sólo ve remitos del suyo y responde "no encontrado" al otro, y no se
+    puede distinguir DESPUÉS: el error de una RPC aborta la transacción del
+    request y cualquier lectura posterior falla con `InFailedSQLTransaction`. Por
+    eso el sentido guardado se lee ANTES de llamar a la RPC (una lectura mínima,
+    con la cuenta del caller y después del guard de rol). Es sólo diagnóstico: el
+    sentido de un remito no cambia nunca, así que no hay ventana contra el lock
+    de la RPC, que sigue siendo la autoridad. Un remito ajeno o inexistente no
+    tiene sentido guardado: la RPC responde su 404 de siempre.
   - El estado del remito NO se pre-valida acá (ni la tenencia del cliente, la
     sucursal o los productos): lo decide la RPC bajo el lock del remito, para no
     abrir una ventana entre el chequeo y el lock.
@@ -40,15 +53,17 @@ from fastapi import HTTPException
 
 from backend.core.errors import ProblemHTTPException, problem_from_pg_error
 from backend.core.guards import require_account_role
-from backend.core.rbac import CAN_DELIVER_SALE, CAN_SELL, CAN_VOID_DELIVERY_NOTE
+from backend.core.rbac import CAN_DELIVER_SALE, CAN_RECEIVE_PURCHASE, CAN_SELL, CAN_VOID_DELIVERY_NOTE
 from backend.core.timezone import today_in_argentina
 from backend.repositories.delivery_note_repository import DeliveryNoteRepository
 from backend.schemas.delivery_notes import (
     DeliveryNoteCancelIn,
     DeliveryNoteConvertIn,
-    DeliveryNoteCreateIn,
+    DeliveryNoteCreateBody,
     DeliveryNoteItemIn,
-    DeliveryNoteUpdateIn,
+    DeliveryNoteUpdateBody,
+    PurchaseDeliveryNoteCreateIn,
+    PurchaseDeliveryNoteUpdateIn,
 )
 from backend.services.commercial_documents.issuer import resolve_commercial_issuer
 from backend.services.commercial_documents.numbering import (
@@ -59,6 +74,8 @@ from backend.services.commercial_documents.pdf import build_commercial_document_
 from backend.services.commercial_documents.view import build_delivery_note_view
 
 logger = logging.getLogger(__name__)
+
+DIRECTION_MISMATCH_CODE = "delivery_note_direction_mismatch"
 
 CONCURRENT_UPDATE_RETRY_CODE = "concurrent_update_retry"
 _CONCURRENT_UPDATE_RETRY_DETAIL = (
@@ -103,6 +120,9 @@ def _pg_errors_as_problems():
         if problem is None:
             raise
         raise problem from exc
+
+
+_DIRECTION_LABEL = {"sale": "venta", "purchase": "compra"}
 
 
 def _uid(value: uuid.UUID | None) -> str | None:
@@ -153,13 +173,17 @@ async def create_delivery_note(
     repo: DeliveryNoteRepository,
     auth: dict,
     account_id: str,
-    payload: DeliveryNoteCreateIn,
+    payload: DeliveryNoteCreateBody,
     idempotency_key: str,
     *,
     conn,
 ) -> dict:
-    """Emite el remito: lo numera, descuenta el stock de la sucursal (mismo
-    camino que la venta) y es idempotente. Guard: `CAN_DELIVER_SALE`.
+    """Emite el remito, despachado por el sentido del cuerpo.
+
+    Venta: lo numera (R), descuenta el stock de la sucursal (mismo camino que la
+    venta) y es idempotente. Guard: `CAN_DELIVER_SALE`. Compra: lo numera (RC),
+    SUMA el stock de la sucursal de destino y es idempotente. Guard:
+    `CAN_RECEIVE_PURCHASE`.
 
     `idempotency_key` ya llega resuelto por el router (header obligatorio). Un
     `ValueError` si no llegó es un bug de cableado, no un error del usuario: sin
@@ -169,16 +193,28 @@ async def create_delivery_note(
     """
     if not idempotency_key:
         raise ValueError("create_delivery_note: falta la clave de idempotencia resuelta por el router")
-    await _require_capability(conn, auth, CAN_DELIVER_SALE)
-    with _pg_errors_as_problems():
-        written = await repo.create_delivery_note(
-            idempotency_key=idempotency_key,
-            client_id=str(payload.client_id),
-            branch_id=str(payload.branch_id),
-            delivery_address=payload.delivery_address,
-            notes=payload.notes,
-            items=_serialize_items(payload.items),
-        )
+    if isinstance(payload, PurchaseDeliveryNoteCreateIn):
+        await _require_capability(conn, auth, CAN_RECEIVE_PURCHASE)
+        with _pg_errors_as_problems():
+            written = await repo.create_purchase_delivery_note(
+                idempotency_key=idempotency_key,
+                supplier_id=str(payload.supplier_id),
+                branch_id=str(payload.branch_id),
+                supplier_reference=payload.supplier_reference,
+                notes=payload.notes,
+                items=_serialize_items(payload.items),
+            )
+    else:
+        await _require_capability(conn, auth, CAN_DELIVER_SALE)
+        with _pg_errors_as_problems():
+            written = await repo.create_delivery_note(
+                idempotency_key=idempotency_key,
+                client_id=str(payload.client_id),
+                branch_id=str(payload.branch_id),
+                delivery_address=payload.delivery_address,
+                notes=payload.notes,
+                items=_serialize_items(payload.items),
+            )
     record = await _reload(repo, written, account_id)
     return {**record, "replayed": bool(written.get("replayed", False))}
 
@@ -188,25 +224,52 @@ async def update_delivery_note(
     auth: dict,
     account_id: str,
     delivery_note_id: str,
-    payload: DeliveryNoteUpdateIn,
+    payload: DeliveryNoteUpdateBody,
     *,
     conn,
 ) -> dict:
-    """Edición (reemplazo completo) con la versión que se editó. Guard:
-    `CAN_DELIVER_SALE`. `delivery_note_changed` (409) si otro la modificó; `P0423
-    delivery_note_locked_converted` (409) si ya se convirtió en venta;
-    `stock_insuficiente` (409) si el aumento no alcanza sobre el neto."""
-    await _require_capability(conn, auth, CAN_DELIVER_SALE)
-    with _pg_errors_as_problems():
-        written = await repo.update_delivery_note(
-            delivery_note_id,
-            expected_revision=payload.revision,
-            client_id=str(payload.client_id),
-            branch_id=str(payload.branch_id),
-            delivery_address=payload.delivery_address,
-            notes=payload.notes,
-            items=_serialize_items(payload.items),
+    """Edición (reemplazo completo) con la versión que se editó, despachada por
+    el sentido del cuerpo. Guard: `CAN_DELIVER_SALE` (venta) o
+    `CAN_RECEIVE_PURCHASE` (compra). `delivery_note_changed` (409) si otro la
+    modificó; `P0423 delivery_note_locked_converted` (409) si ya se convirtió;
+    en venta `stock_insuficiente` (409) si el aumento no alcanza sobre el neto y
+    en compra `delivery_note_stock_consumed` (409) si la baja es menor que lo ya
+    salido del depósito. Un cuerpo de otro sentido que el guardado → 409
+    `delivery_note_direction_mismatch`."""
+    purchase = isinstance(payload, PurchaseDeliveryNoteUpdateIn)
+    await _require_capability(conn, auth, CAN_RECEIVE_PURCHASE if purchase else CAN_DELIVER_SALE)
+    body_direction = "purchase" if purchase else "sale"
+    stored_direction = await repo.get_direction(delivery_note_id, account_id)
+    if stored_direction is not None and stored_direction != body_direction:
+        raise ProblemHTTPException(
+            status_code=409,
+            detail=(
+                f"El remito es de {_DIRECTION_LABEL.get(stored_direction, stored_direction)} y el cuerpo de "
+                f"la edición es de {_DIRECTION_LABEL.get(body_direction, body_direction)}"
+            ),
+            code=DIRECTION_MISMATCH_CODE,
         )
+    with _pg_errors_as_problems():
+        if isinstance(payload, PurchaseDeliveryNoteUpdateIn):
+            written = await repo.update_purchase_delivery_note(
+                delivery_note_id,
+                expected_revision=payload.revision,
+                supplier_id=str(payload.supplier_id),
+                branch_id=str(payload.branch_id),
+                supplier_reference=payload.supplier_reference,
+                notes=payload.notes,
+                items=_serialize_items(payload.items),
+            )
+        else:
+            written = await repo.update_delivery_note(
+                delivery_note_id,
+                expected_revision=payload.revision,
+                client_id=str(payload.client_id),
+                branch_id=str(payload.branch_id),
+                delivery_address=payload.delivery_address,
+                notes=payload.notes,
+                items=_serialize_items(payload.items),
+            )
     return await _reload(repo, written, account_id)
 
 
@@ -219,10 +282,12 @@ async def cancel_delivery_note(
     *,
     conn,
 ) -> dict:
-    """Anula con motivo y repone el stock que el remito retiene. Guard:
-    `CAN_VOID_DELIVERY_NOTE` (sensible: la base decide, no el claim). Un remito
-    convertido responde 409 `delivery_note_locked_converted`; uno ya anulado,
-    409 `delivery_note_invalid_state`."""
+    """Anula con motivo y revierte el stock que el remito movió, en los dos
+    sentidos: en venta lo repone, en compra lo resta (y responde 409
+    `delivery_note_stock_consumed` si la mercadería ya se consumió, sin ningún
+    efecto). Guard: `CAN_VOID_DELIVERY_NOTE` (sensible: la base decide, no el
+    claim). Un remito convertido responde 409 `delivery_note_locked_converted`;
+    uno ya anulado, 409 `delivery_note_invalid_state`."""
     await _require_capability(conn, auth, CAN_VOID_DELIVERY_NOTE)
     with _pg_errors_as_problems():
         written = await repo.cancel_delivery_note(
@@ -324,16 +389,24 @@ async def list_delivery_notes(
     client_id: str | None,
     branch_id: str | None,
     q: str | None,
+    supplier_id: str | None = None,
 ) -> dict:
     """Envelope estándar `{items,total,page,pages}` (v3-api-standards §2) más el
     resumen de pendientes.
 
-    El texto del buscador se usa para el nombre del cliente y, si es un número de
-    remito ("R-12", "12", "00000012"), también para el número. El resumen cuenta
-    los `issued` del MISMO recorte (sentido, cliente, sucursal, búsqueda) sin
-    importar el estado pedido: el encabezado no cambia al cambiar de pestaña.
+    El texto del buscador se usa para el nombre del cliente o del proveedor, el
+    número del remito del proveedor y, si es un número de remito, también para el
+    número: en la pestaña de compra "RC-12", "12" o "00000012"; en la de venta (y
+    sin sentido) "R-12", "12" o "00000012". El prefijo del otro sentido es texto.
+    El resumen cuenta los `issued` del MISMO recorte (sentido, cliente, proveedor,
+    sucursal, búsqueda) sin importar el estado pedido: el encabezado no cambia al
+    cambiar de pestaña. El filtro de proveedor sólo viaja cuando se pide, así la
+    consulta de venta no gana argumentos.
     """
-    number = parse_internal_document_number_query(q, "delivery_note_sale")
+    number = parse_internal_document_number_query(
+        q, "delivery_note_purchase" if direction == "purchase" else "delivery_note_sale"
+    )
+    supplier_filter = {"supplier_id": supplier_id} if supplier_id is not None else {}
     rows, total = await repo.list_delivery_notes(
         account_id,
         page=page,
@@ -344,9 +417,16 @@ async def list_delivery_notes(
         branch_id=branch_id,
         text=q,
         number=number,
+        **supplier_filter,
     )
     summary = await repo.pending_summary(
-        account_id, direction=direction, client_id=client_id, branch_id=branch_id, text=q, number=number
+        account_id,
+        direction=direction,
+        client_id=client_id,
+        branch_id=branch_id,
+        text=q,
+        number=number,
+        **supplier_filter,
     )
     pages = -(-total // page_size) if total > 0 else 0
     return {
@@ -373,17 +453,25 @@ async def get_delivery_note_pdf(
     la base por la cuenta del caller —nunca del request—, con el mismo 404 para un
     id ajeno que para uno inexistente. Por defecto SIN precios (el documento que
     viaja con la mercadería no los muestra); `show_prices` los incluye y cambia el
-    nombre del archivo (`remito-R-….pdf` / `remito-R-…-con-precios.pdf`) para que
-    las dos variantes no se confundan. El emisor se resuelve sin bloquear y siempre
+    nombre del archivo (`remito-R-….pdf` / `remito-R-…-con-precios.pdf`; en compra
+    `remito-compra-RC-….pdf` / `…-con-precios.pdf`) para que las dos variantes no
+    se confundan. La contraparte de la vista es el cliente (venta) o el proveedor,
+    con su CUIT (compra). El emisor se resuelve sin bloquear y siempre
     por `rpc_commercial_issuer`. `today` se inyecta sólo para fijarlo en los tests.
     """
     record = await get_delivery_note(repo, account_id, delivery_note_id)
     with _pg_errors_as_problems():
         issuer = await resolve_commercial_issuer(repo, account_id)
+    purchase = record.get("direction") == "purchase"
+    counterparty = (
+        {"name": record.get("supplier_name"), "tax_id": record.get("supplier_tax_id"), "phone": record.get("supplier_phone")}
+        if purchase
+        else {"name": record.get("client_name"), "tax_id": record.get("client_tax_id"), "phone": record.get("client_phone")}
+    )
     view = build_delivery_note_view(
         record,
         record["items"],
-        {"name": record.get("client_name"), "tax_id": record.get("client_tax_id"), "phone": record.get("client_phone")},
+        counterparty,
         {"name": record.get("branch_name")},
         issuer,
         show_prices,
@@ -391,4 +479,5 @@ async def get_delivery_note_pdf(
     )
     label = record["number_label"] or str(record["id"])[:8]
     suffix = "-con-precios" if show_prices else ""
-    return build_commercial_document_pdf(view), f"remito-{label}{suffix}.pdf"
+    prefix = "remito-compra" if purchase else "remito"
+    return build_commercial_document_pdf(view), f"{prefix}-{label}{suffix}.pdf"

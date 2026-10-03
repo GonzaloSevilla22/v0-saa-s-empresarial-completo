@@ -35,8 +35,10 @@ import {
 import { queryKeys } from "@/lib/query-keys"
 import type {
   CreateDeliveryNoteInput,
+  CreatePurchaseDeliveryNoteInput,
   DeliveryNoteCancelInput,
   UpdateDeliveryNoteInput,
+  UpdatePurchaseDeliveryNoteInput,
 } from "@/lib/delivery-note-types"
 
 function setup() {
@@ -355,6 +357,234 @@ describe("useCancelDeliveryNote — anulación con motivo", () => {
     })
 
     expect(isInvalidated(queryClient, key)).toBe(true)
+  })
+})
+
+// ── remitos-compra (D11, tareas 4.1-4.2) ───────────────────────────────────────
+
+const purchaseCreatePayload: CreatePurchaseDeliveryNoteInput = {
+  direction: "purchase",
+  supplier_id: "s-1",
+  branch_id: "b-1",
+  supplier_reference: "0004-00012345",
+  notes: null,
+  // Precio 0 admitido al recibir (OQ-RC1): la factura llega después.
+  items: [{ product_id: "p-1", unit_id: null, quantity: 10, price: 0, subtotal: 0 }],
+}
+
+const purchaseUpdatePayload: UpdatePurchaseDeliveryNoteInput = {
+  direction: "purchase",
+  supplier_id: "s-1",
+  branch_id: "b-2",
+  supplier_reference: null,
+  notes: "Faltó un pallet",
+  revision: 2,
+  items: [{ product_id: "p-1", unit_id: "u-kg", quantity: 4, price: 800, subtotal: 3200 }],
+}
+
+describe("useDeliveryNotes — pestaña De compra", () => {
+  it("pide direction=purchase con el filtro por proveedor, en orden estable", async () => {
+    const { wrapper } = setup()
+    const { result } = renderHook(
+      () =>
+        useDeliveryNotes({
+          direction: "purchase",
+          status: "issued",
+          q: "RC-12",
+          supplierId: "s-1",
+          branchId: "b-9",
+          page: 2,
+          pageSize: 5,
+        }),
+      { wrapper },
+    )
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(pythonClient.get).toHaveBeenCalledWith(
+      "/delivery-notes?direction=purchase&status=issued&q=RC-12&supplier_id=s-1&branch_id=b-9&page=2&page_size=5",
+    )
+  })
+
+  it("sólo el proveedor (chip ?proveedor=): supplier_id sin client_id", async () => {
+    const { wrapper } = setup()
+    const { result } = renderHook(() => useDeliveryNotes({ direction: "purchase", supplierId: "s-7" }), { wrapper })
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(pythonClient.get).toHaveBeenCalledWith("/delivery-notes?direction=purchase&supplier_id=s-7")
+  })
+
+  it("cliente y proveedor juntos conservan cada nombre del backend", async () => {
+    const { wrapper } = setup()
+    const { result } = renderHook(() => useDeliveryNotes({ clientId: "c-1", supplierId: "s-1" }), { wrapper })
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(pythonClient.get).toHaveBeenCalledWith("/delivery-notes?client_id=c-1&supplier_id=s-1")
+  })
+
+  it("venta y compra son consultas distintas en el caché", async () => {
+    const { queryClient, wrapper } = setup()
+    const sale = renderHook(() => useDeliveryNotes({ direction: "sale", status: "issued" }), { wrapper })
+    const purchase = renderHook(() => useDeliveryNotes({ direction: "purchase", status: "issued" }), { wrapper })
+    await waitFor(() => expect(sale.result.current.isSuccess && purchase.result.current.isSuccess).toBe(true))
+    expect(queryClient.getQueryCache().findAll({ queryKey: queryKeys.deliveryNotes.lists() })).toHaveLength(2)
+  })
+})
+
+describe("useCreateDeliveryNote('purchase') — recepción idempotente", () => {
+  it("hace POST /delivery-notes con direction purchase y la clave por HEADER, sin repetirla en el cuerpo", async () => {
+    const { wrapper } = setup()
+    const { result } = renderHook(() => useCreateDeliveryNote("purchase"), { wrapper })
+
+    await act(async () => {
+      await result.current.mutateAsync(purchaseCreatePayload)
+    })
+
+    expect(pythonClient.post).toHaveBeenCalledTimes(1)
+    const [path, body, headers] = vi.mocked(pythonClient.post).mock.calls[0]
+    expect(path).toBe("/delivery-notes")
+    expect(body).toEqual(purchaseCreatePayload)
+    expect(body).not.toHaveProperty("idempotency_key")
+    expect(headers).toEqual({ "Idempotency-Key": expect.stringMatching(/^[0-9a-f-]{36}$/) })
+  })
+
+  it("la clave vive en su propio alcance (delivery-note-purchase-create), no en el de venta", () => {
+    const { wrapper } = setup()
+    renderHook(() => useCreateDeliveryNote("purchase"), { wrapper })
+    expect(window.sessionStorage.getItem("idem:delivery-note-purchase-create")).toMatch(/^[0-9a-f-]{36}$/)
+    expect(window.sessionStorage.getItem("idem:delivery-note-create")).toBeNull()
+  })
+
+  it("el hook de venta (sin argumento) conserva su alcance de siempre", () => {
+    const { wrapper } = setup()
+    renderHook(() => useCreateDeliveryNote(), { wrapper })
+    expect(window.sessionStorage.getItem("idem:delivery-note-create")).toMatch(/^[0-9a-f-]{36}$/)
+    expect(window.sessionStorage.getItem("idem:delivery-note-purchase-create")).toBeNull()
+  })
+
+  it("emitir una venta no gasta la clave de la recepción en curso (dos intenciones distintas)", async () => {
+    const { wrapper } = setup()
+    renderHook(() => useCreateDeliveryNote("purchase"), { wrapper })
+    const sale = renderHook(() => useCreateDeliveryNote(), { wrapper })
+    const before = window.sessionStorage.getItem("idem:delivery-note-purchase-create")
+
+    await act(async () => {
+      await sale.result.current.mutateAsync(createPayload)
+    })
+
+    expect(before).toMatch(/^[0-9a-f-]{36}$/)
+    expect(window.sessionStorage.getItem("idem:delivery-note-purchase-create")).toBe(before)
+  })
+
+  it("un reintento tras un error manda la MISMA clave; tras un éxito, otra", async () => {
+    vi.mocked(pythonClient.post).mockRejectedValueOnce(new Error("network")).mockResolvedValue({ id: "dn-1" })
+    const { wrapper } = setup()
+    const { result } = renderHook(() => useCreateDeliveryNote("purchase"), { wrapper })
+
+    await act(async () => {
+      await result.current.mutateAsync(purchaseCreatePayload).catch(() => undefined)
+    })
+    await act(async () => {
+      await result.current.mutateAsync(purchaseCreatePayload)
+    })
+    await act(async () => {
+      await result.current.mutateAsync(purchaseCreatePayload)
+    })
+
+    const keys = vi.mocked(pythonClient.post).mock.calls.map((c) => (c[2] as Record<string, string>)["Idempotency-Key"])
+    expect(keys[0]).toBe(keys[1])
+    expect(keys[2]).not.toBe(keys[1])
+  })
+
+  it.each(DOMAINS)("al recibir invalida %s (la recepción suma stock)", async (_name, key) => {
+    const { queryClient, wrapper } = setup()
+    await seedCaches(queryClient)
+    const { result } = renderHook(() => useCreateDeliveryNote("purchase"), { wrapper })
+
+    await act(async () => {
+      await result.current.mutateAsync(purchaseCreatePayload)
+    })
+
+    expect(isInvalidated(queryClient, key)).toBe(true)
+  })
+
+  it("una recepción fallida no invalida nada y el error llega con su code estable", async () => {
+    vi.mocked(pythonClient.post).mockRejectedValue(
+      new PythonApiError("sin proveedor", 400, { code: "delivery_note_supplier_required" }),
+    )
+    const { queryClient, wrapper } = setup()
+    await seedCaches(queryClient)
+    const { result } = renderHook(() => useCreateDeliveryNote("purchase"), { wrapper })
+
+    const err = await act(async () => result.current.mutateAsync(purchaseCreatePayload).catch((e: unknown) => e))
+
+    expect((err as PythonApiError).code).toBe("delivery_note_supplier_required")
+    for (const [, key] of DOMAINS) expect(isInvalidated(queryClient, key)).toBe(false)
+  })
+})
+
+describe("useUpdateDeliveryNote / useCancelDeliveryNote — remito de compra", () => {
+  it("la edición hace PUT con el payload de compra completo (direction y revision), sin clave", async () => {
+    const { wrapper } = setup()
+    const { result } = renderHook(() => useUpdateDeliveryNote(), { wrapper })
+
+    await act(async () => {
+      await result.current.mutateAsync({ deliveryNoteId: "dn-2", payload: purchaseUpdatePayload })
+    })
+
+    expect(pythonClient.put).toHaveBeenCalledWith("/delivery-notes/dn-2", purchaseUpdatePayload)
+  })
+
+  it.each(DOMAINS)("al editar un remito de compra invalida %s", async (_name, key) => {
+    const { queryClient, wrapper } = setup()
+    await seedCaches(queryClient)
+    const { result } = renderHook(() => useUpdateDeliveryNote(), { wrapper })
+
+    await act(async () => {
+      await result.current.mutateAsync({ deliveryNoteId: "dn-2", payload: purchaseUpdatePayload })
+    })
+
+    expect(isInvalidated(queryClient, key)).toBe(true)
+  })
+
+  it("delivery_note_stock_consumed (409) llega con su code y no invalida nada", async () => {
+    vi.mocked(pythonClient.put).mockRejectedValue(
+      new PythonApiError("quedan 3", 409, { code: "delivery_note_stock_consumed" }),
+    )
+    const { queryClient, wrapper } = setup()
+    await seedCaches(queryClient)
+    const { result } = renderHook(() => useUpdateDeliveryNote(), { wrapper })
+
+    const err = await act(async () =>
+      result.current.mutateAsync({ deliveryNoteId: "dn-2", payload: purchaseUpdatePayload }).catch((e: unknown) => e),
+    )
+
+    expect((err as PythonApiError).code).toBe("delivery_note_stock_consumed")
+    for (const [, key] of DOMAINS) expect(isInvalidated(queryClient, key)).toBe(false)
+  })
+
+  it.each(DOMAINS)("al anular un remito de compra invalida %s (resta stock)", async (_name, key) => {
+    const { queryClient, wrapper } = setup()
+    await seedCaches(queryClient)
+    const { result } = renderHook(() => useCancelDeliveryNote(), { wrapper })
+
+    await act(async () => {
+      await result.current.mutateAsync({ deliveryNoteId: "dn-2", payload: cancelPayload })
+    })
+
+    expect(isInvalidated(queryClient, key)).toBe(true)
+  })
+
+  it("una anulación rechazada por mercadería consumida no invalida nada", async () => {
+    vi.mocked(pythonClient.post).mockRejectedValue(
+      new PythonApiError("quedan 3", 409, { code: "delivery_note_stock_consumed" }),
+    )
+    const { queryClient, wrapper } = setup()
+    await seedCaches(queryClient)
+    const { result } = renderHook(() => useCancelDeliveryNote(), { wrapper })
+
+    const err = await act(async () =>
+      result.current.mutateAsync({ deliveryNoteId: "dn-2", payload: cancelPayload }).catch((e: unknown) => e),
+    )
+
+    expect((err as PythonApiError).code).toBe("delivery_note_stock_consumed")
+    for (const [, key] of DOMAINS) expect(isInvalidated(queryClient, key)).toBe(false)
   })
 })
 

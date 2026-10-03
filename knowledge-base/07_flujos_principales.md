@@ -297,3 +297,27 @@ Usuario (seller/cashier/admin/owner) → /remitos/{id} → "Venta"  (remito issu
                 el remito vuelve a issued y se puede reconvertir
 ```
 Editar la venta nacida de un remito está bloqueado (`delivery_note_sale_locked`); un remito convertido no se anula ni se edita.
+
+## Flujo 13: Remito de compra (`remitos-compra`, tanda A)
+
+```
+Usuario (stock/admin/owner) → /remitos/nuevo?tipo=compra
+    │   proveedor + sucursal de destino + líneas (sólo producto); N° del remito del proveedor opcional
+    │
+    ├── POST /delivery-notes  (direction = 'purchase', header Idempotency-Key)
+    │       └── RPC rpc_create_purchase_delivery_note — UNA transacción:
+    │           ├── Guards: proveedor y producto vivos de la cuenta, unidad compatible, sucursal activa
+    │           ├── Número RC-00000001 por cuenta; historial NULL → issued
+    │           └── Stock: un movimiento purchase/delivery_note por par producto-sucursal (SUMA)
+    │
+    ├── PUT /delivery-notes/{id}  (revision esperada; sólo issued)
+    │       └── Espejo sólo en los pares cuyo neto cambia; las patas que suman van primero;
+    │           bajar lo ya vendido → P0409 con el producto nombrado, sin efectos
+    │
+    ├── GET /delivery-notes/{id}/pdf?show_prices=  → descarga o WhatsApp al proveedor
+    │
+    └── POST /delivery-notes/{id}/cancel  (admin/owner, motivo)
+            └── Resta lo retenido (purchase_return); si ya se consumió → P0409
+                delivery_note_stock_consumed; estado terminal canceled
+```
+La conversión del remito en compra (sin volver a sumar stock) es la tanda B de `remitos-compra`.

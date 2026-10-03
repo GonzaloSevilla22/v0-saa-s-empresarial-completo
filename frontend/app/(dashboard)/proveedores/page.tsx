@@ -8,8 +8,14 @@
 // product-catalog.tsx DeleteDialog), export CSV, banner + botón deshabilitado
 // al alcanzar el límite de plan (usePlanLimits — afordancia, el enforcement
 // real es el trigger + 403 del backend).
+//
+// remitos-compra (D11, 5.7): "Nuevo remito de compra" por fila, con el proveedor
+// preseleccionado, sólo con `CAN_RECEIVE_PURCHASE` (el rol se decide sobre el
+// CONJUNTO de roles). Lleva `aria-label` con el nombre del proveedor: en una lista
+// de íconos, tres botones con el mismo nombre no se distinguen.
 
 import { useState, useMemo, useCallback } from "react"
+import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useSuppliers } from "@/hooks/data/use-suppliers"
 import { SupplierForm } from "@/components/forms/supplier-form"
@@ -22,12 +28,35 @@ import {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { usePlanLimits } from "@/hooks/auth/use-plan-limits"
+import { useOrgRole } from "@/hooks/useOrgRole"
+import { CAN_RECEIVE_PURCHASE, hasCapability } from "@/lib/rbac-capabilities"
 import { exportToCSV } from "@/lib/excel"
 import { MAX_SUPPLIERS_FREE } from "@/lib/constants"
 import { getErrorMessage } from "@/lib/errors"
-import { Plus, Trash2, Pencil, Search, PackageOpen, Download, Landmark } from "lucide-react"
+import { Plus, Trash2, Pencil, Search, PackageOpen, PackagePlus, Download, Landmark } from "lucide-react"
 import { toast } from "sonner"
 import type { Supplier } from "@/lib/types"
+
+/** Acción de fila "Nuevo remito de compra": abre el alta con el proveedor preseleccionado. */
+function NewDeliveryNoteLink({ supplier }: { supplier: Supplier }) {
+  return (
+    <Button
+      asChild
+      variant="ghost"
+      size="icon"
+      className="h-7 w-7 text-muted-foreground hover:text-primary"
+      data-testid={`supplier-new-delivery-note-${supplier.id}`}
+    >
+      <Link
+        href={`/remitos/nuevo?tipo=compra&proveedor=${encodeURIComponent(supplier.id)}`}
+        aria-label={`Nuevo remito de compra de ${supplier.name}`}
+        title="Nuevo remito de compra"
+      >
+        <PackagePlus className="h-3.5 w-3.5" aria-hidden="true" />
+      </Link>
+    </Button>
+  )
+}
 
 // ─── Delete confirmation (molde de components/products/product-catalog.tsx) ──
 
@@ -82,6 +111,8 @@ function DeleteSupplierDialog({ supplier, onConfirm, isDeleting }: DeleteSupplie
 }
 
 export default function ProveedoresPage() {
+  const { roles, rolesResolved } = useOrgRole()
+  const canReceive = hasCapability(roles, CAN_RECEIVE_PURCHASE, rolesResolved)
   const router = useRouter()
   const { suppliers, isLoading, error, deleteSupplier } = useSuppliers()
   const { limits } = usePlanLimits()
@@ -204,7 +235,7 @@ export default function ProveedoresPage() {
 
       {/* Table */}
       <div className="rounded-lg border border-border overflow-hidden">
-        <div className="hidden sm:grid grid-cols-[1fr_200px_160px_104px] gap-3 px-4 py-2.5 bg-accent/40 border-b border-border text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
+        <div className="hidden sm:grid grid-cols-[1fr_200px_160px_140px] gap-3 px-4 py-2.5 bg-accent/40 border-b border-border text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
           <span>Nombre</span><span>Contacto</span><span>CUIT/DNI</span><span />
         </div>
 
@@ -213,7 +244,7 @@ export default function ProveedoresPage() {
           <div className="flex flex-col">
             {Array.from({ length: 4 }).map((_, i) => (
               <div key={i} className="border-t border-border/50 first:border-t-0 px-4 py-3">
-                <div className="hidden sm:grid grid-cols-[1fr_200px_160px_104px] gap-3 items-center">
+                <div className="hidden sm:grid grid-cols-[1fr_200px_160px_140px] gap-3 items-center">
                   {Array.from({ length: 3 }).map((_, j) => (
                     <div key={j} className="h-3.5 rounded bg-accent animate-pulse" />
                   ))}
@@ -256,8 +287,10 @@ export default function ProveedoresPage() {
               <div className="flex items-center justify-between">
                 <span className="text-xs text-muted-foreground tabular-nums">{row.taxId || "—"}</span>
                 <div className="flex items-center gap-1">
+                  {canReceive && <NewDeliveryNoteLink supplier={row} />}
                   <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-primary"
                     data-testid={`supplier-account-${row.id}`}
+                    aria-label={`Cuenta corriente de ${row.name}`}
                     title="Cuenta corriente" onClick={() => goToAccount(row.id)}>
                     <Landmark className="h-3.5 w-3.5" />
                   </Button>
@@ -273,15 +306,17 @@ export default function ProveedoresPage() {
             </div>
 
             {/* Desktop */}
-            <div className="hidden sm:grid grid-cols-[1fr_200px_160px_104px] gap-3 px-4 py-3 items-center">
+            <div className="hidden sm:grid grid-cols-[1fr_200px_160px_140px] gap-3 px-4 py-3 items-center">
               <span className="text-sm font-medium text-foreground truncate">{row.name}</span>
               <span className="text-xs text-muted-foreground truncate">
                 {row.email || row.phone || "Sin datos de contacto"}
               </span>
               <span className="text-xs text-muted-foreground tabular-nums">{row.taxId || "—"}</span>
               <div className="flex items-center gap-1 justify-end">
+                {canReceive && <NewDeliveryNoteLink supplier={row} />}
                 <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-primary"
                   data-testid={`supplier-account-${row.id}`}
+                  aria-label={`Cuenta corriente de ${row.name}`}
                   title="Cuenta corriente" onClick={() => goToAccount(row.id)}>
                   <Landmark className="h-3.5 w-3.5" />
                 </Button>

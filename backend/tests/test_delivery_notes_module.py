@@ -158,6 +158,7 @@ def _repo(**returns) -> AsyncMock:
     repo.update_delivery_note.return_value = {"id": DN_ID, "account_id": ACCOUNT_ID}
     repo.cancel_delivery_note.return_value = {"id": DN_ID, "account_id": ACCOUNT_ID}
     repo.get_delivery_note.return_value = _dn_record()
+    repo.get_direction.return_value = "sale"
     repo.list_delivery_notes.return_value = ([], 0)
     repo.pending_summary.return_value = {"pending_count": 0, "pending_total": Decimal("0")}
     repo.get_commercial_issuer.return_value = {
@@ -1337,3 +1338,1049 @@ class TestRouterIsRegistered:
         assert ("POST", "/delivery-notes/{delivery_note_id}/convert") in routes
         # sin borrado: un remito nunca se borra, se anula
         assert ("DELETE", "/delivery-notes/{delivery_note_id}") not in routes
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# remitos-compra (tanda A, grupo 2) — el remito de COMPRA sobre el mismo módulo
+#
+# Strict TDD: esta sección se escribió ANTES que `PurchaseDeliveryNote*In`, la
+# unión discriminada por `direction`, `CAN_RECEIVE_PURCHASE`, los métodos de
+# compra del repositorio y del service, y el despacho del router. Los casos de
+# venta de arriba NO se tocaron: son el safety net de que el sentido venta no
+# cambió (la unión sin `direction` sigue siendo venta, y la respuesta de venta
+# no gana campos de compra en el resumen).
+#
+# Spec: openspec/changes/remitos-compra/specs/delivery-note/spec.md y design.md
+# D1, D4, D5, D6, D10, D11, D12, D13.
+# ══════════════════════════════════════════════════════════════════════════════
+
+SUPPLIER_ID = "99999999-9999-9999-9999-999999999999"
+OTHER_SUPPLIER_ID = "88888888-8888-8888-8888-888888888888"
+
+
+def _purchase_migrations_sql() -> str:
+    """Todas las migraciones de remitos de compra (la tanda B suma su archivo
+    sin que este test tenga que enterarse: el catálogo se lee de todas)."""
+    paths = sorted((REPO_ROOT / "supabase/migrations").glob("*_remitos_compra*.sql"))
+    assert paths, "no hay migración de remitos de compra"
+    return "\n".join(p.read_text(encoding="utf-8") for p in paths)
+
+
+def _purchase_item_in(**over) -> dict:
+    base = {"product_id": PRODUCT_ID, "quantity": "10", "price": "0", "subtotal": "0"}
+    base.update(over)
+    return base
+
+
+def _purchase_record(**over) -> dict:
+    base = _dn_record(
+        direction="purchase",
+        client_id=None,
+        client_name=None,
+        client_phone=None,
+        client_tax_id=None,
+        client_deleted=False,
+        supplier_id=SUPPLIER_ID,
+        supplier_name="Distribuidora Sur",
+        supplier_phone="2615550404",
+        supplier_tax_id="30-11111111-2",
+        supplier_deleted=False,
+        supplier_reference="0003-00001234",
+        delivery_address=None,
+        missing_price_count=1,
+        total=Decimal("0"),
+    )
+    base.update(over)
+    return base
+
+
+def _purchase_create(**over):
+    from backend.schemas.delivery_notes import PurchaseDeliveryNoteCreateIn
+
+    data = {
+        "direction": "purchase",
+        "supplier_id": SUPPLIER_ID,
+        "branch_id": BRANCH_ID,
+        "supplier_reference": "0003-00001234",
+        "notes": "Llegó en dos pallets",
+        "items": [
+            _purchase_item_in(unit_id=UNIT_ID, price="333.333333", subtotal="123"),
+            _purchase_item_in(quantity="1", price="0"),
+        ],
+    }
+    data.update(over)
+    return PurchaseDeliveryNoteCreateIn(**data)
+
+
+def _purchase_update(**over):
+    from backend.schemas.delivery_notes import PurchaseDeliveryNoteUpdateIn
+
+    data = {
+        "direction": "purchase",
+        "revision": 3,
+        "supplier_id": SUPPLIER_ID,
+        "branch_id": BRANCH_ID,
+        "supplier_reference": None,
+        "notes": None,
+        "items": [_purchase_item_in(price="120")],
+    }
+    data.update(over)
+    return PurchaseDeliveryNoteUpdateIn(**data)
+
+
+def _purchase_repo(**returns) -> AsyncMock:
+    repo = _repo(get_delivery_note=_purchase_record())
+    repo.get_direction.return_value = "purchase"
+    repo.create_purchase_delivery_note.return_value = {**_purchase_record(), "replayed": False}
+    repo.update_purchase_delivery_note.return_value = {"id": DN_ID, "account_id": ACCOUNT_ID}
+    for name, value in returns.items():
+        getattr(repo, name).return_value = value
+    return repo
+
+
+class TestPurchaseSchemas:
+    def test_the_purchase_alta_needs_supplier_and_branch_and_has_no_client_nor_address(self):
+        from backend.schemas.delivery_notes import PurchaseDeliveryNoteCreateIn
+
+        base = {"direction": "purchase", "supplier_id": SUPPLIER_ID, "branch_id": BRANCH_ID, "items": [_purchase_item_in()]}
+        ok = PurchaseDeliveryNoteCreateIn(**base)
+        assert ok.direction == "purchase" and ok.supplier_reference is None
+        for missing in ("supplier_id", "branch_id", "direction"):
+            with pytest.raises(ValidationError):
+                PurchaseDeliveryNoteCreateIn(**{k: v for k, v in base.items() if k != missing})
+        # la compra no tiene cliente ni domicilio de entrega: ni siquiera son campos
+        assert "client_id" not in PurchaseDeliveryNoteCreateIn.model_fields
+        assert "delivery_address" not in PurchaseDeliveryNoteCreateIn.model_fields
+
+    def test_the_purchase_alta_rejects_the_sale_direction(self):
+        from backend.schemas.delivery_notes import PurchaseDeliveryNoteCreateIn
+
+        with pytest.raises(ValidationError):
+            PurchaseDeliveryNoteCreateIn(
+                direction="sale", supplier_id=SUPPLIER_ID, branch_id=BRANCH_ID, items=[_purchase_item_in()])
+
+    @pytest.mark.parametrize("length,valid", [(100, True), (101, False)])
+    def test_supplier_reference_is_capped_at_100(self, length, valid):
+        if valid:
+            assert _purchase_create(supplier_reference="r" * length).supplier_reference == "r" * length
+        else:
+            with pytest.raises(ValidationError):
+                _purchase_create(supplier_reference="r" * length)
+
+    @pytest.mark.parametrize("length,valid", [(2000, True), (2001, False)])
+    def test_notes_are_capped_at_2000(self, length, valid):
+        if valid:
+            _purchase_create(notes="n" * length)
+        else:
+            with pytest.raises(ValidationError):
+                _purchase_create(notes="n" * length)
+
+    def test_items_bounds_and_zero_price_is_a_valid_reception(self):
+        with pytest.raises(ValidationError):
+            _purchase_create(items=[])
+        _purchase_create(items=[_purchase_item_in()] * 500)
+        with pytest.raises(ValidationError):
+            _purchase_create(items=[_purchase_item_in()] * 501)
+        # OQ-RC1: precio 0 al recibir (el proveedor manda la factura después)
+        line = _purchase_create(items=[_purchase_item_in(price="0", subtotal="0")]).items[0]
+        assert line.price == 0
+        with pytest.raises(ValidationError):
+            _purchase_create(items=[_purchase_item_in(price="-0.01")])
+
+    def test_the_update_is_a_full_replacement_with_revision(self):
+        from backend.schemas.delivery_notes import PurchaseDeliveryNoteUpdateIn
+
+        base = {
+            "direction": "purchase", "revision": 3, "supplier_id": SUPPLIER_ID, "branch_id": BRANCH_ID,
+            "supplier_reference": None, "notes": None, "items": [_purchase_item_in()],
+        }
+        assert PurchaseDeliveryNoteUpdateIn(**base).revision == 3
+        for field in ("revision", "supplier_id", "branch_id", "supplier_reference", "notes", "items"):
+            with pytest.raises(ValidationError):
+                PurchaseDeliveryNoteUpdateIn(**{k: v for k, v in base.items() if k != field})
+        with pytest.raises(ValidationError):
+            PurchaseDeliveryNoteUpdateIn(**{**base, "revision": 0})
+        with pytest.raises(ValidationError):
+            PurchaseDeliveryNoteUpdateIn(**{**base, "supplier_reference": "r" * 101})
+
+    def test_the_discriminated_union_picks_the_class_by_direction(self):
+        from pydantic import TypeAdapter
+
+        from backend.schemas.delivery_notes import (
+            DeliveryNoteCreateBody,
+            DeliveryNoteCreateIn,
+            DeliveryNoteUpdateBody,
+            DeliveryNoteUpdateIn,
+            PurchaseDeliveryNoteCreateIn,
+            PurchaseDeliveryNoteUpdateIn,
+        )
+
+        create = TypeAdapter(DeliveryNoteCreateBody)
+        sale = {"client_id": CLIENT_ID, "branch_id": BRANCH_ID, "items": [_item_in()]}
+        purchase = {"direction": "purchase", "supplier_id": SUPPLIER_ID, "branch_id": BRANCH_ID, "items": [_purchase_item_in()]}
+        assert isinstance(create.validate_python(purchase), PurchaseDeliveryNoteCreateIn)
+        # sin `direction` sigue siendo venta (compatibilidad de la API vigente)
+        assert isinstance(create.validate_python(sale), DeliveryNoteCreateIn)
+        assert isinstance(create.validate_python({**sale, "direction": "sale"}), DeliveryNoteCreateIn)
+        with pytest.raises(ValidationError):
+            create.validate_python({**sale, "direction": "other"})
+        # un cuerpo de venta con sentido compra no se acepta a medias
+        with pytest.raises(ValidationError):
+            create.validate_python({**sale, "direction": "purchase"})
+
+        update = TypeAdapter(DeliveryNoteUpdateBody)
+        sale_update = {
+            "revision": 1, "client_id": CLIENT_ID, "branch_id": BRANCH_ID,
+            "delivery_address": None, "notes": None, "items": [_item_in()],
+        }
+        purchase_update = {
+            "direction": "purchase", "revision": 1, "supplier_id": SUPPLIER_ID, "branch_id": BRANCH_ID,
+            "supplier_reference": None, "notes": None, "items": [_purchase_item_in()],
+        }
+        assert isinstance(update.validate_python(sale_update), DeliveryNoteUpdateIn)
+        assert isinstance(update.validate_python(purchase_update), PurchaseDeliveryNoteUpdateIn)
+        with pytest.raises(ValidationError):
+            update.validate_python({**sale_update, "direction": "other"})
+
+    def test_out_and_list_item_carry_the_supplier_and_the_missing_price_count(self):
+        from backend.schemas.delivery_notes import DeliveryNoteListItemOut, DeliveryNoteOut
+
+        assert {
+            "supplier_id", "supplier_reference", "supplier_name", "supplier_phone", "supplier_deleted",
+            "missing_price_count", "converted_operation_id",
+        } <= set(DeliveryNoteOut.model_fields)
+        assert {
+            "supplier_id", "supplier_name", "supplier_phone", "supplier_reference", "missing_price_count",
+        } <= set(DeliveryNoteListItemOut.model_fields)
+        # un remito de venta no inventa proveedor ni faltantes
+        sale = DeliveryNoteOut(**{k: v for k, v in _dn_record().items()}, issuer_name=None)
+        assert sale.supplier_name is None and sale.supplier_deleted is False and sale.missing_price_count == 0
+
+    def test_the_summary_keeps_the_sale_payload_and_adds_the_missing_price_count_only_for_purchase(self):
+        from backend.schemas.delivery_notes import DeliveryNoteSummaryOut
+
+        sale = DeliveryNoteSummaryOut(pending_count=1, pending_total=Decimal("10")).model_dump(mode="json")
+        assert sale == {"pending_count": 1, "pending_total": "10"}
+        purchase = DeliveryNoteSummaryOut(
+            pending_count=3, pending_total=Decimal("10"), pending_missing_price_count=2).model_dump(mode="json")
+        assert purchase == {"pending_count": 3, "pending_total": "10", "pending_missing_price_count": 2}
+        # cero es un dato (ninguno sin precio), no una ausencia
+        zero = DeliveryNoteSummaryOut(pending_missing_price_count=0).model_dump(mode="json")
+        assert zero["pending_missing_price_count"] == 0
+
+
+class TestPurchaseCapabilities:
+    def test_values_and_types(self):
+        from backend.core.rbac import (
+            CAN_CONVERT_PURCHASE_DELIVERY_NOTE,
+            CAN_RECEIVE_PURCHASE,
+            CAN_STOCK,
+            CAN_VOID_DELIVERY_NOTE,
+            is_sensitive_capability,
+        )
+
+        assert CAN_RECEIVE_PURCHASE == frozenset({"owner", "admin", "stock"})
+        assert CAN_CONVERT_PURCHASE_DELIVERY_NOTE == frozenset({"owner", "admin", "purchases", "stock"})
+        assert isinstance(CAN_RECEIVE_PURCHASE, frozenset) and isinstance(CAN_CONVERT_PURCHASE_DELIVERY_NOTE, frozenset)
+        # D12: mismo contenido que CAN_STOCK pero con nombre propio por acción
+        assert CAN_RECEIVE_PURCHASE == CAN_STOCK
+        # control: emitir NO es sensible (basta el claim); anular sí, como en venta
+        assert is_sensitive_capability(CAN_RECEIVE_PURCHASE) is False
+        assert is_sensitive_capability(CAN_VOID_DELIVERY_NOTE) is True
+
+    def test_receive_and_void_are_the_roles_of_the_delivery_note_purchase_catalog_rows(self):
+        """Atado al catálogo: lo que las migraciones siembran en
+        `document_status_transitions` para `delivery_note_purchase` es EXACTAMENTE
+        lo que declaran las capacidades. Si divergen, este test falla."""
+        from backend.core.rbac import CAN_RECEIVE_PURCHASE, CAN_VOID_DELIVERY_NOTE
+
+        rows = re.findall(
+            r"\('delivery_note_purchase',\s*(NULL|'[a-z_]+'),\s*'([a-z_]+)',\s*(?:true|false),\s*(?:true|false),\s*ARRAY\[([^\]]*)\]",
+            _purchase_migrations_sql(),
+        )
+        by_transition = {
+            (frm.strip("'") if frm != "NULL" else None, to): frozenset(re.findall(r"'([a-z_]+)'", roles))
+            for frm, to, roles in rows
+        }
+        assert by_transition.get((None, "issued")) == CAN_RECEIVE_PURCHASE
+        assert by_transition.get(("issued", "canceled")) == CAN_VOID_DELIVERY_NOTE
+        # control negativo del propio test: una transición inexistente no matchea
+        assert by_transition.get(("issued", "no_existe")) is None
+
+    def test_the_rpcs_read_the_same_catalog_rows(self):
+        sql = _purchase_migrations_sql()
+        assert "_delivery_note_assert_role_dir" in sql
+        assert re.search(r"document_status_transitions", sql)
+
+
+# Literales que las RPCs de compra de la tanda A levantan con ERRCODE de negocio
+# y su estado HTTP. Fuente: supabase/migrations/20261071000001_remitos_compra.sql.
+PURCHASE_SQL_LITERALS = [
+    ("P0400", "delivery_note_supplier_required: el remito de compra necesita un proveedor", 400, "delivery_note_supplier_required"),
+    ("P0400", "delivery_note_supplier_reference_too_long: el número del remito del proveedor admite hasta 100 caracteres", 400, "delivery_note_supplier_reference_too_long"),
+    ("P0400", "delivery_note_branch_required: el remito de compra necesita la sucursal a la que entra la mercadería", 400, "delivery_note_branch_required"),
+    ("P0404", "supplier_not_found: 99999999-9999-9999-9999-999999999999", 404, "supplier_not_found"),
+    ("P0404", "delivery_note_not_found: dddd", 404, "delivery_note_not_found"),
+    ("P0409", "delivery_note_stock_consumed: de Harina en la sucursal quedan 3, el remito necesita restar 5", 409, "delivery_note_stock_consumed"),
+    ("P0423", "delivery_note_locked_converted: el remito ya se convirtió en la compra", 409, "delivery_note_locked_converted"),
+    ("P0422", "delivery_note_branch_inactive: la sucursal a la que entra la mercadería está desactivada", 422, "delivery_note_branch_inactive"),
+    ("P0403", "insufficient_role: tu rol no permite emitir o editar remitos de compra", 403, "insufficient_role"),
+]
+
+# Aserciones de programación de los helpers que ninguna entrada de usuario alcanza.
+_PURCHASE_INTERNAL_LITERALS = {
+    "delivery_note_role_mode_invalid",
+    "delivery_note_role_mode_unavailable",
+    "delivery_note_reverse_invalid_reference",
+    "delivery_note_direction_invalid",
+}
+
+
+class TestPurchaseProblemMapping:
+    @pytest.mark.parametrize("sqlstate,message,status,code", PURCHASE_SQL_LITERALS)
+    def test_literal_code_and_status(self, sqlstate, message, status, code):
+        from backend.core.errors import problem_from_pg_error
+
+        problem = problem_from_pg_error(_pg_error(sqlstate, message))
+
+        assert problem.status_code == status
+        assert problem.code == code
+        assert message in str(problem.detail)
+
+    def test_every_literal_of_the_purchase_migration_has_a_case(self):
+        """Completitud: cada literal estable que la migración de compra levanta
+        para las RPCs públicas aparece en esta tabla o en la de venta (si SQL
+        suma uno nuevo, este test obliga a mapearlo)."""
+        raised = set(
+            re.findall(
+                r"RAISE EXCEPTION '((?:delivery_note|supplier|branch|idempotency_key)_[a-z_]+)[:'%\s]",
+                _purchase_migrations_sql(),
+            )
+        )
+        raised -= _PURCHASE_INTERNAL_LITERALS
+        covered = {code for _, _, _, code in PURCHASE_SQL_LITERALS} | {code for _, _, _, code in SQL_LITERALS}
+        assert raised <= covered, f"literales sin caso: {sorted(raised - covered)}"
+
+
+PURCHASE_ROLES_BY_OP = {
+    "create": {"allowed": ["stock", "admin", "owner"], "denied": ["seller", "cashier", "purchases", "accountant", "viewer"]},
+    "update": {"allowed": ["stock", "admin", "owner"], "denied": ["seller", "cashier", "purchases", "accountant", "viewer"]},
+    "cancel": {"allowed": ["admin", "owner"], "denied": ["stock", "seller", "cashier", "purchases", "accountant", "viewer"]},
+}
+PURCHASE_WRITE_CALLS = {
+    "create": lambda svc, repo, auth, conn: svc.create_delivery_note(
+        repo, auth, ACCOUNT_ID, _purchase_create(), IDEM_KEY, conn=conn),
+    "update": lambda svc, repo, auth, conn: svc.update_delivery_note(
+        repo, auth, ACCOUNT_ID, DN_ID, _purchase_update(), conn=conn),
+    "cancel": lambda svc, repo, auth, conn: svc.cancel_delivery_note(
+        repo, auth, ACCOUNT_ID, DN_ID, _payload_cancel(), conn=conn),
+}
+PURCHASE_REPO_WRITE_METHOD = {
+    "create": "create_purchase_delivery_note", "update": "update_purchase_delivery_note", "cancel": "cancel_delivery_note",
+}
+
+
+def _purchase_cases(kind: str):
+    return [(op, role) for op in sorted(PURCHASE_ROLES_BY_OP) for role in PURCHASE_ROLES_BY_OP[op][kind]]
+
+
+class TestPurchaseServiceRoleGuard:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("op,role", _purchase_cases("denied"))
+    async def test_denied_roles_get_403_without_calling_the_rpc(self, op, role):
+        from backend.services import delivery_notes as svc
+
+        repo = _purchase_repo()
+        with pytest.raises(HTTPException) as info:
+            await PURCHASE_WRITE_CALLS[op](svc, repo, _auth(role), _conn(role))
+
+        assert info.value.status_code == 403
+        assert getattr(info.value, "code", None) == "insufficient_role"
+        getattr(repo, PURCHASE_REPO_WRITE_METHOD[op]).assert_not_awaited()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("op,role", _purchase_cases("allowed"))
+    async def test_allowed_roles_reach_the_rpc(self, op, role):
+        from backend.services import delivery_notes as svc
+
+        repo = _purchase_repo()
+        await PURCHASE_WRITE_CALLS[op](svc, repo, _auth(role), _conn(role))
+
+        getattr(repo, PURCHASE_REPO_WRITE_METHOD[op]).assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_the_seller_issues_a_sale_note_but_not_a_purchase_one(self):
+        """La asimetría por sentido: `seller` emite remitos de VENTA y NO de
+        compra (el vendedor no recibe mercadería)."""
+        from backend.services import delivery_notes as svc
+
+        repo = _purchase_repo()
+        await svc.create_delivery_note(repo, _auth("seller"), ACCOUNT_ID, _payload_create(), IDEM_KEY, conn=AsyncMock())
+        repo.create_delivery_note.assert_awaited_once()
+        with pytest.raises(HTTPException) as info:
+            await svc.create_delivery_note(repo, _auth("seller"), ACCOUNT_ID, _purchase_create(), IDEM_KEY, conn=AsyncMock())
+        assert info.value.status_code == 403
+        repo.create_purchase_delivery_note.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_the_cancel_of_a_purchase_note_is_sensitive_the_database_decides(self):
+        """Anular un remito de compra resta stock: la base manda, el claim no
+        alcanza (igual que en venta)."""
+        from backend.services import delivery_notes as svc
+
+        conn = AsyncMock()
+        conn.fetchval = account_roles_fetchval(["viewer"])
+        repo = _purchase_repo()
+        with pytest.raises(HTTPException) as info:
+            await svc.cancel_delivery_note(repo, _auth("owner"), ACCOUNT_ID, DN_ID, _payload_cancel(), conn=conn)
+        assert info.value.status_code == 403
+        repo.cancel_delivery_note.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_roles_are_a_set_union_not_the_first_role(self):
+        from backend.services import delivery_notes as svc
+
+        repo = _purchase_repo()
+        await svc.create_delivery_note(
+            repo, _auth("cashier", "stock"), ACCOUNT_ID, _purchase_create(), IDEM_KEY, conn=AsyncMock())
+        repo.create_purchase_delivery_note.assert_awaited_once()
+
+
+class TestPurchaseServiceBehavior:
+    @pytest.mark.asyncio
+    async def test_create_dispatches_by_direction_and_serializes_exact_text(self):
+        from backend.services import delivery_notes as svc
+
+        repo = _purchase_repo()
+        result = await svc.create_delivery_note(
+            repo, _auth("stock"), ACCOUNT_ID, _purchase_create(), IDEM_KEY, conn=AsyncMock())
+
+        repo.create_delivery_note.assert_not_awaited()
+        kwargs = repo.create_purchase_delivery_note.await_args.kwargs
+        assert kwargs["idempotency_key"] == IDEM_KEY
+        assert kwargs["supplier_id"] == SUPPLIER_ID and kwargs["branch_id"] == BRANCH_ID
+        assert kwargs["supplier_reference"] == "0003-00001234" and kwargs["notes"] == "Llegó en dos pallets"
+        assert "client_id" not in kwargs and "delivery_address" not in kwargs
+        # precio por unidad SIN redondear y subtotal tal cual (el servidor lo recalcula)
+        assert kwargs["items"][0] == {
+            "product_id": PRODUCT_ID, "unit_id": UNIT_ID, "quantity": "10",
+            "price": "333.333333", "subtotal": "123",
+        }
+        assert result["number_label"] == "RC-00000012"
+        assert result["supplier_name"] == "Distribuidora Sur" and result["replayed"] is False
+
+    @pytest.mark.asyncio
+    async def test_create_returns_the_replayed_flag_from_the_rpc(self):
+        from backend.services import delivery_notes as svc
+
+        repo = _purchase_repo(create_purchase_delivery_note={**_purchase_record(), "replayed": True})
+        replay = await svc.create_delivery_note(
+            repo, _auth("stock"), ACCOUNT_ID, _purchase_create(), IDEM_KEY, conn=AsyncMock())
+        assert replay["replayed"] is True
+
+    @pytest.mark.asyncio
+    async def test_create_without_a_resolved_key_is_a_wiring_bug_for_purchase_too(self):
+        from backend.services import delivery_notes as svc
+
+        repo = _purchase_repo()
+        with pytest.raises(ValueError):
+            await svc.create_delivery_note(repo, _auth("stock"), ACCOUNT_ID, _purchase_create(), "", conn=AsyncMock())
+        repo.create_purchase_delivery_note.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_update_dispatches_by_direction_forwards_the_revision_and_reads_back(self):
+        from backend.services import delivery_notes as svc
+
+        repo = _purchase_repo()
+        result = await svc.update_delivery_note(
+            repo, _auth("owner"), ACCOUNT_ID, DN_ID, _purchase_update(revision=7), conn=AsyncMock())
+
+        repo.update_delivery_note.assert_not_awaited()
+        args = repo.update_purchase_delivery_note.await_args
+        assert args.args == (DN_ID,)
+        assert args.kwargs["expected_revision"] == 7
+        assert args.kwargs["supplier_id"] == SUPPLIER_ID and args.kwargs["branch_id"] == BRANCH_ID
+        assert args.kwargs["supplier_reference"] is None and args.kwargs["notes"] is None
+        repo.get_delivery_note.assert_awaited_once_with(DN_ID, ACCOUNT_ID)
+        assert result["number_label"] == "RC-00000012"
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("body_direction,stored", [("purchase", "sale"), ("sale", "purchase")])
+    async def test_a_body_of_the_other_direction_is_a_409_mismatch_before_any_rpc(self, body_direction, stored):
+        """PUT con sentido distinto del guardado → 409 `delivery_note_direction_mismatch`.
+        El sentido guardado se lee ANTES de la RPC (el error de una RPC aborta la
+        transacción del request y no dejaría leerlo después): ninguna RPC corre."""
+        from backend.services import delivery_notes as svc
+
+        repo = _purchase_repo()
+        repo.get_direction.return_value = stored
+        payload = _purchase_update() if body_direction == "purchase" else _payload_update()
+
+        with pytest.raises(HTTPException) as info:
+            await svc.update_delivery_note(repo, _auth("owner"), ACCOUNT_ID, DN_ID, payload, conn=AsyncMock())
+
+        assert info.value.status_code == 409
+        assert info.value.code == "delivery_note_direction_mismatch"
+        repo.get_direction.assert_awaited_once_with(DN_ID, ACCOUNT_ID)
+        repo.update_purchase_delivery_note.assert_not_awaited()
+        repo.update_delivery_note.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_the_role_guard_goes_before_the_direction_lookup(self):
+        """Un `seller` no averigua si el remito existe ni de qué sentido es."""
+        from backend.services import delivery_notes as svc
+
+        repo = _purchase_repo()
+        with pytest.raises(HTTPException) as info:
+            await svc.update_delivery_note(repo, _auth("seller"), ACCOUNT_ID, DN_ID, _purchase_update(), conn=AsyncMock())
+        assert info.value.status_code == 403
+        repo.get_direction.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_a_missing_or_foreign_note_has_no_direction_so_the_rpc_answers_its_plain_404(self):
+        from backend.services import delivery_notes as svc
+
+        repo = _purchase_repo()
+        repo.get_direction.return_value = None
+        repo.update_purchase_delivery_note.side_effect = _pg_error("P0404", f"delivery_note_not_found: {DN_ID}")
+        with pytest.raises(HTTPException) as info:
+            await svc.update_delivery_note(repo, _auth("owner"), ACCOUNT_ID, DN_ID, _purchase_update(), conn=AsyncMock())
+        assert info.value.status_code == 404 and info.value.code == "delivery_note_not_found"
+        repo.update_purchase_delivery_note.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("direction", ["sale", "purchase"])
+    async def test_the_same_direction_goes_to_its_rpc(self, direction):
+        """CONTROL: con el sentido del cuerpo igual al guardado no hay conflicto."""
+        from backend.services import delivery_notes as svc
+
+        repo = _purchase_repo()
+        repo.get_direction.return_value = direction
+        payload = _purchase_update() if direction == "purchase" else _payload_update()
+        await svc.update_delivery_note(repo, _auth("owner"), ACCOUNT_ID, DN_ID, payload, conn=AsyncMock())
+        rpc = repo.update_purchase_delivery_note if direction == "purchase" else repo.update_delivery_note
+        rpc.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("op", ["create", "update"])
+    @pytest.mark.parametrize("sqlstate,message,status,code", PURCHASE_SQL_LITERALS)
+    async def test_every_business_error_surfaces_as_a_stable_problem(self, op, sqlstate, message, status, code):
+        from backend.services import delivery_notes as svc
+
+        # el remito leído para distinguir un "no encontrado" del sentido es del
+        # MISMO sentido que el cuerpo: el literal sale tal cual.
+        repo = _purchase_repo(get_delivery_note=_purchase_record())
+        getattr(repo, PURCHASE_REPO_WRITE_METHOD[op]).side_effect = _pg_error(sqlstate, message)
+
+        with pytest.raises(HTTPException) as info:
+            await PURCHASE_WRITE_CALLS[op](svc, repo, _auth("owner"), _conn("owner"))
+
+        assert info.value.status_code == status
+        assert info.value.code == code
+
+    @pytest.mark.asyncio
+    async def test_cancel_of_a_purchase_note_surfaces_the_consumed_stock_as_a_409(self):
+        from backend.services import delivery_notes as svc
+
+        repo = _purchase_repo()
+        repo.cancel_delivery_note.side_effect = _pg_error(
+            "P0409", "delivery_note_stock_consumed: de Harina en la sucursal quedan 3, el remito necesita restar 10")
+        with pytest.raises(HTTPException) as info:
+            await svc.cancel_delivery_note(
+                repo, _auth("admin"), ACCOUNT_ID, DN_ID, _payload_cancel(), conn=_conn("admin"))
+        assert info.value.status_code == 409 and info.value.code == "delivery_note_stock_consumed"
+        assert "quedan 3" in str(info.value.detail)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("op", ["create", "update"])
+    async def test_deadlock_is_a_409_concurrent_update_retry(self, op):
+        from backend.services import delivery_notes as svc
+
+        repo = _purchase_repo()
+        getattr(repo, PURCHASE_REPO_WRITE_METHOD[op]).side_effect = asyncpg.DeadlockDetectedError("deadlock detected")
+        with pytest.raises(HTTPException) as info:
+            await PURCHASE_WRITE_CALLS[op](svc, repo, _auth("owner"), _conn("owner"))
+        assert info.value.status_code == 409 and info.value.code == "concurrent_update_retry"
+
+
+class TestPurchaseServiceReads:
+    @pytest.mark.asyncio
+    async def test_the_detail_is_labelled_with_the_purchase_prefix(self):
+        from backend.services import delivery_notes as svc
+
+        repo = _purchase_repo()
+        record = await svc.get_delivery_note(repo, ACCOUNT_ID, DN_ID)
+        assert record["number_label"] == "RC-00000012"
+        assert record["supplier_name"] == "Distribuidora Sur"
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "q,number",
+        [("RC-12", 12), ("rc-00000012", 12), ("12", 12), ("00000012", 12),
+         ("R-12", None), ("P-12", None), ("Distribuidora", None), ("0003-00001234", None)],
+    )
+    async def test_the_purchase_search_formats(self, q, number):
+        """En la pestaña de compra `RC-12`, `12` y `00000012` son el número 12;
+        `R-12` (venta) o `P-12` (presupuesto) son texto, y el nombre del proveedor
+        o el número de SU remito viajan como texto."""
+        from backend.services import delivery_notes as svc
+
+        repo = _purchase_repo()
+        await svc.list_delivery_notes(
+            repo, ACCOUNT_ID, page=0, page_size=25, direction="purchase", status=None,
+            client_id=None, branch_id=None, q=q)
+        kwargs = repo.list_delivery_notes.await_args.kwargs
+        assert kwargs["number"] == number and kwargs["text"] == q
+
+    @pytest.mark.asyncio
+    async def test_the_supplier_filter_reaches_the_list_and_the_summary_only_when_asked(self):
+        from backend.services import delivery_notes as svc
+
+        repo = _purchase_repo(
+            pending_summary={"pending_count": 2, "pending_total": Decimal("0"), "pending_missing_price_count": 1})
+        page = await svc.list_delivery_notes(
+            repo, ACCOUNT_ID, page=0, page_size=25, direction="purchase", status="issued",
+            client_id=None, branch_id=None, q=None, supplier_id=SUPPLIER_ID)
+
+        assert repo.list_delivery_notes.await_args.kwargs["supplier_id"] == SUPPLIER_ID
+        assert repo.pending_summary.await_args.kwargs["supplier_id"] == SUPPLIER_ID
+        assert page["summary"] == {"pending_count": 2, "pending_total": Decimal("0"), "pending_missing_price_count": 1}
+
+        # CONTROL: sin proveedor, la consulta de venta no gana argumentos nuevos
+        repo2 = _repo()
+        await svc.list_delivery_notes(
+            repo2, ACCOUNT_ID, page=0, page_size=25, direction="sale", status=None,
+            client_id=None, branch_id=None, q=None)
+        assert "supplier_id" not in repo2.list_delivery_notes.await_args.kwargs
+        assert "supplier_id" not in repo2.pending_summary.await_args.kwargs
+
+
+class TestPurchasePdfService:
+    @pytest.mark.asyncio
+    async def test_pdf_of_a_purchase_note_is_named_remito_compra(self):
+        from backend.services import delivery_notes as svc
+
+        pdf, filename = await svc.get_delivery_note_pdf(
+            _purchase_repo(), ACCOUNT_ID, DN_ID, today=datetime.date(2026, 10, 3))
+        assert pdf.startswith(b"%PDF")
+        assert filename == "remito-compra-RC-00000012.pdf"
+
+    @pytest.mark.asyncio
+    async def test_pdf_with_prices_adds_the_suffix(self):
+        from backend.services import delivery_notes as svc
+
+        _, filename = await svc.get_delivery_note_pdf(
+            _purchase_repo(), ACCOUNT_ID, DN_ID, show_prices=True, today=datetime.date(2026, 10, 3))
+        assert filename == "remito-compra-RC-00000012-con-precios.pdf"
+
+    @pytest.mark.asyncio
+    async def test_the_sale_file_name_does_not_change(self):
+        from backend.services import delivery_notes as svc
+
+        _, filename = await svc.get_delivery_note_pdf(_repo(), ACCOUNT_ID, DN_ID, today=datetime.date(2026, 10, 3))
+        assert filename == "remito-R-00000012.pdf"
+
+    @pytest.mark.asyncio
+    async def test_pdf_of_a_foreign_purchase_note_is_the_same_404(self):
+        from backend.services import delivery_notes as svc
+
+        with pytest.raises(HTTPException) as info:
+            await svc.get_delivery_note_pdf(_purchase_repo(get_delivery_note=None), ACCOUNT_ID, DN_ID)
+        assert info.value.status_code == 404 and info.value.code == "delivery_note_not_found"
+
+
+class TestPurchaseRepositoryUsesRpcOnly:
+    @pytest.mark.asyncio
+    async def test_no_purchase_method_writes_the_document_or_the_ledger_directly(self):
+        from backend.repositories.delivery_note_repository import DeliveryNoteRepository
+
+        conn = _RecordingConn()
+        repo = DeliveryNoteRepository(conn)
+        await repo.create_purchase_delivery_note(
+            idempotency_key=IDEM_KEY, supplier_id=SUPPLIER_ID, branch_id=BRANCH_ID,
+            supplier_reference="0003-1", notes=None, items=[_purchase_item_in()])
+        await repo.update_purchase_delivery_note(
+            DN_ID, expected_revision=1, supplier_id=SUPPLIER_ID, branch_id=BRANCH_ID,
+            supplier_reference=None, notes=None, items=[_purchase_item_in()])
+        await repo.list_delivery_notes(
+            ACCOUNT_ID, page=0, page_size=25, direction="purchase", status=None,
+            client_id=None, branch_id=None, text="sur", number=None, supplier_id=SUPPLIER_ID)
+        await repo.pending_summary(
+            ACCOUNT_ID, direction="purchase", client_id=None, branch_id=None, text=None, number=None,
+            supplier_id=SUPPLIER_ID)
+
+        assert conn.queries
+        for query, _ in conn.queries:
+            assert not DIRECT_WRITE.search(query), f"escritura directa sobre remitos: {query[:90]}"
+            assert not STOCK_WRITE.search(query), f"el repositorio toca el ledger de stock: {query[:90]}"
+
+    @pytest.mark.asyncio
+    async def test_create_sends_key_first_and_the_supplier_arguments(self):
+        from backend.repositories.delivery_note_repository import DeliveryNoteRepository
+
+        conn = _RecordingConn()
+        created = await DeliveryNoteRepository(conn).create_purchase_delivery_note(
+            idempotency_key=IDEM_KEY, supplier_id=SUPPLIER_ID, branch_id=BRANCH_ID,
+            supplier_reference="0003-1", notes="n",
+            items=[{"product_id": PRODUCT_ID, "quantity": "2", "price": "0", "subtotal": "0", "unit_id": None}],
+        )
+
+        query, args = conn.queries[0]
+        assert (
+            "rpc_create_purchase_delivery_note($1::text, $2::uuid, $3::uuid, $4::text, $5::text, $6::jsonb)" in query
+        )
+        assert args[:5] == (IDEM_KEY, SUPPLIER_ID, BRANCH_ID, "0003-1", "n")
+        assert json.loads(args[5])[0]["quantity"] == "2"
+        assert created["id"] == DN_ID
+
+    @pytest.mark.asyncio
+    async def test_update_ships_the_expected_revision_and_the_supplier_arguments(self):
+        from backend.repositories.delivery_note_repository import DeliveryNoteRepository
+
+        conn = _RecordingConn()
+        await DeliveryNoteRepository(conn).update_purchase_delivery_note(
+            DN_ID, expected_revision=4, supplier_id=SUPPLIER_ID, branch_id=BRANCH_ID,
+            supplier_reference="0003-1", notes=None, items=[_purchase_item_in()])
+
+        query, args = conn.queries[0]
+        assert (
+            "rpc_update_purchase_delivery_note($1::uuid, $2::integer, $3::uuid, $4::uuid, $5::text, $6::text, $7::jsonb)"
+            in query
+        )
+        assert args[:6] == (DN_ID, 4, SUPPLIER_ID, BRANCH_ID, "0003-1", None)
+
+
+class TestPurchaseRepositoryReads:
+    @pytest.mark.asyncio
+    async def test_the_stored_direction_is_read_scoped_by_account_and_foreign_is_none(self):
+        from backend.repositories.delivery_note_repository import DeliveryNoteRepository
+
+        conn = AsyncMock()
+        conn.fetchval.return_value = "purchase"
+        assert await DeliveryNoteRepository(conn).get_direction(DN_ID, ACCOUNT_ID) == "purchase"
+        sql, *args = conn.fetchval.await_args.args
+        assert "delivery_notes" in sql and "account_id = $2::uuid" in sql and "id = $1::uuid" in sql
+        assert args == [DN_ID, ACCOUNT_ID]
+        conn.fetchval.return_value = None
+        assert await DeliveryNoteRepository(conn).get_direction(DN_ID, ACCOUNT_ID) is None
+
+    @pytest.mark.asyncio
+    async def test_the_detail_joins_the_supplier_scoped_by_account_and_counts_missing_prices(self):
+        from backend.repositories.delivery_note_repository import DeliveryNoteRepository
+
+        conn = AsyncMock()
+        conn.fetchrow.return_value = {"id": DN_ID, "account_id": ACCOUNT_ID, "direction": "purchase", "number": 3}
+        conn.fetch.side_effect = [[], []]
+        await DeliveryNoteRepository(conn).get_delivery_note(DN_ID, ACCOUNT_ID)
+
+        sql = conn.fetchrow.await_args.args[0]
+        assert "public.suppliers" in sql
+        assert re.search(r"s\.account_id\s*=\s*dn\.account_id", sql), "el proveedor se cruza con la cuenta del remito"
+        for column in ("supplier_name", "supplier_phone", "supplier_tax_id", "supplier_deleted", "missing_price_count"):
+            assert column in sql, column
+        assert re.search(r"price\s*=\s*0", sql)
+
+    @pytest.mark.asyncio
+    async def test_the_list_filters_by_supplier_and_shares_the_args_with_the_count(self):
+        from backend.repositories.delivery_note_repository import DeliveryNoteRepository
+
+        conn = AsyncMock()
+        conn.fetchval.return_value = 4
+        conn.fetch.return_value = []
+        rows, total = await DeliveryNoteRepository(conn).list_delivery_notes(
+            ACCOUNT_ID, page=1, page_size=10, direction="purchase", status="issued",
+            client_id=None, branch_id=BRANCH_ID, text="50%_sur", number=12, supplier_id=SUPPLIER_ID)
+
+        assert rows == [] and total == 4
+        count_sql, *count_args = conn.fetchval.await_args.args
+        page_sql, *page_args = conn.fetch.await_args.args
+        assert count_args == page_args[:-2] and page_args[-2:] == [10, 10]
+        assert SUPPLIER_ID in count_args
+        assert "dn.supplier_id" in count_sql and "dn.supplier_id" in page_sql
+        # el texto busca por proveedor y por el número de SU remito, y escapa los comodines
+        assert "s.name ILIKE" in count_sql and "dn.supplier_reference ILIKE" in count_sql
+        assert "%50\\%\\_sur%" in count_args
+        # la proyección trae lo que la tabla de compra muestra
+        for column in ("supplier_name", "supplier_phone", "supplier_reference", "missing_price_count"):
+            assert column in page_sql, column
+        assert "dn.account_id = $1::uuid" in count_sql and "dn.account_id = $1::uuid" in page_sql
+
+    @pytest.mark.asyncio
+    async def test_the_supplier_placeholder_is_the_last_parameter_of_each_query(self):
+        """El filtro de proveedor ocupa `$8` en el listado (después del estado, `$7`)
+        y `$7` en el resumen (que no tiene estado): un número corrido filtraría por
+        el parámetro equivocado sin que ningún doble lo note."""
+        from backend.repositories.delivery_note_repository import DeliveryNoteRepository
+
+        conn = AsyncMock()
+        conn.fetchval.return_value = 0
+        conn.fetch.return_value = []
+        conn.fetchrow.return_value = None
+        repo = DeliveryNoteRepository(conn)
+        await repo.list_delivery_notes(
+            ACCOUNT_ID, page=0, page_size=10, direction="purchase", status="issued",
+            client_id=None, branch_id=None, text=None, number=None, supplier_id=SUPPLIER_ID)
+        await repo.pending_summary(
+            ACCOUNT_ID, direction="purchase", client_id=None, branch_id=None, text=None, number=None,
+            supplier_id=SUPPLIER_ID)
+
+        count_sql = conn.fetchval.await_args.args[0]
+        page_sql = conn.fetch.await_args.args[0]
+        summary_sql, *summary_args = conn.fetchrow.await_args.args
+        assert "dn.supplier_id = $8::uuid" in count_sql and "dn.status = $7::text" in count_sql
+        assert "dn.supplier_id = $8::uuid" in page_sql and "LIMIT $9 OFFSET $10" in page_sql
+        assert "dn.supplier_id = $7::uuid" in summary_sql and "$8" not in summary_sql
+        assert summary_args[6] == SUPPLIER_ID
+
+    @pytest.mark.asyncio
+    async def test_the_sale_list_arguments_keep_their_positions(self):
+        """CONTROL del cambio de consulta: sin proveedor, (cuenta, sentido,
+        cliente, sucursal, texto, número, estado) siguen en el mismo orden."""
+        from backend.repositories.delivery_note_repository import DeliveryNoteRepository
+
+        conn = AsyncMock()
+        conn.fetchval.return_value = 0
+        conn.fetch.return_value = []
+        await DeliveryNoteRepository(conn).list_delivery_notes(
+            ACCOUNT_ID, page=0, page_size=25, direction="sale", status="issued",
+            client_id=CLIENT_ID, branch_id=BRANCH_ID, text="ana", number=12)
+        _, *args = conn.fetchval.await_args.args
+        assert args[:7] == [ACCOUNT_ID, "sale", CLIENT_ID, BRANCH_ID, "%ana%", 12, "issued"]
+
+    @pytest.mark.asyncio
+    async def test_the_purchase_summary_counts_the_pending_with_a_missing_price(self):
+        from backend.repositories.delivery_note_repository import DeliveryNoteRepository
+
+        conn = AsyncMock()
+        conn.fetchrow.return_value = {
+            "pending_count": 3, "pending_total": Decimal("900.00"), "pending_missing_price_count": 2,
+        }
+        summary = await DeliveryNoteRepository(conn).pending_summary(
+            ACCOUNT_ID, direction="purchase", client_id=None, branch_id=None, text=None, number=None,
+            supplier_id=SUPPLIER_ID)
+
+        assert summary == {
+            "pending_count": 3, "pending_total": Decimal("900.00"), "pending_missing_price_count": 2,
+        }
+        sql, *args = conn.fetchrow.await_args.args
+        assert "dn.status = 'issued'" in sql and "dn.account_id = $1::uuid" in sql
+        assert "pending_missing_price_count" in sql and re.search(r"price\s*=\s*0", sql)
+        assert SUPPLIER_ID in args
+
+    @pytest.mark.asyncio
+    async def test_an_empty_purchase_summary_is_zero_including_the_missing_count(self):
+        from backend.repositories.delivery_note_repository import DeliveryNoteRepository
+
+        conn = AsyncMock()
+        conn.fetchrow.return_value = None
+        summary = await DeliveryNoteRepository(conn).pending_summary(
+            ACCOUNT_ID, direction="purchase", client_id=None, branch_id=None, text=None, number=None)
+        assert summary == {"pending_count": 0, "pending_total": Decimal("0"), "pending_missing_price_count": 0}
+
+    @pytest.mark.asyncio
+    async def test_the_sale_summary_keeps_its_two_keys(self):
+        from backend.repositories.delivery_note_repository import DeliveryNoteRepository
+
+        conn = AsyncMock()
+        conn.fetchrow.return_value = {"pending_count": 1, "pending_total": Decimal("5"), "pending_missing_price_count": 0}
+        summary = await DeliveryNoteRepository(conn).pending_summary(
+            ACCOUNT_ID, direction="sale", client_id=None, branch_id=None, text=None, number=None)
+        assert summary == {"pending_count": 1, "pending_total": Decimal("5")}
+
+
+def _purchase_body(**over) -> dict:
+    data = {
+        "direction": "purchase",
+        "supplier_id": SUPPLIER_ID,
+        "branch_id": BRANCH_ID,
+        "supplier_reference": "0003-00001234",
+        "items": [_purchase_item_in()],
+    }
+    data.update(over)
+    return data
+
+
+def _purchase_update_body(**over) -> dict:
+    data = {
+        "direction": "purchase", "revision": 1, "supplier_id": SUPPLIER_ID, "branch_id": BRANCH_ID,
+        "supplier_reference": None, "notes": None, "items": [_purchase_item_in()],
+    }
+    data.update(over)
+    return data
+
+
+class TestPurchaseEndpoints:
+    @pytest.fixture
+    def purchase_override(self, repo_override):
+        repo, pool_conn = repo_override
+        repo.get_delivery_note.return_value = _purchase_record()
+        repo.get_direction.return_value = "purchase"
+        repo.create_purchase_delivery_note.return_value = {**_purchase_record(), "replayed": False}
+        repo.update_purchase_delivery_note.return_value = {"id": DN_ID, "account_id": ACCOUNT_ID}
+        return repo, pool_conn
+
+    async def test_a_purchase_alta_is_201_with_the_rc_label_and_the_key_reaches_the_purchase_rpc(
+        self, async_client, purchase_override
+    ):
+        repo, (pool, conn) = purchase_override
+        conn.fetchval = account_roles_fetchval(["stock"])
+        with patch("backend.core.database.pool", pool):
+            resp = await async_client.post("/delivery-notes", json=_purchase_body(), headers=_headers("stock"))
+
+        assert resp.status_code == 201, resp.text
+        body = resp.json()
+        assert body["number_label"] == "RC-00000012" and body["direction"] == "purchase"
+        assert body["supplier_name"] == "Distribuidora Sur" and body["missing_price_count"] == 1
+        assert repo.create_purchase_delivery_note.await_args.kwargs["idempotency_key"] == IDEM_KEY
+        repo.create_delivery_note.assert_not_awaited()
+
+    async def test_the_sale_alta_without_direction_still_goes_to_the_sale_rpc(self, async_client, purchase_override):
+        repo, (pool, conn) = purchase_override
+        with patch("backend.core.database.pool", pool):
+            resp = await async_client.post("/delivery-notes", json=_body(), headers=_headers("seller"))
+        assert resp.status_code == 201, resp.text
+        repo.create_delivery_note.assert_awaited_once()
+        repo.create_purchase_delivery_note.assert_not_awaited()
+
+    async def test_a_purchase_replay_is_200(self, async_client, purchase_override):
+        repo, (pool, conn) = purchase_override
+        repo.create_purchase_delivery_note.return_value = {**_purchase_record(), "replayed": True}
+        with patch("backend.core.database.pool", pool):
+            resp = await async_client.post("/delivery-notes", json=_purchase_body(), headers=_headers("stock"))
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["replayed"] is True
+
+    async def test_a_purchase_alta_without_the_key_is_rejected_before_the_rpc(self, async_client, purchase_override):
+        repo, (pool, conn) = purchase_override
+        with patch("backend.core.database.pool", pool):
+            resp = await async_client.post(
+                "/delivery-notes", json=_purchase_body(), headers=_headers("stock", key=None))
+        assert resp.status_code == 422 and resp.json()["code"] == "idempotency_key_required"
+        repo.create_purchase_delivery_note.assert_not_awaited()
+
+    async def test_purchase_validation_happens_before_the_database(self, async_client, purchase_override):
+        repo, (pool, conn) = purchase_override
+        bad_bodies = [
+            {k: v for k, v in _purchase_body().items() if k != "supplier_id"},
+            {k: v for k, v in _purchase_body().items() if k != "branch_id"},
+            _purchase_body(items=[]),
+            _purchase_body(supplier_reference="r" * 101),
+            _purchase_body(items=[{"quantity": "1", "price": "0", "subtotal": "0"}]),  # línea sin producto
+            _purchase_body(items=[_purchase_item_in(price="-1")]),
+            # un cuerpo de venta que se declara de compra
+            {"direction": "purchase", "client_id": CLIENT_ID, "branch_id": BRANCH_ID, "items": [_purchase_item_in()]},
+            _purchase_body(direction="other"),
+        ]
+        with patch("backend.core.database.pool", pool):
+            for body in bad_bodies:
+                resp = await async_client.post("/delivery-notes", json=body, headers=_headers("stock"))
+                assert resp.status_code == 422, body
+        repo.create_purchase_delivery_note.assert_not_awaited()
+        repo.create_delivery_note.assert_not_awaited()
+
+    async def test_roles_over_http_per_direction(self, async_client, purchase_override):
+        repo, (pool, conn) = purchase_override
+        cancel = (f"/delivery-notes/{DN_ID}/cancel", {"revision": 1, "reason": "Error de carga"})
+        with patch("backend.core.database.pool", pool):
+            # el vendedor no recibe mercadería: ni alta ni edición de compra
+            conn.fetchval = account_roles_fetchval(["seller"])
+            for verb, url, body in (
+                ("post", "/delivery-notes", _purchase_body()),
+                ("put", f"/delivery-notes/{DN_ID}", _purchase_update_body()),
+            ):
+                resp = await getattr(async_client, verb)(url, json=body, headers=_headers("seller"))
+                assert resp.status_code == 403, f"{verb}: {resp.status_code}"
+                assert resp.json()["code"] == "insufficient_role"
+            repo.create_purchase_delivery_note.assert_not_awaited()
+            repo.update_purchase_delivery_note.assert_not_awaited()
+            # el depósito recibe y edita, pero no anula
+            conn.fetchval = account_roles_fetchval(["stock"])
+            created = await async_client.post("/delivery-notes", json=_purchase_body(), headers=_headers("stock"))
+            edited = await async_client.put(
+                f"/delivery-notes/{DN_ID}", json=_purchase_update_body(), headers=_headers("stock"))
+            assert (created.status_code, edited.status_code) == (201, 200), (created.text, edited.text)
+            denied = await async_client.post(*cancel[:1], json=cancel[1], headers=_headers("stock"))
+            assert denied.status_code == 403
+            repo.cancel_delivery_note.assert_not_awaited()
+            # el administrador anula
+            conn.fetchval = account_roles_fetchval(["admin"])
+            allowed = await async_client.post(*cancel[:1], json=cancel[1], headers=_headers("admin"))
+            assert allowed.status_code == 200, allowed.text
+        repo.cancel_delivery_note.assert_awaited_once()
+
+    async def test_a_put_with_the_wrong_direction_is_a_409_problem(self, async_client, purchase_override):
+        repo, (pool, conn) = purchase_override
+        conn.fetchval = account_roles_fetchval(["owner"])
+        repo.get_direction.return_value = "sale"
+        with patch("backend.core.database.pool", pool):
+            resp = await async_client.put(
+                f"/delivery-notes/{DN_ID}", json=_purchase_update_body(), headers=_headers("owner"))
+
+        assert resp.status_code == 409
+        assert resp.headers["content-type"].startswith("application/problem+json")
+        assert resp.json()["code"] == "delivery_note_direction_mismatch"
+        repo.update_purchase_delivery_note.assert_not_awaited()
+
+    async def test_a_sale_put_without_direction_still_goes_to_the_sale_rpc(self, async_client, purchase_override):
+        repo, (pool, conn) = purchase_override
+        repo.get_direction.return_value = "sale"
+        with patch("backend.core.database.pool", pool):
+            resp = await async_client.put(
+                f"/delivery-notes/{DN_ID}", json=_update_body(), headers=_headers("seller"))
+        assert resp.status_code == 200, resp.text
+        repo.update_delivery_note.assert_awaited_once()
+        repo.update_purchase_delivery_note.assert_not_awaited()
+
+    async def test_a_foreign_purchase_note_answers_exactly_like_a_missing_one(self, async_client, purchase_override):
+        repo, (pool, conn) = purchase_override
+        repo.get_delivery_note.return_value = None
+        with patch("backend.core.database.pool", pool):
+            foreign = await async_client.get(f"/delivery-notes/{uuid.uuid4()}", headers=_headers("stock"))
+            missing = await async_client.get(f"/delivery-notes/{uuid.uuid4()}", headers=_headers("stock"))
+            pdf = await async_client.get(f"/delivery-notes/{uuid.uuid4()}/pdf", headers=_headers("stock"))
+        assert foreign.status_code == missing.status_code == pdf.status_code == 404
+        assert foreign.json() == missing.json()
+        assert pdf.json()["code"] == "delivery_note_not_found"
+
+    async def test_the_list_accepts_the_supplier_filter_and_returns_the_missing_price_summary(
+        self, async_client, purchase_override
+    ):
+        repo, (pool, conn) = purchase_override
+        row = {k: v for k, v in _purchase_record().items() if k not in ("items", "history")}
+        row["item_count"] = 2
+        repo.list_delivery_notes.return_value = ([row], 1)
+        repo.pending_summary.return_value = {
+            "pending_count": 1, "pending_total": Decimal("0.00"), "pending_missing_price_count": 1,
+        }
+        with patch("backend.core.database.pool", pool):
+            resp = await async_client.get(
+                f"/delivery-notes?direction=purchase&status=issued&supplier_id={SUPPLIER_ID}&q=RC-12",
+                headers=_headers("viewer", key=None),
+            )
+
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["items"][0]["number_label"] == "RC-00000012"
+        assert body["items"][0]["supplier_name"] == "Distribuidora Sur"
+        assert body["items"][0]["missing_price_count"] == 1
+        assert body["summary"] == {"pending_count": 1, "pending_total": "0.00", "pending_missing_price_count": 1}
+        kwargs = repo.list_delivery_notes.await_args.kwargs
+        assert kwargs["supplier_id"] == SUPPLIER_ID and kwargs["direction"] == "purchase" and kwargs["number"] == 12
+
+    async def test_the_list_rejects_a_non_uuid_supplier(self, async_client, purchase_override):
+        repo, (pool, conn) = purchase_override
+        with patch("backend.core.database.pool", pool):
+            resp = await async_client.get("/delivery-notes?supplier_id=nope", headers=_headers("stock"))
+        assert resp.status_code == 422
+        repo.list_delivery_notes.assert_not_awaited()
+
+    async def test_the_pdf_of_a_purchase_note_is_named_remito_compra(self, async_client, purchase_override):
+        repo, (pool, conn) = purchase_override
+        with patch("backend.core.database.pool", pool):
+            plain = await async_client.get(f"/delivery-notes/{DN_ID}/pdf", headers=_headers("viewer"))
+            priced = await async_client.get(
+                f"/delivery-notes/{DN_ID}/pdf?disposition=attachment&show_prices=true", headers=_headers("viewer"))
+        assert plain.status_code == priced.status_code == 200
+        assert plain.headers["content-disposition"] == 'inline; filename="remito-compra-RC-00000012.pdf"'
+        assert priced.headers["content-disposition"] == (
+            'attachment; filename="remito-compra-RC-00000012-con-precios.pdf"')

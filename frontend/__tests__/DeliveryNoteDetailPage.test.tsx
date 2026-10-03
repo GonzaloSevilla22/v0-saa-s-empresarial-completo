@@ -530,3 +530,257 @@ describe("DeliveryNoteDetailPage — compartir con y sin precios", () => {
     expect(screen.getByRole("switch", { name: /mostrar precios/i })).toBeInTheDocument()
   })
 })
+
+// ══ remitos-compra (D11, tarea 5.6): el detalle de un remito de compra ═════════
+
+function purchaseNote(overrides: Partial<DeliveryNoteApiRow> = {}): DeliveryNoteApiRow {
+  return note({
+    direction: "purchase",
+    number: 7,
+    number_label: "RC-00000007",
+    client_id: null,
+    client_name: null,
+    client_phone: null,
+    supplier_id: "s-1",
+    supplier_name: "Distribuidora Sur",
+    supplier_phone: "2615550000",
+    supplier_reference: "0004-00001234",
+    supplier_deleted: false,
+    missing_price_count: 0,
+    delivery_address: null,
+    items: [item({ id: "i-1", quantity: "10.0000", price: "50.0000", subtotal: "500.0000" })],
+    total: "500.0000",
+    history: [{ from_status: null, to_status: "issued", performed_by: "u-1", occurred_at: "2026-10-02T15:00:00Z", reason: null }],
+    ...overrides,
+  })
+}
+
+function showPurchase(overrides: Partial<DeliveryNoteApiRow> = {}) {
+  mocks.useDeliveryNote.mockReturnValue({ data: purchaseNote(overrides), isLoading: false, isError: false })
+  return render(<DeliveryNoteDetailPage />)
+}
+
+describe("DeliveryNoteDetailPage (compra) — cabecera y contenido", () => {
+  it("muestra el número RC, el estado, el proveedor con enlace a su cuenta, su teléfono y su N° de remito", () => {
+    showPurchase()
+    expect(screen.getByRole("heading", { name: "RC-00000007" })).toBeInTheDocument()
+    expect(screen.getByText("Pendiente")).toBeInTheDocument()
+    expect(screen.getByRole("link", { name: "Distribuidora Sur" })).toHaveAttribute("href", "/proveedores/s-1/cuenta")
+    expect(screen.getByText(/Tel\. 2615550000/)).toBeInTheDocument()
+    expect(screen.getByText("Remito del proveedor:")).toBeInTheDocument()
+    expect(screen.getByText("0004-00001234")).toBeInTheDocument()
+  })
+
+  it("la sucursal se rotula 'Ingresa a:' y no 'Sale de:'", () => {
+    showPurchase()
+    expect(screen.getByText("Ingresa a:")).toBeInTheDocument()
+    expect(screen.queryByText("Sale de:")).not.toBeInTheDocument()
+    expect(screen.getByText("Sucursal Centro")).toBeInTheDocument()
+  })
+
+  it("sin N° del proveedor no inventa la fila", () => {
+    showPurchase({ supplier_reference: null })
+    expect(screen.queryByText("Remito del proveedor:")).not.toBeInTheDocument()
+  })
+
+  it("no hay domicilio de entrega en un remito de compra", () => {
+    showPurchase()
+    expect(screen.queryByText(/entrega en/i)).not.toBeInTheDocument()
+  })
+
+  it("un proveedor dado de baja se muestra sin enlace y con el aviso", () => {
+    showPurchase({ supplier_deleted: true })
+    expect(screen.queryByRole("link", { name: "Distribuidora Sur" })).not.toBeInTheDocument()
+    expect(screen.getByText("Distribuidora Sur")).toBeInTheDocument()
+    expect(screen.getByText(/Proveedor dado de baja/)).toBeInTheDocument()
+  })
+
+  it("las líneas sin precio se rotulan 'Sin precio' y un aviso cuenta cuántas faltan", () => {
+    showPurchase({
+      missing_price_count: 1,
+      items: [
+        item({ id: "i-1", quantity: "10.0000", price: "50.0000", subtotal: "500.0000" }),
+        item({ id: "i-2", name_snapshot: "Queso", quantity: "2.0000", price: "0.0000", subtotal: "0.0000", line_no: 2 }),
+      ],
+    })
+    const rows = within(screen.getByRole("table", { name: /líneas del remito/i })).getAllByRole("row")
+    expect(rows[2]).toHaveTextContent("Queso")
+    expect(rows[2]).toHaveTextContent(/sin precio/i)
+    expect(rows[1]).not.toHaveTextContent(/sin precio/i)
+    expect(screen.getByRole("status", { name: /líneas sin precio/i })).toHaveTextContent(/1 línea sin precio/i)
+  })
+
+  it("con todos los precios cargados no hay aviso ni rótulo", () => {
+    showPurchase()
+    expect(screen.queryByRole("status", { name: /líneas sin precio/i })).not.toBeInTheDocument()
+    expect(screen.queryByText(/sin precio/i)).not.toBeInTheDocument()
+  })
+
+  it("un remito anulado ya no avisa de precios que faltan (no se va a convertir)", () => {
+    showPurchase({ status: "canceled", missing_price_count: 2 })
+    expect(screen.queryByRole("status", { name: /líneas sin precio/i })).not.toBeInTheDocument()
+  })
+
+  it("el enlace de volver lleva al listado DE COMPRA", () => {
+    showPurchase()
+    expect(screen.getByRole("link", { name: /volver al listado/i })).toHaveAttribute("href", "/remitos?sentido=compra")
+  })
+
+  it("el de venta sigue volviendo al listado de venta", () => {
+    render(<DeliveryNoteDetailPage />)
+    expect(screen.getByRole("link", { name: /volver al listado/i })).toHaveAttribute("href", "/remitos")
+  })
+
+  it("el historial rotula el alta como 'Recibido' y el motivo de la anulación", () => {
+    showPurchase({
+      status: "canceled",
+      history: [
+        { from_status: null, to_status: "issued", performed_by: "u-1", occurred_at: "2026-10-02T15:00:00Z", reason: null },
+        { from_status: "issued", to_status: "canceled", performed_by: "u-1", occurred_at: "2026-10-02T16:00:00Z", reason: "El proveedor se llevó todo" },
+      ],
+    })
+    const history = screen.getByRole("list", { name: /historial de estados/i })
+    expect(history).toHaveTextContent("Recibido")
+    expect(history).not.toHaveTextContent("Emitido")
+    expect(history).toHaveTextContent("El proveedor se llevó todo")
+  })
+
+  it("no consulta ninguna orden de venta (no hay) y no muestra comprobante fiscal", () => {
+    showPurchase({ status: "converted", converted_operation_id: "op-9" })
+    expect(mocks.useSalesOrder).toHaveBeenCalledWith(null)
+    expect(screen.queryByTestId("fiscal-summary")).not.toBeInTheDocument()
+  })
+})
+
+describe("DeliveryNoteDetailPage (compra) — estados y avisos", () => {
+  it("un remito anulado dice que el stock SALIÓ de la sucursal y muestra el motivo", () => {
+    showPurchase({
+      status: "canceled",
+      history: [
+        { from_status: null, to_status: "issued", performed_by: "u-1", occurred_at: "2026-10-02T15:00:00Z", reason: null },
+        { from_status: "issued", to_status: "canceled", performed_by: "u-1", occurred_at: "2026-10-02T16:00:00Z", reason: "Se devolvió" },
+      ],
+    })
+    const notice = screen.getByRole("status", { name: /remito anulado/i })
+    expect(notice).toHaveTextContent("Remito anulado: el stock salió de Sucursal Centro.")
+    expect(notice).toHaveTextContent("Motivo: Se devolvió")
+  })
+
+  it("un remito convertido dice que el stock ya se había sumado y explica cómo corregirlo", () => {
+    showPurchase({ status: "converted", converted_operation_id: "op-9" })
+    expect(screen.getByRole("region", { name: /compra generada/i })).toHaveTextContent(
+      "Este remito se convirtió en una compra; el stock ya se había sumado al recibirlo.",
+    )
+    expect(screen.getByText(/eliminá la compra: el remito vuelve a quedar pendiente/i)).toBeInTheDocument()
+    expect(screen.getByText("Convertido en compra")).toBeInTheDocument()
+  })
+})
+
+describe("DeliveryNoteDetailPage (compra) — acciones por estado y rol (D11)", () => {
+  const buttonNames = () => screen.queryAllByRole("button").map((b) => b.textContent ?? "")
+
+  it.each([
+    [["owner"], { edit: true, cancel: true }],
+    [["admin"], { edit: true, cancel: true }],
+    [["stock"], { edit: true, cancel: false }],
+    [["purchases"], { edit: false, cancel: false }],
+    [["seller"], { edit: false, cancel: false }],
+    [["cashier"], { edit: false, cancel: false }],
+    [["viewer"], { edit: false, cancel: false }],
+  ])("pendiente con roles %j: acciones %j (CAN_RECEIVE_PURCHASE y CAN_VOID_DELIVERY_NOTE)", (roles, expected) => {
+    setRoles(roles)
+    showPurchase()
+    expect(!!screen.queryByRole("link", { name: /editar/i })).toBe(expected.edit)
+    expect(!!screen.queryByRole("button", { name: /anular/i })).toBe(expected.cancel)
+  })
+
+  it("compartir está disponible para cualquier miembro, incluso sin permisos de escritura", () => {
+    setRoles(["viewer"])
+    showPurchase()
+    expect(screen.getByRole("group", { name: /menú de compartir/i })).toBeInTheDocument()
+  })
+
+  it("en la tanda A 'Compra' no se muestra (la conversión llega en la tanda B)", () => {
+    showPurchase()
+    expect(screen.queryByRole("button", { name: /^compra$/i })).not.toBeInTheDocument()
+    expect(buttonNames().join("|")).not.toMatch(/Venta/)
+  })
+
+  it("el diálogo de conversión de venta no se monta en un remito de compra", () => {
+    showPurchase()
+    expect(mocks.convertDialog).not.toHaveBeenCalled()
+  })
+
+  it("Editar lleva a la pantalla de edición del remito", () => {
+    showPurchase()
+    expect(screen.getByRole("link", { name: /editar/i })).toHaveAttribute("href", "/remitos/dn-1/editar")
+  })
+
+  it("Anular abre el diálogo de anulación con ESTE remito de compra y Volver lo cierra", () => {
+    showPurchase()
+    fireEvent.click(screen.getByRole("button", { name: /anular/i }))
+    expect(screen.getByRole("dialog", { name: /anular remito/i })).toBeInTheDocument()
+    expect(mocks.cancelDialog.mock.calls.at(-1)?.[0].deliveryNote.id).toBe("dn-1")
+    fireEvent.click(screen.getByRole("button", { name: /cerrar anulación/i }))
+    expect(screen.queryByRole("dialog", { name: /anular remito/i })).not.toBeInTheDocument()
+  })
+
+  it("convertido: compartir y Ver compra, sin Editar ni Anular", () => {
+    showPurchase({ status: "converted", converted_operation_id: "op-9" })
+    expect(screen.getByRole("group", { name: /menú de compartir/i })).toBeInTheDocument()
+    expect(screen.getByRole("link", { name: /ver compra/i })).toHaveAttribute("href", "/compras")
+    expect(screen.queryByRole("link", { name: /editar/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: /anular/i })).not.toBeInTheDocument()
+  })
+
+  it("anulado: sólo compartir", () => {
+    showPurchase({ status: "canceled" })
+    expect(screen.getByRole("group", { name: /menú de compartir/i })).toBeInTheDocument()
+    expect(screen.queryByRole("link", { name: /editar/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: /anular/i })).not.toBeInTheDocument()
+  })
+})
+
+describe("DeliveryNoteDetailPage (compra) — compartir con y sin precios", () => {
+  it("el archivo se llama remito-compra-RC-… y con precios suma el sufijo", () => {
+    showPurchase()
+    expect(screen.getByTestId("share-file")).toHaveTextContent("remito-compra-RC-00000007.pdf")
+    fireEvent.click(screen.getByRole("switch", { name: /mostrar precios/i }))
+    expect(screen.getByTestId("share-file")).toHaveTextContent("remito-compra-RC-00000007-con-precios.pdf")
+  })
+
+  it("el destinatario es el teléfono del PROVEEDOR y el texto confirma la recepción con su N° de remito", () => {
+    showPurchase()
+    expect(screen.getByTestId("share-phone")).toHaveTextContent("2615550000")
+    expect(screen.getByTestId("share-text")).toHaveTextContent(
+      "Hola Distribuidora Sur, te confirmo la recepción de la mercadería del remito RC-00000007 (tu remito N° 0004-00001234) el 02/10/2026. Kiosco Lola",
+    )
+  })
+
+  it("por defecto el PDF se pide sin precios; con el switch encendido, con precios", () => {
+    showPurchase()
+    fireEvent.click(screen.getByRole("button", { name: /descargar \(mock\)/i }))
+    expect(mocks.fetchPdf).toHaveBeenLastCalledWith("dn-1", "attachment", false)
+    fireEvent.click(screen.getByRole("switch", { name: /mostrar precios/i }))
+    fireEvent.click(screen.getByRole("button", { name: /descargar \(mock\)/i }))
+    expect(mocks.fetchPdf).toHaveBeenLastCalledWith("dn-1", "attachment", true)
+  })
+
+  it("sin teléfono del proveedor avisa cómo cargarlo, con enlace a /proveedores", () => {
+    showPurchase({ supplier_phone: null })
+    expect(screen.getByText(/Agregá el teléfono del proveedor para enviárselo por WhatsApp/)).toBeInTheDocument()
+    expect(screen.getByRole("link", { name: /proveedores/i })).toHaveAttribute("href", "/proveedores")
+    expect(screen.getByTestId("share-phone")).toHaveTextContent("")
+  })
+
+  it("con teléfono no muestra el aviso", () => {
+    showPurchase()
+    expect(screen.queryByText(/Agregá el teléfono del proveedor/)).not.toBeInTheDocument()
+  })
+
+  it("el remito de venta sin teléfono del cliente no muestra el aviso del proveedor", () => {
+    mocks.useDeliveryNote.mockReturnValue({ data: note({ client_phone: null }), isLoading: false, isError: false })
+    render(<DeliveryNoteDetailPage />)
+    expect(screen.queryByText(/teléfono del proveedor/i)).not.toBeInTheDocument()
+  })
+})

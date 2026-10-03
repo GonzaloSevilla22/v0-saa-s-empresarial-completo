@@ -7,7 +7,7 @@ import { NumericInput } from "@/components/ui/numeric-input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Checkbox } from "@/components/ui/checkbox"
-import { SearchableSelect } from "@/components/ui/searchable-select"
+import { SupplierSelect } from "@/components/suppliers/SupplierSelect"
 import { CartItemList } from "@/components/shared/cart-item-list"
 import { BarcodeScannerInput } from "@/components/shared/barcode-scanner-input"
 import { useProducts } from "@/hooks/data/use-products"
@@ -39,10 +39,9 @@ import { useIdempotencyKey } from "@/hooks/use-idempotency-key"
 import { argentinaToday } from "@/lib/date-range"
 import { ScrollableCartShell } from "@/components/shared/scrollable-cart-shell"
 import { getCanonicalLabel } from "@/lib/product-labels"
-import { getErrorMessage } from "@/lib/errors"
 import { humanizeOperationError } from "@/lib/operation-errors"
 import { ProductPicker } from "@/components/shared/product-picker"
-import { Plus, PackagePlus, ShoppingCart, CalendarIcon, Ruler, UserPlus, AlertCircle } from "lucide-react"
+import { Plus, PackagePlus, ShoppingCart, CalendarIcon, Ruler, AlertCircle } from "lucide-react"
 import { toast } from "sonner"
 import { BranchSelect } from "@/components/branches/BranchSelect"
 import { CostCenterSelect } from "@/components/cost-centers/CostCenterSelect"
@@ -74,7 +73,7 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
   // SaleForm — combobox buscable + alta inline.
   // review C (F1): isLoading/isError entran al cálculo del hint de "proveedor
   // dado de baja" — sin ellos, "todavía no llegó" se leía como "no existe".
-  const { suppliers, addSupplier, isLoading: suppliersLoading, isError: suppliersError } = useSuppliers()
+  const { suppliers, isLoading: suppliersLoading, isError: suppliersError } = useSuppliers()
   const queryClient = useQueryClient()
   const { user }    = useAuth()
   const refreshData = () => queryClient.invalidateQueries()
@@ -124,10 +123,6 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
   const [newProductCost, setNewProductCost] = useState(0)
   const [newProductPrice, setNewProductPrice] = useState(0)
   const [newProductMinStock, setNewProductMinStock] = useState(10)
-
-  // ── Inline new supplier (D10/task 12.3) ─────────────────────────────────────
-  const [showNewSupplier, setShowNewSupplier] = useState(false)
-  const [newSupplierName, setNewSupplierName] = useState("")
 
   // ── Operation date ──────────────────────────────────────────────────────────
   const [date, setDate] = useState(() => editingOperation?.date ?? argentinaToday())
@@ -258,11 +253,6 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
   const submitBlockedNoSupplier = isEdit
     ? creditBlockedNoSupplier && creditContractTouched
     : creditBlockedNoSupplier
-
-  const supplierOptions = useMemo(
-    () => suppliers.map((s) => ({ value: s.id, label: s.name })),
-    [suppliers],
-  )
 
   // review B (F2): el selector no puede resolver el supplierId prefillado —
   // típicamente un proveedor dado de baja (soft delete, RN-B1: sale de
@@ -576,27 +566,15 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
     setNewProductMinStock(10)
   }
 
-  // compras-proveedor-cuenta-corriente (D10/task 12.3): crea el proveedor y
-  // lo preselecciona sin perder los ítems ya cargados en el carrito — el
-  // estado del carrito no se toca acá.
-  async function handleCreateSupplier() {
-    if (!newSupplierName.trim()) {
-      toast.error("El nombre del proveedor es obligatorio")
-      return
-    }
-    try {
-      const created = await addSupplier({ name: newSupplierName.trim(), email: "", phone: "" })
-      setSupplierId(created.id)
-      // review B (F2): el alta inline CUENTA como "tocar" el selector — sin
-      // esto, crear un proveedor nuevo durante la edición no lo enviaría en
-      // el payload (mismo bug que dejar el selector intacto).
-      setSupplierTouched(true)
-      toast.success(`Proveedor "${newSupplierName}" creado`)
-      setShowNewSupplier(false)
-      setNewSupplierName("")
-    } catch (err: unknown) {
-      toast.error(getErrorMessage(err, "Error al crear el proveedor"))
-    }
+  // remitos-compra (tarea 4.3): el selector con alta inline vive en
+  // `components/suppliers/SupplierSelect.tsx`. Elegir, limpiar y el alta inline
+  // CUENTAN como "tocar" el selector (review B F2): de ahora en más supplierId
+  // viaja en el payload de edición, reimputado o desimputado según lo que el
+  // usuario eligió — sin esto, crear un proveedor nuevo durante la edición no lo
+  // enviaría (mismo bug que dejar el selector intacto).
+  function handleSupplierChange(nextSupplierId: string | null) {
+    setSupplierId(nextSupplierId)
+    setSupplierTouched(true)
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -859,76 +837,16 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
         )}
 
         {/* ── Proveedor (compras-proveedor-cuenta-corriente D10) ────────────
-            Combobox buscable + alta inline, molde del selector de cliente
-            de SaleForm. */}
-        <div className="flex flex-col gap-2">
-          <div className="flex items-center justify-between">
-            {/* review B (F7): id explícito + aria-labelledby en el selector
-                de abajo, en vez de aria-label a secas — el nombre accesible
-                combina "Proveedor" con el valor visible (placeholder o
-                proveedor elegido) en lugar de reemplazarlo. */}
-            <Label id="purchase-supplier-label" className="text-foreground">Proveedor</Label>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="h-6 text-xs text-primary"
-              onClick={() => setShowNewSupplier(!showNewSupplier)}
-            >
-              <UserPlus className="h-3 w-3 mr-1" />
-              {showNewSupplier ? "Cancelar" : "Nuevo proveedor"}
-            </Button>
-          </div>
-
-          {showNewSupplier ? (
-            <div className="rounded-lg border border-border bg-accent/30 p-3 flex flex-col gap-2">
-              <Input
-                selectOnFocus
-                value={newSupplierName}
-                onChange={(e) => setNewSupplierName(e.target.value)}
-                placeholder="Nombre del proveedor"
-                className="bg-background border-border text-foreground text-sm"
-              />
-              <Button
-                type="button"
-                size="sm"
-                variant="secondary"
-                onClick={handleCreateSupplier}
-                className="w-full"
-              >
-                <Plus className="h-3 w-3 mr-1" />
-                Crear y seleccionar
-              </Button>
-            </div>
-          ) : (
-            <>
-              <SearchableSelect
-                options={supplierOptions}
-                value={supplierId ?? ""}
-                onValueChange={(v) => {
-                  setSupplierId(v || null)
-                  // review B (F2): tocar el selector — de ahora en más
-                  // supplierId viaja siempre en el payload de edición,
-                  // reimputado o desimputado según lo que el usuario eligió.
-                  setSupplierTouched(true)
-                }}
-                placeholder="Seleccionar proveedor"
-                searchPlaceholder="Buscar proveedor..."
-                emptyMessage="No se encontraron proveedores."
-                aria-labelledby="purchase-supplier-label"
-              />
-              {/* review B (F2): el selector cae al placeholder en silencio
-                  cuando supplierId no resuelve en la lista (proveedor dado
-                  de baja) — este hint explica por qué, en vez de dejarlo
-                  parecer "sin elegir". */}
-              {supplierUnresolved && (
-                <p className="text-xs text-muted-foreground">
-                  Proveedor actual no disponible (dado de baja)
-                </p>
-              )}
-            </>
-          )}
-        </div>
+            Combobox buscable + alta inline: `SupplierSelect` (compartido con el
+            remito de compra). El aviso explica por qué el selector cae al
+            placeholder cuando supplierId no resuelve en la lista (proveedor
+            dado de baja). */}
+        <SupplierSelect
+          value={supplierId}
+          onChange={handleSupplierChange}
+          labelId="purchase-supplier-label"
+          unresolvedHint={supplierUnresolved ? "Proveedor actual no disponible (dado de baja)" : null}
+        />
 
         {/* ── Bloque de cuenta corriente (D6/OQ-D) ───────────────────────────
             Mismo patrón visual que SaleForm: cliente→proveedor obligatorio +

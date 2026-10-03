@@ -229,3 +229,153 @@ describe("StockMovementsPanel — exportación CSV con el mismo rótulo", () => 
     expect(csv).not.toContain("R-")
   })
 })
+
+// ══ remitos-compra (D11, tarea 5.9): los movimientos del remito de COMPRA ══════
+//
+// El rótulo y el enlace ya salen de `movementLabel` (prefijo por sentido en
+// `formatDeliveryNoteNumber`): estas pruebas fijan que una entrada por recepción, el
+// par de una edición y una anulación de compra se leen "Remito RC-…", "Edición de
+// remito RC-…" y "Anulación de remito RC-…", con el sentido del `type` intacto.
+
+describe("MovementRow — rótulo del remito de compra", () => {
+  const purchaseRefs = new Map([["dn-7", { number: 7, direction: "purchase" as const }]])
+  const purchase = (overrides: Partial<StockMovement> = {}) =>
+    movement({
+      id: "m-p1",
+      type: "purchase",
+      quantityDelta: 10,
+      quantityBefore: 0,
+      quantityAfter: 10,
+      referenceId: "dn-7",
+      referenceType: "delivery_note",
+      ...overrides,
+    })
+
+  it("la recepción: 'Remito RC-00000007' con enlace al remito y la cantidad que ENTRA", () => {
+    render(<MovementRow m={purchase()} deliveryNotes={purchaseRefs} />)
+    const link = screen.getByRole("link", { name: "Remito RC-00000007" })
+    expect(link).toHaveAttribute("href", "/remitos/dn-7")
+    expect(screen.getByText("+10")).toBeInTheDocument()
+    expect(screen.queryByText("Compra")).not.toBeInTheDocument()
+  })
+
+  it("el par de una edición: la pata que resta ('purchase_return') y la que suma ('purchase') dicen 'Edición de remito RC-…'", () => {
+    const { unmount } = render(
+      <MovementRow m={purchase({ type: "purchase_return", referenceType: "delivery_note_update", quantityDelta: -10 })} deliveryNotes={purchaseRefs} />,
+    )
+    expect(screen.getByRole("link", { name: "Edición de remito RC-00000007" })).toBeInTheDocument()
+    expect(screen.getByText("-10")).toBeInTheDocument()
+    unmount()
+    render(
+      <MovementRow m={purchase({ type: "purchase", referenceType: "delivery_note_update", quantityDelta: 14 })} deliveryNotes={purchaseRefs} />,
+    )
+    expect(screen.getByRole("link", { name: "Edición de remito RC-00000007" })).toBeInTheDocument()
+    expect(screen.getByText("+14")).toBeInTheDocument()
+  })
+
+  it("la anulación: 'Anulación de remito RC-…' y la cantidad que SALE", () => {
+    render(
+      <MovementRow m={purchase({ type: "purchase_return", referenceType: "delivery_note_reversal", quantityDelta: -10 })} deliveryNotes={purchaseRefs} />,
+    )
+    expect(screen.getByRole("link", { name: "Anulación de remito RC-00000007" })).toHaveAttribute("href", "/remitos/dn-7")
+    expect(screen.getByText("-10")).toBeInTheDocument()
+  })
+
+  it("entrada y salida conservan la insignia de su type: no se confunden aunque el rótulo sea parecido", () => {
+    const { container, unmount } = render(<MovementRow m={purchase()} deliveryNotes={purchaseRefs} />)
+    const inbound = container.querySelector("span.inline-flex")?.className
+    unmount()
+    const outbound = render(
+      <MovementRow m={purchase({ type: "purchase_return", referenceType: "delivery_note_reversal", quantityDelta: -10 })} deliveryNotes={purchaseRefs} />,
+    ).container.querySelector("span.inline-flex")?.className
+    expect(inbound).toBeTruthy()
+    expect(outbound).toBeTruthy()
+    expect(inbound).not.toBe(outbound)
+  })
+
+  it("sin número resuelto dice 'Remito' y conserva el enlace (igual que en venta)", () => {
+    render(<MovementRow m={purchase()} />)
+    expect(screen.getByRole("link", { name: "Remito" })).toHaveAttribute("href", "/remitos/dn-7")
+  })
+
+  it("el número se formatea con el sentido del REMITO, no con el del type del movimiento", () => {
+    // Una anulación de compra tiene type 'purchase_return': sigue siendo RC- porque el remito es de compra.
+    const mixed = new Map([
+      ["dn-7", { number: 7, direction: "purchase" as const }],
+      ["dn-1", { number: 12, direction: "sale" as const }],
+    ])
+    render(
+      <>
+        <MovementRow m={purchase({ id: "m-a", type: "purchase_return", referenceType: "delivery_note_reversal", quantityDelta: -3 })} deliveryNotes={mixed} />
+        <MovementRow m={movement({ id: "m-b", type: "sale_return", referenceType: "delivery_note_reversal", referenceId: "dn-1", quantityDelta: 3 })} deliveryNotes={mixed} />
+      </>,
+    )
+    expect(screen.getByRole("link", { name: "Anulación de remito RC-00000007" })).toBeInTheDocument()
+    expect(screen.getByRole("link", { name: "Anulación de remito R-00000012" })).toBeInTheDocument()
+  })
+})
+
+describe("StockMovementsPanel — remitos de compra y de venta en la misma página", () => {
+  it("resuelve los dos sentidos con UNA consulta a delivery_notes y rotula cada fila con su prefijo", async () => {
+    mocks.results.stock_movements = {
+      data: [
+        row({ id: "m-1", reference_id: "dn-7", reference_type: "delivery_note", type: "purchase", quantity_delta: "10", product_name: "Harina" }),
+        row({ id: "m-2", reference_id: "dn-1", reference_type: "delivery_note", type: "sale", quantity_delta: "-2" }),
+        row({ id: "m-3", reference_id: "dn-7", reference_type: "delivery_note_reversal", type: "purchase_return", quantity_delta: "-10", product_name: "Harina" }),
+      ],
+      error: null,
+    }
+    mocks.results.delivery_notes = {
+      data: [
+        { id: "dn-7", number: 7, direction: "purchase" },
+        { id: "dn-1", number: 12, direction: "sale" },
+      ],
+      error: null,
+    }
+    render(<StockMovementsPanel />)
+    fireEvent.click(screen.getByRole("button", { name: /historial de movimientos/i }))
+
+    expect(await screen.findByRole("link", { name: "Remito RC-00000007" })).toHaveAttribute("href", "/remitos/dn-7")
+    expect(screen.getByRole("link", { name: "Remito R-00000012" })).toHaveAttribute("href", "/remitos/dn-1")
+    expect(screen.getByRole("link", { name: "Anulación de remito RC-00000007" })).toBeInTheDocument()
+
+    const calls = mocks.inCalls.filter((c) => c.table === "delivery_notes")
+    expect(calls).toHaveLength(1)
+    expect([...(calls[0].values as string[])].sort()).toEqual(["dn-1", "dn-7"])
+  })
+
+  it("la exportación CSV usa el mismo rótulo de compra en la columna 'Tipo'", async () => {
+    mocks.results.stock_movements = {
+      data: [
+        row({ id: "m-1", reference_id: "dn-7", reference_type: "delivery_note", type: "purchase", quantity_delta: "10", product_name: "Harina" }),
+        row({ id: "m-3", reference_id: "dn-7", reference_type: "delivery_note_reversal", type: "purchase_return", quantity_delta: "-10", product_name: "Harina" }),
+        row({ id: "m-4", reference_id: "p-9", reference_type: "purchase", type: "purchase", quantity_delta: "5", product_name: "Aceite" }),
+      ],
+      error: null,
+    }
+    mocks.results.delivery_notes = { data: [{ id: "dn-7", number: 7, direction: "purchase" }], error: null }
+    render(<StockMovementsPanel />)
+    fireEvent.click(screen.getByRole("button", { name: /historial de movimientos/i }))
+    await screen.findByRole("link", { name: "Remito RC-00000007" })
+
+    let captured: Blob | null = null
+    vi.spyOn(URL, "createObjectURL").mockImplementation((blob) => {
+      captured = blob as Blob
+      return "blob:test"
+    })
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined)
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined)
+    fireEvent.click(screen.getByTitle("Exportar CSV"))
+    const csv = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(String(reader.result))
+      reader.onerror = () => reject(reader.error)
+      reader.readAsText(captured as unknown as Blob)
+    })
+    const lines = csv.split("\n")
+    expect(lines.find((l) => l.includes('"Harina"') && l.includes("Anulación"))).toContain('"Anulación de remito RC-00000007"')
+    expect(lines.find((l) => l.includes('"Harina"') && !l.includes("Anulación"))).toContain('"Remito RC-00000007"')
+    // Una compra directa (no es de un remito) conserva su rótulo de siempre.
+    expect(lines.find((l) => l.includes('"Aceite"'))).toContain('"Compra"')
+  })
+})

@@ -14,10 +14,11 @@ import re
 
 # Prefijo visible por TIPO DE SECUENCIA (no por tabla): el remito de venta
 # (`delivery_note_sale`) numera con su propia secuencia y su prefijo `R`; el de
-# compra (`remitos-compra`) sumará el suyo, DISTINTO de `R` (cada sentido numera
-# desde 1: con el mismo prefijo los dos mostrarían `R-00000001`). Un tipo sin
-# prefijo declarado se rechaza en vez de inventar uno.
-_PREFIX_BY_TYPE = {"quote": "P", "delivery_note_sale": "R"}
+# compra (`delivery_note_purchase`, remitos-compra D2) con la suya y el prefijo
+# `RC`, DISTINTO de `R` (cada sentido numera desde 1: con el mismo prefijo los
+# dos mostrarían `R-00000001`). Un tipo sin prefijo declarado se rechaza en vez
+# de inventar uno.
+_PREFIX_BY_TYPE = {"quote": "P", "delivery_note_sale": "R", "delivery_note_purchase": "RC"}
 
 _PAD = 8
 
@@ -39,7 +40,7 @@ _QUERY_BY_TYPE = {
 
 
 def format_internal_document_number(document_type: str, number: int | None) -> str | None:
-    """`quote`, 12 -> `P-00000012`; `delivery_note_sale`, 12 -> `R-00000012`. Un número de más de 8 dígitos no se trunca.
+    """`quote`, 12 -> `P-00000012`; `delivery_note_sale`, 12 -> `R-00000012`; `delivery_note_purchase`, 12 -> `RC-00000012`. Un número de más de 8 dígitos no se trunca.
 
     `None` (documento escrito bajo `session_replication_role = replica`, sin
     número) no tiene etiqueta.

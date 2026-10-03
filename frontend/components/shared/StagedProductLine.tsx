@@ -11,6 +11,13 @@
  * de la línea (revisión adversarial F3 del PR #608: la copia inline de la venta
  * se migró acá para que no diverjan).
  *
+ * remitos-compra (D11): `priceSource` elige de dónde sale el precio que se
+ * precarga. `"price"` (default) es el de venta — venta y presupuesto no cambian;
+ * `"cost"` es el costo del catálogo, para el remito de COMPRA (la mercadería se
+ * recibe a lo que cuesta). En compra el "Cat." compara contra el costo, el
+ * descuento no existe (la compra no lo tiene) y una línea en 0 avisa que lo vas a
+ * poder cargar antes de convertir el remito en compra.
+ *
  * El componente es dueño del estado del renglón en preparación y no sabe nada
  * del carrito: al agregar llama a `onAdd(staged)` y sólo limpia el renglón si el
  * llamador lo aceptó (devuelve `true`). `selectProduct(id)` lo expone para el
@@ -32,7 +39,14 @@ import { Label } from "@/components/ui/label"
 import { NumericInput } from "@/components/ui/numeric-input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { ProductPicker } from "@/components/shared/product-picker"
-import { calcSaleSubtotal, unitPriceFromSubtotal, type StagedCartLine } from "@/lib/cart-utils"
+import {
+  calcSaleSubtotal,
+  catalogPriceOf,
+  unitPriceFromSubtotal,
+  type CartPriceSource,
+  type StagedCartLine,
+} from "@/lib/cart-utils"
+import { PURCHASE_LINE_NO_PRICE_NOTICE } from "@/lib/delivery-note-form"
 import { formatMoney, type Currency } from "@/lib/format"
 import {
   compatibleUnits,
@@ -62,11 +76,24 @@ interface StagedProductLineProps {
   title?: string
   /** Se muestra a la derecha del título (p. ej. el indicador del lector de códigos). */
   headerSlot?: React.ReactNode
+  /** De dónde sale el precio precargado: `"price"` (default, venta) o `"cost"` (remito de compra). */
+  priceSource?: CartPriceSource
 }
 
 export const StagedProductLine = forwardRef<StagedProductLineHandle, StagedProductLineProps>(
   function StagedProductLine(
-    { products, productById, units, unitsById, currency, onAdd, addLabel = "Agregar al carrito", title = "Agregar producto", headerSlot },
+    {
+      products,
+      productById,
+      units,
+      unitsById,
+      currency,
+      onAdd,
+      addLabel = "Agregar al carrito",
+      title = "Agregar producto",
+      headerSlot,
+      priceSource = "price",
+    },
     ref,
   ) {
     const uid = useId()
@@ -89,11 +116,20 @@ export const StagedProductLine = forwardRef<StagedProductLineHandle, StagedProdu
     )
     const unitOptions = useMemo(() => compatibleUnits(units, productBaseUnit), [units, productBaseUnit])
 
-    // Contrato D-F: el precio de catálogo está en la unidad BASE; el aviso
-    // "Cat." lo compara re-expresado a la unidad de la línea.
+    const costMode = priceSource === "cost"
+
+    // Contrato D-F: el precio de catálogo (de venta, o el costo en compra) está
+    // en la unidad BASE; el aviso "Cat." lo compara re-expresado a la unidad de
+    // la línea.
     const catalogPriceForLine = useMemo(
-      () => convertUnitPrice(selectedProduct?.price ?? 0, productBaseUnit, selectedUnit, productBaseUnit),
-      [selectedProduct, productBaseUnit, selectedUnit],
+      () =>
+        convertUnitPrice(
+          selectedProduct ? catalogPriceOf(selectedProduct, priceSource) : 0,
+          productBaseUnit,
+          selectedUnit,
+          productBaseUnit,
+        ),
+      [selectedProduct, productBaseUnit, selectedUnit, priceSource],
     )
     const stagedStep = useMemo(() => unitInputStep(selectedUnit), [selectedUnit])
     const stagedMin = useMemo(() => unitInputMin(selectedUnit), [selectedUnit])
@@ -122,9 +158,9 @@ export const StagedProductLine = forwardRef<StagedProductLineHandle, StagedProdu
         setUnitId(nextUnitId)
         // La cantidad arranca en el mínimo de la unidad base (0,001 para medibles).
         setQuantity(unitInputMin(resolveUnit(nextUnitId, unitsById)))
-        setUnitPrice(p?.price ?? 0)
+        setUnitPrice(p ? catalogPriceOf(p, priceSource) : 0)
       },
-      [products, unitsById],
+      [products, unitsById, priceSource],
     )
 
     useImperativeHandle(
@@ -174,7 +210,7 @@ export const StagedProductLine = forwardRef<StagedProductLineHandle, StagedProdu
           <div className="flex flex-col gap-2">
             <div className="flex flex-col gap-1">
               <Label htmlFor={priceId} className="text-[10px] text-muted-foreground flex items-center justify-between">
-                Precio unit.
+                {costMode ? "Precio de compra unit." : "Precio unit."}
                 {unitPrice !== catalogPriceForLine && (
                   <span className="text-[9px] text-warning tabular-nums">
                     Cat. {formatMoney(catalogPriceForLine, currency)}
@@ -189,6 +225,11 @@ export const StagedProductLine = forwardRef<StagedProductLineHandle, StagedProdu
                 onValueChange={setUnitPrice}
                 className="bg-background border-border text-foreground"
               />
+              {costMode && unitPrice === 0 && (
+                <p role="status" className="text-[11px] text-warning">
+                  {PURCHASE_LINE_NO_PRICE_NOTICE}
+                </p>
+              )}
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -241,21 +282,23 @@ export const StagedProductLine = forwardRef<StagedProductLineHandle, StagedProdu
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              <div className="flex flex-col gap-1">
-                <Label htmlFor={discountId} className="text-[10px] text-muted-foreground">
-                  Descuento (%)
-                </Label>
-                <NumericInput
-                  id={discountId}
-                  min={0}
-                  max={100}
-                  value={discount}
-                  onValueChange={setDiscount}
-                  placeholder="0"
-                  className="bg-background border-border text-foreground"
-                />
-              </div>
+            <div className={costMode ? "grid grid-cols-1 gap-2" : "grid grid-cols-1 sm:grid-cols-2 gap-2"}>
+              {!costMode && (
+                <div className="flex flex-col gap-1">
+                  <Label htmlFor={discountId} className="text-[10px] text-muted-foreground">
+                    Descuento (%)
+                  </Label>
+                  <NumericInput
+                    id={discountId}
+                    min={0}
+                    max={100}
+                    value={discount}
+                    onValueChange={setDiscount}
+                    placeholder="0"
+                    className="bg-background border-border text-foreground"
+                  />
+                </div>
+              )}
               <div className="flex flex-col gap-1">
                 <Label htmlFor={subtotalId} className="text-[10px] text-muted-foreground flex items-center justify-between">
                   Subtotal

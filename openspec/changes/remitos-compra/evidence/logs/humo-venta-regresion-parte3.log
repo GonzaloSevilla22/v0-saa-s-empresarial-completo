@@ -1,0 +1,18 @@
+PASS  (a) remito emitido con el número siguiente (R-00000001 en cuenta limpia)  -> R-00000018|issued|rev1|56950854-2607-4eab-a360-d46c6a52ad82
+PASS  (a) stock baja exacto (harina -2,5; alfajor -4)  -> h 63.5->61 a 100010->100006
+PASS  (a) 2 movimientos sale/delivery_note con referencia al remito  -> sale/delivery_note:-4 sale/delivery_note:-2.5
+PASS  (a) /stock muestra "Remito R-…" en el historial de movimientos  -> 22 filas
+PASS  (d) la edición paralela por API entra (200)  -> 200
+PASS  (d) cartel "Remito modificado" con recarga, sin escribir nada  -> stock 100004->100001->100001 R-00000019|issued|rev2|56950854-2607-4eab-a360-d46c6a52ad82
+PASS  (d) tras recargar, el formulario muestra lo que dejó el otro usuario (5)  -> cantidad 5
+PASS  (h) vendedor: ve el remito y Editar, pero NO "Anular"
+PASS  (h) vendedor: puede abrir "Nuevo remito"
+FAIL  (h) el paso terminó sin excepción  -> TimeoutError: locator.fill: Timeout 30000ms exceeded.
+PASS  (k) formulario de venta: se registra la venta y baja el stock 1  -> sales 8->9 stock 100000->99999
+PASS  (k) el movimiento de la venta sigue siendo sale/sale (no es de remito)  -> sale/sale
+PASS  (k) POS: se registra la venta y baja el stock 1  -> stock 99999->99998
+PASS  (k) presupuesto: se crea (201)  -> 201
+FAIL  (k) el paso terminó sin excepción  -> TimeoutError: locator.waitFor: Timeout 120000ms exceeded.
+console errors: ["Failed to load resource: the server responded with a status of 409 (Conflict)","Failed to load resource: the server responded with a status of 404 (Not Found)","Failed to load resource: the server responded with a status of 404 (Not Found)","Failed to load resource: net::ERR_CONTENT_LENGTH_MISMATCH","pageerror: ChunkLoadError: Failed to load chunk /_next/static/chunks/frontend_app_layout_tsx_1fdc44bd._.js from module [project]/node_modules/.pnpm/next@16.1.6_@playwright+tes_645e4bef3b29e39a67094664bbe8be3a/no"]
+RESUMEN humo: 13/15 PASS
+FALLAN: (h) el paso terminó sin excepción | (k) el paso terminó sin excepción

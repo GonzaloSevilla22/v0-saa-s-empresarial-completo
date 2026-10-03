@@ -1,0 +1,8 @@
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=1c99fd32-9e8b-484a-9f3d-c21237614878
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=9cb863ab-f1fe-484b-8bfa-a43214bb00e7
+  iter 1: PASS (c1 esperó a c2, P0404 tras el commit, 0 comprobantes en el PV inactivo)
+  iter 2: PASS (c1 esperó a c2, P0404 tras el commit, 0 comprobantes en el PV inactivo)
+  iter 3: PASS (c1 esperó a c2, P0404 tras el commit, 0 comprobantes en el PV inactivo)
+  iter 4: PASS (c1 esperó a c2, P0404 tras el commit, 0 comprobantes en el PV inactivo)
+  iter 5: PASS (c1 esperó a c2, P0404 tras el commit, 0 comprobantes en el PV inactivo)
+GATE PUNTO-VENTA-PREDETERMINADO-RACE FAILED: (iter 6) nunca se vio a c1 esperando sobre c2 (pg_blocking_pids) — INCONCLUSO

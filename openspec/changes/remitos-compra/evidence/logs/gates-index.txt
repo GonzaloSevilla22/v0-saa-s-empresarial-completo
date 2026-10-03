@@ -1,0 +1,109 @@
+005	Verify G1/G4 migrations are idempotent on reapply
+006	Run deterministic KPI tests
+007	Run edge case KPI tests
+008	Run function ACL anti-regression gate
+009	Run ERRCODE 5-char anti-regression gate
+010	Run idempotency ledger invariants
+011	Run sale_items_rpc_v2 activation gates
+012	Run operation edit lines gates
+013	Run stock movements edicion gates
+014	Run payment methods catalog gates
+015	Run payment methods seed gates
+016	Run payment method operations gates
+017	Run payment method report gates
+018	Run pos-catalogo-pagos vocabulary gates
+019	Run confirm-core integrity gate (regresión de julio 2026)
+020	Run pos-catalogo-pagos RPC signature gates
+021	Run pos-catalogo-pagos confirm + payment method gates
+022	Run analytics events revival gates
+023	Run admin KPI refresh gates
+024	Run community interactions gates
+025	Run backend table/function reference gate
+026	Run frontend table/function reference gate
+027	Run internal logs retention gates
+028	Run edicion-preserva-contexto gates
+029	Run pagos-cableados-restantes gates
+030	Run pos-banco-movimientos gates
+031	Run asiento-venta-formulario gates
+032	Run delete-guard-ledgers gates
+033	Run banco-caja-historial-ajustes gates
+034	Run cuentas-billetera-tipo gates
+035	Run compras-proveedor-cuenta-corriente gates
+036	Run tenancy RLS role gates (v31-tenancy-pool-rls Paso 2)
+037	Run cuenta-corriente-party-guard gates
+038	Run outbox single-dispatcher gates
+039	Run tenancy-guard-caja-outbox gates
+040	Run sucursal-guard-vaciado-auditoria gates
+041	Run gastos-forma-pago gates
+042	Run qa-integral-modulos fix gates
+043	Run caja-compras-cobranzas cash movement types gate
+044	Run caja-compras-cobranzas purchase cash opt-in gate
+045	Run caja-compras-cobranzas party payment cash gate
+046	Run caja-compras-cobranzas purchase delete cash compensation gate
+047	Run cobranzas-panel receivables report gate
+048	Run cobranzas-vencimientos schema and cascade gate
+049	Run receivables aging FIFO gate
+050	Run receivables overdue digest gate
+051	Run productos-categorias-sku catalog gate
+052	Run productos-categoria-text-retiro category derived gate
+053	Run productos-categorias-sku SKU uniqueness scope gate
+054	Run productos-categorias-sku bulk upsert gate
+055	Run productos-categorias-sku seed and backfill gate
+056	Run estadisticas-ventas gates
+057	Run estadisticas-ventas E2 gates
+058	Run estadisticas-ventas E3 gates
+059	Run subscription-webhook-idempotency-contract gate
+060	Run receipts-subscription-charges gate
+061	Run products barcode account-scope gate
+062	Run charge due-date update gate
+063	Run bank default destination gate
+064	Run anon table writes revoked gate
+065	Run c30 party movement helpers ACL gate
+066	Run get_account_ids_for_user guard gate
+067	Run dashboard critical stock items gate
+068	Run expense import batch gate
+069	Run productos-costo-nullable gate
+070	Run asiento contable de gastos gate
+071	Run cobranzas reverso gate
+072	Run importador-productos-fastapi gate
+073	Run importador-gate-plan gate
+074	Run operacion-party-guard gate
+075	Run v3-rbac-multirole account role catalog gate
+076	Run v3-rbac-multirole account member roles pivot gate
+077	Run v3-rbac-multirole account owner invariant gate
+078	Run v3-rbac-multirole membership RPCs pivot rewrite gate
+079	Run v3-rbac-multirole is_account_writer pivot gate
+080	Run v3-rbac-multirole custom access token hook account_roles gate
+081	Run v3-rbac-multirole hook D8 degrade probe (real supabase_auth_admin role)
+082	Run v3-rbac-multirole document status transition role matrix gate
+083	Run v3-rbac-multirole role expiry audit sweep gate
+084	Run v3-rbac-multirole member role assignment RPCs gate
+085	Run v3-rbac-multirole invite member roles and plan gate removal gate
+086	Run auth-hardening accept invitation email binding gate
+087	Run auth-hardening realtime publication gate
+088	Run accounts/profiles privilege columns gate
+089	Run fiscal emision segura gate
+090	Run fiscal emit consumidor final gate
+091	Run venta editable sin CAE gate
+092	Run ventas unidades conversion gate
+093	Run ventas unidades conversion race gate (dos conexiones)
+094	Run venta editable sin CAE race gate (dos conexiones)
+095	Run facturar venta manual gate
+096	Run facturar venta manual race gate (dos conexiones)
+097	Run punto de venta predeterminado gate
+098	Run punto de venta predeterminado race gate (dos conexiones)
+099	Run factura fiscal imprimible gate
+100	Run unidades decisiones 8 y 9 gate
+101	Run balanza etiquetas POS gate
+102	Run ventas formulario sucursal gate
+103	Run presupuestos modulo gate
+104	Run internal document numbering race gate
+105	Run presupuesto a venta gate
+106	Run presupuesto a venta race gate (dos conexiones)
+107	Run remitos venta gate
+108	Run remito a venta gate
+109	Run remitos venta race gate (dos conexiones)
+110	Run internal document numbering race gate (remito de venta)
+111	Run remitos compra gate
+112	Run remitos compra race gate (dos conexiones)
+113	Run internal document numbering race gate (remito de compra)

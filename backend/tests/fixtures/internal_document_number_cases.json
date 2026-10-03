@@ -1,5 +1,6 @@
 {
   "_notes": [
+    "remitos-compra: el remito de compra numera con su propia secuencia (delivery_note_purchase) y el prefijo 'RC', DISTINTO de la 'R' de venta (cada sentido numera desde 1: con el mismo prefijo mostrarían los dos R-00000001). En el listado de compra 'RC-12', '12' y '00000012' son el número 12 y 'R-12' o 'P-12' son texto (null); 'RC-12' en el listado de venta o de presupuestos también es texto.",
     "remitos-venta: el prefijo se indexa por TIPO DE SECUENCIA (delivery_note_sale -> 'R'), no por tabla. El buscador acepta SÓLO el prefijo del tipo del listado (revisión adversarial F4): en presupuestos 'P-12' y '12' dan 12 y 'R-12' es texto (null); en remitos 'R-12' y '12' dan 12 y 'P-12' es texto (null). Por eso cada query_case declara su document_type.",
     "Casos compartidos entre pytest (backend/services/commercial_documents/numbering.py) y vitest (frontend/lib/internal-document-number.ts) — presupuestos-modulo D3, tasks 2.5 y 4.3.",
     "format_cases: `format_internal_document_number(document_type, number)` -> etiqueta visible. Prefijo por tipo (quote -> 'P') y numero con relleno a 8 digitos; un numero de mas de 8 digitos NO se trunca.",
@@ -13,7 +14,10 @@
     { "name": "nueve_digitos_no_se_trunca", "document_type": "quote", "number": 123456789, "expected": "P-123456789" },
     { "name": "remito_de_venta_uno", "document_type": "delivery_note_sale", "number": 1, "expected": "R-00000001" },
     { "name": "remito_de_venta_doce", "document_type": "delivery_note_sale", "number": 12, "expected": "R-00000012" },
-    { "name": "remito_de_venta_nueve_digitos_no_se_trunca", "document_type": "delivery_note_sale", "number": 123456789, "expected": "R-123456789" }
+    { "name": "remito_de_venta_nueve_digitos_no_se_trunca", "document_type": "delivery_note_sale", "number": 123456789, "expected": "R-123456789" },
+    { "name": "remito_de_compra_uno", "document_type": "delivery_note_purchase", "number": 1, "expected": "RC-00000001" },
+    { "name": "remito_de_compra_doce", "document_type": "delivery_note_purchase", "number": 12, "expected": "RC-00000012" },
+    { "name": "remito_de_compra_nueve_digitos_no_se_trunca", "document_type": "delivery_note_purchase", "number": 123456789, "expected": "RC-123456789" }
   ],
   "query_cases": [
     { "name": "con_prefijo", "query": "P-12", "document_type": "quote", "expected": 12 },
@@ -43,6 +47,19 @@
     { "name": "prefijo_de_remito_en_presupuestos", "query": "R-12", "document_type": "quote", "expected": null },
     { "name": "etiqueta_de_remito_en_presupuestos", "query": "R-00000012", "document_type": "quote", "expected": null },
     { "name": "prefijo_de_presupuesto_en_remitos", "query": "P-12", "document_type": "delivery_note_sale", "expected": null },
-    { "name": "etiqueta_de_presupuesto_en_remitos", "query": "p-00000012", "document_type": "delivery_note_sale", "expected": null }
+    { "name": "etiqueta_de_presupuesto_en_remitos", "query": "p-00000012", "document_type": "delivery_note_sale", "expected": null },
+    { "name": "compra_con_prefijo", "query": "RC-12", "document_type": "delivery_note_purchase", "expected": 12 },
+    { "name": "compra_prefijo_en_minuscula", "query": "rc-12", "document_type": "delivery_note_purchase", "expected": 12 },
+    { "name": "compra_etiqueta_completa", "query": "RC-00000012", "document_type": "delivery_note_purchase", "expected": 12 },
+    { "name": "compra_solo_el_numero", "query": "12", "document_type": "delivery_note_purchase", "expected": 12 },
+    { "name": "compra_relleno_completo", "query": "00000012", "document_type": "delivery_note_purchase", "expected": 12 },
+    { "name": "compra_prefijo_sin_numero", "query": "RC-", "document_type": "delivery_note_purchase", "expected": null },
+    { "name": "compra_doble_guion", "query": "RC-12-3", "document_type": "delivery_note_purchase", "expected": null },
+    { "name": "compra_prefijo_de_venta_es_texto", "query": "R-12", "document_type": "delivery_note_purchase", "expected": null },
+    { "name": "compra_etiqueta_de_venta_es_texto", "query": "R-00000012", "document_type": "delivery_note_purchase", "expected": null },
+    { "name": "compra_prefijo_de_presupuesto_es_texto", "query": "P-12", "document_type": "delivery_note_purchase", "expected": null },
+    { "name": "compra_nombre_de_proveedor", "query": "Distribuidora", "document_type": "delivery_note_purchase", "expected": null },
+    { "name": "prefijo_de_compra_en_remitos_de_venta", "query": "RC-12", "document_type": "delivery_note_sale", "expected": null },
+    { "name": "prefijo_de_compra_en_presupuestos", "query": "rc-00000012", "document_type": "quote", "expected": null }
   ]
 }

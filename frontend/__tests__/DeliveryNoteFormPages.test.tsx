@@ -43,7 +43,12 @@ vi.mock("@/hooks/data/use-products", () => ({ useProducts: () => mocks.useProduc
 vi.mock("@/hooks/data/use-branches", () => ({ useBranches: () => mocks.useBranches() }))
 vi.mock("@/hooks/use-units-of-measure", () => ({ useUnitsOfMeasure: () => mocks.useUnitsOfMeasure() }))
 vi.mock("@/components/delivery-notes/DeliveryNoteForm", () => ({
-  DeliveryNoteForm: (props: { deliveryNote?: DeliveryNoteApiRow; initialClientId?: string }) => {
+  DeliveryNoteForm: (props: {
+    deliveryNote?: DeliveryNoteApiRow
+    direction?: "sale" | "purchase"
+    initialClientId?: string
+    initialSupplierId?: string
+  }) => {
     useEffect(() => {
       mocks.mounts()
     }, [])
@@ -53,6 +58,8 @@ vi.mock("@/components/delivery-notes/DeliveryNoteForm", () => ({
         data-note={props.deliveryNote?.id ?? ""}
         data-revision={props.deliveryNote?.revision ?? ""}
         data-client={props.initialClientId ?? ""}
+        data-supplier={props.initialSupplierId ?? ""}
+        data-direction={props.deliveryNote?.direction ?? props.direction ?? "sale"}
       />
     )
   },
@@ -253,5 +260,202 @@ describe("/remitos/[id]/editar", () => {
     render(<EditDeliveryNotePage />)
     expect(screen.getByText(/anulado y no se puede modificar/i)).toBeInTheDocument()
     expect(screen.queryByText(/motivo:/i)).not.toBeInTheDocument()
+  })
+})
+
+// ══ remitos-compra (D11, tarea 5.5): las dos páginas en sentido compra ═════════
+
+function purchaseNote(overrides: Partial<DeliveryNoteApiRow> = {}): DeliveryNoteApiRow {
+  return note({
+    direction: "purchase",
+    number: 7,
+    number_label: "RC-00000007",
+    client_id: null,
+    client_name: null,
+    supplier_id: "s-1",
+    supplier_name: "Distribuidora Sur",
+    supplier_reference: "0004-00001234",
+    ...overrides,
+  })
+}
+
+const setRoles = (roles: string[]) =>
+  mocks.useOrgRole.mockReturnValue({ role: "member", roles, rolesResolved: true, isWriter: false, isLoading: false })
+
+describe("/remitos/nuevo?tipo=compra", () => {
+  it("monta el formulario en sentido compra con el título y la advertencia de que SUMA stock", () => {
+    mocks.searchParams = new URLSearchParams("tipo=compra")
+    render(<NewDeliveryNotePage />)
+    expect(screen.getByRole("heading", { name: "Nuevo remito de compra" })).toBeInTheDocument()
+    expect(screen.getByText(/suma stock/i)).toBeInTheDocument()
+    expect(screen.queryByText(/descuenta stock/i)).not.toBeInTheDocument()
+    expect(screen.getByTestId("delivery-note-form")).toHaveAttribute("data-direction", "purchase")
+  })
+
+  it("?proveedor= llega como proveedor preseleccionado y no como cliente", () => {
+    mocks.searchParams = new URLSearchParams("tipo=compra&proveedor=s-77&cliente=c-1")
+    render(<NewDeliveryNotePage />)
+    const form = screen.getByTestId("delivery-note-form")
+    expect(form).toHaveAttribute("data-supplier", "s-77")
+    expect(form).toHaveAttribute("data-client", "")
+  })
+
+  it("el enlace de volver lleva al listado DE COMPRA, no al de venta", () => {
+    mocks.searchParams = new URLSearchParams("tipo=compra")
+    render(<NewDeliveryNotePage />)
+    expect(screen.getByRole("link", { name: /volver al listado/i })).toHaveAttribute("href", "/remitos?sentido=compra")
+  })
+
+  it.each([
+    [["owner"], true],
+    [["admin"], true],
+    [["stock"], true],
+    [["seller"], false],
+    [["purchases"], false],
+    [["cashier"], false],
+    [["viewer"], false],
+    [["accountant"], false],
+  ])("con roles %j el formulario de compra visible=%s (CAN_RECEIVE_PURCHASE)", (roles, visible) => {
+    mocks.searchParams = new URLSearchParams("tipo=compra")
+    setRoles(roles)
+    render(<NewDeliveryNotePage />)
+    if (visible) {
+      expect(screen.getByTestId("delivery-note-form")).toBeInTheDocument()
+    } else {
+      expect(screen.queryByTestId("delivery-note-form")).not.toBeInTheDocument()
+      expect(screen.getByRole("status")).toHaveTextContent(/tu rol no permite recibir remitos de compra/i)
+      expect(screen.getByRole("status")).toHaveTextContent(/encargado de stock/i)
+      expect(screen.getByRole("link", { name: /volver a remitos/i })).toHaveAttribute("href", "/remitos?sentido=compra")
+    }
+  })
+
+  it("un vendedor que puede emitir remitos de venta NO puede recibir mercadería", () => {
+    setRoles(["seller"])
+    mocks.searchParams = new URLSearchParams("tipo=venta")
+    const { unmount } = render(<NewDeliveryNotePage />)
+    expect(screen.getByTestId("delivery-note-form")).toBeInTheDocument()
+    unmount()
+    mocks.searchParams = new URLSearchParams("tipo=compra")
+    render(<NewDeliveryNotePage />)
+    expect(screen.queryByTestId("delivery-note-form")).not.toBeInTheDocument()
+  })
+
+  it.each([
+    ["productos", { useProducts: { products: [], isLoading: true } }],
+    ["unidades", { useUnitsOfMeasure: { units: [], unitsById: new Map(), loading: true, error: null } }],
+    ["sucursales", { useBranches: { branches: [], isLoading: true } }],
+  ])("mientras cargan los %s no monta el formulario de compra", (_label, override) => {
+    mocks.searchParams = new URLSearchParams("tipo=compra")
+    for (const [hook, value] of Object.entries(override)) {
+      ;(mocks as unknown as Record<string, ReturnType<typeof vi.fn>>)[hook].mockReturnValue(value)
+    }
+    render(<NewDeliveryNotePage />)
+    expect(screen.queryByTestId("delivery-note-form")).not.toBeInTheDocument()
+    expect(screen.getByRole("status")).toHaveTextContent(/cargando/i)
+  })
+
+  it.each([["venta"], ["otra-cosa"], [""]])("?tipo=%s sigue siendo el remito de venta", (tipo) => {
+    mocks.searchParams = new URLSearchParams(tipo ? `tipo=${tipo}` : "")
+    render(<NewDeliveryNotePage />)
+    expect(screen.getByRole("heading", { name: "Nuevo remito" })).toBeInTheDocument()
+    expect(screen.getByTestId("delivery-note-form")).toHaveAttribute("data-direction", "sale")
+  })
+})
+
+describe("/remitos/[id]/editar de compra", () => {
+  beforeEach(() => {
+    mocks.useDeliveryNote.mockReturnValue({ data: purchaseNote(), isLoading: false, isError: false })
+  })
+
+  it("monta el formulario con el remito de compra y lo nombra por su número RC", () => {
+    render(<EditDeliveryNotePage />)
+    expect(screen.getByRole("heading", { name: "Editar RC-00000007" })).toBeInTheDocument()
+    expect(screen.getByTestId("delivery-note-form")).toHaveAttribute("data-direction", "purchase")
+  })
+
+  it("la bajada habla de ajustar el stock sin atribuir la dirección", () => {
+    render(<EditDeliveryNotePage />)
+    expect(screen.getByText(/ajustan el stock sólo donde cambia/i)).toBeInTheDocument()
+  })
+
+  it.each([
+    [["owner"], true],
+    [["admin"], true],
+    [["stock"], true],
+    [["seller"], false],
+    [["purchases"], false],
+    [["cashier"], false],
+  ])("con roles %j editar un remito de compra visible=%s", (roles, visible) => {
+    setRoles(roles)
+    render(<EditDeliveryNotePage />)
+    if (visible) {
+      expect(screen.getByTestId("delivery-note-form")).toBeInTheDocument()
+    } else {
+      expect(screen.queryByTestId("delivery-note-form")).not.toBeInTheDocument()
+      expect(screen.getByRole("status")).toHaveTextContent(/tu rol no permite editar remitos/i)
+      expect(screen.getByRole("link", { name: /volver a remitos/i })).toHaveAttribute("href", "/remitos?sentido=compra")
+    }
+  })
+
+  it("un vendedor edita remitos de venta pero no los de compra (el permiso sigue al sentido del remito)", () => {
+    setRoles(["seller"])
+    mocks.useDeliveryNote.mockReturnValue({ data: note(), isLoading: false, isError: false })
+    const { unmount } = render(<EditDeliveryNotePage />)
+    expect(screen.getByTestId("delivery-note-form")).toBeInTheDocument()
+    unmount()
+    mocks.useDeliveryNote.mockReturnValue({ data: purchaseNote(), isLoading: false, isError: false })
+    render(<EditDeliveryNotePage />)
+    expect(screen.queryByTestId("delivery-note-form")).not.toBeInTheDocument()
+  })
+
+  it("un rol sin ninguna de las dos capacidades ve el motivo sin esperar al remito", () => {
+    setRoles(["viewer"])
+    mocks.useDeliveryNote.mockReturnValue({ data: undefined, isLoading: true, isError: false })
+    render(<EditDeliveryNotePage />)
+    expect(screen.getByRole("status")).toHaveTextContent(/tu rol no permite editar remitos/i)
+  })
+
+  it("un remito de compra convertido no abre el editor: dice que hay que eliminar la COMPRA y la enlaza", () => {
+    mocks.useDeliveryNote.mockReturnValue({
+      data: purchaseNote({ status: "converted", converted_operation_id: "op-9" }),
+      isLoading: false,
+      isError: false,
+    })
+    render(<EditDeliveryNotePage />)
+    expect(screen.queryByTestId("delivery-note-form")).not.toBeInTheDocument()
+    expect(screen.getByRole("status")).toHaveTextContent(/eliminá la compra/i)
+    expect(screen.getByRole("status")).not.toHaveTextContent(/eliminá la venta/i)
+    expect(screen.getByRole("link", { name: /ver la compra/i })).toHaveAttribute("href", "/compras")
+  })
+
+  it("convertido sin compra conocida vuelve al detalle, sin enlace a la compra", () => {
+    mocks.useDeliveryNote.mockReturnValue({ data: purchaseNote({ status: "converted" }), isLoading: false, isError: false })
+    render(<EditDeliveryNotePage />)
+    expect(screen.queryByRole("link", { name: /ver la compra/i })).not.toBeInTheDocument()
+    expect(screen.getByRole("link", { name: /ver el remito/i })).toHaveAttribute("href", "/remitos/dn-1")
+  })
+
+  it("un remito de compra anulado no abre el editor y muestra el motivo", () => {
+    mocks.useDeliveryNote.mockReturnValue({
+      data: purchaseNote({
+        status: "canceled",
+        history: [
+          { from_status: null, to_status: "issued", performed_by: "u-1", occurred_at: "2026-10-02T12:00:00Z", reason: null },
+          { from_status: "issued", to_status: "canceled", performed_by: "u-1", occurred_at: "2026-10-02T13:00:00Z", reason: "El proveedor se llevó todo" },
+        ],
+      }),
+      isLoading: false,
+      isError: false,
+    })
+    render(<EditDeliveryNotePage />)
+    expect(screen.queryByTestId("delivery-note-form")).not.toBeInTheDocument()
+    expect(screen.getByText(/anulado y no se puede modificar/i)).toBeInTheDocument()
+    expect(screen.getByText(/El proveedor se llevó todo/)).toBeInTheDocument()
+  })
+
+  it("el enlace de volver de un remito de compra anulado va al listado de compra", () => {
+    mocks.useDeliveryNote.mockReturnValue({ data: purchaseNote({ status: "canceled" }), isLoading: false, isError: false })
+    render(<EditDeliveryNotePage />)
+    expect(screen.getByRole("link", { name: /volver a remitos/i })).toHaveAttribute("href", "/remitos?sentido=compra")
   })
 })

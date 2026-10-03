@@ -1,7 +1,16 @@
 "use client"
 
 /**
- * /remitos/[id] — detalle de un remito de venta (remitos-venta D11, tarea 5.6).
+ * /remitos/[id] — detalle de un remito de venta (remitos-venta D11, tarea 5.6) o
+ * de compra (remitos-compra D11, tarea 5.6).
+ *
+ * El SENTIDO (`note.direction`) decide la contraparte (cliente / proveedor con
+ * enlace a su cuenta corriente y N° de su remito), el rótulo de la sucursal ("Sale
+ * de" / "Ingresa a"), los avisos de estado, el destinatario de WhatsApp (el
+ * teléfono del proveedor) y los permisos de cada acción (`CAN_RECEIVE_PURCHASE`
+ * edita, `CAN_VOID_DELIVERY_NOTE` anula). Todos los textos que dependen del sentido
+ * salen de `DELIVERY_NOTE_TEXTS`. En la tanda A "Compra" (la conversión) no se
+ * muestra: la agrega la tanda B con `conversionEnabled`.
  *
  * Las acciones por estado y rol salen de `deliveryNoteActions` (la matriz de
  * D11), con el rol decidido por `hasCapability` sobre el CONJUNTO de roles:
@@ -44,10 +53,24 @@ import { useOrgRole } from "@/hooks/useOrgRole"
 import { useRestoreFocus } from "@/hooks/ui/use-restore-focus"
 import type { PdfDisposition } from "@/lib/api/document-pdf"
 import { buildDeliveryNoteShareText, deliveryNoteFileName } from "@/lib/delivery-note-share"
-import { canceledReason, deliveryNoteActions, deliveryNoteHistoryLabel } from "@/lib/delivery-note-status"
+import { describeMissingPrices } from "@/lib/delivery-note-form"
+import {
+  DELIVERY_NOTE_TEXTS,
+  canceledReason,
+  deliveryNoteActions,
+  deliveryNoteHistoryLabel,
+  deliveryNoteListHref,
+} from "@/lib/delivery-note-status"
 import { mapFiscalState } from "@/lib/fiscal-comprobante"
 import { formatDate, formatMoney, formatNumber } from "@/lib/format"
-import { CAN_DELIVER_SALE, CAN_SELL, CAN_VOID_DELIVERY_NOTE, hasCapability } from "@/lib/rbac-capabilities"
+import {
+  CAN_CONVERT_PURCHASE_DELIVERY_NOTE,
+  CAN_DELIVER_SALE,
+  CAN_RECEIVE_PURCHASE,
+  CAN_SELL,
+  CAN_VOID_DELIVERY_NOTE,
+  hasCapability,
+} from "@/lib/rbac-capabilities"
 
 const SALE_LEGEND_ID = "delivery-note-sale-legend"
 
@@ -66,9 +89,11 @@ export default function DeliveryNoteDetailPage() {
   const deliveryNoteId = params.id
   const { roles, rolesResolved } = useOrgRole()
   const { data: note, isLoading, isError } = useDeliveryNote(deliveryNoteId)
-  // La orden de la venta generada (sólo en un remito convertido): de ahí sale el
-  // estado de su comprobante fiscal.
-  const { data: generatedOrder } = useSalesOrder(note?.status === "converted" ? (note.converted_sales_order_id ?? null) : null)
+  // La orden de la venta generada (sólo en un remito de VENTA convertido): de ahí
+  // sale el estado de su comprobante fiscal. Un remito de compra no tiene orden.
+  const { data: generatedOrder } = useSalesOrder(
+    note?.direction !== "purchase" && note?.status === "converted" ? (note.converted_sales_order_id ?? null) : null,
+  )
 
   const [showPrices, setShowPrices] = useState(false)
   const [cancelOpen, setCancelOpen] = useState(false)
@@ -83,24 +108,36 @@ export default function DeliveryNoteDetailPage() {
     [deliveryNoteId, showPrices],
   )
 
-  if (isError) return <DocumentLoadError texts={DELIVERY_NOTE_PAGE_TEXTS} />
-  if (isLoading || !note) return <DocumentLoading label={DELIVERY_NOTE_PAGE_TEXTS.loadingLabel} />
+  if (isError) return <DocumentLoadError texts={DELIVERY_NOTE_PAGE_TEXTS.sale} />
+  if (isLoading || !note) return <DocumentLoading label={DELIVERY_NOTE_PAGE_TEXTS.sale.loadingLabel} />
 
+  const direction = note.direction
+  const isPurchase = direction === "purchase"
+  const texts = DELIVERY_NOTE_TEXTS[direction]
   const generatedFiscal = generatedOrder ? mapFiscalState(generatedOrder) : null
   const actions = deliveryNoteActions(note.status, {
-    canDeliver: hasCapability(roles, CAN_DELIVER_SALE, rolesResolved),
-    canSell: hasCapability(roles, CAN_SELL, rolesResolved),
+    direction,
+    canDeliver: hasCapability(roles, isPurchase ? CAN_RECEIVE_PURCHASE : CAN_DELIVER_SALE, rolesResolved),
+    canSell: hasCapability(roles, isPurchase ? CAN_CONVERT_PURCHASE_DELIVERY_NOTE : CAN_SELL, rolesResolved),
     canVoid: hasCapability(roles, CAN_VOID_DELIVERY_NOTE, rolesResolved),
     clientDeleted: note.client_deleted,
-    conversionEnabled: true,
+    supplierDeleted: note.supplier_deleted,
+    missingPriceCount: note.missing_price_count,
+    // La conversión en compra llega con la tanda B; la de venta ya existe.
+    conversionEnabled: !isPurchase,
     saleInvoiced: generatedFiscal?.status === "authorized",
   })
 
   const numberLabel = note.number_label ?? "Remito"
   const reason = canceledReason(note.history)
   const branchName = note.branch_name ?? "la sucursal"
+  const counterpartyPhone = isPurchase ? note.supplier_phone : note.client_phone
+  const missingPrices = isPurchase && note.status === "issued" ? describeMissingPrices(note.missing_price_count ?? 0) : null
   const shareText = buildDeliveryNoteShareText({
+    direction,
     clientName: note.client_name,
+    supplierName: note.supplier_name,
+    supplierReference: note.supplier_reference,
     numberLabel: note.number_label ?? null,
     issuedOn: note.issued_on,
     // El emisor del PDF (resuelto por el servidor), no el perfil de quien comparte.
@@ -112,31 +149,54 @@ export default function DeliveryNoteDetailPage() {
       {/* ── Cabecera ── */}
       <div className="flex items-start gap-3">
         <Button variant="ghost" size="icon" asChild className="h-8 w-8 shrink-0">
-          <Link href="/remitos" aria-label="Volver al listado">
+          <Link href={deliveryNoteListHref(direction)} aria-label="Volver al listado">
             <ArrowLeft className="h-4 w-4" aria-hidden="true" />
           </Link>
         </Button>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <h1 className="text-2xl font-bold text-foreground tracking-tight">{numberLabel}</h1>
-            <DeliveryNoteStatusBadge status={note.status} />
+            <DeliveryNoteStatusBadge status={note.status} direction={direction} />
           </div>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {note.client_id && !note.client_deleted ? (
-              <Link href={`/clientes/${note.client_id}`} className="text-primary underline-offset-2 hover:underline">
-                {note.client_name ?? "Cliente"}
-              </Link>
-            ) : (
-              <span className="text-foreground">{note.client_name ?? "Sin cliente"}</span>
-            )}
-            {note.client_deleted ? <span> · Cliente dado de baja</span> : null}
-            {note.client_phone ? <span> · Tel. {note.client_phone}</span> : null}
-          </p>
+          {isPurchase ? (
+            <p className="mt-1 text-sm text-muted-foreground">
+              {note.supplier_id && !note.supplier_deleted ? (
+                <Link
+                  href={`/proveedores/${note.supplier_id}/cuenta`}
+                  className="text-primary underline-offset-2 hover:underline"
+                >
+                  {note.supplier_name ?? "Proveedor"}
+                </Link>
+              ) : (
+                <span className="text-foreground">{note.supplier_name ?? "Sin proveedor"}</span>
+              )}
+              {note.supplier_deleted ? <span> · Proveedor dado de baja</span> : null}
+              {note.supplier_phone ? <span> · Tel. {note.supplier_phone}</span> : null}
+            </p>
+          ) : (
+            <p className="mt-1 text-sm text-muted-foreground">
+              {note.client_id && !note.client_deleted ? (
+                <Link href={`/clientes/${note.client_id}`} className="text-primary underline-offset-2 hover:underline">
+                  {note.client_name ?? "Cliente"}
+                </Link>
+              ) : (
+                <span className="text-foreground">{note.client_name ?? "Sin cliente"}</span>
+              )}
+              {note.client_deleted ? <span> · Cliente dado de baja</span> : null}
+              {note.client_phone ? <span> · Tel. {note.client_phone}</span> : null}
+            </p>
+          )}
           <dl className="mt-3 grid grid-cols-1 gap-x-6 gap-y-1 text-xs text-muted-foreground sm:flex sm:flex-wrap">
             <div className="flex gap-1">
-              <dt>Sale de:</dt>
+              <dt>{texts.branchLabel}</dt>
               <dd className="text-foreground">{branchName}</dd>
             </div>
+            {isPurchase && note.supplier_reference && (
+              <div className="flex gap-1">
+                <dt>Remito del proveedor:</dt>
+                <dd className="break-all text-foreground">{note.supplier_reference}</dd>
+              </div>
+            )}
             <div className="flex gap-1">
               <dt>Fecha:</dt>
               <dd className="tabular-nums text-foreground">{formatDate(note.issued_on)}</dd>
@@ -147,7 +207,7 @@ export default function DeliveryNoteDetailPage() {
                 <dd className="tabular-nums text-foreground">{formatDateTime(note.updated_at)}</dd>
               </div>
             )}
-            {note.delivery_address && (
+            {!isPurchase && note.delivery_address && (
               <div className="flex gap-1 sm:basis-full">
                 <dt className="shrink-0">Entrega en:</dt>
                 <dd className="break-words text-foreground">{note.delivery_address}</dd>
@@ -164,7 +224,7 @@ export default function DeliveryNoteDetailPage() {
           aria-label="Remito anulado"
           className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-foreground"
         >
-          Remito anulado: el stock volvió a {branchName}.
+          {texts.canceledNotice(branchName)}
           {reason ? (
             <>
               {" "}
@@ -173,13 +233,22 @@ export default function DeliveryNoteDetailPage() {
           ) : null}
         </p>
       )}
+      {missingPrices && (
+        <p
+          role="status"
+          aria-label="Líneas sin precio"
+          className="rounded-lg border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-foreground"
+        >
+          {missingPrices}
+        </p>
+      )}
       {note.status === "converted" && (
         <section
-          aria-label="Venta generada"
+          aria-label={isPurchase ? "Compra generada" : "Venta generada"}
           className="flex flex-col gap-3 rounded-lg border border-success/30 bg-success/10 px-4 py-3 text-sm text-foreground"
         >
-          <p>Este remito se convirtió en una venta. El stock ya se había descontado al emitirlo.</p>
-          {generatedOrder && (
+          <p>{texts.convertedNotice}</p>
+          {!isPurchase && generatedOrder && (
             <div className="min-w-0">
               {generatedFiscal ? (
                 <FiscalInvoiceSummary fiscal={generatedFiscal} />
@@ -199,10 +268,10 @@ export default function DeliveryNoteDetailPage() {
               <DocumentShareMenu
                 key={String(showPrices)}
                 fetchPdf={fetchPdf}
-                fileName={deliveryNoteFileName(note.number_label ?? null, showPrices)}
+                fileName={deliveryNoteFileName(note.direction, note.number_label ?? null, showPrices)}
                 shareText={shareText}
                 shareTitle={`Remito ${numberLabel}`}
-                clientPhone={note.client_phone}
+                clientPhone={counterpartyPhone}
               />
               <div className="flex items-center gap-2">
                 <Switch id="delivery-note-show-prices" checked={showPrices} onCheckedChange={setShowPrices} />
@@ -210,6 +279,15 @@ export default function DeliveryNoteDetailPage() {
                   Mostrar precios
                 </Label>
               </div>
+              {isPurchase && !note.supplier_phone && !note.supplier_deleted && (
+                <p className="basis-full text-xs text-muted-foreground">
+                  Agregá el teléfono del proveedor para enviárselo por WhatsApp desde{" "}
+                  <Link href="/proveedores" className="text-primary underline underline-offset-2">
+                    Proveedores
+                  </Link>
+                  .
+                </p>
+              )}
             </div>
           )}
           <div className="flex flex-wrap items-center gap-2">
@@ -221,7 +299,7 @@ export default function DeliveryNoteDetailPage() {
                 </Link>
               </Button>
             )}
-            {actions.convert.visible && (
+            {actions.convert.visible && !isPurchase && (
               <Button
                 ref={saleButtonRef}
                 type="button"
@@ -237,7 +315,12 @@ export default function DeliveryNoteDetailPage() {
             )}
             {actions.viewSale && note.converted_sales_order_id && (
               <Button asChild variant="outline" size="sm">
-                <Link href={`/ventas/ordenes/${note.converted_sales_order_id}`}>Ver venta</Link>
+                <Link href={`/ventas/ordenes/${note.converted_sales_order_id}`}>{texts.viewOperationLabel}</Link>
+              </Button>
+            )}
+            {actions.viewPurchase && note.converted_operation_id && (
+              <Button asChild variant="outline" size="sm">
+                <Link href="/compras">{texts.viewOperationLabel}</Link>
               </Button>
             )}
             {actions.cancel && (
@@ -290,7 +373,11 @@ export default function DeliveryNoteDetailPage() {
                       {line.unit_symbol ? ` ${line.unit_symbol}` : ""}
                     </td>
                     <td className="px-2 py-3 sm:px-4 text-right tabular-nums whitespace-nowrap">
-                      {formatMoney(Number(line.price))}
+                      {isPurchase && Number(line.price) === 0 ? (
+                        <span className="text-warning">Sin precio</span>
+                      ) : (
+                        formatMoney(Number(line.price))
+                      )}
                     </td>
                     <td className="px-2 py-3 sm:px-4 text-right font-medium tabular-nums whitespace-nowrap text-foreground">
                       {formatMoney(Number(line.subtotal))}
@@ -327,7 +414,7 @@ export default function DeliveryNoteDetailPage() {
               key={`${entry.occurred_at}-${index}`}
               className="flex flex-wrap items-baseline gap-x-2 rounded-md border border-border/60 bg-card px-3 py-2"
             >
-              <span className="font-medium text-foreground">{deliveryNoteHistoryLabel(entry)}</span>
+              <span className="font-medium text-foreground">{deliveryNoteHistoryLabel(entry, direction)}</span>
               <span className="text-xs tabular-nums text-muted-foreground">{formatDateTime(entry.occurred_at)}</span>
               {entry.reason && <span className="text-xs text-muted-foreground">— {entry.reason}</span>}
             </li>
@@ -341,7 +428,7 @@ export default function DeliveryNoteDetailPage() {
           ahí para mostrar "Venta registrada" hasta que el usuario lo cierre. Sólo
           se monta al abrirlo: no pide formas de pago ni cajas en cada carga del
           detalle. */}
-      {convertOpen && <ConvertDeliveryNoteDialog deliveryNote={note} open={convertOpen} onOpenChange={setConvertOpen} />}
+      {convertOpen && !isPurchase && <ConvertDeliveryNoteDialog deliveryNote={note} open={convertOpen} onOpenChange={setConvertOpen} />}
 
       {/* ── Anular ── */}
       {actions.cancel && <CancelDeliveryNoteDialog deliveryNote={note} open={cancelOpen} onOpenChange={setCancelOpen} />}

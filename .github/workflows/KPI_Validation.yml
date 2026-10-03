@@ -1169,50 +1169,44 @@ jobs:
           fi
           echo "20261068000001 idempotente: introspección OK y schema IDÉNTICO al previo a este paso."
 
-          # remitos-venta tanda A (2026-10-02): reaplicación de 20261069000001
-          # AL FINAL de la cadena, DESPUÉS de los eslabones que vuelven a dejar
-          # cuerpos viejos de las funciones que esta migración reescribe desde
-          # el cuerpo vivo: 20261014000001 (_branch_assert_empty con 3 tokens),
-          # 20261062000001 (fn_product_base_unit_guard / fn_uom_in_use_guard
-          # sin delivery_note_items) y 20261067000001 (_quote_validate_items
-          # con el guard de producto embebido). Idempotente por construcción:
-          # CREATE TABLE/INDEX IF NOT EXISTS, DROP CONSTRAINT IF EXISTS + ADD
-          # con la lista completa, CREATE OR REPLACE con la misma firma, DROP
-          # POLICY/TRIGGER IF EXISTS + CREATE, catálogo con ON CONFLICT DO
-          # NOTHING. SIN tolerancia: exige el OK de su introspección, el schema
-          # IDÉNTICO y, después de reconverger, que los cuatro cuerpos vuelvan
-          # a ser los de esta migración.
+          # remitos-compra tanda A (2026-10-03): la reaplicación de
+          # 20261069000001 (remitos-venta tanda A) que vivía acá se RETIRÓ en
+          # este PR (design.md D16 de remitos-compra). No podía convivir con
+          # 20261071000001: (a) su DROP + ADD CONSTRAINT con LISTA FIJA de
+          # document_status_transitions_document_type_check valida las filas
+          # existentes y las dos de delivery_note_purchase lo abortan con 23514;
+          # (b) sus otros tres CHECK de lista fija dejarían
+          # internal_document_sequences y operation_idempotency sin
+          # delivery_note_purchase (diff de schema = NOT IDEMPOTENT); y (c) su
+          # cuerpo sólo-venta de _delivery_note_assert_role pisaría el que
+          # delega en _delivery_note_assert_role_dir.
           #
-          # CONTRATO CON LA TANDA B (revisión adversarial F2): esta reaplicación
-          # corre DESPUÉS de todo lo demás, así que (a) su introspección valida
-          # el catálogo por presencia de las dos filas de la tanda A, no por
-          # conteo, y (b) vuelve a dejar los cuerpos de la tanda A en las
-          # funciones que la tanda B redefina (p. ej. _delivery_note_payload).
-          # La migración de la tanda B DEBE tener su propio paso de reaplicación
-          # DESPUÉS de este, y los gates de la tanda B corren después de ese paso.
-          RV_OUT=$(psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261069000001_remitos_venta.sql 2>&1) || { echo "$RV_OUT"; echo "ERROR: el reapply de 20261069000001 falló (sin tolerancia)."; exit 1; }
-          echo "$RV_OUT"
-          if ! echo "$RV_OUT" | grep -qF 'remitos-venta (introspecci'; then
-            echo "ERROR: el reapply de 20261069000001 no imprimió el OK de su bloque de introspección."
+          # Ese paso además RESTAURABA cuerpos que los reapply anteriores de
+          # esta cadena dejan viejos (los guards de unidad de 20261062000001,
+          # _quote_validate_items de 20261067000001, _branch_assert_empty de
+          # 20261014000001). Su reemplazo es un `supabase db reset` de
+          # reconvergencia (el mismo mecanismo y la misma aserción de más
+          # arriba): reconstruye la base con la historia real completa —que ya
+          # incluye 20261069000001, 20261070000001 y 20261071000001 en su orden
+          # cronológico— y exige el schema IDÉNTICO al previo a este paso. El
+          # control de los cuatro cuerpos que 20261069000001 reescribe pasa al
+          # chequeo RV_BODIES del paso de 20261071000001, al final de la cadena.
+          # Costo medido en local (Postgres 17 en Docker): ~2 min por reset.
+          #
+          # REGLA PARA EL PR SIGUIENTE: ninguna migración de esta cadena se
+          # reaplica si amplía un CHECK con una lista fija; la que sume un valor
+          # a un CHECK compartido lo hace POR AGREGADO al vivo (molde de la
+          # sección 1 de 20261071000001), y su paso va DESPUÉS del último
+          # eslabón de remitos (hoy, el de 20261071000001).
+          echo "Reconvergiendo (remitos-compra): supabase db reset después de los reapply de 20261063000001..20261068000001..."
+          supabase db reset
+          schema_snapshot > /tmp/schema_after_rc_reconverge.txt
+          if ! diff -u /tmp/schema_before_reapply.txt /tmp/schema_after_rc_reconverge.txt > /tmp/schema_diff_rc_reconverge.txt; then
+            echo "NOT IDEMPOTENT: el schema quedó distinto del estado previo incluso después de la reconvergencia de remitos-compra:"
+            cat /tmp/schema_diff_rc_reconverge.txt
             exit 1
           fi
-          RV_BODIES=$(psql -tA "$DSN" -c "SELECT
-              (SELECT prosrc FROM pg_proc WHERE oid = 'public._branch_assert_empty(uuid)'::regprocedure) LIKE '%branch_has_pending_delivery_notes%'
-              AND (SELECT prosrc FROM pg_proc WHERE oid = 'public._branch_assert_empty(uuid)'::regprocedure) LIKE '%public._branch_pending_delivery_notes(p_branch_id)%'
-              AND (SELECT prosrc FROM pg_proc WHERE oid = 'public.fn_product_base_unit_guard()'::regprocedure) LIKE '%public.delivery_note_items dni%'
-              AND (SELECT prosrc FROM pg_proc WHERE oid = 'public.fn_uom_in_use_guard()'::regprocedure) LIKE '%delivery_note_items%'
-              AND (SELECT prosrc FROM pg_proc WHERE oid = 'public._quote_validate_items(uuid, jsonb)'::regprocedure) LIKE '%public._assert_document_product(p_account_id, v_pid)%'")
-          if [ "$RV_BODIES" != "t" ]; then
-            echo "ERROR: después de reaplicar 20261069000001, _branch_assert_empty / los guards de unidad / _quote_validate_items no quedaron con el cuerpo de esta migración (¿un eslabón posterior los pisó?)."
-            exit 1
-          fi
-          schema_snapshot > /tmp/schema_after_rv_reapply.txt
-          if ! diff -u /tmp/schema_before_reapply.txt /tmp/schema_after_rv_reapply.txt > /tmp/schema_diff_rv.txt; then
-            echo "NOT IDEMPOTENT: reaplicar 20261069000001 cambió el schema (constraints + firmas de función + ACLs):"
-            cat /tmp/schema_diff_rv.txt
-            exit 1
-          fi
-          echo "20261069000001 idempotente: introspección OK, cuerpos reescritos reconvergidos y schema IDÉNTICO al previo a este paso."
+          echo "Reconvergencia (remitos-compra) OK: constraints + firmas de función + ACLs IDÉNTICOS al estado previo a este paso."
 
           # remitos-venta tanda B (2026-10-03): reaplicación de 20261070000001
           # AL FINAL de la cadena, DESPUÉS de la de 20261069000001 (contrato
@@ -1241,6 +1235,57 @@ jobs:
             exit 1
           fi
           echo "20261070000001 idempotente: introspección OK y schema IDÉNTICO al previo a este paso."
+
+          # remitos-compra tanda A (2026-10-03): reaplicación de 20261071000001
+          # AL FINAL de la cadena, DESPUÉS de la de 20261070000001 (D15/D16 de
+          # remitos-compra): esa reaplicación vuelve a dejar el cuerpo
+          # sólo-venta de _delivery_note_payload, que ésta redefine con
+          # supplier_name / supplier_phone / supplier_deleted /
+          # missing_price_count. schema_snapshot() compara constraints, firmas
+          # y ACLs, NO cuerpos: por eso, además de la introspección de la
+          # migración, se re-consultan los cuerpos. Idempotente por
+          # construcción: CHECK ampliados POR AGREGADO al vivo (nunca una
+          # lista fija), catálogo con ON CONFLICT DO NOTHING, DROP TRIGGER IF
+          # EXISTS + CREATE, CREATE OR REPLACE con firmas fijas (sin overload,
+          # sin 42725), REVOKE/GRANT y COMMENT re-emitidos. SIN tolerancia.
+          # RV_BODIES (heredado del paso retirado de 20261069000001): los
+          # cuerpos que esa migración reescribió siguen siendo los suyos.
+          RC_OUT=$(psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261071000001_remitos_compra.sql 2>&1) || { echo "$RC_OUT"; echo "ERROR: el reapply de 20261071000001 falló (sin tolerancia)."; exit 1; }
+          echo "$RC_OUT"
+          if ! echo "$RC_OUT" | grep -qF 'remitos-compra tanda A (introspecci'; then
+            echo "ERROR: el reapply de 20261071000001 no imprimió el OK de su bloque de introspección."
+            exit 1
+          fi
+          RV_BODIES=$(psql -tA "$DSN" -c "SELECT
+              (SELECT prosrc FROM pg_proc WHERE oid = 'public._branch_assert_empty(uuid)'::regprocedure) LIKE '%branch_has_pending_delivery_notes%'
+              AND (SELECT prosrc FROM pg_proc WHERE oid = 'public._branch_assert_empty(uuid)'::regprocedure) LIKE '%public._branch_pending_delivery_notes(p_branch_id)%'
+              AND (SELECT prosrc FROM pg_proc WHERE oid = 'public.fn_product_base_unit_guard()'::regprocedure) LIKE '%public.delivery_note_items dni%'
+              AND (SELECT prosrc FROM pg_proc WHERE oid = 'public.fn_uom_in_use_guard()'::regprocedure) LIKE '%delivery_note_items%'
+              AND (SELECT prosrc FROM pg_proc WHERE oid = 'public._quote_validate_items(uuid, jsonb)'::regprocedure) LIKE '%public._assert_document_product(p_account_id, v_pid)%'")
+          if [ "$RV_BODIES" != "t" ]; then
+            echo "ERROR: _branch_assert_empty / los guards de unidad / _quote_validate_items no tienen el cuerpo de 20261069000001 (¿un eslabón posterior los pisó?)."
+            exit 1
+          fi
+          RC_BODIES=$(psql -tA "$DSN" -c "SELECT
+              (SELECT prosrc FROM pg_proc WHERE oid = 'public._delivery_note_payload(uuid)'::regprocedure) LIKE '%''supplier_name''%'
+              AND (SELECT prosrc FROM pg_proc WHERE oid = 'public._delivery_note_payload(uuid)'::regprocedure) LIKE '%''missing_price_count''%'
+              AND (SELECT prosrc FROM pg_proc WHERE oid = 'public._delivery_note_payload(uuid)'::regprocedure) LIKE '%so.source_delivery_note_id = dn.id%'
+              AND (SELECT prosrc FROM pg_proc WHERE oid = 'public._delivery_note_apply_stock(uuid, uuid, uuid, jsonb)'::regprocedure) LIKE '%SELECT dn.direction INTO v_dir%'
+              AND (SELECT prosrc FROM pg_proc WHERE oid = 'public._delivery_note_reverse_held(uuid, uuid, uuid, jsonb, text, text)'::regprocedure) LIKE '%delivery_note_stock_consumed%'
+              AND (SELECT prosrc FROM pg_proc WHERE oid = 'public._delivery_note_assert_role(uuid, text)'::regprocedure) LIKE '%_delivery_note_assert_role_dir(p_account_id, p_mode, ''sale'')%'
+              AND (SELECT prosrc FROM pg_proc WHERE oid = 'public.rpc_update_delivery_note(uuid, integer, uuid, uuid, text, text, jsonb)'::regprocedure) LIKE '%_delivery_note_replace_content(v_dn.id, p_branch_id, p_items)%'
+              AND (SELECT prosrc FROM pg_proc WHERE oid = 'public.rpc_cancel_delivery_note(uuid, integer, text)'::regprocedure) NOT LIKE '%direction = ''sale''%'")
+          if [ "$RC_BODIES" != "t" ]; then
+            echo "ERROR: después de reaplicar 20261071000001, los cuerpos de remitos-compra no quedaron (payload con proveedor y missing_price_count, helpers de stock por sentido, rol delegando, edición por el núcleo, anulación de los dos sentidos)."
+            exit 1
+          fi
+          schema_snapshot > /tmp/schema_after_rc_reapply.txt
+          if ! diff -u /tmp/schema_before_reapply.txt /tmp/schema_after_rc_reapply.txt > /tmp/schema_diff_rc.txt; then
+            echo "NOT IDEMPOTENT: reaplicar 20261071000001 cambió el schema (constraints + firmas de función + ACLs):"
+            cat /tmp/schema_diff_rc.txt
+            exit 1
+          fi
+          echo "20261071000001 idempotente: introspección OK, cuerpos de remitos-venta y remitos-compra presentes y schema IDÉNTICO al previo a este paso."
 
       # -v ON_ERROR_STOP=1 is required: without it psql prints RAISE EXCEPTION
       # errors but still exits 0, so failing assertions show green in CI.
@@ -2855,3 +2900,30 @@ jobs:
       # a la vez el primer remito de venta de una cuenta -> R 1..20.
       - name: Run internal document numbering race gate (remito de venta)
         run: DOC_TYPE=delivery_note_sale N=20 DB_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres bash supabase/tests/test_internal_document_numbering_race.sh
+
+      # remitos-compra tanda A (2026-10-03, governance MEDIA con tramo ALTO:
+      # escribe el ledger de stock en recepción, edición y anulación, y
+      # reescribe los helpers y dos RPCs de remitos-venta desde su cuerpo
+      # vivo). `supabase start` ya aplicó 20261071000001; este paso EJECUTA
+      # rpc_create_purchase_delivery_note, rpc_update_purchase_delivery_note y
+      # rpc_cancel_delivery_note en los dos sentidos con usuarios reales
+      # (owner/admin/stock/purchases/seller/cashier): recepción que suma,
+      # rechazos con cero efectos, idempotencia, roles por sentido, edición
+      # con faltante sobre el neto (patas que suman primero, cambio de
+      # sucursal en compra y en venta), anulación bloqueada si la mercadería
+      # se consumió, fila forjada, invariante del ledger, PostgREST, guards de
+      # unidad, baja de sucursal y numeración RC. Residuo cero.
+      - name: Run remitos compra gate
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_remitos_compra.sql
+
+      # remitos-compra tanda A: 9 carreras con DOS conexiones reales y bloqueo
+      # verificado en pg_stat_activity (recepciones concurrentes, doble clic,
+      # anulación contra venta del POS en los dos órdenes, edición contra
+      # anulación, recepción y edición contra la baja de una sucursal vacía).
+      - name: Run remitos compra race gate (dos conexiones)
+        run: DB_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres bash supabase/tests/test_remitos_compra_race.sh
+
+      # remitos-compra (internal-document-numbering, D2): N=20 sesiones reciben
+      # a la vez el primer remito de compra de una cuenta -> RC 1..20.
+      - name: Run internal document numbering race gate (remito de compra)
+        run: DOC_TYPE=delivery_note_purchase N=20 DB_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres bash supabase/tests/test_internal_document_numbering_race.sh

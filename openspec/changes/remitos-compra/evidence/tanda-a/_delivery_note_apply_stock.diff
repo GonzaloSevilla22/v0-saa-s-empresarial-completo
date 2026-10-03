@@ -1,0 +1,82 @@
+--- prod-vivo/_delivery_note_apply_stock
++++ 20261071000001/_delivery_note_apply_stock
+@@ -10,7 +10,13 @@
+   v_qty    numeric;
+   v_before numeric;
+   v_uid    uuid := auth.uid();
++  v_dir    text;
+ BEGIN
++  SELECT dn.direction INTO v_dir FROM public.delivery_notes dn WHERE dn.id = p_dn_id;
++  IF v_dir IS NULL THEN
++    RAISE EXCEPTION 'delivery_note_not_found: %', p_dn_id USING ERRCODE = 'P0404';
++  END IF;
++
+   FOR v_pair IN SELECT e FROM jsonb_array_elements(COALESCE(p_pairs, '[]'::jsonb)) AS e LOOP
+     v_pid := (v_pair->>'product_id')::uuid;
+     v_bid := (v_pair->>'branch_id')::uuid;
+@@ -25,27 +31,45 @@
+     FOR UPDATE;
+     v_before := COALESCE(v_before, 0);
+ 
+-    -- Mismo literal que el núcleo de la venta (la UI ya lo traduce).
+-    IF v_before < v_qty THEN
+-      RAISE EXCEPTION 'stock_insuficiente para producto %: disponible %, solicitado %',
+-        v_pid, v_before, v_qty
+-        USING ERRCODE = 'P0409';
++    IF v_dir = 'sale' THEN
++      -- Mismo literal que el núcleo de la venta (la UI ya lo traduce).
++      IF v_before < v_qty THEN
++        RAISE EXCEPTION 'stock_insuficiente para producto %: disponible %, solicitado %',
++          v_pid, v_before, v_qty
++          USING ERRCODE = 'P0409';
++      END IF;
++
++      PERFORM public.c21_apply_branch_stock_delta(p_account_id, v_pid, v_bid, -v_qty);
++
++      INSERT INTO public.stock_movements (
++        user_id, account_id, product_id, product_name, type,
++        quantity_delta, quantity_before, quantity_after,
++        reference_id, reference_type, performed_by,
++        operation_group_id, branch_id, unit_cost_snapshot, metadata
++      ) VALUES (
++        v_uid, p_account_id, v_pid, v_pair->>'product_name', 'sale',
++        -v_qty, v_before, v_before - v_qty,
++        p_dn_id, 'delivery_note', v_uid,
++        p_op_group, v_bid, (v_pair->>'unit_cost')::numeric,
++        jsonb_build_object('delivery_note_item_ids', COALESCE(v_pair->'item_ids', '[]'::jsonb))
++      );
++    ELSE
++      -- Compra: entra mercadería, no hay faltante que controlar.
++      PERFORM public.c21_apply_branch_stock_delta(p_account_id, v_pid, v_bid, v_qty);
++
++      INSERT INTO public.stock_movements (
++        user_id, account_id, product_id, product_name, type,
++        quantity_delta, quantity_before, quantity_after,
++        reference_id, reference_type, performed_by,
++        operation_group_id, branch_id, unit_cost_snapshot, metadata
++      ) VALUES (
++        v_uid, p_account_id, v_pid, v_pair->>'product_name', 'purchase',
++        v_qty, v_before, v_before + v_qty,
++        p_dn_id, 'delivery_note', v_uid,
++        p_op_group, v_bid, (v_pair->>'unit_cost')::numeric,
++        jsonb_build_object('delivery_note_item_ids', COALESCE(v_pair->'item_ids', '[]'::jsonb))
++      );
+     END IF;
+-
+-    PERFORM public.c21_apply_branch_stock_delta(p_account_id, v_pid, v_bid, -v_qty);
+-
+-    INSERT INTO public.stock_movements (
+-      user_id, account_id, product_id, product_name, type,
+-      quantity_delta, quantity_before, quantity_after,
+-      reference_id, reference_type, performed_by,
+-      operation_group_id, branch_id, unit_cost_snapshot, metadata
+-    ) VALUES (
+-      v_uid, p_account_id, v_pid, v_pair->>'product_name', 'sale',
+-      -v_qty, v_before, v_before - v_qty,
+-      p_dn_id, 'delivery_note', v_uid,
+-      p_op_group, v_bid, (v_pair->>'unit_cost')::numeric,
+-      jsonb_build_object('delivery_note_item_ids', COALESCE(v_pair->'item_ids', '[]'::jsonb))
+-    );
+   END LOOP;
+ END;
+ $function$

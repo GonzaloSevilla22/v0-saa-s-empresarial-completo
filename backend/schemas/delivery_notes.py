@@ -1,5 +1,6 @@
 """
-Schemas Pydantic v2 del remito de venta (remitos-venta tanda A, D13).
+Schemas Pydantic v2 del remito de venta (remitos-venta tanda A, D13) y del de
+compra (remitos-compra tanda A, D13).
 
 Reglas duras:
   - NUNCA `any`: tipos explícitos o `unknown`.
@@ -11,8 +12,11 @@ Reglas duras:
   - La clave de idempotencia viaja SIEMPRE por el header `Idempotency-Key`
     (nunca en el cuerpo: el remito nace con el contrato nuevo, sin el fallback
     deprecado).
-  - Sólo existe el sentido venta (`direction: Literal["sale"]`): el de compra es
-    de `remitos-compra` y ninguna RPC de este change lo acepta.
+  - Dos sentidos, dos clases por operación (venta: cliente y domicilio; compra:
+    proveedor y número de SU remito) bajo una unión discriminada por `direction`
+    (`DeliveryNoteCreateBody` / `DeliveryNoteUpdateBody`). Un cuerpo SIN
+    `direction` sigue siendo de venta: así la API vigente no cambia para ningún
+    cliente que ya la use. Un sentido desconocido es un 422.
   - `DeliveryNoteUpdateIn` es un REEMPLAZO completo: `delivery_address` y
     `notes` son campos requeridos que admiten `null` (= "sin domicilio" / "sin
     notas"), para que una edición nunca vacíe un dato por omisión.
@@ -29,14 +33,15 @@ import datetime
 import uuid
 from decimal import Decimal
 from enum import Enum
-from typing import Literal, Optional
+from typing import Annotated, Any, Literal, Optional, Union
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Discriminator, Field, Tag, field_validator, model_serializer
 
 from backend.schemas.common import PageOut
 
 MAX_ADDRESS = 500
 MAX_NOTES = 2000
+MAX_SUPPLIER_REFERENCE = 100
 MIN_REASON = 3
 MAX_REASON = 500
 MAX_ITEMS = 500
@@ -140,12 +145,73 @@ class DeliveryNoteUpdateIn(BaseModel):
     Si la versión ya no es la vigente la RPC responde `delivery_note_changed`
     sin modificar nada: dos editores simultáneos no se pisan en silencio.
     """
+    direction:        Literal["sale"] = "sale"
     revision:         int = Field(ge=1)
     client_id:        uuid.UUID
     branch_id:        uuid.UUID
     delivery_address: Optional[str] = Field(max_length=MAX_ADDRESS)
     notes:            Optional[str] = Field(max_length=MAX_NOTES)
     items:            list[DeliveryNoteItemIn] = Field(min_length=1, max_length=MAX_ITEMS)
+
+
+class PurchaseDeliveryNoteCreateIn(BaseModel):
+    """Alta (recepción) de un remito de COMPRA: proveedor y sucursal de destino
+    obligatorios, número del remito del proveedor opcional (hasta 100 caracteres).
+
+    No hay cliente ni domicilio de entrega. El `price` de cada línea es el precio
+    de compra por unidad de la línea y admite 0 (el proveedor suele mandar el
+    remito sin precios y la factura después: se completan editando; la conversión
+    en compra los exige). El `subtotal` que mande el cliente lo ignora el
+    servidor (lo recalcula como `round(price x quantity, 2)`, design D1).
+    """
+    direction:          Literal["purchase"]
+    supplier_id:        uuid.UUID
+    branch_id:          uuid.UUID
+    supplier_reference: Optional[str] = Field(default=None, max_length=MAX_SUPPLIER_REFERENCE)
+    notes:              Optional[str] = Field(default=None, max_length=MAX_NOTES)
+    items:              list[DeliveryNoteItemIn] = Field(min_length=1, max_length=MAX_ITEMS)
+
+
+class PurchaseDeliveryNoteUpdateIn(BaseModel):
+    """Edición de un remito de compra: reemplazo completo con la versión que se
+    editó (`revision`). `supplier_reference` y `notes` son requeridos y admiten
+    `null` (= "sin número del proveedor" / "sin notas"), para que una edición
+    nunca vacíe un dato por omisión."""
+    direction:          Literal["purchase"]
+    revision:           int = Field(ge=1)
+    supplier_id:        uuid.UUID
+    branch_id:          uuid.UUID
+    supplier_reference: Optional[str] = Field(max_length=MAX_SUPPLIER_REFERENCE)
+    notes:              Optional[str] = Field(max_length=MAX_NOTES)
+    items:              list[DeliveryNoteItemIn] = Field(min_length=1, max_length=MAX_ITEMS)
+
+
+def _direction_of_body(value: Any) -> str:
+    """Etiqueta de la unión: el `direction` del cuerpo, o `sale` si no vino (la
+    API de venta no lo exigía). Un valor desconocido no tiene etiqueta y la
+    validación lo rechaza con 422."""
+    if isinstance(value, dict):
+        direction = value.get("direction")
+    else:
+        direction = getattr(value, "direction", None)
+    return direction if direction is not None else "sale"
+
+
+DeliveryNoteCreateBody = Annotated[
+    Union[
+        Annotated[DeliveryNoteCreateIn, Tag("sale")],
+        Annotated[PurchaseDeliveryNoteCreateIn, Tag("purchase")],
+    ],
+    Discriminator(_direction_of_body),
+]
+
+DeliveryNoteUpdateBody = Annotated[
+    Union[
+        Annotated[DeliveryNoteUpdateIn, Tag("sale")],
+        Annotated[PurchaseDeliveryNoteUpdateIn, Tag("purchase")],
+    ],
+    Discriminator(_direction_of_body),
+]
 
 
 class DeliveryNoteCancelIn(BaseModel):
@@ -212,7 +278,16 @@ class DeliveryNoteOut(BaseModel):
     # conversión en venta queda deshabilitada hasta elegir uno vigente.
     client_deleted:     bool = False
     supplier_id:        Optional[uuid.UUID] = None
+    supplier_name:      Optional[str] = None
+    supplier_phone:     Optional[str] = None
+    supplier_tax_id:    Optional[str] = None
+    # El proveedor se dio de baja después de recibir: el detalle lo avisa y la
+    # conversión en compra queda deshabilitada hasta elegir uno vigente.
+    supplier_deleted:   bool = False
     supplier_reference: Optional[str] = None
+    # Líneas con precio 0 (compra): el remito todavía no se puede convertir y su
+    # total subestima lo recibido.
+    missing_price_count: int = 0
     number:             Optional[int] = None
     number_label:       Optional[str] = None
     status:             DeliveryNoteStatus
@@ -251,6 +326,11 @@ class DeliveryNoteListItemOut(BaseModel):
     client_id:    Optional[uuid.UUID] = None
     client_name:  Optional[str] = None
     client_phone: Optional[str] = None
+    supplier_id:        Optional[uuid.UUID] = None
+    supplier_name:      Optional[str] = None
+    supplier_phone:     Optional[str] = None
+    supplier_reference: Optional[str] = None
+    missing_price_count: int = 0
     status:       DeliveryNoteStatus
     issued_on:    datetime.date
     total:        Decimal
@@ -263,9 +343,23 @@ class DeliveryNoteListItemOut(BaseModel):
 
 
 class DeliveryNoteSummaryOut(BaseModel):
-    """Remitos pendientes (`issued`) del recorte del listado."""
+    """Remitos pendientes (`issued`) del recorte del listado.
+
+    `pending_missing_price_count` es sólo del sentido compra (cuántos de los
+    pendientes tienen alguna línea con precio 0: su importe está incompleto y no
+    se pueden convertir). En venta no existe y NO SE SERIALIZA: la respuesta de
+    venta sigue siendo `{pending_count, pending_total}`, byte a byte.
+    """
     pending_count: int = 0
     pending_total: Decimal = Decimal("0")
+    pending_missing_price_count: Optional[int] = None
+
+    @model_serializer(mode="wrap")
+    def _omit_the_purchase_only_count(self, handler: Any) -> dict[str, Any]:
+        data = handler(self)
+        if data.get("pending_missing_price_count") is None:
+            data.pop("pending_missing_price_count", None)
+        return data
 
 
 class DeliveryNotePageOut(PageOut[DeliveryNoteListItemOut]):

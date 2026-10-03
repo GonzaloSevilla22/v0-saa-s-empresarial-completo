@@ -1032,8 +1032,13 @@ BEGIN
     v_failures := v_failures || format('FAIL (n): numeración R: %s remitos, %s distintos, min %s, max %s, secuencia %s (esperado %s, 1..%s)',
       v_rec.c, v_rec.d, v_rec.mn, v_rec.mx, v_n, v_number_expected, v_number_expected);
   END IF;
-  IF EXISTS (SELECT 1 FROM public.delivery_notes WHERE account_id = v_account_a AND direction = 'purchase' AND number IS NOT NULL) THEN
-    v_failures := v_failures || 'FAIL (n): el disparador de número de venta no debía numerar un remito de compra'::text;
+  -- remitos-compra (D5): el remito de compra que inserta (k) lo numera el
+  -- disparador gemelo con SU secuencia (delivery_note_purchase, RC), nunca la R.
+  IF (SELECT array_agg(number) FROM public.delivery_notes WHERE account_id = v_account_a AND direction = 'purchase')
+       IS DISTINCT FROM ARRAY[1::bigint]
+     OR (SELECT last_number FROM public.internal_document_sequences
+         WHERE account_id = v_account_a AND document_type = 'delivery_note_purchase') IS DISTINCT FROM 1::bigint THEN
+    v_failures := v_failures || 'FAIL (n): el remito de compra de (k) debía quedar numerado 1 por la secuencia delivery_note_purchase'::text;
   END IF;
 
   -- ═══════════════════════════════════════════════════════════════════════

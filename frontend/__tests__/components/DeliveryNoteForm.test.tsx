@@ -34,6 +34,9 @@ const mocks = vi.hoisted(() => ({
   invalidateQueries: vi.fn(),
   branchStockCalls: [] as string[],
   branchSelectProps: [] as Array<{ required?: boolean; alwaysVisible?: boolean }>,
+  // remitos-compra: el sentido con el que el formulario pidió su hook de alta y lo que le pasó al selector de proveedor.
+  createDirections: [] as Array<string | undefined>,
+  supplierSelectProps: [] as Array<{ askPhone?: boolean; frozenOption?: { value: string; label: string } | null }>,
 }))
 
 const KG: UnitOfMeasure = { id: "u-kg", name: "Kilogramo", symbol: "kg", type: "weight", factor: 1, isSystem: true }
@@ -53,7 +56,12 @@ const TOMATE: Product = {
   id: "p-tomate", name: "Tomate", category: "Verdulería", categoryId: "c1", cost: 2, price: 4.8, margin: 40,
   stock: 10, minStock: 0, isVariant: false, stockControlType: "tracked", baseUnitId: "u-kg", scalePlu: 261,
 }
-const PRODUCTS = [HUEVO, QUESO, TOMATE]
+// remitos-compra: sin costo cargado (dato ausente), para el aviso "Sin precio".
+const SIN_COSTO: Product = {
+  id: "p-sin", name: "Sin costo", category: "Otros", categoryId: "c1", cost: null, price: 80, margin: null,
+  stock: 10, minStock: 0, isVariant: false, stockControlType: "tracked", baseUnitId: "u-u",
+}
+const PRODUCTS = [HUEVO, QUESO, TOMATE, SIN_COSTO]
 
 const CLIENT_ANA: Client = { id: "c-ana", name: "Ana Pérez", email: "", phone: "2615551234", lastPurchase: "-", totalSpent: 0 }
 const CLIENT_BETO: Client = { id: "c-beto", name: "Beto Sosa", email: "", phone: "", lastPurchase: "-", totalSpent: 0 }
@@ -98,7 +106,10 @@ vi.mock("@/hooks/data/use-scale-settings", () => ({
   useScaleSettings: () => ({ settings: scaleSettings, isLoading: false, isError: false, error: null }),
 }))
 vi.mock("@/hooks/data/use-delivery-notes", () => ({
-  useCreateDeliveryNote: () => ({ mutateAsync: mocks.createMutate, isPending: false }),
+  useCreateDeliveryNote: (direction?: string) => {
+    mocks.createDirections.push(direction)
+    return { mutateAsync: mocks.createMutate, isPending: false }
+  },
   useUpdateDeliveryNote: () => ({ mutateAsync: mocks.updateMutate, isPending: false }),
 }))
 vi.mock("@/hooks/data/use-branches", () => ({
@@ -209,6 +220,27 @@ vi.mock("@/components/forms/client-form", () => ({
   ),
 }))
 
+vi.mock("@/components/suppliers/SupplierSelect", () => ({
+  SupplierSelect: ({
+    value, onChange, askPhone, frozenOption,
+  }: {
+    value: string | null
+    onChange: (v: string | null) => void
+    askPhone?: boolean
+    frozenOption?: { value: string; label: string } | null
+  }) => {
+    mocks.supplierSelectProps.push({ askPhone, frozenOption })
+    return (
+      <select aria-label="Proveedor" value={value ?? ""} onChange={(e) => onChange(e.target.value || null)}>
+        <option value="">Elegí un proveedor</option>
+        {frozenOption ? <option value={frozenOption.value}>{frozenOption.label}</option> : null}
+        <option value="s-sur">Distribuidora Sur</option>
+        <option value="s-norte">Proveedora Norte</option>
+      </select>
+    )
+  },
+}))
+
 const { DeliveryNoteForm } = await import("@/components/delivery-notes/DeliveryNoteForm")
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -273,6 +305,8 @@ beforeEach(() => {
   vi.clearAllMocks()
   mocks.branchStockCalls.length = 0
   mocks.branchSelectProps.length = 0
+  mocks.createDirections.length = 0
+  mocks.supplierSelectProps.length = 0
   scaleSettings = { ...FACTORY_SCALE_SETTINGS, enabled: true }
   branchesList = [CENTRO, NORTE]
   stockByBranch = {
@@ -784,5 +818,415 @@ describe("DeliveryNoteForm — errores del servidor", () => {
     fireEvent.click(button)
     expect(mocks.createMutate).toHaveBeenCalledTimes(1)
     await act(async () => resolve({ id: "dn-new" }))
+  })
+})
+
+// ══ remitos-compra (D11, tarea 5.1): el mismo formulario, en sentido compra ═════
+
+const purchaseItemRow = (overrides: Partial<DeliveryNoteItemApiRow> & { id: string }) =>
+  itemRow({ quantity: "10", quantity_base: "10", price: "50", subtotal: "500", ...overrides })
+
+function purchaseNote(overrides: Partial<DeliveryNoteApiRow> = {}): DeliveryNoteApiRow {
+  return deliveryNote({
+    direction: "purchase",
+    number: 7,
+    number_label: "RC-00000007",
+    client_id: null,
+    client_name: null,
+    client_phone: null,
+    supplier_id: "s-sur",
+    supplier_name: "Distribuidora Sur",
+    supplier_phone: "2615550000",
+    supplier_reference: "0004-00001234",
+    supplier_deleted: false,
+    missing_price_count: 0,
+    delivery_address: null,
+    notes: "Llegó por la tarde",
+    total: "500",
+    items: [purchaseItemRow({ id: "i-1" })],
+    ...overrides,
+  })
+}
+
+const selectSupplier = (id: string) => fireEvent.change(screen.getByLabelText("Proveedor"), { target: { value: id } })
+
+describe("DeliveryNoteForm (compra) — alta", () => {
+  it("recibe con proveedor, sucursal y líneas: manda el payload de compra con el COSTO y navega al detalle", async () => {
+    mocks.createMutate.mockResolvedValue({ id: "dn-new", number_label: "RC-00000008" })
+    render(<DeliveryNoteForm direction="purchase" />)
+    selectSupplier("s-sur")
+    addProduct("Huevo", "2")
+    fireEvent.click(submitBtn())
+
+    await waitFor(() => expect(mocks.createMutate).toHaveBeenCalledTimes(1))
+    expect(mocks.createMutate).toHaveBeenCalledWith({
+      direction: "purchase",
+      supplier_id: "s-sur",
+      branch_id: "b-1",
+      supplier_reference: null,
+      notes: null,
+      // Huevo: costo 50 y precio de venta 100. El remito de compra entra a lo que cuesta.
+      items: [{ product_id: "p-huevo", unit_id: "u-u", quantity: 2, price: 50, subtotal: 100 }],
+    })
+    expect(mocks.createDirections).toContain("purchase")
+    expect(mocks.toastSuccess).toHaveBeenCalledWith("Remito RC-00000008 recibido: se sumó el stock a Centro")
+    await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/remitos/dn-new"))
+  })
+
+  it("el proveedor es obligatorio: sin proveedor no llama a la API y lo avisa", () => {
+    render(<DeliveryNoteForm direction="purchase" />)
+    addProduct("Huevo", "1")
+    fireEvent.click(submitBtn())
+    expect(mocks.toastError).toHaveBeenCalledWith(expect.stringMatching(/proveedor/i))
+    expect(mocks.createMutate).not.toHaveBeenCalled()
+  })
+
+  it("sin líneas no se recibe", () => {
+    render(<DeliveryNoteForm direction="purchase" initialSupplierId="s-sur" />)
+    fireEvent.click(submitBtn())
+    expect(mocks.toastError).toHaveBeenCalledWith(expect.stringMatching(/producto/i))
+    expect(mocks.createMutate).not.toHaveBeenCalled()
+  })
+
+  it("el proveedor de ?proveedor= llega preseleccionado", () => {
+    render(<DeliveryNoteForm direction="purchase" initialSupplierId="s-norte" />)
+    expect((screen.getByLabelText("Proveedor") as HTMLSelectElement).value).toBe("s-norte")
+  })
+
+  it("elige el proveedor con alta inline y teléfono opcional (askPhone), y no pide cliente", () => {
+    render(<DeliveryNoteForm direction="purchase" />)
+    expect(mocks.supplierSelectProps.length).toBeGreaterThan(0)
+    expect(mocks.supplierSelectProps.every((p) => p.askPhone === true)).toBe(true)
+    expect(screen.queryByLabelText("Cliente")).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: /nuevo cliente/i })).not.toBeInTheDocument()
+  })
+
+  it("el N° de remito del proveedor es opcional, viaja recortado y respeta el tope de 100", async () => {
+    render(<DeliveryNoteForm direction="purchase" initialSupplierId="s-sur" />)
+    const reference = screen.getByLabelText(/remito del proveedor/i)
+    expect(reference).toHaveAttribute("maxlength", "100")
+    fireEvent.change(reference, { target: { value: "  0004-00001234  " } })
+    addProduct("Huevo", "1")
+    fireEvent.click(submitBtn())
+    await waitFor(() => expect(mocks.createMutate).toHaveBeenCalled())
+    expect(mocks.createMutate.mock.calls[0][0].supplier_reference).toBe("0004-00001234")
+  })
+
+  it("no hay domicilio de entrega en un remito de compra", () => {
+    render(<DeliveryNoteForm direction="purchase" />)
+    expect(screen.queryByLabelText(/domicilio de entrega/i)).not.toBeInTheDocument()
+  })
+
+  it("la sucursal se rotula 'Ingresa a' y el selector es required + alwaysVisible (visible en todos los planes)", () => {
+    render(<DeliveryNoteForm direction="purchase" />)
+    expect(screen.getByText("Sucursal de destino")).toBeInTheDocument()
+    expect(screen.queryByText(/Sucursal de origen/)).not.toBeInTheDocument()
+    expect(mocks.branchSelectProps.length).toBeGreaterThan(0)
+    expect(mocks.branchSelectProps.every((p) => p.required === true && p.alwaysVisible === true)).toBe(true)
+  })
+
+  it("con una sola sucursal operativa se ve como texto 'Ingresa a: Centro' y se puede recibir", async () => {
+    branchesList = [CENTRO]
+    render(<DeliveryNoteForm direction="purchase" initialSupplierId="s-sur" />)
+    expect(screen.queryByLabelText("Sucursal")).not.toBeInTheDocument()
+    expect(screen.getByText(/Ingresa a:/).textContent).toMatch(/Ingresa a:\s*Centro/)
+    expect(screen.queryByText(/Sale de:/)).not.toBeInTheDocument()
+    addProduct("Huevo", "1")
+    fireEvent.click(submitBtn())
+    await waitFor(() => expect(mocks.createMutate).toHaveBeenCalled())
+    expect(mocks.createMutate.mock.calls[0][0].branch_id).toBe("b-1")
+  })
+
+  it("sin ninguna sucursal operativa avisa que no hay dónde recibir y no agrega líneas", () => {
+    branchesList = []
+    render(<DeliveryNoteForm direction="purchase" initialSupplierId="s-sur" />)
+    expect(screen.getByRole("alert", { name: /sin sucursal/i })).toHaveTextContent(/ingresar/i)
+    addProduct("Huevo", "1")
+    expect(cartItems()).toHaveLength(0)
+  })
+
+  it("avisa que recibir SUMA al stock de la sucursal elegida y lo actualiza al cambiarla", () => {
+    render(<DeliveryNoteForm direction="purchase" />)
+    expect(screen.getByRole("status", { name: /efecto en el stock/i })).toHaveTextContent(
+      "Al emitir, se suma al stock de Centro.",
+    )
+    selectBranch("b-2")
+    expect(screen.getByRole("status", { name: /efecto en el stock/i })).toHaveTextContent(
+      "Al emitir, se suma al stock de Norte.",
+    )
+  })
+
+  it("no controla faltante en el alta: entra mercadería, así que se puede recibir más de lo que hay", () => {
+    render(<DeliveryNoteForm direction="purchase" initialSupplierId="s-sur" />)
+    // Huevo: 2 en Centro. En venta 5 se rechazaría; acá entra.
+    addProduct("Huevo", "5")
+    expect(cartItems()).toHaveLength(1)
+    expect(screen.getByTestId("line-qty")).toHaveTextContent("5")
+    expect(screen.queryByRole("alert", { name: /stock insuficiente/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole("alert", { name: /no alcanza el stock/i })).not.toBeInTheDocument()
+    expect(cartItems()[0]).toHaveAttribute("data-max", "")
+  })
+
+  it("el alta manual precarga el costo; con costo nulo la línea entra en 0 y avisa 'Sin precio'", () => {
+    render(<DeliveryNoteForm direction="purchase" initialSupplierId="s-sur" />)
+    fireEvent.click(screen.getByRole("button", { name: "elegir Sin costo" }))
+    expect(
+      screen.getByText("Sin precio: lo vas a poder cargar antes de convertir el remito en compra"),
+    ).toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: /agregar al remito/i }))
+    expect(cartItems()).toHaveLength(1)
+    expect(screen.getByTestId("line-subtotal")).toHaveTextContent("0")
+  })
+
+  it("en compra no hay descuento: el renglón no lo ofrece", () => {
+    render(<DeliveryNoteForm direction="purchase" />)
+    fireEvent.click(screen.getByRole("button", { name: "elegir Huevo" }))
+    expect(screen.queryByLabelText(/descuento/i)).not.toBeInTheDocument()
+  })
+
+  it("una línea sin precio se puede recibir igual: el footer cuenta cuántas faltan y viaja precio 0", async () => {
+    render(<DeliveryNoteForm direction="purchase" initialSupplierId="s-sur" />)
+    fireEvent.click(screen.getByRole("button", { name: "elegir Sin costo" }))
+    fireEvent.click(screen.getByRole("button", { name: /agregar al remito/i }))
+    addProduct("Huevo", "1")
+    expect(screen.getByRole("status", { name: /líneas sin precio/i })).toHaveTextContent(
+      "1 línea sin precio: lo vas a poder cargar antes de convertir el remito en compra.",
+    )
+    expect(screen.getByTestId("cart")).toHaveTextContent(/sin precio/i)
+    fireEvent.click(submitBtn())
+    await waitFor(() => expect(mocks.createMutate).toHaveBeenCalled())
+    expect(mocks.createMutate.mock.calls[0][0].items).toEqual([
+      { product_id: "p-sin", unit_id: "u-u", quantity: 1, price: 0, subtotal: 0 },
+      { product_id: "p-huevo", unit_id: "u-u", quantity: 1, price: 50, subtotal: 50 },
+    ])
+  })
+
+  it("con todas las líneas con precio no muestra el aviso de precios", () => {
+    render(<DeliveryNoteForm direction="purchase" initialSupplierId="s-sur" />)
+    addProduct("Huevo", "1")
+    expect(screen.queryByRole("status", { name: /líneas sin precio/i })).not.toBeInTheDocument()
+  })
+
+  it("el lector de códigos precarga el costo (no el precio de venta) y no controla stock", () => {
+    render(<DeliveryNoteForm direction="purchase" initialSupplierId="s-sur" />)
+    act(() => scanBurst("HUEVOBC"))
+    act(() => scanBurst("HUEVOBC"))
+    act(() => scanBurst("HUEVOBC"))
+    expect(cartItems()).toHaveLength(1)
+    // Tres unidades con 2 en la sucursal: en compra entran las tres, a $50 cada una.
+    expect(screen.getByTestId("line-qty")).toHaveTextContent("3")
+    expect(screen.getByTestId("line-subtotal")).toHaveTextContent("150")
+  })
+
+  it("un error del servidor se traduce con el contexto de compra y no navega", async () => {
+    mocks.createMutate.mockRejectedValue(new Error("delivery_note_supplier_unavailable"))
+    render(<DeliveryNoteForm direction="purchase" initialSupplierId="s-sur" />)
+    addProduct("Huevo", "1")
+    fireEvent.click(submitBtn())
+    await waitFor(() => expect(mocks.toastError).toHaveBeenCalled())
+    expect(mocks.toastError.mock.calls[0][0]).toMatch(/proveedor/i)
+    expect(mocks.push).not.toHaveBeenCalled()
+  })
+
+  it("el remito de venta no se ve afectado: mismo formulario sin prop sigue pidiendo cliente", () => {
+    render(<DeliveryNoteForm />)
+    expect(screen.getByLabelText("Cliente")).toBeInTheDocument()
+    expect(screen.queryByLabelText("Proveedor")).not.toBeInTheDocument()
+    expect(screen.getByText("Sucursal de origen")).toBeInTheDocument()
+    expect(mocks.createDirections).toContain("sale")
+  })
+})
+
+describe("DeliveryNoteForm (compra) — edición", () => {
+  it("rehidrata proveedor, N° del proveedor, sucursal, notas y líneas, y guarda con la revision y direction purchase", async () => {
+    stockByBranch["b-1"]["p-huevo"] = 12
+    render(<DeliveryNoteForm deliveryNote={purchaseNote()} />)
+    expect((screen.getByLabelText("Proveedor") as HTMLSelectElement).value).toBe("s-sur")
+    expect(screen.getByLabelText(/remito del proveedor/i)).toHaveValue("0004-00001234")
+    expect((screen.getByLabelText("Sucursal") as HTMLSelectElement).value).toBe("b-1")
+    expect(screen.getByLabelText(/^notas/i)).toHaveValue("Llegó por la tarde")
+    expect(cartItems()).toHaveLength(1)
+
+    fireEvent.click(submitBtn())
+    await waitFor(() => expect(mocks.updateMutate).toHaveBeenCalledTimes(1))
+    expect(mocks.updateMutate).toHaveBeenCalledWith({
+      deliveryNoteId: "dn-1",
+      payload: {
+        direction: "purchase",
+        revision: 3,
+        supplier_id: "s-sur",
+        branch_id: "b-1",
+        supplier_reference: "0004-00001234",
+        notes: "Llegó por la tarde",
+        items: [{ product_id: "p-huevo", unit_id: "u-u", quantity: 10, price: 50, subtotal: 500 }],
+      },
+    })
+    await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/remitos/dn-1"))
+  })
+
+  it("cargar los precios que faltaban (sólo cambia el precio) no mueve stock", async () => {
+    stockByBranch["b-1"]["p-huevo"] = 0
+    render(<DeliveryNoteForm deliveryNote={purchaseNote({ items: [purchaseItemRow({ id: "i-1", price: "0", subtotal: "0" })] })} />)
+    expect(screen.getByRole("status", { name: /efecto en el stock/i })).toHaveTextContent("Este cambio no mueve stock")
+    expect(screen.getByRole("status", { name: /líneas sin precio/i })).toBeInTheDocument()
+  })
+
+  it("con el stock de la sucursal por debajo de lo aportado muestra el mínimo por producto y bloquea bajar de ahí", async () => {
+    // Aportó 10; en Centro quedan 3: no se puede bajar de 7.
+    stockByBranch["b-1"]["p-huevo"] = 3
+    render(<DeliveryNoteForm deliveryNote={purchaseNote()} />)
+    expect(screen.getByTestId("line-badge")).toHaveTextContent("En Centro quedan 3: este remito no puede bajar de 7")
+
+    fireEvent.change(screen.getByLabelText("cantidad Huevo"), { target: { value: "5" } })
+    fireEvent.click(submitBtn())
+    expect(mocks.toastError).toHaveBeenCalledWith(expect.stringMatching(/Huevo/))
+    expect(mocks.updateMutate).not.toHaveBeenCalled()
+
+    fireEvent.change(screen.getByLabelText("cantidad Huevo"), { target: { value: "7" } })
+    fireEvent.click(submitBtn())
+    await waitFor(() => expect(mocks.updateMutate).toHaveBeenCalledTimes(1))
+    expect(mocks.updateMutate.mock.calls[0][0].payload.items[0].quantity).toBe(7)
+  })
+
+  it("con stock de sobra no hay mínimo y se puede bajar libremente", async () => {
+    stockByBranch["b-1"]["p-huevo"] = 12
+    render(<DeliveryNoteForm deliveryNote={purchaseNote()} />)
+    expect(screen.getByTestId("cart")).not.toHaveTextContent(/no puede bajar de/)
+    fireEvent.change(screen.getByLabelText("cantidad Huevo"), { target: { value: "2" } })
+    fireEvent.click(submitBtn())
+    await waitFor(() => expect(mocks.updateMutate).toHaveBeenCalledTimes(1))
+  })
+
+  it("quitar la línea entera por debajo del mínimo también se rechaza antes de la red", () => {
+    stockByBranch["b-1"]["p-huevo"] = 3
+    render(<DeliveryNoteForm deliveryNote={purchaseNote({ items: [purchaseItemRow({ id: "i-1" }), purchaseItemRow({ id: "i-2", product_id: "p-queso", name_snapshot: "Queso", unit_id: "u-kg", quantity: "1", quantity_base: "1", line_no: 2 })] })} />)
+    fireEvent.click(screen.getByRole("button", { name: "quitar Huevo" }))
+    fireEvent.click(submitBtn())
+    expect(mocks.toastError).toHaveBeenCalledWith(expect.stringMatching(/Huevo/))
+    expect(mocks.updateMutate).not.toHaveBeenCalled()
+  })
+
+  it("resume el ajuste con las patas que SUMAN primero: 'Entran … · Salen …'", () => {
+    stockByBranch["b-1"]["p-huevo"] = 12
+    render(<DeliveryNoteForm deliveryNote={purchaseNote()} />)
+    fireEvent.change(screen.getByLabelText("cantidad Huevo"), { target: { value: "14" } })
+    expect(screen.getByRole("status", { name: /efecto en el stock/i })).toHaveTextContent(
+      "Entran 14 × Huevo a Centro · Salen 10 × Huevo de Centro",
+    )
+  })
+
+  it("sin cambios de cantidad dice 'Este cambio no mueve stock' y no habla de 'Al emitir'", () => {
+    stockByBranch["b-1"]["p-huevo"] = 12
+    render(<DeliveryNoteForm deliveryNote={purchaseNote()} />)
+    const effect = screen.getByRole("status", { name: /efecto en el stock/i })
+    expect(effect).toHaveTextContent("Este cambio no mueve stock")
+    expect(effect).not.toHaveTextContent(/Al emitir/)
+  })
+
+  it("mover la recepción a otra sucursal con la vieja sin todo lo aportado se bloquea y lo explica", () => {
+    // Aportó 10 a Centro; hoy tiene 3. Mover resta 10 de Centro.
+    stockByBranch["b-1"]["p-huevo"] = 3
+    render(<DeliveryNoteForm deliveryNote={purchaseNote()} />)
+    selectBranch("b-2")
+    expect(screen.getByRole("alert", { name: /no se puede mover/i })).toHaveTextContent(
+      "En Centro quedan 3 de las 10 que entraron con este remito: no se puede mover a otra sucursal",
+    )
+    fireEvent.click(submitBtn())
+    expect(mocks.updateMutate).not.toHaveBeenCalled()
+    expect(mocks.toastError).toHaveBeenCalledWith(expect.stringMatching(/no se puede mover/i))
+  })
+
+  it("mover la recepción con la vieja intacta se puede guardar y el payload lleva la sucursal nueva", async () => {
+    stockByBranch["b-1"]["p-huevo"] = 10
+    render(<DeliveryNoteForm deliveryNote={purchaseNote()} />)
+    selectBranch("b-2")
+    expect(screen.queryByRole("alert", { name: /no se puede mover/i })).not.toBeInTheDocument()
+    fireEvent.click(submitBtn())
+    await waitFor(() => expect(mocks.updateMutate).toHaveBeenCalledTimes(1))
+    expect(mocks.updateMutate.mock.calls[0][0].payload.branch_id).toBe("b-2")
+  })
+
+  it("al mover de sucursal el mínimo por producto deja de aplicar (la vieja resta TODO lo aportado)", async () => {
+    stockByBranch["b-1"]["p-huevo"] = 10
+    render(<DeliveryNoteForm deliveryNote={purchaseNote()} />)
+    selectBranch("b-2")
+    fireEvent.change(screen.getByLabelText("cantidad Huevo"), { target: { value: "1" } })
+    fireEvent.click(submitBtn())
+    await waitFor(() => expect(mocks.updateMutate).toHaveBeenCalledTimes(1))
+  })
+
+  it("proveedor dado de baja: lo muestra congelado con el aviso y bloquea el guardado hasta elegir uno vigente", async () => {
+    stockByBranch["b-1"]["p-huevo"] = 12
+    render(<DeliveryNoteForm deliveryNote={purchaseNote({ supplier_id: "s-viejo", supplier_name: "Proveedor Viejo", supplier_deleted: true })} />)
+    expect(screen.getByRole("status", { name: /proveedor dado de baja/i })).toHaveTextContent(
+      "Proveedor dado de baja — elegí uno vigente para guardar",
+    )
+    expect(screen.getByRole("status", { name: /proveedor dado de baja/i })).toHaveTextContent(/Proveedor Viejo/)
+    expect(mocks.supplierSelectProps.at(-1)?.frozenOption).toEqual({ value: "s-viejo", label: "Proveedor Viejo (dado de baja)" })
+
+    fireEvent.click(submitBtn())
+    expect(mocks.toastError).toHaveBeenCalledWith("Proveedor dado de baja — elegí uno vigente para guardar.")
+    expect(mocks.updateMutate).not.toHaveBeenCalled()
+
+    selectSupplier("s-norte")
+    expect(screen.queryByRole("status", { name: /proveedor dado de baja/i })).not.toBeInTheDocument()
+    fireEvent.click(submitBtn())
+    await waitFor(() => expect(mocks.updateMutate).toHaveBeenCalled())
+    expect(mocks.updateMutate.mock.calls[0][0].payload.supplier_id).toBe("s-norte")
+  })
+
+  it("un proveedor vigente no muestra ningún aviso", () => {
+    stockByBranch["b-1"]["p-huevo"] = 12
+    render(<DeliveryNoteForm deliveryNote={purchaseNote()} />)
+    expect(screen.queryByRole("status", { name: /proveedor dado de baja/i })).not.toBeInTheDocument()
+  })
+
+  it("producto dado de baja: se conserva lo recibido, no aumenta y quitarlo avisa que RESTA del stock", async () => {
+    stockByBranch["b-1"]["p-huevo"] = 12
+    stockByBranch["b-1"]["p-viejo"] = 3
+    render(
+      <DeliveryNoteForm
+        deliveryNote={purchaseNote({
+          items: [
+            purchaseItemRow({ id: "i-1" }),
+            purchaseItemRow({ id: "i-2", product_id: "p-viejo", name_snapshot: "Producto viejo", quantity: "3", quantity_base: "3", line_no: 2, product_deleted: true }),
+          ],
+        })}
+      />,
+    )
+    expect(screen.getAllByTestId("line-badge")[1]).toHaveTextContent(/se conserva lo recibido/i)
+    expect(cartItems()[1]).toHaveAttribute("data-max", "3")
+
+    fireEvent.click(screen.getByRole("button", { name: "quitar Producto viejo" }))
+    const dialog = await screen.findByRole("alertdialog")
+    expect(dialog).toHaveTextContent(/resta .*Producto viejo.* del stock de Centro/i)
+    expect(dialog).toHaveTextContent(/al guardar, se resta del stock/i)
+    expect(dialog).not.toHaveTextContent(/vuelve al stock/i)
+  })
+
+  it("delivery_note_stock_consumed del servidor se muestra persistente con 'Ajustar stock' (no 'Transferir stock')", async () => {
+    stockByBranch["b-1"]["p-huevo"] = 12
+    mocks.updateMutate.mockRejectedValue(
+      new Error("delivery_note_stock_consumed: de Huevo en la sucursal quedan 3, el remito necesita restar 7"),
+    )
+    render(<DeliveryNoteForm deliveryNote={purchaseNote()} />)
+    fireEvent.change(screen.getByLabelText("cantidad Huevo"), { target: { value: "3" } })
+    fireEvent.click(submitBtn())
+    const alert = await screen.findByRole("alert", { name: /mercadería consumida/i })
+    expect(alert).toHaveTextContent(/quedan 3/)
+    expect(within(alert).getByRole("link", { name: "Ajustar stock" })).toBeInTheDocument()
+    expect(within(alert).queryByRole("link", { name: /transferir stock/i })).not.toBeInTheDocument()
+    expect(mocks.push).not.toHaveBeenCalled()
+  })
+
+  it("delivery_note_changed: ofrece recargar sin pisar (igual que en venta)", async () => {
+    stockByBranch["b-1"]["p-huevo"] = 12
+    mocks.updateMutate.mockRejectedValue(new Error("delivery_note_changed: el remito cambió"))
+    const onReload = vi.fn()
+    render(<DeliveryNoteForm deliveryNote={purchaseNote()} onReload={onReload} />)
+    fireEvent.click(submitBtn())
+    const banner = await screen.findByRole("alert", { name: /remito modificado/i })
+    fireEvent.click(within(banner).getByRole("button", { name: /recargar remito/i }))
+    expect(onReload).toHaveBeenCalledTimes(1)
   })
 })

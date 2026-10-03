@@ -389,4 +389,19 @@ Borrar esa venta (admin/owner, igual que cualquier borrado) compensa caja, cuent
 ### RN-R8 — La venta de un remito no se edita y un remito convertido no se anula ni se edita
 Editar las líneas de la venta de un remito está bloqueado (`P0423 delivery_note_sale_locked`): el editor reemplaza líneas con reversa y reaplicación de stock y duplicaría o repondría lo que el remito retiene. Para corregirla: eliminar la venta, editar el remito y volver a convertirlo. Un remito `converted` tampoco se anula ni se edita (`delivery_note_locked_converted`, 409: "primero eliminá la venta").
 
-> El remito de compra reutiliza esta estructura en el change `remitos-compra`.
+### RN-RC1 — El remito de compra suma stock al recibirse y es interno (`remitos-compra`, tanda A, 2026-10-03)
+El remito de compra (`RC-00000001`, correlativo por cuenta) es un documento **interno, no válido como factura**: registra la mercadería que llegó, para un **proveedor** y una **sucursal de destino** obligatorios y con el número del remito del proveedor opcional. **Suma stock al crearse** (movimiento `purchase`/`delivery_note` por par producto-sucursal), sin esperar la factura. Lo emiten `stock`, `admin` y `owner`; el resto lo ve pero no lo emite. No hay borrador ni gate de plan.
+
+### RN-RC2 — Precio 0 permitido al recibir y costo de catálogo congelado
+El proveedor suele mandar la mercadería con un remito sin precios: se admite precio 0 al recibir y los precios se completan editando (el listado marca "Sin precio"); la conversión a compra los exigirá mayores que 0 (tanda B). El costo congelado en las líneas es el de catálogo (`products.cost`), igual que la compra directa: el remito **no actualiza** `products.cost`. Subtotal y total los calcula el servidor.
+
+### RN-RC3 — Editar un remito de compra pendiente ajusta el stock sólo sobre lo que cambia
+Mientras está `issued` se edita con espejo REVERSE+APLICAR sólo en los pares producto-sucursal cuyo neto cambia (cambiar de sucursal traslada el stock). Las patas que suman van primero, y bajar una cantidad (o quitar una línea, o mover de sucursal) se controla sobre el neto: si parte de lo recibido ya se vendió, se rechaza nombrando el producto (`P0409`) y sin efectos.
+
+### RN-RC4 — Anular un remito de compra exige motivo y se bloquea si la mercadería ya se consumió
+Sólo `admin` y `owner`, con motivo; resta lo que el remito retiene (movimientos `purchase_return`/`delivery_note_reversal`) y queda terminal. Si el stock disponible ya no alcanza porque se vendió, se rechaza con `P0409 delivery_note_stock_consumed` y el detalle por producto; la salida es editar el remito hasta lo no vendido o ajustar el stock. El stock nunca queda negativo por un remito.
+
+### RN-RC5 — Un remito pendiente bloquea la baja del proveedor y de la sucursal
+Un proveedor con remitos de compra `issued` no se puede dar de baja (`409 P0409`, con la cantidad y el enlace a `/remitos?sentido=compra`); lo mismo rige para la sucursal (RN-R4, que ya cuenta los dos sentidos). El PDF del remito de compra sigue la regla RN-R5: sin precios por defecto, con la opción "Mostrar precios".
+
+> La conversión del remito de compra en compra (sin volver a sumar stock), la compra inmutable y el borrado que reabre el remito llegan con la tanda B de `remitos-compra`.

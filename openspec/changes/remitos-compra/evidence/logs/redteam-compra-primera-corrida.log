@@ -1,0 +1,101 @@
+PASS  (0) control positivo: recibir 201 con número RC-  -> 201 RC-00000001 {"id":"8cb94ab4-d0fe-4a0d-904e-480b93b485bd","account_id":"f16f22fe-0337-464e-8180-8c41db4cdbd7","direction":"purchase","branch_id":"56950854-2607-4eab-a360-d46c6a52ad82","branch_name":"Casa Central","client_id":null,"cl
+PASS  (0) control positivo: GET propio 200 y direction=purchase
+PASS  (1) owner: INSERT directo en delivery_notes (compra) rechazado  -> 403 {"code":"42501","details":null,"hint":"Grant the required privileges to the curr
+PASS  (1) owner: INSERT directo en delivery_note_items rechazado  -> 403
+PASS  (1) owner: PATCH directo no cambia el remito (estado, total ni proveedor)
+PASS  (1) owner: DELETE directo no borra remito ni líneas
+FAIL  (1) owner: INSERT directo en stock_movements rechazado  -> 201
+FAIL  (1) owner: PATCH directo de branch_stock no cambia el stock
+PASS  (1) seller: INSERT directo en delivery_notes (compra) rechazado  -> 403 {"code":"42501","details":null,"hint":"Grant the required privileges to the curr
+PASS  (1) seller: INSERT directo en delivery_note_items rechazado  -> 403
+PASS  (1) seller: PATCH directo no cambia el remito (estado, total ni proveedor)
+PASS  (1) seller: DELETE directo no borra remito ni líneas
+FAIL  (1) seller: INSERT directo en stock_movements rechazado  -> 201
+PASS  (1) seller: PATCH directo de branch_stock no cambia el stock
+PASS  (1) b: INSERT directo en delivery_notes (compra) rechazado  -> 403 {"code":"42501","details":null,"hint":"Grant the required privileges to the curr
+PASS  (1) b: INSERT directo en delivery_note_items rechazado  -> 403
+PASS  (1) b: PATCH directo no cambia el remito (estado, total ni proveedor)
+PASS  (1) b: DELETE directo no borra remito ni líneas
+PASS  (1) b: INSERT directo en stock_movements rechazado  -> 403
+PASS  (1) b: PATCH directo de branch_stock no cambia el stock
+PASS  (1) control positivo: SELECT propio por PostgREST devuelve la fila
+PASS  (1) SELECT de otra cuenta por PostgREST devuelve 0 filas
+PASS  (1) anon no lee delivery_notes  -> 401
+PASS  (1) helper interno _delivery_note_apply_stock no expuesto a authenticated  -> 404 {"code":"PGRST202","details":"Searched for the function public._delivery_note_ap
+PASS  (1) helper interno _delivery_note_reverse_held no expuesto a authenticated  -> 404 {"code":"PGRST202","details":"Searched for the function public._delivery_note_re
+PASS  (1) helper interno _delivery_note_replace_content no expuesto a authenticated  -> 404 {"code":"PGRST202","details":"Searched for the function public._delivery_note_re
+PASS  (1) helper interno _delivery_note_assert_role_dir no expuesto a authenticated  -> 404 {"code":"PGRST202","details":"Searched for the function public._delivery_note_as
+PASS  (1) helper interno _delivery_note_lock_products no expuesto a authenticated  -> 404 {"code":"PGRST202","details":"Searched for the function public._delivery_note_lo
+PASS  (1) helper interno _delivery_note_held_pairs no expuesto a authenticated  -> 404 {"code":"PGRST202","details":"Searched for the function public._delivery_note_he
+PASS  (1) seller por RPC directa de PostgREST: rechazado sin efectos  -> 500 {"code":"P0403","details":null,"hint":null,"message":"insufficient_role: tu rol no permite emitir o 
+PASS  (2) get de remito ajeno = 404 idéntico al inexistente  -> ajeno 404/delivery_note_not_found inexistente 404/delivery_note_not_found
+PASS  (2) pdf de remito ajeno = 404 idéntico al inexistente  -> ajeno 404/delivery_note_not_found inexistente 404/delivery_note_not_found
+PASS  (2) put de remito ajeno = 404 idéntico al inexistente  -> ajeno 404/delivery_note_not_found inexistente 404/delivery_note_not_found
+PASS  (2) cancel de remito ajeno = 404 idéntico al inexistente  -> ajeno 404/delivery_note_not_found inexistente 404/delivery_note_not_found
+PASS  (2) el remito ajeno quedó intacto
+PASS  (2) el listado de compra de B no contiene remitos de A  -> total 0
+PASS  (2) control positivo: el listado de compra de A contiene el remito  -> total 1
+PASS  (3) proveedor ajeno -> 404 sin efectos  -> 404 supplier_not_found
+PASS  (3) producto ajeno -> 404 sin efectos  -> 404 product_not_found
+PASS  (3) sucursal ajena -> 404 sin efectos  -> 404 branch_not_found
+PASS  (3) B con proveedor de A -> 404  -> 404 supplier_not_found
+PASS  (3) B con sucursal de A -> 404  -> 404 branch_not_found
+PASS  (3) ninguno de los ataques dejó rastro (remitos, líneas, movimientos, stock)  -> 1|1|3|199998|30 -> 1|1|3|199998|30
+PASS  (3) PUT con proveedor / sucursal / producto ajeno -> 404  -> 404 404 404
+PASS  (3) PUT ajeno sin efectos
+PASS  (4) control positivo: remito de venta 201 (R-)  -> 201 {"id":"f95b3ddc-1127-4dbf-a304-bec9306d739f","account_id":"f16f22fe-0337-464e-8180-8c41db4cdbd7","direction":"sale","branch_id":"56950854-2607-4eab-a360-d46c6a52ad82","branch_name":"Casa Central","client_id":"8c438ef9-17
+PASS  (4) PUT de compra sobre un remito de venta -> 409 delivery_note_direction_mismatch  -> 409 {"type":"about:blank","title":"Conflicto","status":409,"detail":"El remito es de venta y el cuerpo de la edición es de compra","code":"delivery_note_direction_mismatch"}
+PASS  (4) PUT de venta (sin direction) sobre un remito de compra -> 409  -> 409 {"type":"about:blank","title":"Conflicto","status":409,"detail":"El remito es de compra y el cuerpo de la edición es de venta","code":"delivery_note_direction_mismatch"}
+PASS  (4) PUT con direction=sale sobre un remito de compra -> 409  -> 409 {"type":"about:blank","title":"Conflicto","status":409,"detail":"El remito es de compra y el cuerpo de la edición es de venta","code":"delivery_note_direction_mismatch"}
+PASS  (4) direction desconocida -> 422  -> 422
+PASS  (4) los cruces no dejaron rastro
+PASS  (4) control positivo: anular un remito de venta sigue funcionando  -> 200 {"id":"f95b3ddc-1127-4dbf-a304-bec9306d739f","account_id":"f16f22fe-0337-464e-8180-8c41db4cdbd7","direction":"sale","branch_id":"56950854-2607-4eab-a360-d46c6a52ad82","branch_name":"Casa Central","client_id":"8c438ef9-17
+PASS  (5) seller NO puede recibir: 403 sin efectos  -> 403 insufficient_role
+PASS  (5) cashier NO puede recibir: 403 sin efectos  -> 403 insufficient_role
+PASS  (5) purchases NO puede recibir: 403 sin efectos  -> 403 insufficient_role
+PASS  (5) control positivo: stock recibe 201  -> 201 {"id":"dfe73b41-35ff-4f12-ad7a-e730757d4451","account_id":"f16f22fe-0337-464e-8180-8c41db4cdbd7","direction":"purchase","branch_id":"56950854-2607-4eab-a360-d46c6a52ad82","branch_name":"Casa Central","client_id":null,"cl
+PASS  (5) control positivo: stock edita 200  -> 200 {"id":"dfe73b41-35ff-4f12-ad7a-e730757d4451","account_id":"f16f22fe-0337-464e-8180-8c41db4cdbd7","direction":"purchase","branch_id":"56950854-2607-4eab-a360-d46c6a52ad82","branch_name":"Casa Central","client_id":null,"cl
+PASS  (5) stock NO anula: 403 y el remito sigue pendiente  -> 403 insufficient_role
+PASS  (5) seller NO anula: 403 y el remito sigue pendiente  -> 403 insufficient_role
+PASS  (5) cashier NO anula: 403 y el remito sigue pendiente  -> 403 insufficient_role
+PASS  (5) purchases NO anula: 403 y el remito sigue pendiente  -> 403 insufficient_role
+PASS  (5) seller NO edita: 403  -> 403
+PASS  (5) cashier NO edita: 403  -> 403
+PASS  (5) purchases NO edita: 403  -> 403
+PASS  (5) control positivo: admin anula 200  -> 200 {"id":"dfe73b41-35ff-4f12-ad7a-e730757d4451","account_id":"f16f22fe-0337-464e-8180-8c41db4cdbd7","direction":"purchase","branch_id":"56950854-2607-4eab-a360-d46c6a52ad82","branch_name":"Casa Central","client_id":null,"cl
+PASS  (5) la lectura es libre para un miembro sin permiso de emitir
+PASS  (6) anular resta lo recibido del stock  -> 54 -> 50
+PASS  (6) doble anulación -> 409, sin efectos  -> 409 delivery_note_invalid_state
+PASS  (6) editar un anulado -> 409, sin efectos  -> 409 delivery_note_invalid_state
+PASS  (6) el PDF de un anulado sigue siendo 200 (sello ANULADO)  -> 200 application/pdf
+PASS  (7) doble POST con la misma clave: mismo remito, una sola suma  -> 201/200 stock 20->23
+PASS  (7) misma clave con otro cuerpo no suma de nuevo  -> 200 stock 23
+PASS  (7) sin Idempotency-Key -> 4xx sin efectos  -> 422
+PASS  (7) la misma clave en otra cuenta no devuelve el remito de A  -> 201 {"id":"84bbc049-10e2-45c8-859c-3e07cf8a602c","account_id":"48e1f872-6633-4f20-9251-cebf0af41012","direction":"purchase","branch_id":"d1aa8802-e22c-4d4a-ab13-dec760a9270e","branch_name":"Casa Central","client_id":null,"cl
+PASS  (8) 10 recepciones concurrentes: 10 de 10 aceptadas  -> 201,201,201,201,201,201,201,201,201,201
+PASS  (8) el stock sube exactamente 20 (todas suman)  -> 99999 -> 100019
+PASS  (8) 10 números RC distintos y consecutivos, sin duplicados  -> 5,6,7,8,9,10,11,12,13,14
+PASS  (8) 10 remitos nuevos y un movimiento por remito
+PASS  (8) invariante: Σ quantity_delta del par = stock actual del par
+PASS  (9) 6 ediciones con la misma revisión: exactamente 1 gana  -> 200,409,409,409,409,409
+PASS  (9) el stock refleja sólo la edición ganadora (delta = final - 5)  -> 55 -> 56 final 6
+PASS  (9) revisión 2 y un solo par de movimientos de edición  -> movs 3
+PASS  (10) anulación contra venta POS: nunca stock negativo ni las dos exitosas  -> cancel 200  | venta 409 http_error stock 0
+PASS  (10) exactamente una de las dos operaciones prevaleció  -> cancel 200  | venta 409 http_error
+PASS  (10) control positivo: la venta POS sola 2xx  -> 200 {"sales_order_id":"47f365b9-ba2a-48c7-a0cf-33ef57fddd6f","operation_id":"601cacce-3c3d-4b75-9c5b-503cb52ae7be","total":"1.0","fiscal_doc_id":null,"replayed":false}
+PASS  (11) edición tras fila forjada: resta sólo 1 (la diferencia de líneas), no lo forjado  -> 55 -> 54 200
+PASS  (11) anulación tras forja: resta sólo lo aportado por las líneas (1)  -> 55 -> 53 200
+PASS  (12) cantidad 0: rechazado 4xx sin efectos  -> 422
+PASS  (12) cantidad negativa: rechazado 4xx sin efectos  -> 422
+PASS  (12) precio negativo: rechazado 4xx sin efectos  -> 422
+PASS  (12) sin líneas: rechazado 4xx sin efectos  -> 422
+PASS  (12) referencia de 101 caracteres: rechazado 4xx sin efectos  -> 422
+PASS  (12) control positivo: precio 0 admitido al recibir (missing_price_count=1)  -> 201 {"id":"b7b4b2e4-f129-4c08-9797-21e7f1b1869a","account_id":"f16f22fe-0337-464e-8180-8c41db4cdbd7","direction":"purchase","branch_id":"56950854-2607-4eab-a360-d46c6a52ad82","branch_name":"Casa Central","client_id":null,"cl
+PASS  (12) subtotal falso ignorado: total del servidor = 200  -> 201 total 200.00
+PASS  (13) baja de sucursal con un remito de compra pendiente bloqueada (sigue activa)  -> 500 {"code":"P0428","details":null,"hint":null,"message":"branch_has_stock: la sucursal tiene 1.0000 unidades en 1 producto( is_active=t
+
+RESUMEN: 92/95 PASS
+FALLAS:
+ - (1) owner: INSERT directo en stock_movements rechazado
+ - (1) owner: PATCH directo de branch_stock no cambia el stock
+ - (1) seller: INSERT directo en stock_movements rechazado

@@ -12,6 +12,13 @@
  *  - `buildDeliveryNoteItemsPayload`: el `items` de la API.
  *  - `validateDeliveryNoteDraft`: las reglas que el formulario chequea antes de
  *    llamar a la API (el servidor las vuelve a validar: defensa en profundidad).
+ *    Por SENTIDO (remitos-compra, D11): en compra la contraparte es el proveedor,
+ *    la sucursal es la de destino, no hay domicilio ni control de faltante en el
+ *    alta, y la edición tiene un mínimo por producto
+ *    (`lib/delivery-note-stock`: `purchaseLinesBelowMinimum`).
+ *  - `missingPriceLineCount` / `describeMissingPrices`: el remito de compra admite
+ *    precio 0 al recibir (la factura llega después); el formulario avisa cuántas
+ *    líneas quedan sin precio porque la conversión en compra las exige.
  *
  * Una línea cuyo producto ya no está en el catálogo vivo (o que el servidor
  * marca `product_deleted`) NO se descarta ni bloquea el guardado: la mercadería
@@ -27,7 +34,11 @@ import {
   type CartContext,
   type SaleCartItem,
 } from "@/lib/cart-utils"
-import type { DeliveryNoteItemApiRow, DeliveryNoteItemInput } from "@/lib/delivery-note-types"
+import type {
+  DeliveryNoteDirection,
+  DeliveryNoteItemApiRow,
+  DeliveryNoteItemInput,
+} from "@/lib/delivery-note-types"
 import { getCanonicalLabel } from "@/lib/product-labels"
 import { resolveUnit, unitInputMin, unitInputStep } from "@/lib/unit-utils"
 
@@ -36,7 +47,15 @@ export const DELIVERY_NOTE_ADDRESS_MAX = 500
 /** Tope de las notas (el del schema del backend). */
 export const DELIVERY_NOTE_NOTES_MAX = 2000
 
+/** Tope del número del remito del proveedor (el del schema del backend, `supplier_reference`). */
+export const DELIVERY_NOTE_SUPPLIER_REFERENCE_MAX = 100
+
 export const CLIENT_DELETED_SAVE_MESSAGE = "Cliente dado de baja — elegí uno vigente para guardar."
+export const SUPPLIER_DELETED_SAVE_MESSAGE = "Proveedor dado de baja — elegí uno vigente para guardar."
+
+/** Aviso de una línea nueva de compra cuyo costo de catálogo es nulo (entra con precio 0). */
+export const PURCHASE_LINE_NO_PRICE_NOTICE =
+  "Sin precio: lo vas a poder cargar antes de convertir el remito en compra"
 
 export interface RehydratedDeliveryNote {
   cartItems: SaleCartItem[]
@@ -110,21 +129,34 @@ export function buildDeliveryNoteItemsPayload(cartItems: SaleCartItem[]): Delive
 }
 
 export interface DeliveryNoteDraftCheck {
-  clientId: string
-  /** El cliente elegido es el congelado del remito, dado de baja después de emitir. */
-  clientDeleted: boolean
+  /** Sentido del remito; sin él, venta (retrocompatible). */
+  direction?: DeliveryNoteDirection
+  /** Venta: el cliente elegido. Sin uso en compra. */
+  clientId?: string
+  /** Venta: el cliente elegido es el congelado del remito, dado de baja después de emitir. */
+  clientDeleted?: boolean
+  /** Compra: el proveedor elegido. */
+  supplierId?: string
+  /** Compra: el proveedor elegido es el congelado del remito, dado de baja después de recibir. */
+  supplierDeleted?: boolean
+  /** Compra: número del remito del proveedor (opcional, hasta 100 caracteres). */
+  supplierReference?: string
   branchId: string | null
   /** Nombre de la sucursal elegida, para los textos. */
   branchName: string
   itemCount: number
-  /** Nombres de los productos cuyas líneas superan el disponible de la sucursal elegida. */
+  /** Venta: nombres de los productos cuyas líneas superan el disponible de la sucursal elegida. */
   exceeding: string[]
+  /** Compra, edición: nombres de los productos cuyas líneas quedan por debajo de su mínimo. */
+  belowMinimum?: string[]
+  /** Venta: domicilio de entrega. En compra no existe y no se valida. */
   address: string
   notes: string
 }
 
 /** El primer motivo por el que el remito no se puede guardar, o `null`. */
 export function validateDeliveryNoteDraft(draft: DeliveryNoteDraftCheck): string | null {
+  if (draft.direction === "purchase") return validatePurchaseDraft(draft)
   if (!draft.clientId) return "Elegí un cliente: el remito se entrega a alguien."
   if (draft.clientDeleted) return CLIENT_DELETED_SAVE_MESSAGE
   if (!draft.branchId) return "Elegí la sucursal de la que sale la mercadería."
@@ -139,4 +171,47 @@ export function validateDeliveryNoteDraft(draft: DeliveryNoteDraftCheck): string
     return `Las notas admiten hasta ${DELIVERY_NOTE_NOTES_MAX} caracteres.`
   }
   return null
+}
+
+/**
+ * Las reglas del remito de COMPRA. No hay control de faltante en el alta (entra
+ * mercadería, no hay disponible que superar) ni domicilio de entrega; en la
+ * edición, bajar de lo que todavía está en la sucursal se rechaza antes de la red
+ * (el servidor lo vuelve a rechazar con `delivery_note_stock_consumed`).
+ */
+function validatePurchaseDraft(draft: DeliveryNoteDraftCheck): string | null {
+  if (!draft.supplierId) return "Elegí un proveedor: el remito se recibe de alguien."
+  if (draft.supplierDeleted) return SUPPLIER_DELETED_SAVE_MESSAGE
+  if (!draft.branchId) return "Elegí la sucursal a la que entra la mercadería."
+  if (draft.itemCount === 0) return "Agregá al menos un producto."
+  const below = draft.belowMinimum ?? []
+  if (below.length > 0) {
+    return `No se puede bajar la cantidad de: ${below.join(", ")}. Esa mercadería ya no está toda en el stock de ${draft.branchName}: subí la cantidad o ajustá el stock.`
+  }
+  if ((draft.supplierReference ?? "").length > DELIVERY_NOTE_SUPPLIER_REFERENCE_MAX) {
+    return `El número del remito del proveedor admite hasta ${DELIVERY_NOTE_SUPPLIER_REFERENCE_MAX} caracteres.`
+  }
+  if (draft.notes.length > DELIVERY_NOTE_NOTES_MAX) {
+    return `Las notas admiten hasta ${DELIVERY_NOTE_NOTES_MAX} caracteres.`
+  }
+  return null
+}
+
+/**
+ * Cuántas líneas del carrito quedan con precio 0. El precio efectivo sale del
+ * subtotal (como lo manda `buildDeliveryNoteItemsPayload`), no de `unitPrice`.
+ */
+export function missingPriceLineCount(cartItems: Pick<SaleCartItem, "subtotal" | "quantity">[]): number {
+  return cartItems.filter((item) => unitPriceFromSubtotal(item.subtotal, item.quantity) === 0).length
+}
+
+/**
+ * El aviso del formulario de compra con líneas sin precio (se puede emitir igual:
+ * el remito suma stock sin precios, y la conversión en compra los exige), o
+ * `null` si no falta ninguno.
+ */
+export function describeMissingPrices(count: number): string | null {
+  if (count <= 0) return null
+  const lines = count === 1 ? "1 línea sin precio" : `${count} líneas sin precio`
+  return `${lines}: lo vas a poder cargar antes de convertir el remito en compra.`
 }

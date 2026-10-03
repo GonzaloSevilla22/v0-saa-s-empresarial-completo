@@ -250,7 +250,15 @@ DECLARE
     'public._delivery_note_apply_stock(uuid, uuid, uuid, jsonb)',
     'public._delivery_note_reverse_held(uuid, uuid, uuid, jsonb, text, text)',
     'public._delivery_note_payload(uuid)',
-    'public._branch_pending_delivery_notes(uuid)'
+    'public._branch_pending_delivery_notes(uuid)',
+    -- remitos-compra tanda A (20261071000001): el núcleo de rol por sentido
+    -- (recibe el account_id y el sentido POR PARÁMETRO) y el núcleo de edición
+    -- (reemplaza las líneas de un remito y escribe el ledger de stock en los
+    -- dos sentidos). SECURITY INVOKER como los demás helpers del remito: este
+    -- chequeo (3) es su candado. NUNCA otorgar. Candado de comportamiento:
+    -- bloques (i) y (o1) de supabase/tests/test_remitos_compra.sql.
+    'public._delivery_note_assert_role_dir(uuid, text, text)',
+    'public._delivery_note_replace_content(uuid, uuid, jsonb)'
   ];
   -- Allowlist del chequeo (4) — helpers internos que HOY siguen expuestos a
   -- `authenticated`. Cada entrada necesita su justificación.

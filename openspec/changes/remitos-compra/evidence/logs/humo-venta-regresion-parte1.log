@@ -1,0 +1,38 @@
+FAIL  (a) remito emitido con el número siguiente (R-00000001 en cuenta limpia)  -> R-00000005|issued|rev1|56950854-2607-4eab-a360-d46c6a52ad82
+PASS  (a) stock baja exacto (harina -2,5; alfajor -4)  -> h 72.5->70 a 100043->100039
+PASS  (a) 2 movimientos sale/delivery_note con referencia al remito  -> sale/delivery_note:-2.5 sale/delivery_note:-4
+PASS  (a) /stock muestra "Remito R-…" en el historial de movimientos  -> 5 filas
+PASS  (b1) el formulario frena la línea que supera el stock y nombra el producto  -> «Producto escaso QA»: Stock insuficiente (disponible: 1 u) en Casa Central. Puede haber unidades en otra sucursal: transferilas o elegí otra sucursal.
+
+Transferir stock | 
+PASS  (b1) no se agregó la línea al remito (carrito vacío)
+PASS  (b2) el servidor rechaza con un mensaje que nombra el producto  -> No hay stock de «Producto escaso QA» en la sucursal Casa Central. Puede haber unidades en otra sucursal: revisá el stock por sucursal o cambiá la sucursal del remito.
+
+Transferir stock | 
+PASS  (b2) nada escrito: sin remito nuevo, stock del alfajor intacto, sigue en /remitos/nuevo  -> dn 55->55 alf 100039->100039 http://localhost:3000/remitos/nuevo
+PASS  (c) el resumen del ajuste se muestra antes de guardar  -> Vuelven 2 kg de Harina 000 (por kg), 4 × Alfajor artesanal, 2 × Aceite QA a Casa Central · Salen 3 kg de Harina 000 (por kg), 1 × Alfajor artesanal, 2 × Lote de tres QA de Casa Central
+PASS  (c) harina -1 (neto de 2->3), alfajor +3, aceite +2, lote de tres -2  -> h 68->67 a 100035->100038 ac 20->22 t 3->1
+PASS  (c) la revisión subió a 2 y el remito sigue pendiente  -> R-00000006|issued|rev2|56950854-2607-4eab-a360-d46c6a52ad82
+PASS  (c) invariante: Σ delta de movimientos = -Σ cantidad base de las líneas  -> -6 vs 6
+PASS  (c) A=2/B=1 -> A=2/B=3: un solo par espejo sobre B (2 movimientos) y cero sobre A  -> movs 2->4 harina 1 alf 3 h 65->65 a 100037->100035
+PASS  (c) cambiar sólo las notas no mueve stock (0 movimientos nuevos)  -> 4->4
+PASS  (c) cambiar a una sucursal sin stock de uno de los productos se frena sin escribir  -> Scanner listo | No alcanza el stock de Sucursal Norte QA para: Harina 000 (por kg). Bajá las cantidades, transferí stock o elegí otra sucursal. | Vuelven 2 kg de Harina 000 (por kg), 3 × Alfajor artes
+FAIL  (c2) el paso terminó sin excepción  -> TimeoutError: page.waitForURL: Timeout 60000ms exceeded.
+PASS  (d) la edición paralela por API entra (200)  -> 200
+FAIL  (d) el paso terminó sin excepción  -> TimeoutError: locator.waitFor: Timeout 30000ms exceeded.
+PASS  (e) sin motivo no se puede confirmar
+PASS  (e) el stock se repone (harina +1,5; alfajor +2)  -> h 63.5->65 a 100023->100025
+PASS  (e) remito terminal: canceled + motivo en el historial
+PASS  (e) sin acciones: no hay Editar ni Anular
+PASS  (f) PDF 200 application/pdf con nombre remito-R-…  -> 200 application/pdf attachment; filename="remito-R-00000011.pdf"
+PASS  (f) la descarga por la UI con "Mostrar precios" encendido trae nombre con precios  -> remito-R-00000011-con-precios.pdf
+PASS  (g) WhatsApp abre wa.me con el teléfono normalizado (54 + dígitos)  -> https://wa.me/5492615550202?text=Hola%20Cliente%20Demo%20QA%2C%20te%20env%C3%ADo%20el%20remito%20R-00000012%20de%20la%20mercader%C3%ADa%20entregada%20el%2003%2F
+PASS  (g) el texto del mensaje nombra el número del remito  -> https://wa.me/5492615550202?text=Hola Cliente Demo QA, te envío el remito R-00000012 de la mercadería entregada el 03/10/2026. Mi Negocio
+FAIL  (h) vendedor: ve el remito y Editar, pero NO "Anular"
+FAIL  (h) el paso terminó sin excepción  -> TimeoutError: locator.waitFor: Timeout 90000ms exceeded.
+PASS  (i) "Nuevo remito" desde la ficha abre el formulario con el cliente precargado  -> Cliente Dos QA
+PASS  (i) "Ver remitos" apunta a /remitos?cliente=<id>  -> /remitos?cliente=d8090e0d-3ec9-4b71-8fc6-af333d891ed2
+FAIL  (k) el paso terminó sin excepción  -> TimeoutError: locator.click: Timeout 30000ms exceeded.
+console errors: ["Failed to load resource: the server responded with a status of 409 (Conflict)","Failed to load resource: net::ERR_CONTENT_LENGTH_MISMATCH","pageerror: ChunkLoadError: Failed to load chunk /_next/static/chunks/frontend_app_layout_tsx_1fdc44bd._.js from module [project]/node_modules/.pnpm/next@16.1.6_@playwright+tes_645e4bef3b29e39a67094664bbe8be3a/no"]
+RESUMEN humo: 25/31 PASS
+FALLAN: (a) remito emitido con el número siguiente (R-00000001 en cuenta limpia) | (c2) el paso terminó sin excepción | (d) el paso terminó sin excepción | (h) vendedor: ve el remito y Editar, pero NO "Anular" | (h) el paso terminó sin excepción | (k) el paso terminó sin excepción

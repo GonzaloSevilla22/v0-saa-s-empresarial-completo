@@ -1,12 +1,19 @@
 "use client"
 
 /**
- * /remitos/[id]/editar — edición de un remito pendiente (remitos-venta D5/D11).
+ * /remitos/[id]/editar — edición de un remito pendiente (remitos-venta D5/D11), de
+ * venta o de compra (remitos-compra D11).
  *
  * Sólo se edita un remito `issued`. Convertido: no se abre el editor, se explica
  * (el mismo `delivery_note_locked_converted` que traduce `operation-errors.ts`:
- * "para corregirlo, eliminá la venta") y se enlaza a la venta. Anulado: se muestra
- * el motivo. Un remito ajeno es indistinguible de uno inexistente.
+ * "para corregirlo, eliminá la venta" / "…la compra") y se enlaza a la venta o a
+ * la compra. Anulado: se muestra el motivo. Un remito ajeno es indistinguible de
+ * uno inexistente.
+ *
+ * El permiso sigue al SENTIDO del remito, que sólo se sabe cuando carga: un rol
+ * sin ninguna de las dos capacidades ve el motivo de inmediato; si tiene una, se
+ * espera al remito y se decide con la que le corresponde (el vendedor edita los de
+ * venta, no los de compra).
  *
  * El formulario se vuelve a montar cuando cambia la `revision` (otro usuario lo
  * editó y el usuario eligió "Recargar"), y NO cuando sólo se refrescan datos de
@@ -17,7 +24,10 @@ import { useParams } from "next/navigation"
 import { ArrowLeft } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { DeliveryNoteForm } from "@/components/delivery-notes/DeliveryNoteForm"
-import { DELIVERY_NOTE_PAGE_TEXTS } from "@/components/delivery-notes/delivery-note-page-texts"
+import {
+  DELIVERY_NOTE_PAGE_TEXTS,
+  DELIVERY_NOTE_SCREEN_TEXTS,
+} from "@/components/delivery-notes/delivery-note-page-texts"
 import {
   DocumentLoadError,
   DocumentLoading,
@@ -29,9 +39,9 @@ import { useDeliveryNote } from "@/hooks/data/use-delivery-notes"
 import { useProducts } from "@/hooks/data/use-products"
 import { useOrgRole } from "@/hooks/useOrgRole"
 import { useUnitsOfMeasure } from "@/hooks/use-units-of-measure"
-import { canceledReason } from "@/lib/delivery-note-status"
+import { canceledReason, deliveryNoteListHref } from "@/lib/delivery-note-status"
 import { humanizeOperationError } from "@/lib/operation-errors"
-import { CAN_DELIVER_SALE, hasCapability } from "@/lib/rbac-capabilities"
+import { CAN_DELIVER_SALE, CAN_RECEIVE_PURCHASE, hasCapability } from "@/lib/rbac-capabilities"
 
 export default function EditDeliveryNotePage() {
   const params = useParams<{ id: string }>()
@@ -44,31 +54,42 @@ export default function EditDeliveryNotePage() {
   const { data: note, isLoading, isError } = useDeliveryNote(deliveryNoteId)
 
   const detailHref = `/remitos/${deliveryNoteId}`
+  // Mientras no carga el remito se asume venta (el listado al que vuelve el enlace de error).
+  const direction = note?.direction ?? "sale"
+  const isPurchase = direction === "purchase"
+  const pageTexts = DELIVERY_NOTE_PAGE_TEXTS[direction]
+  const screenTexts = DELIVERY_NOTE_SCREEN_TEXTS[direction]
+  const canSale = hasCapability(roles, CAN_DELIVER_SALE, rolesResolved)
+  const canPurchase = hasCapability(roles, CAN_RECEIVE_PURCHASE, rolesResolved)
+  const canEdit = note ? (isPurchase ? canPurchase : canSale) : canSale || canPurchase
 
   let body: React.ReactNode
-  if (!hasCapability(roles, CAN_DELIVER_SALE, rolesResolved)) {
-    body = <DocumentNoPermission texts={DELIVERY_NOTE_PAGE_TEXTS} action="editar remitos" />
+  if (!canEdit) {
+    body = <DocumentNoPermission texts={pageTexts} action={screenTexts.editAction} />
   } else if (isError) {
-    body = <DocumentLoadError texts={DELIVERY_NOTE_PAGE_TEXTS} />
+    body = <DocumentLoadError texts={pageTexts} />
   } else if (isLoading || !note || productsLoading || unitsLoading || branchesLoading) {
-    body = <DocumentLoading label={DELIVERY_NOTE_PAGE_TEXTS.loadingLabel} />
+    body = <DocumentLoading label={pageTexts.loadingLabel} />
   } else if (note.status === "converted") {
+    const link = isPurchase
+      ? note.converted_operation_id
+        ? { href: "/compras", label: "Ver la compra" }
+        : { href: detailHref, label: "Ver el remito" }
+      : note.converted_sales_order_id
+        ? { href: `/ventas/ordenes/${note.converted_sales_order_id}`, label: "Ver la venta" }
+        : { href: detailHref, label: "Ver el remito" }
     body = (
       <DocumentNotEditable
-        texts={DELIVERY_NOTE_PAGE_TEXTS}
-        message={humanizeOperationError("delivery_note_locked_converted", undefined, null, { documentLabel: "remito" }).message}
-        link={
-          note.converted_sales_order_id
-            ? { href: `/ventas/ordenes/${note.converted_sales_order_id}`, label: "Ver la venta" }
-            : { href: detailHref, label: "Ver el remito" }
-        }
+        texts={pageTexts}
+        message={humanizeOperationError("delivery_note_locked_converted", undefined, null, { documentLabel: "remito", direction }).message}
+        link={link}
       />
     )
   } else if (note.status === "canceled") {
     const reason = canceledReason(note.history)
     body = (
       <DocumentNotEditable
-        texts={DELIVERY_NOTE_PAGE_TEXTS}
+        texts={pageTexts}
         message="Este remito está anulado y no se puede modificar."
         link={{ href: detailHref, label: "Ver el remito" }}
       >
@@ -83,7 +104,7 @@ export default function EditDeliveryNotePage() {
     <div className="flex flex-col gap-6 min-w-0">
       <div className="flex items-center gap-3">
         <Button variant="ghost" size="icon" asChild className="h-8 w-8 shrink-0">
-          <Link href={note ? detailHref : "/remitos"} aria-label="Volver">
+          <Link href={note ? detailHref : deliveryNoteListHref(direction)} aria-label="Volver">
             <ArrowLeft className="h-4 w-4" aria-hidden="true" />
           </Link>
         </Button>
@@ -91,9 +112,7 @@ export default function EditDeliveryNotePage() {
           <h1 className="text-2xl font-bold text-foreground tracking-tight">
             {note?.number_label ? `Editar ${note.number_label}` : "Editar remito"}
           </h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            Los cambios reemplazan el contenido del remito y ajustan el stock sólo donde cambia.
-          </p>
+          <p className="text-sm text-muted-foreground mt-0.5">{screenTexts.editSubtitle}</p>
         </div>
       </div>
       {body}

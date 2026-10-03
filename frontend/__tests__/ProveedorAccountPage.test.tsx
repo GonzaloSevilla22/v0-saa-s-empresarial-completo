@@ -22,6 +22,10 @@ vi.mock("@/hooks/data/use-suppliers", () => ({
   useSupplier: () => useSupplierMock(),
 }))
 
+// remitos-compra (5.7): "Nuevo remito" depende del rol; "Ver remitos" es de lectura libre.
+const useOrgRoleMock = vi.fn()
+vi.mock("@/hooks/useOrgRole", () => ({ useOrgRole: () => useOrgRoleMock() }))
+
 vi.mock("@/components/supplier-accounts/SupplierAccountBalance", () => ({
   SupplierAccountBalance: () => null,
 }))
@@ -47,6 +51,8 @@ async function renderPage() {
 }
 
 beforeEach(() => {
+  useOrgRoleMock.mockReset()
+  useOrgRoleMock.mockReturnValue({ role: "owner", roles: ["owner"], rolesResolved: true, isWriter: true, isLoading: false })
   useSupplierAccountMock.mockReset()
   useSupplierAccountMock.mockReturnValue({
     data: { balance: 0, movements: [] },
@@ -64,7 +70,7 @@ beforeEach(() => {
 describe("ProveedorAccountPage — navegación de retorno", () => {
   it("el botón 'volver' apunta a /proveedores (no a /compras)", async () => {
     await renderPage()
-    const backLink = screen.getByRole("link")
+    const backLink = screen.getByRole("link", { name: /volver a proveedores/i })
     expect(backLink).toHaveAttribute("href", "/proveedores")
   })
 })
@@ -112,5 +118,54 @@ describe("ProveedorAccountPage — sin cuenta corriente (H22)", () => {
     expect(
       screen.queryByText(/todavía no tiene movimientos/i),
     ).not.toBeInTheDocument()
+  })
+})
+
+// ── remitos-compra (D11, tarea 5.7): botones "Nuevo remito" y "Ver remitos" ─────
+
+describe("ProveedorAccountPage — remitos del proveedor (remitos-compra 5.7)", () => {
+  const setRoles = (roles: string[]) =>
+    useOrgRoleMock.mockReturnValue({ role: "member", roles, rolesResolved: true, isWriter: false, isLoading: false })
+
+  it("'Ver remitos' lleva a la pestaña De compra filtrada por este proveedor", async () => {
+    await renderPage()
+    expect(screen.getByRole("link", { name: /ver remitos/i })).toHaveAttribute(
+      "href",
+      "/remitos?sentido=compra&proveedor=sup-1",
+    )
+  })
+
+  it("'Nuevo remito' abre el alta de compra con el proveedor preseleccionado", async () => {
+    await renderPage()
+    expect(screen.getByRole("link", { name: /nuevo remito/i })).toHaveAttribute(
+      "href",
+      "/remitos/nuevo?tipo=compra&proveedor=sup-1",
+    )
+  })
+
+  it.each([
+    [["owner"], true],
+    [["admin"], true],
+    [["stock"], true],
+    [["seller"], false],
+    [["purchases"], false],
+    [["viewer"], false],
+  ])("con roles %j 'Nuevo remito' visible=%s y 'Ver remitos' siempre", async (roles, canCreate) => {
+    setRoles(roles)
+    await renderPage()
+    expect(!!screen.queryByRole("link", { name: /nuevo remito/i })).toBe(canCreate)
+    expect(screen.getByRole("link", { name: /ver remitos/i })).toBeInTheDocument()
+  })
+
+  it("'Registrar pago' sigue disponible junto a los dos botones nuevos", async () => {
+    await renderPage()
+    expect(screen.getByRole("button", { name: /registrar pago/i })).toBeInTheDocument()
+  })
+
+  it("los tres botones de acción se envuelven en móvil en un contenedor propio (no desbordan el encabezado)", async () => {
+    await renderPage()
+    const actions = screen.getByRole("link", { name: /ver remitos/i }).parentElement
+    expect(actions?.className).toMatch(/flex-wrap/)
+    expect(actions).toContainElement(screen.getByRole("button", { name: /registrar pago/i }))
   })
 })

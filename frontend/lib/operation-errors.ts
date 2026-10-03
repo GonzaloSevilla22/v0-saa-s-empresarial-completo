@@ -187,6 +187,29 @@ const DELIVERY_NOTE_ORDER_MISMATCH_ERROR = /delivery_note_order_mismatch/
 // transacción revirtió entera, así que reintentar con la misma clave es seguro.
 const CONCURRENT_UPDATE_RETRY_ERROR = /concurrent_update_retry/
 
+// remitos-compra (D11, tarea 4.5): literales del remito de COMPRA. `stock_consumed`
+// lleva producto, stock de la sucursal y cantidad a restar (`de % en la sucursal
+// quedan %, el remito necesita restar %`): el nombre puede venir como uuid si la
+// línea no tenía snapshot. Los de la conversión y de la vida posterior de la
+// compra (`price_required`, `purchase_*`, `items_from_source`) los emite la
+// tanda B; el borrado y el puente (`purchase_delete_forbidden`, `source_protected`)
+// se suman en la tarea 7.7.
+const DELIVERY_NOTE_SUPPLIER_REQUIRED_ERROR = /delivery_note_supplier_required/
+const DELIVERY_NOTE_SUPPLIER_UNAVAILABLE_ERROR = /delivery_note_supplier_unavailable/
+const DELIVERY_NOTE_SUPPLIER_REFERENCE_TOO_LONG_ERROR = /delivery_note_supplier_reference_too_long/
+const DELIVERY_NOTE_STOCK_CONSUMED_ERROR =
+  /delivery_note_stock_consumed:\s*de\s+(.+?)\s+en la sucursal quedan\s+(-?[\d.]+),\s*el remito necesita restar\s+(-?[\d.]+)/is
+const DELIVERY_NOTE_STOCK_CONSUMED_BARE_ERROR = /delivery_note_stock_consumed/
+const DELIVERY_NOTE_PRICE_REQUIRED_ERROR = /delivery_note_price_required/
+const DELIVERY_NOTE_PURCHASE_LOCKED_ERROR = /delivery_note_purchase_locked/
+const DELIVERY_NOTE_PURCHASE_MISMATCH_ERROR = /delivery_note_purchase_mismatch/
+const DELIVERY_NOTE_PURCHASE_DATE_BEFORE_RECEIPT_ERROR = /delivery_note_purchase_date_before_receipt/
+const DELIVERY_NOTE_ITEMS_FROM_SOURCE_ERROR = /delivery_note_items_from_source/
+const UUID_ONLY = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/** `3` -> "3", `0.45` -> "0,45": las cantidades del servidor (`trim_scale`) en es-AR. */
+const fmtQty = (raw: string) => Number(raw).toLocaleString("es-AR", { maximumFractionDigits: 4 })
+
 const fmtMoney = (n: number) =>
   n.toLocaleString("es-AR", { style: "currency", currency: "ARS" })
 
@@ -198,6 +221,12 @@ const fmtMoney = (n: number) =>
  */
 export interface OperationErrorContext {
   documentLabel?: "venta" | "remito"
+  /**
+   * remitos-compra (D11): el SENTIDO del remito. Sólo cambia el texto de los
+   * literales que hablaban de venta o de mercadería que sale (`"purchase"`);
+   * sin él, o con `"sale"`, el texto no cambia.
+   */
+  direction?: "sale" | "purchase"
 }
 
 /**
@@ -213,6 +242,7 @@ export function humanizeOperationError(
 ): HumanizedOperationError {
   if (!message) return { message: "Error desconocido" }
   const isRemito = context?.documentLabel === "remito"
+  const isPurchaseRemito = isRemito && context?.direction === "purchase"
 
   // presupuestos-modulo: el estado y la edición primero — son los rechazos que
   // el usuario más ve y cada uno nombra qué hacer en vez de repetir el literal.
@@ -309,12 +339,23 @@ export function humanizeOperationError(
   if (DELIVERY_NOTE_INVALID_STATE_ERROR.test(message)) {
     return {
       message:
-        "El remito ya no está en un estado que permita esta acción (puede que ya se haya convertido en venta o anulado). " +
+        `El remito ya no está en un estado que permita esta acción (puede que ya se haya convertido en ${isPurchaseRemito ? "compra" : "venta"} o anulado). ` +
         "Actualizá la pantalla para ver cómo quedó.",
     }
   }
 
   if (DELIVERY_NOTE_LOCKED_CONVERTED_ERROR.test(message)) {
+    // El sentido sale del contexto y, sin él, del propio literal del servidor
+    // ("el remito ya se convirtió en compra").
+    const lockedInPurchase =
+      isPurchaseRemito || (context?.direction === undefined && /se convirti[óo] en compra/i.test(message))
+    if (lockedInPurchase) {
+      return {
+        message:
+          "Este remito ya se convirtió en una compra y no se puede modificar ni anular. " +
+          "Para corregirlo, eliminá la compra: el remito vuelve a quedar pendiente.",
+      }
+    }
     return {
       message:
         "Este remito ya se convirtió en una venta y no se puede modificar ni anular. " +
@@ -350,6 +391,9 @@ export function humanizeOperationError(
   }
 
   if (DELIVERY_NOTE_BRANCH_REQUIRED_ERROR.test(message)) {
+    if (isPurchaseRemito) {
+      return { message: "Elegí la sucursal a la que entra la mercadería: ahí se suma el stock." }
+    }
     return { message: "Elegí la sucursal de la que sale la mercadería: de ahí se descuenta el stock." }
   }
 
@@ -357,14 +401,14 @@ export function humanizeOperationError(
     return {
       message:
         "La sucursal del remito está desactivada o cerrada: no se guardó ningún cambio. " +
-        "Reactivala desde Sucursales para editar o anular el remito, o para eliminar su venta.",
+        `Reactivala desde Sucursales para editar o anular el remito, o para eliminar su ${isPurchaseRemito ? "compra" : "venta"}.`,
     }
   }
 
   if (DELIVERY_NOTE_PRODUCT_REQUIRED_ERROR.test(message)) {
     return {
       message:
-        "Cada línea del remito necesita un producto: el remito documenta mercadería que sale del depósito, no conceptos sueltos.",
+        `Cada línea del remito necesita un producto: el remito documenta mercadería que ${isPurchaseRemito ? "entra al" : "sale del"} depósito, no conceptos sueltos.`,
     }
   }
 
@@ -416,14 +460,96 @@ export function humanizeOperationError(
     const required = Number(rawRequired)
     return {
       message:
-        `${name ? `«${name}»` : "Uno de los productos"} fue dado de baja del catálogo: se puede conservar o reducir lo entregado (${held.toLocaleString("es-AR")}), ` +
+        `${name ? `«${name}»` : "Uno de los productos"} fue dado de baja del catálogo: se puede conservar o reducir lo ${isPurchaseRemito ? "recibido" : "entregado"} (${held.toLocaleString("es-AR")}), ` +
         `pero no aumentarlo (pediste ${required.toLocaleString("es-AR")}). Bajá la cantidad de ${producto} o quitá la línea.`,
     }
   }
   if (DELIVERY_NOTE_PRODUCT_UNAVAILABLE_BARE_ERROR.test(message)) {
     return {
       message:
-        "Uno de los productos fue dado de baja del catálogo: se puede conservar o reducir lo entregado, pero no aumentarlo.",
+        `Uno de los productos fue dado de baja del catálogo: se puede conservar o reducir lo ${isPurchaseRemito ? "recibido" : "entregado"}, pero no aumentarlo.`,
+    }
+  }
+
+  // remitos-compra (D11): proveedor, faltante al restar y conversión en compra.
+  if (DELIVERY_NOTE_SUPPLIER_REQUIRED_ERROR.test(message)) {
+    return { message: "Elegí el proveedor que te entrega la mercadería." }
+  }
+
+  if (DELIVERY_NOTE_SUPPLIER_UNAVAILABLE_ERROR.test(message)) {
+    return {
+      message: "El proveedor del remito fue dado de baja. Editá el remito y elegí un proveedor vigente.",
+    }
+  }
+
+  if (DELIVERY_NOTE_SUPPLIER_REFERENCE_TOO_LONG_ERROR.test(message)) {
+    return {
+      message: "El número del remito del proveedor admite hasta 100 caracteres. Acortalo y volvé a intentar.",
+    }
+  }
+
+  // El servidor NO atribuye origen a la diferencia (el stock de la sucursal
+  // mezcla otras entradas), y este texto tampoco: dice cuánto queda, cuánto hay
+  // que restar y las dos salidas (reducir el remito o ajustar el stock).
+  const consumedMatch = message.match(DELIVERY_NOTE_STOCK_CONSUMED_ERROR)
+  if (consumedMatch) {
+    const [, rawName, rawLeft, rawNeeded] = consumedMatch
+    const productId = UUID_ONLY.test(rawName.trim()) ? rawName.trim() : null
+    const resolvedName = productId ? lookupProductName?.(productId) : rawName.trim()
+    const producto = resolvedName ? `«${resolvedName}»` : "uno de los productos"
+    return {
+      message:
+        `No se puede restar ${producto} del stock: en la sucursal quedan ${fmtQty(rawLeft)} y el remito necesita restar ${fmtQty(rawNeeded)}. ` +
+        "Editá el remito y reducí lo que sigue en el depósito, o ajustá el stock antes de volver a intentar. No se guardó ningún cambio.",
+      action: { label: "Ajustar stock", href: productId ? `/stock?product=${productId}` : "/stock" },
+    }
+  }
+  if (DELIVERY_NOTE_STOCK_CONSUMED_BARE_ERROR.test(message)) {
+    return {
+      message:
+        "La mercadería de este remito ya no está toda en el stock de la sucursal. " +
+        "Editá el remito y reducí lo que sigue en el depósito, o ajustá el stock antes de volver a intentar. No se guardó ningún cambio.",
+      action: { label: "Ajustar stock", href: "/stock" },
+    }
+  }
+
+  if (DELIVERY_NOTE_PRICE_REQUIRED_ERROR.test(message)) {
+    return {
+      message:
+        "Cargá el precio de compra de todas las líneas antes de convertir el remito en compra. " +
+        "Editá el remito, completá los precios y volvé a convertirlo.",
+    }
+  }
+
+  if (DELIVERY_NOTE_PURCHASE_DATE_BEFORE_RECEIPT_ERROR.test(message)) {
+    return {
+      message:
+        "La fecha de la compra no puede ser anterior a la recepción del remito. " +
+        "Elegí la fecha del remito o una posterior.",
+    }
+  }
+
+  if (DELIVERY_NOTE_PURCHASE_MISMATCH_ERROR.test(message)) {
+    return {
+      message:
+        "La compra no coincide con el remito (cambió el proveedor, la sucursal o las líneas): no se registró nada. " +
+        "Actualizá el remito y volvé a convertirlo.",
+    }
+  }
+
+  if (DELIVERY_NOTE_ITEMS_FROM_SOURCE_ERROR.test(message)) {
+    return {
+      message:
+        "Las líneas de esta compra salen del remito y no se pueden enviar aparte: no se guardó nada. " +
+        "Actualizá la pantalla y volvé a convertir el remito.",
+    }
+  }
+
+  if (DELIVERY_NOTE_PURCHASE_LOCKED_ERROR.test(message)) {
+    return {
+      message:
+        "Esta compra nació de un remito y no se puede editar: el stock ya se sumó al recibir la mercadería. " +
+        "Para corregirla, eliminá la compra, editá el remito y volvé a convertirlo.",
     }
   }
 
@@ -458,6 +584,13 @@ export function humanizeOperationError(
   }
 
   if (INSUFFICIENT_ROLE_ERROR.test(message)) {
+    if (isPurchaseRemito) {
+      return {
+        message:
+          "Tu rol no permite esta acción sobre remitos de compra. Recibir y editar: depósito, administrador o dueño; " +
+          "anular: administrador o dueño. Pedile al dueño o a un administrador de la cuenta que te asigne el rol.",
+      }
+    }
     if (isRemito) {
       return {
         message:
@@ -628,6 +761,9 @@ export function humanizeOperationError(
   }
 
   if (SUPPLIER_NOT_FOUND_ERROR.test(message)) {
+    // remitos-compra (D11): en un remito sólo es alcanzable con un proveedor
+    // dado de baja después de recibir — la salida es elegir uno vigente.
+    if (isRemito) return { message: "Proveedor dado de baja — elegí uno vigente" }
     return {
       message:
         "El proveedor seleccionado no existe o no pertenece a esta cuenta. Elegí un proveedor del listado o dejá el campo vacío.",
@@ -637,6 +773,13 @@ export function humanizeOperationError(
   if (BRANCH_CLOSED_ERROR.test(message)) {
     // remitos-venta (D7): la conversión de un remito se imputa a SU sucursal, que
     // no se elige — "elegí otra sucursal" no tiene salida. Se reactiva la del remito.
+    if (isPurchaseRemito) {
+      return {
+        message:
+          "La sucursal del remito está cerrada o desactivada: no se guardó nada. " +
+          "Reabrila o reactivala desde Sucursales y volvé a intentar.",
+      }
+    }
     if (isRemito) {
       return {
         message:

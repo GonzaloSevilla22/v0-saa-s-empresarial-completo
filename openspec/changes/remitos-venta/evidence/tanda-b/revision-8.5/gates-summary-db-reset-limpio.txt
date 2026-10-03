@@ -1,0 +1,110 @@
+reset start 10:03:08
+reset end 10:07:36
+PASS	001	Check hidden BOM characters	6s
+PASS	004	Verify G1/G4 migrations are idempotent on reapply	1293s
+PASS	005	Run deterministic KPI tests	6s
+PASS	006	Run edge case KPI tests	5s
+PASS	007	Run function ACL anti-regression gate	5s
+PASS	008	Run ERRCODE 5-char anti-regression gate	3s
+PASS	009	Run idempotency ledger invariants	3s
+PASS	010	Run sale_items_rpc_v2 activation gates	3s
+PASS	011	Run operation edit lines gates	4s
+PASS	012	Run stock movements edicion gates	4s
+PASS	013	Run payment methods catalog gates	3s
+PASS	014	Run payment methods seed gates	4s
+PASS	015	Run payment method operations gates	3s
+PASS	016	Run payment method report gates	4s
+PASS	017	Run pos-catalogo-pagos vocabulary gates	4s
+PASS	018	Run confirm-core integrity gate (regresión de julio 2026)	3s
+PASS	019	Run pos-catalogo-pagos RPC signature gates	4s
+PASS	020	Run pos-catalogo-pagos confirm + payment method gates	4s
+PASS	021	Run analytics events revival gates	5s
+PASS	022	Run admin KPI refresh gates	4s
+PASS	023	Run community interactions gates	4s
+FAIL(1)	024	Run backend table/function reference gate	2s
+FAIL(1)	025	Run frontend table/function reference gate	16s
+PASS	026	Run internal logs retention gates	3s
+PASS	027	Run edicion-preserva-contexto gates	4s
+PASS	028	Run pagos-cableados-restantes gates	4s
+PASS	029	Run pos-banco-movimientos gates	4s
+PASS	030	Run asiento-venta-formulario gates	4s
+PASS	031	Run delete-guard-ledgers gates	4s
+PASS	032	Run banco-caja-historial-ajustes gates	6s
+PASS	033	Run cuentas-billetera-tipo gates	4s
+PASS	034	Run compras-proveedor-cuenta-corriente gates	4s
+PASS	035	Run tenancy RLS role gates (v31-tenancy-pool-rls Paso 2)	3s
+PASS	036	Run cuenta-corriente-party-guard gates	6s
+PASS	037	Run outbox single-dispatcher gates	3s
+PASS	038	Run tenancy-guard-caja-outbox gates	4s
+PASS	039	Run sucursal-guard-vaciado-auditoria gates	4s
+PASS	040	Run gastos-forma-pago gates	6s
+PASS	041	Run qa-integral-modulos fix gates	4s
+PASS	042	Run caja-compras-cobranzas cash movement types gate	5s
+PASS	043	Run caja-compras-cobranzas purchase cash opt-in gate	4s
+PASS	044	Run caja-compras-cobranzas party payment cash gate	5s
+PASS	045	Run caja-compras-cobranzas purchase delete cash compensation gate	4s
+PASS	046	Run cobranzas-panel receivables report gate	3s
+PASS	047	Run cobranzas-vencimientos schema and cascade gate	4s
+PASS	048	Run receivables aging FIFO gate	4s
+PASS	049	Run receivables overdue digest gate	4s
+PASS	050	Run productos-categorias-sku catalog gate	4s
+PASS	051	Run productos-categoria-text-retiro category derived gate	4s
+PASS	052	Run productos-categorias-sku SKU uniqueness scope gate	3s
+PASS	053	Run productos-categorias-sku bulk upsert gate	4s
+PASS	054	Run productos-categorias-sku seed and backfill gate	4s
+PASS	055	Run estadisticas-ventas gates	3s
+PASS	056	Run estadisticas-ventas E2 gates	4s
+PASS	057	Run estadisticas-ventas E3 gates	4s
+PASS	058	Run subscription-webhook-idempotency-contract gate	3s
+PASS	059	Run receipts-subscription-charges gate	4s
+PASS	060	Run products barcode account-scope gate	4s
+PASS	061	Run charge due-date update gate	4s
+PASS	062	Run bank default destination gate	3s
+PASS	063	Run anon table writes revoked gate	3s
+PASS	064	Run c30 party movement helpers ACL gate	4s
+PASS	065	Run get_account_ids_for_user guard gate	4s
+PASS	066	Run dashboard critical stock items gate	4s
+PASS	067	Run expense import batch gate	4s
+PASS	068	Run productos-costo-nullable gate	3s
+PASS	069	Run asiento contable de gastos gate	5s
+PASS	070	Run cobranzas reverso gate	4s
+PASS	071	Run importador-productos-fastapi gate	4s
+PASS	072	Run importador-gate-plan gate	4s
+PASS	073	Run operacion-party-guard gate	5s
+PASS	074	Run v3-rbac-multirole account role catalog gate	3s
+PASS	075	Run v3-rbac-multirole account member roles pivot gate	4s
+PASS	076	Run v3-rbac-multirole account owner invariant gate	4s
+PASS	077	Run v3-rbac-multirole membership RPCs pivot rewrite gate	6s
+PASS	078	Run v3-rbac-multirole is_account_writer pivot gate	3s
+PASS	079	Run v3-rbac-multirole custom access token hook account_roles gate	4s
+PASS	080	Run v3-rbac-multirole hook D8 degrade probe (real supabase_auth_admin role)	15s
+PASS	081	Run v3-rbac-multirole document status transition role matrix gate	4s
+PASS	082	Run v3-rbac-multirole role expiry audit sweep gate	3s
+PASS	083	Run v3-rbac-multirole member role assignment RPCs gate	3s
+PASS	084	Run v3-rbac-multirole invite member roles and plan gate removal gate	4s
+PASS	085	Run auth-hardening accept invitation email binding gate	3s
+PASS	086	Run auth-hardening realtime publication gate	3s
+PASS	087	Run accounts/profiles privilege columns gate	3s
+PASS	088	Run fiscal emision segura gate	3s
+PASS	089	Run fiscal emit consumidor final gate	3s
+PASS	090	Run venta editable sin CAE gate	4s
+PASS	091	Run ventas unidades conversion gate	4s
+PASS	092	Run ventas unidades conversion race gate (dos conexiones)	37s
+PASS	093	Run venta editable sin CAE race gate (dos conexiones)	38s
+PASS	094	Run facturar venta manual gate	6s
+PASS	095	Run facturar venta manual race gate (dos conexiones)	2753s
+PASS	096	Run punto de venta predeterminado gate	4s
+PASS	097	Run punto de venta predeterminado race gate (dos conexiones)	90s
+PASS	098	Run factura fiscal imprimible gate	4s
+PASS	099	Run unidades decisiones 8 y 9 gate	4s
+PASS	100	Run balanza etiquetas POS gate	4s
+PASS	101	Run ventas formulario sucursal gate	3s
+PASS	102	Run presupuestos modulo gate	4s
+PASS	103	Run internal document numbering race gate	33s
+PASS	104	Run presupuesto a venta gate	4s
+PASS	105	Run presupuesto a venta race gate (dos conexiones)	211s
+PASS	106	Run remitos venta gate	4s
+PASS	107	Run remito a venta gate	4s
+PASS	108	Run remitos venta race gate (dos conexiones)	191s
+PASS	109	Run internal document numbering race gate (remito de venta)	34s
+done 11:33:56

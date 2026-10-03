@@ -50,6 +50,8 @@ export const queryKeys = {
     // invalidateQueries({queryKey: clients.all()}) invalida esto también.
     activity:  () => ["clients", "activity"] as const,
     purchases: (clientId: string) => ["clients", "purchases", clientId] as const,
+    // remitos-venta: direcciones operativas (domicilio de entrega precargado).
+    addresses: (clientId: string) => ["clients", "addresses", clientId] as const,
   },
   // compras-proveedor-cuenta-corriente (D10): calco de clients.all/lists —
   // el proveedor como maestro operable.

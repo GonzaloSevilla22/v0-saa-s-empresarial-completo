@@ -1,0 +1,141 @@
+
+ RUN  v4.1.8 C:/Users/Usuario/Desktop/EIE/wt-remitos/frontend
+
+ ❯ __tests__/hooks/use-branches-translate-error-remitos.test.ts (5 tests | 1 failed) 16ms
+     × traduce a un mensaje que nombra los remitos y la salida 11ms
+ ❯ __tests__/components/DeactivateBranchDialog.test.tsx (9 tests | 1 failed) 1183ms
+     × el título nombra la sucursal y el motivo; las salidas son convertir en venta o anular (tanda B) 138ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  __tests__/components/DeactivateBranchDialog.test.tsx > DeactivateBranchDialog — remitos pendientes > el título nombra la sucursal y el motivo; las salidas son convertir en venta o anular (tanda B)
+TestingLibraryElementError: Unable to find an element with the text: /convertilos en venta o anulalos \(un administrador o el dueño\)/i. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+
+Ignored nodes: comments, script, style
+[36m<div[39m
+  [33maria-describedby[39m=[32m"radix-_r_e_"[39m
+  [33maria-labelledby[39m=[32m"radix-_r_d_"[39m
+  [33mclass[39m=[32m"fixed left-[50%] top-[50%] z-50 grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 border p-6 shadow-lg duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%] sm:rounded-lg bg-card border-border"[39m
+  [33mdata-scanner-modal[39m=[32m""[39m
+  [33mdata-state[39m=[32m"open"[39m
+  [33mid[39m=[32m"radix-_r_c_"[39m
+  [33mrole[39m=[32m"alertdialog"[39m
+  [33mstyle[39m=[32m"pointer-events: auto;"[39m
+  [33mtabindex[39m=[32m"-1"[39m
+[36m>[39m
+  [36m<div[39m
+    [33mclass[39m=[32m"flex flex-col space-y-2 text-center sm:text-left"[39m
+  [36m>[39m
+    [36m<h2[39m
+      [33mclass[39m=[32m"text-lg font-semibold text-card-foreground"[39m
+      [33mid[39m=[32m"radix-_r_d_"[39m
+    [36m>[39m
+      [0m"Norte" tiene remitos pendientes[0m
+    [36m</h2>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"text-sm text-muted-foreground space-y-2 text-sm text-muted-foreground"[39m
+      [33mid[39m=[32m"radix-_r_e_"[39m
+    [36m>[39m
+      [36m<p>[39m
+        [0mTiene [0m
+        [36m<strong[39m
+          [33mclass[39m=[32m"text-foreground"[39m
+        [36m>[39m
+          [0m2[0m
+        [36m</strong>[39m
+        [0m [0m
+        [0mremitos pendientes que retienen[0m
+        [0m [0m
+        [0mmercadería de esta sucursal. No se puede desactivar mientras haya alguno.[0m
+      [36m</p>[39m
+      [36m<p>[39m
+        [0mAnulalos (un administrador o el dueño) y volvé a intentarlo.[0m
+      [36m</p>[39m
+    [36m</div>[39m
+  [36m</div>[39m
+  [36m<div[39m
+    [33mclass[39m=[32m"flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2"[39m
+  [36m>[39m
+    [36m<button[39m
+      [33mclass[39m=[32m"inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors duration-base ease-standard focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 border bg-background hover:bg-accent hover:text-accent-foreground h-11 px-4 py-2 md:h-10 mt-2 sm:mt-0 border-border text-foreground"[39m
+      [33mtype[39m=[32m"button"[39m
+    [36m>[39m
+      [0mCancelar[0m
+    [36m</button>[39m
+    [36m<a[39m
+      [33mclass[39m=[32m"inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors duration-base ease-standard focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 bg-primary text-primary-foreground hover:bg-primary/90 h-11 px-4 py-2 md:h-10"[39m
+      [33mhref[39m=[32m"/remitos?estado=pendientes&sucursal=b-7"[39m
+      [33mtype[39m=[32m"button"[39m
+    [36m>[39m
+      [36m<svg[39m
+        [33maria-hidden[39m=[32m"true"[39m
+        [33mclass[39m=[32m"lucide lucide-package-check h-3.5 w-3.5 mr-1.5"[39m
+        [33mfill[39m=[32m"none"[39m
+        [33mheight[39m=[32m"24"[39m
+        [33mstroke[39m=[32m"currentColor"[39m
+        [33mstroke-linecap[39m=[32m"round"[39m
+        [33mstroke-linejoin[39m=[32m"round"[39m
+        [33mstroke-width[39m=[32m"2"[39m
+        [33mviewBox[39m=[32m"0 0 24 24"[39m
+        [33mwidth[39m=[32m"24"[39m
+        [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+      [36m>[39m
+        [36m<path[39m
+          [33md[39m=[32m"m16 16 2 2 4-4"[39m
+        [36m/>[39m
+        [36m<path[39m
+          [33md[39m=[32m"M21 10V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l2-1.14"[39m
+        [36m/>[39m
+        [36m<path[39m
+          [33md[39m=[32m"m7.5 4.27 9 5.15"[39m
+        [36m/>[39m
+        [36m<polyline[39m
+          [33mpoints[39m=[32m"3.29 7 12 12 20.71 7"[39m
+        [36m/>[39m
+        [36m<line[39m
+          [33mx1[39m=[32m"12"[39m
+          [33mx2[39m=[32m"12"[39m
+          [33my1[39m=[32m"22"[39m
+          [33my2[39m=[32m"12"[39m
+        [36m/>[39m
+      [36m</svg>[39m
+      [0mVer remitos pendientes[0m
+    [36m</a>[39m
+  [36m</div>[39m
+[36m</div>[39m
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ __tests__/components/DeactivateBranchDialog.test.tsx:100:27
+     98|     const { dialog } = await openDialog()
+     99|     expect(within(dialog).getByRole("heading", { name: /"Norte" tiene …
+    100|     expect(within(dialog).getByText(/convertilos en venta o anulalos \…
+       |                           ^
+    101|   })
+    102|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  __tests__/hooks/use-branches-translate-error-remitos.test.ts > translateRpcError — branch_has_pending_delivery_notes (P0428) > traduce a un mensaje que nombra los remitos y la salida
+AssertionError: expected 'La sucursal tiene remitos pendientes.…' to be 'La sucursal tiene remitos pendientes.…' // Object.is equality
+
+Expected: "La sucursal tiene remitos pendientes. Convertilos en venta o anulalos (un administrador o el dueño) antes de darla de baja."
+Received: "La sucursal tiene remitos pendientes. Anulalos (un administrador o el dueño) antes de darla de baja."
+
+ ❯ __tests__/hooks/use-branches-translate-error-remitos.test.ts:17:36
+     15|
+     16|   it("traduce a un mensaje que nombra los remitos y la salida", () => {
+     17|     expect(translateRpcError(RAW)).toBe(
+       |                                    ^
+     18|       "La sucursal tiene remitos pendientes. Convertilos en venta o an…
+     19|     )
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  2 failed (2)
+      Tests  2 failed | 12 passed (14)
+   Start at  06:44:14
+   Duration  7.92s (transform 459ms, setup 782ms, import 2.69s, tests 1.20s, environment 6.74s)
+

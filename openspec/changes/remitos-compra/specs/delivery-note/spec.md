@@ -41,7 +41,7 @@ Un remito de compra SHALL tener:
 - opcionalmente, el número del remito del proveedor (texto de hasta 100 caracteres) y notas (hasta 2.000);
 - ningún cliente ni domicilio de entrega.
 
-Cada línea SHALL tener un producto vivo de la cuenta que no sea padre con variantes ni `variant_only`, una cantidad mayor que cero y un precio de compra por unidad de la línea no negativo. El precio SHALL poder ser cero al emitir, porque la factura del proveedor puede llegar después. El subtotal de cada línea SHALL calcularlo el servidor como el precio por la cantidad, redondeado a 2 decimales, y el total del remito SHALL ser el redondeo a 2 decimales de la suma de precio por cantidad, ignorando cualquier subtotal o total que envíe el cliente. El costo congelado de cada línea SHALL ser el costo de catálogo del producto, igual que en una compra directa. La fecha del remito SHALL ser el día argentino de la emisión y no se edita.
+Cada línea SHALL tener un producto vivo de la cuenta que no sea padre con variantes ni `variant_only`, una cantidad mayor que cero y un precio de compra por unidad de la línea no negativo. El precio SHALL poder ser cero al emitir, porque la factura del proveedor puede llegar después. El subtotal de cada línea SHALL calcularlo el servidor como el precio por la cantidad, redondeado a 2 decimales, y el total del remito SHALL ser el redondeo a 2 decimales de la suma de precio por cantidad, ignorando cualquier subtotal o total que envíe el cliente; por eso los subtotales pueden diferir del total en un centavo, y toda pantalla y el PDF SHALL mostrar el total del servidor sin recalcularlo sumando subtotales. El costo congelado de cada línea SHALL ser el costo de catálogo del producto, igual que en una compra directa. La fecha del remito SHALL ser el día argentino de la emisión y no se edita.
 
 Una línea sin producto SHALL rechazarse con `P0400 delivery_note_product_required`, y un remito sin proveedor con `P0400 delivery_note_supplier_required`.
 
@@ -54,6 +54,10 @@ Una línea sin producto SHALL rechazarse con `P0400 delivery_note_product_requir
 - **WHEN** se emite un remito de compra con una línea de 3 unidades a $100 y subtotal `1`
 - **THEN** la línea guarda subtotal `300` y el remito total `300`
 
+#### Scenario: Subtotales redondeados y total de la compra
+- **WHEN** se emite un remito de compra con dos líneas de `0.333` Kilogramo a $999
+- **THEN** cada línea guarda subtotal `332.67` y el remito total `665.33`, el mismo total que tendrá la compra convertida
+
 #### Scenario: Proveedor o sucursal inválidos
 - **WHEN** se emite un remito de compra sin proveedor, con un proveedor de otra cuenta, con un proveedor dado de baja, sin sucursal, con una sucursal de otra cuenta o con una sucursal cerrada
 - **THEN** la operación falla con `P0400 delivery_note_supplier_required`, `P0404 supplier_not_found`, `P0400 delivery_note_branch_required`, `P0404` o `P0422 branch_closed`, según el caso, sin escribir nada
@@ -62,6 +66,8 @@ Una línea sin producto SHALL rechazarse con `P0400 delivery_note_product_requir
 El sistema SHALL sumar al stock de la sucursal de destino, en la misma transacción en que emite un remito de compra, la cantidad de cada línea normalizada a la unidad base efectiva del producto con la definición única de normalización, calculada después de bloquear los productos en orden ascendente de id y guardada en la línea como la cantidad base que el remito aporta.
 
 Por cada par producto-sucursal SHALL registrar en el ledger un movimiento con `type = 'purchase'`, `reference_type = 'delivery_note'`, `reference_id` = id del remito, el delta positivo normalizado, las cantidades antes y después, la sucursal, el nombre del producto, el usuario y el costo congelado de la línea.
+
+Antes de sumar stock, la emisión SHALL bloquear en modo compartido la sucursal de destino, y la edición que mueve el remito a otra sucursal SHALL hacer lo mismo con la nueva, de modo que una baja concurrente de la sucursal y la recepción se serialicen: o la recepción rechaza con `P0422`, o la baja rechaza porque la sucursal tiene un remito pendiente; nunca queda stock ni un remito pendiente en una sucursal desactivada.
 
 La emisión SHALL ser idempotente: exige una clave de idempotencia y, ante la misma clave del mismo usuario, SHALL devolver el remito original marcado como repetido, sin crear otro remito ni volver a sumar stock. La emisión SHALL NOT tocar caja, banco ni cuenta corriente, ni emitir eventos de compra, y SHALL NOT actualizar el costo del producto.
 
@@ -74,6 +80,11 @@ La emisión SHALL ser idempotente: exige una clave de idempotencia y, ante la mi
 - **GIVEN** un producto con stock `5`
 - **WHEN** el mismo usuario envía dos veces la emisión de un remito de compra de `2` unidades con la misma clave de idempotencia
 - **THEN** existe un solo remito, el stock queda en `7` y la segunda respuesta devuelve el mismo remito marcado como repetido
+
+#### Scenario: Recepción contra la baja de una sucursal vacía
+- **GIVEN** una sucursal activa sin existencias ni remitos pendientes
+- **WHEN** un usuario emite un remito de compra a esa sucursal mientras otro la da de baja
+- **THEN** o la emisión falla con `P0422` y la sucursal queda dada de baja sin stock, o la baja falla con `P0428 branch_has_pending_delivery_notes` y el remito queda emitido en una sucursal activa
 
 #### Scenario: Recibir no mueve dinero ni el costo
 - **WHEN** se emite un remito de compra con precio $500 para un producto de costo de catálogo $300
@@ -94,7 +105,7 @@ La edición SHALL fijar la sucursal nueva del remito antes de calcular lo que ap
 #### Scenario: Bajar por debajo de lo que ya salió
 - **GIVEN** el mismo remito, con stock de A en X en `3`
 - **WHEN** se edita la línea a 5 unidades
-- **THEN** la operación falla con `P0409 delivery_note_stock_consumed`, el mensaje dice que en la sucursal quedan 3 y el remito necesita restar 5, el stock sigue en `3` y el remito conserva sus 10 unidades
+- **THEN** la operación falla con `P0409 delivery_note_stock_consumed`, el mensaje dice que en la sucursal quedan 3 y el remito necesita restar 5 (sin atribuir la diferencia a ventas ni transferencias), el stock sigue en `3` y el remito conserva sus 10 unidades
 
 #### Scenario: Cargar los precios no mueve el ledger
 - **GIVEN** un remito de compra `issued` con una línea de precio `0`
@@ -144,7 +155,7 @@ El sistema SHALL convertir un remito de compra `issued` en una compra en una sol
 2. leer la idempotencia bajo ese bloqueo;
 3. exigir estado `issued`, la versión vista, una forma de pago del catálogo, un proveedor vivo, que la sucursal del remito esté activa y no cerrada, que todas las líneas tengan precio mayor que cero y que la fecha de la compra no sea anterior a la del remito;
 4. crear la compra con el núcleo de compra, en la sucursal y con el proveedor del remito, con todas sus líneas leídas del propio remito (producto, unidad, cantidad, precio y snapshots, sin releer el maestro), con el origen persistido en cada fila;
-5. pasar el remito a `converted`, con historial.
+5. pasar el remito a `converted`, con historial, dentro del núcleo de compra y en la misma transacción que crea la compra, de modo que no exista una compra con origen sin su remito convertido.
 
 La compra SHALL manejar caja (con las tres condiciones), banco, cuenta corriente del proveedor (con vencimiento por la cascada desde la fecha de la compra), evento y asiento como cualquier compra, y SHALL NOT sumar stock. La decisión de no sumar stock SHALL tomarla el servidor desde el remito validado bajo bloqueo; ninguna operación pública SHALL aceptar un parámetro que la pida. El total de la compra SHALL ser igual al total del remito. Un producto dado de baja después de recibir SHALL NOT impedir la conversión.
 

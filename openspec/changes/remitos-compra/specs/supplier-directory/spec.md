@@ -17,3 +17,16 @@ El sistema SHALL ofrecer en el listado de proveedores la acción "Nuevo remito d
 #### Scenario: Ver remitos del proveedor
 - **WHEN** el usuario elige "Ver remitos" en la cuenta corriente de un proveedor
 - **THEN** navega a `/remitos?sentido=compra&proveedor=<id>` y ve sólo los remitos de compra de ese proveedor
+
+### Requirement: Un proveedor con remitos de compra pendientes no se borra
+El sistema SHALL rechazar el borrado de un proveedor que tenga remitos de compra pendientes en la cuenta con el mismo conflicto `409 P0409` que ya rechaza el borrado de un proveedor con saldo abierto, con un mensaje que diga cuántos remitos pendientes tiene y que hay que convertirlos o anularlos antes de borrarlo, porque el borrado lo sacaría de las listas y dejaría inalcanzables los remitos y la deuda futura con él. Los remitos convertidos o anulados, o los de otra cuenta, SHALL NOT impedir el borrado.
+
+#### Scenario: Proveedor con un remito pendiente
+- **GIVEN** un proveedor con un remito de compra `issued`
+- **WHEN** un usuario intenta borrar el proveedor
+- **THEN** la operación falla con `409 P0409`, el mensaje dice que tiene 1 remito de compra pendiente y el proveedor sigue vivo
+
+#### Scenario: Proveedor con remitos ya cerrados
+- **GIVEN** un proveedor sin saldo cuyos remitos de compra están convertidos o anulados
+- **WHEN** un usuario lo borra
+- **THEN** el proveedor se da de baja como hoy

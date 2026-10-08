@@ -742,6 +742,12 @@ BEGIN
 
   -- ═══════════════════════════════════════════════════════════════════════
   -- (f) Fila forjada en el ledger por PostgREST
+  -- stock-ledger-solo-rpc (tanda A): la escritura directa a stock_movements
+  -- quedó CERRADA (REVOKE + sin policy de INSERT). El control positivo de este
+  -- bloque se invirtió: la fila forjada DEBE rechazarse con 42501 "permission
+  -- denied" (capa de privilegio, no la de RLS) y NO debe existir. Las
+  -- aserciones de abajo (edición y anulación devuelven exactamente lo
+  -- retenido) siguen valiendo: el ledger de líneas no se deriva del ledger.
   -- ═══════════════════════════════════════════════════════════════════════
   PERFORM pg_temp.rv_as(v_seller);
   v_r := pg_temp.rv_issue('rv-f-1', v_client, v_x, jsonb_build_array(pg_temp.rv_line(v_pb, 3, 80, 240)));
@@ -752,13 +758,16 @@ BEGIN
   BEGIN
     INSERT INTO public.stock_movements (account_id, product_id, type, quantity_delta, reference_id, reference_type, branch_id)
     VALUES (v_account_a, v_pb, 'sale', -1000, v_dn5, 'delivery_note', v_x);
+    v_failures := v_failures || 'FAIL (f): la fila forjada se INSERTÓ por PostgREST (la escritura directa a stock_movements debía estar cerrada)'::text;
   EXCEPTION WHEN OTHERS THEN
     GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE, v_msg = MESSAGE_TEXT;
-    v_failures := v_failures || format('FAIL (f) control positivo: la fila forjada debía poder insertarse por PostgREST (política preexistente), salió %s %s', v_state, v_msg);
+    IF v_state IS DISTINCT FROM '42501' OR v_msg NOT LIKE 'permission denied%' THEN
+      v_failures := v_failures || format('FAIL (f): la fila forjada debía rechazarse con 42501 permission denied (capa de privilegio), salió %s %s', v_state, v_msg);
+    END IF;
   END;
   EXECUTE 'RESET ROLE';
-  IF NOT EXISTS (SELECT 1 FROM public.stock_movements WHERE reference_id = v_dn5 AND quantity_delta = -1000) THEN
-    v_failures := v_failures || 'FAIL (f) control positivo: la fila forjada no existe'::text;
+  IF EXISTS (SELECT 1 FROM public.stock_movements WHERE reference_id = v_dn5 AND quantity_delta = -1000) THEN
+    v_failures := v_failures || 'FAIL (f): la fila forjada existe pese a haberse rechazado'::text;
   END IF;
   PERFORM pg_temp.rv_as(v_seller);
   v_val := pg_temp.rv_stock(v_pb, v_x);

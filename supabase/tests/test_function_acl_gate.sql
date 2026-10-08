@@ -258,7 +258,17 @@ DECLARE
     -- chequeo (3) es su candado. NUNCA otorgar. Candado de comportamiento:
     -- bloques (i) y (o1) de supabase/tests/test_remitos_compra.sql.
     'public._delivery_note_assert_role_dir(uuid, text, text)',
-    'public._delivery_note_replace_content(uuid, uuid, jsonb)'
+    'public._delivery_note_replace_content(uuid, uuid, jsonb)',
+    -- stock-ledger-solo-rpc tanda A (20261073000001): la reversa de stock de
+    -- una venta o compra borrada. SECURITY DEFINER, NO valida rol (confía en su
+    -- caller) y revierte lo que encuentre por reference_id sin idempotencia:
+    -- con EXECUTE para `authenticated` era, encadenada con una fila forjada en
+    -- stock_movements, la primitiva para FABRICAR stock (control ejecutado en el
+    -- red team de remitos-venta: stock 1 -> 2). Sus únicos callers son
+    -- rpc_delete_sale_operation y rpc_delete_purchase_operation (DEFINER, corren
+    -- como postgres). NUNCA re-otorgar. Candado de comportamiento: bloques (c)
+    -- y (d) de supabase/tests/test_stock_ledger_solo_rpc.sql.
+    'public.rpc_reverse_stock_movement(uuid, text, text)'
   ];
   -- Allowlist del chequeo (4) — helpers internos que HOY siguen expuestos a
   -- `authenticated`. Cada entrada necesita su justificación.

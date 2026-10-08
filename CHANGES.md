@@ -4050,7 +4050,7 @@ La tanda A (PR #612, migración `20261069000001`) ya está en `main` y desplegad
 
 **TDD**: la tabla completa de los grupos 0-5 está en `tasks.md` §"TDD Cycle Evidence". Lo que más importaba: el cambio de sucursal con cantidades iguales visto fallar en los dos sentidos antes de extraer el núcleo de edición, la carrera de anulación contra la venta del POS, y los mutantes (sin `FOR SHARE`, helper sin el gate de consumo) detectados por el gate.
 
-## Candidato `stock-ledger-solo-rpc` — el ledger de stock admite escritura directa, y el ajuste manual no exige rol ni motivo (diagnóstico 2026-10-03 · **PROPUESTO, sin sign-off del PO** · governance **ALTA**)
+## Candidato `stock-ledger-solo-rpc` — el ledger de stock admite escritura directa, y el ajuste manual no exige rol ni motivo (diagnóstico 2026-10-03 · **FIRMADO por el PO el 2026-10-08 con las cinco recomendaciones** · governance **ALTA** · **propose en PR #619**: `openspec/changes/stock-ledger-solo-rpc/`, dos tandas — A `20261073000001` cierra la escritura directa, B `20261074000001` núcleo único de ajuste con rol y motivo; detalle en el `proposal.md` del change)
 
 **Origen**: las líneas `INFO` del bloque 1 del red team de `remitos-compra` (`openspec/changes/remitos-compra/evidence/logs/redteam-compra.log` L7-20, script `evidence/scripts/redteam-compra.mjs`; chip `task_82b8d662`). Es **preexistente en `main`**: no lo introdujo ningún change de remitos, y `remitos-venta` ya lo había dejado anotado entre sus candidatos (9.1). Esta ficha lo dimensiona. Trabajo en **sólo lectura** —código, `SELECT` contra prod (`gxdhpxvdjjkmxhdkkwyb`) y 14 días de logs de PostgREST—: **no se escribió código, no se tocó la base y no se tocó `remitos-compra`**. Nada de esto se implementa sin sign-off.
 

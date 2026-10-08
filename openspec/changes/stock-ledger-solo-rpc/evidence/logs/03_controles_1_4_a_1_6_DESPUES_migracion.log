@@ -1,0 +1,19 @@
+CREATE FUNCTION
+CREATE FUNCTION
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=09d68beb-7f24-4b7f-9580-177192f0deb5
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=7abf9eb2-cc0a-49ad-8c08-808331a78788
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=4d56e7e9-a8eb-402e-91aa-a31e5ccc340a
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=75ee61ea-a9dd-4650-bfe2-27da824921b8
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=83e2ee77-4bc3-4c43-876f-74200822272c
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=0a66735e-fc62-4a57-93ee-dde9c59d2f21
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=ab1619b4-7ef8-4448-b9ce-ecef59651f74
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=28491578-264d-4485-b4dc-cc29158c9a89
+NOTICE:  CONTROL (i) [viewer]: forja=RECHAZADA 42501 permission denied for table stock_movements | reversa=RECHAZADA 42501 permission denied for function rpc_reverse_stock_movement | stock 1.0000 -> 1.0000 (el stock no cambió)
+NOTICE:  CONTROL (ii) [viewer, no escritor]: update=RECHAZADO 42501 permission denied for table branch_stock | saldo 1.0000 -> 1.0000
+NOTICE:  CONTROL (ii) [seller, escritor]: update=RECHAZADO 42501 permission denied for table branch_stock | saldo 1.0000 -> 1.0000 | movimientos del producto 0 -> 0 (el saldo no cambió)
+NOTICE:  CONTROL (iii) paso 1 [owner de A]: ocupacion=RECHAZADA 42501 permission denied for table branch_stock
+NOTICE:  CONTROL (iii) paso 2 [compra de B=OK]: filas de branch_stock para (producto de B, sucursal de B)=1; account_id de la fila=66e88025-af91-4748-9855-8ccb20d55eef (A=04f47a8d-3fb5-4efe-ab70-1ccff751daea / B=66e88025-af91-4748-9855-8ccb20d55eef); quantity=7.0000
+NOTICE:  CONTROL (iii) paso 3 [B bajo RLS]: ve 1 fila(s) de saldo de su producto, suma 7.0000 (B ve su saldo: no hubo ocupación efectiva)
+NOTICE:  CONTROLES SLR: fixture limpiada, residuo cero.
+DO
+EXIT=0

@@ -1,0 +1,3 @@
+NOTICE:  ACL GATE OK: sin triggers SECURITY DEFINER expuestos; anon-executable dentro de la allowlist (5 firmas permitidas); 26 helpers solo-DEFINER intactos; helpers internos authenticated-executable dentro de su allowlist (1 firmas permitidas); 6 funciones que recorren el outbox enumeradas, de las cuales 3 con exposición justificada
+DO
+EXIT=0

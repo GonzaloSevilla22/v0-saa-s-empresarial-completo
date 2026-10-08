@@ -1,0 +1,43 @@
+# db reset completo (npx supabase@2.120.0 db reset) tail:
+Applying migration 20261073000001_stock_ledger_cierre_escritura_directa.sql...
+no files matched pattern: supabase/seed.sql
+Restarting containers...
+Finished supabase db reset on branch opsx/stock-ledger-solo-rpc-apply-a.
+{"target":"local","version":"","message":"Reset local database."}
+RESET_EXIT=0
+# gate:
+BEGIN
+CREATE TABLE
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+NOTICE:  PASS (a): authenticated y anon sin INSERT/UPDATE/DELETE/TRUNCATE (tabla ni columna) sobre stock_movements y branch_stock; authenticated conserva SELECT.
+DO
+NOTICE:  PASS (b): policies = {lectura por cuenta x2, no_update/no_delete qual=false}; ninguna permisiva de escritura; RLS activa.
+DO
+NOTICE:  PASS (c): rpc_reverse_stock_movement sin EXECUTE para anon/authenticated/PUBLIC, un solo overload, SECURITY DEFINER; las RPCs públicas de ajuste, transferencia y borrado conservan EXECUTE.
+DO
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=5c4d609e-3988-4c4b-862c-fe02d4ced3c8
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=37257461-952f-4869-aecf-1500ec1ed9d7
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=d229d4fb-5c5f-4210-9905-03fda4f12e41
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=84d6a8da-01e8-4288-98e5-dc27dad80826
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=be7d7117-1eb4-4ed5-9ce7-f41277d51764
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=02632c8f-98d7-4d2d-b210-b81dad564d08
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=bfee8c81-74bd-481e-9398-b1632175e4a5
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=7709612e-c6a9-4459-81f7-88736c871f43
+NOTICE:  info (d) [owner]: 14 de 14 intentos rechazados con 42501 "permission denied"
+NOTICE:  info (d) [seller]: 14 de 14 intentos rechazados con 42501 "permission denied"
+NOTICE:  info (d) [viewer]: 14 de 14 intentos rechazados con 42501 "permission denied"
+NOTICE:  info (d) [anon]: 14 de 14 intentos rechazados con 42501 "permission denied"
+NOTICE:  PASS (d): 56 intentos (owner, seller, viewer y anon x 14 variantes) rechazados con 42501 "permission denied" y la huella de las dos tablas idéntica.
+NOTICE:  PASS (e): ajuste, venta y compra (alta y borrado, incl. compra ya vendida con piso trazable), transferencia, borrado de producto con historial y lectura propia/ajena funcionan con la escritura directa cerrada.
+DO
+NOTICE:  GATE STOCK-LEDGER-SOLO-RPC PASSED (tanda A): privilegios, policies, ACL de la reversa, matriz de evasión y caminos legítimos.
+DO
+ROLLBACK
+NOTICE:  PASS (residuo): el gate no dejó filas.
+DO
+EXIT=0

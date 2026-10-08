@@ -2927,3 +2927,23 @@ jobs:
       # a la vez el primer remito de compra de una cuenta -> RC 1..20.
       - name: Run internal document numbering race gate (remito de compra)
         run: DOC_TYPE=delivery_note_purchase N=20 DB_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres bash supabase/tests/test_internal_document_numbering_race.sh
+
+      # stock-adjustment-historial-invisible (hotfix 2026-10-08, governance
+      # MEDIA: escribe el ledger de stock, sin mover saldos ni dinero).
+      # rpc_stock_adjustment (ajuste manual de /stock y de su importador)
+      # insertaba en stock_movements SIN account_id ni branch_id: las filas eran
+      # INVISIBLES para su dueño bajo la RLS del historial (29 en prod).
+      # `supabase start` ya aplicó 20261072000001; este paso EJECUTA la RPC
+      # como `authenticated` por tres caminos del cálculo (adjustment,
+      # physical_count, loss), con una cuenta de dos sucursales y una segunda
+      # cuenta, y verifica el sello (cuenta + default operativa), la
+      # visibilidad bajo RLS con control negativo (una fila con account_id NULL
+      # no se ve) y la ACL/overload (candado contra un DROP FUNCTION futuro).
+      # Residuo cero. La migración NO entra en la cadena de reaplicación
+      # idempotente de arriba: su regla ("REGLA PARA EL PR SIGUIENTE") sólo
+      # obliga a quien amplía un CHECK compartido con lista fija, y esta
+      # migración no toca ningún CHECK; su idempotencia (CREATE OR REPLACE con
+      # la misma firma + UPDATE ... WHERE account_id IS NULL) se verificó
+      # reaplicándola a mano contra la base (segunda pasada: UPDATE 0).
+      - name: Run stock adjustment account/branch gate
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_stock_adjustment_account_branch.sql

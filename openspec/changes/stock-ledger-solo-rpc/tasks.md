@@ -9,7 +9,7 @@
 >
 > **Sign-off del PO (2026-10-08, "firmo el candidato con las recomendaciones"):** roles `owner`/`admin`/`stock`;
 > el alta deja "Stock inicial" sola y la edición deriva al modal (D9); tanda A = G1 sola, tanda B = el resto;
-> backfill ya hecho por #617; importador → ledger fuera de alcance. OQ-1/OQ-2/OQ-3 del design: implementadas
+> backfill ya hecho por #617; importador → ledger fuera de alcance. OQ-1/OQ-2/OQ-3 del design: implementadas según su recomendación, **firmadas por el PO el 2026-10-08**
 > según su recomendación salvo que el PO objete antes del apply de la tanda B.
 >
 > **Hasta que la tanda B esté en prod, el ajuste sin rol por `rpc_apply_product_stock_delta` (incluido

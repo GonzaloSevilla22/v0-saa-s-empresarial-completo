@@ -258,7 +258,9 @@ Las tres internas y `rpc_reverse_stock_movement` entran a `v_internal_only_fns` 
 
 ## Open Questions
 
-Las cinco decisiones del candidato están firmadas y no se reabren. Quedan tres preguntas que ninguna de ellas cubre; el design y las specs están escritos según la **recomendación** de cada una, así que si el PO no objeta no hace falta tocar nada.
+Las cinco decisiones del candidato están firmadas y no se reabren. Quedan tres preguntas que ninguna de ellas cubre; el design y las specs están escritos según la **recomendación** de cada una.
+
+> **Resueltas por el PO el 2026-10-08** —textual: *"aplicá las tres recomendaciones y arrancá la tanda A"*—: OQ-1 **sí** (se quitan las transferencias del ajuste manual), OQ-2 **sí** (`CAN_STOCK` para el stock inicial del alta), OQ-3 **no por ahora** (las transferencias siguen con `is_account_writer`). No hace falta tocar nada más en el design ni en las specs; el apply las implementa tal como están escritas.
 
 - **OQ-1 — ¿Se quitan "Transferencia entrada/salida" del ajuste manual?** Hoy el modal y el CSV de `/stock` las ofrecen como ajuste: registran un `transfer_in`/`transfer_out` **sin** transferencia (sin origen ni destino, sin entidad, sin historial). Prod: **0** filas así; las 1.036 transferencias reales salen de `rpc_transfer_stock`. **Recomendado: sí** — el núcleo las rechaza y la UI deriva a "Transferir stock". Alternativa: conservarlas como ajuste con motivo (mantiene la ambigüedad en el historial de transferencias).
 - **OQ-2 — ¿Quién carga el "Stock inicial" al dar de alta un producto?** Es un ajuste manual (808 de los 1.829), así que por la decisión 1 requiere `owner`/`admin`/`stock`. **Recomendado: exigir `CAN_STOCK`** — el campo no se muestra a otros roles y el backend responde 403 antes de crear nada si igual llega; el producto se crea con stock 0 y lo carga alguien con el rol. Alternativa: permitir el stock inicial a cualquier rol que pueda crear productos (abre una excepción a la decisión 1 justo en el camino por el que entra la mitad de los ajustes).

@@ -49,8 +49,8 @@
 
 ## 5. PR de la tanda A, verificación post-merge y humo
 
-- [ ] 5.1 Commit `fix(stock): …` + PR. La descripción declara qué queda abierto hasta la tanda B y enlaza la evidencia de 1.4-1.6 y 2.2.
-- [ ] 5.2 Post-merge, sólo lectura en prod: `MAX(version) = 20261073000001`; `relacl` de las dos tablas sin `a`/`w`/`d`/`D` para `authenticated` ni `anon`; `pg_policies` = las cuatro esperadas; `proacl` de `rpc_reverse_stock_movement` sin `authenticated`; deploy de Render confirmado.
+- [x] 5.1 (PR **#620**, mergeado `82fcc73e` el 2026-10-09; descripción con el residuo abierto hasta la tanda B y la evidencia 1.4-1.6 / 2.2) Commit `fix(stock): …` + PR. La descripción declara qué queda abierto hasta la tanda B y enlaza la evidencia de 1.4-1.6 y 2.2.
+- [x] 5.2 (verificado 2026-10-09 15:00 UTC: `MAX(version) = 20261073000001`, 320 migraciones; `relacl` `anon=rxtm`/`authenticated=rxtm` en las dos tablas; 4 policies exactas; `proacl` de la reversa `{postgres, service_role}`, un overload; deploy `success`) Post-merge, sólo lectura en prod: `MAX(version) = 20261073000001`; `relacl` de las dos tablas sin `a`/`w`/`d`/`D` para `authenticated` ni `anon`; `pg_policies` = las cuatro esperadas; `proacl` de `rpc_reverse_stock_movement` sin `authenticated`; deploy de Render confirmado.
 - [ ] 5.3 48 h de logs (PostgREST por MCP y Render por API): 0 `permission denied`/`42501` inesperados sobre las dos tablas o la reversa, con control positivo de que la consulta encuentra tráfico de `rpc_stock_adjustment`.
 - [ ] 5.4 Humo del PO en prod: un ajuste en `/stock`, borrar una venta y una compra de prueba (el stock vuelve), una transferencia si la cuenta tiene dos sucursales.
 - [ ] 5.5 Registrar la tanda A en `CHANGES.md` (ficha del change) con PR, migración y verificación.

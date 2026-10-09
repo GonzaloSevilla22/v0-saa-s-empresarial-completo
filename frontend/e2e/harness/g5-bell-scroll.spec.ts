@@ -1,4 +1,13 @@
 /**
+ * 2026-10-09 — el caso SANO falló dos veces seguidas en CI (PR #622, que no toca
+ * la campana) con un desborde de 0,26 px por encima de la tolerancia de 1 px y
+ * el menú visualmente perfecto; sobre `main` (PR #623) y en local (24/24) pasó.
+ * Causa: medía las cajas sin esperar a que termine la animación de apertura del
+ * menú (`animate-in zoom-in-95`), y en Linux el redondeo de subpíxel durante
+ * la animación supera 1 px. Arreglo: esperar TODAS las animaciones del subárbol
+ * antes de medir, asertar el contrato literal ("sin necesidad de scroll": el
+ * viewport no desborda) y tolerancia de 2 px para el chequeo de cajas.
+ *
  * qa-integral-modulos G5 (H5): la campana mostraba 6 de 15 notificaciones y el
  * panel no scrolleaba — el max-h-80 vivía en el ROOT del ScrollArea
  * (overflow-hidden, recorta) en vez del viewport interno (habilita el scroll).
@@ -85,12 +94,28 @@ test.describe('G5 — campana de notificaciones', () => {
     const items = menu.getByRole('menuitem')
     await expect(items).toHaveCount(3)
 
+    // El contenido del menú entra animado (`animate-in zoom-in-95`): medir las
+    // cajas a mitad de la animación da desvíos de subpíxel. Se espera a que
+    // terminen todas las animaciones del subárbol antes de medir.
+    await menu.evaluate((el) =>
+      Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished.catch(() => undefined))),
+    )
+
+    // Contrato literal: "sin necesidad de scroll" — el viewport del ScrollArea
+    // no desborda. Es lo que distingue el caso sano de H5 y no depende de
+    // redondeos de layout.
+    const viewport = menu.locator(VIEWPORT_SEL)
+    const overflows = await viewport.evaluate((el) => el.scrollHeight > el.clientHeight + 1)
+    expect(overflows, 'con 3 notificaciones el panel no debe desbordar').toBe(false)
+
+    // Y cada ítem queda dentro de la caja del menú (tolerancia de subpíxel: 2 px).
     const menuBox = await menu.boundingBox()
+    expect(menuBox, 'caja del menú').not.toBeNull()
     for (let i = 0; i < 3; i++) {
       const box = await items.nth(i).boundingBox()
       expect(box, `ítem ${i + 1} visible`).not.toBeNull()
-      expect(box!.y).toBeGreaterThanOrEqual(menuBox!.y - 1)
-      expect(box!.y + box!.height).toBeLessThanOrEqual(menuBox!.y + menuBox!.height + 1)
+      expect(box!.y).toBeGreaterThanOrEqual(menuBox!.y - 2)
+      expect(box!.y + box!.height).toBeLessThanOrEqual(menuBox!.y + menuBox!.height + 2)
     }
   })
 })

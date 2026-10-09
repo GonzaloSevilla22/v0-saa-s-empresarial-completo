@@ -2964,5 +2964,24 @@ jobs:
       # migracion NO entra en la cadena de reaplicacion idempotente de arriba (no
       # toca ningun CHECK compartido); su idempotencia (DROP POLICY IF EXISTS +
       # REVOKE repetido) se verifico reaplicandola dos veces contra la base.
+      # TANDA B (20261074000001, governance ALTA): el mismo archivo suma los
+      # bloques (f)-(m) del NUCLEO UNICO de ajuste manual. Ejecuta, como
+      # authenticated, los TRES envoltorios (rpc_stock_adjustment,
+      # rpc_adjust_branch_stock, rpc_apply_product_stock_delta) con la matriz de
+      # roles (owner/admin/stock ajustan; seller/cashier/purchases/accountant
+      # P0403; viewer y rol vencido P0401), el motivo nulo/vacio/espacios/tabs
+      # (P0400) y el CHECK stock_movements_manual_needs_reason (NOT VALID, que
+      # convive con una fila historica sin motivo), los flags internos
+      # (p_log_movement = false / p_allow_negative = true => P0400), la tenencia
+      # por products.account_id (P0404 en los tres y en rpc_transfer_stock; un
+      # segundo miembro admin ajusta un producto que no creo), el sello y el
+      # invariante after = before + delta a nivel sucursal, la semantica
+      # (conteo total vs objetivo por sucursal, loss/damage/expiry solo restan,
+      # transfer_in/out rechazados, padre variant_only, negativos), la reversa
+      # tras la reescritura y la ACL de las tres internas nuevas. La migracion
+      # tampoco entra en la cadena de reaplicacion de arriba (no amplia ningun
+      # CHECK compartido con lista fija: agrega uno propio con DROP CONSTRAINT IF
+      # EXISTS + ADD); su idempotencia se verifico reaplicandola dos veces contra
+      # la base con la huella de funciones/ACL/constraint identica.
       - name: Run stock ledger solo RPC gate
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_stock_ledger_solo_rpc.sql

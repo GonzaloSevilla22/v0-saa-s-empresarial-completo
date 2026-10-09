@@ -142,7 +142,7 @@ DECLARE
   v_p1        uuid;
   v_p2        uuid;
   v_pb        uuid;
-  v_m1 uuid; v_m2 uuid; v_m3 uuid; v_m4 uuid; v_mb uuid; v_twin uuid;
+  v_m1 uuid; v_m2 uuid; v_m3 uuid; v_m4 uuid; v_m6 uuid; v_mb uuid; v_twin uuid;
 
   v_r         jsonb;
   v_txt       text;
@@ -273,8 +273,28 @@ BEGIN
     v_failures := v_failures || format('FAIL (a5): branch_stock de PB en su default debía ser 3, es %s', pg_temp.sab_stock(v_pb, v_xb));
   END IF;
 
+  -- (a6) stock-ledger-solo-rpc (tanda B, D8): el antes/después del movimiento es
+  -- a nivel SUCURSAL, como el de todos los demás escritores. Con P2 repartido
+  -- (4 en la default, 6 en la segunda) un +1 sobre la default deja 4 -> 5; antes
+  -- de la tanda B esta RPC grababa el TOTAL del producto (10 -> 11).
+  PERFORM public.c21_apply_branch_stock_delta(v_account_a, v_p2, v_y, 6);
+  v_r := pg_temp.sab_adjust(v_owner_a, v_p2, 1, 'adjustment');
+  v_m6 := (v_r->>'movement_id')::uuid;
+  IF v_m6 IS NULL THEN
+    v_failures := v_failures || format('FAIL (a6): el ajuste +1 de P2 repartido no devolvió movimiento: %s', v_r);
+  ELSE
+    v_txt := pg_temp.sab_diff(v_m6, v_account_a, v_x, v_owner_a, 'adjustment', 1, 4, 5);
+    IF v_txt IS NOT NULL THEN
+      v_failures := v_failures || format('FAIL (a6): con stock en dos sucursales el antes/después debía ser el de la sucursal afectada (4 -> 5, no el total 10 -> 11): %s', v_txt);
+    END IF;
+  END IF;
+  IF pg_temp.sab_stock(v_p2, v_x) <> 5 OR pg_temp.sab_stock(v_p2, v_y) <> 6 THEN
+    v_failures := v_failures || format('FAIL (a6): P2 debía quedar 5 en la default y 6 en la segunda, tiene %s / %s',
+                                       pg_temp.sab_stock(v_p2, v_x), pg_temp.sab_stock(v_p2, v_y));
+  END IF;
+
   IF COALESCE(array_length(v_failures, 1), 0) = v_f0 THEN
-    RAISE NOTICE 'PASS (a): adjustment / physical_count / loss, cuenta con dos sucursales y segunda cuenta sellan account_id y branch_id y mueven branch_stock';
+    RAISE NOTICE 'PASS (a): adjustment / physical_count / loss, cuenta con dos sucursales (antes/después a nivel sucursal) y segunda cuenta sellan account_id y branch_id y mueven branch_stock';
   END IF;
 
   -- ═══════════════════════════════════════════════════════════════════════
@@ -284,9 +304,14 @@ BEGIN
 
   -- Control negativo: una fila gemela con la FORMA DEL BUG (account_id NULL),
   -- insertada como postgres (sin RLS). Bajo RLS NO debe verse jamás.
+  -- stock-ledger-solo-rpc (tanda B, task 9.2): el gemelo lleva MOTIVO —desde la
+  -- tanda B el CHECK stock_movements_manual_needs_reason rechaza cualquier
+  -- movimiento de ajuste manual sin motivo, aun insertado como postgres—. Lo que
+  -- lo hace "la forma del bug" es el account_id NULL, no la falta de motivo:
+  -- el control negativo mide lo mismo que antes (fixture corregida, no el núcleo).
   INSERT INTO public.stock_movements (user_id, product_id, product_name, type, quantity_delta,
-                                      quantity_before, quantity_after, performed_by)
-  VALUES (v_owner_a, v_p1, 'Gate SAB P1', 'adjustment', 1, 5, 6, v_owner_a)
+                                      quantity_before, quantity_after, reason, performed_by)
+  VALUES (v_owner_a, v_p1, 'Gate SAB P1', 'adjustment', 1, 5, 6, 'gate sab gemelo (account_id NULL)', v_owner_a)
   RETURNING id INTO v_twin;
 
   PERFORM pg_temp.sab_as(v_owner_a);

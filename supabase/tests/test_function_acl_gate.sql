@@ -268,7 +268,25 @@ DECLARE
     -- rpc_delete_sale_operation y rpc_delete_purchase_operation (DEFINER, corren
     -- como postgres). NUNCA re-otorgar. Candado de comportamiento: bloques (c)
     -- y (d) de supabase/tests/test_stock_ledger_solo_rpc.sql.
-    'public.rpc_reverse_stock_movement(uuid, text, text)'
+    'public.rpc_reverse_stock_movement(uuid, text, text)',
+    -- stock-ledger-solo-rpc tanda B (20261074000001): las tres piezas internas
+    -- del núcleo único de ajuste manual de stock. Las tres son SECURITY INVOKER
+    -- (las invocan sólo los envoltorios públicos y la reversa, que son DEFINER):
+    -- el chequeo (4) — que mira SECURITY DEFINER — no las alcanza, este (3) es
+    -- su candado.
+    --   · _stock_assert_can_adjust: guard de rol {owner, admin, stock}.
+    --   · _stock_apply_delta: la aritmética del saldo; recibe la CUENTA POR
+    --     PARÁMETRO y no valida rol ni escribe el movimiento principal. Expuesta
+    --     a `authenticated` sería la primitiva para cambiar un saldo sin
+    --     movimiento (el `p_log_movement = false` que la tanda B cierra).
+    --   · _stock_manual_adjustment: el núcleo; sin el envoltorio no hay
+    --     contrato de respuesta ni de flags.
+    -- NUNCA otorgar. Candado de comportamiento: bloques (m) de
+    -- supabase/tests/test_stock_ledger_solo_rpc.sql (metadata + llamada directa
+    -- de authenticated/anon rechazada con 42501).
+    'public._stock_assert_can_adjust(uuid)',
+    'public._stock_apply_delta(uuid, uuid, numeric, uuid, boolean)',
+    'public._stock_manual_adjustment(uuid, uuid, text, numeric, numeric, text, text, text, uuid)'
   ];
   -- Allowlist del chequeo (4) — helpers internos que HOY siguen expuestos a
   -- `authenticated`. Cada entrada necesita su justificación.

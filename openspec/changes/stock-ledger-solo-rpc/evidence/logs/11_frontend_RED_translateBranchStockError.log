@@ -1,0 +1,10 @@
+     × rol que no ajusta stock (P0403 insufficient_role) → quién puede, en castellano, sin el token 10ms
+     × motivo vacío (P0400) → pide el motivo 2ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+ FAIL  __tests__/lib/operation-errors-branch.test.ts > translateBranchStockError — delega en el mapa canónico lo que no reconoce > rol que no ajusta stock (P0403 insuf
+AssertionError: expected 'insufficient_role: tu rol no permite …' not to contain 'insufficient_role'
+ FAIL  __tests__/lib/operation-errors-branch.test.ts > translateBranchStockError — delega en el mapa canónico lo que no reconoce > motivo vacío (P0400) → pide el mo
+AssertionError: expected 'stock_adjustment_reason_required: el …' not to contain 'stock_adjustment_reason_required'
+     89|     const msg = translateBranchStockError("stock_adjustment_reason_req…
+ Test Files  1 failed (1)
+      Tests  2 failed | 8 passed (10)

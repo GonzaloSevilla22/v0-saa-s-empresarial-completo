@@ -1,0 +1,279 @@
+
+ RUN  v4.1.8 C:/Users/Usuario/Desktop/EIE/v0-saa-s-empresarial-completo/.claude/worktrees/sad-shamir-6c7415/frontend
+
+ ❯ __tests__/AdminSegurosPage.test.tsx (9 tests | 1 failed) 105916ms
+     × agregar, reordenar y guardar una lista se persiste en el orden nuevo 20440ms
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+ ❯ __tests__/pages/banco-conciliacion-import-warnings.test.tsx (8 tests | 2 failed) 60188ms
+     × muestra el conteo y el detalle de advertencias cuando el parser devuelve líneas ambiguas 29936ms
+     × F5: el aviso se numera con la fila física del archivo (source_row), la misma convención que usan los descartes 20013ms
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: navigation to another Document
+ ❯ __tests__/components/three/Celebration3D.test.tsx (5 tests | 1 failed) 260ms
+     × auto-unmounts itself after the celebration duration elapses 84ms
+Not implemented: navigation to another Document
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  __tests__/AdminSegurosPage.test.tsx > AdminSegurosPage — listas ordenadas > agregar, reordenar y guardar una lista se persiste en el orden nuevo
+Error: Test timed out in 20000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ __tests__/AdminSegurosPage.test.tsx:229:3
+    227|
+    228| describe("AdminSegurosPage — listas ordenadas", () => {
+    229|   it("agregar, reordenar y guardar una lista se persiste en el orden n…
+       |   ^
+    230|     getAllInsurancesMock.mockResolvedValue([])
+    231|     const user = await openCreateDialog()
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  __tests__/pages/banco-conciliacion-import-warnings.test.tsx > ConciliacionTab — avisos de ambigüedad > muestra el conteo y el detalle de advertencias cuando el parser devuelve líneas ambiguas
+Error: Test timed out in 20000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ __tests__/pages/banco-conciliacion-import-warnings.test.tsx:77:3
+     75|
+     76| describe("ConciliacionTab — avisos de ambigüedad", () => {
+     77|   it("muestra el conteo y el detalle de advertencias cuando el parser …
+       |   ^
+     78|     mockParseBankStatementFile.mockResolvedValue({
+     79|       ok: true,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  __tests__/pages/banco-conciliacion-import-warnings.test.tsx > ConciliacionTab — avisos de ambigüedad > F5: el aviso se numera con la fila física del archivo (source_row), la misma convención que usan los descartes
+Error: Test timed out in 20000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ __tests__/pages/banco-conciliacion-import-warnings.test.tsx:107:3
+    105|   })
+    106|
+    107|   it("F5: el aviso se numera con la fila física del archivo (source_ro…
+       |   ^
+    108|     mockParseBankStatementFile.mockResolvedValue({
+    109|       ok: true,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+ FAIL  __tests__/components/three/Celebration3D.test.tsx > Celebration3D > auto-unmounts itself after the celebration duration elapses
+Error: [2mexpect([22m[31melement[39m[2m).toBeInTheDocument()[22m
+
+[31melement could not be found in the document[39m
+ ❯ __tests__/components/three/Celebration3D.test.tsx:71:61
+     69|     mockUseCapabilityGate.mockReturnValue({ qualifies: true, reason: "…
+     70|     render(<Celebration3D show={true} durationMs={30} />)
+     71|     expect(await screen.findByTestId("celebration-canvas")).toBeInTheD…
+       |                                                             ^
+     72|
+     73|     await waitFor(() => expect(screen.queryByTestId("celebration-canva…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯
+
+⎯⎯⎯⎯⎯⎯ Unhandled Errors ⎯⎯⎯⎯⎯⎯
+
+Vitest caught 8 unhandled errors during the test run.
+This might cause false positive tests. Resolve unhandled errors to make sure your tests are not affected.
+
+⎯⎯⎯⎯⎯⎯ Unhandled Error ⎯⎯⎯⎯⎯⎯⎯
+Error: [vitest-pool]: Failed to start forks worker for test files C:/Users/Usuario/Desktop/EIE/v0-saa-s-empresarial-completo/.claude/worktrees/sad-shamir-6c7415/frontend/__tests__/components/DeliveryNoteForm.test.tsx.
+ ❯ ../node_modules/.pnpm/vitest@4.1.8_@types+node@22_b6e4822f4239dd9e3649bc7cef77fd91/node_modules/vitest/dist/chunks/cli-api.BfdDOPPI.js:3449:94
+ ❯ runNextTicks node:internal/process/task_queues:65:5
+ ❯ listOnTimeout node:internal/timers:569:9
+ ❯ processTimers node:internal/timers:543:7
+ ❯ Pool.schedule ../node_modules/.pnpm/vitest@4.1.8_@types+node@22_b6e4822f4239dd9e3649bc7cef77fd91/node_modules/vitest/dist/chunks/cli-api.BfdDOPPI.js:3449:5
+
+Caused by: Error: [vitest-pool-runner]: Timeout waiting for worker to respond
+ ❯ Timeout.<anonymous> ../node_modules/.pnpm/vitest@4.1.8_@types+node@22_b6e4822f4239dd9e3649bc7cef77fd91/node_modules/vitest/dist/chunks/cli-api.BfdDOPPI.js:3029:58
+ ❯ listOnTimeout node:internal/timers:608:17
+ ❯ processTimers node:internal/timers:543:7
+
+
+⎯⎯⎯⎯⎯⎯ Unhandled Error ⎯⎯⎯⎯⎯⎯⎯
+Error: [vitest-pool]: Failed to start forks worker for test files C:/Users/Usuario/Desktop/EIE/v0-saa-s-empresarial-completo/.claude/worktrees/sad-shamir-6c7415/frontend/__tests__/DeliveryNoteDetailPage.test.tsx.
+ ❯ ../node_modules/.pnpm/vitest@4.1.8_@types+node@22_b6e4822f4239dd9e3649bc7cef77fd91/node_modules/vitest/dist/chunks/cli-api.BfdDOPPI.js:3449:94
+ ❯ runNextTicks node:internal/process/task_queues:65:5
+ ❯ listOnTimeout node:internal/timers:569:9
+ ❯ processTimers node:internal/timers:543:7
+ ❯ Pool.schedule ../node_modules/.pnpm/vitest@4.1.8_@types+node@22_b6e4822f4239dd9e3649bc7cef77fd91/node_modules/vitest/dist/chunks/cli-api.BfdDOPPI.js:3449:5
+
+Caused by: Error: [vitest-pool-runner]: Timeout waiting for worker to respond
+ ❯ Timeout.<anonymous> ../node_modules/.pnpm/vitest@4.1.8_@types+node@22_b6e4822f4239dd9e3649bc7cef77fd91/node_modules/vitest/dist/chunks/cli-api.BfdDOPPI.js:3029:58
+ ❯ listOnTimeout node:internal/timers:608:17
+ ❯ processTimers node:internal/timers:543:7
+
+
+⎯⎯⎯⎯⎯⎯ Unhandled Error ⎯⎯⎯⎯⎯⎯⎯
+Error: [vitest-pool]: Failed to start forks worker for test files C:/Users/Usuario/Desktop/EIE/v0-saa-s-empresarial-completo/.claude/worktrees/sad-shamir-6c7415/frontend/__tests__/DeliveryNotesPage.test.tsx.
+ ❯ ../node_modules/.pnpm/vitest@4.1.8_@types+node@22_b6e4822f4239dd9e3649bc7cef77fd91/node_modules/vitest/dist/chunks/cli-api.BfdDOPPI.js:3449:94
+ ❯ runNextTicks node:internal/process/task_queues:65:5
+ ❯ listOnTimeout node:internal/timers:569:9
+ ❯ processTimers node:internal/timers:543:7
+ ❯ Pool.schedule ../node_modules/.pnpm/vitest@4.1.8_@types+node@22_b6e4822f4239dd9e3649bc7cef77fd91/node_modules/vitest/dist/chunks/cli-api.BfdDOPPI.js:3449:5
+
+Caused by: Error: [vitest-pool-runner]: Timeout waiting for worker to respond
+ ❯ Timeout.<anonymous> ../node_modules/.pnpm/vitest@4.1.8_@types+node@22_b6e4822f4239dd9e3649bc7cef77fd91/node_modules/vitest/dist/chunks/cli-api.BfdDOPPI.js:3029:58
+ ❯ listOnTimeout node:internal/timers:608:17
+ ❯ processTimers node:internal/timers:543:7
+
+
+⎯⎯⎯⎯⎯⎯ Unhandled Error ⎯⎯⎯⎯⎯⎯⎯
+Error: [vitest-pool]: Failed to start forks worker for test files C:/Users/Usuario/Desktop/EIE/v0-saa-s-empresarial-completo/.claude/worktrees/sad-shamir-6c7415/frontend/__tests__/components/AppSidebarGroups.test.tsx.
+ ❯ ../node_modules/.pnpm/vitest@4.1.8_@types+node@22_b6e4822f4239dd9e3649bc7cef77fd91/node_modules/vitest/dist/chunks/cli-api.BfdDOPPI.js:3449:94
+ ❯ runNextTicks node:internal/process/task_queues:65:5
+ ❯ listOnTimeout node:internal/timers:569:9
+ ❯ processTimers node:internal/timers:543:7
+ ❯ Pool.schedule ../node_modules/.pnpm/vitest@4.1.8_@types+node@22_b6e4822f4239dd9e3649bc7cef77fd91/node_modules/vitest/dist/chunks/cli-api.BfdDOPPI.js:3449:5
+
+Caused by: Error: [vitest-pool-runner]: Timeout waiting for worker to respond
+ ❯ Timeout.<anonymous> ../node_modules/.pnpm/vitest@4.1.8_@types+node@22_b6e4822f4239dd9e3649bc7cef77fd91/node_modules/vitest/dist/chunks/cli-api.BfdDOPPI.js:3029:58
+ ❯ listOnTimeout node:internal/timers:608:17
+ ❯ processTimers node:internal/timers:543:7
+
+
+⎯⎯⎯⎯⎯⎯ Unhandled Error ⎯⎯⎯⎯⎯⎯⎯
+Error: [vitest-pool]: Failed to start forks worker for test files C:/Users/Usuario/Desktop/EIE/v0-saa-s-empresarial-completo/.claude/worktrees/sad-shamir-6c7415/frontend/__tests__/QuoteDetailPage.test.tsx.
+ ❯ ../node_modules/.pnpm/vitest@4.1.8_@types+node@22_b6e4822f4239dd9e3649bc7cef77fd91/node_modules/vitest/dist/chunks/cli-api.BfdDOPPI.js:3449:94
+ ❯ runNextTicks node:internal/process/task_queues:65:5
+ ❯ listOnTimeout node:internal/timers:569:9
+ ❯ processTimers node:internal/timers:543:7
+ ❯ Pool.schedule ../node_modules/.pnpm/vitest@4.1.8_@types+node@22_b6e4822f4239dd9e3649bc7cef77fd91/node_modules/vitest/dist/chunks/cli-api.BfdDOPPI.js:3449:5
+
+Caused by: Error: [vitest-pool-runner]: Timeout waiting for worker to respond
+ ❯ Timeout.<anonymous> ../node_modules/.pnpm/vitest@4.1.8_@types+node@22_b6e4822f4239dd9e3649bc7cef77fd91/node_modules/vitest/dist/chunks/cli-api.BfdDOPPI.js:3029:58
+ ❯ listOnTimeout node:internal/timers:608:17
+ ❯ processTimers node:internal/timers:543:7
+
+
+⎯⎯⎯⎯⎯⎯ Unhandled Error ⎯⎯⎯⎯⎯⎯⎯
+Error: [vitest-pool]: Failed to start forks worker for test files C:/Users/Usuario/Desktop/EIE/v0-saa-s-empresarial-completo/.claude/worktrees/sad-shamir-6c7415/frontend/__tests__/EstadisticasPage.test.tsx.
+ ❯ ../node_modules/.pnpm/vitest@4.1.8_@types+node@22_b6e4822f4239dd9e3649bc7cef77fd91/node_modules/vitest/dist/chunks/cli-api.BfdDOPPI.js:3449:94
+ ❯ runNextTicks node:internal/process/task_queues:65:5
+ ❯ listOnTimeout node:internal/timers:569:9
+ ❯ processTimers node:internal/timers:543:7
+ ❯ Pool.schedule ../node_modules/.pnpm/vitest@4.1.8_@types+node@22_b6e4822f4239dd9e3649bc7cef77fd91/node_modules/vitest/dist/chunks/cli-api.BfdDOPPI.js:3449:5
+
+Caused by: Error: [vitest-pool-runner]: Timeout waiting for worker to respond
+ ❯ Timeout.<anonymous> ../node_modules/.pnpm/vitest@4.1.8_@types+node@22_b6e4822f4239dd9e3649bc7cef77fd91/node_modules/vitest/dist/chunks/cli-api.BfdDOPPI.js:3029:58
+ ❯ listOnTimeout node:internal/timers:608:17
+ ❯ processTimers node:internal/timers:543:7
+
+
+⎯⎯⎯⎯⎯⎯ Unhandled Error ⎯⎯⎯⎯⎯⎯⎯
+Error: [vitest-pool]: Failed to start forks worker for test files C:/Users/Usuario/Desktop/EIE/v0-saa-s-empresarial-completo/.claude/worktrees/sad-shamir-6c7415/frontend/__tests__/components/purchase-form-supplier.test.tsx.
+ ❯ ../node_modules/.pnpm/vitest@4.1.8_@types+node@22_b6e4822f4239dd9e3649bc7cef77fd91/node_modules/vitest/dist/chunks/cli-api.BfdDOPPI.js:3449:94
+ ❯ runNextTicks node:internal/process/task_queues:65:5
+ ❯ listOnTimeout node:internal/timers:569:9
+ ❯ processTimers node:internal/timers:543:7
+ ❯ Pool.schedule ../node_modules/.pnpm/vitest@4.1.8_@types+node@22_b6e4822f4239dd9e3649bc7cef77fd91/node_modules/vitest/dist/chunks/cli-api.BfdDOPPI.js:3449:5
+
+Caused by: Error: [vitest-pool-runner]: Timeout waiting for worker to respond
+ ❯ Timeout.<anonymous> ../node_modules/.pnpm/vitest@4.1.8_@types+node@22_b6e4822f4239dd9e3649bc7cef77fd91/node_modules/vitest/dist/chunks/cli-api.BfdDOPPI.js:3029:58
+ ❯ listOnTimeout node:internal/timers:608:17
+ ❯ processTimers node:internal/timers:543:7
+
+
+⎯⎯⎯⎯⎯⎯ Unhandled Error ⎯⎯⎯⎯⎯⎯⎯
+Error: [vitest-pool]: Failed to start forks worker for test files C:/Users/Usuario/Desktop/EIE/v0-saa-s-empresarial-completo/.claude/worktrees/sad-shamir-6c7415/frontend/__tests__/components/QuoteForm.test.tsx.
+ ❯ ../node_modules/.pnpm/vitest@4.1.8_@types+node@22_b6e4822f4239dd9e3649bc7cef77fd91/node_modules/vitest/dist/chunks/cli-api.BfdDOPPI.js:3449:94
+ ❯ Pool.schedule ../node_modules/.pnpm/vitest@4.1.8_@types+node@22_b6e4822f4239dd9e3649bc7cef77fd91/node_modules/vitest/dist/chunks/cli-api.BfdDOPPI.js:3449:5
+
+Caused by: Error: [vitest-pool-runner]: Timeout waiting for worker to respond
+ ❯ Timeout.<anonymous> ../node_modules/.pnpm/vitest@4.1.8_@types+node@22_b6e4822f4239dd9e3649bc7cef77fd91/node_modules/vitest/dist/chunks/cli-api.BfdDOPPI.js:3029:58
+ ❯ listOnTimeout node:internal/timers:608:17
+ ❯ processTimers node:internal/timers:543:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+
+
+ Test Files  3 failed | 504 passed (507)
+      Tests  4 failed | 5390 passed | 1 skipped (5395)
+     Errors  8 errors
+   Start at  12:24:49
+   Duration  2170.95s (transform 421.82s, setup 1007.59s, import 3146.49s, tests 1796.56s, environment 9006.27s)
+
+VITEST_EXIT=1

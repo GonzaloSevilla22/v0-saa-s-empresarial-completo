@@ -1,0 +1,23 @@
+# gate tras db reset limpio (321 migraciones, MAX=20261074000001):
+NOTICE:  PASS (a): authenticated y anon sin INSERT/UPDATE/DELETE/TRUNCATE (tabla ni columna) sobre stock_movements y branch_stock; authenticated conserva SELECT.
+NOTICE:  PASS (b): policies = {lectura por cuenta x2, no_update/no_delete qual=false}; ninguna permisiva de escritura; RLS activa.
+NOTICE:  PASS (c): rpc_reverse_stock_movement sin EXECUTE para anon/authenticated/PUBLIC, un solo overload, SECURITY DEFINER; las RPCs públicas de ajuste, transferencia y borrado conservan EXECUTE.
+NOTICE:  info (d) [owner]: 14 de 14 intentos rechazados con 42501 "permission denied"
+NOTICE:  info (d) [seller]: 14 de 14 intentos rechazados con 42501 "permission denied"
+NOTICE:  info (d) [viewer]: 14 de 14 intentos rechazados con 42501 "permission denied"
+NOTICE:  info (d) [anon]: 14 de 14 intentos rechazados con 42501 "permission denied"
+NOTICE:  PASS (d): 56 intentos (owner, seller, viewer y anon x 14 variantes) rechazados con 42501 "permission denied" y la huella de las dos tablas idéntica.
+NOTICE:  PASS (e): ajuste, venta y compra (alta y borrado, incl. compra ya vendida con piso trazable), transferencia, borrado de producto con historial y lectura propia/ajena funcionan con la escritura directa cerrada.
+NOTICE:  PASS (f): 30 intentos (owner/admin/stock ajustan; seller/cashier/purchases/accountant P0403; viewer y rol vencido solo P0401; mixto con rol vencido P0403) x 3 envoltorios.
+NOTICE:  PASS (g): motivo nulo/vacío/espacios rechazado con P0400 en los tres envoltorios (12 intentos) y persistido recortado; CHECK stock_movements_manual_needs_reason rechaza 5 tipos x 4 motivos inválidos, acepta los controles positivos, es NOT VALID y ll
+NOTICE:  PASS (h): p_log_movement <> true y p_allow_negative <> false rechazados con P0400 sin tocar saldo ni ledger; (true, false) y los defaults siguen funcionando con la misma forma de respuesta.
+NOTICE:  PASS (i): producto de otra cuenta P0404 en los tres envoltorios y en rpc_transfer_stock sin filas nuevas; un segundo miembro admin ajusta un producto que no creó.
+NOTICE:  PASS (j): un ajuste = exactamente un movimiento sellado (cuenta, sucursal, autor, motivo recortado), antes/después a nivel sucursal, visible bajo RLS sólo para su cuenta; stock inicial con motivo fijo; alta perezosa de la sucursal sellada; invariant
+NOTICE:  PASS (k): conteo físico total, objetivo por sucursal, pérdida, loss/damage/expiry positivos P0400, transfer_in/out y tipos ajenos P0400, negativos P0409/P0400, padre variant_only P0400, reference_id y objetivo = saldo.
+NOTICE:  PASS (l): borrar venta y compra repone con contramovimiento sellado (cuenta, sucursal, autor, motivo, reverses_movement_id); compra ya vendida => ajuste de piso trazable con motivo.
+NOTICE:  PASS (m, ejecución): las tres internas y la reversa rechazan la llamada directa de un owner autenticado y de anon con 42501 "permission denied for function".
+NOTICE:  PASS (g, migración): el mismo DDL del CHECK NOT VALID se aplica sobre una tabla con una fila histórica sin motivo, la conserva y rechaza las nuevas.
+NOTICE:  PASS (m): las tres internas nuevas (INVOKER, search_path fijo) y la reversa sin EXECUTE para anon/authenticated/PUBLIC; los tres envoltorios y rpc_transfer_stock SECURITY DEFINER con EXECUTE para authenticated y sin anon; un solo overload de cada func
+NOTICE:  GATE STOCK-LEDGER-SOLO-RPC PASSED (tandas A y B): privilegios, policies, ACL, matriz de evasión, caminos legítimos, rol, motivo, flags internos, tenencia, sello, semántica del movimiento y reversa.
+NOTICE:  PASS (residuo): el gate no dejó filas.
+GATE_EXIT=0

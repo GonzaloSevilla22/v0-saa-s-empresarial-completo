@@ -1,0 +1,103 @@
+PASS  /stock rol stock: ve las acciones de ajuste desktop light  -> ajustar=5 importar=1
+PASS  sin desborde de documento: stock-rol-stock desktop light  -> []
+PASS  modal: envío deshabilitado con motivo vacío desktop light
+PASS  modal: motivo con aria-invalid desktop light  -> true
+PASS  modal: contraste del mensaje del motivo >= 4.5:1 (6.07) desktop light
+PASS  sin desborde de documento: modal-ajuste-motivo-vacio desktop light  -> []
+PASS  modal: rechazo del servidor en castellano desktop light
+PASS  sin desborde de documento: modal-ajuste-error-servidor desktop light  -> []
+PASS  sin desborde de documento: importador-paso-1 desktop light  -> []
+PASS  importador: fila sin motivo marcada desktop light
+PASS  sin desborde de documento: importador-filas-sin-motivo desktop light  -> []
+PASS  sin desborde de documento: sucursal-stock-rol-stock desktop light  -> []
+PASS  sucursal: motivo vacío bloqueado con mensaje desktop light
+PASS  sin desborde de documento: sucursal-ajuste-motivo-vacio desktop light  -> []
+PASS  /stock rol seller: NO ve las acciones de ajuste desktop light  -> ajustar=0 importar=0
+PASS  sin desborde de documento: stock-rol-seller desktop light  -> []
+PASS  sucursal rol seller: sin «Ajustar», con «Transferir» desktop light  -> ajustar=0 transferir=4
+PASS  sin desborde de documento: sucursal-stock-rol-seller desktop light  -> []
+PASS  alta rol owner: campo «Stock inicial» desktop light  -> campo=1 nota=0
+PASS  sin desborde de documento: producto-alta-rol-owner desktop light  -> []
+PASS  sin desborde de documento: producto-edicion desktop light  -> []
+PASS  sin desborde de documento: producto-edicion-modal-ajuste desktop light  -> []
+PASS  edición: el foco vuelve al botón «Ajustar stock» al cerrar el modal desktop light  -> Ajustar stock
+PASS  alta rol seller: línea explicativa sin campo desktop light  -> campo=0 nota=1
+PASS  sin desborde de documento: producto-alta-rol-seller desktop light  -> []
+PASS  /stock rol stock: ve las acciones de ajuste desktop dark  -> ajustar=5 importar=1
+PASS  sin desborde de documento: stock-rol-stock desktop dark  -> []
+PASS  modal: envío deshabilitado con motivo vacío desktop dark
+PASS  modal: motivo con aria-invalid desktop dark  -> true
+PASS  modal: contraste del mensaje del motivo >= 4.5:1 (6.75) desktop dark
+PASS  sin desborde de documento: modal-ajuste-motivo-vacio desktop dark  -> []
+PASS  modal: rechazo del servidor en castellano desktop dark
+PASS  sin desborde de documento: modal-ajuste-error-servidor desktop dark  -> []
+PASS  sin desborde de documento: importador-paso-1 desktop dark  -> []
+PASS  importador: fila sin motivo marcada desktop dark
+PASS  sin desborde de documento: importador-filas-sin-motivo desktop dark  -> []
+PASS  sin desborde de documento: sucursal-stock-rol-stock desktop dark  -> []
+PASS  sucursal: motivo vacío bloqueado con mensaje desktop dark
+PASS  sin desborde de documento: sucursal-ajuste-motivo-vacio desktop dark  -> []
+PASS  /stock rol seller: NO ve las acciones de ajuste desktop dark  -> ajustar=0 importar=0
+PASS  sin desborde de documento: stock-rol-seller desktop dark  -> []
+PASS  sucursal rol seller: sin «Ajustar», con «Transferir» desktop dark  -> ajustar=0 transferir=4
+PASS  sin desborde de documento: sucursal-stock-rol-seller desktop dark  -> []
+PASS  alta rol owner: campo «Stock inicial» desktop dark  -> campo=1 nota=0
+PASS  sin desborde de documento: producto-alta-rol-owner desktop dark  -> []
+PASS  sin desborde de documento: producto-edicion desktop dark  -> []
+PASS  sin desborde de documento: producto-edicion-modal-ajuste desktop dark  -> []
+PASS  edición: el foco vuelve al botón «Ajustar stock» al cerrar el modal desktop dark  -> Ajustar stock
+PASS  alta rol seller: línea explicativa sin campo desktop dark  -> campo=0 nota=1
+PASS  sin desborde de documento: producto-alta-rol-seller desktop dark  -> []
+PASS  /stock rol stock: ve las acciones de ajuste mobile light  -> ajustar=1 importar=1
+PASS  sin desborde de documento: stock-rol-stock mobile light  -> []
+PASS  modal: envío deshabilitado con motivo vacío mobile light
+PASS  modal: motivo con aria-invalid mobile light  -> true
+PASS  modal: contraste del mensaje del motivo >= 4.5:1 (6.07) mobile light
+PASS  sin desborde de documento: modal-ajuste-motivo-vacio mobile light  -> []
+PASS  modal: rechazo del servidor en castellano mobile light
+PASS  sin desborde de documento: modal-ajuste-error-servidor mobile light  -> []
+PASS  sin desborde de documento: importador-paso-1 mobile light  -> []
+PASS  importador: fila sin motivo marcada mobile light
+PASS  sin desborde de documento: importador-filas-sin-motivo mobile light  -> []
+PASS  sin desborde de documento: sucursal-stock-rol-stock mobile light  -> []
+PASS  sucursal: motivo vacío bloqueado con mensaje mobile light
+PASS  sin desborde de documento: sucursal-ajuste-motivo-vacio mobile light  -> []
+PASS  /stock rol seller: NO ve las acciones de ajuste mobile light  -> ajustar=0 importar=0
+PASS  sin desborde de documento: stock-rol-seller mobile light  -> []
+PASS  sucursal rol seller: sin «Ajustar», con «Transferir» mobile light  -> ajustar=0 transferir=4
+PASS  sin desborde de documento: sucursal-stock-rol-seller mobile light  -> []
+PASS  alta rol owner: campo «Stock inicial» mobile light  -> campo=1 nota=0
+PASS  sin desborde de documento: producto-alta-rol-owner mobile light  -> []
+PASS  sin desborde de documento: producto-edicion mobile light  -> []
+PASS  sin desborde de documento: producto-edicion-modal-ajuste mobile light  -> []
+PASS  edición: el foco vuelve al botón «Ajustar stock» al cerrar el modal mobile light  -> Ajustar stock
+PASS  alta rol seller: línea explicativa sin campo mobile light  -> campo=0 nota=1
+PASS  sin desborde de documento: producto-alta-rol-seller mobile light  -> []
+PASS  /stock rol stock: ve las acciones de ajuste mobile dark  -> ajustar=1 importar=1
+PASS  sin desborde de documento: stock-rol-stock mobile dark  -> []
+PASS  modal: envío deshabilitado con motivo vacío mobile dark
+PASS  modal: motivo con aria-invalid mobile dark  -> true
+PASS  modal: contraste del mensaje del motivo >= 4.5:1 (6.75) mobile dark
+PASS  sin desborde de documento: modal-ajuste-motivo-vacio mobile dark  -> []
+PASS  modal: rechazo del servidor en castellano mobile dark
+PASS  sin desborde de documento: modal-ajuste-error-servidor mobile dark  -> []
+PASS  sin desborde de documento: importador-paso-1 mobile dark  -> []
+PASS  importador: fila sin motivo marcada mobile dark
+PASS  sin desborde de documento: importador-filas-sin-motivo mobile dark  -> []
+PASS  sin desborde de documento: sucursal-stock-rol-stock mobile dark  -> []
+PASS  sucursal: motivo vacío bloqueado con mensaje mobile dark
+PASS  sin desborde de documento: sucursal-ajuste-motivo-vacio mobile dark  -> []
+PASS  /stock rol seller: NO ve las acciones de ajuste mobile dark  -> ajustar=0 importar=0
+PASS  sin desborde de documento: stock-rol-seller mobile dark  -> []
+PASS  sucursal rol seller: sin «Ajustar», con «Transferir» mobile dark  -> ajustar=0 transferir=4
+PASS  sin desborde de documento: sucursal-stock-rol-seller mobile dark  -> []
+PASS  alta rol owner: campo «Stock inicial» mobile dark  -> campo=1 nota=0
+PASS  sin desborde de documento: producto-alta-rol-owner mobile dark  -> []
+PASS  sin desborde de documento: producto-edicion mobile dark  -> []
+PASS  sin desborde de documento: producto-edicion-modal-ajuste mobile dark  -> []
+PASS  edición: el foco vuelve al botón «Ajustar stock» al cerrar el modal mobile dark  -> Ajustar stock
+PASS  alta rol seller: línea explicativa sin campo mobile dark  -> campo=0 nota=1
+PASS  sin desborde de documento: producto-alta-rol-seller mobile dark  -> []
+
+RESUMEN: 100/100 PASS; errores de consola únicos: 4
+VISUAL_EXIT=0

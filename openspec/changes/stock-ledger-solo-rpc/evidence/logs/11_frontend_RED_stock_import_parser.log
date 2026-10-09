@@ -1,0 +1,44 @@
+     × una celda de motivo vacía deja la fila en error con «Falta el motivo» 12ms
+     × un motivo sólo con espacios también falta 1ms
+     × triangulación: sólo la fila sin motivo se bloquea; la de al lado sigue válida 5ms
+     × el conteo físico también exige motivo 2ms
+     × el encabezado de la plantilla tiene la columna 1ms
+     × sin columna Motivo es false (error de archivo en el diálogo) 0ms
+     × acepta los alias del encabezado (razón, reason, nota) y los acentos 0ms
+     × si igual se parsea un archivo sin la columna, TODAS las filas quedan bloqueadas 1ms
+     × «Transferencia entrada» se reconoce y se bloquea derivando a «Transferir stock» 1ms
+     × «Transferencia salida» se reconoce y se bloquea derivando a «Transferir stock» 1ms
+     × «recepción» se reconoce y se bloquea derivando a «Transferir stock» 1ms
+     × «envío» se reconoce y se bloquea derivando a «Transferir stock» 1ms
+     × «transfer entrada» se reconoce y se bloquea derivando a «Transferir stock» 1ms
+     × transfer_in y transfer_out no existen en la tabla de tipos que viajan al servidor 1ms
+     × la lista de tipos que ofrece el diálogo no incluye transferencias 1ms
+⎯⎯⎯⎯⎯⎯ Failed Tests 15 ⎯⎯⎯⎯⎯⎯⎯
+ FAIL  __tests__/stock-import-parser-motivo.test.ts > parseAndValidate — el motivo es obligatorio por fila > una celda de motivo vacía deja la fila en error con «Falt
+AssertionError: expected 'ok' to be 'error' // Object.is equality
+ FAIL  __tests__/stock-import-parser-motivo.test.ts > parseAndValidate — el motivo es obligatorio por fila > un motivo sólo con espacios también falta
+AssertionError: expected 'ok' to be 'error' // Object.is equality
+ FAIL  __tests__/stock-import-parser-motivo.test.ts > parseAndValidate — el motivo es obligatorio por fila > triangulación: sólo la fila sin motivo se bloquea; la de 
+AssertionError: expected [ 'ok', 'ok' ] to deeply equal [ 'ok', 'error' ]
+ FAIL  __tests__/stock-import-parser-motivo.test.ts > parseAndValidate — el motivo es obligatorio por fila > el conteo físico también exige motivo
+AssertionError: expected [] to include 'Falta el motivo'
+ FAIL  __tests__/stock-import-parser-motivo.test.ts > hasMotivoColumn / encabezado sin «Motivo» > el encabezado de la plantilla tiene la columna
+TypeError: hasMotivoColumn is not a function
+ FAIL  __tests__/stock-import-parser-motivo.test.ts > hasMotivoColumn / encabezado sin «Motivo» > sin columna Motivo es false (error de archivo en el diálogo)
+TypeError: hasMotivoColumn is not a function
+ FAIL  __tests__/stock-import-parser-motivo.test.ts > hasMotivoColumn / encabezado sin «Motivo» > acepta los alias del encabezado (razón, reason, nota) y los acentos
+TypeError: hasMotivoColumn is not a function
+ FAIL  __tests__/stock-import-parser-motivo.test.ts > hasMotivoColumn / encabezado sin «Motivo» > si igual se parsea un archivo sin la columna, TODAS las filas quedan b
+AssertionError: expected 'ok' to be 'error' // Object.is equality
+ FAIL  __tests__/stock-import-parser-motivo.test.ts > parseAndValidate — las transferencias no son ajustes (OQ-1) > «Transferencia entrada» se reconoce y se bloquea d
+ FAIL  __tests__/stock-import-parser-motivo.test.ts > parseAndValidate — las transferencias no son ajustes (OQ-1) > «Transferencia salida» se reconoce y se bloquea de
+ FAIL  __tests__/stock-import-parser-motivo.test.ts > parseAndValidate — las transferencias no son ajustes (OQ-1) > «recepción» se reconoce y se bloquea derivando a 
+ FAIL  __tests__/stock-import-parser-motivo.test.ts > parseAndValidate — las transferencias no son ajustes (OQ-1) > «envío» se reconoce y se bloquea derivando a «Tr
+ FAIL  __tests__/stock-import-parser-motivo.test.ts > parseAndValidate — las transferencias no son ajustes (OQ-1) > «transfer entrada» se reconoce y se bloquea deriva
+AssertionError: expected 'ok' to be 'error' // Object.is equality
+ FAIL  __tests__/stock-import-parser-motivo.test.ts > parseAndValidate — las transferencias no son ajustes (OQ-1) > transfer_in y transfer_out no existen en la tabla de
+AssertionError: expected [ 'adjustment_in', …(7) ] to not include 'transfer_in'
+ FAIL  __tests__/stock-import-parser-motivo.test.ts > parseAndValidate — las transferencias no son ajustes (OQ-1) > la lista de tipos que ofrece el diálogo no incluye 
+TypeError: Cannot read properties of undefined (reading 'length')
+ Test Files  1 failed (1)
+      Tests  15 failed | 4 passed (19)

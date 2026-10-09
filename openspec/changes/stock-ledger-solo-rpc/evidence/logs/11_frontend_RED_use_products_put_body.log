@@ -1,0 +1,6 @@
+     × updateProduct NEVER sends stock in the PUT body, even if a stale caller passes it 85ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+ FAIL  __tests__/hooks/use-products.test.ts > useProducts > updateProduct NEVER sends stock in the PUT body, even if a stale caller passes it
+AssertionError: expected { name: 'Remera', …(7) } to not have property "stock"
+ Test Files  1 failed (1)
+      Tests  1 failed | 8 passed (9)

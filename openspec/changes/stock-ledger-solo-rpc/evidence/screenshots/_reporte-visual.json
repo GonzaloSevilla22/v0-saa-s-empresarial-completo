@@ -1,0 +1,430 @@
+{
+ "generated": "2026-10-09T17:35:42.237Z",
+ "total": 100,
+ "failed": 0,
+ "failures": [],
+ "report": [
+  {
+   "name": "stock-rol-stock",
+   "vp": "desktop",
+   "th": "light",
+   "docOverflow": 0,
+   "issues": [],
+   "note": ""
+  },
+  {
+   "name": "modal-ajuste-motivo-vacio",
+   "vp": "desktop",
+   "th": "light",
+   "docOverflow": 0,
+   "issues": [],
+   "note": ""
+  },
+  {
+   "name": "modal-ajuste-error-servidor",
+   "vp": "desktop",
+   "th": "light",
+   "docOverflow": 0,
+   "issues": [],
+   "note": ""
+  },
+  {
+   "name": "importador-paso-1",
+   "vp": "desktop",
+   "th": "light",
+   "docOverflow": 0,
+   "issues": [],
+   "note": ""
+  },
+  {
+   "name": "importador-filas-sin-motivo",
+   "vp": "desktop",
+   "th": "light",
+   "docOverflow": 0,
+   "issues": [],
+   "note": ""
+  },
+  {
+   "name": "sucursal-stock-rol-stock",
+   "vp": "desktop",
+   "th": "light",
+   "docOverflow": 0,
+   "issues": [],
+   "note": ""
+  },
+  {
+   "name": "sucursal-ajuste-motivo-vacio",
+   "vp": "desktop",
+   "th": "light",
+   "docOverflow": 0,
+   "issues": [],
+   "note": ""
+  },
+  {
+   "name": "stock-rol-seller",
+   "vp": "desktop",
+   "th": "light",
+   "docOverflow": 0,
+   "issues": [],
+   "note": ""
+  },
+  {
+   "name": "sucursal-stock-rol-seller",
+   "vp": "desktop",
+   "th": "light",
+   "docOverflow": 0,
+   "issues": [],
+   "note": ""
+  },
+  {
+   "name": "producto-alta-rol-owner",
+   "vp": "desktop",
+   "th": "light",
+   "docOverflow": 0,
+   "issues": [],
+   "note": ""
+  },
+  {
+   "name": "producto-edicion",
+   "vp": "desktop",
+   "th": "light",
+   "docOverflow": 0,
+   "issues": [],
+   "note": ""
+  },
+  {
+   "name": "producto-edicion-modal-ajuste",
+   "vp": "desktop",
+   "th": "light",
+   "docOverflow": 0,
+   "issues": [],
+   "note": ""
+  },
+  {
+   "name": "producto-alta-rol-seller",
+   "vp": "desktop",
+   "th": "light",
+   "docOverflow": 0,
+   "issues": [],
+   "note": ""
+  },
+  {
+   "name": "stock-rol-stock",
+   "vp": "desktop",
+   "th": "dark",
+   "docOverflow": 0,
+   "issues": [],
+   "note": ""
+  },
+  {
+   "name": "modal-ajuste-motivo-vacio",
+   "vp": "desktop",
+   "th": "dark",
+   "docOverflow": 0,
+   "issues": [],
+   "note": ""
+  },
+  {
+   "name": "modal-ajuste-error-servidor",
+   "vp": "desktop",
+   "th": "dark",
+   "docOverflow": 0,
+   "issues": [],
+   "note": ""
+  },
+  {
+   "name": "importador-paso-1",
+   "vp": "desktop",
+   "th": "dark",
+   "docOverflow": 0,
+   "issues": [],
+   "note": ""
+  },
+  {
+   "name": "importador-filas-sin-motivo",
+   "vp": "desktop",
+   "th": "dark",
+   "docOverflow": 0,
+   "issues": [],
+   "note": ""
+  },
+  {
+   "name": "sucursal-stock-rol-stock",
+   "vp": "desktop",
+   "th": "dark",
+   "docOverflow": 0,
+   "issues": [],
+   "note": ""
+  },
+  {
+   "name": "sucursal-ajuste-motivo-vacio",
+   "vp": "desktop",
+   "th": "dark",
+   "docOverflow": 0,
+   "issues": [],
+   "note": ""
+  },
+  {
+   "name": "stock-rol-seller",
+   "vp": "desktop",
+   "th": "dark",
+   "docOverflow": 0,
+   "issues": [],
+   "note": ""
+  },
+  {
+   "name": "sucursal-stock-rol-seller",
+   "vp": "desktop",
+   "th": "dark",
+   "docOverflow": 0,
+   "issues": [],
+   "note": ""
+  },
+  {
+   "name": "producto-alta-rol-owner",
+   "vp": "desktop",
+   "th": "dark",
+   "docOverflow": 0,
+   "issues": [],
+   "note": ""
+  },
+  {
+   "name": "producto-edicion",
+   "vp": "desktop",
+   "th": "dark",
+   "docOverflow": 0,
+   "issues": [],
+   "note": ""
+  },
+  {
+   "name": "producto-edicion-modal-ajuste",
+   "vp": "desktop",
+   "th": "dark",
+   "docOverflow": 0,
+   "issues": [],
+   "note": ""
+  },
+  {
+   "name": "producto-alta-rol-seller",
+   "vp": "desktop",
+   "th": "dark",
+   "docOverflow": 0,
+   "issues": [],
+   "note": ""
+  },
+  {
+   "name": "stock-rol-stock",
+   "vp": "mobile",
+   "th": "light",
+   "docOverflow": 0,
+   "issues": [],
+   "note": ""
+  },
+  {
+   "name": "modal-ajuste-motivo-vacio",
+   "vp": "mobile",
+   "th": "light",
+   "docOverflow": 0,
+   "issues": [],
+   "note": ""
+  },
+  {
+   "name": "modal-ajuste-error-servidor",
+   "vp": "mobile",
+   "th": "light",
+   "docOverflow": 0,
+   "issues": [],
+   "note": ""
+  },
+  {
+   "name": "importador-paso-1",
+   "vp": "mobile",
+   "th": "light",
+   "docOverflow": 0,
+   "issues": [],
+   "note": ""
+  },
+  {
+   "name": "importador-filas-sin-motivo",
+   "vp": "mobile",
+   "th": "light",
+   "docOverflow": 0,
+   "issues": [],
+   "note": ""
+  },
+  {
+   "name": "sucursal-stock-rol-stock",
+   "vp": "mobile",
+   "th": "light",
+   "docOverflow": 0,
+   "issues": [],
+   "note": ""
+  },
+  {
+   "name": "sucursal-ajuste-motivo-vacio",
+   "vp": "mobile",
+   "th": "light",
+   "docOverflow": 0,
+   "issues": [],
+   "note": ""
+  },
+  {
+   "name": "stock-rol-seller",
+   "vp": "mobile",
+   "th": "light",
+   "docOverflow": 0,
+   "issues": [],
+   "note": ""
+  },
+  {
+   "name": "sucursal-stock-rol-seller",
+   "vp": "mobile",
+   "th": "light",
+   "docOverflow": 0,
+   "issues": [],
+   "note": ""
+  },
+  {
+   "name": "producto-alta-rol-owner",
+   "vp": "mobile",
+   "th": "light",
+   "docOverflow": 0,
+   "issues": [],
+   "note": ""
+  },
+  {
+   "name": "producto-edicion",
+   "vp": "mobile",
+   "th": "light",
+   "docOverflow": 0,
+   "issues": [],
+   "note": ""
+  },
+  {
+   "name": "producto-edicion-modal-ajuste",
+   "vp": "mobile",
+   "th": "light",
+   "docOverflow": 0,
+   "issues": [],
+   "note": ""
+  },
+  {
+   "name": "producto-alta-rol-seller",
+   "vp": "mobile",
+   "th": "light",
+   "docOverflow": 0,
+   "issues": [],
+   "note": ""
+  },
+  {
+   "name": "stock-rol-stock",
+   "vp": "mobile",
+   "th": "dark",
+   "docOverflow": 0,
+   "issues": [],
+   "note": ""
+  },
+  {
+   "name": "modal-ajuste-motivo-vacio",
+   "vp": "mobile",
+   "th": "dark",
+   "docOverflow": 0,
+   "issues": [],
+   "note": ""
+  },
+  {
+   "name": "modal-ajuste-error-servidor",
+   "vp": "mobile",
+   "th": "dark",
+   "docOverflow": 0,
+   "issues": [],
+   "note": ""
+  },
+  {
+   "name": "importador-paso-1",
+   "vp": "mobile",
+   "th": "dark",
+   "docOverflow": 0,
+   "issues": [],
+   "note": ""
+  },
+  {
+   "name": "importador-filas-sin-motivo",
+   "vp": "mobile",
+   "th": "dark",
+   "docOverflow": 0,
+   "issues": [],
+   "note": ""
+  },
+  {
+   "name": "sucursal-stock-rol-stock",
+   "vp": "mobile",
+   "th": "dark",
+   "docOverflow": 0,
+   "issues": [],
+   "note": ""
+  },
+  {
+   "name": "sucursal-ajuste-motivo-vacio",
+   "vp": "mobile",
+   "th": "dark",
+   "docOverflow": 0,
+   "issues": [],
+   "note": ""
+  },
+  {
+   "name": "stock-rol-seller",
+   "vp": "mobile",
+   "th": "dark",
+   "docOverflow": 0,
+   "issues": [],
+   "note": ""
+  },
+  {
+   "name": "sucursal-stock-rol-seller",
+   "vp": "mobile",
+   "th": "dark",
+   "docOverflow": 0,
+   "issues": [],
+   "note": ""
+  },
+  {
+   "name": "producto-alta-rol-owner",
+   "vp": "mobile",
+   "th": "dark",
+   "docOverflow": 0,
+   "issues": [],
+   "note": ""
+  },
+  {
+   "name": "producto-edicion",
+   "vp": "mobile",
+   "th": "dark",
+   "docOverflow": 0,
+   "issues": [],
+   "note": ""
+  },
+  {
+   "name": "producto-edicion-modal-ajuste",
+   "vp": "mobile",
+   "th": "dark",
+   "docOverflow": 0,
+   "issues": [],
+   "note": ""
+  },
+  {
+   "name": "producto-alta-rol-seller",
+   "vp": "mobile",
+   "th": "dark",
+   "docOverflow": 0,
+   "issues": [],
+   "note": ""
+  }
+ ],
+ "consoleErrors": [
+  "stock desktop-light: Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+  "stock desktop-dark: Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+  "stock mobile-light: Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+  "stock mobile-dark: Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
+ ]
+}

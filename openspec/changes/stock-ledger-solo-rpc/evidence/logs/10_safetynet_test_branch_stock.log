@@ -1,0 +1,18 @@
+NOTICE:  [PASS] 6.1 branch_stock table has all 6 expected columns
+NOTICE:  [PASS] 6.2 branch_stock.quantity is NUMERIC
+NOTICE:  [PASS] 6.3 stock_movements type CHECK includes transfer types
+NOTICE:  [PASS] 6.4 stock_movements reference_type CHECK includes transfer
+NOTICE:  [PASS] 6.5 RLS enabled on branch_stock
+NOTICE:  [PASS] 6.6 UNIQUE(product_id, branch_id) constraint exists
+NOTICE:  [PASS] 6.7 rpc_transfer_stock exists and is SECURITY DEFINER
+NOTICE:  [PASS] 6.8 rpc_adjust_branch_stock exists and is SECURITY DEFINER
+NOTICE:  [PASS] 6.9 on_branch_stock_update trigger exists on branch_stock
+NOTICE:  [PASS] 6.10 rpc_create_sale_operation references branch_stock
+NOTICE:  [PASS] 6.11 rpc_create_purchase_operation references branch_stock
+DO
+NOTICE:  [PASS] 6.12 Both performance indexes exist on branch_stock
+NOTICE:  
+NOTICE:  ══════════════════════════════════════════════════════════════
+NOTICE:  All structural tests passed for C-08 branch_stock (12/12)
+NOTICE:  ══════════════════════════════════════════════════════════════
+GATE_EXIT=0

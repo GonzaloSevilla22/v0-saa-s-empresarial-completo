@@ -1,0 +1,15 @@
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=c905df3e-9639-4593-96a1-9b40880b3c91
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=01327b77-f946-4b64-8d8a-f4cc07c19cbb
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=a8ebf8b3-c4fe-49f5-a327-87fc1fa2f29d
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=2fadb3a3-cab3-4a75-a6b6-8d85f59bfc48
+NOTICE:  PASS (a): adjustment / physical_count / loss, cuenta con dos sucursales y segunda cuenta sellan account_id y branch_id y mueven branch_stock
+NOTICE:  PASS (b): los movimientos nuevos se ven bajo RLS, la fila con account_id NULL (control negativo) no, y la otra cuenta no ve ninguno
+NOTICE:  PASS (a)+(b): rpc_stock_adjustment sella account_id y branch_id (default operativa), los movimientos se ven bajo RLS y el control negativo (account_id NULL) no — residuo cero.
+DO
+NOTICE:  PASS (c): rpc_stock_adjustment de 7 argumentos, un solo overload, SECURITY DEFINER con search_path fijo; EXECUTE para authenticated y service_role, sin anon ni PUBLIC.
+DO
+GATE_EXIT=0

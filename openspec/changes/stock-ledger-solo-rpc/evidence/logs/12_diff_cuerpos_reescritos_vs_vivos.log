@@ -1,0 +1,27 @@
+=== diff cuerpo vivo (2026-10-09) vs cuerpo nuevo: rpc_reverse_stock_movement
+46,54c46,55
+<     -- Reutiliza rpc_apply_product_stock_delta para la aritmética de stock
+<     -- (lock de producto, floor-a-cero trazable si ya se vendió, validación
+<     -- de sucursal) — p_log_movement=FALSE porque ESTA función es la dueña
+<     -- del movimiento que se registra (necesita su propio type/reference_type/
+<     -- metadata, no el genérico 'adjustment' que loguearía el RPC de stock).
+<     SELECT public.rpc_apply_product_stock_delta(
+<       v_movement.product_id, -v_movement.quantity_delta, v_movement.branch_id,
+<       NULL, FALSE, TRUE
+<     ) INTO v_delta_result;
+---
+>     -- Reutiliza el helper INTERNO _stock_apply_delta para la aritmética de stock
+>     -- (lock de producto filtrado por cuenta, floor-a-cero trazable si ya se
+>     -- vendió, validación de sucursal). ESTA función es la dueña del movimiento
+>     -- que se registra (necesita su propio type/reference_type/metadata, no el
+>     -- genérico 'adjustment' del ajuste manual): el helper nunca lo escribe. Ya no
+>     -- pasa por la RPC pública rpc_apply_product_stock_delta, que exige rol y
+>     -- motivo y rechaza p_log_movement = false / p_allow_negative = true.
+>     v_delta_result := public._stock_apply_delta(
+>       v_account_id, v_movement.product_id, -v_movement.quantity_delta, v_movement.branch_id, TRUE
+>     );
+=== diff cuerpo vivo (2026-10-09) vs cuerpo nuevo: rpc_transfer_stock
+65c65
+<   WHERE  id = p_product_id;
+---
+>   WHERE  id = p_product_id AND account_id = v_account_id;

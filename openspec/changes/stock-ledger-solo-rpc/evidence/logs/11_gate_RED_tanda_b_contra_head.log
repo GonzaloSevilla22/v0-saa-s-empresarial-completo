@@ -1,0 +1,258 @@
+BEGIN
+CREATE TABLE
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+NOTICE:  PASS (a): authenticated y anon sin INSERT/UPDATE/DELETE/TRUNCATE (tabla ni columna) sobre stock_movements y branch_stock; authenticated conserva SELECT.
+DO
+NOTICE:  PASS (b): policies = {lectura por cuenta x2, no_update/no_delete qual=false}; ninguna permisiva de escritura; RLS activa.
+NOTICE:  PASS (c): rpc_reverse_stock_movement sin EXECUTE para anon/authenticated/PUBLIC, un solo overload, SECURITY DEFINER; las RPCs públicas de ajuste, transferencia y borrado conservan EXECUTE.
+DO
+DO
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=6cddc1bc-3b19-4cf1-9c10-19cbc35d5b9d
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=b9115838-703f-48c9-b618-a5209ac0714c
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=c498f854-97c0-4bc7-be44-9dbfa6638baa
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=37df0713-f129-4802-98f0-669a4384b114
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=2607bc8c-538c-403b-b6ba-0841c16ce1b0
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=3bc11228-bf2f-44c7-9292-9768aefd55df
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=2f17dc08-1b48-4a00-9670-f881a0917d6e
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=54edddef-b567-4ef2-a0cc-39f9e3c64c2c
+NOTICE:  info (d) [owner]: 14 de 14 intentos rechazados con 42501 "permission denied"
+NOTICE:  info (d) [seller]: 14 de 14 intentos rechazados con 42501 "permission denied"
+NOTICE:  info (d) [viewer]: 14 de 14 intentos rechazados con 42501 "permission denied"
+NOTICE:  info (d) [anon]: 14 de 14 intentos rechazados con 42501 "permission denied"
+NOTICE:  PASS (d): 56 intentos (owner, seller, viewer y anon x 14 variantes) rechazados con 42501 "permission denied" y la huella de las dos tablas idéntica.
+NOTICE:  PASS (e): ajuste, venta y compra (alta y borrado, incl. compra ya vendida con piso trazable), transferencia, borrado de producto con historial y lectura propia/ajena funcionan con la escritura directa cerrada.
+DO
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=42380ced-22d4-4425-b207-15aa3f23d4bc
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=7b0f12f7-ae62-4eaa-a94c-3925286326a9
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=3fcf9a43-867a-47d9-8481-1fbb5b1fede9
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=2e29aa11-6d96-4f1e-b0a4-5f96c0bd333e
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=9d7b32e7-9142-4429-9a99-cf8564450478
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=5c897ecb-30aa-46ca-a44b-a290de51115d
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=ae39c47f-d4a7-4a16-82ad-cba51ad66d99
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=624a1599-47d0-428a-90e5-ef6b114f3885
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=42c45349-d52b-46ab-9cf6-0b4b21864269
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=ebc17576-45e6-4ce5-88a2-26ee4e82d347
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=5350f915-ee10-40d8-8f98-627d8d82e04b
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=5f2d8d8f-890d-4735-a55e-ca760dab1d10
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=f549e438-c202-4c89-94f0-a4f1fcdce32c
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=47217143-0a98-4f2c-be41-5c4c1449869b
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=ad8a2bf3-63f5-4e23-bdb3-dcca97468873
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=bc81c403-51af-4737-b82a-3b1790b86bf4
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=6f7b75eb-c38d-48ef-95eb-b2acfa88b824
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=0c0cb77e-efc6-4c93-aa8b-e63db25946fb
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=15526390-5477-408e-8333-1a3ab21b514c
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=e1f70016-99a2-4ea5-a996-5bb77840c631
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=5c409fbb-4cd5-4ffb-943e-b8d756562603
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=678ca6a1-ea08-41d3-ac50-52fc53c4a73c
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=b379a0a3-e1ac-4a0e-b83c-11ab9edd1f0d
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=84c73aa0-96b6-4888-8521-5ae4ff450963
+NOTICE:  FAIL (f) [admin] envoltorio 1: debía poder ajustar y salió P0002 Producto no encontrado o acceso denegado
+NOTICE:  FAIL (f) [stock] envoltorio 1: debía poder ajustar y salió P0002 Producto no encontrado o acceso denegado
+NOTICE:  FAIL (f) [seller] envoltorio 1: se esperaba P0403 insufficient_role y salió P0002 Producto no encontrado o acceso denegado
+NOTICE:  FAIL (f) [seller] envoltorio 2: se esperaba P0403 insufficient_role y salió el intento PROSPERÓ {"branch_id": "28969afb-6a43-4287-8b79-25f0a82e8a8e", "product_id": "f2feb22b-0d48-414e-b8f5-1aca83025d3f", "new_quantity": 58.0000, "old_quantity": 57.0000}
+NOTICE:  FAIL (f) [seller] envoltorio 3: se esperaba P0403 insufficient_role y salió el intento PROSPERÓ {"floored": false, "branch_id": "28969afb-6a43-4287-8b79-25f0a82e8a8e", "product_id": "f2feb22b-0d48-414e-b8f5-1aca83025d3f", "quantity_after": 59.0000, "quantity_delta": 1.0000, "quantity_before": 58.0000}
+NOTICE:  FAIL (f) [cashier] envoltorio 1: se esperaba P0403 insufficient_role y salió P0002 Producto no encontrado o acceso denegado
+NOTICE:  FAIL (f) [cashier] envoltorio 2: se esperaba P0403 insufficient_role y salió el intento PROSPERÓ {"branch_id": "28969afb-6a43-4287-8b79-25f0a82e8a8e", "product_id": "f2feb22b-0d48-414e-b8f5-1aca83025d3f", "new_quantity": 60.0000, "old_quantity": 59.0000}
+NOTICE:  FAIL (f) [cashier] envoltorio 3: se esperaba P0403 insufficient_role y salió el intento PROSPERÓ {"floored": false, "branch_id": "28969afb-6a43-4287-8b79-25f0a82e8a8e", "product_id": "f2feb22b-0d48-414e-b8f5-1aca83025d3f", "quantity_after": 61.0000, "quantity_delta": 1.0000, "quantity_before": 60.0000}
+NOTICE:  FAIL (f) [purchases] envoltorio 1: se esperaba P0403 insufficient_role y salió P0002 Producto no encontrado o acceso denegado
+NOTICE:  FAIL (f) [purchases] envoltorio 2: se esperaba P0403 insufficient_role y salió el intento PROSPERÓ {"branch_id": "28969afb-6a43-4287-8b79-25f0a82e8a8e", "product_id": "f2feb22b-0d48-414e-b8f5-1aca83025d3f", "new_quantity": 62.0000, "old_quantity": 61.0000}
+NOTICE:  FAIL (f) [purchases] envoltorio 3: se esperaba P0403 insufficient_role y salió el intento PROSPERÓ {"floored": false, "branch_id": "28969afb-6a43-4287-8b79-25f0a82e8a8e", "product_id": "f2feb22b-0d48-414e-b8f5-1aca83025d3f", "quantity_after": 63.0000, "quantity_delta": 1.0000, "quantity_before": 62.0000}
+NOTICE:  FAIL (f) [accountant] envoltorio 1: se esperaba P0403 insufficient_role y salió P0002 Producto no encontrado o acceso denegado
+NOTICE:  FAIL (f) [accountant] envoltorio 2: se esperaba P0403 insufficient_role y salió el intento PROSPERÓ {"branch_id": "28969afb-6a43-4287-8b79-25f0a82e8a8e", "product_id": "f2feb22b-0d48-414e-b8f5-1aca83025d3f", "new_quantity": 64.0000, "old_quantity": 63.0000}
+NOTICE:  FAIL (f) [accountant] envoltorio 3: se esperaba P0403 insufficient_role y salió el intento PROSPERÓ {"floored": false, "branch_id": "28969afb-6a43-4287-8b79-25f0a82e8a8e", "product_id": "f2feb22b-0d48-414e-b8f5-1aca83025d3f", "quantity_after": 65.0000, "quantity_delta": 1.0000, "quantity_before": 64.0000}
+NOTICE:  FAIL (f) [viewer] envoltorio 1: se esperaba P0401 y salió P0002 Producto no encontrado o acceso denegado
+NOTICE:  FAIL (f) [viewer] envoltorio 3: se esperaba P0401 y salió el intento PROSPERÓ {"floored": false, "branch_id": "28969afb-6a43-4287-8b79-25f0a82e8a8e", "product_id": "f2feb22b-0d48-414e-b8f5-1aca83025d3f", "quantity_after": 66.0000, "quantity_delta": 1.0000, "quantity_before": 65.0000}
+NOTICE:  FAIL (f) [seller+stock-vencido] envoltorio 1: se esperaba P0403 insufficient_role y salió P0002 Producto no encontrado o acceso denegado
+NOTICE:  FAIL (f) [seller+stock-vencido] envoltorio 2: se esperaba P0403 insufficient_role y salió el intento PROSPERÓ {"branch_id": "28969afb-6a43-4287-8b79-25f0a82e8a8e", "product_id": "f2feb22b-0d48-414e-b8f5-1aca83025d3f", "new_quantity": 67.0000, "old_quantity": 66.0000}
+NOTICE:  FAIL (f) [seller+stock-vencido] envoltorio 3: se esperaba P0403 insufficient_role y salió el intento PROSPERÓ {"floored": false, "branch_id": "28969afb-6a43-4287-8b79-25f0a82e8a8e", "product_id": "f2feb22b-0d48-414e-b8f5-1aca83025d3f", "quantity_after": 68.0000, "quantity_delta": 1.0000, "quantity_before": 67.0000}
+NOTICE:  FAIL (f) [stock-vencido-solo] envoltorio 1: se esperaba P0401 y salió P0002 Producto no encontrado o acceso denegado
+NOTICE:  FAIL (f) [stock-vencido-solo] envoltorio 3: se esperaba P0401 y salió el intento PROSPERÓ {"floored": false, "branch_id": "28969afb-6a43-4287-8b79-25f0a82e8a8e", "product_id": "f2feb22b-0d48-414e-b8f5-1aca83025d3f", "quantity_after": 69.0000, "quantity_delta": 1.0000, "quantity_before": 68.0000}
+NOTICE:  FAIL (g) envoltorio 1 con motivo NULL: se esperaba P0400 stock_adjustment_reason_required y salió el intento PROSPERÓ
+NOTICE:  FAIL (g) envoltorio 2 con motivo NULL: se esperaba P0400 stock_adjustment_reason_required y salió el intento PROSPERÓ
+NOTICE:  FAIL (g) envoltorio 3 con motivo NULL: se esperaba P0400 stock_adjustment_reason_required y salió el intento PROSPERÓ
+NOTICE:  FAIL (g) envoltorio 1 con motivo '': se esperaba P0400 stock_adjustment_reason_required y salió el intento PROSPERÓ
+NOTICE:  FAIL (g) envoltorio 2 con motivo '': se esperaba P0400 stock_adjustment_reason_required y salió el intento PROSPERÓ
+NOTICE:  FAIL (g) envoltorio 3 con motivo '': se esperaba P0400 stock_adjustment_reason_required y salió el intento PROSPERÓ
+NOTICE:  FAIL (g) envoltorio 1 con motivo '   ': se esperaba P0400 stock_adjustment_reason_required y salió el intento PROSPERÓ
+NOTICE:  FAIL (g) envoltorio 2 con motivo '   ': se esperaba P0400 stock_adjustment_reason_required y salió el intento PROSPERÓ
+NOTICE:  FAIL (g) envoltorio 3 con motivo '   ': se esperaba P0400 stock_adjustment_reason_required y salió el intento PROSPERÓ
+NOTICE:  FAIL (g) envoltorio 1 con motivo '	 
+': se esperaba P0400 stock_adjustment_reason_required y salió el intento PROSPERÓ
+NOTICE:  FAIL (g) envoltorio 2 con motivo '	 
+': se esperaba P0400 stock_adjustment_reason_required y salió el intento PROSPERÓ
+NOTICE:  FAIL (g) envoltorio 3 con motivo '	 
+': se esperaba P0400 stock_adjustment_reason_required y salió el intento PROSPERÓ
+NOTICE:  FAIL (g) el motivo debía persistirse recortado como 'motivo g' y es '   motivo g   '
+NOTICE:  FAIL (g) el CHECK permitió insertar type=adjustment con motivo NULL
+NOTICE:  FAIL (g) el CHECK permitió insertar type=adjustment con motivo ''
+NOTICE:  FAIL (g) el CHECK permitió insertar type=adjustment con motivo '  '
+NOTICE:  FAIL (g) el CHECK permitió insertar type=physical_count con motivo NULL
+NOTICE:  FAIL (g) el CHECK permitió insertar type=physical_count con motivo ''
+NOTICE:  FAIL (g) el CHECK permitió insertar type=physical_count con motivo '  '
+NOTICE:  FAIL (g) el CHECK permitió insertar type=loss con motivo NULL
+NOTICE:  FAIL (g) el CHECK permitió insertar type=loss con motivo ''
+NOTICE:  FAIL (g) el CHECK permitió insertar type=loss con motivo '  '
+NOTICE:  FAIL (g) el CHECK permitió insertar type=damage con motivo NULL
+NOTICE:  FAIL (g) el CHECK permitió insertar type=damage con motivo ''
+NOTICE:  FAIL (g) el CHECK permitió insertar type=damage con motivo '  '
+NOTICE:  FAIL (g) el CHECK permitió insertar type=expiry con motivo NULL
+NOTICE:  FAIL (g) el CHECK permitió insertar type=expiry con motivo ''
+NOTICE:  FAIL (g) el CHECK permitió insertar type=expiry con motivo '  '
+NOTICE:  FAIL (g) no existe el CHECK stock_movements_manual_needs_reason
+NOTICE:  FAIL (h) p_log_movement = false: se esperaba P0400 stock_internal_flags_not_allowed y salió el intento PROSPERÓ
+NOTICE:  FAIL (h) p_allow_negative = true: se esperaba P0400 stock_internal_flags_not_allowed y salió el intento PROSPERÓ
+NOTICE:  FAIL (h) ambos internos: se esperaba P0400 stock_internal_flags_not_allowed y salió el intento PROSPERÓ
+NOTICE:  FAIL (h) p_log_movement NULL: se esperaba P0400 stock_internal_flags_not_allowed y salió el intento PROSPERÓ
+NOTICE:  FAIL (h) p_allow_negative NULL: se esperaba P0400 stock_internal_flags_not_allowed y salió el intento PROSPERÓ
+NOTICE:  FAIL (h) el piso en cero (p_allow_negative = true) debía ser inalcanzable y salió el intento PROSPERÓ
+NOTICE:  FAIL (i) rpc_stock_adjustment sobre un producto de OTRA cuenta: se esperaba P0404 y salió P0002 Producto no encontrado o acceso denegado
+NOTICE:  FAIL (i) rpc_adjust_branch_stock sobre un producto de OTRA cuenta: se esperaba P0404 y salió el intento PROSPERÓ
+NOTICE:  FAIL (i) rpc_adjust_branch_stock sobre un producto ajeno dejó 1 filas de saldo y 1 movimientos (debían ser 0 / 0)
+NOTICE:  FAIL (i) rpc_apply_product_stock_delta sobre un producto de OTRA cuenta: se esperaba P0404 y salió P0403 Permission denied to product: b60d03c1-f4b9-49b7-814a-bf40839bfa79
+NOTICE:  FAIL (i) rpc_apply_product_stock_delta sobre un producto ajeno dejó 1 filas de saldo y 1 movimientos (debían ser 0 / 0)
+NOTICE:  FAIL (i) rpc_transfer_stock sobre un producto de OTRA cuenta: se esperaba P0404 y salió el intento PROSPERÓ
+NOTICE:  FAIL (i) rpc_transfer_stock sobre un producto ajeno dejó 2 filas de saldo y 3 movimientos (debían ser 0 / 0)
+NOTICE:  FAIL (i) rpc_transfer_stock sobre un producto ajeno dejó 1 transferencias (debían ser 0)
+NOTICE:  FAIL (i) el miembro admin (que no creó el producto) debía poder ajustarlo por el envoltorio 1 y salió P0002 Producto no encontrado o acceso denegado
+NOTICE:  FAIL (j) el ajuste del rol stock falló: P0002 Producto no encontrado o acceso denegado
+NOTICE:  FAIL (j) cuenta sin sucursales: el movimiento debía sellar la sucursal creada perezosamente y tiene branch_id= (saldo )
+NOTICE:  FAIL (j) 21 movimientos manuales de la fixture sin cuenta/sucursal/autor/motivo o con after <> before + delta
+NOTICE:  FAIL (k1) conteo físico total 13 -> 20: type=physical_count delta=7.0000 before=13.0000 after=20.0000 branch=28969afb-6a43-4287-8b79-25f0a82e8a8e saldos=17.0000/3.0000 total=20.0000 (se esperaba physical_count +7, 10 -> 17 en la default, 3 en la otra, total 20)
+NOTICE:  FAIL (k2) objetivo por sucursal 3 -> 8: type=adjustment branch=c96e9f03-d824-4bd3-aaf5-9bec9b88f131 before=3.0000 after=8 delta=5.0000 reason=NULL notes='k2 motivo' saldos=17.0000/8.0000 (el motivo va en reason, no en notes)
+NOTICE:  FAIL (k3) pérdida de 2 sobre 17: type=loss delta=-2 before=25.0000 after=23.0000 notes='nota k3' saldo=15.0000
+NOTICE:  FAIL (k3) loss con delta POSITIVO: se esperaba P0400 sin cambios y salió el intento PROSPERÓ
+NOTICE:  FAIL (k3) damage con delta POSITIVO: se esperaba P0400 sin cambios y salió el intento PROSPERÓ
+NOTICE:  FAIL (k3) expiry con delta POSITIVO: se esperaba P0400 sin cambios y salió el intento PROSPERÓ
+NOTICE:  FAIL (k4) tipo 'transfer_in': se esperaba P0400 stock_adjustment_type_invalid sin cambios y salió el intento PROSPERÓ
+NOTICE:  FAIL (k4) tipo 'transfer_out': se esperaba P0400 stock_adjustment_type_invalid sin cambios y salió el intento PROSPERÓ
+NOTICE:  FAIL (k4) tipo 'sale': se esperaba P0400 stock_adjustment_type_invalid sin cambios y salió 23514 Tipo de movimiento no válido para ajuste manual: sale. Permitidos: adjustment, physical_count, loss, damage, expiry, transfer_in, transfer_out
+NOTICE:  FAIL (k4) tipo 'bogus': se esperaba P0400 stock_adjustment_type_invalid sin cambios y salió 23514 Tipo de movimiento no válido para ajuste manual: bogus. Permitidos: adjustment, physical_count, loss, damage, expiry, transfer_in, transfer_out
+NOTICE:  FAIL (k5) delta -1000 (resultado negativo en la sucursal): se esperaba P0409 sin cambios y salió 23000 Stock insuficiente. Disponible: 31.0000, solicitado quitar: 1000
+NOTICE:  FAIL (k5) objetivo negativo: se esperaba P0400 sin cambios y salió 23000 Stock insuficiente. Disponible: 31.0000, solicitado quitar: 32.0000
+NOTICE:  FAIL (k5) sin delta ni objetivo: se esperaba P0400 sin cambios y salió 23514 Se requiere p_quantity_delta o p_target_quantity
+NOTICE:  FAIL (k5) delta cero sin objetivo: se esperaba P0400 sin cambios y salió 23514 quantity_delta no puede ser cero para tipo adjustment
+NOTICE:  FAIL (k6b) conteo total 23 -> 18: delta=-13.0000 before=31.0000 after=18.0000 total=18.0000 (se esperaba -5, 15 -> 10, total 18)
+NOTICE:  FAIL (k7) padre variant_only por el envoltorio 1: se esperaba P0400 stock_adjustment_product_not_adjustable sin crear saldo y salió 23514 Este producto no permite ajuste manual de stock (stock_control_type = variant_only). Los productos "variant_only" se gestionan a través de sus variantes; los "untracked" no tienen stock físico.
+NOTICE:  FAIL (k7) padre variant_only por el envoltorio 2: se esperaba P0400 stock_adjustment_product_not_adjustable sin crear saldo y salió el intento PROSPERÓ
+NOTICE:  FAIL (k7) padre variant_only por el envoltorio 3: se esperaba P0400 stock_adjustment_product_not_adjustable sin crear saldo y salió el intento PROSPERÓ
+NOTICE:  PASS (l): borrar venta y compra repone con contramovimiento sellado (cuenta, sucursal, autor, motivo, reverses_movement_id); compra ya vendida => ajuste de piso trazable con motivo.
+NOTICE:  FAIL (m) _stock_manual_adjustment invocada por un owner autenticado: se esperaba 42501 "permission denied for function" y salió: ERROR 42883 function public._stock_manual_adjustment(unknown, unknown, unknown, integer, unknown, unknown, unknown, unknown, unknown) does not exist
+NOTICE:  FAIL (m) _stock_manual_adjustment invocada por anon: se esperaba 42501 "permission denied for function" y salió: ERROR 42883 function public._stock_manual_adjustment(unknown, unknown, unknown, integer, unknown, unknown, unknown, unknown, unknown) does not exist
+NOTICE:  FAIL (m) _stock_apply_delta invocada por un owner autenticado: se esperaba 42501 "permission denied for function" y salió: ERROR 42883 function public._stock_apply_delta(unknown, unknown, integer, unknown, boolean) does not exist
+NOTICE:  FAIL (m) _stock_apply_delta invocada por anon: se esperaba 42501 "permission denied for function" y salió: ERROR 42883 function public._stock_apply_delta(unknown, unknown, integer, unknown, boolean) does not exist
+NOTICE:  FAIL (m) _stock_assert_can_adjust invocada por un owner autenticado: se esperaba 42501 "permission denied for function" y salió: ERROR 42883 function public._stock_assert_can_adjust(unknown) does not exist
+NOTICE:  FAIL (m) _stock_assert_can_adjust invocada por anon: se esperaba 42501 "permission denied for function" y salió: ERROR 42883 function public._stock_assert_can_adjust(unknown) does not exist
+NOTICE:  PASS (g, migración): el mismo DDL del CHECK NOT VALID se aplica sobre una tabla con una fila histórica sin motivo, la conserva y rechaza las nuevas.
+DO
+NOTICE:  FAIL (m) public._stock_assert_can_adjust(uuid) no existe con esa firma; public._stock_apply_delta(uuid,uuid,numeric,uuid,boolean) no existe con esa firma; public._stock_manual_adjustment(uuid,uuid,text,numeric,numeric,text,text,text,uuid) no existe con esa firma; _stock_assert_can_adjust no tiene exactamente una definición; _stock_apply_delta no tiene exactamente una definición; _stock_manual_adjustment no tiene exactamente una definición
+ERROR:  GATE STOCK-LEDGER-SOLO-RPC FAILED (93 fallas):
+  (f) [admin] envoltorio 1: debía poder ajustar y salió P0002 Producto no encontrado o acceso denegado
+  (f) [stock] envoltorio 1: debía poder ajustar y salió P0002 Producto no encontrado o acceso denegado
+  (f) [seller] envoltorio 1: se esperaba P0403 insufficient_role y salió P0002 Producto no encontrado o acceso denegado
+  (f) [seller] envoltorio 2: se esperaba P0403 insufficient_role y salió el intento PROSPERÓ {"branch_id": "28969afb-6a43-4287-8b79-25f0a82e8a8e", "product_id": "f2feb22b-0d48-414e-b8f5-1aca83025d3f", "new_quantity": 58.0000, "old_quantity": 57.0000}
+  (f) [seller] envoltorio 3: se esperaba P0403 insufficient_role y salió el intento PROSPERÓ {"floored": false, "branch_id": "28969afb-6a43-4287-8b79-25f0a82e8a8e", "product_id": "f2feb22b-0d48-414e-b8f5-1aca83025d3f", "quantity_after": 59.0000, "quantity_delta": 1.0000, "quantity_before": 58.0000}
+  (f) [cashier] envoltorio 1: se esperaba P0403 insufficient_role y salió P0002 Producto no encontrado o acceso denegado
+  (f) [cashier] envoltorio 2: se esperaba P0403 insufficient_role y salió el intento PROSPERÓ {"branch_id": "28969afb-6a43-4287-8b79-25f0a82e8a8e", "product_id": "f2feb22b-0d48-414e-b8f5-1aca83025d3f", "new_quantity": 60.0000, "old_quantity": 59.0000}
+  (f) [cashier] envoltorio 3: se esperaba P0403 insufficient_role y salió el intento PROSPERÓ {"floored": false, "branch_id": "28969afb-6a43-4287-8b79-25f0a82e8a8e", "product_id": "f2feb22b-0d48-414e-b8f5-1aca83025d3f", "quantity_after": 61.0000, "quantity_delta": 1.0000, "quantity_before": 60.0000}
+  (f) [purchases] envoltorio 1: se esperaba P0403 insufficient_role y salió P0002 Producto no encontrado o acceso denegado
+  (f) [purchases] envoltorio 2: se esperaba P0403 insufficient_role y salió el intento PROSPERÓ {"branch_id": "28969afb-6a43-4287-8b79-25f0a82e8a8e", "product_id": "f2feb22b-0d48-414e-b8f5-1aca83025d3f", "new_quantity": 62.0000, "old_quantity": 61.0000}
+  (f) [purchases] envoltorio 3: se esperaba P0403 insufficient_role y salió el intento PROSPERÓ {"floored": false, "branch_id": "28969afb-6a43-4287-8b79-25f0a82e8a8e", "product_id": "f2feb22b-0d48-414e-b8f5-1aca83025d3f", "quantity_after": 63.0000, "quantity_delta": 1.0000, "quantity_before": 62.0000}
+  (f) [accountant] envoltorio 1: se esperaba P0403 insufficient_role y salió P0002 Producto no encontrado o acceso denegado
+  (f) [accountant] envoltorio 2: se esperaba P0403 insufficient_role y salió el intento PROSPERÓ {"branch_id": "28969afb-6a43-4287-8b79-25f0a82e8a8e", "product_id": "f2feb22b-0d48-414e-b8f5-1aca83025d3f", "new_quantity": 64.0000, "old_quantity": 63.0000}
+  (f) [accountant] envoltorio 3: se esperaba P0403 insufficient_role y salió el intento PROSPERÓ {"floored": false, "branch_id": "28969afb-6a43-4287-8b79-25f0a82e8a8e", "product_id": "f2feb22b-0d48-414e-b8f5-1aca83025d3f", "quantity_after": 65.0000, "quantity_delta": 1.0000, "quantity_before": 64.0000}
+  (f) [viewer] envoltorio 1: se esperaba P0401 y salió P0002 Producto no encontrado o acceso denegado
+  (f) [viewer] envoltorio 3: se esperaba P0401 y salió el intento PROSPERÓ {"floored": false, "branch_id": "28969afb-6a43-4287-8b79-25f0a82e8a8e", "product_id": "f2feb22b-0d48-414e-b8f5-1aca83025d3f", "quantity_after": 66.0000, "quantity_delta": 1.0000, "quantity_before": 65.0000}
+  (f) [seller+stock-vencido] envoltorio 1: se esperaba P0403 insufficient_role y salió P0002 Producto no encontrado o acceso denegado
+  (f) [seller+stock-vencido] envoltorio 2: se esperaba P0403 insufficient_role y salió el intento PROSPERÓ {"branch_id": "28969afb-6a43-4287-8b79-25f0a82e8a8e", "product_id": "f2feb22b-0d48-414e-b8f5-1aca83025d3f", "new_quantity": 67.0000, "old_quantity": 66.0000}
+  (f) [seller+stock-vencido] envoltorio 3: se esperaba P0403 insufficient_role y salió el intento PROSPERÓ {"floored": false, "branch_id": "28969afb-6a43-4287-8b79-25f0a82e8a8e", "product_id": "f2feb22b-0d48-414e-b8f5-1aca83025d3f", "quantity_after": 68.0000, "quantity_delta": 1.0000, "quantity_before": 67.0000}
+  (f) [stock-vencido-solo] envoltorio 1: se esperaba P0401 y salió P0002 Producto no encontrado o acceso denegado
+  (f) [stock-vencido-solo] envoltorio 3: se esperaba P0401 y salió el intento PROSPERÓ {"floored": false, "branch_id": "28969afb-6a43-4287-8b79-25f0a82e8a8e", "product_id": "f2feb22b-0d48-414e-b8f5-1aca83025d3f", "quantity_after": 69.0000, "quantity_delta": 1.0000, "quantity_before": 68.0000}
+  (g) envoltorio 1 con motivo NULL: se esperaba P0400 stock_adjustment_reason_required y salió el intento PROSPERÓ
+  (g) envoltorio 2 con motivo NULL: se esperaba P0400 stock_adjustment_reason_required y salió el intento PROSPERÓ
+  (g) envoltorio 3 con motivo NULL: se esperaba P0400 stock_adjustment_reason_required y salió el intento PROSPERÓ
+  (g) envoltorio 1 con motivo '': se esperaba P0400 stock_adjustment_reason_required y salió el intento PROSPERÓ
+  (g) envoltorio 2 con motivo '': se esperaba P0400 stock_adjustment_reason_required y salió el intento PROSPERÓ
+  (g) envoltorio 3 con motivo '': se esperaba P0400 stock_adjustment_reason_required y salió el intento PROSPERÓ
+  (g) envoltorio 1 con motivo '   ': se esperaba P0400 stock_adjustment_reason_required y salió el intento PROSPERÓ
+  (g) envoltorio 2 con motivo '   ': se esperaba P0400 stock_adjustment_reason_required y salió el intento PROSPERÓ
+  (g) envoltorio 3 con motivo '   ': se esperaba P0400 stock_adjustment_reason_required y salió el intento PROSPERÓ
+  (g) envoltorio 1 con motivo '	 
+': se esperaba P0400 stock_adjustment_reason_required y salió el intento PROSPERÓ
+  (g) envoltorio 2 con motivo '	 
+': se esperaba P0400 stock_adjustment_reason_required y salió el intento PROSPERÓ
+  (g) envoltorio 3 con motivo '	 
+': se esperaba P0400 stock_adjustment_reason_required y salió el intento PROSPERÓ
+  (g) el motivo debía persistirse recortado como 'motivo g' y es '   motivo g   '
+  (g) el CHECK permitió insertar type=adjustment con motivo NULL
+  (g) el CHECK permitió insertar type=adjustment con motivo ''
+  (g) el CHECK permitió insertar type=adjustment con motivo '  '
+  (g) el CHECK permitió insertar type=physical_count con motivo NULL
+  (g) el CHECK permitió insertar type=physical_count con motivo ''
+  (g) el CHECK permitió insertar type=physical_count con motivo '  '
+  (g) el CHECK permitió insertar type=loss con motivo NULL
+  (g) el CHECK permitió insertar type=loss con motivo ''
+  (g) el CHECK permitió insertar type=loss con motivo '  '
+  (g) el CHECK permitió insertar type=damage con motivo NULL
+  (g) el CHECK permitió insertar type=damage con motivo ''
+  (g) el CHECK permitió insertar type=damage con motivo '  '
+  (g) el CHECK permitió insertar type=expiry con motivo NULL
+  (g) el CHECK permitió insertar type=expiry con motivo ''
+  (g) el CHECK permitió insertar type=expiry con motivo '  '
+  (g) no existe el CHECK stock_movements_manual_needs_reason
+  (h) p_log_movement = false: se esperaba P0400 stock_internal_flags_not_allowed y salió el intento PROSPERÓ
+  (h) p_allow_negative = true: se esperaba P0400 stock_internal_flags_not_allowed y salió el intento PROSPERÓ
+  (h) ambos internos: se esperaba P0400 stock_internal_flags_not_allowed y salió el intento PROSPERÓ
+  (h) p_log_movement NULL: se esperaba P0400 stock_internal_flags_not_allowed y salió el intento PROSPERÓ
+  (h) p_allow_negative NULL: se esperaba P0400 stock_internal_flags_not_allowed y salió el intento PROSPERÓ
+  (h) el piso en cero (p_allow_negative = true) debía ser inalcanzable y salió el intento PROSPERÓ
+  (i) rpc_stock_adjustment sobre un producto de OTRA cuenta: se esperaba P0404 y salió P0002 Producto no encontrado o acceso denegado
+  (i) rpc_adjust_branch_stock sobre un producto de OTRA cuenta: se esperaba P0404 y salió el intento PROSPERÓ
+  (i) rpc_adjust_branch_stock sobre un producto ajeno dejó 1 filas de saldo y 1 movimientos (debían ser 0 / 0)
+  (i) rpc_apply_product_stock_delta sobre un producto de OTRA cuenta: se esperaba P0404 y salió P0403 Permission denied to product: b60d03c1-f4b9-49b7-814a-bf40839bfa79
+  (i) rpc_apply_product_stock_delta sobre un producto ajeno dejó 1 filas de saldo y 1 movimientos (debían ser 0 / 0)
+  (i) rpc_transfer_stock sobre un producto de OTRA cuenta: se esperaba P0404 y salió el intento PROSPERÓ
+  (i) rpc_transfer_stock sobre un producto ajeno dejó 2 filas de saldo y 3 movimientos (debían ser 0 / 0)
+  (i) rpc_transfer_stock sobre un producto ajeno dejó 1 transferencias (debían ser 0)
+  (i) el miembro admin (que no creó el producto) debía poder ajustarlo por el envoltorio 1 y salió P0002 Producto no encontrado o acceso denegado
+  (j) el ajuste del rol stock falló: P0002 Producto no encontrado o acceso denegado
+  (j) cuenta sin sucursales: el movimiento debía sellar la sucursal creada perezosamente y tiene branch_id= (saldo )
+  (j) 21 movimientos manuales de la fixture sin cuenta/sucursal/autor/motivo o con after <> before + delta
+  (k1) conteo físico total 13 -> 20: type=physical_count delta=7.0000 before=13.0000 after=20.0000 branch=28969afb-6a43-4287-8b79-25f0a82e8a8e saldos=17.0000/3.0000 total=20.0000 (se esperaba physical_count +7, 10 -> 17 en la default, 3 en la otra, total 20)
+  (k2) objetivo por sucursal 3 -> 8: type=adjustment branch=c96e9f03-d824-4bd3-aaf5-9bec9b88f131 before=3.0000 after=8 delta=5.0000 reason=NULL notes='k2 motivo' saldos=17.0000/8.0000 (el motivo va en reason, no en notes)
+  (k3) pérdida de 2 sobre 17: type=loss delta=-2 before=25.0000 after=23.0000 notes='nota k3' saldo=15.0000
+  (k3) loss con delta POSITIVO: se esperaba P0400 sin cambios y salió el intento PROSPERÓ
+  (k3) damage con delta POSITIVO: se esperaba P0400 sin cambios y salió el intento PROSPERÓ
+  (k3) expiry con delta POSITIVO: se esperaba P0400 sin cambios y salió el intento PROSPERÓ
+  (k4) tipo 'transfer_in': se esperaba P0400 stock_adjustment_type_invalid sin cambios y salió el intento PROSPERÓ
+  (k4) tipo 'transfer_out': se esperaba P0400 stock_adjustment_type_invalid sin cambios y salió el intento PROSPERÓ
+  (k4) tipo 'sale': se esperaba P0400 stock_adjustment_type_invalid sin cambios y salió 23514 Tipo de movimiento no válido para ajuste manual: sale. Permitidos: adjustment, physical_count, loss, damage, expiry, transfer_in, transfer_out
+  (k4) tipo 'bogus': se esperaba P0400 stock_adjustment_type_invalid sin cambios y salió 23514 Tipo de movimiento no válido para ajuste manual: bogus. Permitidos: adjustment, physical_count, loss, damage, expiry, transfer_in, transfer_out
+  (k5) delta -1000 (resultado negativo en la sucursal): se esperaba P0409 sin cambios y salió 23000 Stock insuficiente. Disponible: 31.0000, solicitado quitar: 1000
+  (k5) objetivo negativo: se esperaba P0400 sin cambios y salió 23000 Stock insuficiente. Disponible: 31.0000, solicitado quitar: 32.0000
+  (k5) sin delta ni objetivo: se esperaba P0400 sin cambios y salió 23514 Se requiere p_quantity_delta o p_target_quantity
+  (k5) delta cero sin objetivo: se esperaba P0400 sin cambios y salió 23514 quantity_delta no puede ser cero para tipo adjustment
+  (k6b) conteo total 23 -> 18: delta=-13.0000 before=31.0000 after=18.0000 total=18.0000 (se esperaba -5, 15 -> 10, total 18)
+  (k7) padre variant_only por el envoltorio 1: se esperaba P0400 stock_adjustment_product_not_adjustable sin crear saldo y salió 23514 Este producto no permite ajuste manual de stock (stock_control_type = variant_only). Los productos "variant_only" se gestionan a través de sus variantes; los "untracked" no tienen stock físico.
+  (k7) padre variant_only por el envoltorio 2: se esperaba P0400 stock_adjustment_product_not_adjustable sin crear saldo y salió el intento PROSPERÓ
+  (k7) padre variant_only por el envoltorio 3: se esperaba P0400 stock_adjustment_product_not_adjustable sin crear saldo y salió el intento PROSPERÓ
+  (m) _stock_manual_adjustment invocada por un owner autenticado: se esperaba 42501 "permission denied for function" y salió: ERROR 42883 function public._stock_manual_adjustment(unknown, unknown, unknown, integer, unknown, unknown, unknown, unknown, unknown) does not exist
+  (m) _stock_manual_adjustment invocada por anon: se esperaba 42501 "permission denied for function" y salió: ERROR 42883 function public._stock_manual_adjustment(unknown, unknown, unknown, integer, unknown, unknown, unknown, unknown, unknown) does not exist
+  (m) _stock_apply_delta invocada por un owner autenticado: se esperaba 42501 "permission denied for function" y salió: ERROR 42883 function public._stock_apply_delta(unknown, unknown, integer, unknown, boolean) does not exist
+  (m) _stock_apply_delta invocada por anon: se esperaba 42501 "permission denied for function" y salió: ERROR 42883 function public._stock_apply_delta(unknown, unknown, integer, unknown, boolean) does not exist
+  (m) _stock_assert_can_adjust invocada por un owner autenticado: se esperaba 42501 "permission denied for function" y salió: ERROR 42883 function public._stock_assert_can_adjust(unknown) does not exist
+  (m) _stock_assert_can_adjust invocada por anon: se esperaba 42501 "permission denied for function" y salió: ERROR 42883 function public._stock_assert_can_adjust(unknown) does not exist
+  (m) public._stock_assert_can_adjust(uuid) no existe con esa firma; public._stock_apply_delta(uuid,uuid,numeric,uuid,boolean) no existe con esa firma; public._stock_manual_adjustment(uuid,uuid,text,numeric,numeric,text,text,text,uuid) no existe con esa firma; _stock_assert_can_adjust no tiene exactamente una definición; _stock_apply_delta no tiene exactamente una definición; _stock_manual_adjustment no tiene exactamente una definición
+CONTEXT:  PL/pgSQL function inline_code_block line 7 at RAISE
+DO
+GATE_EXIT=3

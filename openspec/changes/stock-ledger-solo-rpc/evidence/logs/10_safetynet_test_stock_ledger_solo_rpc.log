@@ -1,0 +1,35 @@
+BEGIN
+CREATE TABLE
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+DO
+NOTICE:  PASS (a): authenticated y anon sin INSERT/UPDATE/DELETE/TRUNCATE (tabla ni columna) sobre stock_movements y branch_stock; authenticated conserva SELECT.
+NOTICE:  PASS (b): policies = {lectura por cuenta x2, no_update/no_delete qual=false}; ninguna permisiva de escritura; RLS activa.
+DO
+NOTICE:  PASS (c): rpc_reverse_stock_movement sin EXECUTE para anon/authenticated/PUBLIC, un solo overload, SECURITY DEFINER; las RPCs públicas de ajuste, transferencia y borrado conservan EXECUTE.
+DO
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=04ce57ac-dc26-4223-a6f9-295734b31cff
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=13f43c2d-6190-4df5-a90f-09309782eb3d
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=418eb296-c323-4b4a-a9c3-90af19f2cf8f
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=e18d2648-1b9f-4b78-bd99-525773153c75
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=aaabeb8b-2742-4503-bde6-5690fae599f9
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=c72c26da-1864-4761-b717-ae88efc26ede
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=8d4f23c5-bd04-432e-a3ad-2eca1e8eae8d
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=2b70dd08-fdd6-4458-8956-312cbb1badf4
+NOTICE:  info (d) [owner]: 14 de 14 intentos rechazados con 42501 "permission denied"
+NOTICE:  info (d) [seller]: 14 de 14 intentos rechazados con 42501 "permission denied"
+NOTICE:  info (d) [viewer]: 14 de 14 intentos rechazados con 42501 "permission denied"
+NOTICE:  info (d) [anon]: 14 de 14 intentos rechazados con 42501 "permission denied"
+NOTICE:  PASS (d): 56 intentos (owner, seller, viewer y anon x 14 variantes) rechazados con 42501 "permission denied" y la huella de las dos tablas idéntica.
+NOTICE:  PASS (e): ajuste, venta y compra (alta y borrado, incl. compra ya vendida con piso trazable), transferencia, borrado de producto con historial y lectura propia/ajena funcionan con la escritura directa cerrada.
+DO
+DO
+NOTICE:  GATE STOCK-LEDGER-SOLO-RPC PASSED (tanda A): privilegios, policies, ACL de la reversa, matriz de evasión y caminos legítimos.
+ROLLBACK
+NOTICE:  PASS (residuo): el gate no dejó filas.
+DO
+GATE_EXIT=0

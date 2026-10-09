@@ -1,0 +1,5 @@
+      4 __tests__/pos-payment-methods.test.tsx
+      1 __tests__/reporting/revenue-canon.test.ts
+      1 __tests__/hooks/use-critical-stock.test.ts
+      1 __tests__/components/purchase-operations-list-payment-lock.test.tsx
+      1 __tests__/components/LedgerMovementsPanel.test.tsx

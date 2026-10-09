@@ -1,0 +1,69 @@
+     × el rol owner ve el campo y el alta viaja con el stock cargado 258ms
+     × el rol admin ve el campo y el alta viaja con el stock cargado 116ms
+     × el rol stock ve el campo y el alta viaja con el stock cargado 97ms
+     × un miembro seller NO ve el campo, ve quién lo carga, y el alta viaja con stock 0 98ms
+     × un miembro cashier NO ve el campo, ve quién lo carga, y el alta viaja con stock 0 75ms
+     × un miembro purchases NO ve el campo, ve quién lo carga, y el alta viaja con stock 0 73ms
+     × un miembro accountant NO ve el campo, ve quién lo carga, y el alta viaja con stock 0 61ms
+     × un miembro viewer NO ve el campo, ve quién lo carga, y el alta viaja con stock 0 59ms
+     × con el conjunto de roles sin resolver el campo es visible (fail-open: la barrera real es la base) 55ms
+     × el stock mínimo sigue siendo editable por cualquier rol (no es un ajuste) 75ms
+     × muestra «Stock actual: 10» sin ningún campo de stock editable 68ms
+     × el rol owner ve «Ajustar stock» 65ms
+     × el rol admin ve «Ajustar stock» 67ms
+     × el rol stock ve «Ajustar stock» 69ms
+     × un miembro seller ve el stock actual pero no «Ajustar stock»; la línea dice quién ajusta 61ms
+     × un miembro cashier ve el stock actual pero no «Ajustar stock»; la línea dice quién ajusta 63ms
+     × un miembro viewer ve el stock actual pero no «Ajustar stock»; la línea dice quién ajusta 73ms
+     × «Ajustar stock» abre el modal de ajuste con el producto preseleccionado 1122ms
+     × al cerrar el modal anidado el foco vuelve al botón «Ajustar stock» del formulario 1127ms
+     × guardar un cambio de precio NO manda el stock (la edición nunca ajusta) 80ms
+⎯⎯⎯⎯⎯⎯ Failed Tests 20 ⎯⎯⎯⎯⎯⎯⎯
+ FAIL  __tests__/components/product-form-stock-ledger.test.tsx > ProductForm — alta: «Stock inicial» sólo con CAN_STOCK > el rol owner ve el campo y el alta viaja con el stock cargado
+ FAIL  __tests__/components/product-form-stock-ledger.test.tsx > ProductForm — alta: «Stock inicial» sólo con CAN_STOCK > el rol admin ve el campo y el alta viaja con el stock cargado
+ FAIL  __tests__/components/product-form-stock-ledger.test.tsx > ProductForm — alta: «Stock inicial» sólo con CAN_STOCK > el rol stock ve el campo y el alta viaja con el stock cargado
+Error: [2mexpect([22m[31mreceived[39m[2m).toBeInTheDocument()[22m
+ FAIL  __tests__/components/product-form-stock-ledger.test.tsx > ProductForm — alta: «Stock inicial» sólo con CAN_STOCK > un miembro seller NO ve el campo, ve quién lo carga, y el alta viaja con
+TestingLibraryElementError: Unable to find an element with the text: /el stock inicial lo carga/i. This could be because the text is broken up by multiple elements. In this case, you can provide a fun
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ FAIL  __tests__/components/product-form-stock-ledger.test.tsx > ProductForm — alta: «Stock inicial» sólo con CAN_STOCK > un miembro cashier NO ve el campo, ve quién lo carga, y el alta viaja co
+TestingLibraryElementError: Unable to find an element with the text: /el stock inicial lo carga/i. This could be because the text is broken up by multiple elements. In this case, you can provide a fun
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ FAIL  __tests__/components/product-form-stock-ledger.test.tsx > ProductForm — alta: «Stock inicial» sólo con CAN_STOCK > un miembro purchases NO ve el campo, ve quién lo carga, y el alta viaja 
+TestingLibraryElementError: Unable to find an element with the text: /el stock inicial lo carga/i. This could be because the text is broken up by multiple elements. In this case, you can provide a fun
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ FAIL  __tests__/components/product-form-stock-ledger.test.tsx > ProductForm — alta: «Stock inicial» sólo con CAN_STOCK > un miembro accountant NO ve el campo, ve quién lo carga, y el alta viaja
+TestingLibraryElementError: Unable to find an element with the text: /el stock inicial lo carga/i. This could be because the text is broken up by multiple elements. In this case, you can provide a fun
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ FAIL  __tests__/components/product-form-stock-ledger.test.tsx > ProductForm — alta: «Stock inicial» sólo con CAN_STOCK > un miembro viewer NO ve el campo, ve quién lo carga, y el alta viaja con
+TestingLibraryElementError: Unable to find an element with the text: /el stock inicial lo carga/i. This could be because the text is broken up by multiple elements. In this case, you can provide a fun
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ FAIL  __tests__/components/product-form-stock-ledger.test.tsx > ProductForm — alta: «Stock inicial» sólo con CAN_STOCK > con el conjunto de roles sin resolver el campo es visible (fail-open: la 
+Error: [2mexpect([22m[31mreceived[39m[2m).toBeInTheDocument()[22m
+ FAIL  __tests__/components/product-form-stock-ledger.test.tsx > ProductForm — alta: «Stock inicial» sólo con CAN_STOCK > el stock mínimo sigue siendo editable por cualquier rol (no es un ajuste
+TestingLibraryElementError: Found a label with the text of: /stock mínimo/i, however no form control was found associated to that label. Make sure you're using the "for" attribute or "aria-labelledby
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ FAIL  __tests__/components/product-form-stock-ledger.test.tsx > ProductForm — edición: «Stock actual» de sólo lectura y «Ajustar stock» > muestra «Stock actual: 10» sin ningún campo de sto
+TestingLibraryElementError: Unable to find an element with the text: /stock actual/i. This could be because the text is broken up by multiple elements. In this case, you can provide a function for you
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ FAIL  __tests__/components/product-form-stock-ledger.test.tsx > ProductForm — edición: «Stock actual» de sólo lectura y «Ajustar stock» > el rol owner ve «Ajustar stock»
+ FAIL  __tests__/components/product-form-stock-ledger.test.tsx > ProductForm — edición: «Stock actual» de sólo lectura y «Ajustar stock» > el rol admin ve «Ajustar stock»
+ FAIL  __tests__/components/product-form-stock-ledger.test.tsx > ProductForm — edición: «Stock actual» de sólo lectura y «Ajustar stock» > el rol stock ve «Ajustar stock»
+Error: [2mexpect([22m[31mreceived[39m[2m).toBeInTheDocument()[22m
+ FAIL  __tests__/components/product-form-stock-ledger.test.tsx > ProductForm — edición: «Stock actual» de sólo lectura y «Ajustar stock» > un miembro seller ve el stock actual pero no «Ajusta
+TestingLibraryElementError: Unable to find an element with the text: /stock actual/i. This could be because the text is broken up by multiple elements. In this case, you can provide a function for you
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ FAIL  __tests__/components/product-form-stock-ledger.test.tsx > ProductForm — edición: «Stock actual» de sólo lectura y «Ajustar stock» > un miembro cashier ve el stock actual pero no «Ajust
+TestingLibraryElementError: Unable to find an element with the text: /stock actual/i. This could be because the text is broken up by multiple elements. In this case, you can provide a function for you
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ FAIL  __tests__/components/product-form-stock-ledger.test.tsx > ProductForm — edición: «Stock actual» de sólo lectura y «Ajustar stock» > un miembro viewer ve el stock actual pero no «Ajusta
+TestingLibraryElementError: Unable to find an element with the text: /stock actual/i. This could be because the text is broken up by multiple elements. In this case, you can provide a function for you
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ FAIL  __tests__/components/product-form-stock-ledger.test.tsx > ProductForm — edición: «Stock actual» de sólo lectura y «Ajustar stock» > «Ajustar stock» abre el modal de ajuste con el prod
+TestingLibraryElementError: Unable to find role="dialog" and name `/ajuste de inventario/i`
+ FAIL  __tests__/components/product-form-stock-ledger.test.tsx > ProductForm — edición: «Stock actual» de sólo lectura y «Ajustar stock» > al cerrar el modal anidado el foco vuelve al botón �
+TestingLibraryElementError: Unable to find role="dialog" and name `/ajuste de inventario/i`
+ FAIL  __tests__/components/product-form-stock-ledger.test.tsx > ProductForm — edición: «Stock actual» de sólo lectura y «Ajustar stock» > guardar un cambio de precio NO manda el stock (la edi
+AssertionError: expected { name: 'Tomate', category: '', …(12) } to not have property "stock"
+ Test Files  1 failed (1)
+      Tests  20 failed | 3 passed (23)

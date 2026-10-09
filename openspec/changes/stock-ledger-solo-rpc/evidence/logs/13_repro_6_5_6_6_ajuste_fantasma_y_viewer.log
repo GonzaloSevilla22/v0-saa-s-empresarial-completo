@@ -1,0 +1,34 @@
+# 6.5 / 6.6 — comportamiento de HEAD (cuerpos vivos de partida reinstalados dentro de una transaccion revertida):
+6.5 [1] el usuario abre el formulario de edición: stock del formulario = 10.0000
+6.5 [2] una venta de 2 unidades mientras el formulario seguía abierto: saldo real = 8.0000
+6.5 [3] el backend de HEAD calcula delta = objetivo(10.0000) - saldo actual(8.0000) = 2.0000
+6.5 [4] RESULTADO: saldo = 10.0000 ; movimientos "Ajuste manual de stock" = 1 (las 2 unidades vendidas fueron re-sumadas)
+6.6 [1] viewer: stock actual = 10.0000, PUT con stock = 500 => delta = 490.0000
+6.6 [2] la RPC ACEPTÓ el ajuste del viewer
+6.6 [3] RESULTADO: saldo tras el intento del viewer = 500.0000
+ROLLBACK
+
+# El MISMO escenario sobre los cuerpos nuevos (estado migrado, 20261074000001):
+6.5 [1] el usuario abre el formulario de edición: stock del formulario = 10.0000
+6.5 [2] una venta de 2 unidades mientras el formulario seguía abierto: saldo real = 8.0000
+6.5 [3] el backend de HEAD calcula delta = objetivo(10.0000) - saldo actual(8.0000) = 2.0000
+6.5 [4] RESULTADO: saldo = 10.0000 ; movimientos "Ajuste manual de stock" = 1 (las 2 unidades vendidas fueron re-sumadas)
+6.6 [1] viewer: stock actual = 10.0000, PUT con stock = 500 => delta = 490.0000
+6.6 [2] la RPC rechazó al viewer: P0401 unauthorized
+6.6 [3] RESULTADO: saldo tras el intento del viewer = 10.0000
+ROLLBACK
+
+# LECTURA
+# 6.5 — reproducido en HEAD: abrir con stock 10, vender 2, guardar un cambio de precio con el stock viejo (10)
+#       devuelve el saldo a 10 y deja 1 movimiento "Ajuste manual de stock" de +2. Se confirma el mecanismo de D9.
+#       Sobre los cuerpos NUEVOS la secuencia SQL sigue siendo posible para un owner que llame a la RPC a mano
+#       (es un ajuste legítimo y con rol); lo que cierra el ajuste FANTASMA es el BACKEND: PUT /products ya no
+#       calcula ni aplica ningun delta (422 stock_adjust_required antes de escribir) — ver
+#       backend/tests/test_products_stock_ledger.py::TestUpdateProductNeverAdjustsStock
+#       (test_a_stale_stock_after_a_sale_is_rejected_instead_of_creating_a_phantom_adjustment).
+# 6.6 — reproducido en HEAD: un viewer cambia el stock de 10 a 500 por la secuencia del PUT.
+#       Sobre los cuerpos nuevos la misma llamada la rechaza la BASE con P0401 (y el backend con 403 antes).
+# La reproduccion es a nivel de la secuencia SQL exacta que ejecutaba ProductRepository.update de HEAD
+# (UPDATE products; SELECT stock FROM v_products_with_stock; delta; rpc_apply_product_stock_delta con
+# claims del usuario y SET LOCAL ROLE authenticated), con los cinco cuerpos vivos reinstalados dentro de una
+# transaccion revertida; no se levanto el servidor FastAPI de HEAD.

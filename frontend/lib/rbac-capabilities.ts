@@ -70,6 +70,18 @@ export const CAN_RECEIVE_PURCHASE: readonly OrgRole[] = ["owner", "admin", "stoc
 export const CAN_CONVERT_PURCHASE_DELIVERY_NOTE: readonly OrgRole[] = ["owner", "admin", "purchases", "stock"]
 
 /**
+ * stock-ledger-solo-rpc (D5, D12) — ajustar el stock A MANO (modal y CSV de
+ * /stock, inventario por sucursal, stock inicial del alta de producto). Espejo
+ * de `CAN_STOCK` de `backend/core/rbac.py` y del `ARRAY['owner','admin','stock']`
+ * de `_stock_assert_can_adjust` (migración 20261074000001): la base lo exige en
+ * las tres RPCs de ajuste y el frontend sólo decide qué mostrar. Un test
+ * (`__tests__/lib/rbac-capabilities.test.ts`) lee los tres y falla si divergen.
+ * Las transferencias entre sucursales NO usan esta capacidad (OQ-3: siguen con
+ * `isWriter`).
+ */
+export const CAN_STOCK: readonly OrgRole[] = ["owner", "admin", "stock"]
+
+/**
  * ¿Alguno de los roles activos del usuario habilita la capacidad?
  *
  * Mientras el conjunto no resolvió (`rolesResolved === false`) responde `true`:

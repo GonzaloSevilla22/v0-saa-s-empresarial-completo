@@ -5,6 +5,7 @@ import { useMemo } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { useAuth } from "@/contexts/auth-context"
 import { queryKeys } from "@/lib/query-keys"
+import { humanizeOperationError } from "@/lib/operation-errors"
 import type {
   BranchStockWithProduct,
   TransferStockResult,
@@ -51,7 +52,12 @@ export function translateBranchStockError(message: string): string {
     return "La cantidad debe ser mayor a cero."
   if (message.includes("New quantity must be >= 0"))
     return "La cantidad no puede ser negativa."
-  return message || "Ocurrió un error inesperado."
+  if (!message) return "Ocurrió un error inesperado."
+  // stock-ledger-solo-rpc (task 11.3): lo que este mapa no reconoce (rol, motivo,
+  // producto ajeno, stock insuficiente del ajuste…) lo traduce el mapa CANÓNICO
+  // de operaciones en el contexto «ajuste de stock» — extender ése, no duplicarlo.
+  // Si tampoco lo reconoce, devuelve el mensaje original (nunca lo oculta).
+  return humanizeOperationError(message, undefined, undefined, { documentLabel: "ajuste de stock" }).message
 }
 
 // ── Desglose por sucursal de UN producto (G3) ─────────────────────────────────

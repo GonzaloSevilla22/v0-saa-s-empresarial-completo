@@ -207,6 +207,22 @@ const DELIVERY_NOTE_PURCHASE_DATE_BEFORE_RECEIPT_ERROR = /delivery_note_purchase
 const DELIVERY_NOTE_ITEMS_FROM_SOURCE_ERROR = /delivery_note_items_from_source/
 const UUID_ONLY = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
+// stock-ledger-solo-rpc (tanda B, task 11.2): literales del núcleo único de ajuste
+// manual de stock (`_stock_manual_adjustment`, `_stock_apply_delta` y los tres
+// envoltorios públicos: rpc_stock_adjustment, rpc_adjust_branch_stock,
+// rpc_apply_product_stock_delta) y el 422 del PUT /products. Mismo mapa que
+// venta, compra, presupuesto y remito — no un segundo mapa. `insufficient_role` y
+// `product_not_found` ya existían con el texto de "vender"; en el contexto
+// `documentLabel: "ajuste de stock"` dicen lo que corresponde.
+const STOCK_ADJUSTMENT_REASON_REQUIRED_ERROR = /stock_adjustment_reason_required/
+const STOCK_ADJUSTMENT_TYPE_INVALID_ERROR = /stock_adjustment_type_invalid/
+const STOCK_ADJUSTMENT_PRODUCT_NOT_ADJUSTABLE_ERROR = /stock_adjustment_product_not_adjustable/
+const STOCK_ADJUSTMENT_SIGN_INVALID_ERROR = /stock_adjustment_sign_invalid/
+const STOCK_INTERNAL_FLAGS_NOT_ALLOWED_ERROR = /stock_internal_flags_not_allowed/
+const STOCK_ADJUST_REQUIRED_ERROR = /stock_adjust_required/
+// `_stock_apply_delta`: "Stock insuficiente. Disponible: 5.0000, delta: -9".
+const STOCK_ADJUSTMENT_INSUFFICIENT_ERROR = /Stock insuficiente\. Disponible:\s*(-?[\d.]+),\s*delta:\s*(-?[\d.]+)/
+
 /** `3` -> "3", `0.45` -> "0,45": las cantidades del servidor (`trim_scale`) en es-AR. */
 const fmtQty = (raw: string) => Number(raw).toLocaleString("es-AR", { maximumFractionDigits: 4 })
 
@@ -220,7 +236,12 @@ const fmtMoney = (n: number) =>
  * sigue exactamente igual.
  */
 export interface OperationErrorContext {
-  documentLabel?: "venta" | "remito"
+  /**
+   * stock-ledger-solo-rpc: `"ajuste de stock"` para el modal y el CSV de /stock, el
+   * inventario por sucursal y el alta de producto con stock inicial — cambia el
+   * texto de `insufficient_role` y de `product_not_found`.
+   */
+  documentLabel?: "venta" | "remito" | "ajuste de stock"
   /**
    * remitos-compra (D11): el SENTIDO del remito. Sólo cambia el texto de los
    * literales que hablaban de venta o de mercadería que sale (`"purchase"`);
@@ -243,6 +264,68 @@ export function humanizeOperationError(
   if (!message) return { message: "Error desconocido" }
   const isRemito = context?.documentLabel === "remito"
   const isPurchaseRemito = isRemito && context?.direction === "purchase"
+  const isStockAdjustment = context?.documentLabel === "ajuste de stock"
+
+  // stock-ledger-solo-rpc: el ajuste manual de stock primero — son los rechazos
+  // del núcleo único y cada uno nombra qué hacer en vez de repetir el literal.
+  if (STOCK_ADJUSTMENT_REASON_REQUIRED_ERROR.test(message)) {
+    return {
+      message:
+        "Escribí el motivo del ajuste: queda registrado en el historial de movimientos. No se guardó nada.",
+    }
+  }
+
+  if (STOCK_ADJUSTMENT_TYPE_INVALID_ERROR.test(message)) {
+    return {
+      message:
+        "Ese tipo de movimiento no es un ajuste de stock. Si es una transferencia entre sucursales, usá " +
+        "«Transferir stock», que deja registrados el origen y el destino. No se guardó nada.",
+      action: { label: "Transferir stock", href: "/stock" },
+    }
+  }
+
+  if (STOCK_ADJUSTMENT_PRODUCT_NOT_ADJUSTABLE_ERROR.test(message)) {
+    return {
+      message:
+        "Este producto no tiene stock propio: los productos con variantes (talle, color, …) se ajustan por cada " +
+        "variante, y los que no controlan stock no tienen existencias. Elegí la variante puntual. No se guardó nada.",
+    }
+  }
+
+  if (STOCK_ADJUSTMENT_SIGN_INVALID_ERROR.test(message)) {
+    return {
+      message:
+        "Las pérdidas, roturas y vencimientos sólo restan stock: cargá la cantidad como una baja. No se guardó nada.",
+    }
+  }
+
+  if (STOCK_INTERNAL_FLAGS_NOT_ALLOWED_ERROR.test(message)) {
+    return {
+      message:
+        "Esta acción ya no está disponible desde esta versión de la pantalla. Actualizá la página y volvé a " +
+        "intentar: no se guardó nada.",
+    }
+  }
+
+  if (STOCK_ADJUST_REQUIRED_ERROR.test(message)) {
+    return {
+      message:
+        "El stock no se edita desde el formulario del producto: usá «Ajustar stock», que pide un motivo y deja " +
+        "el movimiento en el historial.",
+      action: { label: "Ajustar stock", href: "/stock" },
+    }
+  }
+
+  const stockAdjustmentInsufficient = message.match(STOCK_ADJUSTMENT_INSUFFICIENT_ERROR)
+  if (stockAdjustmentInsufficient) {
+    const available = fmtQty(stockAdjustmentInsufficient[1])
+    const requested = fmtQty(String(Math.abs(Number(stockAdjustmentInsufficient[2]))))
+    return {
+      message:
+        `No alcanza el stock: en la sucursal hay ${available} y el ajuste resta ${requested}. ` +
+        "Corregí la cantidad: no se guardó nada.",
+    }
+  }
 
   // presupuestos-modulo: el estado y la edición primero — son los rechazos que
   // el usuario más ve y cada uno nombra qué hacer en vez de repetir el literal.
@@ -577,6 +660,12 @@ export function humanizeOperationError(
   }
 
   if (PRODUCT_NOT_FOUND_ERROR.test(message)) {
+    if (isStockAdjustment) {
+      return {
+        message:
+          "El producto no existe o no pertenece a tu cuenta. Actualizá la pantalla y elegí otro producto: no se guardó nada.",
+      }
+    }
     return {
       message:
         "Uno de los productos no existe o no pertenece a esta cuenta. Quitalo o reemplazalo y volvé a intentar.",
@@ -584,6 +673,13 @@ export function humanizeOperationError(
   }
 
   if (INSUFFICIENT_ROLE_ERROR.test(message)) {
+    if (isStockAdjustment) {
+      return {
+        message:
+          "Tu rol no permite ajustar el stock a mano. Pueden hacerlo el depósito, los administradores y el dueño: " +
+          "pedile al dueño o a un administrador de la cuenta que te asigne el rol de depósito.",
+      }
+    }
     if (isPurchaseRemito) {
       return {
         message:

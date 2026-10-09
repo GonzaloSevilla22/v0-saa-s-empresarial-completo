@@ -12,7 +12,7 @@
 import { describe, it, expect } from "vitest"
 import fs from "node:fs"
 import path from "node:path"
-import { CAN_CONFIGURE, CAN_QUOTE, hasCapability } from "@/lib/rbac-capabilities"
+import { CAN_CONFIGURE, CAN_QUOTE, CAN_STOCK, hasCapability } from "@/lib/rbac-capabilities"
 
 const ROOT = path.resolve(__dirname, "../../..")
 
@@ -63,6 +63,56 @@ describe("CAN_CONFIGURE — atado al backend (presupuestos-modulo, tarea 5.11)",
   it("un vendedor no configura la cuenta; un admin sí", () => {
     expect(hasCapability(["seller"], CAN_CONFIGURE, true)).toBe(false)
     expect(hasCapability(["admin"], CAN_CONFIGURE, true)).toBe(true)
+  })
+})
+
+describe("CAN_STOCK — atado al backend y a la migración (stock-ledger-solo-rpc, task 11.1)", () => {
+  /** Los roles que `_stock_assert_can_adjust` exige (ARRAY[...] de la migración de la tanda B). */
+  function sqlAllowedRoles(): string[] {
+    const sql = fs.readFileSync(
+      path.join(ROOT, "supabase/migrations/20261074000001_stock_ledger_nucleo_ajuste_manual.sql"),
+      "utf-8",
+    )
+    const fn = /FUNCTION public\._stock_assert_can_adjust\(p_account_id uuid\)[\s\S]*?\$function\$;/.exec(sql)
+    expect(fn, "no se encontró _stock_assert_can_adjust en la migración").not.toBeNull()
+    const array = /&&\s*ARRAY\[([^\]]*)\]/.exec(fn![0])
+    expect(array, "no se encontró el ARRAY[...] de roles en _stock_assert_can_adjust").not.toBeNull()
+    return [...array![1].matchAll(/'([a-z_]+)'/g)].map((m) => m[1]).sort()
+  }
+
+  it("es owner, admin y stock (decisión 1 del PO, 2026-10-08)", () => {
+    expect([...CAN_STOCK].sort()).toEqual(["admin", "owner", "stock"])
+  })
+
+  it("coincide con CAN_STOCK de backend/core/rbac.py", () => {
+    expect([...CAN_STOCK].sort()).toEqual(pythonCapability("CAN_STOCK"))
+  })
+
+  it("coincide con el ARRAY[...] de _stock_assert_can_adjust en la migración 20261074000001 (la base exige lo mismo)", () => {
+    expect([...CAN_STOCK].sort()).toEqual(sqlAllowedRoles())
+  })
+
+  it("los tres lados leen el mismo conjunto no vacío (un regex que no encuentra nada no puede dar verde)", () => {
+    expect(pythonCapability("CAN_STOCK")).not.toBeNull()
+    expect(sqlAllowedRoles().length).toBe(3)
+  })
+
+  it("seller, cashier, purchases, accountant y viewer no ajustan; owner, admin y stock sí", () => {
+    for (const role of ["seller", "cashier", "purchases", "accountant", "viewer"] as const) {
+      expect(hasCapability([role], CAN_STOCK, true), role).toBe(false)
+    }
+    for (const role of ["owner", "admin", "stock"] as const) {
+      expect(hasCapability([role], CAN_STOCK, true), role).toBe(true)
+    }
+  })
+
+  it("un miembro con varios roles ajusta si ALGUNO está en CAN_STOCK (intersección, no igualdad)", () => {
+    expect(hasCapability(["seller", "stock"], CAN_STOCK, true)).toBe(true)
+    expect(hasCapability(["seller", "cashier"], CAN_STOCK, true)).toBe(false)
+  })
+
+  it("con el conjunto sin resolver la decisión es optimista: la barrera real es la base", () => {
+    expect(hasCapability(["member"], CAN_STOCK, false)).toBe(true)
   })
 })
 

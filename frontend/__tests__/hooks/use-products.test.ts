@@ -166,7 +166,7 @@ describe("useProducts", () => {
     await act(async () => {
       await result.current.updateProduct({
         id: "prod-1", name: "Remera", category: "Ropa", categoryId: "cat-1",
-        cost: 10, price: 20, margin: 50, stock: 0, minStock: 0,
+        cost: 10, price: 20, margin: 50, minStock: 0,
         isVariant: false, stockControlType: "tracked",
       })
     })
@@ -175,6 +175,54 @@ describe("useProducts", () => {
     const body = vi.mocked(pythonClient.put).mock.calls[0][1] as Record<string, unknown>
     expect(body).not.toHaveProperty("category")
     expect(body).toHaveProperty("category_id", "cat-1")
+  })
+
+  // stock-ledger-solo-rpc (tanda B, task 12.6): la edición NUNCA manda `stock`. El
+  // formulario abierto con el stock viejo re-sumaba en silencio lo vendido (ajuste
+  // fantasma); ahora el PUT lleva todo menos el stock, que se cambia sólo con el
+  // ajuste manual (rol + motivo). El tipo del payload ni siquiera lo admite: el
+  // `as never` simula un caller viejo o una pestaña con el bundle anterior.
+  it("updateProduct NEVER sends stock in the PUT body, even if a stale caller passes it", async () => {
+    vi.mocked(pythonClient.get).mockResolvedValue(mockProductRows)
+    vi.mocked(pythonClient.put).mockResolvedValue(mockProductRows[0])
+
+    const { result } = renderHook(() => useProducts(), { wrapper: makeWrapper() })
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+
+    for (const stock of [0, 25.5, 99]) {
+      await act(async () => {
+        await result.current.updateProduct({
+          id: "prod-1", name: "Remera", category: "Ropa", categoryId: "cat-1",
+          price: 20, margin: 50, minStock: 3, isVariant: false, stockControlType: "tracked",
+          stock,
+        } as never)
+      })
+    }
+
+    expect(pythonClient.put).toHaveBeenCalledTimes(3)
+    for (const call of vi.mocked(pythonClient.put).mock.calls) {
+      const body = call[1] as Record<string, unknown>
+      expect(body).not.toHaveProperty("stock")
+      // El resto de la edición sigue viajando.
+      expect(body).toMatchObject({ name: "Remera", price: 20, min_stock: 3 })
+    }
+  })
+
+  it("addProduct SÍ manda el stock inicial (el alta es el único camino del stock en el formulario)", async () => {
+    vi.mocked(pythonClient.get).mockResolvedValue(mockProductRows)
+    vi.mocked(pythonClient.post).mockResolvedValueOnce(mockProductRows[0])
+
+    const { result } = renderHook(() => useProducts(), { wrapper: makeWrapper() })
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+
+    await act(async () => {
+      await result.current.addProduct({
+        name: "Remera", category: "Ropa", price: 20, margin: 50, stock: 12, minStock: 0,
+        isVariant: false, stockControlType: "tracked",
+      })
+    })
+
+    expect(vi.mocked(pythonClient.post).mock.calls[0][1]).toMatchObject({ stock: 12 })
   })
 
   // ── RED → GREEN: deleteProduct invalidates cache post-204 ───────────────

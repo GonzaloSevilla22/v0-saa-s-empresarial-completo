@@ -22,9 +22,13 @@ const schema = z.object({
   newQuantity: z.coerce
     .number({ invalid_type_error: "Ingresá un número válido" })
     .min(0, "La cantidad no puede ser negativa"),
+  // stock-ledger-solo-rpc (D12): el motivo es obligatorio y se valida RECORTADO
+  // (la base lo exige: P0400 stock_adjustment_reason_required); `.trim()` también
+  // lo recorta en el valor que viaja. Antes un motivo de puros espacios pasaba.
   reason: z
     .string()
-    .min(1, "La razón del ajuste es requerida")
+    .trim()
+    .min(1, "El motivo es obligatorio")
     .max(255, "Máximo 255 caracteres"),
 })
 
@@ -116,16 +120,18 @@ export function AdjustStockModal({
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="reason">Razón del ajuste *</Label>
+            <Label htmlFor="reason">Motivo del ajuste *</Label>
             <Input
               id="reason"
               type="text"
               placeholder="Ej: Inventario físico, merma, corrección..."
               {...register("reason")}
+              aria-required="true"
               aria-invalid={!!errors.reason}
+              aria-describedby={errors.reason ? "reason-error" : undefined}
             />
             {errors.reason && (
-              <p className="text-xs text-destructive">{errors.reason.message}</p>
+              <p id="reason-error" className="text-xs text-destructive">{errors.reason.message}</p>
             )}
           </div>
 

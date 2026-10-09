@@ -85,7 +85,7 @@ describe("useProducts — base_unit_id", () => {
     await act(async () => {
       await result.current.updateProduct({
         id: "prod-kg", name: "Tomate", category: "Verdulería", price: 1000, margin: 40,
-        stock: 1, minStock: 0.5, isVariant: false, stockControlType: "tracked", baseUnitId: "u-kg",
+        minStock: 0.5, isVariant: false, stockControlType: "tracked", baseUnitId: "u-kg",
       })
     })
     expect(vi.mocked(pythonClient.put).mock.calls[0][1]).toMatchObject({ base_unit_id: "u-kg" })
@@ -93,7 +93,7 @@ describe("useProducts — base_unit_id", () => {
     await act(async () => {
       await result.current.updateProduct({
         id: "prod-kg", name: "Tomate", category: "Verdulería", price: 1000, margin: 40,
-        stock: 1, minStock: 0.5, isVariant: false, stockControlType: "tracked",
+        minStock: 0.5, isVariant: false, stockControlType: "tracked",
       })
     })
     // Auditoría post-apply: editar el nombre de un padre variant_only o de un
@@ -111,7 +111,7 @@ describe("useProducts — base_unit_id", () => {
     await act(async () => {
       await result.current.updateProduct({
         id: "prod-kg", name: "Tomate", category: "Verdulería", price: 1000, margin: 40,
-        stock: 0, minStock: 0, isVariant: false, stockControlType: "tracked", baseUnitId: null,
+        minStock: 0, isVariant: false, stockControlType: "tracked", baseUnitId: null,
       })
     })
     const [path, body] = vi.mocked(pythonClient.put).mock.calls[0]

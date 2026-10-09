@@ -17,9 +17,14 @@ import { toast } from "sonner"
 import { useScaleSettings } from "@/hooks/data/use-scale-settings"
 import { decodeScaleBarcode } from "@/lib/scale-barcode"
 import { isProductoPorUnidades } from "@/lib/unit-utils"
+import { useOrgRole } from "@/hooks/useOrgRole"
+import { CAN_STOCK, hasCapability } from "@/lib/rbac-capabilities"
+import { formatStock } from "@/lib/format-unit"
+import { humanizeOperationError } from "@/lib/operation-errors"
+import { StockAdjustmentModal } from "@/components/stock/stock-adjustment-modal"
 
 import type { Product, StockControlType } from "@/lib/types"
-import { Barcode, Package, Wrench, ScanLine, X } from "lucide-react"
+import { Barcode, Package, Wrench, ScanLine, SlidersHorizontal, X } from "lucide-react"
 
 /**
  * ventas-unidades-conversion (decisión 7, OK del PO 2026-09-27): valor del
@@ -42,6 +47,20 @@ function isBaseUnitLockedError(error: unknown): boolean {
   return error instanceof Error && error.message.startsWith(`${BASE_UNIT_LOCKED_CODE}:`)
 }
 
+/**
+ * stock-ledger-solo-rpc: los dos rechazos del backend ligados al stock se muestran
+ * por el mapa canónico de errores (castellano accionable, no el texto técnico del
+ * backend): el 403 de `require_account_role(CAN_STOCK)` del alta con stock inicial y
+ * el 422 `stock_adjust_required` de una edición que mandó un stock distinto del
+ * saldo. Cualquier otro error devuelve `null` y se muestra tal cual.
+ */
+function stockApiErrorMessage(error: unknown): string | null {
+  if (!(error instanceof PythonApiError)) return null
+  const isStockRole = error.status === 403 && /Rol de cuenta insuficiente/.test(error.message)
+  if (error.code !== "stock_adjust_required" && !isStockRole) return null
+  return humanizeOperationError(error.code ?? error.message, undefined, undefined, { documentLabel: "ajuste de stock" }).message
+}
+
 interface ProductFormProps {
   onSuccess: () => void
   initialData?: Product
@@ -52,6 +71,16 @@ interface ProductFormProps {
 export function ProductForm({ onSuccess, initialData, defaultParentId }: ProductFormProps) {
   const { addProduct, updateProduct, products } = useProducts()
   const { units } = useUnitsOfMeasure()
+
+  // stock-ledger-solo-rpc (D9/D12, OQ-2): el formulario NO edita el stock. En el
+  // ALTA, «Stock inicial» sólo se ofrece a quien puede ajustar stock (CAN_STOCK:
+  // owner/admin/stock — decidido sobre el CONJUNTO de roles activos, optimista
+  // mientras no resolvió: la barrera real es la base y el backend responde 403
+  // antes de crear nada). En la EDICIÓN, «Stock actual» es de sólo lectura y
+  // «Ajustar stock» abre el modal de ajuste (motivo obligatorio, historial).
+  const { roles, rolesResolved } = useOrgRole()
+  const canAdjust = hasCapability(roles, CAN_STOCK, rolesResolved)
+  const [adjustOpen, setAdjustOpen] = useState(false)
 
   const [name, setName] = useState(initialData?.name || "")
   // productos-categorias-sku (D1): la categoría se elige del catálogo de la
@@ -126,6 +155,14 @@ export function ProductForm({ onSuccess, initialData, defaultParentId }: Product
 
   const isVariant = parentId !== "none"
 
+  // Una variante lleva su stock propio ("tracked"); un padre variant_only y un
+  // servicio no tienen stock que mostrar ni cargar (RN-20).
+  const holdsStock = (isVariant ? "tracked" : stockControlType) === "tracked"
+  // El saldo VIVO: tras un ajuste el listado se refresca y el formulario abierto
+  // lo refleja (initialData es la foto del momento en que se abrió).
+  const liveStock = (initialData && products.find((p) => p.id === initialData.id)?.stock) ?? initialData?.stock ?? 0
+  const currentUnitSymbol = units.find((u) => u.id === initialData?.baseUnitId)?.symbol
+
   // ── Scanner integration ──────────────────────────────────────────────────────
   const handleScanComplete = useCallback((code: string) => {
     setBarcode(code)
@@ -187,7 +224,6 @@ export function ProductForm({ onSuccess, initialData, defaultParentId }: Product
       ...(!initialData || costTouched ? { cost } : {}),
       price,
       margin,
-      stock: stockControlType === "untracked" ? 0 : stock,
       minStock: stockControlType === "untracked" ? 0 : minStock,
       barcode,
       sku: sku.trim() || undefined,
@@ -238,17 +274,22 @@ export function ProductForm({ onSuccess, initialData, defaultParentId }: Product
     setScalePluError(null)
     try {
       if (initialData) {
+        // La edición NO manda `stock` (D9): el ajuste vive en «Ajustar stock».
         await updateProduct({ ...productData, id: initialData.id })
         toast.success("Producto actualizado")
       } else {
-        await addProduct(productData)
+        // Stock inicial sólo con CAN_STOCK y producto con stock propio; sin el rol
+        // el campo ni se muestra y el alta viaja con 0 (el servidor igual lo exige).
+        await addProduct({ ...productData, stock: holdsStock && canAdjust ? stock : 0 })
         toast.success("Producto creado")
       }
       onSuccess()
     } catch (error: unknown) {
       // productos-categorias-sku (D5): el 409 de SKU (y cualquier detail del
       // backend) se muestra tal cual; el formulario conserva lo cargado.
-      const msg = error instanceof Error && error.message ? error.message : "Error al guardar producto"
+      const msg =
+        stockApiErrorMessage(error) ??
+        (error instanceof Error && error.message ? error.message : "Error al guardar producto")
       toast.error(msg)
       // Decisión 7: la unidad base NO cambió (el producto tiene stock o
       // historia) — el selector vuelve a la que conserva, así lo que se ve es
@@ -263,6 +304,7 @@ export function ProductForm({ onSuccess, initialData, defaultParentId }: Product
   }
 
   return (
+    <>
     <form onSubmit={handleSubmit} className="flex flex-col gap-4">
       <div className="flex flex-col gap-2">
         <Label className="text-foreground">Nombre</Label>
@@ -484,19 +526,57 @@ export function ProductForm({ onSuccess, initialData, defaultParentId }: Product
         </div>
       )}
 
-      {/* ── Stock fields (only for tracked products) ──────────────────────────── */}
+      {/* ── Stock (stock-ledger-solo-rpc, D9) ─────────────────────────────────────
+          Alta: «Stock inicial» sólo con CAN_STOCK y producto con stock propio; sin
+          el rol, una línea dice quién lo carga. Edición: «Stock actual» de sólo
+          lectura + «Ajustar stock» (modal con motivo). El stock mínimo NO es un
+          ajuste y lo edita cualquier rol. */}
       {stockControlType !== "untracked" && (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {!initialData && holdsStock && canAdjust && (
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="product-stock-initial" className="text-foreground">Stock inicial</Label>
+              {/* step="any": sin él el input es step=1 y el navegador bloquea el
+                  submit con 0,55 kg (stepMismatch). El servidor valida >= 0. */}
+              <NumericInput id="product-stock-initial" min={0} step="any" value={stock} onValueChange={setStock} className="bg-background border-border text-foreground" />
+              <p className="text-[11px] text-muted-foreground">
+                Queda registrado en el historial como «Stock inicial».
+              </p>
+            </div>
+          )}
+          {!initialData && holdsStock && !canAdjust && (
+            <div className="flex flex-col gap-2">
+              <span className="text-sm font-medium text-foreground">Stock inicial</span>
+              <p className="text-[11px] text-muted-foreground">
+                El stock inicial lo carga el depósito, un administrador o el dueño: creá el producto y pedile que lo ajuste desde Stock.
+              </p>
+            </div>
+          )}
+          {initialData && holdsStock && (
+            <div className="flex flex-col gap-2">
+              <span className="text-sm font-medium text-foreground">Stock actual</span>
+              <div className="flex items-center gap-2">
+                <span data-testid="current-stock" className="text-sm font-semibold tabular-nums text-foreground">
+                  {formatStock(liveStock, currentUnitSymbol)}
+                </span>
+                {canAdjust && (
+                  <Button type="button" variant="outline" size="sm" className="gap-1.5" onClick={() => setAdjustOpen(true)}>
+                    <SlidersHorizontal className="h-3.5 w-3.5" aria-hidden="true" />
+                    Ajustar stock
+                  </Button>
+                )}
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                {canAdjust
+                  ? "El stock se cambia con «Ajustar stock»: pide un motivo y queda en el historial."
+                  : "El stock lo ajusta el depósito, un administrador o el dueño."}
+              </p>
+            </div>
+          )}
           <div className="flex flex-col gap-2">
-            <Label className="text-foreground">Stock inicial</Label>
-            {/* step="any": sin él el input es step=1 y el navegador bloquea el
-                submit con 0,55 kg (stepMismatch). El servidor valida >= 0. */}
-            <NumericInput min={0} step="any" value={stock} onValueChange={setStock} className="bg-background border-border text-foreground" />
-          </div>
-          <div className="flex flex-col gap-2">
-            <Label className="text-foreground">Stock mínimo</Label>
+            <Label htmlFor="product-min-stock" className="text-foreground">Stock mínimo</Label>
             {/* Stock mínimo decimal (numeric(15,4), 0,5 kg): mismo motivo. */}
-            <NumericInput min={0} step="any" value={minStock} onValueChange={setMinStock} className="bg-background border-border text-foreground" />
+            <NumericInput id="product-min-stock" min={0} step="any" value={minStock} onValueChange={setMinStock} className="bg-background border-border text-foreground" />
           </div>
         </div>
       )}
@@ -505,5 +585,13 @@ export function ProductForm({ onSuccess, initialData, defaultParentId }: Product
         {initialData ? "Actualizar producto" : "Crear producto"}
       </Button>
     </form>
+
+      {/* Modal de ajuste anidado: se monta sólo mientras está abierto, con el producto
+          preseleccionado, FUERA del <form> (un portal de React propaga los eventos
+          sintéticos al form padre). Al cerrarlo el foco vuelve al botón «Ajustar stock». */}
+      {initialData && adjustOpen && (
+        <StockAdjustmentModal open onOpenChange={setAdjustOpen} product={{ ...initialData, stock: liveStock }} />
+      )}
+    </>
   )
 }

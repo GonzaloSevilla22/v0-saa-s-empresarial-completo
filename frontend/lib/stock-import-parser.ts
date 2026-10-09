@@ -14,6 +14,12 @@
  * El divisor de CSV propio (`parseCSVText`) se conserva a propósito: las
  * cabeceras admiten alias por columna ("nombre"/"producto"/"name", …), que el
  * `columnMap` de `excel.parseCSV` no modela.
+ *
+ * stock-ledger-solo-rpc (tanda B, task 11.4): el MOTIVO es obligatorio —la base
+ * lo exige en las tres RPCs de ajuste— y las transferencias dejaron de ser un
+ * tipo de ajuste (OQ-1: tienen su propia entidad, «Transferir stock»). El
+ * encabezado «Motivo» ausente es un error de archivo (`hasMotivoColumn`; el
+ * diálogo lo muestra antes de la vista previa) y una celda vacía bloquea esa fila.
  */
 
 import { parseQuantity, looksLikeThousandsGrouping as looksLikeThousandsGroupingBase } from "@/lib/excel"
@@ -21,7 +27,10 @@ import type { Product, MovementType } from "@/lib/types"
 
 // ── CSV template ───────────────────────────────────────────────────────────────
 
-/** Plantilla descargable — separada por `;` para que la coma decimal sea segura. */
+/**
+ * Plantilla descargable — separada por `;` para que la coma decimal sea segura.
+ * Todas las filas llevan MOTIVO (obligatorio) y ninguna ofrece una transferencia.
+ */
 export const TEMPLATE_CSV = [
   "Nombre;Tipo;Cantidad;Motivo",
   "Zapatillas Nike 42;Conteo físico;25;Inventario mensual",
@@ -63,7 +72,9 @@ export const TYPE_ALIASES: Record<string, string> = {
   // expiry
   "vencimiento":       "expiry",
   "vencido":           "expiry",
-  // transfer_in
+  // transfer_in / transfer_out — stock-ledger-solo-rpc: se RECONOCEN para dar un
+  // error preciso que deriva a «Transferir stock», pero NO son tipos de ajuste
+  // (no están en UI_KEY_TO_DB y la base los rechaza: stock_adjustment_type_invalid).
   "transferencia entrada": "transfer_in",
   "transfer entrada":      "transfer_in",
   "recepcion":             "transfer_in",
@@ -82,9 +93,24 @@ export const UI_KEY_TO_DB: Record<string, { type: MovementType; sign: 1 | -1 | 0
   loss:           { type: "loss",           sign: -1 },
   damage:         { type: "damage",         sign: -1 },
   expiry:         { type: "expiry",         sign: -1 },
-  transfer_in:    { type: "transfer_in",    sign:  1 },
-  transfer_out:   { type: "transfer_out",   sign: -1 },
 }
+
+/**
+ * Claves de UI que se reconocen sólo para rechazarlas con un mensaje útil: una
+ * transferencia entre sucursales NO es un ajuste manual (tiene origen, destino,
+ * entidad e historial propios — `rpc_transfer_stock`).
+ */
+export const TRANSFER_UI_KEYS: ReadonlySet<string> = new Set(["transfer_in", "transfer_out"])
+
+/** Los tipos que el diálogo ofrece en su ayuda (sin transferencias). */
+export const ADJUSTMENT_TYPE_LABELS: readonly string[] = [
+  "Ajuste entrada",
+  "Ajuste salida",
+  "Conteo físico",
+  "Pérdida / Robo",
+  "Daño / Merma",
+  "Vencimiento",
+]
 
 // Friendly label for display
 export const UI_KEY_LABEL: Record<string, string> = {
@@ -106,7 +132,7 @@ export function resolveType(raw: string): string | null {
     if (key === normAlias) return uiKey
   }
   // Direct match against uiKey (e.g. "adjustment_in")
-  if (key in UI_KEY_TO_DB) return key
+  if (key in UI_KEY_TO_DB || TRANSFER_UI_KEYS.has(key)) return key
   return null
 }
 
@@ -144,6 +170,21 @@ export function parseCSVText(text: string): string[][] {
  */
 export function looksLikeThousandsGrouping(raw: string): boolean {
   return looksLikeThousandsGroupingBase(raw)
+}
+
+// ── Encabezado «Motivo» ────────────────────────────────────────────────────────
+
+const normalizeHeader = (h: string) => h.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "")
+const MOTIVO_HEADERS: readonly string[] = ["motivo", "razon", "reason", "nota"]
+
+/**
+ * ¿El encabezado del CSV trae la columna «Motivo» (o su alias razón / reason /
+ * nota)? Es obligatoria: sin ella el diálogo rechaza el ARCHIVO antes de la vista
+ * previa; si igual se parsea, `parseAndValidate` bloquea cada fila.
+ */
+export function hasMotivoColumn(cells: string[][]): boolean {
+  if (cells.length === 0) return false
+  return cells[0].some((h) => MOTIVO_HEADERS.includes(normalizeHeader(h)))
 }
 
 // ── Row types ──────────────────────────────────────────────────────────────────
@@ -203,12 +244,12 @@ export function parseAndValidate(cells: string[][], adjustableProducts: Product[
   if (cells.length < 2) return []
 
   // Normalize header keys
-  const header  = cells[0].map((h) => h.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, ""))
+  const header  = cells[0].map(normalizeHeader)
   const colIdx  = {
     name:     header.findIndex((h) => h === "nombre" || h === "producto" || h === "name"),
     type:     header.findIndex((h) => h === "tipo"   || h === "type"     || h === "movimiento"),
     quantity: header.findIndex((h) => h === "cantidad" || h === "qty"    || h === "quantity"),
-    motivo:   header.findIndex((h) => h === "motivo" || h === "razon"    || h === "razon" || h === "reason" || h === "nota"),
+    motivo:   header.findIndex((h) => MOTIVO_HEADERS.includes(h)),
   }
 
   if (colIdx.name < 0 || colIdx.quantity < 0) return []
@@ -245,6 +286,19 @@ export function parseAndValidate(cells: string[][], adjustableProducts: Product[
     }
     if (rawType.trim() === "") {
       warnings.push('Tipo no especificado — se usará "Ajuste entrada" por defecto')
+    }
+    // Una transferencia no es un ajuste: se reconoce para decir adónde ir (OQ-1).
+    if (TRANSFER_UI_KEYS.has(uiKey)) {
+      errors.push(
+        `"${rawType}" es una transferencia entre sucursales, no un ajuste: usá «Transferir stock» desde la pantalla de Stock`,
+      )
+    }
+
+    // El motivo es obligatorio (la base lo exige en las tres RPCs de ajuste).
+    if (colIdx.motivo < 0) {
+      errors.push("Falta el motivo: el archivo no tiene la columna «Motivo»")
+    } else if (rawMotivo.trim() === "") {
+      errors.push("Falta el motivo")
     }
 
     // Desborde de columnas: "1,5" sin comillas en un CSV separado por coma se

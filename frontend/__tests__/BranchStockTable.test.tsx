@@ -18,7 +18,7 @@ vi.mock("@/hooks/data/use-branch-stock", () => ({
 }))
 
 vi.mock("@/hooks/useOrgRole", () => ({
-  useOrgRole: () => ({ isWriter: false, role: "member", isLoading: false }),
+  useOrgRole: () => ({ isWriter: false, role: "member", roles: [], rolesResolved: true, isLoading: false }),
 }))
 
 function row(overrides: Partial<BranchStockWithProduct>): BranchStockWithProduct {

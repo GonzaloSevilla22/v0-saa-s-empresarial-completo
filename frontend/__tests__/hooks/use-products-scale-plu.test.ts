@@ -90,7 +90,7 @@ describe("useProducts — scale_plu (D2)", () => {
     await act(async () => {
       await result.current.updateProduct({
         id: "prod-tomate", name: "Tomate", category: "Verdulería", price: 1000, margin: 40,
-        stock: 1, minStock: 0.5, isVariant: false, stockControlType: "tracked", scalePlu: 261,
+        minStock: 0.5, isVariant: false, stockControlType: "tracked", scalePlu: 261,
       })
     })
     expect(vi.mocked(pythonClient.put).mock.calls[0][1]).toMatchObject({ scale_plu: 261 })
@@ -98,7 +98,7 @@ describe("useProducts — scale_plu (D2)", () => {
     await act(async () => {
       await result.current.updateProduct({
         id: "prod-tomate", name: "Tomate", category: "Verdulería", price: 1000, margin: 40,
-        stock: 1, minStock: 0.5, isVariant: false, stockControlType: "tracked",
+        minStock: 0.5, isVariant: false, stockControlType: "tracked",
       })
     })
     expect(vi.mocked(pythonClient.put).mock.calls[1][1]).not.toHaveProperty("scale_plu")
@@ -113,7 +113,7 @@ describe("useProducts — scale_plu (D2)", () => {
     await act(async () => {
       await result.current.updateProduct({
         id: "prod-tomate", name: "Tomate", category: "Verdulería", price: 1000, margin: 40,
-        stock: 0, minStock: 0, isVariant: false, stockControlType: "tracked", scalePlu: null,
+        minStock: 0, isVariant: false, stockControlType: "tracked", scalePlu: null,
       })
     })
     const [path, body] = vi.mocked(pythonClient.put).mock.calls[0]

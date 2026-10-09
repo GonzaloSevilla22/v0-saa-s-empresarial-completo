@@ -1,3 +1,6 @@
+// Control de CI 2026-10-09: este spec falló dos veces en el PR #622 (tanda B de stock-ledger-solo-rpc) con un
+// desborde de 0,26 px por encima de la tolerancia de 1 px, sin que ese PR toque la campana. Este PR de control
+// corre el mismo spec sobre main sin ningún cambio de código para discriminar entorno vs. change.
 /**
  * qa-integral-modulos G5 (H5): la campana mostraba 6 de 15 notificaciones y el
  * panel no scrolleaba — el max-h-80 vivía en el ROOT del ScrollArea

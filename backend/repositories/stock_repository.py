@@ -1,13 +1,16 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING
 
 import asyncpg
 
 from backend.repositories.base import BaseRepository
 
-if TYPE_CHECKING:
-    from backend.repositories.outbox_repository import OutboxRepository
-
+# stock-ledger-solo-rpc (D10): `adjust_with_event` se RETIRÓ. Era código muerto (sin
+# callers) y el único del repo que llamaba a la RPC de delta de stock con
+# p_log_movement = FALSE — cambiar el saldo SIN movimiento, que desde la tanda B la
+# RPC rechaza con P0400 (el candado de test_products_stock_ledger.py impide que
+# el nombre de esa RPC reaparezca fuera de product_repository.py). El evento `StockAdjusted` no tiene consumidor
+# (test_journal_consumer.py lo lista como fuera de alcance), así que retirar su
+# único productor no deja a nadie sin datos.
 
 class StockRepository(BaseRepository):
     async def get_stock_by_product(self, product_id: str, account_id: str) -> asyncpg.Record | None:
@@ -58,41 +61,3 @@ class StockRepository(BaseRepository):
             p_quantity=quantity,
         )
 
-    async def adjust_with_event(
-        self,
-        outbox_repo: "OutboxRepository",
-        product_id: str,
-        account_id: str,
-        delta: float,
-        branch_id: str,
-        allow_negative: bool = False,
-    ) -> None:
-        """C-25 producer: apply stock delta + emit StockAdjusted in the SAME transaction.
-
-        Per DEC-20: the StockAdjusted event INSERT is in the same transaction as the
-        rpc_apply_product_stock_delta call. If the stock adjustment fails (e.g. invariant
-        violation: insufficient stock), the event row rolls back with it.
-        """
-        async with self._conn.transaction():
-            await self._conn.fetchrow(
-                "SELECT public.rpc_apply_product_stock_delta($1::uuid, $2::numeric, $3::uuid, NULL, FALSE, $4::boolean)",
-                product_id,
-                delta,
-                branch_id,
-                allow_negative,
-            )
-
-            # C-25 DEC-20: emit StockAdjusted in the same transaction
-            await outbox_repo.emit_event(
-                account_id=account_id,
-                event_type="StockAdjusted",
-                aggregate_type="Product",
-                aggregate_id=product_id,
-                payload={
-                    "account_id": account_id,
-                    "product_id": product_id,
-                    "branch_id": branch_id,
-                    "delta": delta,
-                    "quantity_delta": delta,
-                },
-            )

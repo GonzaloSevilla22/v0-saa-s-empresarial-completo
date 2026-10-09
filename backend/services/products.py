@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import asyncpg
 import uuid
+from decimal import Decimal
 from fastapi import HTTPException
 
 from backend.core.errors import ProblemHTTPException
-from backend.core.guards import require_role
+from backend.core.guards import require_account_role, require_role
+from backend.core.rbac import CAN_STOCK
 from backend.repositories.plan_limits_repository import PlanLimitsRepository
 from backend.repositories.product_category_repository import ProductCategoryRepository
 from backend.repositories.product_repository import ProductRepository
@@ -215,6 +217,16 @@ async def _guard_base_unit_change(
         )
 
 
+# stock-ledger-solo-rpc (D9): `PUT /products/{id}` NO ajusta stock. El formulario
+# de edición mandaba SIEMPRE el stock que traía abierto y el backend aplicaba
+# `objetivo - saldo actual`: una venta entre que se abría el formulario y se
+# guardaba un cambio de PRECIO re-sumaba las unidades vendidas como "Ajuste
+# manual de stock" (ajuste fantasma). El ajuste vive en `rpc_stock_adjustment`
+# (modal de /stock), con rol y motivo.
+STOCK_ADJUST_REQUIRED_CODE = "stock_adjust_required"
+_STOCK_ADJUST_REQUIRED_DETAIL = "El stock se ajusta desde «Ajustar stock», con un motivo."
+
+
 async def create_product(
     repo: ProductRepository,
     auth: dict,
@@ -222,8 +234,17 @@ async def create_product(
     payload: ProductCreate,
     plan_limits_repo: PlanLimitsRepository,
     category_repo: ProductCategoryRepository | None = None,
+    conn=None,
 ) -> dict:
     require_role(auth, ["user", "admin"])
+    # stock-ledger-solo-rpc (D9, OQ-2): el stock inicial es un AJUSTE MANUAL, así
+    # que exige CAN_STOCK (owner/admin/stock) — y se evalúa ANTES de contar contra
+    # el límite del plan o insertar nada: sin el rol, 403 y el producto no se crea.
+    # El rol de plataforma de arriba no alcanza (no mira el rol de la cuenta). El
+    # mismo conjunto lo exige la base en `_stock_assert_can_adjust`; esto es la
+    # defensa en profundidad que evita crear un producto y recién después fallar.
+    if payload.stock != 0:
+        await require_account_role(conn, auth, CAN_STOCK)
     plan = auth.get("plan", "pro")
     limits = await plan_limits_repo.get_limits(plan)
     limit = limits["max_products"]
@@ -307,18 +328,37 @@ async def update_product(
     El resto de los campos conserva `exclude_none` (task 9.4)."""
     require_role(auth, ["user", "admin"])
     data = payload.model_dump(
-        exclude_none=True, exclude={"sku", "category_id", "cost", "base_unit_id", "scale_plu"}
+        exclude_none=True,
+        exclude={"sku", "category_id", "cost", "base_unit_id", "scale_plu", "stock"},
     )
     changes_stock_control_type = payload.stock_control_type is not None
+    stock_informed = payload.stock is not None
 
     # La fila actual sólo hace falta para los campos que dependen del estado
     # vivo (herencia de categoría, guard de unidad base, guard del PLU en un
-    # padre): una sola lectura.
+    # padre, comparación del stock): una sola lectura.
     existing: asyncpg.Record | None = None
-    if category_provided or base_unit_provided or scale_plu_provided or changes_stock_control_type:
+    if (
+        category_provided or base_unit_provided or scale_plu_provided
+        or changes_stock_control_type or stock_informed
+    ):
         existing = await repo.get_by_id(product_id, account_id)
         if existing is None:
             raise HTTPException(status_code=404, detail="Producto no encontrado")
+
+    # stock-ledger-solo-rpc (D9): un `stock` distinto del saldo actual NO se
+    # aplica — 422 ANTES de escribir ningún campo. El MISMO valor se ignora
+    # (compatibilidad con una pestaña abierta con el bundle anterior, que
+    # siempre mandaba `stock`): el resto de la edición sigue su curso.
+    if stock_informed and existing is not None:
+        current = Decimal(str(existing["stock"])) if existing["stock"] is not None else Decimal("0")
+        if Decimal(str(payload.stock)) != current:
+            raise ProblemHTTPException(
+                status_code=422,
+                detail=_STOCK_ADJUST_REQUIRED_DETAIL,
+                code=STOCK_ADJUST_REQUIRED_CODE,
+                field="stock",
+            )
 
     if existing is not None and (scale_plu_provided or changes_stock_control_type):
         existing_keys = existing.keys()

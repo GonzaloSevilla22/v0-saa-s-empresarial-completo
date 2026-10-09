@@ -33,6 +33,16 @@ from typing import Collection
 CAN_CONFIGURE: frozenset[str] = frozenset({"owner", "admin"})
 CAN_SELL: frozenset[str] = frozenset({"owner", "admin", "seller", "cashier"})
 CAN_CASH: frozenset[str] = frozenset({"owner", "admin", "cashier"})
+
+# stock-ledger-solo-rpc (D5, OQ-2): ajustar el stock A MANO. PRIMER CONSUMIDOR:
+# `POST /products` con stock inicial distinto de cero
+# (`services/products.py::create_product`, 403 antes de escribir nada). ESPEJA
+# el literal `ARRAY['owner', 'admin', 'stock']` de `_stock_assert_can_adjust`
+# (migración 20261074000001) —la base es quien lo exige de verdad en las tres
+# RPCs de ajuste— y `CAN_STOCK` de `frontend/lib/rbac-capabilities.ts`: un test
+# del frontend (`__tests__/lib/rbac-capabilities.test.ts`) lee los tres y falla
+# si divergen. Es una capacidad de ACCIÓN, no un sinónimo del rol `stock`: hoy
+# coincide con `CAN_RECEIVE_PURCHASE` (abajo) pero va con nombre propio.
 CAN_STOCK: frozenset[str] = frozenset({"owner", "admin", "stock"})
 CAN_PURCHASE: frozenset[str] = frozenset({"owner", "admin", "purchases"})
 CAN_ACCOUNT: frozenset[str] = frozenset({"owner", "admin", "accountant"})

@@ -17,6 +17,11 @@ def _jsonb(value):
 
 # C-21 checkpoint #2: products.stock no existe — branch_stock es el único ledger.
 # Este RPC aplica deltas validando que el producto pertenezca a la cuenta del caller.
+# stock-ledger-solo-rpc (D9/D10): desde la tanda B es un envoltorio del núcleo de
+# ajuste manual (rol owner/admin/stock y motivo exigidos en la base) y SU ÚNICO
+# CALLER es el alta de producto con stock inicial: `(…, 'Stock inicial', TRUE,
+# FALSE)`. Cualquier otra combinación de flags la rechaza con P0400; el candado
+# `test_products_stock_ledger.py::TestStockRpcStructuralLock` lo ata por AST.
 _APPLY_STOCK_DELTA_SQL = (
     "SELECT public.rpc_apply_product_stock_delta("
     "$1::uuid, $2::numeric, $3::uuid, $4::text, $5::boolean, $6::boolean)"
@@ -257,9 +262,14 @@ class ProductRepository(BaseRepository):
         # en data" ya significa "informado". El resto conserva el filtro por
         # None previo (no ampliar el alcance — task 9.4).
         fields = {k: v for k, v in data.items() if v is not None or k in _NULLABLE_ON_UPDATE}
-        # C-21 checkpoint #2: 'stock' no es columna de products — se aplica como
-        # delta (target − Σ branch_stock) vía RPC.
-        stock_target = fields.pop("stock", None)
+        # stock-ledger-solo-rpc (D9/D10): el UPDATE de un producto NUNCA mueve
+        # stock. `products.stock` no existe (C-21: branch_stock es el único
+        # ledger) y el ajuste manual vive en `rpc_stock_adjustment`, con rol y
+        # motivo. El service rechaza con 422 un `stock` que no coincide con el
+        # saldo y lo saca de `data`; si igual llegara acá, se descarta — jamás
+        # entra al SET ni dispara una RPC (antes se aplicaba como delta
+        # `objetivo − Σ branch_stock`, y de ahí salía el ajuste fantasma).
+        fields.pop("stock", None)
         # branch-min-stock-realign: min_stock se persiste en products (dual-write
         # legacy) Y se propaga a branch_stock.min_stock (fuente de verdad real)
         # en la MISMA transacción, después del UPDATE de products.
@@ -275,21 +285,6 @@ class ProductRepository(BaseRepository):
             )
         if min_stock_target is not None:
             await self._propagate_min_stock(product_id, Decimal(str(min_stock_target)))
-        if stock_target is not None:
-            current = await self._conn.fetchval(
-                "SELECT stock FROM v_products_with_stock WHERE id = $1 AND account_id = $2",
-                product_id,
-                account_id,
-            )
-            if current is None:
-                return None
-            delta = Decimal(str(stock_target)) - Decimal(str(current))
-            if delta != 0:
-                await self.fetchrow(
-                    _APPLY_STOCK_DELTA_SQL,
-                    product_id, delta, None,
-                    "Ajuste manual de stock", True, False,
-                )
         return await self.get_by_id(product_id, account_id)
 
     async def search_by_sku(self, sku: str, account_id: str) -> asyncpg.Record | None:

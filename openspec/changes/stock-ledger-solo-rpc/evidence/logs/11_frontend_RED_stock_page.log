@@ -1,0 +1,17 @@
+     × un miembro con rol seller no ve «Ajustar stock», la acción por fila ni «Importar ajuste» 287ms
+     × un miembro con rol cashier no ve «Ajustar stock», la acción por fila ni «Importar ajuste» 31ms
+     × un miembro con rol purchases no ve «Ajustar stock», la acción por fila ni «Importar ajuste» 26ms
+     × un miembro con rol accountant no ve «Ajustar stock», la acción por fila ni «Importar ajuste» 26ms
+     × un miembro con rol viewer no ve «Ajustar stock», la acción por fila ni «Importar ajuste» 44ms
+     × el conjunto RESUELTO y vacío (sin ningún rol activo) no ajusta 23ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 6 ⎯⎯⎯⎯⎯⎯⎯
+ FAIL  __tests__/pages/stock-page-adjust-capability.test.tsx > /stock — las acciones de ajuste sólo para quien puede ajustar (CAN_STOCK) > un miembro con rol seller no ve «Ajustar stock�
+ FAIL  __tests__/pages/stock-page-adjust-capability.test.tsx > /stock — las acciones de ajuste sólo para quien puede ajustar (CAN_STOCK) > un miembro con rol cashier no ve «Ajustar stock
+ FAIL  __tests__/pages/stock-page-adjust-capability.test.tsx > /stock — las acciones de ajuste sólo para quien puede ajustar (CAN_STOCK) > un miembro con rol purchases no ve «Ajustar sto
+ FAIL  __tests__/pages/stock-page-adjust-capability.test.tsx > /stock — las acciones de ajuste sólo para quien puede ajustar (CAN_STOCK) > un miembro con rol accountant no ve «Ajustar st
+ FAIL  __tests__/pages/stock-page-adjust-capability.test.tsx > /stock — las acciones de ajuste sólo para quien puede ajustar (CAN_STOCK) > un miembro con rol viewer no ve «Ajustar stock�
+AssertionError: expected [ <button …(2)>…(1)</button> ] to have a length of +0 but got 1
+ FAIL  __tests__/pages/stock-page-adjust-capability.test.tsx > /stock — las acciones de ajuste sólo para quien puede ajustar (CAN_STOCK) > el conjunto RESUELTO y vacío (sin ningún rol a
+AssertionError: expected [ <button …(2)>…(1)</button> ] to have a length of +0 but got 1
+ Test Files  1 failed (1)
+      Tests  6 failed | 6 passed (12)

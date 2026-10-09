@@ -6,6 +6,8 @@ import { useProducts } from "@/hooks/data/use-products"
 import { useAuth } from "@/contexts/auth-context"
 import { useBranches } from "@/hooks/data/use-branches"
 import { usePlanLimits } from "@/hooks/auth/use-plan-limits"
+import { useOrgRole } from "@/hooks/useOrgRole"
+import { CAN_STOCK, hasCapability } from "@/lib/rbac-capabilities"
 import { StockSemaphore } from "@/components/stock/stock-semaphore"
 import { LowStockAlert } from "@/components/stock/low-stock-alert"
 import { StockAdjustmentModal } from "@/components/stock/stock-adjustment-modal"
@@ -51,7 +53,15 @@ const STATUS_SORT_RANK: Record<StockStatus, number> = {
  */
 // Exportada para el test de columnas (ventas-unidades-conversion 6.1): la
 // página entera arrastra demasiados hooks para renderizarla en jsdom.
-export function buildColumns(showTransfer: boolean, unitSymbolFor: UnitSymbolFor): Column<Product>[] {
+//
+// stock-ledger-solo-rpc (D12): `canAdjust` decide si la fila ofrece el ajuste
+// manual (CAN_STOCK: owner/admin/stock). Default `true`: todo caller existente
+// sigue igual; la página pasa el valor real.
+export function buildColumns(
+  showTransfer: boolean,
+  unitSymbolFor: UnitSymbolFor,
+  canAdjust: boolean = true,
+): Column<Product>[] {
   return [
   {
     key: "name",
@@ -104,7 +114,7 @@ export function buildColumns(showTransfer: boolean, unitSymbolFor: UnitSymbolFor
         {showTransfer && holdsOwnStock(row) && (
           <TransferStockAction productId={row.id} productName={row.name} />
         )}
-        <AdjustButton product={row} />
+        {canAdjust && <AdjustButton product={row} />}
       </div>
     ),
   },
@@ -175,6 +185,14 @@ export default function StockPage() {
   const lowStock = inventory.filter(p => isBelowThreshold(p.stock, p.minStock))
   const { isAdmin } = useAuth()
 
+  // stock-ledger-solo-rpc (D12): el ajuste manual (botón del encabezado, acción
+  // por fila e importador) sólo se ofrece a quien tiene un rol activo en CAN_STOCK
+  // — decidido sobre el CONJUNTO de roles, no sobre el `role` singular (que
+  // colapsa a `member` a quien sólo es de depósito). Optimista mientras el
+  // conjunto no resolvió: la barrera real es la base (`insufficient_role`).
+  const { roles, rolesResolved } = useOrgRole()
+  const canAdjust = hasCapability(roles, CAN_STOCK, rolesResolved)
+
   // sucursal-guard-vaciado-auditoria (G3, D7): "Transferir stock" sólo tiene
   // sentido con el módulo de sucursales habilitado y más de una activa —
   // con una sola no hay a dónde transferir y el control sería ruido.
@@ -192,7 +210,10 @@ export default function StockPage() {
     () => (row) => resolveUnit(row.baseUnitId, unitsById)?.symbol,
     [unitsById],
   )
-  const columns = useMemo(() => buildColumns(showTransfer, unitSymbolFor), [showTransfer, unitSymbolFor])
+  const columns = useMemo(
+    () => buildColumns(showTransfer, unitSymbolFor, canAdjust),
+    [showTransfer, unitSymbolFor, canAdjust],
+  )
 
   // sucursal-guard-vaciado-auditoria (G3, task 7.5): camino directo desde el
   // aviso de error de venta — humanizeOperationError navega a
@@ -221,25 +242,32 @@ export default function StockPage() {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <ExportButton exportType="stock_csv" />
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setImportOpen(true)}
-            className="gap-2"
-          >
-            <Upload className="h-4 w-4" />
-            <span className="hidden sm:inline">Importar ajuste</span>
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setAdjustModalOpen(true)}
-            className="gap-2"
-          >
-            <SlidersHorizontal className="h-4 w-4" />
-            <span className="hidden sm:inline">Ajustar stock</span>
-            <span className="sm:hidden">Ajustar</span>
-          </Button>
+          {canAdjust && (
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setImportOpen(true)}
+                className="gap-2"
+                // En móvil el texto se oculta (`hidden sm:inline`): sin nombre accesible el
+                // botón quedaba mudo para un lector de pantalla.
+                aria-label="Importar ajuste"
+              >
+                <Upload className="h-4 w-4" />
+                <span className="hidden sm:inline">Importar ajuste</span>
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setAdjustModalOpen(true)}
+                className="gap-2"
+              >
+                <SlidersHorizontal className="h-4 w-4" />
+                <span className="hidden sm:inline">Ajustar stock</span>
+                <span className="sm:hidden">Ajustar</span>
+              </Button>
+            </>
+          )}
         </div>
       </div>
 

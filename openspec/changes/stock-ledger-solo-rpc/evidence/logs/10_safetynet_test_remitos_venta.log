@@ -1,0 +1,34 @@
+SET
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=2950d412-45da-42cc-a332-d45391d0a446
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=c606af13-08b4-4064-80f8-a4efa9078b23
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=81e2bc13-e79f-4e80-b710-188ce5aa96ae
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=6c5058b7-a79f-4c75-9df6-d8eb313846ee
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=57b62d68-7f84-4a09-88de-5824737a6b05
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=285b69a6-b56d-4871-bb25-a450d3c10216
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=6640650c-8c4e-4a92-acbe-5836e96ef893
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=079cbc42-e132-4ad2-8c71-ed2f7a893dc9
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=0b9cd443-5997-4a1c-af55-5abaef614224
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=36554811-2b97-4be9-ad48-a0d71dab0b3d
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=7322fc35-7746-48e9-8710-8b3c99640885
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=40358261-3f18-4f44-89f5-157d25fa9917
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=6a8859e5-d860-4556-85b0-3f81f42d4af6
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=62573801-9cb5-4e78-b341-daf003b12f67
+NOTICE:  GATE REMITOS-VENTA PASSED: emisión, rechazos sin efectos, idempotencia, roles, edición con espejo por par, fila forjada, anulación, invariante del ledger, PostgREST, guards de unidad, baja de sucursal, regresión de presupuestos y numeración — residuo cero.
+DO
+DO
+NOTICE:  PASS (o1): helpers y disparadores sin EXECUTE para authenticated/anon; las 4 RPCs SECURITY DEFINER, con COMMENT, sin anon y con authenticated; tablas sólo de lectura para la API, sin políticas de escritura.
+DO
+NOTICE:  PASS (o2): catálogo delivery_note_sale con NULL -> issued y issued -> canceled (motivo, terminal).
+GATE_EXIT=0

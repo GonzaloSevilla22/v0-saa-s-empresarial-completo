@@ -4,8 +4,9 @@ C-21 checkpoint #2 — single-write branch_stock (TDD).
 products.stock no existe más: el stock vive SOLO en branch_stock.
   - ProductRepository.create: INSERT sin stock; stock inicial via
     rpc_apply_product_stock_delta; retorna fila de v_products_with_stock.
-  - ProductRepository.update: 'stock' se redirige al RPC como delta
-    (target − Σ actual); nunca entra al UPDATE de products.
+  - ProductRepository.update: 'stock' NUNCA mueve stock ni entra al UPDATE de
+    products (stock-ledger-solo-rpc D9: antes se aplicaba como delta
+    target − Σ actual vía el RPC; el ajuste vive en rpc_stock_adjustment).
   - ProductRepository.search_by_sku/barcode: leen de v_products_with_stock.
   - PurchaseRepository.delete_*: la reversa de stock va al RPC (delta negativo,
     allow_negative, sin movement) en vez de UPDATE products.
@@ -136,12 +137,18 @@ class TestProductCreateSingleWrite:
         )
 
 
-class TestProductUpdateStockRedirect:
+class TestProductUpdateNeverMovesStock:
+    """stock-ledger-solo-rpc (D9/D10, tasks 10.5/10.7): ANTES el UPDATE aplicaba
+    `stock` como delta (target − Σ branch_stock) vía rpc_apply_product_stock_delta
+    — de ahí salía el ajuste fantasma al guardar un precio con el stock viejo.
+    Ahora el repository NUNCA mueve stock; el ajuste vive en rpc_stock_adjustment
+    (rol + motivo) y el service ya rechazó con 422 un stock que no coincide."""
+
     @pytest.mark.asyncio
     async def test_update_excludes_stock_from_products_update(self, product_repo):
         repo, conn = product_repo
         conn.fetchval = AsyncMock(return_value=Decimal("12"))
-        conn.fetchrow = AsyncMock(side_effect=[{"quantity_after": "30"}, VIEW_ROW])
+        conn.fetchrow = AsyncMock(side_effect=[VIEW_ROW])
 
         await repo.update(PRODUCT_ID, ACCOUNT_ID, {"name": "N", "stock": Decimal("30")})
 
@@ -154,28 +161,26 @@ class TestProductUpdateStockRedirect:
         )
 
     @pytest.mark.asyncio
-    async def test_update_stock_calls_rpc_with_delta(self, product_repo):
+    async def test_update_never_calls_the_stock_rpc_whatever_the_stock_value(self, product_repo):
         repo, conn = product_repo
-        conn.fetchval = AsyncMock(return_value=Decimal("12"))
-        conn.fetchrow = AsyncMock(side_effect=[{"quantity_after": "30"}, VIEW_ROW])
+        for stock in (Decimal("30"), Decimal("12"), Decimal("0")):
+            conn.reset_mock()
+            conn.fetchval = AsyncMock(return_value=Decimal("12"))
+            conn.fetchrow = AsyncMock(side_effect=[VIEW_ROW])
 
-        await repo.update(PRODUCT_ID, ACCOUNT_ID, {"stock": Decimal("30")})
+            await repo.update(PRODUCT_ID, ACCOUNT_ID, {"stock": stock})
 
-        rpc_calls = _rpc_calls(conn.fetchrow)
-        assert len(rpc_calls) == 1
-        assert Decimal("18") in rpc_calls[0][0], (
-            "delta must be target − Σ actual (30 − 12 = 18)"
-        )
+            assert _rpc_calls(conn.fetchrow) == [], f"stock={stock}: el UPDATE no debe llamar a la RPC de stock"
+            assert conn.fetchval.await_count == 0, "ni siquiera lee el saldo para calcular un delta"
 
     @pytest.mark.asyncio
-    async def test_update_stock_equal_to_sum_skips_rpc(self, product_repo):
+    async def test_update_only_stock_writes_nothing_to_products(self, product_repo):
         repo, conn = product_repo
-        conn.fetchval = AsyncMock(return_value=Decimal("30"))
         conn.fetchrow = AsyncMock(side_effect=[VIEW_ROW])
 
         await repo.update(PRODUCT_ID, ACCOUNT_ID, {"stock": Decimal("30")})
 
-        assert _rpc_calls(conn.fetchrow) == [], "delta 0 must not call the RPC"
+        assert [c for c in conn.execute.call_args_list if "update products" in c[0][0].lower()] == []
 
     @pytest.mark.asyncio
     async def test_update_without_stock_unchanged_behavior(self, product_repo):

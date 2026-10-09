@@ -8,6 +8,10 @@
  * Step 1 — Upload
  *   Accept a .csv file (comma or semicolon delimited, UTF-8 with/without BOM).
  *   Show a downloadable template and the list of supported type values.
+ *   stock-ledger-solo-rpc (tanda B): la columna «Motivo» es OBLIGATORIA (la base
+ *   exige un motivo en las tres RPCs de ajuste) y las transferencias dejaron de
+ *   ser un tipo de ajuste (OQ-1: «Transferir stock»). Un CSV sin la columna se
+ *   rechaza como error de archivo; una fila con la celda vacía queda bloqueada.
  *
  * Step 2 — Preview & validation
  *   For each CSV row:
@@ -48,9 +52,10 @@ import {
   FileText, Loader2, ChevronRight, RotateCcw,
 } from "lucide-react"
 import {
-  TEMPLATE_CSV, UI_KEY_TO_DB, UI_KEY_LABEL, parseCSVText, parseAndValidate,
-  looksLikeThousandsGrouping, type ParsedImportRow, type RowStatus,
+  TEMPLATE_CSV, UI_KEY_TO_DB, UI_KEY_LABEL, ADJUSTMENT_TYPE_LABELS, parseCSVText, parseAndValidate,
+  hasMotivoColumn, looksLikeThousandsGrouping, type ParsedImportRow, type RowStatus,
 } from "@/lib/stock-import-parser"
+import { humanizeOperationError } from "@/lib/operation-errors"
 import { formatNumber } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
@@ -185,6 +190,13 @@ export function StockImportAdjustmentDialog({
           return
         }
 
+        // stock-ledger-solo-rpc: el motivo es obligatorio. Sin la columna el ARCHIVO
+        // se rechaza acá (error de archivo), antes de la vista previa.
+        if (!hasMotivoColumn(cells)) {
+          toast.error('El CSV debe tener la columna "Motivo": cada ajuste exige un motivo que queda en el historial.')
+          return
+        }
+
         const parsed = parseAndValidate(cells, adjustableProducts)
         setRows(parsed)
         setStep(2)
@@ -211,7 +223,7 @@ export function StockImportAdjustmentDialog({
       const params: Record<string, unknown> = {
         p_product_id: row.product.id,
         p_type:       info.type,
-        p_reason:     row.rawMotivo.trim() || null,
+        p_reason:     row.rawMotivo.trim(),
       }
 
       if (info.sign === 0) {
@@ -223,7 +235,18 @@ export function StockImportAdjustmentDialog({
 
       const { error } = await supabase.rpc("rpc_stock_adjustment", params)
       if (error) {
-        updated[i] = { ...row, applied: false, applyError: error.message }
+        // Mapa canónico (rol, motivo, producto, stock…): castellano accionable, no el
+        // `error.message` crudo de PostgREST; si no lo reconoce, lo devuelve tal cual.
+        updated[i] = {
+          ...row,
+          applied: false,
+          applyError: humanizeOperationError(
+            error.message,
+            (id) => products.find((pr) => pr.id === id)?.name,
+            undefined,
+            { documentLabel: "ajuste de stock" },
+          ).message,
+        }
       } else {
         updated[i] = { ...row, applied: true }
       }
@@ -243,7 +266,7 @@ export function StockImportAdjustmentDialog({
     } else {
       toast.warning(`${ok} OK · ${err} con error — revisá los detalles`)
     }
-  }, [rows, supabase, refreshData, onSuccess])
+  }, [rows, products, supabase, refreshData, onSuccess])
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
@@ -322,7 +345,7 @@ export function StockImportAdjustmentDialog({
                   <div><span className="font-medium text-foreground">Nombre</span> <span className="text-muted-foreground">(obligatorio)</span></div>
                   <div><span className="font-medium text-foreground">Cantidad</span> <span className="text-muted-foreground">(obligatorio — decimales con coma o punto)</span></div>
                   <div><span className="font-medium text-foreground">Tipo</span> <span className="text-muted-foreground">(opcional)</span></div>
-                  <div><span className="font-medium text-foreground">Motivo</span> <span className="text-muted-foreground">(opcional)</span></div>
+                  <div><span className="font-medium text-foreground">Motivo</span> <span className="text-muted-foreground">(obligatorio — queda en el historial)</span></div>
                 </div>
               </div>
 
@@ -332,22 +355,13 @@ export function StockImportAdjustmentDialog({
                   Valores válidos para la columna Tipo
                 </p>
                 <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-xs text-muted-foreground">
-                  {[
-                    ["Ajuste entrada", "Ajuste salida"],
-                    ["Conteo físico", "Pérdida / Robo"],
-                    ["Daño / Merma", "Vencimiento"],
-                    ["Transferencia entrada", "Transferencia salida"],
-                  ].map(([a, b], i) => (
-                    <div key={i}>{a}</div>
-                  )).concat(
-                    [["Ajuste entrada", "Ajuste salida"],
-                    ["Conteo físico", "Pérdida / Robo"],
-                    ["Daño / Merma", "Vencimiento"],
-                    ["Transferencia entrada", "Transferencia salida"]].map(([a, b], i) => (
-                      <div key={`b${i}`}>{b}</div>
-                    ))
-                  )}
+                  {ADJUSTMENT_TYPE_LABELS.map((label) => (
+                    <div key={label}>{label}</div>
+                  ))}
                 </div>
+                <p className="text-[11px] text-muted-foreground/60">
+                  Para mover mercadería entre sucursales usá «Transferir stock»: no es un ajuste.
+                </p>
                 <p className="text-[11px] text-muted-foreground/60">
                   Si omitís la columna Tipo, se usará "Ajuste entrada" por defecto.
                 </p>

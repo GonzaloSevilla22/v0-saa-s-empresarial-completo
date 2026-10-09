@@ -1,0 +1,25 @@
+     × stock_adjustment_reason_required → pide el motivo y dice que no se guardó nada 9ms
+     × stock_adjustment_type_invalid (transferencia como ajuste) → deriva a «Transferir stock» 4ms
+     × stock_adjustment_product_not_adjustable → se ajusta por variantes, sin el token ni el tipo de control crudo 1ms
+     × stock_adjustment_sign_invalid → explica que pérdida/rotura/vencimiento sólo restan 1ms
+     × stock_internal_flags_not_allowed → mensaje genérico en castellano, sin el token 1ms
+     × stock_adjust_required (422 del PUT /products) → deriva a «Ajustar stock» 1ms
+     × stock_adjust_required también se reconoce dentro del detail del backend 2ms
+     × nombra quién puede ajustar stock y no dice «vendedor» 1ms
+     × el 403 de require_account_role del backend (sin code) también cae en el texto del ajuste 1ms
+     × product_not_found en el contexto del ajuste → el producto no existe o no es de la cuenta (singular) 1ms
+     × «Stock insuficiente. Disponible: 5, delta: -9» → cuánto hay y cuánto se pidió restar 2ms
+⎯⎯⎯⎯⎯⎯ Failed Tests 11 ⎯⎯⎯⎯⎯⎯⎯
+ FAIL  __tests__/lib/operation-errors-stock-adjustment.test.ts > humanizeOperationError — ajuste manual de stock > stock_adjustment_reason_required → pide el motivo y
+ FAIL  __tests__/lib/operation-errors-stock-adjustment.test.ts > humanizeOperationError — ajuste manual de stock > stock_adjustment_type_invalid (transferencia como aju
+ FAIL  __tests__/lib/operation-errors-stock-adjustment.test.ts > humanizeOperationError — ajuste manual de stock > stock_adjustment_product_not_adjustable → se ajusta
+ FAIL  __tests__/lib/operation-errors-stock-adjustment.test.ts > humanizeOperationError — ajuste manual de stock > stock_adjustment_sign_invalid → explica que pérdid
+ FAIL  __tests__/lib/operation-errors-stock-adjustment.test.ts > humanizeOperationError — ajuste manual de stock > stock_internal_flags_not_allowed → mensaje genéric
+ FAIL  __tests__/lib/operation-errors-stock-adjustment.test.ts > humanizeOperationError — ajuste manual de stock > stock_adjust_required (422 del PUT /products) → der
+ FAIL  __tests__/lib/operation-errors-stock-adjustment.test.ts > humanizeOperationError — ajuste manual de stock > stock_adjust_required también se reconoce dentro del
+ FAIL  __tests__/lib/operation-errors-stock-adjustment.test.ts > humanizeOperationError — insufficient_role en el contexto «ajuste de stock» > nombra quién puede aju
+ FAIL  __tests__/lib/operation-errors-stock-adjustment.test.ts > humanizeOperationError — insufficient_role en el contexto «ajuste de stock» > el 403 de require_accou
+ FAIL  __tests__/lib/operation-errors-stock-adjustment.test.ts > humanizeOperationError — otros rechazos del ajuste de stock > product_not_found en el contexto del ajus
+ FAIL  __tests__/lib/operation-errors-stock-adjustment.test.ts > humanizeOperationError — otros rechazos del ajuste de stock > «Stock insuficiente. Disponible: 5, delt
+ Test Files  1 failed (1)
+      Tests  11 failed | 3 passed (14)

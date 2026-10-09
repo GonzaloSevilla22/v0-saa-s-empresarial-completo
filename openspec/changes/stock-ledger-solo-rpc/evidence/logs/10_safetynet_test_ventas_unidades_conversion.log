@@ -1,0 +1,26 @@
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=3f79ce49-5190-4930-a43b-1e86c279ad04
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=d62d35e3-5c5d-4309-808f-d8b47c03dcd7
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=d9ea7ba6-95e3-4b32-9dbd-24678da6048b
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=7a9df78f-5210-4fb1-9d60-4e36ec1f079f
+NOTICE:  PASS (A) definición única: 15/15
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=41fc2687-cc86-43fb-980e-626a4dc039e9
+NOTICE:  PASS (B) seis caminos: 9/9
+NOTICE:  PASS (C) rechazos sin rastro, borrado e invariante: 7/7
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=50817c0c-1932-42f3-a51e-ca0e4b038b4c
+NOTICE:  PASS (D) umbral fraccionario: 5/5
+NOTICE:  PASS (E) introspección
+NOTICE:  PASS (F) unidades de sistema: 4/4
+NOTICE:  PASS (G) unidad de otra cuenta: 2/2
+NOTICE:  PASS (I) precio por unidad de la línea y reporting en unidad base: 7/7
+NOTICE:  PASS (J) D6 distinguible: 3/3
+NOTICE:  PASS (K) precisión, base propia de variante y factor inválido: 3/3
+NOTICE:  PASS (L) unidad base bloqueada debajo del stock: 24/24
+NOTICE:  PASS (M) precio por unidad de la línea sin redondear y total exacto: 6/6
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=27106893-608f-4eee-baad-b07ed708ce41
+NOTICE:  PASS (N) alerta de margen en unidad base: 5/5
+NOTICE:  PASS (O) unidad en uso inmutable en factor/tipo/base: 7/7
+NOTICE:  PASS (P) total de dinero redondeado una vez: 5/5
+NOTICE:  PASS (H) residuo cero: 12/12 tablas
+NOTICE:  GATE ventas-unidades-conversion: PASS
+DO
+GATE_EXIT=0

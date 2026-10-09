@@ -7,6 +7,9 @@ TDD cycle:
             written in the same transaction. Fails.
   6.2 GREEN: PurchaseCreated producer added to purchase_repository.create_operation_with_event
   6.3 RED+GREEN: test_stock_adjusted_emitted_in_tx — same for StockAdjusted.
+      stock-ledger-solo-rpc (D10): RETIRADO junto con `StockRepository.adjust_with_event`
+      (código muerto, el único `p_log_movement = FALSE` del repo); lo reemplaza el
+      candado estructural de `test_products_stock_ledger.py::TestStockRpcStructuralLock`.
   6.4 TRIANGULATE: test_event_rolls_back_with_failed_mutation — when mutation
             rolls back, no event row remains (shared transaction).
   6.5 Confirm SaleConfirmed NOT re-created (C-29 already has it).
@@ -167,71 +170,6 @@ class TestPurchaseCreatedProducer:
 
         # No event emitted on idempotency replay
         outbox_repo.emit_event.assert_not_called()
-
-
-# ── 6.3 RED+GREEN: StockAdjusted producer ─────────────────────────────────────
-
-class TestStockAdjustedProducer:
-    """6.3: StockAdjusted event emitted in same tx as stock adjust path."""
-
-    @pytest.mark.asyncio
-    async def test_stock_adjusted_emitted_in_tx(self):
-        """6.3 RED+GREEN: adjust_stock_with_event emits StockAdjusted event."""
-        conn = _make_mock_conn()
-        conn.fetchrow.return_value = None  # RPC returns None (void)
-        conn.execute.return_value = "UPDATE 1"
-
-        repo = StockRepository(conn)
-        outbox_repo = OutboxRepository(conn)
-
-        emitted = []
-
-        async def track_emit(account_id, event_type, aggregate_type, aggregate_id, payload):
-            emitted.append({
-                "event_type": event_type,
-                "account_id": account_id,
-                "aggregate_type": aggregate_type,
-            })
-
-        outbox_repo.emit_event = track_emit
-
-        await repo.adjust_with_event(
-            outbox_repo=outbox_repo,
-            product_id=PRODUCT_ID,
-            account_id=ACCOUNT_ID,
-            delta=10.0,
-            branch_id=str(uuid.uuid4()),
-        )
-
-        assert len(emitted) == 1
-        assert emitted[0]["event_type"] == "StockAdjusted"
-        assert emitted[0]["account_id"] == ACCOUNT_ID
-        assert emitted[0]["aggregate_type"] == "Product"
-
-    @pytest.mark.asyncio
-    async def test_stock_event_includes_delta_in_payload(self):
-        """6.3: StockAdjusted payload includes the quantity delta."""
-        conn = _make_mock_conn()
-        repo = StockRepository(conn)
-        outbox_repo = OutboxRepository(conn)
-
-        payloads = []
-
-        async def track_emit(account_id, event_type, aggregate_type, aggregate_id, payload):
-            payloads.append(payload)
-
-        outbox_repo.emit_event = track_emit
-
-        await repo.adjust_with_event(
-            outbox_repo=outbox_repo,
-            product_id=PRODUCT_ID,
-            account_id=ACCOUNT_ID,
-            delta=-3.5,
-            branch_id=str(uuid.uuid4()),
-        )
-
-        assert payloads, "Payload must be emitted"
-        assert "delta" in payloads[0] or "quantity_delta" in payloads[0]
 
 
 # ── 6.4 TRIANGULATE: event rolls back with failed mutation ────────────────────

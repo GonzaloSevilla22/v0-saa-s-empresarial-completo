@@ -1,0 +1,38 @@
+# Checkpoint de la tanda B (tasks 6.1-6.4) — 2026-10-09. Prod: solo lectura (MCP supabase execute_sql).
+
+## 6.1 estado de versiones
+prod:  max_version=20261073000001, n=320, migraciones con version >= 20261074000000: 0   -> 20261074000001 LIBRE
+origin/main (git fetch): 82fcc73e (#620 tanda A). Ultimo archivo en supabase/migrations/: 20261073000001_stock_ledger_cierre_escritura_directa.sql
+ramas de remitos abiertas (opsx/remitos-venta-apply-b, opsx/remitos-compra-apply-a): sus migraciones (20261070/71) ya estan en main; ninguna toca las 5 RPCs ni agrega un 20261074*.
+stack local: 320 migraciones, max 20261073000001 (tanda A).
+Rama: opsx/stock-ledger-solo-rpc-apply-b desde 0189ed85 (sin rebase, segun instruccion).
+
+## 6.2 md5(pg_get_functiondef) prod vs local sin CR  -> ver evidence/live_functiondefs/README.md
+rpc_apply_product_stock_delta  6d8dcab9c533aab375ea8622d1b011d5 == local sin CR  (== Anexo A)
+rpc_reverse_stock_movement     2885cd488052620a1a6309595348d54c == local sin CR  (== Anexo A)
+rpc_adjust_branch_stock        9d8fe0a559cca11cf8d4cc38662e87ad == local sin CR  (== Anexo A)
+rpc_stock_adjustment           2eca2849e6747c775b1a97b7d56ec5b0 == local            (== Anexo A)
+rpc_transfer_stock             3de807fb783c1efd52104ee110121b68 == local sin CR  (== Anexo A)
+c21_apply_branch_stock_delta   8d98227d6d6556e3a2f3f545dae2b231 == local sin CR  (referencia)
+_quote_assert_can_write        2191ea754d8ed30d3c1d6895e4b5939d == local sin CR  (molde)
+Sin divergencia.
+proacl prod: las 3 publicas {postgres,authenticated,service_role}; rpc_reverse_stock_movement {postgres,service_role}; un overload de cada una.
+Comentarios vivos: rpc_apply_product_stock_delta, rpc_reverse_stock_movement, rpc_transfer_stock tienen COMMENT (se conservan); rpc_adjust_branch_stock y rpc_stock_adjustment no.
+
+## 6.3 barrido de callers
+Prod, pg_get_functiondef de todo public que menciona alguna de las 5 RPCs:
+  rpc_delete_purchase_operation -> reverse ; rpc_delete_sale_operation -> reverse ; rpc_reverse_stock_movement -> apply_delta
+  (las otras 4 solo se mencionan a si mismas: ningun otro caller SQL)
+Prod, funciones que insertan en stock_movements con un tipo manual:
+  rpc_adjust_branch_stock, rpc_apply_product_stock_delta, rpc_reverse_stock_movement (piso a cero), rpc_stock_adjustment
+Repo (backend/frontend/supabase/functions/scripts/.github): callers de aplicacion
+  backend/repositories/product_repository.py:21 (apply_delta), stock_repository.py:54 (transfer) y :78 (adjust_with_event, sin callers),
+  frontend: stock-adjustment-modal.tsx:243, stock-import-adjustment-dialog.tsx:224 (rpc_stock_adjustment),
+  use-branch-stock.ts:192 (adjust_branch) y :219 (transfer). Nada nuevo respecto del Context del design.
+
+## 6.4 mediciones en prod
+manual_sin_motivo=18 (adjustment 12 + physical_count 6)  [esperado 18]
+transfer_in/out sin reference_type='transfer' = 0         [esperado 0]
+saldos <> 0 de padres variant_only = 5                    [esperado 5]
+cuentas con mas de un miembro = 0                         [esperado 0]
+stock_movements total = 5128

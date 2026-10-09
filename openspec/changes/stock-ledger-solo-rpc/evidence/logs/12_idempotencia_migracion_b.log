@@ -1,0 +1,47 @@
+# Reaplicacion del archivo 20261074000001 dos veces sobre la base ya migrada (db reset limpio)
+# huella antes == despues de la 1a == despues de la 2a:
+est0 == est1
+est1 == est2
+--- huella:
+con|stock_movements_manual_needs_reason|CHECK (((type <> ALL (ARRAY['adjustment'::text, 'physical_count'::text, 'loss'::text, 'damage'::text, 'expiry'::text])) OR ((reason IS NOT NULL) AND (btrim(reason, ' 	
+'::text) <> ''::text)))) NOT VALID|false|5265b12acb8834606f6f175645a7b831
+fn|_stock_apply_delta(uuid,uuid,numeric,uuid,boolean)|dc51428532e50674951744dea64d0cdd|{postgres=X/postgres,service_role=X/postgres}|false|d6b2f30c4eda21ac75e23acd546755b7
+fn|_stock_assert_can_adjust(uuid)|3ba7ee94088af3f0e29238c742633ce6|{postgres=X/postgres,service_role=X/postgres}|false|fad8397a0aa8ae33002fe20abb3fbfe1
+fn|_stock_manual_adjustment(uuid,uuid,text,numeric,numeric,text,text,text,uuid)|a38d207426ae7693641af175e993349d|{postgres=X/postgres,service_role=X/postgres}|false|81e137a54401ba66ea62399a444a9121
+fn|rpc_adjust_branch_stock(uuid,uuid,numeric,text)|bf834bdfec32d690e0e4a9aee89dbda9|{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}|true|5058144c31c84f412c9ad5fc6a4ba0d5
+fn|rpc_apply_product_stock_delta(uuid,numeric,uuid,text,boolean,boolean)|e345a29825741b8c4b001907bd302d5d|{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}|true|4948816c105df6b874437034aff336ff
+fn|rpc_reverse_stock_movement(uuid,text,text)|1a6f1d1220443e9e0cbfa1315de809b6|{postgres=X/postgres,service_role=X/postgres}|true|b018195a5954dc115efb5272748dc50d
+fn|rpc_stock_adjustment(uuid,numeric,text,text,text,uuid,numeric)|42a8333dd5e508809339e97e2cedad85|{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}|true|52322ab1540b50a75faaeddcef08e0dd
+fn|rpc_transfer_stock(uuid,uuid,uuid,numeric)|b7eb6da8ff4340f2a310b545432f2524|{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}|true|17d7935a53472f0d3e3ecfaf0d6085d8
+--- salida 2a reaplicacion:
+CREATE FUNCTION
+REVOKE
+CREATE FUNCTION
+REVOKE
+CREATE FUNCTION
+REVOKE
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+REVOKE
+GRANT
+REVOKE
+GRANT
+REVOKE
+GRANT
+CREATE FUNCTION
+REVOKE
+CREATE FUNCTION
+REVOKE
+GRANT
+ALTER TABLE
+ALTER TABLE
+COMMENT
+COMMENT
+COMMENT
+COMMENT
+COMMENT
+COMMENT
+COMMENT
+COMMENT
+COMMENT

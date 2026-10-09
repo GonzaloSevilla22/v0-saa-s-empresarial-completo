@@ -1,0 +1,31 @@
+     × un miembro seller (escritor, sin CAN_STOCK) ve «Transferir» pero NO «Ajustar» 395ms
+     × un miembro cashier (escritor, sin CAN_STOCK) ve «Transferir» pero NO «Ajustar» 149ms
+     × un miembro purchases (escritor, sin CAN_STOCK) ve «Transferir» pero NO «Ajustar» 63ms
+     × un miembro accountant (escritor, sin CAN_STOCK) ve «Transferir» pero NO «Ajustar» 32ms
+     × el campo se rotula «Motivo» y es obligatorio 388ms
+     × sin motivo no llama al servidor y explica que es obligatorio, asociado al campo 1165ms
+     × un motivo de puros espacios tampoco pasa (antes pasaba el min(1)) 53ms
+     × con motivo viaja RECORTADO y la cantidad nueva 129ms
+     × un rechazo del servidor (ya traducido por el hook) se muestra en el toast tal cual 53ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 9 ⎯⎯⎯⎯⎯⎯⎯
+ FAIL  __tests__/components/AdjustStockModal.test.tsx > AdjustStockModal — motivo obligatorio y recortado > el campo se rotula «Motivo» y es obligatorio
+TestingLibraryElementError: Unable to find a label with the text of: /motivo/i
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ FAIL  __tests__/components/AdjustStockModal.test.tsx > AdjustStockModal — motivo obligatorio y recortado > sin motivo no llama al servidor y explica que es obligatorio, asociado al campo
+TestingLibraryElementError: Unable to find an element with the text: /el motivo es obligatorio/i. This could be because the text is broken up by multiple elements. In this case, you can provide a func
+ FAIL  __tests__/components/AdjustStockModal.test.tsx > AdjustStockModal — motivo obligatorio y recortado > un motivo de puros espacios tampoco pasa (antes pasaba el min(1))
+TestingLibraryElementError: Unable to find a label with the text of: /motivo/i
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ FAIL  __tests__/components/AdjustStockModal.test.tsx > AdjustStockModal — motivo obligatorio y recortado > con motivo viaja RECORTADO y la cantidad nueva
+TestingLibraryElementError: Unable to find a label with the text of: /motivo/i
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ FAIL  __tests__/components/AdjustStockModal.test.tsx > AdjustStockModal — motivo obligatorio y recortado > un rechazo del servidor (ya traducido por el hook) se muestra en el toast tal cual
+TestingLibraryElementError: Unable to find a label with the text of: /motivo/i
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ FAIL  __tests__/components/BranchStockTable-capabilities.test.tsx > BranchStockTable — acciones por capacidad > un miembro seller (escritor, sin CAN_STOCK) ve «Transferir» pero NO «Ajustar»
+ FAIL  __tests__/components/BranchStockTable-capabilities.test.tsx > BranchStockTable — acciones por capacidad > un miembro cashier (escritor, sin CAN_STOCK) ve «Transferir» pero NO «Ajustar»
+ FAIL  __tests__/components/BranchStockTable-capabilities.test.tsx > BranchStockTable — acciones por capacidad > un miembro purchases (escritor, sin CAN_STOCK) ve «Transferir» pero NO «Ajustar»
+ FAIL  __tests__/components/BranchStockTable-capabilities.test.tsx > BranchStockTable — acciones por capacidad > un miembro accountant (escritor, sin CAN_STOCK) ve «Transferir» pero NO «Ajustar»
+Error: [2mexpect([22m[31melement[39m[2m).not.toBeInTheDocument()[22m
+ Test Files  2 failed | 1 passed (3)
+      Tests  9 failed | 10 passed (19)

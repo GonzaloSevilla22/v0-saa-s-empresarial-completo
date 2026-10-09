@@ -1,0 +1,30 @@
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=856bc655-9f96-43ee-a85f-8e37bac7f4ae
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=c4bca45c-ea69-45f1-8694-4cb5c641134b
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=0002f616-135e-4b6f-abc1-afac62dbdfb0
+NOTICE:  PASS (1.2): crear una venta emite su movimiento reference_type=sale con quantity_delta correcto
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=981cc44e-a9a9-4253-a055-4c4880cfe34d
+NOTICE:  PASS (1.3): editar cantidad 5→3 deja el par espejo — sale_return/+5 (viejo) y sale/-3 (nuevo)
+NOTICE:  PASS (1.9): el movimiento de la pata APPLY conserva unit_cost_snapshot=600 pese al cost drift a 900
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=ce53a7cf-c2ce-4a27-b012-554c0537fc85
+NOTICE:  PASS (1.4): editar producto (P1→P2) emite movimientos de ambos productos, P2 con snapshot fresco (sin heredar de P1)
+NOTICE:  PASS (1.10): editar una línea de servicio sigue sin emitir movimientos de stock, sin error
+NOTICE:  PASS (1.7): editar una compra (10→4) deja el par espejo con signos invertidos y unit_cost_snapshot acarreado (300, no 700)
+NOTICE:  PASS (1.7 swap): cambiar de producto en una compra emite movimientos de ambos productos
+NOTICE:  PASS (1.10 compra): editar una línea de servicio de compra sigue sin emitir movimientos
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=1e2fb288-d59d-4ef2-97cc-baa2cc36b264
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=f36f6008-10ff-4434-8c83-32ad313955bb
+NOTICE:  PASS (1.5): eliminar una venta no editada repone stock (contramovimiento + DELETE) — no-regresión
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=e7c6ddc5-5cf9-4f8b-9515-f3fc8df146ea
+NOTICE:  PASS (1.6 — GATE ESTRELLA): eliminar una operación previamente EDITADA repone branch_stock al valor inicial — el bug de fondo está resuelto
+NOTICE:  PASS (Σ reconstruye): la suma de quantity_delta de la secuencia crear→editar→eliminar reproduce el delta real de branch_stock
+NOTICE:  PASS (huérfanos nuevos): ningún movimiento sale/purchase de la cuenta A quedó huérfano sin contramovimiento de cierre
+NOTICE:  PASS (1.6 espejo compra): eliminar una compra previamente editada repone branch_stock al valor inicial
+NOTICE:  PASS (3.1 agregar línea): editar agregando una línea nueva emite su movimiento sale/APPLY correcto
+NOTICE:  PASS (3.1 eliminar línea): editar quitando una línea existente emite su REVERSE correcto (TRI2 vuelve a stock)
+NOTICE:  PASS (3.2 colisión): dos filas viejas del mismo product_id emiten dos REVERSE (+1/+1) y un solo APPLY consolidado (-2)
+NOTICE:  PASS (3.3): doble edición encadenada (10→6→4) — Σ quantity_delta sigue reconstruyendo branch_stock exactamente
+NOTICE:  PASS (3.3 huérfanos): la cadena de dos ediciones no dejó huérfanos sin contramovimiento de cierre
+NOTICE:  PASS (1.12): el acarreo de sale_items del PR #415 sigue intacto después de tocar las RPCs de edición
+NOTICE:  GATE STOCK_MOVEMENTS_EDICION PASSED: espejo REVERSE+APPLY en edición (venta y compra), unit_cost_snapshot acarreado, línea de servicio sin movimientos, Σ reconstruye, sin huérfanos nuevos, y el gate estrella (eliminar una operación editada repone stock) confirmado.
+DO
+GATE_EXIT=0

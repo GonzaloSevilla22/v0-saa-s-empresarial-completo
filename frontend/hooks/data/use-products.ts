@@ -278,7 +278,13 @@ export function useProducts() {
     // igual que `cost` — `undefined` conserva, uuid asigna, `null` desasigna
     // (opción "Sin unidad" del formulario; sujeta al guard D11/D-C del
     // backend: 409 base_unit_locked con stock o historia).
-    mutationFn: async (product: Omit<Product, "cost" | "baseUnitId" | "scalePlu"> & ProductTriStateWrite) => {
+    //
+    // stock-ledger-solo-rpc (D9, task 12.6): la EDICIÓN no manda `stock` —el tipo de
+    // este payload ni siquiera lo admite—. El stock se cambia sólo con el ajuste
+    // manual (rol owner/admin/stock + motivo); el backend responde 422
+    // `stock_adjust_required` ante un `stock` distinto del saldo, y antes un
+    // formulario abierto con el stock viejo re-sumaba en silencio lo vendido.
+    mutationFn: async (product: Omit<Product, "cost" | "baseUnitId" | "scalePlu" | "stock"> & ProductTriStateWrite) => {
       return pythonClient.put<ProductApiRow>(`/products/${product.id}`, {
         name:               product.name,
         // productos-categoria-text-retiro: `category` ya no se envía (idem alta).
@@ -289,7 +295,6 @@ export function useProducts() {
         ...(product.categoryId !== undefined ? { category_id: product.categoryId } : {}),
         price:              product.price,
         ...(product.cost !== undefined ? { cost: product.cost } : {}),
-        stock:              product.stock,
         min_stock:          product.minStock,
         barcode:            product.barcode     ?? null,
         sku:                product.sku         ?? null,

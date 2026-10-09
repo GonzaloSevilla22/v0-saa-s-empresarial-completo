@@ -1,0 +1,40 @@
+
+    def test_the_dead_adjust_with_event_producer_is_gone(self):
+        from backend.repositories.stock_repository import StockRepository
+    
+>       assert not hasattr(StockRepository, "adjust_with_event")
+E       AssertionError: assert not True
+E        +  where True = hasattr(<class 'backend.repositories.stock_repository.StockRepository'>, 'adjust_with_event')
+
+backend\tests\test_products_stock_ledger.py:384: AssertionError
+_ TestCanStockConsumer.test_can_stock_documents_its_first_consumer_and_the_sql_tie _
+
+self = <backend.tests.test_products_stock_ledger.TestCanStockConsumer object at 0x000001C04C831D10>
+
+    def test_can_stock_documents_its_first_consumer_and_the_sql_tie(self):
+        text = (BACKEND / "core" / "rbac.py").read_text(encoding="utf-8")
+        marker = "CAN_STOCK: frozenset[str]"
+        head = text[: text.index(marker)]
+        comment = head[head.rindex("\n\n"):]
+>       assert "stock-ledger-solo-rpc" in comment
+E       assert 'stock-ledger-solo-rpc' in '\n\n# auth-hardening-jwt-cookies D12: las capacidades pasan de `list` a\n# `frozenset`. El motivo NO es estético — es...zenset({"owner", "admin", "seller", "cashier"})\nCAN_CASH: frozenset[str] = frozenset({"owner", "admin", "cashier"})\n'
+
+backend\tests\test_products_stock_ledger.py:396: AssertionError
+=========================== short test summary info ===========================
+FAILED backend\tests\test_products_stock_ledger.py::TestCreateProductInitialStockRole::test_roles_without_can_stock_get_403_and_nothing_is_written[roles0]
+FAILED backend\tests\test_products_stock_ledger.py::TestCreateProductInitialStockRole::test_roles_without_can_stock_get_403_and_nothing_is_written[roles1]
+FAILED backend\tests\test_products_stock_ledger.py::TestCreateProductInitialStockRole::test_roles_without_can_stock_get_403_and_nothing_is_written[roles2]
+FAILED backend\tests\test_products_stock_ledger.py::TestCreateProductInitialStockRole::test_roles_without_can_stock_get_403_and_nothing_is_written[roles3]
+FAILED backend\tests\test_products_stock_ledger.py::TestCreateProductInitialStockRole::test_roles_without_can_stock_get_403_and_nothing_is_written[roles4]
+FAILED backend\tests\test_products_stock_ledger.py::TestCreateProductInitialStockRole::test_a_negative_initial_stock_is_also_an_adjustment_and_needs_the_role
+FAILED backend\tests\test_products_stock_ledger.py::TestCreateProductInitialStockRole::test_the_role_is_resolved_from_the_database_when_the_token_carries_none
+FAILED backend\tests\test_products_stock_ledger.py::TestUpdateProductNeverAdjustsStock::test_a_stock_different_from_the_balance_is_rejected_and_nothing_is_written
+FAILED backend\tests\test_products_stock_ledger.py::TestUpdateProductNeverAdjustsStock::test_a_stale_stock_after_a_sale_is_rejected_instead_of_creating_a_phantom_adjustment
+FAILED backend\tests\test_products_stock_ledger.py::TestUpdateProductNeverAdjustsStock::test_the_same_stock_is_ignored_and_the_rest_of_the_edit_goes_through
+FAILED backend\tests\test_products_stock_ledger.py::TestUpdateProductNeverAdjustsStock::test_the_edit_never_calls_the_stock_rpc_even_for_a_role_that_can_adjust
+FAILED backend\tests\test_products_stock_ledger.py::TestStockRpcStructuralLock::test_only_the_product_repository_mentions_the_stock_rpc
+FAILED backend\tests\test_products_stock_ledger.py::TestStockRpcStructuralLock::test_no_sql_literal_calls_the_rpc_with_a_flag_other_than_true_false
+FAILED backend\tests\test_products_stock_ledger.py::TestStockRpcStructuralLock::test_the_only_call_site_passes_the_fixed_reason_and_the_true_false_flags
+FAILED backend\tests\test_products_stock_ledger.py::TestStockRpcStructuralLock::test_the_dead_adjust_with_event_producer_is_gone
+FAILED backend\tests\test_products_stock_ledger.py::TestCanStockConsumer::test_can_stock_documents_its_first_consumer_and_the_sql_tie
+16 failed, 9 passed in 38.69s

@@ -1,0 +1,16 @@
+     × «Motivo» figura como obligatorio y no como opcional 283ms
+     × la lista de tipos válidos no ofrece transferencias y manda a «Transferir stock» 57ms
+     × un archivo sin la columna «Motivo» se rechaza como error de ARCHIVO: no hay vista previa ni llamadas 1203ms
+     × insufficient_role → «tu rol no permite ajustar el stock a mano», sin el token, en el detalle de errores 196ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+ FAIL  __tests__/components/stock-import-adjustment-dialog-motivo.test.tsx > StockImportAdjustmentDialog — paso 1 documenta el contrato nuevo > «Motivo» figura como obligatorio y no como opcional
+AssertionError: expected 'Motivo (opcional)' to match /obligatorio/i
+ FAIL  __tests__/components/stock-import-adjustment-dialog-motivo.test.tsx > StockImportAdjustmentDialog — paso 1 documenta el contrato nuevo > la lista de tipos válidos no ofrece transferencias y 
+Error: [2mexpect([22m[31melement[39m[2m).not.toBeInTheDocument()[22m
+ FAIL  __tests__/components/stock-import-adjustment-dialog-motivo.test.tsx > StockImportAdjustmentDialog — motivo obligatorio > un archivo sin la columna «Motivo» se rechaza como error de ARCHIVO:
+AssertionError: expected "vi.fn()" to be called at least once
+ ❯ runWithExpensiveErrorDiagnosticsDisabled ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:47:12
+ FAIL  __tests__/components/stock-import-adjustment-dialog-motivo.test.tsx > StockImportAdjustmentDialog — el rechazo del servidor llega en castellano > insufficient_role → «tu rol no permite aju
+Error: [2mexpect([22m[31melement[39m[2m).not.toBeInTheDocument()[22m
+ Test Files  1 failed (1)
+      Tests  4 failed | 4 passed (8)

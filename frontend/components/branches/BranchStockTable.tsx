@@ -3,6 +3,7 @@
 import { useState } from "react"
 import { useBranchStock } from "@/hooks/data/use-branch-stock"
 import { useOrgRole } from "@/hooks/useOrgRole"
+import { CAN_STOCK, hasCapability } from "@/lib/rbac-capabilities"
 import { AdjustStockModal } from "@/components/branches/AdjustStockModal"
 import { TransferStockModal } from "@/components/branches/TransferStockModal"
 import { Button } from "@/components/ui/button"
@@ -30,7 +31,12 @@ type ActiveModal =
 
 export function BranchStockTable({ branchId }: BranchStockTableProps) {
   const { branchStock, isLoading } = useBranchStock(branchId)
-  const { isWriter } = useOrgRole()
+  // stock-ledger-solo-rpc (D12): el AJUSTE se ofrece con CAN_STOCK (owner/admin/
+  // stock), decidido sobre el CONJUNTO de roles activos; la TRANSFERENCIA conserva
+  // su propia condición, `isWriter` (OQ-3). Optimista mientras el conjunto no
+  // resolvió: la barrera real es la base (`insufficient_role`).
+  const { isWriter, roles, rolesResolved } = useOrgRole()
+  const canAdjust = hasCapability(roles, CAN_STOCK, rolesResolved)
   const [activeModal, setActiveModal] = useState<ActiveModal>(null)
 
   if (isLoading) {
@@ -99,16 +105,18 @@ export function BranchStockTable({ branchId }: BranchStockTableProps) {
                   {isWriter && (
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-1.5">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 px-2 text-xs"
-                          onClick={() => setActiveModal({ type: "adjust", item })}
-                          aria-label={`Ajustar stock de ${item.productName}`}
-                        >
-                          <SlidersHorizontal className="h-3.5 w-3.5 mr-1" />
-                          Ajustar
-                        </Button>
+                        {canAdjust && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 px-2 text-xs"
+                            onClick={() => setActiveModal({ type: "adjust", item })}
+                            aria-label={`Ajustar stock de ${item.productName}`}
+                          >
+                            <SlidersHorizontal className="h-3.5 w-3.5 mr-1" />
+                            Ajustar
+                          </Button>
+                        )}
                         <Button
                           variant="ghost"
                           size="sm"

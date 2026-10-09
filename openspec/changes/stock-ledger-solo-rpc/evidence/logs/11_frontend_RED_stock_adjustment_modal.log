@@ -1,0 +1,25 @@
+     × el campo se rotula «Motivo *» (obligatorio), ya no «(opcional)» 426ms
+     × con cantidad y motivo en blanco el envío está deshabilitado, el mensaje lo explica y NO llama al servidor 284ms
+     × un motivo sólo con espacios cuenta como en blanco 464ms
+     × con motivo se habilita, el mensaje desaparece y el motivo viaja RECORTADO 1036ms
+     × la lista de tipos ofrece los cinco ajustes manuales y ninguna transferencia 1ms
+     × insufficient_role → explica quién puede ajustar stock, sin el token 558ms
+     × stock insuficiente del ajuste → cuánto hay y cuánto se restaba 1589ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 7 ⎯⎯⎯⎯⎯⎯⎯
+ FAIL  __tests__/components/stock-adjustment-modal.test.tsx > StockAdjustmentModal — motivo obligatorio > el campo se rotula «Motivo *» (obligatorio), ya no «(opcional)»
+Error: [2mexpect([22m[31melement[39m[2m).toBeRequired()[22m
+ FAIL  __tests__/components/stock-adjustment-modal.test.tsx > StockAdjustmentModal — motivo obligatorio > con cantidad y motivo en blanco el envío está deshabilitado, el mensaje lo expli
+Error: [2mexpect([22m[31melement[39m[2m).toBeDisabled()[22m
+ FAIL  __tests__/components/stock-adjustment-modal.test.tsx > StockAdjustmentModal — motivo obligatorio > un motivo sólo con espacios cuenta como en blanco
+Error: [2mexpect([22m[31melement[39m[2m).toBeDisabled()[22m
+ FAIL  __tests__/components/stock-adjustment-modal.test.tsx > StockAdjustmentModal — motivo obligatorio > con motivo se habilita, el mensaje desaparece y el motivo viaja RECORTADO
+Error: [2mexpect([22m[31melement[39m[2m).toHaveAttribute([22m[32m[32m"aria-invalid"[32m[39m[2m, [22m[32m[32m"false"[32m[39m[2m) // element.getAttribute("aria-invalid") === "
+ FAIL  __tests__/components/stock-adjustment-modal.test.tsx > StockAdjustmentModal — sin transferencias como tipo de ajuste (OQ-1) > la lista de tipos ofrece los cinco ajustes manuales y n
+TypeError: Cannot read properties of undefined (reading 'map')
+ FAIL  __tests__/components/stock-adjustment-modal.test.tsx > StockAdjustmentModal — el rechazo del servidor llega en castellano > insufficient_role → explica quién puede ajustar stock,
+Error: [2mexpect([22m[31melement[39m[2m).not.toBeInTheDocument()[22m
+ FAIL  __tests__/components/stock-adjustment-modal.test.tsx > StockAdjustmentModal — el rechazo del servidor llega en castellano > stock insuficiente del ajuste → cuánto hay y cuánto s
+TestingLibraryElementError: Unable to find an element with the text: /no alcanza el stock/i. This could be because the text is broken up by multiple elements. In this case, you can provide a
+    156|     await submitWithServerError("Stock insuficiente. Disponible: 5.000…
+ Test Files  1 failed (1)
+      Tests  7 failed | 1 passed (8)

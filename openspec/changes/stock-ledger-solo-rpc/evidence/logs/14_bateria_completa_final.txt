@@ -1,0 +1,102 @@
+# Bateria completa de gates SQL (pasada FINAL) contra la base con la migracion 20261074000001 aplicada (db reset limpio, 321 migraciones).
+# Orden = el de KPI_Validation.yml + test_branch_stock.sql + test_sales_order_payment_method_drop.sql (no cableados en el workflow).
+# Formato: exit|gate|duracion|modo (stdin | -f para los que usan \i) + primera linea de ERROR
+0|test_remito_a_venta|1s|stdin 
+0|test_kpis|0s|stdin 
+0|test_kpis_edge_cases|1s|stdin 
+0|test_function_acl_gate|0s|stdin 
+0|test_errcode_5char_gate|1s|stdin 
+0|test_idempotency|1s|stdin 
+0|test_sale_items_rpc_v2_activation|1s|stdin 
+0|test_operation_edit_lines|1s|stdin 
+0|test_stock_movements_edicion|2s|stdin 
+0|test_payment_methods_catalog|1s|stdin 
+0|test_payment_methods_seed|1s|stdin ERROR:  GATE PAYMENT-METHODS-SEED FAILED (1): 1 de 18 cuentas tienen menos de 7 formas de pago vivas (backfill Parte A + Cheque incompleto).
+0|test_payment_method_operations|1s|stdin 
+0|test_payment_method_report|1s|stdin 
+0|test_pos_payment_vocabulary|0s|stdin 
+0|test_confirm_core_integrity|0s|stdin 
+0|test_pos_rpc_signatures|1s|stdin 
+0|test_pos_confirm_payment_method|1s|stdin 
+0|test_analytics_events|1s|stdin 
+0|test_admin_kpis|1s|stdin ERROR:  GATE ADMIN-KPI-REFRESH FAILED:
+0|test_community_interactions|0s|stdin 
+0|test_internal_logs_retention|0s|stdin 
+0|test_edicion_preserva_contexto|1s|stdin 
+0|test_pagos_cableados_restantes|0s|stdin ERROR:  duplicate key value violates unique constraint "users_email_partial_key"
+0|test_pos_banco_movimientos|0s|stdin ERROR:  duplicate key value violates unique constraint "users_email_partial_key"
+0|test_asiento_venta_formulario|1s|stdin ERROR:  duplicate key value violates unique constraint "users_email_partial_key"
+0|test_delete_guard_ledgers|1s|stdin ERROR:  duplicate key value violates unique constraint "users_email_partial_key"
+0|test_banco_caja_historial_ajustes|1s|stdin ERROR:  duplicate key value violates unique constraint "users_email_partial_key"
+0|test_cuentas_billetera_tipo|1s|stdin 
+0|test_compras_proveedor_cuenta_corriente|1s|stdin ERROR:  duplicate key value violates unique constraint "users_email_partial_key"
+0|test_tenancy_rls_role|1s|stdin 
+0|test_cuenta_corriente_party_guard|1s|stdin 
+0|test_outbox_single_dispatcher|1s|stdin 
+0|test_tenancy_guard_caja_outbox|1s|stdin 
+0|test_sucursal_guard_vaciado|1s|stdin 
+0|test_gastos_forma_pago|1s|stdin 
+0|test_qa_integral_fixes|0s|stdin 
+0|test_cash_movement_types|1s|stdin 
+0|test_purchase_cash_optin|1s|stdin 
+0|test_party_payment_cash|1s|stdin 
+0|test_purchase_delete_cash_compensation|1s|stdin 
+0|test_receivables_report|1s|stdin 
+0|test_cobranzas_vencimientos_schema|1s|stdin 
+0|test_receivables_aging_fifo|1s|stdin 
+0|test_receivables_overdue_digest|1s|stdin 
+0|test_product_categories_catalog|1s|stdin 
+0|test_product_category_derived|1s|stdin 
+0|test_product_sku_uniqueness_scope|1s|stdin 
+0|test_bulk_upsert_products_categories|1s|stdin 
+0|test_product_categories_seed|1s|stdin ERROR:  GATE PRODUCT-CATEGORIES-SEED FAILED (1): 1 de 19 cuentas tienen menos de 7 categorías de producto (backfill paso 1 incompleto).
+0|test_estadisticas_ventas|1s|stdin 
+0|test_estadisticas_ventas_e2|1s|stdin 
+0|test_estadisticas_ventas_e3|1s|stdin 
+0|test_subscription_webhook_idempotency|1s|stdin 
+0|test_receipts_subscription_charges|1s|stdin 
+0|test_products_barcode_account_scope|1s|stdin 
+0|test_charge_due_date|1s|stdin 
+0|test_bank_default_destination|1s|stdin 
+0|test_anon_table_writes_revoked|1s|stdin 
+0|test_c30_party_movement_helpers_acl|1s|stdin 
+0|test_get_account_ids_for_user_guard|1s|stdin 
+0|test_dashboard_critical_stock_items|1s|stdin 
+0|test_expense_import_batch|2s|stdin 
+0|test_productos_costo_nullable|1s|stdin 
+0|test_asiento_contable_gastos|2s|stdin 
+0|test_cobranzas_reverso|2s|stdin 
+0|test_product_import_batch|1s|stdin 
+0|test_product_import_plan_gate|2s|stdin 
+0|test_operacion_party_guard|1s|stdin 
+0|test_account_role_catalog|1s|stdin 
+0|test_account_member_roles_pivot|1s|stdin 
+0|test_account_owner_invariant|1s|stdin 
+0|test_membership_rpcs_pivot_rewrite|1s|stdin 
+0|test_is_account_writer_pivot|2s|stdin 
+0|test_custom_access_token_hook_account_roles|1s|stdin 
+0|test_document_status_transition_role_matrix|1s|stdin 
+0|test_role_expiry_audit_sweep|1s|stdin 
+0|test_member_role_assignment_rpcs|1s|stdin 
+0|test_invite_member_roles_and_plan_gate|1s|stdin 
+0|test_accept_invitation_binding|1s|stdin 
+0|test_realtime_publication|0s|stdin 
+0|test_accounts_privilege_columns|0s|stdin 
+0|test_fiscal_cae_numero_autoritativo|1s|stdin 
+0|test_fiscal_emit_consumidor_final|0s|stdin 
+0|test_venta_editable_sin_cae|0s|stdin 
+0|test_ventas_unidades_conversion|1s|stdin 
+0|test_facturar_venta_manual|1s|stdin 
+0|test_punto_venta_predeterminado|0s|stdin 
+0|test_factura_fiscal_imprimible|0s|stdin 
+0|test_unidades_decisiones_8_9|1s|stdin 
+0|test_balanza_etiquetas_pos|1s|stdin 
+0|test_ventas_formulario_sucursal|1s|stdin 
+0|test_presupuestos_modulo|1s|stdin 
+0|test_presupuesto_a_venta|1s|stdin 
+0|test_remitos_venta|2s|stdin 
+0|test_remitos_compra|2s|stdin 
+0|test_stock_adjustment_account_branch|1s|stdin 
+0|test_stock_ledger_solo_rpc|2s|stdin 
+0|test_branch_stock|0s|stdin 
+0|test_sales_order_payment_method_drop|0s|stdin 

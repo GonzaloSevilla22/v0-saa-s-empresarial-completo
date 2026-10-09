@@ -22,6 +22,13 @@ const updateProductMock = vi.fn()
 
 const KG: UnitOfMeasure = { id: "u-kg", name: "Kilogramo", symbol: "kg", type: "weight", factor: 1, isSystem: true }
 
+// stock-ledger-solo-rpc (tanda B, task 12.5): el formulario decide «Stock inicial» /
+// «Ajustar stock» con CAN_STOCK sobre el conjunto de roles (useOrgRole). Estos tests no
+// miden eso (lo hace product-form-stock-ledger.test.tsx): un owner deja la superficie
+// como estaba antes.
+vi.mock("@/hooks/useOrgRole", () => ({
+  useOrgRole: () => ({ role: "owner", roles: ["owner"], rolesResolved: true, isWriter: true, isLoading: false }),
+}))
 vi.mock("@/hooks/data/use-products", () => ({
   useProducts: () => ({ products: [], addProduct: addProductMock, updateProduct: updateProductMock }),
 }))

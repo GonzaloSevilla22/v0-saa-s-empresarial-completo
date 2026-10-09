@@ -6,10 +6,18 @@
  * Manual inventory adjustment dialog supporting multiple products in one shot.
  *
  * UX:
- *   - Global settings: movement type, reason, notes (shared across all products).
+ *   - Global settings: movement type, reason (OBLIGATORIO), notes (shared across all products).
  *   - Product rows: each row has its own product selector + quantity field.
  *   - "Agregar producto" button lets users queue up several adjustments at once.
  *   - When opened from a row's AdjustButton, the first product is pre-filled.
+ *
+ * stock-ledger-solo-rpc (tanda B, D12): el MOTIVO es obligatorio —la base lo exige
+ * en `rpc_stock_adjustment` (P0400 stock_adjustment_reason_required)—: el envío
+ * queda deshabilitado con el motivo en blanco y un mensaje en línea lo explica.
+ * Las transferencias dejaron de ser un tipo de ajuste (OQ-1: tienen su propia
+ * entidad, «Transferir stock»). El rechazo del servidor (rol, motivo, producto,
+ * stock) se muestra en castellano por el mapa canónico `humanizeOperationError`.
+ * El acceso a este modal ya lo decide quien lo monta con `CAN_STOCK`.
  *
  * Submit:
  *   - Calls rpc_stock_adjustment once per row, sequentially.
@@ -42,10 +50,11 @@ import {
 import { SearchableSelect } from "@/components/ui/searchable-select"
 import {
   ArrowDownCircle, ArrowUpCircle, ClipboardList,
-  AlertTriangle, Wrench, Timer, ArrowRightLeft,
+  AlertTriangle, Wrench, Timer,
   Loader2, Plus, X,
 } from "lucide-react"
 import type { Product, MovementType } from "@/lib/types"
+import { humanizeOperationError } from "@/lib/operation-errors"
 import { cn } from "@/lib/utils"
 
 // ── Movement type registry ─────────────────────────────────────────────────────
@@ -62,7 +71,8 @@ interface MovementOption {
   bg:          string
 }
 
-const MOVEMENT_OPTIONS: MovementOption[] = [
+// Exportado para el test que fija que NO hay transferencias entre los tipos (OQ-1).
+export const MOVEMENT_OPTIONS: MovementOption[] = [
   {
     uiKey: "adjustment_in",  type: "adjustment",   sign:  1,
     label: "Ajuste de entrada",    description: "Aumentar stock manualmente",
@@ -92,16 +102,6 @@ const MOVEMENT_OPTIONS: MovementOption[] = [
     uiKey: "expiry",         type: "expiry",        sign: -1,
     label: "Vencimiento",          description: "Productos vencidos dados de baja",
     icon: <Timer           className="h-4 w-4" />, color: "text-purple-400",  bg: "bg-purple-500/10 border-purple-500/20",
-  },
-  {
-    uiKey: "transfer_in",    type: "transfer_in",   sign:  1,
-    label: "Transferencia entrada", description: "Stock recibido desde otro depósito",
-    icon: <ArrowRightLeft  className="h-4 w-4" />, color: "text-teal-400",    bg: "bg-teal-500/10 border-teal-500/20",
-  },
-  {
-    uiKey: "transfer_out",   type: "transfer_out",  sign: -1,
-    label: "Transferencia salida",  description: "Stock enviado a otro depósito",
-    icon: <ArrowRightLeft  className="h-4 w-4 rotate-90" />, color: "text-slate-400", bg: "bg-slate-500/10 border-slate-500/20",
   },
 ]
 
@@ -153,9 +153,17 @@ export function StockAdjustmentModal({
   const refreshData  = () => queryClient.invalidateQueries()
   const supabase = createClient()
 
+  // El modal se abre de forma CONTROLADA (sin <DialogTrigger>), y Radix en modo modal
+  // restaura el foco con `context.triggerRef.current?.focus()` —que acá es null—:
+  // al cerrar, el foco caía en <body> y el usuario de teclado perdía su lugar. Se
+  // recuerda el elemento que lo abrió (el botón «Ajustar stock» de la fila, del
+  // encabezado o del formulario de producto) y se le devuelve el foco al cerrar.
+  const openerRef = useRef<HTMLElement | null>(null)
+
   // ── Global form state ────────────────────────────────────────────────────────
   const [movementKey, setMovementKey] = useState<string>("adjustment_in")
   const [reason,      setReason]      = useState<string>("")
+  const [reasonTouched, setReasonTouched] = useState(false)
   const [notes,       setNotes]       = useState<string>("")
   const [loading,     setLoading]     = useState(false)
 
@@ -199,11 +207,26 @@ export function StockAdjustmentModal({
     setItems([makeItem(propProduct?.id ?? "")])
     setMovementKey("adjustment_in")
     setReason("")
+    setReasonTouched(false)
     setNotes("")
   }, [propProduct?.id])
 
+  // El motivo es obligatorio (la base lo exige): se valida recortado, igual que
+  // el servidor. El mensaje en línea aparece apenas hay algo que enviar o cuando
+  // el usuario ya pasó por el campo.
+  const reasonBlank   = reason.trim() === ""
+  const hasAnyInput   = items.some((i) => i.productId && i.quantity)
+  const showReasonErr = reasonBlank && (reasonTouched || hasAnyInput)
+
   // ── Submit ───────────────────────────────────────────────────────────────────
   const handleSubmit = useCallback(async () => {
+    // El motivo es obligatorio: sin él no se llama al servidor (el botón ya está
+    // deshabilitado; esto cubre cualquier otro camino de envío).
+    if (reason.trim() === "") {
+      setReasonTouched(true)
+      return
+    }
+
     // Client-side validation
     let hasError = false
     const validated = items.map((item) => {
@@ -230,7 +253,7 @@ export function StockAdjustmentModal({
       const rpcParams: Record<string, unknown> = {
         p_product_id: item.productId,
         p_type:       option.type,
-        p_reason:     reason.trim() || null,
+        p_reason:     reason.trim(),
         p_notes:      notes.trim()  || null,
       }
 
@@ -243,7 +266,17 @@ export function StockAdjustmentModal({
       const { error } = await supabase.rpc("rpc_stock_adjustment", rpcParams)
 
       if (error) {
-        setItemError(item.key, error.message)
+        // Mapa canónico (rol, motivo, producto, stock…): castellano accionable, no el
+        // `error.message` crudo de PostgREST. Si no lo reconoce, lo devuelve tal cual.
+        setItemError(
+          item.key,
+          humanizeOperationError(
+            error.message,
+            (id) => products.find((p) => p.id === id)?.name,
+            undefined,
+            { documentLabel: "ajuste de stock" },
+          ).message,
+        )
         errorCount++
       } else {
         successCount++
@@ -274,7 +307,7 @@ export function StockAdjustmentModal({
       }
     }
   }, [
-    items, isPhysicalCount, option, reason, notes,
+    items, isPhysicalCount, option, reason, notes, products,
     supabase, refreshData, resetForm, onOpenChange, onSuccess, setItemError,
   ])
 
@@ -287,7 +320,16 @@ export function StockAdjustmentModal({
         onOpenChange(v)
       }}
     >
-      <DialogContent className="bg-card border-border sm:max-w-[560px] max-h-[90vh] flex flex-col">
+      <DialogContent
+        className="bg-card border-border sm:max-w-[560px] max-h-[90vh] flex flex-col"
+        onOpenAutoFocus={() => {
+          openerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+        }}
+        onCloseAutoFocus={(e) => {
+          e.preventDefault()
+          openerRef.current?.focus()
+        }}
+      >
         <DialogHeader className="shrink-0">
           <DialogTitle className="text-card-foreground text-base font-semibold">
             Ajuste de inventario
@@ -373,21 +415,39 @@ export function StockAdjustmentModal({
               </Button>
             </div>
 
-            {/* ── Reason (global) ── */}
+            {/* ── Reason (global, OBLIGATORIO) ── */}
             <div className="flex flex-col gap-1.5">
               <Label
                 htmlFor="adj-reason"
                 className="text-xs font-medium text-muted-foreground uppercase tracking-wide"
               >
-                Motivo <span className="text-muted-foreground/60 normal-case">(opcional)</span>
+                Motivo <span className="text-destructive normal-case" aria-hidden="true">*</span>
               </Label>
               <Input
                 id="adj-reason"
                 placeholder="Ej: Conteo semestral, Devolución proveedor…"
                 value={reason}
                 onChange={(e) => setReason(e.target.value)}
-                className="bg-background border-border text-foreground"
+                onBlur={() => setReasonTouched(true)}
+                required
+                aria-required="true"
+                aria-invalid={showReasonErr}
+                aria-describedby={showReasonErr ? "adj-reason-error" : "adj-reason-hint"}
+                className={cn(
+                  "bg-background border-border text-foreground",
+                  showReasonErr && "border-destructive focus-visible:ring-destructive",
+                )}
               />
+              {showReasonErr ? (
+                <p id="adj-reason-error" className="text-xs text-destructive flex items-center gap-1">
+                  <AlertTriangle className="h-3 w-3 shrink-0" aria-hidden="true" />
+                  El motivo es obligatorio: queda registrado en el historial de movimientos.
+                </p>
+              ) : (
+                <p id="adj-reason-hint" className="text-[11px] text-muted-foreground">
+                  Obligatorio — queda registrado en el historial de movimientos.
+                </p>
+              )}
             </div>
 
             {/* ── Notes (global) ── */}
@@ -426,7 +486,7 @@ export function StockAdjustmentModal({
             <Button
               size="sm"
               onClick={handleSubmit}
-              disabled={loading || items.every((i) => !i.productId || !i.quantity)}
+              disabled={loading || reasonBlank || items.every((i) => !i.productId || !i.quantity)}
             >
               {loading ? (
                 <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />Guardando…</>

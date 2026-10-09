@@ -139,9 +139,12 @@ async def create_product(
     repo: ProductRepository = Depends(get_repo),
     plan_limits_repo: PlanLimitsRepository = Depends(get_plan_limits_repo),
     category_repo: ProductCategoryRepository = Depends(get_category_repo),
+    conn: asyncpg.Connection = Depends(get_db_conn),
 ):
+    # stock-ledger-solo-rpc (D9): `conn` para el guard de rol de cuenta del stock
+    # inicial (CAN_STOCK) — misma inyección que usa `product_categories`.
     return await product_service.create_product(
-        repo, auth, str(account_id), payload, plan_limits_repo, category_repo
+        repo, auth, str(account_id), payload, plan_limits_repo, category_repo, conn=conn
     )
 
 

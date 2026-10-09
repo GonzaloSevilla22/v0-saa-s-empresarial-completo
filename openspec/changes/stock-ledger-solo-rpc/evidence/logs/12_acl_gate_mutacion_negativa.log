@@ -1,0 +1,3 @@
+# Mutacion: GRANT EXECUTE de _stock_apply_delta a authenticated dentro de una transaccion revertida => el gate (3) DEBE fallar
+ERROR:  ACL GATE (3) FAILED: helpers "solo-DEFINER" ejecutables por anon/authenticated (¿perdieron su REVOKE en un CREATE OR REPLACE posterior? — REVOKE ALL ... FROM PUBLIC, anon, authenticated en la migración que los recrea):
+  public._stock_apply_delta(uuid, uuid, numeric, uuid, boolean)

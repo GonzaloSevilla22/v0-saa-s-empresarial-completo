@@ -53,7 +53,7 @@
 - [x] 5.2 (verificado 2026-10-09 15:00 UTC: `MAX(version) = 20261073000001`, 320 migraciones; `relacl` `anon=rxtm`/`authenticated=rxtm` en las dos tablas; 4 policies exactas; `proacl` de la reversa `{postgres, service_role}`, un overload; deploy `success`) Post-merge, sólo lectura en prod: `MAX(version) = 20261073000001`; `relacl` de las dos tablas sin `a`/`w`/`d`/`D` para `authenticated` ni `anon`; `pg_policies` = las cuatro esperadas; `proacl` de `rpc_reverse_stock_movement` sin `authenticated`; deploy de Render confirmado.
 - [ ] 5.3 48 h de logs (PostgREST por MCP y Render por API): 0 `permission denied`/`42501` inesperados sobre las dos tablas o la reversa, con control positivo de que la consulta encuentra tráfico de `rpc_stock_adjustment`.
 - [ ] 5.4 Humo del PO en prod: un ajuste en `/stock`, borrar una venta y una compra de prueba (el stock vuelve), una transferencia si la cuenta tiene dos sucursales.
-- [ ] 5.5 Registrar la tanda A en `CHANGES.md` (ficha del change) con PR, migración y verificación.
+- [x] 5.5 (PR #621 `0a83f8c3`, 2026-10-09) Registrar la tanda A en `CHANGES.md` (ficha del change) con PR, migración y verificación.
 
 # Tanda B — G2 + G4 + resto de G5 + specs (`20261074000001`)
 
@@ -127,12 +127,12 @@
 ## 14. PR de la tanda B, verificación post-merge y humo
 
 - [x] 14.1 Commit(s) convencionales + PR con la lista de fixtures corregidas (9.3), la evidencia de 6.5/6.6 y las capturas. *(4 commits convencionales sobre `opsx/stock-ledger-solo-rpc-apply-b` (SQL `5f4fd93d`, backend `b87b34ba`, frontend `a751fba5`, docs/evidencia): sin push ni PR por indicación del orquestador, que abre el PR con la lista de fixtures corregidas (una sola: `test_stock_adjustment_account_branch.sql`, el gemelo `account_id NULL` lleva motivo), la evidencia de 6.5/6.6 (`13_repro_6_5_6_6_*`) y las capturas)*
-- [ ] 14.2 Post-merge, sólo lectura en prod: `MAX(version) = 20261074000001`; una sola definición viva de cada envoltorio, de `rpc_transfer_stock` y de `rpc_reverse_stock_movement`; las tres internas sin `EXECUTE` para `anon`/`authenticated`; `stock_movements_manual_needs_reason` presente y `NOT VALID`; deploy de Render y Vercel confirmados.
+- [x] 14.2 (verificado 2026-10-09 18:18 UTC: `MAX(version) = 20261074000001`, 321 migraciones; un solo overload de las 8 funciones; `EXECUTE` de `authenticated` sólo en los 3 envoltorios + `rpc_transfer_stock`, ninguno para `anon`; internas y reversa sin `EXECUTE`; `stock_movements_manual_needs_reason` con `convalidated = false`; deploy Supabase `success`, Render `c725b03e` live) Post-merge, sólo lectura en prod: `MAX(version) = 20261074000001`; una sola definición viva de cada envoltorio, de `rpc_transfer_stock` y de `rpc_reverse_stock_movement`; las tres internas sin `EXECUTE` para `anon`/`authenticated`; `stock_movements_manual_needs_reason` presente y `NOT VALID`; deploy de Render y Vercel confirmados.
 - [ ] 14.3 A las 48 h: 0 movimientos manuales nuevos sin motivo, sin cuenta o sin sucursal; 0 errores 5xx de `/products` en Render.
 - [ ] 14.4 Humo del PO en prod: ajuste en `/stock` sin motivo (bloqueado) y con motivo (aparece en el historial con el motivo), importador con una fila sin motivo, edición de un producto que deriva al modal, alta con stock inicial, borrar una venta y una compra de prueba.
-- [ ] 14.5 Actualizar la ficha del change en `CHANGES.md` con PRs, migraciones, verificación y los hallazgos laterales del design (cada uno como candidato con su medición).
+- [x] 14.5 (PR de archive, 2026-10-09) Actualizar la ficha del change en `CHANGES.md` con PRs, migraciones, verificación y los hallazgos laterales del design (cada uno como candidato con su medición).
 
 ## 15. Archive
 
-- [ ] 15.1 KB, recién cuando ya es cierto en prod: RN-21 (grants revocados + sólo policies de lectura + las dos `qual = false`), RN-A5 (el ajuste de stock exige motivo en la base), `knowledge-base/03_actores_y_roles.md` (`stock_movements` y `branch_stock`: escritura "Solo via RPC"; ajuste manual `owner`/`admin`/`stock`).
-- [ ] 15.2 `openspec archive stock-ledger-solo-rpc` + verificar en HEAD que los requirements de `branch-stock`, `inventory-single-ledger` y `stock-transfer` quedaron como en los deltas (CRLF → LF; gotchas conocidas de `openspec archive`).
+- [x] 15.1 (PR de archive, 2026-10-09, con la tanda B ya viva en prod) KB, recién cuando ya es cierto en prod: RN-21 (grants revocados + sólo policies de lectura + las dos `qual = false`), RN-A5 (el ajuste de stock exige motivo en la base), `knowledge-base/03_actores_y_roles.md` (`stock_movements` y `branch_stock`: escritura "Solo via RPC"; ajuste manual `owner`/`admin`/`stock`).
+- [x] 15.2 (2026-10-09: specs sincronizadas, 109/109 en `validate --specs --strict`, requirements verificados en HEAD, LF) `openspec archive stock-ledger-solo-rpc` + verificar en HEAD que los requirements de `branch-stock`, `inventory-single-ledger` y `stock-transfer` quedaron como en los deltas (CRLF → LF; gotchas conocidas de `openspec archive`).

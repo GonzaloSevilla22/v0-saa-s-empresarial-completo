@@ -104,7 +104,8 @@ insights_reset_at   TIMESTAMP  DEFAULT NOW()    -- última vez que se reseteó e
 | `purchases` | Propio | Propio (via RPC) | Propio |
 | `expenses` | Propio | Propio | Propio |
 | `clients` | Propio | Propio | Propio |
-| `stock_movements` | Propio | Solo via RPC | No |
+| `stock_movements` | Propio | Solo via RPC `SECURITY DEFINER` (grants de escritura revocados a `anon`/`authenticated`, sin policy de escritura — `stock-ledger-solo-rpc` 2026-10-09) | No |
+| `branch_stock` | Propio | Solo via RPC `SECURITY DEFINER` (ídem); ajuste manual sólo `owner`/`admin`/`stock`, con motivo obligatorio | No |
 | `ai_insights` | Propio | Propio | Propio |
 | `ai_conversations` | Propio | Propio | Propio |
 | `fair_recommendations` | Propio | Sistema | No |

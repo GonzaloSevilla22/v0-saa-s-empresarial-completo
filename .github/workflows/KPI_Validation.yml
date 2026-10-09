@@ -2947,3 +2947,22 @@ jobs:
       # reaplicándola a mano contra la base (segunda pasada: UPDATE 0).
       - name: Run stock adjustment account/branch gate
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_stock_adjustment_account_branch.sql
+      # stock-ledger-solo-rpc TANDA A (20261073000001, governance ALTA): la
+      # escritura directa a public.stock_movements y public.branch_stock quedo
+      # CERRADA (REVOKE INSERT/UPDATE/DELETE/TRUNCATE a anon y authenticated, sin
+      # policy permisiva de escritura) y rpc_reverse_stock_movement dejo de ser
+      # invocable por PostgREST. Este paso EJECUTA, como authenticated y con un
+      # owner, un seller, un viewer y anon, la matriz de evasion (forja de una
+      # fila 'sale', ocupacion cross-tenant de un saldo ajeno, UPDATE, UPDATE ..
+      # RETURNING, upsert, DELETE, TRUNCATE y la reversa publica), exigiendo
+      # SQLSTATE 42501 con texto "permission denied" (la capa de privilegio, NO
+      # la de RLS) y la huella de las dos tablas identica; y el control positivo
+      # de los caminos legitimos (ajuste, venta y compra con su borrado y la
+      # reversa interna, compra ya vendida con piso trazable, transferencia,
+      # borrado de un producto con historial). Corre dentro de BEGIN..ROLLBACK:
+      # cada intento va en una subtransaccion que siempre se revierte. La
+      # migracion NO entra en la cadena de reaplicacion idempotente de arriba (no
+      # toca ningun CHECK compartido); su idempotencia (DROP POLICY IF EXISTS +
+      # REVOKE repetido) se verifico reaplicandola dos veces contra la base.
+      - name: Run stock ledger solo RPC gate
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_stock_ledger_solo_rpc.sql

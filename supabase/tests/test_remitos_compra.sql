@@ -896,6 +896,11 @@ BEGIN
 
   -- ═══════════════════════════════════════════════════════════════════════
   -- (f) Fila forjada en el ledger por PostgREST
+  -- stock-ledger-solo-rpc (tanda A): la escritura directa a stock_movements
+  -- quedó CERRADA (REVOKE + sin policy de INSERT). El control positivo de este
+  -- bloque se invirtió: la fila forjada DEBE rechazarse con 42501 "permission
+  -- denied" (capa de privilegio, no la de RLS) y NO debe existir. La anulación
+  -- sigue restando sólo lo aportado por las líneas del remito.
   -- ═══════════════════════════════════════════════════════════════════════
   PERFORM pg_temp.rcp_as(v_stocker);
   v_r := pg_temp.rcp_issue('rc-f', v_sup, v_x, jsonb_build_array(pg_temp.rcp_line(v_pforge, 3, 1)));
@@ -907,11 +912,17 @@ BEGIN
   BEGIN
     INSERT INTO public.stock_movements (account_id, product_id, type, quantity_delta, reference_id, reference_type, branch_id)
     VALUES (v_account_a, v_pforge, 'purchase', 1000, v_dn, 'delivery_note', v_x);
+    v_failures := v_failures || 'FAIL (f): la fila forjada se INSERTÓ por PostgREST (la escritura directa a stock_movements debía estar cerrada)'::text;
   EXCEPTION WHEN OTHERS THEN
     GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE, v_msg = MESSAGE_TEXT;
-    v_failures := v_failures || format('FAIL (f) control positivo: la fila forjada debía poder insertarse (política preexistente), salió %s %s', v_state, v_msg);
+    IF v_state IS DISTINCT FROM '42501' OR v_msg NOT LIKE 'permission denied%' THEN
+      v_failures := v_failures || format('FAIL (f): la fila forjada debía rechazarse con 42501 permission denied (capa de privilegio), salió %s %s', v_state, v_msg);
+    END IF;
   END;
   EXECUTE 'RESET ROLE';
+  IF EXISTS (SELECT 1 FROM public.stock_movements WHERE reference_id = v_dn AND quantity_delta = 1000) THEN
+    v_failures := v_failures || 'FAIL (f): la fila forjada existe pese a haberse rechazado'::text;
+  END IF;
   PERFORM pg_temp.rcp_as(v_admin);
   PERFORM public.rpc_cancel_delivery_note(v_dn, 1, 'fila forjada');
   IF pg_temp.rcp_stock(v_pforge, v_x) <> 10 THEN

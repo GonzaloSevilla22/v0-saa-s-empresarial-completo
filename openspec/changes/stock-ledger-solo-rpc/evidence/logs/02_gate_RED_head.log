@@ -1,0 +1,118 @@
+BEGIN
+CREATE TABLE
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+DO
+NOTICE:  FAIL (a) authenticated conserva INSERT de TABLA sobre public.stock_movements; authenticated conserva UPDATE de TABLA sobre public.stock_movements; authenticated conserva DELETE de TABLA sobre public.stock_movements; authenticated conserva TRUNCATE de TABLA sobre public.stock_movements; authenticated conserva INSERT por columna sobre public.stock_movements; authenticated conserva UPDATE por columna sobre public.stock_movements; authenticated conserva INSERT de TABLA sobre public.branch_stock; authenticated conserva UPDATE de TABLA sobre public.branch_stock; authenticated conserva DELETE de TABLA sobre public.branch_stock; authenticated conserva TRUNCATE de TABLA sobre public.branch_stock; authenticated conserva INSERT por columna sobre public.branch_stock; authenticated conserva UPDATE por columna sobre public.branch_stock
+NOTICE:  FAIL (b) el conjunto de policies debía ser exactamente {branch_stock|branch_stock_member_select|SELECT, stock_movements|stock_movements_account_select|SELECT, stock_movements|stock_movements_no_delete|DELETE, stock_movements|stock_movements_no_update|UPDATE} y es {branch_stock|branch_stock_member_select|SELECT, branch_stock|branch_stock_writer_insert|INSERT, branch_stock|branch_stock_writer_update|UPDATE, stock_movements|stock_movements_account_insert|INSERT, stock_movements|stock_movements_account_select|SELECT, stock_movements|stock_movements_no_delete|DELETE, stock_movements|stock_movements_no_update|UPDATE}; policy de escritura que debía desaparecer: branch_stock.branch_stock_writer_insert (INSERT); policy de escritura que debía desaparecer: branch_stock.branch_stock_writer_update (UPDATE); policy de escritura que debía desaparecer: stock_movements.stock_movements_account_insert (INSERT)
+DO
+NOTICE:  FAIL (c) authenticated tiene EXECUTE sobre la reversa (invocable por PostgREST)
+DO
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=1de1d129-4e56-4b35-9b5a-e95bf8b1bac0
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=eba3fccd-d555-4f84-b12c-c4ad9b58701b
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=efee0ba8-221e-4181-a0a2-9f1dff0f26ec
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=7bea6976-3b77-493e-8308-f8ef991f18f6
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=8485c933-e711-41e6-be78-f36689debe97
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=c1ff63a2-f062-49f4-a368-9b163dee41af
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=8c139ffc-0cd6-4982-a0d1-1c8f7d6ba68a
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=77bbd823-4e65-4a25-a913-17f83f8737b7
+NOTICE:  FAIL (d) [owner] m1 INSERT forja venta (cuenta propia): se esperaba 42501 "permission denied" y salió: NOT-REJECTED rows=1 huella=CAMBIÓ
+NOTICE:  FAIL (d) [owner] m2 INSERT forja cuenta ajena: se esperaba 42501 "permission denied" y salió: OTRA-CAPA-42501|new row violates row-level security policy for table "stock_movements"
+NOTICE:  FAIL (d) [owner] m3 UPDATE movimiento: se esperaba 42501 "permission denied" y salió: NOT-REJECTED rows=0 huella=igual
+NOTICE:  FAIL (d) [owner] m4 UPDATE movimiento RETURNING: se esperaba 42501 "permission denied" y salió: NOT-REJECTED rows=0 huella=igual
+NOTICE:  FAIL (d) [owner] m5 DELETE movimiento: se esperaba 42501 "permission denied" y salió: NOT-REJECTED rows=0 huella=igual
+NOTICE:  FAIL (d) [owner] m6 TRUNCATE stock_movements: se esperaba 42501 "permission denied" y salió: NOT-REJECTED rows=0 huella=CAMBIÓ
+NOTICE:  FAIL (d) [owner] b1 INSERT saldo (cuenta y producto propios): se esperaba 42501 "permission denied" y salió: NOT-REJECTED rows=1 huella=CAMBIÓ
+NOTICE:  FAIL (d) [owner] b2 INSERT ocupación cross-tenant (A, producto de B, sucursal de B): se esperaba 42501 "permission denied" y salió: NOT-REJECTED rows=1 huella=CAMBIÓ
+NOTICE:  FAIL (d) [owner] b3 UPDATE saldo a un valor distinto: se esperaba 42501 "permission denied" y salió: NOT-REJECTED rows=1 huella=CAMBIÓ
+NOTICE:  FAIL (d) [owner] b4 UPDATE saldo RETURNING: se esperaba 42501 "permission denied" y salió: NOT-REJECTED rows=1 huella=CAMBIÓ
+NOTICE:  FAIL (d) [owner] b5 INSERT ... ON CONFLICT DO UPDATE (upsert): se esperaba 42501 "permission denied" y salió: NOT-REJECTED rows=1 huella=CAMBIÓ
+NOTICE:  FAIL (d) [owner] b6 DELETE saldo: se esperaba 42501 "permission denied" y salió: NOT-REJECTED rows=0 huella=igual
+NOTICE:  FAIL (d) [owner] b7 TRUNCATE branch_stock: se esperaba 42501 "permission denied" y salió: NOT-REJECTED rows=0 huella=CAMBIÓ
+NOTICE:  FAIL (d) [owner] f1 rpc_reverse_stock_movement (reversa pública): se esperaba 42501 "permission denied" y salió: NOT-REJECTED rows=1 huella=CAMBIÓ
+NOTICE:  info (d) [owner]: 0 de 14 intentos rechazados con 42501 "permission denied"
+NOTICE:  FAIL (d) [seller] m1 INSERT forja venta (cuenta propia): se esperaba 42501 "permission denied" y salió: NOT-REJECTED rows=1 huella=CAMBIÓ
+NOTICE:  FAIL (d) [seller] m2 INSERT forja cuenta ajena: se esperaba 42501 "permission denied" y salió: OTRA-CAPA-42501|new row violates row-level security policy for table "stock_movements"
+NOTICE:  FAIL (d) [seller] m3 UPDATE movimiento: se esperaba 42501 "permission denied" y salió: NOT-REJECTED rows=0 huella=igual
+NOTICE:  FAIL (d) [seller] m4 UPDATE movimiento RETURNING: se esperaba 42501 "permission denied" y salió: NOT-REJECTED rows=0 huella=igual
+NOTICE:  FAIL (d) [seller] m5 DELETE movimiento: se esperaba 42501 "permission denied" y salió: NOT-REJECTED rows=0 huella=igual
+NOTICE:  FAIL (d) [seller] m6 TRUNCATE stock_movements: se esperaba 42501 "permission denied" y salió: NOT-REJECTED rows=0 huella=CAMBIÓ
+NOTICE:  FAIL (d) [seller] b1 INSERT saldo (cuenta y producto propios): se esperaba 42501 "permission denied" y salió: NOT-REJECTED rows=1 huella=CAMBIÓ
+NOTICE:  FAIL (d) [seller] b2 INSERT ocupación cross-tenant (A, producto de B, sucursal de B): se esperaba 42501 "permission denied" y salió: NOT-REJECTED rows=1 huella=CAMBIÓ
+NOTICE:  FAIL (d) [seller] b3 UPDATE saldo a un valor distinto: se esperaba 42501 "permission denied" y salió: NOT-REJECTED rows=1 huella=CAMBIÓ
+NOTICE:  FAIL (d) [seller] b4 UPDATE saldo RETURNING: se esperaba 42501 "permission denied" y salió: NOT-REJECTED rows=1 huella=CAMBIÓ
+NOTICE:  FAIL (d) [seller] b5 INSERT ... ON CONFLICT DO UPDATE (upsert): se esperaba 42501 "permission denied" y salió: NOT-REJECTED rows=1 huella=CAMBIÓ
+NOTICE:  FAIL (d) [seller] b6 DELETE saldo: se esperaba 42501 "permission denied" y salió: NOT-REJECTED rows=0 huella=igual
+NOTICE:  FAIL (d) [seller] b7 TRUNCATE branch_stock: se esperaba 42501 "permission denied" y salió: NOT-REJECTED rows=0 huella=CAMBIÓ
+NOTICE:  FAIL (d) [seller] f1 rpc_reverse_stock_movement (reversa pública): se esperaba 42501 "permission denied" y salió: NOT-REJECTED rows=1 huella=CAMBIÓ
+NOTICE:  info (d) [seller]: 0 de 14 intentos rechazados con 42501 "permission denied"
+NOTICE:  FAIL (d) [viewer] m1 INSERT forja venta (cuenta propia): se esperaba 42501 "permission denied" y salió: NOT-REJECTED rows=1 huella=CAMBIÓ
+NOTICE:  FAIL (d) [viewer] m2 INSERT forja cuenta ajena: se esperaba 42501 "permission denied" y salió: OTRA-CAPA-42501|new row violates row-level security policy for table "stock_movements"
+NOTICE:  FAIL (d) [viewer] m3 UPDATE movimiento: se esperaba 42501 "permission denied" y salió: NOT-REJECTED rows=0 huella=igual
+NOTICE:  FAIL (d) [viewer] m4 UPDATE movimiento RETURNING: se esperaba 42501 "permission denied" y salió: NOT-REJECTED rows=0 huella=igual
+NOTICE:  FAIL (d) [viewer] m5 DELETE movimiento: se esperaba 42501 "permission denied" y salió: NOT-REJECTED rows=0 huella=igual
+NOTICE:  FAIL (d) [viewer] m6 TRUNCATE stock_movements: se esperaba 42501 "permission denied" y salió: NOT-REJECTED rows=0 huella=CAMBIÓ
+NOTICE:  FAIL (d) [viewer] b1 INSERT saldo (cuenta y producto propios): se esperaba 42501 "permission denied" y salió: OTRA-CAPA-42501|new row violates row-level security policy for table "branch_stock"
+NOTICE:  FAIL (d) [viewer] b2 INSERT ocupación cross-tenant (A, producto de B, sucursal de B): se esperaba 42501 "permission denied" y salió: OTRA-CAPA-42501|new row violates row-level security policy for table "branch_stock"
+NOTICE:  FAIL (d) [viewer] b3 UPDATE saldo a un valor distinto: se esperaba 42501 "permission denied" y salió: NOT-REJECTED rows=0 huella=igual
+NOTICE:  FAIL (d) [viewer] b4 UPDATE saldo RETURNING: se esperaba 42501 "permission denied" y salió: NOT-REJECTED rows=0 huella=igual
+NOTICE:  FAIL (d) [viewer] b5 INSERT ... ON CONFLICT DO UPDATE (upsert): se esperaba 42501 "permission denied" y salió: OTRA-CAPA-42501|new row violates row-level security policy for table "branch_stock"
+NOTICE:  FAIL (d) [viewer] b6 DELETE saldo: se esperaba 42501 "permission denied" y salió: NOT-REJECTED rows=0 huella=igual
+NOTICE:  FAIL (d) [viewer] b7 TRUNCATE branch_stock: se esperaba 42501 "permission denied" y salió: NOT-REJECTED rows=0 huella=CAMBIÓ
+NOTICE:  FAIL (d) [viewer] f1 rpc_reverse_stock_movement (reversa pública): se esperaba 42501 "permission denied" y salió: NOT-REJECTED rows=1 huella=CAMBIÓ
+NOTICE:  info (d) [viewer]: 0 de 14 intentos rechazados con 42501 "permission denied"
+NOTICE:  info (d) [anon]: 14 de 14 intentos rechazados con 42501 "permission denied"
+NOTICE:  PASS (e): ajuste, venta y compra (alta y borrado, incl. compra ya vendida con piso trazable), transferencia, borrado de producto con historial y lectura propia/ajena funcionan con la escritura directa cerrada.
+DO
+ERROR:  GATE STOCK-LEDGER-SOLO-RPC FAILED (45 fallas):
+  (a) authenticated conserva INSERT de TABLA sobre public.stock_movements; authenticated conserva UPDATE de TABLA sobre public.stock_movements; authenticated conserva DELETE de TABLA sobre public.stock_movements; authenticated conserva TRUNCATE de TABLA sobre public.stock_movements; authenticated conserva INSERT por columna sobre public.stock_movements; authenticated conserva UPDATE por columna sobre public.stock_movements; authenticated conserva INSERT de TABLA sobre public.branch_stock; authenticated conserva UPDATE de TABLA sobre public.branch_stock; authenticated conserva DELETE de TABLA sobre public.branch_stock; authenticated conserva TRUNCATE de TABLA sobre public.branch_stock; authenticated conserva INSERT por columna sobre public.branch_stock; authenticated conserva UPDATE por columna sobre public.branch_stock
+  (b) el conjunto de policies debía ser exactamente {branch_stock|branch_stock_member_select|SELECT, stock_movements|stock_movements_account_select|SELECT, stock_movements|stock_movements_no_delete|DELETE, stock_movements|stock_movements_no_update|UPDATE} y es {branch_stock|branch_stock_member_select|SELECT, branch_stock|branch_stock_writer_insert|INSERT, branch_stock|branch_stock_writer_update|UPDATE, stock_movements|stock_movements_account_insert|INSERT, stock_movements|stock_movements_account_select|SELECT, stock_movements|stock_movements_no_delete|DELETE, stock_movements|stock_movements_no_update|UPDATE}; policy de escritura que debía desaparecer: branch_stock.branch_stock_writer_insert (INSERT); policy de escritura que debía desaparecer: branch_stock.branch_stock_writer_update (UPDATE); policy de escritura que debía desaparecer: stock_movements.stock_movements_account_insert (INSERT)
+  (c) authenticated tiene EXECUTE sobre la reversa (invocable por PostgREST)
+  (d) [owner] m1 INSERT forja venta (cuenta propia): se esperaba 42501 "permission denied" y salió: NOT-REJECTED rows=1 huella=CAMBIÓ
+  (d) [owner] m2 INSERT forja cuenta ajena: se esperaba 42501 "permission denied" y salió: OTRA-CAPA-42501|new row violates row-level security policy for table "stock_movements"
+  (d) [owner] m3 UPDATE movimiento: se esperaba 42501 "permission denied" y salió: NOT-REJECTED rows=0 huella=igual
+  (d) [owner] m4 UPDATE movimiento RETURNING: se esperaba 42501 "permission denied" y salió: NOT-REJECTED rows=0 huella=igual
+  (d) [owner] m5 DELETE movimiento: se esperaba 42501 "permission denied" y salió: NOT-REJECTED rows=0 huella=igual
+  (d) [owner] m6 TRUNCATE stock_movements: se esperaba 42501 "permission denied" y salió: NOT-REJECTED rows=0 huella=CAMBIÓ
+  (d) [owner] b1 INSERT saldo (cuenta y producto propios): se esperaba 42501 "permission denied" y salió: NOT-REJECTED rows=1 huella=CAMBIÓ
+  (d) [owner] b2 INSERT ocupación cross-tenant (A, producto de B, sucursal de B): se esperaba 42501 "permission denied" y salió: NOT-REJECTED rows=1 huella=CAMBIÓ
+  (d) [owner] b3 UPDATE saldo a un valor distinto: se esperaba 42501 "permission denied" y salió: NOT-REJECTED rows=1 huella=CAMBIÓ
+  (d) [owner] b4 UPDATE saldo RETURNING: se esperaba 42501 "permission denied" y salió: NOT-REJECTED rows=1 huella=CAMBIÓ
+  (d) [owner] b5 INSERT ... ON CONFLICT DO UPDATE (upsert): se esperaba 42501 "permission denied" y salió: NOT-REJECTED rows=1 huella=CAMBIÓ
+  (d) [owner] b6 DELETE saldo: se esperaba 42501 "permission denied" y salió: NOT-REJECTED rows=0 huella=igual
+  (d) [owner] b7 TRUNCATE branch_stock: se esperaba 42501 "permission denied" y salió: NOT-REJECTED rows=0 huella=CAMBIÓ
+  (d) [owner] f1 rpc_reverse_stock_movement (reversa pública): se esperaba 42501 "permission denied" y salió: NOT-REJECTED rows=1 huella=CAMBIÓ
+  (d) [seller] m1 INSERT forja venta (cuenta propia): se esperaba 42501 "permission denied" y salió: NOT-REJECTED rows=1 huella=CAMBIÓ
+  (d) [seller] m2 INSERT forja cuenta ajena: se esperaba 42501 "permission denied" y salió: OTRA-CAPA-42501|new row violates row-level security policy for table "stock_movements"
+  (d) [seller] m3 UPDATE movimiento: se esperaba 42501 "permission denied" y salió: NOT-REJECTED rows=0 huella=igual
+  (d) [seller] m4 UPDATE movimiento RETURNING: se esperaba 42501 "permission denied" y salió: NOT-REJECTED rows=0 huella=igual
+  (d) [seller] m5 DELETE movimiento: se esperaba 42501 "permission denied" y salió: NOT-REJECTED rows=0 huella=igual
+  (d) [seller] m6 TRUNCATE stock_movements: se esperaba 42501 "permission denied" y salió: NOT-REJECTED rows=0 huella=CAMBIÓ
+  (d) [seller] b1 INSERT saldo (cuenta y producto propios): se esperaba 42501 "permission denied" y salió: NOT-REJECTED rows=1 huella=CAMBIÓ
+  (d) [seller] b2 INSERT ocupación cross-tenant (A, producto de B, sucursal de B): se esperaba 42501 "permission denied" y salió: NOT-REJECTED rows=1 huella=CAMBIÓ
+  (d) [seller] b3 UPDATE saldo a un valor distinto: se esperaba 42501 "permission denied" y salió: NOT-REJECTED rows=1 huella=CAMBIÓ
+  (d) [seller] b4 UPDATE saldo RETURNING: se esperaba 42501 "permission denied" y salió: NOT-REJECTED rows=1 huella=CAMBIÓ
+  (d) [seller] b5 INSERT ... ON CONFLICT DO UPDATE (upsert): se esperaba 42501 "permission denied" y salió: NOT-REJECTED rows=1 huella=CAMBIÓ
+  (d) [seller] b6 DELETE saldo: se esperaba 42501 "permission denied" y salió: NOT-REJECTED rows=0 huella=igual
+  (d) [seller] b7 TRUNCATE branch_stock: se esperaba 42501 "permission denied" y salió: NOT-REJECTED rows=0 huella=CAMBIÓ
+  (d) [seller] f1 rpc_reverse_stock_movement (reversa pública): se esperaba 42501 "permission denied" y salió: NOT-REJECTED rows=1 huella=CAMBIÓ
+  (d) [viewer] m1 INSERT forja venta (cuenta propia): se esperaba 42501 "permission denied" y salió: NOT-REJECTED rows=1 huella=CAMBIÓ
+  (d) [viewer] m2 INSERT forja cuenta ajena: se esperaba 42501 "permission denied" y salió: OTRA-CAPA-42501|new row violates row-level security policy for table "stock_movements"
+  (d) [viewer] m3 UPDATE movimiento: se esperaba 42501 "permission denied" y salió: NOT-REJECTED rows=0 huella=igual
+  (d) [viewer] m4 UPDATE movimiento RETURNING: se esperaba 42501 "permission denied" y salió: NOT-REJECTED rows=0 huella=igual
+  (d) [viewer] m5 DELETE movimiento: se esperaba 42501 "permission denied" y salió: NOT-REJECTED rows=0 huella=igual
+  (d) [viewer] m6 TRUNCATE stock_movements: se esperaba 42501 "permission denied" y salió: NOT-REJECTED rows=0 huella=CAMBIÓ
+  (d) [viewer] b1 INSERT saldo (cuenta y producto propios): se esperaba 42501 "permission denied" y salió: OTRA-CAPA-42501|new row violates row-level security policy for table "branch_stock"
+  (d) [viewer] b2 INSERT ocupación cross-tenant (A, producto de B, sucursal de B): se esperaba 42501 "permission denied" y salió: OTRA-CAPA-42501|new row violates row-level security policy for table "branch_stock"
+  (d) [viewer] b3 UPDATE saldo a un valor distinto: se esperaba 42501 "permission denied" y salió: NOT-REJECTED rows=0 huella=igual
+  (d) [viewer] b4 UPDATE saldo RETURNING: se esperaba 42501 "permission denied" y salió: NOT-REJECTED rows=0 huella=igual
+  (d) [viewer] b5 INSERT ... ON CONFLICT DO UPDATE (upsert): se esperaba 42501 "permission denied" y salió: OTRA-CAPA-42501|new row violates row-level security policy for table "branch_stock"
+  (d) [viewer] b6 DELETE saldo: se esperaba 42501 "permission denied" y salió: NOT-REJECTED rows=0 huella=igual
+  (d) [viewer] b7 TRUNCATE branch_stock: se esperaba 42501 "permission denied" y salió: NOT-REJECTED rows=0 huella=CAMBIÓ
+  (d) [viewer] f1 rpc_reverse_stock_movement (reversa pública): se esperaba 42501 "permission denied" y salió: NOT-REJECTED rows=1 huella=CAMBIÓ
+CONTEXT:  PL/pgSQL function inline_code_block line 7 at RAISE
+EXIT=3

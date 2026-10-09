@@ -1,0 +1,37 @@
+## estado tras db reset (migración aplicada 1 vez)
+comment|branch_stock|1eefa13dd0d0acd2b9d9897665562600
+comment|stock_movements|d747551378a06dc5f6984855a41e2c31
+policy|branch_stock|branch_stock_member_select|SELECT|(account_id IN ( SELECT current_account_ids() AS current_account_ids))|
+policy|stock_movements|stock_movements_account_select|SELECT|(account_id IN ( SELECT current_account_ids() AS current_account_ids))|
+policy|stock_movements|stock_movements_no_delete|DELETE|false|
+policy|stock_movements|stock_movements_no_update|UPDATE|false|
+proacl|rpc_reverse_stock_movement(uuid,text,text)|{postgres=X/postgres,service_role=X/postgres}
+relacl|branch_stock|{postgres=arwdDxtm/postgres,anon=rxtm/postgres,authenticated=rxtm/postgres,service_role=arwdDxtm/postgres}
+relacl|stock_movements|{postgres=arwdDxtm/postgres,anon=rxtm/postgres,authenticated=rxtm/postgres,service_role=arwdDxtm/postgres}
+## reaplicación 1
+NOTICE:  policy "stock_movements_account_insert" for relation "public.stock_movements" does not exist, skipping
+DROP POLICY
+NOTICE:  policy "branch_stock_writer_insert" for relation "public.branch_stock" does not exist, skipping
+DROP POLICY
+NOTICE:  policy "branch_stock_writer_update" for relation "public.branch_stock" does not exist, skipping
+DROP POLICY
+REVOKE
+REVOKE
+REVOKE
+COMMENT
+COMMENT
+exit=0
+## reaplicación 2
+NOTICE:  policy "stock_movements_account_insert" for relation "public.stock_movements" does not exist, skipping
+DROP POLICY
+NOTICE:  policy "branch_stock_writer_insert" for relation "public.branch_stock" does not exist, skipping
+DROP POLICY
+NOTICE:  policy "branch_stock_writer_update" for relation "public.branch_stock" does not exist, skipping
+DROP POLICY
+REVOKE
+REVOKE
+REVOKE
+COMMENT
+COMMENT
+exit=0
+RESULTADO: estado idéntico tras 0, 1 y 2 reaplicaciones (idempotente)

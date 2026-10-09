@@ -1,0 +1,120 @@
+# Batería completa de gates SQL contra la base con la migración 20261073000001 aplicada (db reset limpio, 320 migraciones).
+# Orden = el de KPI_Validation.yml (97 .sql) + test_branch_stock.sql + test_sales_order_payment_method_drop.sql (no cableados en el workflow).
+# Formato: exit|gate|duración|primera línea de ERROR
+# Invocación: psql por stdin dentro del contenedor, ON_ERROR_STOP=1.
+0|test_remito_a_venta|2s|
+0|test_kpis|0s|
+0|test_kpis_edge_cases|1s|
+0|test_function_acl_gate|1s|
+0|test_errcode_5char_gate|1s|
+0|test_idempotency|1s|
+0|test_sale_items_rpc_v2_activation|1s|
+0|test_operation_edit_lines|2s|
+0|test_stock_movements_edicion|1s|
+0|test_payment_methods_catalog|1s|
+0|test_payment_methods_seed|1s|
+0|test_payment_method_operations|1s|
+0|test_payment_method_report|0s|
+0|test_pos_payment_vocabulary|0s|
+0|test_confirm_core_integrity|1s|
+0|test_pos_rpc_signatures|1s|
+0|test_pos_confirm_payment_method|1s|
+0|test_analytics_events|1s|
+0|test_admin_kpis|1s|
+0|test_community_interactions|1s|
+0|test_internal_logs_retention|1s|
+0|test_edicion_preserva_contexto|1s|
+0|test_pagos_cableados_restantes|1s|
+0|test_pos_banco_movimientos|1s|
+0|test_asiento_venta_formulario|1s|
+0|test_delete_guard_ledgers|1s|
+0|test_banco_caja_historial_ajustes|1s|
+3|test_cuentas_billetera_tipo|1s|
+0|test_compras_proveedor_cuenta_corriente|1s|
+0|test_tenancy_rls_role|0s|
+0|test_cuenta_corriente_party_guard|1s|
+0|test_outbox_single_dispatcher|0s|
+0|test_tenancy_guard_caja_outbox|0s|
+0|test_sucursal_guard_vaciado|0s|
+0|test_gastos_forma_pago|1s|
+0|test_qa_integral_fixes|1s|
+0|test_cash_movement_types|1s|
+0|test_purchase_cash_optin|1s|
+0|test_party_payment_cash|1s|
+0|test_purchase_delete_cash_compensation|1s|
+0|test_receivables_report|1s|
+0|test_cobranzas_vencimientos_schema|1s|
+0|test_receivables_aging_fifo|1s|
+0|test_receivables_overdue_digest|1s|
+0|test_product_categories_catalog|1s|
+0|test_product_category_derived|1s|
+0|test_product_sku_uniqueness_scope|1s|
+0|test_bulk_upsert_products_categories|1s|
+0|test_product_categories_seed|1s|
+0|test_estadisticas_ventas|1s|
+0|test_estadisticas_ventas_e2|1s|
+0|test_estadisticas_ventas_e3|1s|
+0|test_subscription_webhook_idempotency|0s|
+0|test_receipts_subscription_charges|0s|
+0|test_products_barcode_account_scope|1s|
+0|test_charge_due_date|1s|
+0|test_bank_default_destination|1s|
+0|test_anon_table_writes_revoked|1s|
+0|test_c30_party_movement_helpers_acl|0s|
+0|test_get_account_ids_for_user_guard|0s|
+0|test_dashboard_critical_stock_items|1s|
+0|test_expense_import_batch|1s|
+0|test_productos_costo_nullable|1s|
+0|test_asiento_contable_gastos|2s|
+0|test_cobranzas_reverso|1s|
+0|test_product_import_batch|2s|
+0|test_product_import_plan_gate|1s|
+0|test_operacion_party_guard|1s|
+0|test_account_role_catalog|1s|
+0|test_account_member_roles_pivot|0s|
+0|test_account_owner_invariant|0s|
+3|test_membership_rpcs_pivot_rewrite|1s|
+0|test_is_account_writer_pivot|1s|
+0|test_custom_access_token_hook_account_roles|1s|
+0|test_document_status_transition_role_matrix|1s|
+0|test_role_expiry_audit_sweep|0s|
+0|test_member_role_assignment_rpcs|1s|
+0|test_invite_member_roles_and_plan_gate|1s|
+0|test_accept_invitation_binding|1s|
+0|test_realtime_publication|1s|
+0|test_accounts_privilege_columns|1s|
+0|test_fiscal_cae_numero_autoritativo|1s|
+0|test_fiscal_emit_consumidor_final|1s|
+0|test_venta_editable_sin_cae|1s|
+0|test_ventas_unidades_conversion|1s|
+0|test_facturar_venta_manual|1s|
+0|test_punto_venta_predeterminado|1s|
+0|test_factura_fiscal_imprimible|1s|
+3|test_unidades_decisiones_8_9|1s|
+0|test_balanza_etiquetas_pos|1s|
+0|test_ventas_formulario_sucursal|1s|
+0|test_presupuestos_modulo|1s|
+0|test_presupuesto_a_venta|2s|
+0|test_remitos_venta|1s|
+0|test_remitos_compra|2s|
+0|test_stock_adjustment_account_branch|1s|
+0|test_stock_ledger_solo_rpc|1s|
+0|test_branch_stock|1s|
+0|test_sales_order_payment_method_drop|2s|
+
+# Los tres exit=3 de arriba son ARTEFACTO DE INVOCACIÓN, no de la migración: usan \i supabase/migrations/... y por stdin el contenedor no ve esos archivos
+# ('No such file or directory'). Se re-corrieron con -f desde un cwd que sí los contiene (docker cp de supabase/migrations y supabase/tests a /tmp/wt):
+  re-run test_cuentas_billetera_tipo -> psql:supabase/tests/test_cuentas_billetera_tipo.sql:461: NOTICE:  GATE CUENTAS-BILLETERA-TIPO: cleanup completo.
+  re-run test_membership_rpcs_pivot_rewrite -> psql:supabase/tests/test_membership_rpcs_pivot_rewrite.sql:325: NOTICE:  GATE MEMBERSHIP-RPCS-PIVOT-REWRITE (fase principal): cleanup completo.
+  re-run test_unidades_decisiones_8_9 -> psql:supabase/tests/test_unidades_decisiones_8_9.sql:527: NOTICE:  GATE unidades-decisiones-8-9: PASS
+# (test_cuentas_billetera_tipo: su primera corrida por stdin abortó antes de su Fase 9 y dejó residuo; se limpió y re-corrió -> cleanup completo, exit 0.)
+
+# Gates de carrera .sh (dentro del contenedor, DB_URL local, scripts convertidos a LF):
+test_ventas_unidades_conversion_race exit=0
+test_facturar_venta_manual_race exit=0
+test_remitos_venta_race exit=0
+test_remitos_compra_race exit=0
+test_venta_editable_sin_cae_race exit=0
+test_presupuesto_a_venta_race exit=0
+test_internal_document_numbering_race exit=0
+test_punto_venta_predeterminado_race exit=0

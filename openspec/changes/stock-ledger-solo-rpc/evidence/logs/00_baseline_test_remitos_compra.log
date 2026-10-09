@@ -1,0 +1,40 @@
+SET
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=808c9617-1810-4c00-a4b4-7d62da47af77
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=92379ff3-64e1-40aa-bf81-4760f3dcbc49
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=9941d043-8c6d-461e-9c10-baba0948c98f
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=26246703-03c6-447a-9e6f-db9b5f310040
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=59b23c72-bfb7-4a0e-8838-f9b8a54ee018
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=8895e640-b1ec-45e5-8aeb-9a7d40d819c8
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=49d8b8d4-2904-419a-994c-e2ed4b82288a
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=2f87e6e9-bd9d-4b2f-b9f6-35fc3e438efc
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=7826275d-d18e-4943-8963-1504d27aa6c7
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=dca2e98b-e742-4dab-a0ae-a7ea8187e5a4
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=30144e43-d6c3-48b7-8af6-076e9c681299
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=8cde8df4-f61d-4802-850b-ae9635fbb0d4
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=acec3d5c-2f1e-4044-ad21-ec620385b6ea
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=bbbd74a4-68b1-402a-90c3-23fb2d60bd6c
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=5191782d-bec9-4ce7-bb4c-8c30b25c6a90
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=b04442d1-1eaf-46e9-ab93-8bd23ff7e79b
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=ad3fb6f1-2acd-47aa-9c66-aaa8e140d310
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=21fd9a2f-eb0f-4608-aec8-1542bf590bc9
+NOTICE:  GATE REMITOS-COMPRA PASSED: helpers por sentido, recepción que suma, rechazos sin efectos, idempotencia, roles por sentido, edición con faltante sobre el neto (patas que suman primero, cambio de sucursal en los dos sentidos), fila forjada, anulación bloqueada si se consumió, invariante del ledger, PostgREST, guards de unidad, baja de sucursal y numeración RC — residuo cero.
+DO
+NOTICE:  PASS (o1): helpers sin EXECUTE para authenticated/anon; las RPCs de compra y las dos reescritas SECURITY DEFINER, con COMMENT, sin anon y con authenticated; _delivery_note_assert_role sin overload.
+NOTICE:  PASS (o2): catálogo delivery_note_purchase con NULL -> issued {stock,admin,owner} e issued -> canceled {admin,owner} (motivo, terminal).
+DO
+DO
+NOTICE:  PASS (o3): el disparador de enforcement de compra existe y canceled -> issued no es una transición válida.
+DO
+EXIT=0

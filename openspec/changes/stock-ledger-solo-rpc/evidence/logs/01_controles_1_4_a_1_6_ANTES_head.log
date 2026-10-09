@@ -1,0 +1,19 @@
+CREATE FUNCTION
+CREATE FUNCTION
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=c752ea08-785d-4232-96fe-a72976bd4f41
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=42777d9e-6b46-4fbb-b6f4-04bdf9668a9a
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=c4473977-c771-4561-b4f4-ce1b33e2144a
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=cd949dfa-4bc0-4e23-823f-a10907569617
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=7891133b-1b82-4e28-93cb-9bf6d3165c30
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=5fd65f72-052e-4847-9ac6-16894a858381
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=bc4fec22-bf37-424c-892a-52f7b9f1a03c
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=1e436aed-1a49-4e76-bf69-ff9d1f1c9ace
+NOTICE:  CONTROL (i) [viewer]: forja=INSERTADA | reversa=EJECUTADA | stock 1.0000 -> 2.0000 (EL STOCK SUBIÓ: fabricado a partir de una fila forjada)
+NOTICE:  CONTROL (ii) [viewer, no escritor]: update=EJECUTADO filas=0 | saldo 2.0000 -> 2.0000
+NOTICE:  CONTROL (ii) [seller, escritor]: update=EJECUTADO filas=1 | saldo 2.0000 -> 555.0000 | movimientos del producto 2 -> 2 (EL SALDO CAMBIÓ SIN RASTRO EN EL LEDGER)
+NOTICE:  CONTROL (iii) paso 1 [owner de A]: ocupacion=INSERTADA (A, producto de B, sucursal de B, 0)
+NOTICE:  CONTROL (iii) paso 2 [compra de B=OK]: filas de branch_stock para (producto de B, sucursal de B)=1; account_id de la fila=34216ed6-7301-445f-b5fc-a2b380c610fc (A=34216ed6-7301-445f-b5fc-a2b380c610fc / B=a937acc6-6673-4c38-9e26-9e701291ac19); quantity=7.0000
+NOTICE:  CONTROL (iii) paso 3 [B bajo RLS]: ve 0 fila(s) de saldo de su producto, suma 0 (EL SALDO DE B QUEDÓ ACUMULADO EN LA FILA DE A, INVISIBLE PARA B)
+NOTICE:  CONTROLES SLR: fixture limpiada, residuo cero.
+DO
+EXIT=0

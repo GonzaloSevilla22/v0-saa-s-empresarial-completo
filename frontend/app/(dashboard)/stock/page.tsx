@@ -249,6 +249,9 @@ export default function StockPage() {
                 size="sm"
                 onClick={() => setImportOpen(true)}
                 className="gap-2"
+                // En móvil el texto se oculta (`hidden sm:inline`): sin nombre accesible el
+                // botón quedaba mudo para un lector de pantalla.
+                aria-label="Importar ajuste"
               >
                 <Upload className="h-4 w-4" />
                 <span className="hidden sm:inline">Importar ajuste</span>

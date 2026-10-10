@@ -54,7 +54,7 @@
 --          candidato lo cambia a conciencia.
 --
 --   PARTE B (varios DO + `\i` de la migración de datos, dos veces): el
---     backfill (7), (8) y (9). Se agrega en el grupo 3 del change.
+--     backfill (7), (8) y (9), dentro de una sola transacción (BEGIN ... COMMIT).
 --
 -- Patrón del proyecto (test_ventas_formulario_sucursal.sql): acumular fallos en
 -- text[], un solo RAISE EXCEPTION al final. Anchors sintéticos vía
@@ -844,3 +844,578 @@ BEGIN
 
   RAISE NOTICE 'GATE VENTAS-SUCURSAL-POR-DEFECTO (parte A) PASSED: las tres funciones persisten la sucursal resuelta (la elegida o la principal operativa) en sales y stock_movements, con paridad v2/legacy; sin sucursal operativa rechazan con P0422 no_branch_found; la edición resuelve NULL a la principal; y la caracterización de OQ-8 (a) queda fijada.';
 END $$;
+
+-- ═════════════════════════════════════════════════════════════════════════════
+-- PARTE B — el backfill (migración de DATOS 20261075000002), ejecutada con `\i`
+-- DOS veces sobre fixtures reales. Todo dentro de UNA transacción: si algo falla,
+-- psql sale y la base no conserva ninguna fila del fixture; si pasa, la limpieza
+-- final borra todo antes del COMMIT. El archivo de datos es GLOBAL (también
+-- asigna las ventas NULL que otros gates hayan dejado): ninguna aserción mira
+-- filas fuera del fixture.
+--
+--   (7)  cada caso de D6, los contadores de la auditoría, la pata de
+--        stock_movements (sólo origen demostrable), la segunda corrida sin
+--        cambios y sin efectos laterales (events, notifications,
+--        analytics_events, cash_movements, bank_movements,
+--        customer_account_movements, journal_entries, branch_stock, sales_orders
+--        y sale_items de las cuentas del fixture).
+--   (8)  rpc_promote_legacy_sale_to_order EJECUTADA sobre la operación antes
+--        mixta: ya no levanta P0422 operation_inconsistent.
+--   (9)  rpc_delete_sale_operation EJECUTADA repone donde dice el movimiento: en
+--        la sucursal asignada si el movimiento se completó, en X para la venta
+--        asignada por la regla del movimiento, y en la principal VIGENTE para el
+--        movimiento que quedó NULL por origen incierto.
+-- ═════════════════════════════════════════════════════════════════════════════
+BEGIN;
+
+CREATE TEMP TABLE _vspd_k (k text PRIMARY KEY, v uuid);
+CREATE TEMP TABLE _vspd_t (k text PRIMARY KEY, v text);
+
+CREATE FUNCTION pg_temp.vspd_put(p_k text, p_v uuid) RETURNS uuid LANGUAGE plpgsql AS $f$
+BEGIN
+  INSERT INTO _vspd_k (k, v) VALUES (p_k, p_v);
+  RETURN p_v;
+END $f$;
+CREATE FUNCTION pg_temp.vspd_get(p_k text) RETURNS uuid LANGUAGE sql AS $f$ SELECT v FROM _vspd_k WHERE k = p_k $f$;
+CREATE FUNCTION pg_temp.vspd_br(p_k text) RETURNS uuid LANGUAGE sql AS $f$
+  SELECT branch_id FROM public.sales WHERE id = pg_temp.vspd_get(p_k)
+$f$;
+CREATE FUNCTION pg_temp.vspd_mbr(p_k text) RETURNS uuid LANGUAGE sql AS $f$
+  SELECT branch_id FROM public.stock_movements WHERE id = pg_temp.vspd_get(p_k)
+$f$;
+
+-- Fila de venta insertada directo (la forma en que quedaron las históricas: sin
+-- sucursal). op NULL = fila legacy sin operation_id.
+CREATE FUNCTION pg_temp.vspd_sale(p_user uuid, p_account uuid, p_product uuid, p_op uuid, p_branch uuid)
+RETURNS uuid LANGUAGE plpgsql AS $f$
+DECLARE v_id uuid;
+BEGIN
+  INSERT INTO public.sales (user_id, account_id, product_id, amount, quantity, total, currency, date, operation_id, branch_id)
+  VALUES (p_user, p_account, p_product, 100, 1, 100, 'ARS', public.reporting_local_today(), p_op, p_branch)
+  RETURNING id INTO v_id;
+  RETURN v_id;
+END $f$;
+
+-- Movimiento de stock insertado directo, con created_at EXPLÍCITO.
+CREATE FUNCTION pg_temp.vspd_mov(p_user uuid, p_account uuid, p_product uuid, p_sale uuid, p_op uuid,
+                                 p_branch uuid, p_created timestamptz,
+                                 p_type text DEFAULT 'sale', p_ref text DEFAULT 'sale')
+RETURNS uuid LANGUAGE plpgsql AS $f$
+DECLARE v_id uuid;
+BEGIN
+  INSERT INTO public.stock_movements (user_id, account_id, product_id, product_name, type, quantity_delta,
+                                      quantity_before, quantity_after, reference_id, reference_type,
+                                      performed_by, operation_group_id, branch_id, created_at)
+  VALUES (p_user, p_account, p_product, 'Producto gate', p_type,
+          CASE WHEN p_type = 'sale' THEN -1 ELSE 1 END, 10, CASE WHEN p_type = 'sale' THEN 9 ELSE 11 END,
+          p_sale, p_ref, p_user, p_op, p_branch, p_created)
+  RETURNING id INTO v_id;
+  RETURN v_id;
+END $f$;
+
+-- Comprobante en el estado pedido. authorized/rejected son estados FINALES a los
+-- que el camino legítimo llega por UPDATE del relay: se insertan eludiendo (de
+-- forma acotada) trg_guard_fiscal_document_insert_interno. pending_cae nace
+-- limpio y la marca de envío se le pone por UPDATE (lo que hace el relay).
+CREATE FUNCTION pg_temp.vspd_doc(p_account uuid, p_fp uuid, p_pv uuid, p_number bigint, p_kind text)
+RETURNS uuid LANGUAGE plpgsql AS $f$
+DECLARE v_id uuid;
+BEGIN
+  IF p_kind IN ('authorized', 'rejected') THEN
+    SET session_replication_role = replica;
+    INSERT INTO public.fiscal_documents (account_id, fiscal_profile_id, point_of_sale_id, comprobante_type, punto_de_venta, number, total, status, attempts)
+    VALUES (p_account, p_fp, p_pv, 'factura_c', 1, p_number, 100, p_kind, 0)
+    RETURNING id INTO v_id;
+    SET session_replication_role = DEFAULT;
+  ELSE
+    INSERT INTO public.fiscal_documents (account_id, fiscal_profile_id, point_of_sale_id, comprobante_type, punto_de_venta, number, total, status, attempts)
+    VALUES (p_account, p_fp, p_pv, 'factura_c', 1, p_number, 100, 'pending_cae', 0)
+    RETURNING id INTO v_id;
+    IF p_kind = 'pending_marked' THEN
+      UPDATE public.fiscal_documents SET cae_submit_started_at = now(), arca_requested_number = p_number WHERE id = v_id;
+    END IF;
+  END IF;
+  RETURN v_id;
+END $f$;
+
+CREATE FUNCTION pg_temp.vspd_order(p_account uuid, p_branch uuid, p_user uuid, p_op uuid, p_doc uuid)
+RETURNS uuid LANGUAGE plpgsql AS $f$
+DECLARE v_id uuid;
+BEGIN
+  INSERT INTO public.sales_orders (account_id, branch_id, status, total, created_by, sale_operation_id, fiscal_document_id)
+  VALUES (p_account, p_branch, 'confirmed', 100, p_user, p_op, p_doc)
+  RETURNING id INTO v_id;
+  RETURN v_id;
+END $f$;
+
+-- Efectos laterales que el backfill NO puede tocar, contados SÓLO sobre las
+-- cuentas del fixture: pg_cron corre relay-process-outbox y
+-- relay-process-pending-cae cada minuto en el stack local y en CI, y un conteo
+-- global puede cambiar por el relay sin ningún defecto.
+CREATE FUNCTION pg_temp.vspd_effects(p_accounts uuid[]) RETURNS text LANGUAGE sql AS $f$
+  SELECT concat_ws('|',
+    (SELECT count(*) FROM public.events WHERE account_id = ANY(p_accounts)),
+    (SELECT count(*) FROM public.notifications WHERE account_id = ANY(p_accounts)),
+    (SELECT count(*) FROM public.analytics_events WHERE account_id = ANY(p_accounts)),
+    (SELECT count(*) FROM public.cash_movements cm JOIN public.cash_sessions cs ON cs.id = cm.session_id
+       JOIN public.cashboxes cb ON cb.id = cs.cashbox_id JOIN public.branches b ON b.id = cb.branch_id
+      WHERE b.account_id = ANY(p_accounts)),
+    (SELECT count(*) FROM public.bank_movements WHERE account_id = ANY(p_accounts)),
+    (SELECT count(*) FROM public.customer_account_movements WHERE account_id = ANY(p_accounts)),
+    (SELECT count(*) FROM public.journal_entries WHERE account_id = ANY(p_accounts)),
+    (SELECT COALESCE(sum(quantity), 0) FROM public.branch_stock WHERE account_id = ANY(p_accounts)),
+    (SELECT count(*) FROM public.sales_orders WHERE account_id = ANY(p_accounts)),
+    (SELECT count(*) FROM public.sale_items WHERE account_id = ANY(p_accounts)))
+$f$;
+
+-- Foto del estado que la segunda corrida no puede cambiar (filas de venta, movimientos, órdenes y auditoría).
+CREATE FUNCTION pg_temp.vspd_snapshot(p_accounts uuid[]) RETURNS text LANGUAGE sql AS $f$
+  SELECT concat_ws('#',
+    (SELECT md5(COALESCE(string_agg(s.id::text || ':' || COALESCE(s.branch_id::text, '-'), ',' ORDER BY s.id), ''))
+       FROM public.sales s WHERE s.account_id = ANY(p_accounts) OR s.id = pg_temp.vspd_get('s_sin_cuenta')),
+    (SELECT md5(COALESCE(string_agg(sm.id::text || ':' || COALESCE(sm.branch_id::text, '-'), ',' ORDER BY sm.id), ''))
+       FROM public.stock_movements sm WHERE sm.account_id = ANY(p_accounts)),
+    (SELECT md5(COALESCE(string_agg(so.id::text || ':' || so.branch_id::text, ',' ORDER BY so.id), ''))
+       FROM public.sales_orders so WHERE so.account_id = ANY(p_accounts)),
+    (SELECT count(*) FROM public.audit_logs WHERE action = 'sales_branch_backfill' AND account_id = ANY(p_accounts)))
+$f$;
+
+-- ── B.1 Fixtures ───────────────────────────────────────────────────────────────
+DO $$
+DECLARE
+  r jsonb;
+  um uuid; am uuid; m0 uuid;
+  up uuid; ap uuid; p0 uuid; p1 uuid; p2 uuid; px uuid;
+  ur uuid; ar uuid; r0 uuid; r1 uuid;
+  us uuid; as_ uuid; s0 uuid;
+  pm uuid; pp uuid; pr uuid; ps uuid;
+  v_fp uuid; v_pv uuid; v_doc uuid; v_op uuid; v_s uuid; v_ord uuid;
+  v_n integer;
+  v_cbx uuid; v_ses uuid; v_bank uuid;
+BEGIN
+  -- ── M: cuenta de UNA sola sucursal ───────────────────────────────────────
+  r := pg_temp.vspd_mk_account('vspd-b-m@test.local', 'Gate VSPD B M');
+  um := (r->>'user')::uuid; am := (r->>'account')::uuid; m0 := (r->>'branch')::uuid;
+  UPDATE public.branches SET created_at = now() - interval '10 days' WHERE id = m0;
+  pm := pg_temp.vspd_mk_product(um, am, 'VSPDB-PM');
+  PERFORM pg_temp.vspd_put('um', um); PERFORM pg_temp.vspd_put('am', am); PERFORM pg_temp.vspd_put('m0', m0);
+
+  v_op := gen_random_uuid();
+  v_s := pg_temp.vspd_put('sM1', pg_temp.vspd_sale(um, am, pm, v_op, NULL));
+  PERFORM pg_temp.vspd_put('mM1', pg_temp.vspd_mov(um, am, pm, v_s, v_op, NULL, now() - interval '5 days'));
+  -- sM2: línea de servicio (sin movimiento); sM3: fila legacy SIN operation_id
+  PERFORM pg_temp.vspd_put('sM2', pg_temp.vspd_sale(um, am, NULL, gen_random_uuid(), NULL));
+  PERFORM pg_temp.vspd_put('sM3', pg_temp.vspd_sale(um, am, NULL, NULL, NULL));
+
+  -- ── P: cuenta de VARIAS sucursales ───────────────────────────────────────
+  -- p0 principal (-10d), px CERRADA (-7d), p1 (-5d), p2 (-4d). created_at explícitos y asertados.
+  r := pg_temp.vspd_mk_account('vspd-b-p@test.local', 'Gate VSPD B P');
+  up := (r->>'user')::uuid; ap := (r->>'account')::uuid; p0 := (r->>'branch')::uuid;
+  UPDATE public.branches SET created_at = now() - interval '10 days' WHERE id = p0;
+  px := pg_temp.vspd_mk_branch(ap, 'Sucursal VSPD PX (cerrada)', -10080, 'closed', TRUE);
+  p1 := pg_temp.vspd_mk_branch(ap, 'Sucursal VSPD P1', -7200);
+  p2 := pg_temp.vspd_mk_branch(ap, 'Sucursal VSPD P2', -5760);
+  IF pg_temp.vspd_assert_oldest(ap, p0) > 0 OR public.c26_default_branch(ap) IS DISTINCT FROM p0 THEN
+    RAISE EXCEPTION 'GATE VENTAS-SUCURSAL-POR-DEFECTO (setup B P): la principal de P no es la más antigua y operativa';
+  END IF;
+  pp := pg_temp.vspd_mk_product(up, ap, 'VSPDB-PP');
+  PERFORM public.c21_apply_branch_stock_delta(ap, pp, p0, 50);
+  PERFORM public.c21_apply_branch_stock_delta(ap, pp, p1, 50);
+  PERFORM public.c21_apply_branch_stock_delta(ap, pp, p2, 50);
+  PERFORM pg_temp.vspd_put('up', up); PERFORM pg_temp.vspd_put('ap', ap); PERFORM pg_temp.vspd_put('p0', p0);
+  PERFORM pg_temp.vspd_put('p1', p1); PERFORM pg_temp.vspd_put('p2', p2); PERFORM pg_temp.vspd_put('px', px);
+  PERFORM pg_temp.vspd_put('pp', pp);
+
+  INSERT INTO public.fiscal_profiles (account_id, cuit, iva_condition, ambiente, delegacion_autorizada)
+  VALUES (ap, '20444444449', 'monotributista', 'homologacion', true) RETURNING id INTO v_fp;
+  INSERT INTO public.points_of_sale (fiscal_profile_id, account_id, numero, is_active)
+  VALUES (v_fp, ap, 9701, true) RETURNING id INTO v_pv;
+
+  -- 1. regla 5 con movimiento NULL de ORIGEN DEMOSTRABLE: a -8d sólo existía p0
+  v_op := gen_random_uuid();
+  v_s := pg_temp.vspd_put('sP_early', pg_temp.vspd_sale(up, ap, pp, v_op, NULL));
+  PERFORM pg_temp.vspd_put('op_early', v_op);
+  PERFORM pg_temp.vspd_put('mP_early', pg_temp.vspd_mov(up, ap, pp, v_s, v_op, NULL, now() - interval '8 days'));
+  -- 2. regla 5 con movimiento NULL de ORIGEN INCIERTO: a -2d ya existían px, p1 y p2
+  v_op := gen_random_uuid();
+  v_s := pg_temp.vspd_put('sP_late', pg_temp.vspd_sale(up, ap, pp, v_op, NULL));
+  PERFORM pg_temp.vspd_put('op_late', v_op);
+  PERFORM pg_temp.vspd_put('mP_late', pg_temp.vspd_mov(up, ap, pp, v_s, v_op, NULL, now() - interval '2 days'));
+  -- 3. operación MIXTA: a en p1 (no nula), b producto NULL, c servicio NULL (sin movimiento)
+  v_op := gen_random_uuid();
+  PERFORM pg_temp.vspd_put('op_mixta', v_op);
+  v_s := pg_temp.vspd_put('sP_mixta_a', pg_temp.vspd_sale(up, ap, pp, v_op, p1));
+  PERFORM pg_temp.vspd_put('mP_mixta_a', pg_temp.vspd_mov(up, ap, pp, v_s, v_op, p1, now() - interval '3 days'));
+  v_s := pg_temp.vspd_put('sP_mixta_b', pg_temp.vspd_sale(up, ap, pp, v_op, NULL));
+  -- el movimiento de b es de hace 6 días: p1 (-5d) todavía NO existía -> origen no demostrable
+  PERFORM pg_temp.vspd_put('mP_mixta_b', pg_temp.vspd_mov(up, ap, pp, v_s, v_op, NULL, now() - interval '6 days'));
+  PERFORM pg_temp.vspd_put('sP_mixta_c', pg_temp.vspd_sale(up, ap, NULL, v_op, NULL));
+  -- 4. operación mixta con la sucursal de la otra fila CERRADA: igual se asigna (regla 1 no pasa por el filtro)
+  v_op := gen_random_uuid();
+  PERFORM pg_temp.vspd_put('sP_mixc_a', pg_temp.vspd_sale(up, ap, NULL, v_op, px));
+  PERFORM pg_temp.vspd_put('sP_mixc_b', pg_temp.vspd_sale(up, ap, NULL, v_op, NULL));
+  -- 5. orden con comprobante AUTHORIZED en p1; movimiento 'sale' en p2 -> gana la orden (regla 2)
+  v_op := gen_random_uuid();
+  v_s := pg_temp.vspd_put('sP_ordauth', pg_temp.vspd_sale(up, ap, pp, v_op, NULL));
+  v_doc := pg_temp.vspd_doc(ap, v_fp, v_pv, 1, 'authorized');
+  PERFORM pg_temp.vspd_put('ord_auth', pg_temp.vspd_order(ap, p1, up, v_op, v_doc));
+  PERFORM pg_temp.vspd_put('mP_ordauth', pg_temp.vspd_mov(up, ap, pp, v_s, v_op, p2, now() - interval '1 day'));
+  -- 6. pending_cae CON marca de envío en p1 -> regla 2
+  v_op := gen_random_uuid();
+  PERFORM pg_temp.vspd_put('sP_ordpend', pg_temp.vspd_sale(up, ap, NULL, v_op, NULL));
+  v_doc := pg_temp.vspd_doc(ap, v_fp, v_pv, 2, 'pending_marked');
+  PERFORM pg_temp.vspd_put('ord_pend', pg_temp.vspd_order(ap, p1, up, v_op, v_doc));
+  -- 7. pending_cae SIN marca en p2: NO es comprobante vigente -> regla 4 (p2)
+  v_op := gen_random_uuid();
+  PERFORM pg_temp.vspd_put('sP_ordpendsm', pg_temp.vspd_sale(up, ap, NULL, v_op, NULL));
+  v_doc := pg_temp.vspd_doc(ap, v_fp, v_pv, 3, 'pending');
+  PERFORM pg_temp.vspd_put('ord_pendsm', pg_temp.vspd_order(ap, p2, up, v_op, v_doc));
+  -- 8. movimiento 'sale' en p2 (operativa, distinta de la principal p0), sin orden -> regla 3
+  v_op := gen_random_uuid();
+  v_s := pg_temp.vspd_put('sP_movx', pg_temp.vspd_sale(up, ap, pp, v_op, NULL));
+  PERFORM pg_temp.vspd_put('op_movx', v_op);
+  PERFORM pg_temp.vspd_put('mP_movx', pg_temp.vspd_mov(up, ap, pp, v_s, v_op, p2, now() - interval '1 day'));
+  -- 9. movimiento en p2 y orden SIN comprobante en p1 -> regla 3 (p2); la orden queda en p1
+  v_op := gen_random_uuid();
+  v_s := pg_temp.vspd_put('sP_movxord', pg_temp.vspd_sale(up, ap, pp, v_op, NULL));
+  PERFORM pg_temp.vspd_put('mP_movxord', pg_temp.vspd_mov(up, ap, pp, v_s, v_op, p2, now() - interval '1 day'));
+  PERFORM pg_temp.vspd_put('ord_movxord', pg_temp.vspd_order(ap, p1, up, v_op, NULL));
+  -- 10. movimiento en la CERRADA px -> regla 3 salteada, cae en la principal p0
+  v_op := gen_random_uuid();
+  v_s := pg_temp.vspd_put('sP_movcerr', pg_temp.vspd_sale(up, ap, pp, v_op, NULL));
+  PERFORM pg_temp.vspd_put('mP_movcerr', pg_temp.vspd_mov(up, ap, pp, v_s, v_op, px, now() - interval '1 day'));
+  -- 11. orden SIN comprobante (sin fiscal_document) en p1, sin movimiento -> regla 4
+  v_op := gen_random_uuid();
+  PERFORM pg_temp.vspd_put('sP_ordsc', pg_temp.vspd_sale(up, ap, NULL, v_op, NULL));
+  PERFORM pg_temp.vspd_put('ord_sc', pg_temp.vspd_order(ap, p1, up, v_op, NULL));
+  -- 12. orden sin comprobante en la CERRADA px -> regla 4 salteada, cae en la principal
+  v_op := gen_random_uuid();
+  PERFORM pg_temp.vspd_put('sP_ordcerr', pg_temp.vspd_sale(up, ap, NULL, v_op, NULL));
+  PERFORM pg_temp.vspd_put('ord_cerr', pg_temp.vspd_order(ap, px, up, v_op, NULL));
+  -- 13. orden con comprobante REJECTED en p1: no es vigente -> regla 4 (p1)
+  v_op := gen_random_uuid();
+  PERFORM pg_temp.vspd_put('sP_ordrej', pg_temp.vspd_sale(up, ap, NULL, v_op, NULL));
+  v_doc := pg_temp.vspd_doc(ap, v_fp, v_pv, 4, 'rejected');
+  PERFORM pg_temp.vspd_put('ord_rej', pg_temp.vspd_order(ap, p1, up, v_op, v_doc));
+  -- 14. evidencia de OTRA sucursal en caja (sesión de la caja de p2) y en banco (movimiento en p2)
+  v_op := gen_random_uuid();
+  PERFORM pg_temp.vspd_put('sP_evcash', pg_temp.vspd_sale(up, ap, NULL, v_op, NULL));
+  INSERT INTO public.cashboxes (branch_id, name, currency) VALUES (p2, '__gate_vspd_b_cbx__', 'ARS') RETURNING id INTO v_cbx;
+  INSERT INTO public.cash_sessions (cashbox_id, status, opening_balance, opened_by) VALUES (v_cbx, 'open', 0, up) RETURNING id INTO v_ses;
+  INSERT INTO public.cash_movements (session_id, amount, movement_type, reference_id, balance_after, created_by)
+  VALUES (v_ses, 100, 'sale', v_op, 100, up);
+  v_op := gen_random_uuid();
+  PERFORM pg_temp.vspd_put('sP_evbank', pg_temp.vspd_sale(up, ap, NULL, v_op, NULL));
+  INSERT INTO public.bank_accounts (account_id, name, currency, opening_balance, is_active)
+  VALUES (ap, '__gate_vspd_b_bank__', 'ARS', 0, TRUE) RETURNING id INTO v_bank;
+  INSERT INTO public.bank_movements (bank_account_id, account_id, amount, balance_after, movement_type, source_doc_type, source_doc_ref, branch_id)
+  VALUES (v_bank, ap, 100, 100, 'transfer_in', 'sale', v_op, p2);
+  -- 15. movimientos de una venta BORRADA: el original y su reversa quedaron NULL
+  v_op := gen_random_uuid(); v_s := gen_random_uuid();
+  PERFORM pg_temp.vspd_put('mP_del_orig', pg_temp.vspd_mov(up, ap, pp, v_s, v_op, NULL, now() - interval '9 days'));
+  PERFORM pg_temp.vspd_put('mP_del_rev', pg_temp.vspd_mov(up, ap, pp, v_s, v_op, NULL, now() - interval '9 days', 'sale_return', 'sale_reversal'));
+  -- 16. control: una venta que YA tiene sucursal no se toca
+  PERFORM pg_temp.vspd_put('sP_con', pg_temp.vspd_sale(up, ap, NULL, gen_random_uuid(), p2));
+
+  -- ── R: cuenta SIN sucursal operativa (r0 desactivada, r1 cerrada) ────────
+  r := pg_temp.vspd_mk_account('vspd-b-r@test.local', 'Gate VSPD B R');
+  ur := (r->>'user')::uuid; ar := (r->>'account')::uuid; r0 := (r->>'branch')::uuid;
+  UPDATE public.branches SET is_active = FALSE, created_at = now() - interval '10 days' WHERE id = r0;
+  r1 := pg_temp.vspd_mk_branch(ar, 'Sucursal VSPD R1 (cerrada)', -7200, 'closed', TRUE);
+  PERFORM pg_temp.vspd_put('ur', ur); PERFORM pg_temp.vspd_put('ar', ar); PERFORM pg_temp.vspd_put('r1', r1);
+  PERFORM pg_temp.vspd_put('sR_res', pg_temp.vspd_sale(ur, ar, NULL, gen_random_uuid(), NULL));
+  v_op := gen_random_uuid();
+  PERFORM pg_temp.vspd_put('sR_mix_a', pg_temp.vspd_sale(ur, ar, NULL, v_op, r1));
+  PERFORM pg_temp.vspd_put('sR_mix_b', pg_temp.vspd_sale(ur, ar, NULL, v_op, NULL));
+
+  -- ── S: cuenta SIN sucursales; y una fila SIN cuenta ──────────────────────
+  r := pg_temp.vspd_mk_account('vspd-b-s@test.local', 'Gate VSPD B S');
+  us := (r->>'user')::uuid; as_ := (r->>'account')::uuid; s0 := (r->>'branch')::uuid;
+  SET session_replication_role = replica;
+  DELETE FROM public.cashboxes    WHERE branch_id = s0;
+  DELETE FROM public.branch_stock WHERE branch_id = s0;
+  DELETE FROM public.branches     WHERE id = s0;
+  SET session_replication_role = DEFAULT;
+  PERFORM pg_temp.vspd_put('us', us); PERFORM pg_temp.vspd_put('as', as_); PERFORM pg_temp.vspd_put('s0', s0);
+  PERFORM pg_temp.vspd_put('sS_res', pg_temp.vspd_sale(us, as_, NULL, gen_random_uuid(), NULL));
+  PERFORM pg_temp.vspd_put('s_sin_cuenta', pg_temp.vspd_sale(us, NULL, NULL, gen_random_uuid(), NULL));
+
+  -- Toda venta NULL del fixture: el fixture sembró lo que dice (control de la siembra).
+  SELECT COUNT(*) INTO v_n FROM public.sales s
+  WHERE s.branch_id IS NULL AND (s.account_id IN (am, ap, ar, as_) OR s.id = pg_temp.vspd_get('s_sin_cuenta'));
+  IF v_n <> 23 THEN
+    RAISE EXCEPTION 'GATE VENTAS-SUCURSAL-POR-DEFECTO (setup B): esperaba 23 filas de venta NULL en el fixture, hay %', v_n;
+  END IF;
+  INSERT INTO _vspd_t (k, v) VALUES
+    ('accounts', array_to_string(ARRAY[am, ap, ar, as_], ',')),
+    ('effects_before', pg_temp.vspd_effects(ARRAY[am, ap, ar, as_])),
+    ('snapshot_before', pg_temp.vspd_snapshot(ARRAY[am, ap, ar, as_]));
+END $$;
+
+-- ── B.2 Primera corrida del archivo de datos ───────────────────────────────────
+\i supabase/migrations/20261075000002_ventas_sucursal_por_defecto_backfill.sql
+
+DO $$
+DECLARE
+  v_failures text[] := '{}';
+  v_accs     uuid[];
+  v_md       jsonb;
+  v_n        integer;
+  v_eff      text;
+  p0 uuid := pg_temp.vspd_get('p0'); p1 uuid := pg_temp.vspd_get('p1');
+  p2 uuid := pg_temp.vspd_get('p2'); px uuid := pg_temp.vspd_get('px');
+  m0 uuid := pg_temp.vspd_get('m0'); r1 uuid := pg_temp.vspd_get('r1');
+  v_row record;
+BEGIN
+  SELECT string_to_array(v, ',')::uuid[] INTO v_accs FROM _vspd_t WHERE k = 'accounts';
+
+  -- (7a) cuenta de una sola sucursal: todo a su sucursal; el movimiento completado (origen demostrable)
+  FOR v_row IN SELECT unnest(ARRAY['sM1', 'sM2', 'sM3']) AS k LOOP
+    IF pg_temp.vspd_br(v_row.k) IS DISTINCT FROM m0 THEN
+      v_failures := array_append(v_failures, format('FAIL (7a %s): una venta NULL de una cuenta de una sola sucursal debía quedar en ella (%s), quedó en %s', v_row.k, m0, pg_temp.vspd_br(v_row.k)));
+    END IF;
+  END LOOP;
+  IF pg_temp.vspd_mbr('mM1') IS DISTINCT FROM m0 THEN
+    v_failures := array_append(v_failures, format('FAIL (7a movimiento): el movimiento NULL de una cuenta que sólo tenía una sucursal al escribirse (origen demostrable) debía completarse con %s, quedó %s (excepción auditada a RN-21, OQ-5 (c))', m0, pg_temp.vspd_mbr('mM1')));
+  END IF;
+
+  -- (7b) multi-sucursal: cada caso de D6
+  IF pg_temp.vspd_br('sP_early') IS DISTINCT FROM p0 THEN v_failures := array_append(v_failures, format('FAIL (7b regla 5): sin nada asentado la venta va a la principal vigente %s, quedó %s', p0, pg_temp.vspd_br('sP_early'))); END IF;
+  IF pg_temp.vspd_br('sP_late') IS DISTINCT FROM p0 THEN v_failures := array_append(v_failures, format('FAIL (7b regla 5 late): quedó %s', pg_temp.vspd_br('sP_late'))); END IF;
+  IF pg_temp.vspd_mbr('mP_early') IS DISTINCT FROM p0 THEN
+    v_failures := array_append(v_failures, format('FAIL (7b movimiento demostrable): a los -8 días sólo existía la principal: el movimiento NULL debía completarse con %s, quedó %s', p0, pg_temp.vspd_mbr('mP_early')));
+  END IF;
+  IF pg_temp.vspd_mbr('mP_late') IS NOT NULL THEN
+    v_failures := array_append(v_failures, format('FAIL (7b movimiento incierto): a los -2 días ya existían otras sucursales: el movimiento NULL NO debía completarse (el stock pudo salir de otra), quedó %s — falsearía el ledger de stock', pg_temp.vspd_mbr('mP_late')));
+  END IF;
+  IF pg_temp.vspd_br('sP_mixta_a') IS DISTINCT FROM p1 OR pg_temp.vspd_br('sP_mixta_b') IS DISTINCT FROM p1 OR pg_temp.vspd_br('sP_mixta_c') IS DISTINCT FROM p1 THEN
+    v_failures := array_append(v_failures, format('FAIL (7b regla 1): las tres filas de la operación mixta (incluida la línea de servicio sin movimiento) debían quedar en p1 %s, quedaron %s / %s / %s', p1, pg_temp.vspd_br('sP_mixta_a'), pg_temp.vspd_br('sP_mixta_b'), pg_temp.vspd_br('sP_mixta_c')));
+  END IF;
+  IF pg_temp.vspd_mbr('mP_mixta_b') IS NOT NULL THEN
+    v_failures := array_append(v_failures, 'FAIL (7b movimiento de la mixta): p1 NO existía cuando se escribió el movimiento de b: no se completa (origen no demostrable)');
+  END IF;
+  IF pg_temp.vspd_br('sP_mixc_a') IS DISTINCT FROM px OR pg_temp.vspd_br('sP_mixc_b') IS DISTINCT FROM px THEN
+    v_failures := array_append(v_failures, format('FAIL (7b regla 1 sin filtro): la operación mixta con la otra fila en una sucursal CERRADA debía quedar en ella (%s: no pasa por el filtro de operativa), quedó %s', px, pg_temp.vspd_br('sP_mixc_b')));
+  END IF;
+  IF pg_temp.vspd_br('sP_ordauth') IS DISTINCT FROM p1 THEN
+    v_failures := array_append(v_failures, format('FAIL (7b regla 2 authorized): con comprobante authorized manda la ORDEN (p1 %s), no el movimiento (p2): quedó %s', p1, pg_temp.vspd_br('sP_ordauth')));
+  END IF;
+  IF pg_temp.vspd_mbr('mP_ordauth') IS DISTINCT FROM p2 THEN
+    v_failures := array_append(v_failures, 'FAIL (7b regla 2): el movimiento de la venta facturada no se toca (sigue en p2)');
+  END IF;
+  IF pg_temp.vspd_br('sP_ordpend') IS DISTINCT FROM p1 THEN
+    v_failures := array_append(v_failures, format('FAIL (7b regla 2 pending con marca): pending_cae con marca de envío es comprobante vigente: debía quedar en la sucursal de la orden (p1 %s), quedó %s', p1, pg_temp.vspd_br('sP_ordpend')));
+  END IF;
+  IF pg_temp.vspd_br('sP_ordpendsm') IS DISTINCT FROM p2 THEN
+    v_failures := array_append(v_failures, format('FAIL (7b regla 4 pending sin marca): pending_cae SIN marca no es comprobante vigente: regla 4, la sucursal de la orden (p2 %s), quedó %s', p2, pg_temp.vspd_br('sP_ordpendsm')));
+  END IF;
+  IF pg_temp.vspd_br('sP_movx') IS DISTINCT FROM p2 THEN
+    v_failures := array_append(v_failures, format('FAIL (7b regla 3): la venta debía quedar donde su movimiento registró la salida (p2 %s), quedó %s', p2, pg_temp.vspd_br('sP_movx')));
+  END IF;
+  IF pg_temp.vspd_mbr('mP_movx') IS DISTINCT FROM p2 THEN v_failures := array_append(v_failures, 'FAIL (7b regla 3): el movimiento no se toca'); END IF;
+  IF pg_temp.vspd_br('sP_movxord') IS DISTINCT FROM p2 THEN
+    v_failures := array_append(v_failures, format('FAIL (7b regla 3 sobre la orden sin comprobante): manda el movimiento (p2 %s), quedó %s', p2, pg_temp.vspd_br('sP_movxord')));
+  END IF;
+  IF (SELECT branch_id FROM public.sales_orders WHERE id = pg_temp.vspd_get('ord_movxord')) IS DISTINCT FROM p1 THEN
+    v_failures := array_append(v_failures, 'FAIL (7b): el backfill NO toca sales_orders (la orden sigue en p1 hasta la próxima edición de la venta)');
+  END IF;
+  IF pg_temp.vspd_br('sP_movcerr') IS DISTINCT FROM p0 THEN
+    v_failures := array_append(v_failures, format('FAIL (7b regla 3 salteada): el movimiento está en una sucursal CERRADA: se saltea y cae en la principal (p0 %s), quedó %s', p0, pg_temp.vspd_br('sP_movcerr')));
+  END IF;
+  IF pg_temp.vspd_mbr('mP_movcerr') IS DISTINCT FROM px THEN v_failures := array_append(v_failures, 'FAIL (7b): el movimiento en la cerrada no se toca'); END IF;
+  IF pg_temp.vspd_br('sP_ordsc') IS DISTINCT FROM p1 THEN
+    v_failures := array_append(v_failures, format('FAIL (7b regla 4): orden sin comprobante en p1: quedó %s', pg_temp.vspd_br('sP_ordsc')));
+  END IF;
+  IF pg_temp.vspd_br('sP_ordcerr') IS DISTINCT FROM p0 THEN
+    v_failures := array_append(v_failures, format('FAIL (7b regla 4 salteada): la orden está en una sucursal CERRADA: se saltea y cae en la principal (p0), quedó %s', pg_temp.vspd_br('sP_ordcerr')));
+  END IF;
+  IF pg_temp.vspd_br('sP_ordrej') IS DISTINCT FROM p1 THEN
+    v_failures := array_append(v_failures, format('FAIL (7b regla 4 rejected): un comprobante rejected no es vigente: regla 4 (p1), quedó %s', pg_temp.vspd_br('sP_ordrej')));
+  END IF;
+  IF pg_temp.vspd_br('sP_evcash') IS DISTINCT FROM p0 OR pg_temp.vspd_br('sP_evbank') IS DISTINCT FROM p0 THEN
+    v_failures := array_append(v_failures, 'FAIL (7b): las ventas con evidencia de otra sucursal en caja/banco van igual a la principal (OQ-4 (a)); la migración sólo las cuenta');
+  END IF;
+  IF pg_temp.vspd_mbr('mP_del_orig') IS NOT NULL OR pg_temp.vspd_mbr('mP_del_rev') IS NOT NULL THEN
+    v_failures := array_append(v_failures, 'FAIL (7b): los movimientos de una venta BORRADA (original y reversa NULL) quedan intactos');
+  END IF;
+  IF pg_temp.vspd_br('sP_con') IS DISTINCT FROM p2 THEN
+    v_failures := array_append(v_failures, 'FAIL (7b): una venta que ya tenía sucursal no se toca');
+  END IF;
+
+  -- (7c) residuo: cuenta sin sucursal operativa, cuenta sin sucursales, fila sin cuenta
+  IF pg_temp.vspd_br('sR_res') IS NOT NULL THEN
+    v_failures := array_append(v_failures, 'FAIL (7c): una cuenta sin sucursal operativa deja la venta NULL (residuo informado, nunca aborta)');
+  END IF;
+  IF pg_temp.vspd_br('sR_mix_a') IS DISTINCT FROM r1 OR pg_temp.vspd_br('sR_mix_b') IS DISTINCT FROM r1 THEN
+    v_failures := array_append(v_failures, 'FAIL (7c regla 1 en cuenta sin sucursal operativa): la operación mixta se asigna a su sucursal aunque no opere');
+  END IF;
+  IF pg_temp.vspd_br('sS_res') IS NOT NULL OR pg_temp.vspd_br('s_sin_cuenta') IS NOT NULL THEN
+    v_failures := array_append(v_failures, 'FAIL (7c): la cuenta sin sucursales y la fila sin cuenta quedan NULL');
+  END IF;
+
+  -- (7d) auditoría: una fila por cuenta afectada, con los ids y los contadores
+  SELECT COUNT(*) INTO v_n FROM public.audit_logs WHERE action = 'sales_branch_backfill' AND account_id = ANY(v_accs);
+  IF v_n <> 3 THEN
+    v_failures := array_append(v_failures, format('FAIL (7d): una fila de auditoría por cuenta afectada (M, P y R; no la cuenta sin sucursales), hay %s', v_n));
+  END IF;
+  SELECT metadata INTO v_md FROM public.audit_logs WHERE action = 'sales_branch_backfill' AND account_id = pg_temp.vspd_get('ap');
+  IF v_md IS NULL THEN
+    v_failures := array_append(v_failures, 'FAIL (7d P): falta la fila de auditoría de la cuenta P');
+  ELSE
+    IF jsonb_array_length(v_md->'sale_ids') <> 16 THEN v_failures := array_append(v_failures, format('FAIL (7d P sale_ids): 16 ventas asignadas, metadata dice %s', jsonb_array_length(v_md->'sale_ids'))); END IF;
+    IF jsonb_array_length(v_md->'movement_ids') <> 1 THEN v_failures := array_append(v_failures, format('FAIL (7d P movement_ids): 1 movimiento completado (mP_early), metadata dice %s', jsonb_array_length(v_md->'movement_ids'))); END IF;
+    IF (v_md->'por_regla') IS DISTINCT FROM '{"operacion": 3, "orden_facturada": 2, "movimiento": 2, "orden": 3, "principal": 6}'::jsonb THEN
+      v_failures := array_append(v_failures, format('FAIL (7d P por_regla): esperaba operacion 3, orden_facturada 2, movimiento 2, orden 3, principal 6; metadata dice %s', v_md->'por_regla'));
+    END IF;
+    IF (v_md->>'mixta_no_operativa')::int <> 1 THEN v_failures := array_append(v_failures, format('FAIL (7d P mixta_no_operativa): esperaba 1, %s', v_md->>'mixta_no_operativa')); END IF;
+    IF (v_md->>'orden_facturada_no_operativa')::int <> 0 THEN v_failures := array_append(v_failures, format('FAIL (7d P orden_facturada_no_operativa): esperaba 0, %s', v_md->>'orden_facturada_no_operativa')); END IF;
+    IF (v_md->>'salteadas_no_operativa')::int <> 2 THEN v_failures := array_append(v_failures, format('FAIL (7d P salteadas_no_operativa): esperaba 2, %s', v_md->>'salteadas_no_operativa')); END IF;
+    IF (v_md->>'discrepancia_movimiento')::int <> 2 THEN v_failures := array_append(v_failures, format('FAIL (7d P discrepancia_movimiento): esperaba 2 (ordauth y movcerr), %s', v_md->>'discrepancia_movimiento')); END IF;
+    IF (v_md->>'discrepancia_orden')::int <> 2 THEN v_failures := array_append(v_failures, format('FAIL (7d P discrepancia_orden): esperaba 2 (movxord y ordcerr), %s', v_md->>'discrepancia_orden')); END IF;
+    IF (v_md->>'movimiento_origen_incierto')::int <> 2 THEN v_failures := array_append(v_failures, format('FAIL (7d P movimiento_origen_incierto): esperaba 2 (late y mixta_b), %s', v_md->>'movimiento_origen_incierto')); END IF;
+    IF (v_md->>'evidencia_otra_sucursal')::int <> 2 THEN v_failures := array_append(v_failures, format('FAIL (7d P evidencia_otra_sucursal): esperaba 2 (caja y banco), %s', v_md->>'evidencia_otra_sucursal')); END IF;
+    IF jsonb_array_length(v_md->'branch_ids') <> 4 THEN v_failures := array_append(v_failures, format('FAIL (7d P branch_ids): p0, p1, p2 y px, metadata dice %s', v_md->'branch_ids')); END IF;
+    IF v_md->>'change' IS DISTINCT FROM 'ventas-sucursal-por-defecto' THEN v_failures := array_append(v_failures, 'FAIL (7d P change): metadata.change'); END IF;
+  END IF;
+  SELECT metadata INTO v_md FROM public.audit_logs WHERE action = 'sales_branch_backfill' AND account_id = pg_temp.vspd_get('am');
+  IF v_md IS NULL OR jsonb_array_length(v_md->'sale_ids') <> 3 OR jsonb_array_length(v_md->'movement_ids') <> 1
+     OR (v_md->'por_regla'->>'principal')::int <> 3 OR (v_md->>'movimiento_origen_incierto')::int <> 0 THEN
+    v_failures := array_append(v_failures, format('FAIL (7d M): 3 ventas por la regla 5, 1 movimiento completado y 0 inciertos; metadata dice %s', v_md));
+  END IF;
+  SELECT metadata INTO v_md FROM public.audit_logs WHERE action = 'sales_branch_backfill' AND account_id = pg_temp.vspd_get('ar');
+  IF v_md IS NULL OR jsonb_array_length(v_md->'sale_ids') <> 1 OR (v_md->'por_regla'->>'operacion')::int <> 1 OR (v_md->>'mixta_no_operativa')::int <> 1 THEN
+    v_failures := array_append(v_failures, format('FAIL (7d R): la operación mixta de R (1 fila NULL, regla 1, sucursal cerrada) se cuenta en mixta_no_operativa; metadata dice %s', v_md));
+  END IF;
+
+  -- (7e) sin efectos laterales: ningún conteo de las cuentas del fixture cambió
+  v_eff := pg_temp.vspd_effects(v_accs);
+  IF v_eff IS DISTINCT FROM (SELECT v FROM _vspd_t WHERE k = 'effects_before') THEN
+    v_failures := array_append(v_failures, format('FAIL (7e efectos laterales): events|notifications|analytics_events|cash_movements|bank_movements|customer_account_movements|journal_entries|branch_stock|sales_orders|sale_items cambiaron. Antes %s, después %s', (SELECT v FROM _vspd_t WHERE k = 'effects_before'), v_eff));
+  END IF;
+
+  IF COALESCE(array_length(v_failures, 1), 0) > 0 THEN
+    RAISE EXCEPTION E'GATE VENTAS-SUCURSAL-POR-DEFECTO (parte B, primera corrida) FAILED:\n  %', array_to_string(v_failures, E'\n  ');
+  END IF;
+  RAISE NOTICE 'PASS (7): backfill — cada caso de D6 (mono, multi, mixta, mixta con sucursal cerrada, orden con comprobante vigente authorized y pending con marca, movimiento, orden sin comprobante, reglas salteadas por sucursal cerrada, residuo), movimientos completados sólo con origen demostrable, auditoría por cuenta con sus contadores y cero efectos laterales';
+  INSERT INTO _vspd_t (k, v) VALUES ('snapshot_after1', pg_temp.vspd_snapshot(v_accs));
+END $$;
+
+-- ── B.3 Segunda corrida: idempotencia ──────────────────────────────────────────
+\i supabase/migrations/20261075000002_ventas_sucursal_por_defecto_backfill.sql
+
+DO $$
+DECLARE
+  v_failures text[] := '{}';
+  v_accs     uuid[];
+BEGIN
+  SELECT string_to_array(v, ',')::uuid[] INTO v_accs FROM _vspd_t WHERE k = 'accounts';
+  IF pg_temp.vspd_snapshot(v_accs) IS DISTINCT FROM (SELECT v FROM _vspd_t WHERE k = 'snapshot_after1') THEN
+    v_failures := array_append(v_failures, format('FAIL (7f idempotencia): la segunda corrida cambió filas de venta, movimientos, órdenes o escribió auditoría. Antes %s, después %s', (SELECT v FROM _vspd_t WHERE k = 'snapshot_after1'), pg_temp.vspd_snapshot(v_accs)));
+  END IF;
+  IF pg_temp.vspd_effects(v_accs) IS DISTINCT FROM (SELECT v FROM _vspd_t WHERE k = 'effects_before') THEN
+    v_failures := array_append(v_failures, 'FAIL (7f efectos): la segunda corrida cambió algún conteo de efectos laterales');
+  END IF;
+  IF COALESCE(array_length(v_failures, 1), 0) > 0 THEN
+    RAISE EXCEPTION E'GATE VENTAS-SUCURSAL-POR-DEFECTO (parte B, segunda corrida) FAILED:\n  %', array_to_string(v_failures, E'\n  ');
+  END IF;
+  RAISE NOTICE 'PASS (7f): la segunda corrida no cambia filas, no escribe auditoría ni toca ningún efecto lateral';
+END $$;
+
+-- ── B.4 (8) y (9): las RPCs EJECUTADAS sobre las ventas asignadas ──────────────
+DO $$
+DECLARE
+  v_failures text[] := '{}';
+  v_res      jsonb;
+  v_so       uuid;
+  p0 uuid := pg_temp.vspd_get('p0'); p1 uuid := pg_temp.vspd_get('p1');
+  p2 uuid := pg_temp.vspd_get('p2'); pp uuid := pg_temp.vspd_get('pp');
+  v_before0 numeric; v_before1 numeric; v_before2 numeric;
+BEGIN
+  PERFORM pg_temp.vspd_as(pg_temp.vspd_get('up'));
+
+  -- (8) Facturar venta manual sobre la operación antes mixta: ya no operation_inconsistent
+  BEGIN
+    v_res := public.rpc_promote_legacy_sale_to_order(pg_temp.vspd_get('op_mixta'));
+    v_so := (v_res->>'sales_order_id')::uuid;
+    IF (SELECT branch_id FROM public.sales_orders WHERE id = v_so) IS DISTINCT FROM p1 THEN
+      v_failures := array_append(v_failures, 'FAIL (8): la orden de la operación antes mixta debía nacer en p1, la sucursal de toda la operación');
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    v_failures := array_append(v_failures, format('FAIL (8): Facturar venta manual sobre la operación antes mixta debía pasar (la operación ya no mezcla NULL y no NULL), levantó %s / %s', SQLSTATE, SQLERRM));
+  END;
+
+  -- (9) borrar repone donde dice el movimiento
+  -- (9a) movimiento COMPLETADO (origen demostrable): repone en la sucursal asignada p0
+  SELECT quantity INTO v_before0 FROM public.branch_stock WHERE branch_id = p0 AND product_id = pp;
+  BEGIN
+    PERFORM public.rpc_delete_sale_operation(NULL, pg_temp.vspd_get('op_early'), 'gate 9a');
+  EXCEPTION WHEN OTHERS THEN
+    v_failures := array_append(v_failures, format('FAIL (9a): borrar la venta con el movimiento completado debía pasar, levantó %s / %s', SQLSTATE, SQLERRM));
+  END;
+  IF pg_temp.vspd_qty(p0, pp) IS DISTINCT FROM v_before0 + 1 THEN
+    v_failures := array_append(v_failures, format('FAIL (9a): el borrado debía reponer 1 en la sucursal asignada p0 (%s -> %s), quedó %s', v_before0, v_before0 + 1, pg_temp.vspd_qty(p0, pp)));
+  END IF;
+
+  -- (9b) venta asignada por la regla del movimiento (X = p2): repone en X
+  v_before2 := pg_temp.vspd_qty(p2, pp);
+  BEGIN
+    PERFORM public.rpc_delete_sale_operation(NULL, pg_temp.vspd_get('op_movx'), 'gate 9b');
+  EXCEPTION WHEN OTHERS THEN
+    v_failures := array_append(v_failures, format('FAIL (9b): borrar la venta asignada por la regla del movimiento debía pasar, levantó %s / %s', SQLSTATE, SQLERRM));
+  END;
+  IF pg_temp.vspd_qty(p2, pp) IS DISTINCT FROM v_before2 + 1 THEN
+    v_failures := array_append(v_failures, format('FAIL (9b): el borrado debía reponer 1 en X = p2 (%s -> %s), quedó %s', v_before2, v_before2 + 1, pg_temp.vspd_qty(p2, pp)));
+  END IF;
+
+  -- (9c) movimiento que quedó NULL por origen incierto: repone en la principal VIGENTE al borrar.
+  -- Para distinguirla de la sucursal asignada (p0), se vacía y se DESACTIVA p0: la vigente pasa a ser p1.
+  DELETE FROM public.branch_stock WHERE branch_id = p0;
+  UPDATE public.branches SET is_active = FALSE WHERE id = p0;
+  IF public.c26_default_branch(pg_temp.vspd_get('ap')) IS DISTINCT FROM p1 THEN
+    v_failures := array_append(v_failures, 'FAIL (9c setup): con p0 desactivada la principal vigente debía ser p1');
+  END IF;
+  v_before1 := pg_temp.vspd_qty(p1, pp);
+  BEGIN
+    PERFORM public.rpc_delete_sale_operation(NULL, pg_temp.vspd_get('op_late'), 'gate 9c');
+  EXCEPTION WHEN OTHERS THEN
+    v_failures := array_append(v_failures, format('FAIL (9c): borrar la venta con el movimiento NULL de origen incierto debía pasar, levantó %s / %s', SQLSTATE, SQLERRM));
+  END;
+  IF pg_temp.vspd_qty(p1, pp) IS DISTINCT FROM v_before1 + 1 THEN
+    v_failures := array_append(v_failures, format('FAIL (9c): el movimiento NULL repone en la principal VIGENTE p1 (%s -> %s), quedó %s', v_before1, v_before1 + 1, pg_temp.vspd_qty(p1, pp)));
+  END IF;
+  IF pg_temp.vspd_qty(p0, pp) <> 0 THEN
+    v_failures := array_append(v_failures, 'FAIL (9c): la sucursal asignada p0 (desactivada) no debía recibir el stock de un movimiento NULL');
+  END IF;
+
+  IF COALESCE(array_length(v_failures, 1), 0) > 0 THEN
+    RAISE EXCEPTION E'GATE VENTAS-SUCURSAL-POR-DEFECTO (parte B, RPCs) FAILED:\n  %', array_to_string(v_failures, E'\n  ');
+  END IF;
+  RAISE NOTICE 'PASS (8)/(9): Facturar venta manual ya no levanta operation_inconsistent sobre la operación antes mixta; el borrado repone donde dice el movimiento (la asignada si se completó, X en la regla del movimiento, la principal vigente si quedó NULL)';
+END $$;
+
+-- ── B.5 Limpieza ───────────────────────────────────────────────────────────────
+DO $$
+DECLARE
+  v_accs uuid[];
+  v_users uuid[] := ARRAY[pg_temp.vspd_get('um'), pg_temp.vspd_get('up'), pg_temp.vspd_get('ur'), pg_temp.vspd_get('us')];
+  v_n integer;
+BEGIN
+  SELECT string_to_array(v, ',')::uuid[] INTO v_accs FROM _vspd_t WHERE k = 'accounts';
+  PERFORM set_config('request.jwt.claims', '', true);
+  PERFORM set_config('request.jwt.claim.sub', '', true);
+  SET session_replication_role = replica;
+  DELETE FROM public.sales WHERE id = pg_temp.vspd_get('s_sin_cuenta');
+  SET session_replication_role = DEFAULT;
+  PERFORM pg_temp.vspd_purge(v_accs, v_users);
+  SELECT COUNT(*) INTO v_n FROM public.sales WHERE account_id = ANY(v_accs) OR id = pg_temp.vspd_get('s_sin_cuenta');
+  IF v_n <> 0 THEN RAISE EXCEPTION 'GATE VENTAS-SUCURSAL-POR-DEFECTO (limpieza B): quedaron % ventas del fixture', v_n; END IF;
+  SELECT COUNT(*) INTO v_n FROM public.cashboxes WHERE branch_id IN (
+    pg_temp.vspd_get('m0'), pg_temp.vspd_get('p0'), pg_temp.vspd_get('p1'), pg_temp.vspd_get('p2'), pg_temp.vspd_get('px'),
+    pg_temp.vspd_get('r1'), pg_temp.vspd_get('s0'));
+  IF v_n <> 0 THEN RAISE EXCEPTION 'GATE VENTAS-SUCURSAL-POR-DEFECTO (limpieza B): quedaron % cajas del fixture', v_n; END IF;
+  SELECT COUNT(*) INTO v_n FROM public.stock_movements WHERE account_id = ANY(v_accs);
+  IF v_n <> 0 THEN RAISE EXCEPTION 'GATE VENTAS-SUCURSAL-POR-DEFECTO (limpieza B): quedaron % movimientos de stock del fixture', v_n; END IF;
+  RAISE NOTICE 'GATE VENTAS-SUCURSAL-POR-DEFECTO (parte B) PASSED: el backfill asigna las ventas históricas por las reglas de D6 (idempotente, auditable, sin efectos laterales), completa sólo los movimientos de origen demostrable, y Facturar venta manual y el borrado se comportan sobre las ventas asignadas';
+END $$;
+
+COMMIT;

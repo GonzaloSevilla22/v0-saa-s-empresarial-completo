@@ -114,7 +114,7 @@
 
 > **Bloqueado hasta el OK textual del PO sobre OQ-4, OQ-5 y OQ-6** (0.1).
 
-- [ ] 3.1 RED: agregar el bloque (7) al gate, con fixtures para cada caso de D6:
+- [x] 3.1 RED: agregar el bloque (7) al gate, con fixtures para cada caso de D6:
   - mono-sucursal;
   - multi-sucursal;
   - operación mixta (una fila en B, otra `NULL`), con una línea de servicio sin movimiento;
@@ -131,7 +131,7 @@
   - movimientos `'sale'` `NULL` de las ventas vivas: en una cuenta cuya única sucursal existía al escribirse el movimiento (origen demostrable) y en una cuenta que ya tenía otra sucursal en ese momento (origen incierto). Los `created_at` de las sucursales y de los movimientos van explícitos y asertados.
 
   Registrar los conteos de `events`, `notifications`, `analytics_events`, `cash_movements`, `bank_movements`, `customer_account_movements` y `journal_entries` antes de la corrida, **acotados a los `account_id` de las cuentas del fixture**: `relay-process-outbox` y `relay-process-pending-cae` corren cada minuto por `pg_cron` en el stack local y en CI, y un conteo global puede cambiar sin defecto. Lo mismo para la aserción de la segunda corrida sobre `audit_logs`. El archivo de datos es global (también asigna ventas `NULL` que otros gates hayan dejado): ninguna aserción mira filas fuera del fixture. Ejecutar el archivo de datos con `\i` (todavía inexistente o vacío) y registrar el RED.
-- [ ] 3.2 GREEN: escribir la migración de datos (sin DDL, sin funciones, sin ACLs). Cabecera con:
+- [x] 3.2 GREEN: escribir la migración de datos (sin DDL, sin funciones, sin ACLs). Cabecera con:
   - la decisión textual del PO y su sign-off de OQ-4, OQ-5 y OQ-6;
   - las reglas de D6;
   - por qué no hace falta medir antes (D6, D7);
@@ -151,13 +151,13 @@
     - las ventas asignadas cuyo movimiento `'sale'` ya registraba **otra** sucursal (`discrepancia_movimiento`);
     - las ventas asignadas que quedan en una sucursal distinta de la de su orden sin comprobante vigente (`discrepancia_orden`);
     - las ventas asignadas cuyo movimiento de caja (`cash_movements.reference_id` = operación → `cash_sessions` → `cashboxes.branch_id`) o de banco (`bank_movements.source_doc_type = 'sale'`, `source_doc_ref` = operación) registró **otra** sucursal (OQ-4).
-- [ ] 3.3 Correr el bloque (7) ejecutando el archivo **dos veces**. Verificar:
+- [x] 3.3 Correr el bloque (7) ejecutando el archivo **dos veces**. Verificar:
   - cada caso de D6;
   - la segunda corrida no cambia filas ni escribe auditoría;
   - los conteos de efectos laterales, acotados a las cuentas del fixture, quedan iguales.
 
   Después escribir y correr los bloques (8) (`rpc_promote_legacy_sale_to_order` **ejecutada** sobre la operación antes mixta) y (9) (`rpc_delete_sale_operation` **ejecutada** repone donde dice el movimiento: en la sucursal asignada si se completó, en X para la venta asignada por la regla del movimiento, y en la principal vigente si quedó `NULL` por origen incierto).
-- [ ] 3.4 Mutaciones, con `ROLLBACK`, detectadas por el gate:
+- [x] 3.4 Mutaciones, con `ROLLBACK`, detectadas por el gate:
   - M5: el backfill sin la pata de `stock_movements` (si OQ-5 = (a) o (c));
   - M5b: el backfill sin el criterio de origen demostrable (si OQ-5 = (c));
   - M6: el backfill sin la regla de la orden sin comprobante;
@@ -165,7 +165,7 @@
   - M7: el backfill sin la regla del movimiento;
   - M8: el backfill sin el filtro de sucursal operativa en las reglas 3 a 5;
   - M8b: el backfill con el filtro de sucursal operativa también en la regla 1.
-- [ ] 3.5 Medir en la base local el tiempo del backfill sobre un volumen sintético (por ejemplo, 50.000 filas `NULL` en varias cuentas) para acotar la ventana de locks por fila. Anotar el resultado en el PR. No hace falta medir producción (D7).
+- [x] 3.5 Medir en la base local el tiempo del backfill sobre un volumen sintético (por ejemplo, 50.000 filas `NULL` en varias cuentas) para acotar la ventana de locks por fila. Anotar el resultado en el PR. No hace falta medir producción (D7).
 
 ## 4. CI
 

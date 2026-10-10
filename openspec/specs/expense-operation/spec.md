@@ -350,7 +350,9 @@ La existencia de un **asiento contable** SHALL NOT sumarse a los predicados de b
 - **AND** se emite el evento que corrige el asiento, sin ningún rechazo por `P0423`
 ### Requirement: La edición de un gasto preserva su contexto mediante contrato tri-estado
 
-El sistema SHALL aplicar a la edición de un gasto el contrato tri-estado ya vigente en ventas y compras: la **ausencia** de una clave en la petición conserva el valor vigente, un **nulo explícito** desimputa, y un identificador **reimputa**. El contrato SHALL aplicarse a la forma de pago, la sucursal y el centro de costo.
+El sistema SHALL aplicar a la edición de un gasto el contrato tri-estado de edición de operaciones (capability `operation-edit-context`): la **ausencia** de una clave en la petición conserva el valor vigente, un **nulo explícito** desimputa, y un identificador **reimputa**. El contrato SHALL aplicarse a la forma de pago, la sucursal y el centro de costo.
+
+El gasto conserva las tres intenciones también para la sucursal. La única excepción de ese contrato es la sucursal de una **venta**, que desde `ventas-sucursal-por-defecto` no admite quedar vacía: un nulo, informado o vigente, se registra en la sucursal principal. No alcanza al gasto.
 
 Ningún campo de contexto SHALL perderse por omisión, ni en el alta ni en la edición. Este requisito cierra dos pérdidas silenciosas preexistentes: la sucursal se descartaba al crear y el centro de costo se borraba en cada edición.
 

@@ -175,11 +175,13 @@
   - actualizar el comentario del paso «Run ventas formulario sucursal gate» (L2622-2638), que dice «(2) sin sucursal -> branch_id NULL … (contrato vigente, el fix NO lo cambia)» y «(6) … y la default si no se eligió ninguna»: pasa a citar este change y el contrato nuevo;
   - agregar la reaplicación de `20261075000001` y de `20261075000002` **después de la reconvergencia**, al final de los reapply posteriores (después de `20261066000001` y, si ya mergearon, de `20261067000001`/`20261068000001`), sin tolerancia: el de funciones exige 3 `NOTICE` «ya es el cuerpo de esta migración» (conteo como `UOM_REAPPLIED`), el de datos su `NOTICE` final con 0 filas asignadas, y los dos un `schema_snapshot` idéntico.
 - [x] 4.2 Cablear `supabase/tests/test_ventas_sucursal_por_defecto.sql` como paso propio. `test_ventas_formulario_sucursal.sql` mantiene su paso.
-- [ ] 4.3 **(abierta a propósito en el apply)** Antes del PR, correr en local el paso completo de CI con el preflight definitivo: `supabase db reset`, la cadena de reaplicación, la reconvergencia y los reapply posteriores. Así se prueba que el `v_expected` coincide con el cuerpo que dejan los archivos (0.2). Después, en la corrida de CI, confirmar que:
+- [x] 4.3 **(abierta a propósito en el apply)** Antes del PR, correr en local el paso completo de CI con el preflight definitivo: `supabase db reset`, la cadena de reaplicación, la reconvergencia y los reapply posteriores. Así se prueba que el `v_expected` coincide con el cuerpo que dejan los archivos (0.2). Después, en la corrida de CI, confirmar que:
   - el bloque (0) del gate nuevo pasa **después** de los reapply (ninguna reaplicación puede dejar vivo un cuerpo viejo, lección de `candidatos-db-backend`);
   - `test_ventas_unidades_conversion.sql` y `test_ventas_unidades_conversion_race.sh` siguen verdes: cubren las otras siete funciones que dejó de reaplicar el bloque retirado.
 
   **Nota del apply**: `supabase db reset` **no** se corrió porque la base local es compartida con otras sesiones. En su lugar se emuló la cola de la cadena de reaplicación con `psql` (las dos migraciones aplicadas **dos veces** y el gate nuevo corrido entre medio), se comparó el `schema_snapshot` antes y después de cada pasada (idéntico) y se corrieron los 25 gates del orden de CI, todos en verde. Falta la corrida real de la cadena completa, que es la de CI de este PR: confirmar ahí el bloque (0) del gate nuevo **después** de los reapply y los dos gates de unidades.
+
+  **Cierre (archive, 2026-10-10)**: la corrida real de la cadena completa fue la de CI del PR #627. `validate-kpis` quedó verde (7 m 54 s, run 38025044615): `supabase db reset` completo, cadena de reaplicación con `20261075000001`/`20261075000002` sin tolerancia, y en `success` los pasos «Run ventas sucursal por defecto gate» (el bloque (0) corre **después** de los reapply), «Run ventas unidades conversion gate» y «Run ventas unidades conversion race gate (dos conexiones)».
 
 ## 5. Frontend — una sola "principal" en el cliente
 
@@ -290,7 +292,7 @@
 - [x] 10.2 `knowledge-base/05_reglas_de_negocio.md`:
   - RN-93: nota de que la venta la cumple desde este change (alta, edición e históricos) y de que compras queda pendiente (OQ-3);
   - RN-21 (si OQ-5 = (a) o (c)): nota de la única excepción auditada, con sus límites y el puntero al requirement nuevo de `inventory-single-ledger`.
-- [ ] 10.3 Al archivar (no en el apply):
+- [x] 10.3 Al archivar (no en el apply):
   - **`CHANGES.md`**: ficha con la verificación posterior y los candidatos que deja:
     - `NOT NULL` en `sales.branch_id` con retiro de los `rpc_atomic_create_sale` muertos y FK `RESTRICT` (D8);
     - `compras-gastos-sucursal-por-defecto`, con el opt-in de caja de la compra sin sucursal (OQ-3);
@@ -304,26 +306,46 @@
   - **`CLAUDE.md`**: puntero y `python scripts/ci/check_docs_sync.py --fix` para `AGENTS.md`.
   - Diffear cada spec sincronizada contra su versión previa (`branches`, `branch-stock`, `operation-edit-context`, `inventory-single-ledger`, `dashboard-kpi-summary`, `sales-statistics`, `expense-operation`): si otro change archivó antes un delta sobre el mismo requirement, el segundo archive lo pisa sin que el conteo lo delate.
 
+  **Hecho (archive, 2026-10-10)**: ficha en `CHANGES.md` con la verificación posterior y los candidatos que deja (OQ-8, los 516 movimientos de origen incierto, `compras-gastos-sucursal-por-defecto`, `NOT NULL` sobre `sales.branch_id`, sucursal principal configurable, disparador de defensa en profundidad, gate de stock de la edición, stock de la sucursal efectiva en el formulario, guard de última sucursal operativa y traducciones de `no_branch_found`); puntero (ítem 31) y fila DB en `CLAUDE.md`, con `AGENTS.md` regenerado e idéntico. Las siete specs sincronizadas se diffearon contra su versión previa: ningún delta pisó a otro, y se restauraron las líneas en blanco y el separador que el archive reescribe; `openspec validate --specs --strict` dio 109/109.
+
 ## 11. PR y merge
 
-- [ ] 11.1 PR con commits convencionales y CI verde: `validate-kpis` con el gate nuevo, el bloque retirado y los reapply nuevos, Backend, Frontend, E2E y Docs Sync.
-- [ ] 11.2 Revisión adversarial con un solo juez por ronda (tope de agentes del workflow) sobre: el diff de funciones contra el vivo, el preflight, el orden de locks del backfill, la resolución por operación y el filtro de operativa, la idempotencia, la paridad v2/legacy y la superficie frontend.
-- [ ] 11.3 **[PO]** Merge. Los sub-agentes no mergean migraciones de datos.
+- [x] 11.1 PR con commits convencionales y CI verde: `validate-kpis` con el gate nuevo, el bloque retirado y los reapply nuevos, Backend, Frontend, E2E y Docs Sync.
+
+  **Hecho (2026-10-10)**: PR #627 con la CI verde: pytest, vitest, playwright, `validate-kpis` (el gate nuevo, el bloque retirado y los reapply nuevos, sobre un `db reset` completo), `AGENTS.md == CLAUDE.md` (Docs Sync) y Vercel. «Supabase Preview» figura como `skipping` (no aplica: el branching está prohibido en este proyecto).
+- [x] 11.2 Revisión adversarial con un solo juez por ronda (tope de agentes del workflow) sobre: el diff de funciones contra el vivo, el preflight, el orden de locks del backfill, la resolución por operación y el filtro de operativa, la idempotencia, la paridad v2/legacy y la superficie frontend.
+
+  **Hecho (2026-10-10)**: un solo juez, el orquestador, sin workflow de agentes. Diffeó las tres funciones contra los cuerpos vivos (el diff son sólo los cambios de D1, D2, D3 y D5 más los comentarios de cabecera) y leyó completa la migración de datos.
+- [x] 11.3 **[PO]** Merge. Los sub-agentes no mergean migraciones de datos.
+
+  **Hecho (2026-10-10)**: merge squash `48985719` el 2026-10-10 a las 04:51 UTC, a pedido explícito del PO, que había firmado las ocho OQs por su recomendación el 2026-10-09.
 
 ## 12. Verificación posterior al merge (producción, sólo lectura; la ejecuta o autoriza el PO)
 
-- [ ] 12.1 `deploy.yml` verde, con `MAX(version)` igual a `20261075000002` (o la última de la cadena). Vercel desplegado. Render: `GET /deploys` del commit del merge, y `POST /deploys` si falta (el auto-deploy no siempre dispara).
-- [ ] 12.2 En los cuerpos vivos de las tres funciones, la persistencia resuelta y el guard están presentes, y su `md5(prosrc)` es el `v_rewritten` del preflight. La edición conserva su `COMMENT`. Las ACLs no cambiaron y hay una sola firma por función.
-- [ ] 12.3 `SELECT count(*) FROM sales WHERE branch_id IS NULL` tiene que coincidir con el residuo que informó la migración. Ventas en vuelo: **no** buscarlas por `created_at` (es `DEFAULT now()`, el inicio de la transacción, así que una venta en vuelo tiene un `created_at` anterior al deploy). Listar las filas `NULL` con `account_id` no nulo cuya cuenta tiene una sucursal operativa (`is_active AND status = 'active'`): son las que el backfill habría asignado y tienen que ser 0. Si hay alguna, o si el conteo total supera al residuo informado, **[PO]** re-ejecutar el bloque idempotente del archivo de datos con `npx supabase db query --linked`.
-- [ ] 12.4 Movimientos de stock:
+- [x] 12.1 `deploy.yml` verde, con `MAX(version)` igual a `20261075000002` (o la última de la cadena). Vercel desplegado. Render: `GET /deploys` del commit del merge, y `POST /deploys` si falta (el auto-deploy no siempre dispara).
+
+  **Hecho (2026-10-10, sólo lectura, ~04:52 UTC)**: `deploy.yml` run 38025523714 en `success` (Build Next.js y Deploy Supabase). `max(version) = 20261075000002` sobre 323 migraciones, con las dos nuevas presentes. Render `live` con `48985719` y `/health` 200. Vercel `success`.
+- [x] 12.2 En los cuerpos vivos de las tres funciones, la persistencia resuelta y el guard están presentes, y su `md5(prosrc)` es el `v_rewritten` del preflight. La edición conserva su `COMMENT`. Las ACLs no cambiaron y hay una sola firma por función.
+
+  **Hecho (2026-10-10)**: el `md5(prosrc)` sin CR de los tres cuerpos vivos es el `v_rewritten` del preflight: la v2 `9fde6d956bc37838e8d81402e22de8fa`, el wrapper `rpc_create_sale_operation` `e5185557021d2f481b9e3f6679c50493` y la edición `52acb873d8c446c24abb19b79eb43c75`. Hay una sola firma por función, `anon` sin `EXECUTE` y `authenticated` con `EXECUTE`. El `COMMENT` de la edición lo fija el bloque (0) del gate en CI; no se re-leyó en producción.
+- [x] 12.3 `SELECT count(*) FROM sales WHERE branch_id IS NULL` tiene que coincidir con el residuo que informó la migración. Ventas en vuelo: **no** buscarlas por `created_at` (es `DEFAULT now()`, el inicio de la transacción, así que una venta en vuelo tiene un `created_at` anterior al deploy). Listar las filas `NULL` con `account_id` no nulo cuya cuenta tiene una sucursal operativa (`is_active AND status = 'active'`): son las que el backfill habría asignado y tienen que ser 0. Si hay alguna, o si el conteo total supera al residuo informado, **[PO]** re-ejecutar el bloque idempotente del archivo de datos con `npx supabase db query --linked`.
+
+  **Hecho (2026-10-10)**: `sales` con `branch_id IS NULL` = **0**, igual al residuo que informó la migración (0 sin cuenta, 0 cuentas sin sucursales, 0 sin sucursal operativa); por lo tanto las filas que el backfill habría asignado y siguen en `NULL` son 0 y no hizo falta re-ejecutar el bloque idempotente. El backfill tocó 1.168 filas de venta. Medición previa del 2026-10-01: 880 de 1.105 filas sin sucursal.
+- [x] 12.4 Movimientos de stock:
   - movimientos `reference_type = 'sale'` con `branch_id NULL` cuya venta exista: con OQ-5 (c), iguales a la suma de `movimiento_origen_incierto` de la auditoría; con (a), cero;
   - discrepancias venta ≠ orden: ventas cuya `sales_orders` (por `sale_operation_id`) tiene otra sucursal. El número tiene que coincidir con `discrepancia_orden`, y ninguna de ellas puede tener comprobante vigente;
   - discrepancias: ventas asignadas cuyo movimiento `'sale'` tiene otra sucursal (`sales.branch_id IS DISTINCT FROM stock_movements.branch_id`, uniendo por `reference_id = sales.id`). El número tiene que coincidir con `discrepancia_movimiento` de la auditoría.
-- [ ] 12.5 Filas `audit_logs` con `action = 'sales_branch_backfill'`: cantidad de cuentas, total de ventas y movimientos asignados, conteo por regla, asignaciones de las reglas 1 y 2 a sucursales no operativas, reglas salteadas, movimientos de origen incierto, discrepancias con movimientos y con órdenes, y el conteo de evidencia de otra sucursal (OQ-4). Informarlo al PO.
+
+  **Hecho (2026-10-10)**: con OQ-5 (c), 335 movimientos `'sale'` quedaron completados con origen demostrable y **516** siguen con `branch_id` NULL por origen incierto; los 516 están contados en la auditoría y no se tocaron (RN-21 sólo cede en la excepción acotada). En la cuenta del incidente del 22-08, 79 ventas tenían su movimiento de stock en otra sucursal (la desactivada) y 376 movimientos son de origen incierto.
+- [x] 12.5 Filas `audit_logs` con `action = 'sales_branch_backfill'`: cantidad de cuentas, total de ventas y movimientos asignados, conteo por regla, asignaciones de las reglas 1 y 2 a sucursales no operativas, reglas salteadas, movimientos de origen incierto, discrepancias con movimientos y con órdenes, y el conteo de evidencia de otra sucursal (OQ-4). Informarlo al PO.
+
+  **Hecho (2026-10-10, backfill corrido a las 04:52:20 UTC)**: 9 cuentas con ventas asignadas y **887 ventas asignadas**; por regla: principal 857, movimiento 23, orden_facturada 6, orden 1, operación 0. 335 movimientos de stock completados y 516 de origen incierto. Cuenta del incidente del 22-08 (3 sucursales, 1 activa): 464 ventas, de las cuales 456 a la principal de hoy, 6 por orden facturada y 2 por movimiento; 80 reglas salteadas por sucursal no operativa; 79 ventas cuyo movimiento registraba otra sucursal; 4 ventas con cobro en otra sucursal (OQ-4). Cuentas de una sola sucursal: todo a la principal con sus movimientos completados (ventas/movimientos, p. ej. 211/199, 93/66 y 69/60).
 - [ ] 12.6 **[PO]** Humo real:
   - en una cuenta con dos sucursales, una venta sin tocar el selector queda en la principal;
   - el Tablero filtrado por la principal incluye las ventas históricas;
   - en una cuenta sin módulo, la venta queda en su "Casa Central".
+
+  **Pendiente (2026-10-10)**: la hace el PO en producción. El change se archiva con esta tarea abierta a propósito; el humo local H1-H9 (9.1) ya pasó.
 
 ## Evidencia TDD
 

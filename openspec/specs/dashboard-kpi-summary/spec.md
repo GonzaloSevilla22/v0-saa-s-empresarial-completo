@@ -21,7 +21,9 @@ El Tablero SHALL mostrar un bloque "Resumen KPI" con 5 tarjetas (Ganancia Neta, 
 ### Requirement: Cálculo mensual de los KPIs con scope por cuenta
 El sistema SHALL calcular los KPIs del período activo (mes en curso por defecto) agregando únicamente datos de la cuenta del usuario (`account_id`), sumando el total de cada línea (`COALESCE(total, amount)`). Las notas de crédito del período (`customer_account_movements.movement_type = 'credit_note'`, imputadas por `created_at`) SHALL restarse del ingreso del período (RN-D1).
 
-Cuando el Tablero tiene una sucursal seleccionada, el filtro SHALL aplicarse a todos los términos atribuibles: ventas, gastos, compras, notas de crédito (por la sucursal de su documento origen) y stock sin rotación. El stock sin rotación SHALL calcularse por sucursal sobre `branch_stock` —no sobre el stock agregado de todas las sucursales— valorizando `SUM(cantidad de la sucursal × costo)` y contando productos distintos, y SHALL excluir los productos soft-deleted además de los `untracked` y `variant_only`. Un producto cuenta como "sin rotación" en una sucursal cuando no tuvo ventas en el período en esa sucursal; las ventas legacy sin sucursal asignada cuentan como rotación en cualquier sucursal (fail-open), porque son evidencia real de movimiento y lo contrario marcaría como estancado a casi todo el catálogo.
+Cuando el Tablero tiene una sucursal seleccionada, el filtro SHALL aplicarse a todos los términos atribuibles: ventas, gastos, compras, notas de crédito (por la sucursal de su documento origen) y stock sin rotación. El stock sin rotación SHALL calcularse por sucursal sobre `branch_stock` —no sobre el stock agregado de todas las sucursales— valorizando `SUM(cantidad de la sucursal × costo)` y contando productos distintos, y SHALL excluir los productos soft-deleted además de los `untracked` y `variant_only`. Un producto cuenta como "sin rotación" en una sucursal cuando no tuvo ventas en el período en esa sucursal; las ventas legacy sin sucursal asignada cuentan como rotación en cualquier sucursal (fail-open), porque son evidencia real de movimiento cuya sucursal no quedó registrada.
+
+Desde `ventas-sucursal-por-defecto` toda venta nueva o editada queda en una sucursal, y las históricas sin sucursal se asignaron a la sucursal que les dio esa migración: en general, la principal vigente al aplicarla. En las cuentas cuya principal no cambió desde la venta, esa sucursal coincide con la de la que salió el stock; en las que cambió, no necesariamente. El fail-open sólo alcanza al residuo que esa asignación no pudo resolver. Una venta asignada cuenta como rotación únicamente en su sucursal asignada. Eso incluye las ventas anteriores al 2026-10-01 que el usuario había elegido en otra sucursal y el formulario descartó: en los períodos en que ocurrieron cuentan como rotación de la sucursal asignada, no de la elegida.
 
 El costo del catálogo es un dato **opcional** (capability `product-cost`). Un producto sin costo NOT SHALL anular la valorización del stock sin rotación —dejaría el KPI en blanco para toda cuenta con un solo producto sin costo— y SHALL aportar cero a ese total. Junto al valor y al conteo de productos, el read-model SHALL informar **cuántos de esos productos no tienen costo cargado**, y la superficie SHALL mostrarlo: un total del que no se sabe qué proporción quedó sin valorizar no es auditable por quien lo lee.
 
@@ -47,6 +49,11 @@ El costo del catálogo es un dato **opcional** (capability `product-cost`). Un p
 - **WHEN** se consulta Stock sin Rotación con filtro de sucursal A
 - **THEN** el valor informado es $1.000 (solo el stock de A)
 - **AND** sin filtro de sucursal el valor es $5.000 y el producto cuenta una sola vez
+
+#### Scenario: Una venta histórica asignada cuenta como rotación sólo en su sucursal
+- **GIVEN** un producto con stock en las sucursales A y B, cuya única venta del período era una venta sin sucursal que la asignación de históricos registró en A
+- **WHEN** se consulta Stock sin Rotación de ese período con filtro de sucursal B
+- **THEN** el producto cuenta como sin rotación en B
 
 #### Scenario: Stock sin Rotación declara los productos sin costo
 - **GIVEN** un período con 5 productos sin rotación, de los cuales 2 no tienen costo cargado

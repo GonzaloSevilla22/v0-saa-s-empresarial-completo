@@ -787,7 +787,11 @@ BEGIN
     SELECT * FROM (VALUES
       ('public.rpc_promote_legacy_sale_to_order(uuid)', 'ce7de587bb7b83e33d50436f383fcbfd'),
       ('public.rpc_emit_sale_invoice(uuid, uuid)', '9472c9d93a85a73370a10e71fbb7beb4'),
-      ('public.rpc_atomic_update_sale_operation(uuid[], uuid, date, text, jsonb, uuid, boolean, uuid, boolean, text, boolean)', '1675d3824b79fccd3efba3b256adf89e'),
+      -- ventas-sucursal-por-defecto (20261075000001, D5): re-declara el COMMENT vivo de
+      -- la edición (el de 1675d3824b79fccd3efba3b256adf89e, que dejó 20261070000001) y le
+      -- suma al final la excepción «un branch_id nulo, vigente o informado, se resuelve a
+      -- la principal». Este md5 es el del comentario de ESA migración.
+      ('public.rpc_atomic_update_sale_operation(uuid[], uuid, date, text, jsonb, uuid, boolean, uuid, boolean, text, boolean)', '1478b13be13a5da59df25fce328fd0d7'),
       ('public.rpc_delete_sale_operation(uuid, uuid, text)', 'b3bafc6d5c0a20bbd42b006af8769513')
     ) AS t(sig, md5)
   LOOP

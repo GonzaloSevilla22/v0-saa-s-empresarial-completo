@@ -12,13 +12,13 @@
 
 ## 0. Sign-off y checkpoints previos (sólo lectura)
 
-- [ ] 0.1 **[PO]** Sign-off de las OQ (`design.md` §Open Questions). Registrar la respuesta textual en una sección "Sign-off del PO" del `design.md`.
+- [x] 0.1 **[PO]** Sign-off de las OQ (`design.md` §Open Questions). Registrar la respuesta textual en una sección "Sign-off del PO" del `design.md`.
   - **OQ-1, OQ-2, OQ-3, OQ-7 y OQ-8**: sin respuesta, el apply adopta la recomendación de cada una, (a) en las cinco.
   - **OQ-4, OQ-5 y OQ-6 bloquean el grupo 3**: el apply no escribe `20261069000002` sin el OK textual del PO sobre las reglas de D6, la excepción a RN-21 y la precedencia movimiento/orden. Los grupos 1, 2 y 4 a 9 pueden avanzar mientras tanto.
   - Si el PO elige (b) en OQ-5: se retiran del change el delta de `inventory-single-ledger`, la pata de `stock_movements` del backfill (3.2), las mutaciones M5 y M5b (3.4), la nota de RN-21 (10.2) y la verificación 12.4 de movimientos nulos, y se ajusta el requirement de históricos del delta de `branches`. Si elige (a): se quita el criterio de origen demostrable del delta de `inventory-single-ledger`, de `branches` y de 3.2, y se retira M5b.
   - Si el PO elige (b) o (c) en OQ-8: el arreglo entra en este change (reescritura de `rpc_apply_product_stock_delta` o `rpc_reverse_stock_movement`, y de `rpc_promote_legacy_sale_to_order`, con su propio checkpoint del cuerpo vivo, preflight y gates), y los bloques (8b) y (9b) asertan el comportamiento nuevo.
   - Si el PO elige otra opción en cualquier OQ, actualizar en el mismo PR la decisión, las specs y estas tareas.
-- [ ] 0.2 **[PO ejecuta o autoriza]** Checkpoint del cuerpo **vivo de producción**, antes de escribir una línea de SQL:
+- [x] 0.2 **[PO ejecuta o autoriza]** Checkpoint del cuerpo **vivo de producción**, antes de escribir una línea de SQL:
   - `pg_get_functiondef`, `obj_description` y `proacl` de:
     - `rpc_create_sale_operation_v2(text, uuid, date, text, jsonb, uuid, text, uuid, uuid, uuid, date)`;
     - `rpc_create_sale_operation(text, uuid, date, text, jsonb, uuid, text, uuid, uuid, uuid, date)`;
@@ -39,9 +39,9 @@
   - `COMMENT` esperado: la edición tiene uno; la v2 y el wrapper, ninguno.
   - ACL esperada: `postgres`, `authenticated` y `service_role` con `EXECUTE`, y `anon` sin `EXECUTE`.
   - Si algo diverge, se reescribe sobre el **vivo** y se anota acá el desvío.
-- [ ] 0.3 Confirmar que `20261069000001` y `20261069000002` siguen libres: `ls supabase/migrations`, `gh pr list --state open` y `MAX(version)` de producción (lo lee el PO). `presupuestos-modulo` reserva `20261067000001`/`20261068000001` (la base local compartida ya tiene `20261067000001`, aplicada por su apply en curso). Si ya mergeó, nuestras dos van después en CI. Renumerar si hace falta.
-- [ ] 0.4 Re-verificar sobre `main` actualizado el inventario de escritores de `sales`: las funciones vivas con `INSERT INTO public.sales` (v2, wrapper, edición, `_c29_confirm_order_core` y los dos `rpc_atomic_create_sale` legacy, sólo `service_role`) y los `UPDATE` (`rpc_safe_delete_product`). Grep de escrituras directas en `backend/`, `frontend/` y `supabase/functions/`. Anotar cualquier escritor nuevo que no esté en el design.
-- [ ] 0.5 SAFETY NET. Correr y registrar el baseline:
+- [x] 0.3 Confirmar que `20261069000001` y `20261069000002` siguen libres: `ls supabase/migrations`, `gh pr list --state open` y `MAX(version)` de producción (lo lee el PO). `presupuestos-modulo` reserva `20261067000001`/`20261068000001` (la base local compartida ya tiene `20261067000001`, aplicada por su apply en curso). Si ya mergeó, nuestras dos van después en CI. Renumerar si hace falta.
+- [x] 0.4 Re-verificar sobre `main` actualizado el inventario de escritores de `sales`: las funciones vivas con `INSERT INTO public.sales` (v2, wrapper, edición, `_c29_confirm_order_core` y los dos `rpc_atomic_create_sale` legacy, sólo `service_role`) y los `UPDATE` (`rpc_safe_delete_product`). Grep de escrituras directas en `backend/`, `frontend/` y `supabase/functions/`. Anotar cualquier escritor nuevo que no esté en el design.
+- [x] 0.5 SAFETY NET. Correr y registrar el baseline:
   - **Backend**: `backend/tests/test_sales.py`, `test_sales_branch_id.py`, `test_sale_items.py`.
   - **Frontend**: `__tests__` de `sale-form*`, `use-sales*`, `use-cash-optin*`, `use-purchases-cash-optin*`, `use-party-payment-cash-optin*`, `use-default-branch-notice*`, `branches*`, `operation-errors*`, `pos-*` (incluido `pos-operation-errors`), `purchase-form*` (incluido `purchase-form-cash-optin`), `expense-form*`, `expense-import-dialog*` y `RegisterPaymentForms*` (incluido `RegisterPaymentForms-cash-optin`).
   - **Gates SQL**: `test_ventas_formulario_sucursal.sql` y los 23 de `supabase/tests/` que nombran `rpc_create_sale_operation`, `rpc_create_sale_operation_v2` o `rpc_atomic_update_sale_operation`. En particular:
@@ -54,12 +54,12 @@
 
 ## 1. RED — gate SQL de las funciones (antes de tocarlas)
 
-- [ ] 1.1 Escribir `supabase/tests/test_ventas_sucursal_por_defecto.sql` con los bloques (0)-(6) (incluido (3b)), (8b) y (9b) de `design.md` D13. Los bloques (7), (8) y (9) dependen del backfill y van en el grupo 3. Patrón del proyecto:
+- [x] 1.1 Escribir `supabase/tests/test_ventas_sucursal_por_defecto.sql` con los bloques (0)-(6) (incluido (3b)), (8b) y (9b) de `design.md` D13. Los bloques (7), (8) y (9) dependen del backfill y van en el grupo 3. Patrón del proyecto:
   - fallos acumulados en `text[]` y un solo `RAISE` al final;
   - anchors sintéticos vía `handle_new_user`;
   - `created_at` explícito y estrictamente posterior en las sucursales sintéticas, asertado (`c26_default_branch` no desempata);
   - limpieza de toda fila con el `account_id` de los anchors **y** de las dependencias sin `account_id` (las `cashboxes` de sus sucursales).
-- [ ] 1.2 Fixtures:
+- [x] 1.2 Fixtures:
   - cuenta con A (principal) y B, productos con stock en las dos y producto de servicio (línea sin `product_id`);
   - flag `sale_items_rpc_v2 = false` para la cuenta del bloque (2);
   - A cerrada (`status = 'closed'`, `is_active` intacto) para el bloque (3);
@@ -69,7 +69,7 @@
   - forma de pago bancaria con cuenta destino para el bloque (6);
   - para el bloque (8b), una venta con B explícita y B cerrada después (sin stock, sin caja abierta, sin transferencias);
   - para el bloque (9b), una venta sin sucursal elegida en A, después A vaciada por transferencia y desactivada.
-- [ ] 1.3 Correr el gate contra los cuerpos **actuales** y registrar el RED. Esperado:
+- [x] 1.3 Correr el gate contra los cuerpos **actuales** y registrar el RED. Esperado:
   - (0) falla porque los `INSERT` persisten `p_branch_id` y el md5 no es el reescrito;
   - (1), (2), (3) y (6) fallan con `branch_id NULL`;
   - (3b) falla porque la venta de servicio pasa con `NULL` y la de producto descuenta de la sucursal no operativa (o da `P0409`) en vez de `P0422 no_branch_found`;
@@ -77,7 +77,7 @@
   - (5) falla con la fila resultante en `NULL`;
   - (9b), con la recomendación (a) de OQ-8, falla porque con el cuerpo actual el movimiento queda `NULL` y el borrado repone en la principal operativa, no en A desactivada. Es el RED de la consecuencia declarada de D2, no de un comportamiento deseado: el mensaje del caso nombra el candidato;
   - (8b) pasa ya con los cuerpos actuales (el comportamiento es preexistente para toda venta con sucursal elegida): es un caso de caracterización y se registra como tal.
-- [ ] 1.4 Actualizar **a propósito** `supabase/tests/test_ventas_formulario_sucursal.sql`:
+- [x] 1.4 Actualizar **a propósito** `supabase/tests/test_ventas_formulario_sucursal.sql`:
   - el bloque 2 pasa a «sin sucursal elegida: `sales.branch_id` y `stock_movements.branch_id` = principal, stock de la principal»;
   - el bloque 6c pasa a «venta, movimiento de stock y movimiento bancario en la **misma** principal»;
   - el encabezado cita `ventas-sucursal-por-defecto` en lugar de "decisión del PO pendiente".
@@ -86,7 +86,7 @@
 
 ## 2. GREEN — `supabase/migrations/20261069000001_ventas_sucursal_por_defecto.sql` (funciones)
 
-- [ ] 2.1 Escribir la migración partiendo de los cuerpos vivos de 0.2:
+- [x] 2.1 Escribir la migración partiendo de los cuerpos vivos de 0.2:
   - **Preflight** (bloque `DO` al principio, molde de `20261062000001` L107-170): `v_expected` con los `md5(replace(prosrc, E'\r', ''))` de partida confirmados en 0.2; `v_rewritten` con los que deja esta migración, medidos en el stack local después de aplicarla. Si el cuerpo vivo no es ninguno de los dos, `RAISE EXCEPTION` sin reescribir. Si ya es el reescrito, `NOTICE 'ventas-sucursal-por-defecto: % ya es el cuerpo de esta migración (reaplicación)'`.
   - Con **sólo** los cambios de `design.md` D2:
     - **v2**: `v_gate_branch` en los tres `INSERT` (sales con producto, sales de servicio, `stock_movements`) y el guard `P0422 no_branch_found` (sin sucursal elegida y principal `NULL` o no operativa), después de resolver `v_gate_branch` y antes del `INSERT` en `operation_idempotency`.
@@ -94,12 +94,12 @@
     - **Edición**: si `v_final_branch_id` quedó `NULL`, la principal y el mismo guard, después del tri-estado y **antes** del REVERSE.
 
   Cabecera de la migración con contexto, decisión del PO, reglas y referencias. Un comentario `-- ventas-sucursal-por-defecto (Dn):` en cada punto tocado.
-- [ ] 2.2 Re-declarar el `COMMENT` vivo de la edición, con su texto vivo completo más, al final, la excepción de D5 («ventas-sucursal-por-defecto: un branch_id nulo, vigente o informado, se resuelve a la principal»), porque «preserva branch_id … tri-estado para branch_id» deja de ser cierto para el nulo. Sin `COMMENT` nuevo en v2 ni wrapper si el vivo no lo tiene. Re-emitir las ACLs: `REVOKE ALL … FROM PUBLIC, anon` más `GRANT EXECUTE … TO authenticated, service_role`, idénticas a las vivas.
-- [ ] 2.3 Diff del cuerpo nuevo contra el vivo, por función y sin `\r`. Tiene que ser **exactamente** los cambios de D2 más los comentarios. Adjuntar el diff como evidencia en el PR.
-- [ ] 2.4 Aplicar en la base local y correr el gate. Tienen que quedar GREEN:
+- [x] 2.2 Re-declarar el `COMMENT` vivo de la edición, con su texto vivo completo más, al final, la excepción de D5 («ventas-sucursal-por-defecto: un branch_id nulo, vigente o informado, se resuelve a la principal»), porque «preserva branch_id … tri-estado para branch_id» deja de ser cierto para el nulo. Sin `COMMENT` nuevo en v2 ni wrapper si el vivo no lo tiene. Re-emitir las ACLs: `REVOKE ALL … FROM PUBLIC, anon` más `GRANT EXECUTE … TO authenticated, service_role`, idénticas a las vivas.
+- [x] 2.3 Diff del cuerpo nuevo contra el vivo, por función y sin `\r`. Tiene que ser **exactamente** los cambios de D2 más los comentarios. Adjuntar el diff como evidencia en el PR.
+- [x] 2.4 Aplicar en la base local y correr el gate. Tienen que quedar GREEN:
   - bloques (0)-(6), (3b), (8b) y (9b) de `test_ventas_sucursal_por_defecto.sql`;
   - `test_ventas_formulario_sucursal.sql` completo.
-- [ ] 2.5 Mutaciones sobre los cuerpos locales, dentro de una transacción con `ROLLBACK`. Cada una tiene que ser detectada por el gate con un mensaje propio:
+- [x] 2.5 Mutaciones sobre los cuerpos locales, dentro de una transacción con `ROLLBACK`. Cada una tiene que ser detectada por el gate con un mensaje propio:
   - M1: v2 con `p_branch_id` crudo en `sales`;
   - M2: la rama legacy con `p_branch_id` crudo;
   - M3: v2 con `p_branch_id` crudo en `stock_movements`;
@@ -107,8 +107,8 @@
   - M9: guard que sólo mira `NULL` y deja pasar una principal no operativa.
 
   Registrar los mensajes.
-- [ ] 2.6 Idempotencia: reaplicar el archivo dos veces sobre la base local. La segunda pasada tiene que tomar la rama de reaplicación del preflight (3 `NOTICE`) y el fingerprint de esquema no cambia (el mismo `schema_snapshot` del paso "Verify … idempotent on reapply" de `KPI_Validation.yml`).
-- [ ] 2.7 Correr todos los gates de 0.5. En particular, `test_confirm_core_integrity.sql` (3) por las subcadenas de la v2, `test_cuenta_corriente_party_guard.sql` (3.8-v2) y `test_operacion_party_guard.sql` por el guard de cliente, `test_pos_rpc_signatures.sql` (1d) por una sola firma, y `test_function_acl_gate.sql`. Todos verdes.
+- [x] 2.6 Idempotencia: reaplicar el archivo dos veces sobre la base local. La segunda pasada tiene que tomar la rama de reaplicación del preflight (3 `NOTICE`) y el fingerprint de esquema no cambia (el mismo `schema_snapshot` del paso "Verify … idempotent on reapply" de `KPI_Validation.yml`).
+- [x] 2.7 Correr todos los gates de 0.5. En particular, `test_confirm_core_integrity.sql` (3) por las subcadenas de la v2, `test_cuenta_corriente_party_guard.sql` (3.8-v2) y `test_operacion_party_guard.sql` por el guard de cliente, `test_pos_rpc_signatures.sql` (1d) por una sola firma, y `test_function_acl_gate.sql`. Todos verdes.
 
 ## 3. Backfill — `supabase/migrations/20261069000002_ventas_sucursal_por_defecto_backfill.sql` (datos)
 

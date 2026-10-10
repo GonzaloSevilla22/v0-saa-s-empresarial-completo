@@ -521,3 +521,22 @@ Gate nuevo: `supabase/tests/test_ventas_sucursal_por_defecto.sql`. Sigue el patr
 | OQ-8 | ¿Qué pasa si la sucursal guardada de una venta deja de operar después? Hoy ya le pasa a toda venta en la que elegiste sucursal; con este cambio le pasa a todas las del formulario, que antes quedaban vacías y caían siempre en la principal que estuviera funcionando. Hay dos efectos. **Borrar la venta**: si la sucursal está cerrada, el borrado se rechaza hasta reabrirla. Si la sucursal fue **desactivada** (se vació y se dio de baja), el stock vuelve en silencio a esa sucursal, que no se ve ni se puede reactivar desde la app: es el mismo tipo de problema del incidente del 22-08. **"Facturar venta manual"** sobre esa venta crea la orden y la factura en la sucursal cerrada o desactivada. | (a) Declararlo y dejarlo como mejora aparte, con nombre propio. El arreglo toca funciones que comparten todas las reversas de stock (también las de compras) y la facturación manual, y tiene su propia decisión: rechazar o caer a la principal. Las pruebas de este cambio ejecutan los dos casos y dejan fijado el comportamiento actual a propósito, para que esa mejora lo cambie a conciencia. (b) Arreglarlo acá: el borrado repone en la principal operativa cuando la sucursal del movimiento está desactivada, y la facturación manual usa la principal si la sucursal de la venta no opera. Son dos funciones más para reescribir. (c) Arreglarlo acá rechazando: borrar o facturar una venta de una sucursal desactivada da error. Como no hay forma de reactivar una sucursal, esas ventas quedarían imposibles de borrar. | **(a)**. Es preexistente para toda venta con sucursal elegida, y necesita el vaciado previo de la sucursal, así que es un caso poco frecuente. El arreglo correcto es común a compras y ventas y merece su propio diseño. No bloquea. |
 
 OQ-1, OQ-2, OQ-3, OQ-7 y OQ-8 no bloquean: se aplica su recomendación salvo que el PO diga otra cosa antes del merge. **OQ-4, OQ-5 y OQ-6 bloquean el grupo 3** (la migración de datos): el apply escribe las funciones, el frontend y los gates, pero no escribe `20261069000002` sin el OK textual del PO sobre las tres, registrado en la sección "Sign-off del PO". Es una modificación en masa de datos de producción (governance ALTO), y las tres cambian qué se escribe.
+
+### Sign-off del PO (2026-10-09)
+
+Respuesta textual del PO, dada en el chat de la sesión: «vamos con todo lo recomendado».
+
+**Resueltas el 2026-10-09 por el PO: todas por la recomendación.**
+
+| OQ | Resolución |
+|---|---|
+| OQ-1 | (a) La principal es `c26_default_branch`. |
+| OQ-2 | (a) El selector de la venta sin «Sin sucursal (general)», con la principal a la vista marcada «(principal)». |
+| OQ-3 | (a) Compras y gastos no se tocan acá (change hermano `compras-gastos-sucursal-por-defecto`). |
+| OQ-4 | (a) Las ventas históricas van a la principal de hoy, con las cuatro excepciones de D6 (operación mixta, orden con comprobante vigente, movimiento de stock propio, orden sin comprobante). |
+| OQ-5 | (c) Los movimientos de stock nulos se completan sólo donde el origen es demostrable (excepción única y auditada a RN-21). |
+| OQ-6 | (a) Manda la orden si hay comprobante vigente; si no, el movimiento. |
+| OQ-7 | (a) Al editar no se puede dejar una venta sin sucursal. |
+| OQ-8 | (a) Declarar el comportamiento actual y dejar la mejora como candidato aparte; los bloques (8b) y (9b) del gate lo fijan a propósito. |
+
+Con esto el grupo 3 (migración de datos) queda **desbloqueado** para escribirse. La migración de datos la sigue mergeando el PO.

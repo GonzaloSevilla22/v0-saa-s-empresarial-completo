@@ -169,12 +169,12 @@
 
 ## 4. CI
 
-- [ ] 4.1 `.github/workflows/KPI_Validation.yml`:
+- [x] 4.1 `.github/workflows/KPI_Validation.yml`:
   - **retirar el bloque de reaplicación de `20261062000001`** (L982-1036, desde su comentario de cabecera hasta el `echo "20261062000001 idempotente…"`; L1038 ya es la cabecera del bloque de `20261063000001`, que se conserva). Citar en el commit la regla del propio workflow (L1004-1018): este change redefine tres de sus diez funciones y ese preflight abortaría. Mejor ubicar el bloque por su contenido que por número de línea;
   - actualizar todos los comentarios que se apoyan en el bloque retirado: los de `20261063000001` (L1039 y L1050), `20261064000001` (L1072), `20261065000001` (si lo nombra) y `20261066000001` (L1125-1133, que además explica la columna `base_unit_id` que dejaba la reaplicación retirada). La aserción de `scale_plu` sigue valiendo;
   - actualizar el comentario del paso «Run ventas formulario sucursal gate» (L2622-2638), que dice «(2) sin sucursal -> branch_id NULL … (contrato vigente, el fix NO lo cambia)» y «(6) … y la default si no se eligió ninguna»: pasa a citar este change y el contrato nuevo;
   - agregar la reaplicación de `20261069000001` y de `20261069000002` **después de la reconvergencia**, al final de los reapply posteriores (después de `20261066000001` y, si ya mergearon, de `20261067000001`/`20261068000001`), sin tolerancia: el de funciones exige 3 `NOTICE` «ya es el cuerpo de esta migración» (conteo como `UOM_REAPPLIED`), el de datos su `NOTICE` final con 0 filas asignadas, y los dos un `schema_snapshot` idéntico.
-- [ ] 4.2 Cablear `supabase/tests/test_ventas_sucursal_por_defecto.sql` como paso propio. `test_ventas_formulario_sucursal.sql` mantiene su paso.
+- [x] 4.2 Cablear `supabase/tests/test_ventas_sucursal_por_defecto.sql` como paso propio. `test_ventas_formulario_sucursal.sql` mantiene su paso.
 - [ ] 4.3 Antes del PR, correr en local el paso completo de CI con el preflight definitivo: `supabase db reset`, la cadena de reaplicación, la reconvergencia y los reapply posteriores. Así se prueba que el `v_expected` coincide con el cuerpo que dejan los archivos (0.2). Después, en la corrida de CI, confirmar que:
   - el bloque (0) del gate nuevo pasa **después** de los reapply (ninguna reaplicación puede dejar vivo un cuerpo viejo, lección de `candidatos-db-backend`);
   - `test_ventas_unidades_conversion.sql` y `test_ventas_unidades_conversion_race.sh` siguen verdes: cubren las otras siete funciones que dejó de reaplicar el bloque retirado.

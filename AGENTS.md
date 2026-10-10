@@ -66,7 +66,7 @@
 | Capa | Tecnología | Notas |
 |------|------------|-------|
 | **BaaS** | Supabase (Auth, DB, Edge Functions, Storage, Realtime) | Proyecto real: `gxdhpxvdjjkmxhdkkwyb` |
-| **DB** | PostgreSQL vía Supabase, con RLS org-based | 315 migraciones en prod, última `20261068000001_presupuestos_conversion_venta` (PR #610; verificada en prod 2026-10-02: `max(version)=20261068000001`, 315 filas — la anterior, `20261067000001_presupuestos_modulo` (PR #608), verificada en prod con 314) |
+| **DB** | PostgreSQL vía Supabase, con RLS org-based | 323 migraciones en prod, última `20261075000002_ventas_sucursal_por_defecto_backfill` (PR #627; verificada en prod 2026-10-10: `max(version)=20261075000002`, 323 filas — la anterior, `20261075000001_ventas_sucursal_por_defecto` (funciones, misma entrega), verificada junto con ella) |
 | **Extensiones PG** | `pg_cron` (grace period, relay outbox) · `pg_net` / DB webhooks (email, outbox, relay CAE) | — |
 | **Edge Functions** | Deno (Supabase) — 12 funciones | `ai-insights`, `ai-resumen`, `ai-precio`, `ai-rentabilidad`, `ai-comparativo`, `ai-prediccion`, `ai-simulador`, `ai-estadisticas`, `fair-advisor`, `invoice-ocr`, `generate-export`, `send-email` |
 | **IA** | OpenAI API | `gpt-4o-mini` en las 9 funciones de IA; **`gpt-4o`** (visión) en `invoice-ocr` |
@@ -176,6 +176,7 @@ Los compact rules de cada skill los resuelve el orquestador desde `.atl/skill-re
 28. ~~**`factura-fiscal-imprimible`**~~ ✅ **COMPLETADA Y ARCHIVADA 2026-09-27** (PR #591 `12ebd7d3`, migración `20261064000001_factura_fiscal_imprimible`; follow-ups #592/#593/#594; backfill y humo del PO 2026-09-27; ver `CHANGES.md`).
 29. ~~**`balanza-etiquetas-pos`**~~ ✅ **COMPLETADA Y ARCHIVADA 2026-09-29** (PR #599 `0cd2f77a`, migración `20261066000001_balanza_etiquetas_pos`; verificada en prod 2026-09-29; humo real del PO con la Cuora Neo pendiente; ver `CHANGES.md`).
 30. ~~**`presupuestos-modulo`**~~ ✅ **COMPLETADA Y ARCHIVADA 2026-10-02** (PRs #601 propose, #608 tanda A `95eb8dd7`, #610 tanda B `dad7852a`; migraciones `20261067000001_presupuestos_modulo` y `20261068000001_presupuestos_conversion_venta`; verificada en prod 2026-10-02; humo real del PO pendiente; ver `CHANGES.md`).
+31. ~~**`ventas-sucursal-por-defecto`**~~ ✅ **COMPLETADA Y ARCHIVADA 2026-10-10** (PR #627 `48985719`, migraciones `20261075000001_ventas_sucursal_por_defecto` y `20261075000002_ventas_sucursal_por_defecto_backfill`; verificada en prod 2026-10-10: 887 ventas asignadas, 0 sin sucursal; humo real del PO pendiente; ver `CHANGES.md`).
 
 > **Pendientes externos del PO (no bloquean código)**: trámite ARCA homologación (C-27 5.2 / v22 9.1) y config de verificación de email en Supabase. **`v3-rbac-multirole` es CRÍTICO** — análisis solamente hasta sign-off explícito del PO (consume matriz de transiciones de `v3-document-status-history`).
 

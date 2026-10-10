@@ -74,7 +74,7 @@ La evolución SHALL restar las notas de crédito del período a través del help
 
 El sistema SHALL exponer la facturación, las unidades y las operaciones del período desglosadas **por canal de venta** y **por sucursal**.
 
-Las ventas sin canal o sin sucursal SHALL aparecer como un tramo propio y visible ("Sin canal" / "Sin sucursal"), NUNCA omitidas del resultado: en producción son la mayoría de las operaciones, y omitirlas haría que el desglose informe menos facturación que el total del período. La suma de los tramos SHALL ser igual al total del período.
+Las ventas sin canal o sin sucursal SHALL aparecer como un tramo propio y visible ("Sin canal" / "Sin sucursal"), NUNCA omitidas del resultado: omitirlas haría que el desglose informe menos facturación que el total del período. La suma de los tramos SHALL ser igual al total del período. Las ventas sin canal siguen siendo una parte grande de las operaciones en producción; las ventas sin sucursal, en cambio, quedan reducidas al residuo que no pudo asignar `ventas-sucursal-por-defecto` (toda venta nueva o editada queda en una sucursal), y el tramo "Sin sucursal" se conserva para ese residuo.
 
 #### Scenario: Las ventas sin canal aparecen en su propio tramo
 

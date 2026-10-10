@@ -14,7 +14,7 @@
 
 - [x] 0.1 **[PO]** Sign-off de las OQ (`design.md` §Open Questions). Registrar la respuesta textual en una sección "Sign-off del PO" del `design.md`.
   - **OQ-1, OQ-2, OQ-3, OQ-7 y OQ-8**: sin respuesta, el apply adopta la recomendación de cada una, (a) en las cinco.
-  - **OQ-4, OQ-5 y OQ-6 bloquean el grupo 3**: el apply no escribe `20261069000002` sin el OK textual del PO sobre las reglas de D6, la excepción a RN-21 y la precedencia movimiento/orden. Los grupos 1, 2 y 4 a 9 pueden avanzar mientras tanto.
+  - **OQ-4, OQ-5 y OQ-6 bloquean el grupo 3**: el apply no escribe `20261075000002` sin el OK textual del PO sobre las reglas de D6, la excepción a RN-21 y la precedencia movimiento/orden. Los grupos 1, 2 y 4 a 9 pueden avanzar mientras tanto.
   - Si el PO elige (b) en OQ-5: se retiran del change el delta de `inventory-single-ledger`, la pata de `stock_movements` del backfill (3.2), las mutaciones M5 y M5b (3.4), la nota de RN-21 (10.2) y la verificación 12.4 de movimientos nulos, y se ajusta el requirement de históricos del delta de `branches`. Si elige (a): se quita el criterio de origen demostrable del delta de `inventory-single-ledger`, de `branches` y de 3.2, y se retira M5b.
   - Si el PO elige (b) o (c) en OQ-8: el arreglo entra en este change (reescritura de `rpc_apply_product_stock_delta` o `rpc_reverse_stock_movement`, y de `rpc_promote_legacy_sale_to_order`, con su propio checkpoint del cuerpo vivo, preflight y gates), y los bloques (8b) y (9b) asertan el comportamiento nuevo.
   - Si el PO elige otra opción en cualquier OQ, actualizar en el mismo PR la decisión, las specs y estas tareas.
@@ -34,12 +34,12 @@
     | edición | `e8687db5ecdcc6056325550f37c8cbc0` | `954a5c8fb31202259c82485d0c6e05b9` |
     | `c26_default_branch` | `4fb12c57c3417bb98212cddd2e5ac069` | `5fa1096b4c1481b36d6e04c8eaadbfdc` |
 
-  - El `md5(prosrc)` vivo de producción de las tres funciones tiene que coincidir con el local (el que dejan los archivos). Entonces es el `v_expected` del preflight de `20261069000001` (2.1).
-  - **Si producción diverge de los archivos**, el `v_expected` no puede ser sólo el md5 de producción: CI y todo stack local construyen la base desde los archivos, y el preflight abortaría en toda base nueva (design, Migration Plan). Se elige con el PO: reconciliar primero los archivos con una migración propia anterior a `20261069000001`, o que `v_expected` acepte los dos md5 con el desvío documentado.
+  - El `md5(prosrc)` vivo de producción de las tres funciones tiene que coincidir con el local (el que dejan los archivos). Entonces es el `v_expected` del preflight de `20261075000001` (2.1).
+  - **Si producción diverge de los archivos**, el `v_expected` no puede ser sólo el md5 de producción: CI y todo stack local construyen la base desde los archivos, y el preflight abortaría en toda base nueva (design, Migration Plan). Se elige con el PO: reconciliar primero los archivos con una migración propia anterior a `20261075000001`, o que `v_expected` acepte los dos md5 con el desvío documentado.
   - `COMMENT` esperado: la edición tiene uno; la v2 y el wrapper, ninguno.
   - ACL esperada: `postgres`, `authenticated` y `service_role` con `EXECUTE`, y `anon` sin `EXECUTE`.
   - Si algo diverge, se reescribe sobre el **vivo** y se anota acá el desvío.
-- [x] 0.3 Confirmar que `20261069000001` y `20261069000002` siguen libres: `ls supabase/migrations`, `gh pr list --state open` y `MAX(version)` de producción (lo lee el PO). `presupuestos-modulo` reserva `20261067000001`/`20261068000001` (la base local compartida ya tiene `20261067000001`, aplicada por su apply en curso). Si ya mergeó, nuestras dos van después en CI. Renumerar si hace falta.
+- [x] 0.3 Confirmar que `20261075000001` y `20261075000002` siguen libres: `ls supabase/migrations`, `gh pr list --state open` y `MAX(version)` de producción (lo lee el PO). `presupuestos-modulo` reserva `20261067000001`/`20261068000001` (la base local compartida ya tiene `20261067000001`, aplicada por su apply en curso). Si ya mergeó, nuestras dos van después en CI. Renumerar si hace falta.
 - [x] 0.4 Re-verificar sobre `main` actualizado el inventario de escritores de `sales`: las funciones vivas con `INSERT INTO public.sales` (v2, wrapper, edición, `_c29_confirm_order_core` y los dos `rpc_atomic_create_sale` legacy, sólo `service_role`) y los `UPDATE` (`rpc_safe_delete_product`). Grep de escrituras directas en `backend/`, `frontend/` y `supabase/functions/`. Anotar cualquier escritor nuevo que no esté en el design.
 - [x] 0.5 SAFETY NET. Correr y registrar el baseline:
   - **Backend**: `backend/tests/test_sales.py`, `test_sales_branch_id.py`, `test_sale_items.py`.
@@ -84,7 +84,7 @@
 
   Correr contra los cuerpos actuales y registrar el RED.
 
-## 2. GREEN — `supabase/migrations/20261069000001_ventas_sucursal_por_defecto.sql` (funciones)
+## 2. GREEN — `supabase/migrations/20261075000001_ventas_sucursal_por_defecto.sql` (funciones)
 
 - [x] 2.1 Escribir la migración partiendo de los cuerpos vivos de 0.2:
   - **Preflight** (bloque `DO` al principio, molde de `20261062000001` L107-170): `v_expected` con los `md5(replace(prosrc, E'\r', ''))` de partida confirmados en 0.2; `v_rewritten` con los que deja esta migración, medidos en el stack local después de aplicarla. Si el cuerpo vivo no es ninguno de los dos, `RAISE EXCEPTION` sin reescribir. Si ya es el reescrito, `NOTICE 'ventas-sucursal-por-defecto: % ya es el cuerpo de esta migración (reaplicación)'`.
@@ -110,7 +110,7 @@
 - [x] 2.6 Idempotencia: reaplicar el archivo dos veces sobre la base local. La segunda pasada tiene que tomar la rama de reaplicación del preflight (3 `NOTICE`) y el fingerprint de esquema no cambia (el mismo `schema_snapshot` del paso "Verify … idempotent on reapply" de `KPI_Validation.yml`).
 - [x] 2.7 Correr todos los gates de 0.5. En particular, `test_confirm_core_integrity.sql` (3) por las subcadenas de la v2, `test_cuenta_corriente_party_guard.sql` (3.8-v2) y `test_operacion_party_guard.sql` por el guard de cliente, `test_pos_rpc_signatures.sql` (1d) por una sola firma, y `test_function_acl_gate.sql`. Todos verdes.
 
-## 3. Backfill — `supabase/migrations/20261069000002_ventas_sucursal_por_defecto_backfill.sql` (datos)
+## 3. Backfill — `supabase/migrations/20261075000002_ventas_sucursal_por_defecto_backfill.sql` (datos)
 
 > **Bloqueado hasta el OK textual del PO sobre OQ-4, OQ-5 y OQ-6** (0.1).
 
@@ -173,11 +173,13 @@
   - **retirar el bloque de reaplicación de `20261062000001`** (L982-1036, desde su comentario de cabecera hasta el `echo "20261062000001 idempotente…"`; L1038 ya es la cabecera del bloque de `20261063000001`, que se conserva). Citar en el commit la regla del propio workflow (L1004-1018): este change redefine tres de sus diez funciones y ese preflight abortaría. Mejor ubicar el bloque por su contenido que por número de línea;
   - actualizar todos los comentarios que se apoyan en el bloque retirado: los de `20261063000001` (L1039 y L1050), `20261064000001` (L1072), `20261065000001` (si lo nombra) y `20261066000001` (L1125-1133, que además explica la columna `base_unit_id` que dejaba la reaplicación retirada). La aserción de `scale_plu` sigue valiendo;
   - actualizar el comentario del paso «Run ventas formulario sucursal gate» (L2622-2638), que dice «(2) sin sucursal -> branch_id NULL … (contrato vigente, el fix NO lo cambia)» y «(6) … y la default si no se eligió ninguna»: pasa a citar este change y el contrato nuevo;
-  - agregar la reaplicación de `20261069000001` y de `20261069000002` **después de la reconvergencia**, al final de los reapply posteriores (después de `20261066000001` y, si ya mergearon, de `20261067000001`/`20261068000001`), sin tolerancia: el de funciones exige 3 `NOTICE` «ya es el cuerpo de esta migración» (conteo como `UOM_REAPPLIED`), el de datos su `NOTICE` final con 0 filas asignadas, y los dos un `schema_snapshot` idéntico.
+  - agregar la reaplicación de `20261075000001` y de `20261075000002` **después de la reconvergencia**, al final de los reapply posteriores (después de `20261066000001` y, si ya mergearon, de `20261067000001`/`20261068000001`), sin tolerancia: el de funciones exige 3 `NOTICE` «ya es el cuerpo de esta migración» (conteo como `UOM_REAPPLIED`), el de datos su `NOTICE` final con 0 filas asignadas, y los dos un `schema_snapshot` idéntico.
 - [x] 4.2 Cablear `supabase/tests/test_ventas_sucursal_por_defecto.sql` como paso propio. `test_ventas_formulario_sucursal.sql` mantiene su paso.
-- [ ] 4.3 Antes del PR, correr en local el paso completo de CI con el preflight definitivo: `supabase db reset`, la cadena de reaplicación, la reconvergencia y los reapply posteriores. Así se prueba que el `v_expected` coincide con el cuerpo que dejan los archivos (0.2). Después, en la corrida de CI, confirmar que:
+- [ ] 4.3 **(abierta a propósito en el apply)** Antes del PR, correr en local el paso completo de CI con el preflight definitivo: `supabase db reset`, la cadena de reaplicación, la reconvergencia y los reapply posteriores. Así se prueba que el `v_expected` coincide con el cuerpo que dejan los archivos (0.2). Después, en la corrida de CI, confirmar que:
   - el bloque (0) del gate nuevo pasa **después** de los reapply (ninguna reaplicación puede dejar vivo un cuerpo viejo, lección de `candidatos-db-backend`);
   - `test_ventas_unidades_conversion.sql` y `test_ventas_unidades_conversion_race.sh` siguen verdes: cubren las otras siete funciones que dejó de reaplicar el bloque retirado.
+
+  **Nota del apply**: `supabase db reset` **no** se corrió porque la base local es compartida con otras sesiones. En su lugar se emuló la cola de la cadena de reaplicación con `psql` (las dos migraciones aplicadas **dos veces** y el gate nuevo corrido entre medio), se comparó el `schema_snapshot` antes y después de cada pasada (idéntico) y se corrieron los 25 gates del orden de CI, todos en verde. Falta la corrida real de la cadena completa, que es la de CI de este PR: confirmar ahí el bloque (0) del gate nuevo **después** de los reapply y los dos gates de unidades.
 
 ## 5. Frontend — una sola "principal" en el cliente
 
@@ -239,7 +241,7 @@
 
 ## 8. Verificación visual (superficie frontend)
 
-- [ ] 8.1 Formulario de venta en alta y edición. Cuenta con módulo y dos sucursales, y cuenta sin módulo. Combinaciones:
+- [x] 8.1 Formulario de venta en alta y edición. Cuenta con módulo y dos sucursales, y cuenta sin módulo. Combinaciones:
   - escritorio (1280 px) y móvil (375 px);
   - tema claro y tema oscuro.
 
@@ -250,11 +252,15 @@
   - sin desborde horizontal a 375 px.
 
   Adjuntar capturas.
-- [ ] 8.2 Formularios de compra y de gasto, e importador de gastos, en las mismas combinaciones: la opción sin sucursal sigue igual.
+
+  **Hecho (apply, 2026-10-10)**, con un arnés Playwright temporal contra el stack local (cuenta Pro con A «Casa Central» y B «Sucursal Norte QA»; cuenta sin módulo con su «Casa Central»). Capturas en las 4 combinaciones (1280 y 375 px, claro y oscuro) de: alta con módulo, alta sin módulo y alta con la más antigua cerrada; más la edición precargando la sucursal de cada venta (A y B) y la lista desplegada. Resultado: rótulo «Sucursal», principal preseleccionada con la marca «(principal)» y sus tokens semánticos; la lista **no** ofrece «Sin sucursal (general)»; en la cuenta sin módulo, ni selector ni la palabra «sucursal» en el modal; sin desborde horizontal a 375 px en ninguna combinación. Las capturas son artefactos del apply y no se versionan.
+- [x] 8.2 Formularios de compra y de gasto, e importador de gastos, en las mismas combinaciones: la opción sin sucursal sigue igual.
+
+  **Hecho (apply, 2026-10-10)**: compra y gasto muestran «Sin sucursal (general)» y el importador de gastos «Sin sucursal por defecto» en las 4 combinaciones (1280 y 375 px, claro y oscuro), sin desborde horizontal. Cierra la regresión de 6.5 con evidencia visual.
 
 ## 9. Humo en el stack local
 
-- [ ] 9.1 Levantar el stack local: Supabase con las migraciones de la rama, `uvicorn` desde el worktree y `pnpm dev`. Usar una cuenta Pro con A (principal) y B y una cuenta sin módulo de sucursales, y verificar cada caso con `psql`.
+- [x] 9.1 Levantar el stack local: Supabase con las migraciones de la rama, `uvicorn` desde el worktree y `pnpm dev`. Usar una cuenta Pro con A (principal) y B y una cuenta sin módulo de sucursales, y verificar cada caso con `psql`.
   - **H1**: venta sin tocar el selector → `sales` y `stock_movements` en A, stock de A. Anotar el aviso «Stock insuficiente (disponible: N)» con un producto que sólo tiene stock en B: muestra el agregado (candidato (c) de #606, Non-Goal).
   - **H2**: eligiendo B → B.
   - **H3**: cuenta sin módulo → su "Casa Central". Si se puede armar, una cuenta sin módulo que conserva dos sucursales → la más antigua operativa.
@@ -265,10 +271,23 @@
   - **H8**: cerrar la sucursal más antigua (sin stock) → el selector de la venta preselecciona la siguiente, el opt-in de caja de la venta y el modal de cobro de cuenta corriente buscan su sesión, el aviso de sucursal por defecto la nombra, el POS usa su caja y la manda como sucursal, y una venta sin tocar el selector queda en ella.
   - **H9**: desactivar todas las sucursales de una cuenta de prueba vacía → una venta sin sucursal se rechaza con el mensaje traducido de `no_branch_found`.
 
+  **Resultado del humo local (apply, 2026-10-10)**: stack = Supabase local con las dos migraciones de la rama aplicadas, `uvicorn` del worktree y `pnpm dev`, con el arnés Playwright temporal y `psql` por cada caso. Los nueve casos pasaron:
+  - **H1** (UI, sin tocar el selector, principal preseleccionada): `sales.branch_id` = A en 1 fila, `stock_movements.branch_id` = A, stock de A 93 → 91 y de B 15 → 15. **H1b**, producto con stock sólo en B sin tocar el selector: la venta se rechaza con el mensaje por sucursal «No hay stock de «Humo solo B» en la sucursal Casa Central. Puede haber unidades en otra sucursal…» y la acción «Transferir stock»; ninguna venta del producto queda registrada (no aparece «Stock insuficiente (disponible: N)» agregado: el rechazo viene del servidor, ya contra la sucursal resuelta).
+  - **H2** (eligiendo B): `sales` y movimiento en B, stock de B 15 → 14 y de A sin cambio (91).
+  - **H3a**: cuenta sin módulo → `sales.branch_id` y movimiento = su «Casa Central». **H3b**: cuenta sin módulo que conserva dos sucursales → la más antigua operativa (Casa Central).
+  - **H4** (`PUT /sales/operation` con `branch_id: null` sobre una venta de B, 200): la venta queda en A, stock de B 12 → 14 y de A 90 → 88.
+  - **H5** (`POST /sales` sin el campo, 201): `sales` y movimiento en A.
+  - **H6**: con los cuerpos de `main` se crearon 2 ventas `NULL` por la API real y una se editó (movimiento con A); después se aplicaron las dos migraciones. Resultado: las dos quedaron en A. `audit_logs` (`sales_branch_backfill`): 2 ventas, `por_regla` = `{principal: 1, movimiento: 1, operacion: 0, orden: 0, orden_facturada: 0}`, `movimiento_origen_incierto: 1` (OQ-5 (c): ese movimiento `NULL` no se completa), `movement_ids: []`, discrepancias 0.
+  - **H7**: ingresos del Tablero filtrado por A = 3500 = suma de las ventas con `branch_id = A`; ventas sin sucursal = 0.
+  - **H8** (cuenta Pro con la más antigua cerrada y vacía): el aviso de sucursal por defecto nombra a la nueva principal (Sucursal W2) y no a la cerrada; el selector de la venta preselecciona «Sucursal W2 (plan anterior) (principal)», ofrece **su** sesión de caja y la venta con el opt-in tildado deja `sales.branch_id` = W2 y el movimiento de caja en la sesión de W2; el modal de cobro de cuenta corriente ofrece la caja abierta; el POS manda W2 como sucursal: la orden, la venta y el movimiento de caja quedan en W2 y en su sesión.
+  - **H9** (todas las sucursales desactivadas, sin sesión de caja abierta): el selector muestra «Sin sucursal disponible» y la venta se rechaza con «No encontramos una sucursal activa en la cuenta. Creá una o reabrí una cerrada desde Sucursales y volvé a intentar.»; ningún texto técnico `no_branch_found` llega al usuario y no se crea ninguna fila.
+
 ## 10. Specs, KB y documentación
 
-- [ ] 10.1 Correr `openspec validate "ventas-sucursal-por-defecto" --strict` y `openspec validate --specs --strict`.
-- [ ] 10.2 `knowledge-base/05_reglas_de_negocio.md`:
+- [x] 10.1 Correr `openspec validate "ventas-sucursal-por-defecto" --strict` y `openspec validate --specs --strict`.
+
+  **Hecho (apply, 2026-10-10)**: el change es válido y las specs dan `109 passed, 0 failed`.
+- [x] 10.2 `knowledge-base/05_reglas_de_negocio.md`:
   - RN-93: nota de que la venta la cumple desde este change (alta, edición e históricos) y de que compras queda pendiente (OQ-3);
   - RN-21 (si OQ-5 = (a) o (c)): nota de la única excepción auditada, con sus límites y el puntero al requirement nuevo de `inventory-single-ledger`.
 - [ ] 10.3 Al archivar (no en el apply):
@@ -293,7 +312,7 @@
 
 ## 12. Verificación posterior al merge (producción, sólo lectura; la ejecuta o autoriza el PO)
 
-- [ ] 12.1 `deploy.yml` verde, con `MAX(version)` igual a `20261069000002` (o la última de la cadena). Vercel desplegado. Render: `GET /deploys` del commit del merge, y `POST /deploys` si falta (el auto-deploy no siempre dispara).
+- [ ] 12.1 `deploy.yml` verde, con `MAX(version)` igual a `20261075000002` (o la última de la cadena). Vercel desplegado. Render: `GET /deploys` del commit del merge, y `POST /deploys` si falta (el auto-deploy no siempre dispara).
 - [ ] 12.2 En los cuerpos vivos de las tres funciones, la persistencia resuelta y el guard están presentes, y su `md5(prosrc)` es el `v_rewritten` del preflight. La edición conserva su `COMMENT`. Las ACLs no cambiaron y hay una sola firma por función.
 - [ ] 12.3 `SELECT count(*) FROM sales WHERE branch_id IS NULL` tiene que coincidir con el residuo que informó la migración. Ventas en vuelo: **no** buscarlas por `created_at` (es `DEFAULT now()`, el inicio de la transacción, así que una venta en vuelo tiene un `created_at` anterior al deploy). Listar las filas `NULL` con `account_id` no nulo cuya cuenta tiene una sucursal operativa (`is_active AND status = 'active'`): son las que el backfill habría asignado y tienen que ser 0. Si hay alguna, o si el conteo total supera al residuo informado, **[PO]** re-ejecutar el bloque idempotente del archivo de datos con `npx supabase db query --linked`.
 - [ ] 12.4 Movimientos de stock:
@@ -310,13 +329,14 @@
 
 | Tarea | Test / gate | Capa | Safety net | RED | GREEN | Triangulación | Refactor |
 |-------|-------------|------|------------|-----|-------|---------------|----------|
-| 1.x/2.x | `supabase/tests/test_ventas_sucursal_por_defecto.sql` (0)-(6), (3b), (8b), (9b) | SQL | | | | | |
-| 1.4 | `supabase/tests/test_ventas_formulario_sucursal.sql` bloques 2 y 6 | SQL | | | | | |
-| 3.x | `test_ventas_sucursal_por_defecto.sql` (7), (8), (9) | SQL | | | | | |
-| 5.1 | `__tests__/lib/default-branch.test.ts` | Unit | | | | | |
-| 5.2 | `use-cash-optin`, `RegisterPaymentForms-cash-optin`, `purchase-form-cash-optin` | Hook / Componente | | | | | |
-| 5.3 | `use-default-branch-notice` | Hook | | | | | |
-| 5.4 | POS (`pos-*`) | Componente | | | | | |
-| 6.1 | `BranchSelect` | Componente | | | | | |
-| 6.2 | `sale-form-branch-create` | Componente | | | | | |
-| 6.3 | `operation-errors-branch` | Unit | | | | | |
+| 1.x/2.x | `supabase/tests/test_ventas_sucursal_por_defecto.sql` (0)-(6), (3b), (8b), (9b) | SQL | 24 gates SQL del orden de CI en verde (baseline) antes de tocar nada; `pytest -k sales` 85; vitest 54 archivos / 421 tests | gate parte A contra los cuerpos vivos: 38 líneas FAIL por la razón correcta ((0) md5/COMMENT, (1)-(3) persistencia, (3b)/(4) guard, (5a/5b) edición, (6a/6b) caja y banco, (9b)); exit 3 | gate parte A contra la migración 20261075000001: todos los bloques PASS (`GATE ... (parte A) PASSED`); aplicada dos veces, la segunda toma la rama de reaplicación (3 `NOTICE`) con `schema_snapshot` idéntico | alta v2 y wrapper, producto y servicio, rama legacy, más antigua cerrada, sin sucursal operativa, edición NULL informado y residual, caja y banco; 6 mutaciones M1-M4, M9, M9b detectadas con mensaje propio (BEGIN/ROLLBACK) | diff de cada cuerpo contra el vivo = sólo los cambios de D2 más comentarios; md5 antes (`ae7e818e…`/`577f86d2…`/`23f9f29a…`) y después (`52acb873…`/`e5185557…`/`9fde6d95…`) |
+| 1.4 | `supabase/tests/test_ventas_formulario_sucursal.sql` bloques 2 y 6 | SQL | `test_ventas_formulario_sucursal.sql` verde antes de editarlo | bloques 2 y 6c afirman el comportamiento viejo (sin sucursal queda NULL), que este change invierte: se reescriben a propósito junto con el RED de 1.3 | gate actualizado: verde contra los cuerpos nuevos | caracterización explícita de la nueva semántica (sin sucursal = principal) en alta y edición | cabecera y comentarios del gate puestos al día |
+| 3.x | `test_ventas_sucursal_por_defecto.sql` (7), (8), (9) | SQL | gate parte A verde | parte B sin la migración de datos: `No such file or directory` (exit 3), después con la migración y los asserts sobre cada regla de D6 | parte B verde (`GATE ... (parte B, primera corrida) PASSED`); la segunda corrida del archivo asigna 0 ventas (idempotente) | 5 reglas D6, filtro de operativa sólo en 3-5, residuo NULL, movimientos completados sólo con origen demostrable, auditoría por cuenta con sus contadores; 7 mutaciones M5, M5b, M6, M6b, M7, M8, M8b detectadas | backfill reescrito set-based con tablas temporales: 50.000 filas NULL en 24 s (antes 6 m 17 s por subconsultas correlacionadas) |
+| 5.1 | `__tests__/lib/default-branch.test.ts` | Unit | — | `default-branch.test.ts`: falla al importar el helper inexistente (no tests) | 8 tests verdes | lista vacía, primera activa, una sola, saltea una o varias cerradas, todas cerradas (fallback de `c26_default_branch`), respeta el orden de entrada e inactiva | — |
+| 5.2 | `use-cash-optin`, `RegisterPaymentForms-cash-optin`, `purchase-form-cash-optin` | Hook / Componente | tests de `use-cash-optin` y de los modales de cobro/compra verdes | `use-cash-optin-default-branch.test.ts`: 1 de 4 falla (con la más antigua cerrada la efectiva era ella) | 4 de 4; `RegisterPaymentForms-cash-optin` y `purchase-form-cash-optin` siguen verdes | sucursal explícita, principal viva, más antigua cerrada y sin sucursales | — |
+| 5.3 | `use-default-branch-notice` | Hook | `use-default-branch-notice` verde | 1 de 7 falla: la más antigua CERRADA se anunciaba como principal (`branches[0]`) | nombra a la principal del servidor; el test del toast vigente sigue verde | sin valor previo, mismo id, id distinto, carga, la más antigua cerrada, cierre de una posterior sin cambio de principal y cuenta sin sucursales | — |
+| 5.4 | POS (`pos-*`) | Componente | tests del POS verdes | `pos-default-branch.test.tsx`: 2 de 4 fallan (caja y enlace «Ir a caja de …» apuntaban a la cerrada) | 4 de 4 | con la más antigua cerrada se busca la caja en la siguiente operativa, el enlace y el `branch_id` enviado | — |
+| 6.1 | `BranchSelect` | Componente | `BranchSelect` y `SaleCheckoutFields` verdes | `BranchSelect-sin-sucursal.test.tsx`: 9 de 13 fallan (props nuevas inexistentes) | 13 de 13 y los tests vecinos (29 tests en los dos archivos de la corrida) | `allowUnassigned={false}`, `fallbackBranchId` sin pisar un valor explícito, carga, sin sucursales, rótulo propio, principal cerrada | valores por defecto de las props sin cambio de comportamiento para compra, gasto e importador |
+| 6.2 | `sale-form-branch-create` | Componente | `sale-form-branch-create` verde | 1 de 6 falla (el formulario ofrecía «Sin sucursal (general)») | 6 de 6, incluido «elegir B y después volver a la principal» | alta con la principal preseleccionada, elegir B, volver a la principal y cuenta sin módulo (sin selector); la edición con la sucursal de cada venta la cubren `sale-form-edit-context` y el humo | — |
+| 6.3 | `operation-errors-branch` | Unit | `operation-errors-branch` verde | los casos nuevos de `no_branch_found` fallan: el token pasaba tal cual (el test viejo lo fijaba y se reescribe a propósito) | `no_branch_found` se traduce a «No encontramos una sucursal activa en la cuenta…» (texto reutilizado de `use-promote-to-order`) | token crudo, envuelto por el mapeo RFC 7807 y sin confundirlo con `branch_not_found` | — |
+| 7.1/7.2 | `backend/tests/test_sales_branch_id.py` (+ `test_schema_branch_id_documents_that_no_branch_means_the_principal`) | Unit | pytest de ventas verde (85) | el test de la descripción del campo `branch_id` afirma el texto nuevo y falla contra el viejo | pasa con la descripción nueva (sin sucursal = principal) | el alta y la edición siguen transportando `None` y el tri-estado `p_branch_provided` sin cambio | suite completa: 3640 passed, 1 skipped, 93 deselected, cobertura 95,07 % |

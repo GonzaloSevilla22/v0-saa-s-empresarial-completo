@@ -137,10 +137,10 @@ function resultNote({ failed, omitted }: ApplyOutcome): string | null {
 
 function StatusBadge({ status }: { status: RowStatus }) {
   if (status === "ok")
-    return <span className="inline-flex items-center gap-1 text-emerald-400 text-xs font-medium"><CheckCircle2 className="h-3.5 w-3.5" />OK</span>
+    return <span className="inline-flex items-center gap-1 text-success text-xs font-medium"><CheckCircle2 className="h-3.5 w-3.5" />OK</span>
   if (status === "warning")
-    return <span className="inline-flex items-center gap-1 text-yellow-400 text-xs font-medium"><AlertTriangle className="h-3.5 w-3.5" />Advertencia</span>
-  return   <span className="inline-flex items-center gap-1 text-red-400 text-xs font-medium"><XCircle className="h-3.5 w-3.5" />Error</span>
+    return <span className="inline-flex items-center gap-1 text-warning text-xs font-medium"><AlertTriangle className="h-3.5 w-3.5" />Advertencia</span>
+  return   <span className="inline-flex items-center gap-1 text-destructive text-xs font-medium"><XCircle className="h-3.5 w-3.5" />Error</span>
 }
 
 // ── Step indicator ────────────────────────────────────────────────────────────
@@ -446,9 +446,9 @@ export function StockImportAdjustmentDialog({
                   <span className="font-medium text-foreground">{countLabel(rows.length, "fila", "filas")}</span> · Archivo: {fileName}
                 </span>
                 <div className="flex items-center gap-2 ml-auto flex-wrap">
-                  {okCount > 0      && <Badge variant="outline" className="text-emerald-400 border-emerald-500/30 text-xs">{okCount - warningCount} OK</Badge>}
-                  {warningCount > 0 && <Badge variant="outline" className="text-yellow-400 border-yellow-500/30 text-xs">{countLabel(warningCount, "advertencia", "advertencias")}</Badge>}
-                  {errorCount > 0   && <Badge variant="outline" className="text-red-400 border-red-500/30 text-xs">{countLabel(errorCount, "error", "errores")}</Badge>}
+                  {okCount > 0      && <Badge variant="outline" className="text-success border-success/30 text-xs">{okCount - warningCount} OK</Badge>}
+                  {warningCount > 0 && <Badge variant="outline" className="text-warning border-warning/30 text-xs">{countLabel(warningCount, "advertencia", "advertencias")}</Badge>}
+                  {errorCount > 0   && <Badge variant="outline" className="text-destructive border-destructive/30 text-xs">{countLabel(errorCount, "error", "errores")}</Badge>}
                 </div>
               </div>
 
@@ -489,12 +489,12 @@ export function StockImportAdjustmentDialog({
                           </p>
                         )}
                         {row.errors.map((e, i) => (
-                          <p key={i} className="text-[11px] text-red-400 flex items-center gap-1 mt-0.5">
+                          <p key={i} className="text-[11px] text-destructive flex items-center gap-1 mt-0.5">
                             <XCircle className="h-3 w-3 shrink-0" />{e}
                           </p>
                         ))}
                         {row.warnings.map((w, i) => (
-                          <p key={i} className="text-[11px] text-yellow-400 flex items-center gap-1 mt-0.5">
+                          <p key={i} className="text-[11px] text-warning flex items-center gap-1 mt-0.5">
                             <AlertTriangle className="h-3 w-3 shrink-0" />{w}
                           </p>
                         ))}
@@ -529,7 +529,7 @@ export function StockImportAdjustmentDialog({
               {errorCount > 0 && (
                 <div className="px-6 py-2.5 border-t border-border bg-muted/10 shrink-0">
                   <p className="text-xs text-muted-foreground">
-                    <span className="text-red-400 font-medium">{countLabel(errorCount, "fila", "filas")} con error</span>
+                    <span className="text-destructive font-medium">{countLabel(errorCount, "fila", "filas")} con error</span>
                     {" "}— {errorCount === 1 ? "se omitirá" : "se omitirán"} al confirmar.
                     {okCount === 1 && <span> Se aplicará la fila válida.</span>}
                     {okCount > 1 && <span> Se aplicarán las <span className="font-medium text-foreground">{okCount}</span> filas válidas.</span>}
@@ -546,11 +546,11 @@ export function StockImportAdjustmentDialog({
               {/* Summary */}
               <div className="flex flex-col items-center justify-center gap-3 px-6 py-6 border-b border-border shrink-0">
                 {outcome.failed === 0 && outcome.omitted === 0 ? (
-                  <CheckCircle2 className="h-10 w-10 text-emerald-400" />
+                  <CheckCircle2 className="h-10 w-10 text-success" />
                 ) : outcome.applied === 0 ? (
-                  <XCircle className="h-10 w-10 text-red-400" />
+                  <XCircle className="h-10 w-10 text-destructive" />
                 ) : (
-                  <AlertTriangle className="h-10 w-10 text-yellow-400" />
+                  <AlertTriangle className="h-10 w-10 text-warning" />
                 )}
                 <div className="text-center">
                   <p className="text-base font-semibold text-foreground">
@@ -563,9 +563,9 @@ export function StockImportAdjustmentDialog({
                   )}
                 </div>
                 <div className="flex items-center gap-2">
-                  {outcome.applied > 0 && <Badge variant="outline" className="text-emerald-400 border-emerald-500/30">{countLabel(outcome.applied, "aplicado", "aplicados")}</Badge>}
-                  {outcome.omitted > 0 && <Badge variant="outline" className="text-yellow-400 border-yellow-500/30">{countLabel(outcome.omitted, "omitida", "omitidas")}</Badge>}
-                  {outcome.failed  > 0 && <Badge variant="outline" className="text-red-400 border-red-500/30">{countLabel(outcome.failed, "error", "errores")}</Badge>}
+                  {outcome.applied > 0 && <Badge variant="outline" className="text-success border-success/30">{countLabel(outcome.applied, "aplicado", "aplicados")}</Badge>}
+                  {outcome.omitted > 0 && <Badge variant="outline" className="text-warning border-warning/30">{countLabel(outcome.omitted, "omitida", "omitidas")}</Badge>}
+                  {outcome.failed  > 0 && <Badge variant="outline" className="text-destructive border-destructive/30">{countLabel(outcome.failed, "error", "errores")}</Badge>}
                 </div>
               </div>
 
@@ -582,7 +582,7 @@ export function StockImportAdjustmentDialog({
                           <div key={row.rowNum} className="flex items-start gap-2 text-xs">
                             <span className="text-muted-foreground tabular-nums shrink-0 pt-0.5">Fila {row.rowNum}</span>
                             <span className="font-medium text-foreground shrink-0">{row.resolvedName ?? row.rawName}</span>
-                            <span className="text-red-400">{row.applyError}</span>
+                            <span className="text-destructive">{row.applyError}</span>
                           </div>
                         ))}
                       </div>
@@ -596,7 +596,7 @@ export function StockImportAdjustmentDialog({
                           <div key={row.rowNum} className="flex items-start gap-2 text-xs">
                             <span className="text-muted-foreground tabular-nums shrink-0 pt-0.5">Fila {row.rowNum}</span>
                             <span className="font-medium text-foreground shrink-0">{row.resolvedName ?? row.rawName}</span>
-                            <span className="flex flex-col text-yellow-400">
+                            <span className="flex flex-col text-warning">
                               {row.errors.map((e) => <span key={e}>{e}</span>)}
                             </span>
                           </div>
@@ -611,7 +611,9 @@ export function StockImportAdjustmentDialog({
         </div>
 
         {/* Footer */}
-        <div className="shrink-0 flex items-center justify-between gap-2 px-6 py-4 border-t border-border">
+        {/* flex-wrap: a 375 px «Cambiar archivo» + «Cancelar» + «Aplicar N ajustes» no caben en
+            una línea y el CTA quedaba recortado fuera del diálogo; el grupo de la derecha baja. */}
+        <div className="shrink-0 flex flex-wrap items-center justify-between gap-2 px-6 py-4 border-t border-border">
           <div>
             {step === 2 && (
               <Button variant="ghost" size="sm" onClick={() => setStep(1)} disabled={applying} className="gap-1.5">
@@ -621,7 +623,7 @@ export function StockImportAdjustmentDialog({
             )}
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 ml-auto">
             <Button
               variant="ghost"
               size="sm"

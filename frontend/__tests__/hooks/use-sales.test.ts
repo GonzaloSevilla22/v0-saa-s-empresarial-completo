@@ -158,7 +158,7 @@ describe("useSales", () => {
         cash_session_id: null, // pagos-cableados-restantes (OQ-C): sin opt-in de caja → no-op (D5)
         bank_account_id: null, // pos-banco-movimientos (D2): sin override → default del método
         due_date: null, // cobranzas-vencimientos (D3): sin override → cascada en el servidor
-        branch_id: null, // ventas-formulario-sucursal: sin sucursal elegida → "Sin sucursal (general)"
+        branch_id: null, // sin sucursal elegida: viaja null y la RPC la registra en la principal (ventas-sucursal-por-defecto)
         items: [{
           product_id: "prod-1",
           amount:     1500,

@@ -14,8 +14,8 @@
  * `rpc_create_sale_operation_v2` y reusadas por `rpc_create_expense`:
  *   1. el `kind` de la forma de pago elegida es `cash`;
  *   2. hay una sesión de caja ABIERTA en la sucursal efectiva de la
- *      operación (sucursal elegida, o la primera activa de la cuenta — el
- *      mismo fallback que `c26_default_branch`);
+ *      operación (sucursal elegida, o la principal de la cuenta —
+ *      `resolveDefaultBranch`, espejo de `c26_default_branch`);
  *   3. la operación está fechada HOY, en día local argentino.
  *
  * Este hook NO decide nada: la autoridad sigue siendo la RPC, que rechaza
@@ -32,6 +32,7 @@ import { useBranches } from "@/hooks/data/use-branches"
 import { useCashboxes } from "@/hooks/data/use-cashboxes"
 import { useCurrentSession } from "@/hooks/data/use-cash-session"
 import { argentinaToday } from "@/lib/date-range"
+import { resolveDefaultBranch } from "@/lib/default-branch"
 import type { CashSession, PaymentMethodKind } from "@/lib/types"
 
 export type CashOptinDocument = "venta" | "gasto" | "compra" | "cobro"
@@ -100,7 +101,10 @@ export function useCashOptin({
   const isCashSelected = kind === "cash"
 
   const { branches } = useBranches()
-  const effectiveBranchId = branchId || branches[0]?.id || null
+  // ventas-sucursal-por-defecto (D10): la principal es la MISMA que resuelve el
+  // servidor (`c26_default_branch`: la más antigua activa y operativa), no
+  // `branches[0]` — con la más antigua cerrada, el servidor usa la siguiente.
+  const effectiveBranchId = branchId || resolveDefaultBranch(branches)?.id || null
 
   // Los dos hooks reciben `null` mientras el kind no es efectivo: sin eso el
   // formulario consultaría cajas y sesiones que no va a usar en cada render.

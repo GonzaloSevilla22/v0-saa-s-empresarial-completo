@@ -144,8 +144,10 @@ async def create_sale_operation(
     )
     # ventas-formulario-sucursal: passthrough de la sucursal elegida — la RPC
     # valida pertenencia a la cuenta (P0404), sucursal cerrada (P0422) y stock
-    # de ESA sucursal (P0409); None conserva branch_id NULL (cuenta sin módulo
-    # de sucursales o "Sin sucursal (general)").
+    # de ESA sucursal (P0409). ventas-sucursal-por-defecto: None (cuenta sin
+    # módulo de sucursales, o el formulario no la tocó) la registra en la sucursal
+    # PRINCIPAL de la cuenta — la resuelve la RPC con datos vivos, nunca acá — y
+    # sin ninguna sucursal operativa rechaza con P0422 no_branch_found.
     branch_id = str(payload.branch_id) if payload.branch_id is not None else None
     record = await repo.create_operation(
         auth["user_id"],

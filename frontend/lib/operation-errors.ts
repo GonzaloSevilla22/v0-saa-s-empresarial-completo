@@ -89,13 +89,22 @@ const SUPPLIER_NOT_FOUND_ERROR = /supplier_not_found/
 //     sucursal ajena o desactivada (p.ej. el caché del selector quedó viejo);
 //   - `branch_invalid: …` (P0422) — edición (rpc_atomic_update_sale_operation)
 //     con la sucursal ya cerrada o desactivada.
-// `no_branch_found` (POS: la cuenta no tiene NINGUNA sucursal activa) es otra
-// cosa y NO lo atrapa BRANCH_NOT_FOUND — sigue en el friendlyError del POS.
-// Sin acción (botón): reabrir una sucursal es una decisión de administración,
-// no un paso más del alta; el texto nombra la salida.
+// `no_branch_found` (la cuenta no tiene NINGUNA sucursal operativa) es otra
+// cosa y NO lo atrapa BRANCH_NOT_FOUND (el token es otro: `no_branch_found` no
+// contiene `branch_not_found`). ventas-sucursal-por-defecto (D3): desde que el
+// alta y la edición de una venta sin sucursal elegida se resuelven a la principal,
+// el formulario de venta lo recibe (P0422) cuando la cuenta no tiene ninguna
+// sucursal operativa — ninguna, o todas desactivadas o cerradas. Se traduce acá
+// con el texto que ya usa "Facturar venta manual" (`use-promote-to-order`),
+// ajustado sólo para nombrar la salida real (crear o reabrir una sucursal desde
+// Sucursales): no es un quinto texto. El POS, las órdenes, los presupuestos y la
+// promoción conservan su propia traducción (unificarlas queda como candidato).
+// Sin acción (botón): crear o reabrir una sucursal es una decisión de
+// administración, no un paso más del alta; el texto nombra la salida.
 const BRANCH_CLOSED_ERROR = /branch_closed/
 const BRANCH_NOT_FOUND_ERROR = /branch_not_found/
 const BRANCH_INVALID_ERROR = /branch_invalid/
+const NO_BRANCH_FOUND_ERROR = /no_branch_found/
 
 // ventas-unidades-conversion (D1/D3): los tres tokens P0400 que emite
 // _uom_normalize_quantity, la ÚNICA definición de "cantidad de una línea en la
@@ -900,6 +909,13 @@ export function humanizeOperationError(
     return {
       message:
         "La sucursal de esta operación ya no está operativa (está cerrada o desactivada): no se guardó ningún cambio. Elegí otra sucursal o reabrila desde Sucursales.",
+    }
+  }
+
+  if (NO_BRANCH_FOUND_ERROR.test(message)) {
+    return {
+      message:
+        "No encontramos una sucursal activa en la cuenta. Creá una o reabrí una cerrada desde Sucursales y volvé a intentar.",
     }
   }
 

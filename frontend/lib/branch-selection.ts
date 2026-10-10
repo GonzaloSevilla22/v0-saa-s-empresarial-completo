@@ -6,9 +6,13 @@
  * (`created_at` ascendente). Sin su fallback a una sucursal cerrada: un remito
  * no puede salir de una sucursal cerrada (`branch_closed`).
  *
- * Es un recurso provisorio: cuando el PR #607 (`ventas-sucursal-por-defecto`)
- * deje `lib/default-branch.ts` en `main`, el remito lo reutiliza y este módulo
- * se reduce a `operativeBranches`.
+ * ventas-sucursal-por-defecto dejó `lib/default-branch.ts` (`resolveDefaultBranch`):
+ * el mismo criterio PERO con el fallback de `c26_default_branch` a la más antigua
+ * a secas cuando ninguna está operativa. Este módulo NO lo reutiliza a propósito:
+ * un remito no puede salir de una sucursal cerrada, así que sin ninguna operativa
+ * el formulario nace SIN sucursal en vez de con una que el servidor rechazaría.
+ * La venta sí lo usa (el servidor resuelve ese fallback y es él quien rechaza con
+ * `no_branch_found` / `branch_closed`).
  */
 import type { Branch } from "@/lib/types"
 

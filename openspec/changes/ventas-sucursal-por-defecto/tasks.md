@@ -181,23 +181,23 @@
 
 ## 5. Frontend — una sola "principal" en el cliente
 
-- [ ] 5.1 RED/GREEN de `frontend/lib/default-branch.ts`, `resolveDefaultBranch(branches: Branch[]): Branch | null`, con `__tests__/lib/default-branch.test.ts`. Casos:
+- [x] 5.1 RED/GREEN de `frontend/lib/default-branch.ts`, `resolveDefaultBranch(branches: Branch[]): Branch | null`, con `__tests__/lib/default-branch.test.ts`. Casos:
   - lista vacía → `null`;
   - la primera con `status === "active"`;
   - la más antigua cerrada se saltea;
   - todas cerradas → la primera;
   - respeta el orden de entrada (el de `useBranches`, `created_at` ascendente).
-- [ ] 5.2 `hooks/use-cash-optin.ts`: `effectiveBranchId = branchId || resolveDefaultBranch(branches)?.id || null`. RED primero: con la más antigua cerrada, la sucursal efectiva tiene que ser la segunda. Regresión de sus cinco consumidores:
+- [x] 5.2 `hooks/use-cash-optin.ts`: `effectiveBranchId = branchId || resolveDefaultBranch(branches)?.id || null`. RED primero: con la más antigua cerrada, la sucursal efectiva tiene que ser la segunda. Regresión de sus cinco consumidores:
   - venta y gasto: los tests existentes siguen verdes;
   - compra: `__tests__/components/purchase-form-cash-optin.test.tsx` sigue verde. Su caso de `BranchSelect` mockeado a `null` fija un payload que el servidor rechaza (preexistente, OQ-3): no se corrige acá, se anota en el PR;
   - cobro y pago de cuenta corriente: caso nuevo en `__tests__/components/RegisterPaymentForms-cash-optin.test.tsx`: con la más antigua cerrada, el modal de cobro ofrece la sesión de la principal operativa.
-- [ ] 5.3 `hooks/use-default-branch-notice.ts`: `resolveDefaultBranch(branches)` en lugar de `branches[0]`. RED primero: con la más antigua cerrada, no se anuncia como principal.
-- [ ] 5.4 POS (`app/(dashboard)/ventas/pos/page.tsx:166`): `activeBranch = resolveDefaultBranch(branches)`. RED primero, en el test del POS que corresponda (por ejemplo `__tests__/pos-payment-methods.test.tsx`, o uno nuevo `pos-default-branch.test.tsx`): con la más antigua cerrada, el POS usa B para la caja y la sesión y manda `branch_id = B` en el payload. Los `pos-*` existentes siguen verdes.
-- [ ] 5.5 Grep de `branches[0]` en `frontend/` usado como "sucursal por defecto" que haya quedado fuera de 5.2-5.4. Migrar al helper o justificar cada uno en el PR (`caja/page.tsx:50` sólo lo usa con una única sucursal; `e2e/fixtures/fiscal-e2e.ts:105` es un fixture).
+- [x] 5.3 `hooks/use-default-branch-notice.ts`: `resolveDefaultBranch(branches)` en lugar de `branches[0]`. RED primero: con la más antigua cerrada, no se anuncia como principal.
+- [x] 5.4 POS (`app/(dashboard)/ventas/pos/page.tsx:166`): `activeBranch = resolveDefaultBranch(branches)`. RED primero, en el test del POS que corresponda (por ejemplo `__tests__/pos-payment-methods.test.tsx`, o uno nuevo `pos-default-branch.test.tsx`): con la más antigua cerrada, el POS usa B para la caja y la sesión y manda `branch_id = B` en el payload. Los `pos-*` existentes siguen verdes.
+- [x] 5.5 Grep de `branches[0]` en `frontend/` usado como "sucursal por defecto" que haya quedado fuera de 5.2-5.4. Migrar al helper o justificar cada uno en el PR (`caja/page.tsx:50` sólo lo usa con una única sucursal; `e2e/fixtures/fiscal-e2e.ts:105` es un fixture).
 
 ## 6. Frontend — selector de la venta
 
-- [ ] 6.1 RED/GREEN de `components/branches/BranchSelect.tsx`, con props nuevas cuyos valores por defecto no cambian nada:
+- [x] 6.1 RED/GREEN de `components/branches/BranchSelect.tsx`, con props nuevas cuyos valores por defecto no cambian nada:
   - `allowUnassigned?: boolean` (por defecto `true`): con `true`, opciones y comportamiento idénticos a hoy (test de regresión con la opción "Sin sucursal (general)"); con `false`, sin la opción `__none__`, valor mostrado `value ?? resolveDefaultBranch(branches)?.id`, la principal rotulada "Nombre (principal)" y `onChange` emite el id elegido;
   - `label?: string`: se renderiza **dentro** del componente, con `useId`, `<Label htmlFor>` e `id` en el `SelectTrigger` (patrón de `PaymentMethodSelect.tsx:95-108`);
   - `fallbackBranchId?: string | null`: valor mostrado con el estado en `null` cuando el servidor no va a usar la principal (documento de origen con sucursal). No se emite por `onChange`. Valor mostrado: `value ?? fallbackBranchId ?? resolveDefaultBranch(branches)?.id`;
@@ -209,7 +209,7 @@
   - (c) `getByLabelText('Sucursal')` encuentra el combobox;
   - (d) con el componente real (sin mock), re-elegir la principal que ya se muestra no emite `onChange`;
   - (e) con `fallbackBranchId = B` y el valor en `null`, el disparador muestra B, no la principal.
-- [ ] 6.2 RED/GREEN de `components/forms/sale-form.tsx`:
+- [x] 6.2 RED/GREEN de `components/forms/sale-form.tsx`:
   - `BranchSelect` con `allowUnassigned={false}` y `label="Sucursal"`; se retira el `placeholder="Sin sucursal (general)"` (L944);
   - **alta** sin tocar el selector: el payload lleva `branch_id: null` y el selector muestra la principal;
   - **alta** eligiendo B: viaja el id de B;
@@ -217,25 +217,25 @@
   - **edición** de una venta con `branchId` nulo: muestra la principal.
 
   Actualizar `frontend/__tests__/components/sale-form-branch-create.test.tsx`: el caso «elegir y volver a "Sin sucursal"» desaparece y lo reemplaza «elegir B y después volver a la principal manda el id de la principal». Ese test mockea `BranchSelect` con botones que llaman a `onChange` directo, así que el comportamiento real de Radix lo cubre 6.1 (d). Validar por mutación que los casos fallan sin el cambio.
-- [ ] 6.3 RED/GREEN de `lib/operation-errors.ts`: traducir `no_branch_found`. Hoy lo traducen cuatro lugares con textos distintos (Context). Reutilizar el texto de `hooks/data/use-promote-to-order.ts:50`, que ya manda a configurar una sucursal, ajustado sólo para nombrar la salida real (crear o reabrir una sucursal desde Sucursales); no crear un quinto texto. **RED documentado**: `__tests__/lib/operation-errors-branch.test.ts:44-49` hoy fija que `no_branch_found` pasa tal cual, y se modifica a propósito. No romper los casos `branch_closed`, `branch_not_found`, `branch_invalid` ni el stock insuficiente con su acción de transferir. El `friendlyError` del POS no se toca, y unificar los otros textos queda como candidato.
-- [ ] 6.4 Actualizar los comentarios y la prosa de tests del frontend que afirman que una venta sin sucursal queda `NULL` o que `null` significa "Sin sucursal (general)". Pasan a decir «sin sucursal elegida, viaja `null` y la RPC la registra en la principal», sin cambiar ninguna aserción:
+- [x] 6.3 RED/GREEN de `lib/operation-errors.ts`: traducir `no_branch_found`. Hoy lo traducen cuatro lugares con textos distintos (Context). Reutilizar el texto de `hooks/data/use-promote-to-order.ts:50`, que ya manda a configurar una sucursal, ajustado sólo para nombrar la salida real (crear o reabrir una sucursal desde Sucursales); no crear un quinto texto. **RED documentado**: `__tests__/lib/operation-errors-branch.test.ts:44-49` hoy fija que `no_branch_found` pasa tal cual, y se modifica a propósito. No romper los casos `branch_closed`, `branch_not_found`, `branch_invalid` ni el stock insuficiente con su acción de transferir. El `friendlyError` del POS no se toca, y unificar los otros textos queda como candidato.
+- [x] 6.4 Actualizar los comentarios y la prosa de tests del frontend que afirman que una venta sin sucursal queda `NULL` o que `null` significa "Sin sucursal (general)". Pasan a decir «sin sucursal elegida, viaja `null` y la RPC la registra en la principal», sin cambiar ninguna aserción:
   - `hooks/data/use-sales.ts` (cerca de L236-240);
   - `__tests__/hooks/use-sales-branch.test.ts:89`;
   - `__tests__/hooks/use-sales.test.ts:161`;
   - cualquier otro que aparezca en el grep.
-- [ ] 6.5 Regresión de compra, gasto e importador de gastos: sus tests verdes y su opción sin sucursal presente con su texto actual (compra y gasto: "Sin sucursal (general)"; importador de gastos: "Sin sucursal por defecto", `expense-import-dialog.tsx:691`).
-- [ ] 6.6 `pnpm vitest run` de los archivos afectados y vecinos, y `tsc --noEmit` sin errores nuevos respecto del baseline.
-- [ ] 6.7 Coordinación con `presupuestos-modulo`. Su núcleo `_quote_accept_core` resuelve la sucursal con la precedencia «la indicada por la conversión, la del presupuesto o la sucursal por defecto» (su spec `quote`, requirement «Quote.accept() crea un SalesOrder…»), no la principal sin más. Si mergeó antes que este change: pasar su `ConvertQuoteDialog` (que registra una venta) a `allowUnassigned={false}` con `label="Sucursal"` y `fallbackBranchId` = la sucursal del presupuesto (o precargar su estado con ella), con un test: con el presupuesto en B y la principal A, el diálogo muestra B y la venta queda en B. Resolver además el conflicto en `sale-form.tsx` (aquél migra el carrito a `lib/cart-utils.ts`). Si no mergeó: dejar la indicación en la descripción del PR y en el engram de los dos changes, para que lo haga quien aplique segundo. `QuoteForm` conserva el valor por defecto.
+- [x] 6.5 Regresión de compra, gasto e importador de gastos: sus tests verdes y su opción sin sucursal presente con su texto actual (compra y gasto: "Sin sucursal (general)"; importador de gastos: "Sin sucursal por defecto", `expense-import-dialog.tsx:691`).
+- [x] 6.6 `pnpm vitest run` de los archivos afectados y vecinos, y `tsc --noEmit` sin errores nuevos respecto del baseline.
+- [x] 6.7 Coordinación con `presupuestos-modulo`. Su núcleo `_quote_accept_core` resuelve la sucursal con la precedencia «la indicada por la conversión, la del presupuesto o la sucursal por defecto» (su spec `quote`, requirement «Quote.accept() crea un SalesOrder…»), no la principal sin más. Si mergeó antes que este change: pasar su `ConvertQuoteDialog` (que registra una venta) a `allowUnassigned={false}` con `label="Sucursal"` y `fallbackBranchId` = la sucursal del presupuesto (o precargar su estado con ella), con un test: con el presupuesto en B y la principal A, el diálogo muestra B y la venta queda en B. Resolver además el conflicto en `sale-form.tsx` (aquél migra el carrito a `lib/cart-utils.ts`). Si no mergeó: dejar la indicación en la descripción del PR y en el engram de los dos changes, para que lo haga quien aplique segundo. `QuoteForm` conserva el valor por defecto.
 
 ## 7. Backend (sin cambio de lógica)
 
-- [ ] 7.1 Corregir los comentarios y la prosa que afirman que `None` conserva `branch_id` NULL, sin cambiar ninguna aserción:
+- [x] 7.1 Corregir los comentarios y la prosa que afirman que `None` conserva `branch_id` NULL, sin cambiar ninguna aserción:
   - `backend/services/sales.py` cerca de L147 y `backend/schemas/sales.py` cerca de L50-56;
   - los docstrings de `backend/tests/test_sales_branch_id.py:75-77` y `:212`.
 
   Agregar a `SaleOperationIn.branch_id` y `SaleOperationUpdateIn.branch_id` la descripción de OpenAPI: «sin sucursal, la venta se registra en la sucursal principal de la cuenta».
-- [ ] 7.2 Confirmar con los tests existentes (`test_sales_branch_id.py`) que el alta y la edición transportan `None` y el tri-estado (`p_branch_provided`) sin cambios. No se agregan tests de comportamiento, porque no lo hay: la resolución es de la RPC y la cubre el gate.
-- [ ] 7.3 Correr la suite completa con el comando de CI (`pytest backend/tests -m "not integration" --cov=backend`). Cobertura ≥ 87 %.
+- [x] 7.2 Confirmar con los tests existentes (`test_sales_branch_id.py`) que el alta y la edición transportan `None` y el tri-estado (`p_branch_provided`) sin cambios. No se agregan tests de comportamiento, porque no lo hay: la resolución es de la RPC y la cubre el gate.
+- [x] 7.3 Correr la suite completa con el comando de CI (`pytest backend/tests -m "not integration" --cov=backend`). Cobertura ≥ 87 %.
 
 ## 8. Verificación visual (superficie frontend)
 

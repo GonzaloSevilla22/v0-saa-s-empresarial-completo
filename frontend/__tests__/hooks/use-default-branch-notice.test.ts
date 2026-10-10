@@ -5,7 +5,9 @@
  * `useBranches()` se mockea directo (mismo nivel que use-cash-optin.test.ts):
  * el hook bajo test no le pide nada más que `branches`/`isLoading`, y ya
  * devuelve las sucursales activas ordenadas por `created_at ASC` — por eso
- * `branches[0]` en los fixtures de abajo hace de "sucursal por defecto".
+ * la primera OPERATIVA de la lista hace de "sucursal por defecto"
+ * (`resolveDefaultBranch`, espejo de `c26_default_branch`; ventas-sucursal-por-defecto
+ * D10: antes se tomaba `branches[0]` aunque estuviera cerrada).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { renderHook } from "@testing-library/react"
@@ -72,6 +74,30 @@ describe("useDefaultBranchNotice", () => {
 
     expect(toastInfoMock).not.toHaveBeenCalled()
     expect(sessionStorage.getItem(SEEN_KEY)).toBeNull()
+  })
+
+  it("la más antigua CERRADA no se anuncia como principal: se anuncia la siguiente operativa (ventas-sucursal-por-defecto D10)", () => {
+    sessionStorage.setItem(SEEN_KEY, "branch-zz")
+    const cerrada = { id: "branch-cerrada", name: "Depósito viejo", isActive: true, status: "closed" }
+    const operativa = { id: "branch-op", name: "Sucursal Centro", isActive: true, status: "active" }
+    useBranchesMock.mockReturnValue({ branches: [cerrada, operativa], isLoading: false })
+
+    renderHook(() => useDefaultBranchNotice())
+
+    expect(toastInfoMock).toHaveBeenCalledTimes(1)
+    expect(toastInfoMock).toHaveBeenCalledWith("Tu sucursal por defecto ahora es Sucursal Centro")
+    expect(sessionStorage.getItem(SEEN_KEY)).toBe("branch-op")
+  })
+
+  it("la principal operativa no cambió aunque se cierre otra sucursal posterior: no hay aviso", () => {
+    sessionStorage.setItem(SEEN_KEY, "branch-op")
+    const operativa = { id: "branch-op", name: "Sucursal Centro", isActive: true, status: "active" }
+    const cerradaTarde = { id: "branch-tarde", name: "Showroom", isActive: true, status: "closed" }
+    useBranchesMock.mockReturnValue({ branches: [operativa, cerradaTarde], isLoading: false })
+
+    renderHook(() => useDefaultBranchNotice())
+
+    expect(toastInfoMock).not.toHaveBeenCalled()
   })
 
   it("cuenta sin sucursales activas: no rompe, no persiste", () => {

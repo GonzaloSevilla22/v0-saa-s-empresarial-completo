@@ -8,6 +8,10 @@
  * stock/caja/banco se resolvían contra la sucursal por defecto. La EDICIÓN sí
  * lo mandaba (tri-estado): sólo el alta tenía el defecto.
  *
+ * ventas-sucursal-por-defecto: sin sucursal elegida el cliente sigue mandando
+ * `branch_id: null` y la RPC la registra en la sucursal PRINCIPAL de la cuenta
+ * (la resuelve el servidor, con datos vivos): ya no queda NULL.
+ *
  * Misma convención que compras (use-purchases-cash-optin.test.ts, D3):
  * `branch_id: opMeta.branchId ?? null`.
  *
@@ -86,7 +90,7 @@ describe("useSales — passthrough de branch_id en el alta (ventas-formulario-su
     expect(body.branch_id).toBe(BRANCH_ID)
   })
 
-  it("con branchId null (\"Sin sucursal (general)\") manda branch_id null, no lo omite", async () => {
+  it("con branchId null (sin sucursal elegida: la RPC la registra en la principal) manda branch_id null, no lo omite", async () => {
     const { body } = await postSale({ branchId: null })
 
     expect(body).toHaveProperty("branch_id", null)

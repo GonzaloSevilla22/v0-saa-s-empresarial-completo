@@ -1,0 +1,1 @@
+{"paso":"3d","requests":["PUT /products/da7edf37-f62d-4643-a25c-3f2cfa7dab9d {\"name\":\"Tomate perita\",\"category_id\":\"67953b27-5eda-48c2-8c51-4739d5e46b63\",\"price\":1000,\"min_stock\":2,\"barcode\":\"\",\"sku\":\"QA-TOMATE\",\"stock_control_type\":\"tracked\"}"]}

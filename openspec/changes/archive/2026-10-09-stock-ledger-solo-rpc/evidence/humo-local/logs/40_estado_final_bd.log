@@ -1,0 +1,69 @@
+== Migraciones aplicadas
+ migraciones |     ultima     
+-------------+----------------
+         321 | 20261074000001
+(1 row)
+
+== ACL de las RPC de stock (authenticated / anon / service_role)
+            proname            |                                                                 args                                                                  | authenticated | anon | service_role 
+-------------------------------+---------------------------------------------------------------------------------------------------------------------------------------+---------------+------+--------------
+ rpc_adjust_branch_stock       | p_product_id uuid, p_branch_id uuid, p_new_quantity numeric, p_reason text                                                            | t             | f    | t
+ rpc_apply_product_stock_delta | p_product_id uuid, p_delta numeric, p_branch_id uuid, p_reason text, p_log_movement boolean, p_allow_negative boolean                 | t             | f    | t
+ rpc_reverse_stock_movement    | p_reference_id uuid, p_reference_type text, p_reason text                                                                             | f             | f    | t
+ rpc_stock_adjustment          | p_product_id uuid, p_quantity_delta numeric, p_type text, p_reason text, p_notes text, p_reference_id uuid, p_target_quantity numeric | t             | f    | t
+ rpc_transfer_stock            | p_product_id uuid, p_from_branch_id uuid, p_to_branch_id uuid, p_quantity numeric                                                     | t             | f    | t
+(5 rows)
+
+== Privilegios de tabla de authenticated sobre stock_movements / branch_stock
+         tabla          | sel | ins | upd | del 
+------------------------+-----+-----+-----+-----
+ public.stock_movements | t   | f   | f   | f
+ public.branch_stock    | t   | f   | f   | f
+(2 rows)
+
+== CHECK del motivo en stock_movements
+               conname               | convalidated 
+-------------------------------------+--------------
+ stock_movements_manual_needs_reason | f
+(1 row)
+
+== Invariante: todo movimiento manual con motivo, cuenta, sucursal y autor (esperado 0 violaciones)
+ violaciones 
+-------------
+           0
+(1 row)
+
+== Invariante: after = before + delta en todos los movimientos (esperado 0 violaciones)
+ violaciones 
+-------------
+           0
+(1 row)
+
+== Libro de movimientos completo del humo
+ n  |   hora   |      type       |  delta  |  antes   | despues |      producto       |     sucursal      |        ref        |                     motivo                      
+----+----------+-----------------+---------+----------+---------+---------------------+-------------------+-------------------+-------------------------------------------------
+  3 | 01:11:02 | adjustment      |  3.0000 |   8.0000 | 11.0000 | Tomate perita       | Casa Central      | -                 | Humo local: reposición por conteo
+  4 | 01:11:14 | adjustment      |  5.0000 |  11.0000 | 16.0000 | Tomate perita       | Casa Central      | -                 | Reposición humo importador
+  5 | 01:11:15 | loss            | -2.0000 | 100.0000 | 98.0000 | Alfajor artesanal   | Casa Central      | -                 | Rotura en depósito (humo)
+  6 | 01:11:26 | adjustment      |  2.0000 |  16.0000 | 18.0000 | Tomate perita       | Casa Central      | -                 | Humo local: ajuste desde la edición de producto
+  7 | 01:11:37 | adjustment      |  7.0000 |   0.0000 |  7.0000 | Producto humo local | Casa Central      | -                 | Stock inicial
+  8 | 01:11:52 | sale            | -2.0000 |   7.0000 |  5.0000 | Producto humo local |                   | sale              | -
+  9 | 01:11:57 | sale_return     |  2.0000 |   5.0000 |  7.0000 | Producto humo local |                   | sale_reversal     | Venta eliminada (operación)
+ 10 | 01:12:07 | purchase        |  3.0000 |   7.0000 | 10.0000 | Producto humo local |                   | purchase          | -
+ 11 | 01:12:12 | purchase_return | -3.0000 |  10.0000 |  7.0000 | Producto humo local |                   | purchase_reversal | Compra eliminada (operación)
+ 12 | 01:12:23 | transfer_out    |      -5 |  98.0000 | 93.0000 | Alfajor artesanal   | Casa Central      | transfer          | -
+ 13 | 01:12:23 | transfer_in     |       5 |  10.0000 | 15.0000 | Alfajor artesanal   | Sucursal Norte QA | transfer          | -
+ 14 | 01:13:14 | adjustment      |  1.0000 |  20.0000 | 21.0000 | Aceite QA           | Casa Central      | -                 | Reposición parcial (humo)
+(12 rows)
+
+== Saldos finales por producto y sucursal
+      producto       |     sucursal      |  saldo  
+---------------------+-------------------+---------
+ Aceite QA           | Casa Central      | 21.0000
+ Alfajor artesanal   | Casa Central      | 93.0000
+ Alfajor artesanal   | Sucursal Norte QA | 15.0000
+ Producto escaso QA  | Casa Central      |  1.0000
+ Producto humo local | Casa Central      |  7.0000
+ Tomate perita       | Casa Central      | 18.0000
+(6 rows)
+

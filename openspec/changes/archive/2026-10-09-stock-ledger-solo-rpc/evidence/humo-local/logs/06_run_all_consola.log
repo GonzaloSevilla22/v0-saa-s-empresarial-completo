@@ -1,0 +1,35 @@
+== db reset
+Finished supabase db reset on branch docs/stock-ledger-humo-local.
+{"target":"local","version":"","message":"Reset local database."}
+RESET_EXIT=0
+== backend
+{"status":"ok"}
+== seed
+qa.e2e@local.test 200
+qa.stock@local.test 200
+qa.seller@local.test 200
+seed OK {"accA":"6ca9f878-6bcc-4d16-9a26-af48e4675fcd","br1":"d2f49823-c240-4d82-bc17-6006e866f57e","br2":"4710acd1-8dfe-4d86-9c16-bc8d01b3f669","tomate":"da7edf37-f62d-4643-a25c-3f2cfa7dab9d","alf":"989a11c1-6e30-4d5e-8269-b11129831af9"}
+== login
+login OK owner
+login OK stock
+login OK seller
+== 21_paso1
+exit=0
+== 22_paso2
+exit=0
+== 23_paso3_4
+exit=0
+== 24_paso5
+exit=0
+== 25_paso6
+exit=0
+== 26_paso7_8
+exit=0
+== 27_movil
+exit=0
+== 28_recaptura_edicion
+exit=0
+== 29_importador_parcial
+exit=0
+== estado final
+exit=0

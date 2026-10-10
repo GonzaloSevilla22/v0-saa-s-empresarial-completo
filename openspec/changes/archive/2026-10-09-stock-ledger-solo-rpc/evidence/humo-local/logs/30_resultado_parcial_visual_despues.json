@@ -1,0 +1,1692 @@
+[
+ {
+  "vw": "1280",
+  "theme": "light",
+  "isDark": false,
+  "stock": {
+   "aceite": [
+    30,
+    31
+   ],
+   "escaso": [
+    1,
+    1
+   ]
+  },
+  "rev": {
+   "step": "revision",
+   "btnText": "Aplicar 1 ajuste",
+   "nota": "1 fila con error — se omitirá al confirmar. Se aplicará la fila válida.",
+   "overflow": {
+    "docScrollWidth": 1280,
+    "innerWidth": 1280,
+    "docOverflowOk": true,
+    "dialogScrollWidth": 678,
+    "dialogClientWidth": 678,
+    "dialogOverflowOk": true,
+    "dialogRect": [
+     300,
+     980
+    ],
+    "outsideDialog": []
+   },
+   "contrast": [
+    {
+     "text": "Importar ajuste de stock",
+     "cls": "text-card-foreground",
+     "size": "16px",
+     "weight": "600",
+     "ratio": 19.9,
+     "fg": "9,9,11",
+     "bg": "255,255,255"
+    },
+    {
+     "text": "Cargá un CSV con los productos a ajustar",
+     "cls": "text-muted-foreground",
+     "size": "14px",
+     "weight": "400",
+     "ratio": 4.83,
+     "fg": "113,113,122",
+     "bg": "255,255,255"
+    },
+    {
+     "text": "Archivo",
+     "cls": "text-muted-foreground",
+     "size": "12px",
+     "weight": "400",
+     "ratio": 4.83,
+     "fg": "113,113,122",
+     "bg": "255,255,255"
+    },
+    {
+     "text": "2",
+     "cls": "bg-primary text-primary-foreground",
+     "size": "11px",
+     "weight": "600",
+     "ratio": 8.6,
+     "fg": "10,10,10",
+     "bg": "33,196,93"
+    },
+    {
+     "text": "Revisión",
+     "cls": "text-foreground",
+     "size": "12px",
+     "weight": "500",
+     "ratio": 19.9,
+     "fg": "9,9,11",
+     "bg": "255,255,255"
+    },
+    {
+     "text": "3",
+     "cls": "bg-muted text-muted-foreground",
+     "size": "11px",
+     "weight": "600",
+     "ratio": 4.4,
+     "fg": "113,113,122",
+     "bg": "244,244,245"
+    },
+    {
+     "text": "Resultado",
+     "cls": "text-muted-foreground",
+     "size": "12px",
+     "weight": "400",
+     "ratio": 4.83,
+     "fg": "113,113,122",
+     "bg": "255,255,255"
+    },
+    {
+     "text": "· Archivo: ajustes-mixto.csv",
+     "cls": "text-muted-foreground",
+     "size": "12px",
+     "weight": "400",
+     "ratio": 4.79,
+     "fg": "113,113,122",
+     "bg": "254,254,254"
+    },
+    {
+     "text": "2 filas",
+     "cls": "text-foreground",
+     "size": "12px",
+     "weight": "500",
+     "ratio": 19.71,
+     "fg": "9,9,11",
+     "bg": "254,254,254"
+    },
+    {
+     "text": "1 OK",
+     "cls": "text-success",
+     "size": "12px",
+     "weight": "600",
+     "ratio": 6.04,
+     "fg": "19,113,54",
+     "bg": "254,254,254"
+    },
+    {
+     "text": "1 error",
+     "cls": "text-destructive",
+     "size": "12px",
+     "weight": "600",
+     "ratio": 6.01,
+     "fg": "197,17,17",
+     "bg": "254,254,254"
+    },
+    {
+     "text": "#",
+     "cls": "",
+     "size": "11px",
+     "weight": "500",
+     "ratio": 4.83,
+     "fg": "113,113,122",
+     "bg": "255,255,255"
+    },
+    {
+     "text": "Producto",
+     "cls": "",
+     "size": "11px",
+     "weight": "500",
+     "ratio": 4.83,
+     "fg": "113,113,122",
+     "bg": "255,255,255"
+    },
+    {
+     "text": "Tipo",
+     "cls": "",
+     "size": "11px",
+     "weight": "500",
+     "ratio": 4.83,
+     "fg": "113,113,122",
+     "bg": "255,255,255"
+    },
+    {
+     "text": "Cantidad",
+     "cls": "",
+     "size": "11px",
+     "weight": "500",
+     "ratio": 4.83,
+     "fg": "113,113,122",
+     "bg": "255,255,255"
+    },
+    {
+     "text": "Estado",
+     "cls": "",
+     "size": "11px",
+     "weight": "500",
+     "ratio": 4.83,
+     "fg": "113,113,122",
+     "bg": "255,255,255"
+    },
+    {
+     "text": "2",
+     "cls": "text-muted-foreground",
+     "size": "11px",
+     "weight": "400",
+     "ratio": 4.83,
+     "fg": "113,113,122",
+     "bg": "255,255,255"
+    },
+    {
+     "text": "Aceite QA",
+     "cls": "text-foreground",
+     "size": "14px",
+     "weight": "500",
+     "ratio": 19.9,
+     "fg": "9,9,11",
+     "bg": "255,255,255"
+    },
+    {
+     "text": "Ajuste entrada",
+     "cls": "text-muted-foreground",
+     "size": "12px",
+     "weight": "400",
+     "ratio": 4.83,
+     "fg": "113,113,122",
+     "bg": "255,255,255"
+    },
+    {
+     "text": "1",
+     "cls": "text-foreground",
+     "size": "12px",
+     "weight": "500",
+     "ratio": 19.9,
+     "fg": "9,9,11",
+     "bg": "255,255,255"
+    },
+    {
+     "text": "OK",
+     "cls": "text-success",
+     "size": "12px",
+     "weight": "500",
+     "ratio": 6.1,
+     "fg": "19,113,54",
+     "bg": "255,255,255"
+    },
+    {
+     "text": "3",
+     "cls": "text-muted-foreground",
+     "size": "11px",
+     "weight": "400",
+     "ratio": 4.53,
+     "fg": "113,113,122",
+     "bg": "254,246,246"
+    },
+    {
+     "text": "Producto escaso QA",
+     "cls": "text-foreground",
+     "size": "14px",
+     "weight": "500",
+     "ratio": 18.65,
+     "fg": "9,9,11",
+     "bg": "254,246,246"
+    },
+    {
+     "text": "Falta el motivo",
+     "cls": "text-destructive",
+     "size": "11px",
+     "weight": "400",
+     "ratio": 5.69,
+     "fg": "197,17,17",
+     "bg": "254,246,246"
+    },
+    {
+     "text": "Pérdida / Robo",
+     "cls": "text-muted-foreground",
+     "size": "12px",
+     "weight": "400",
+     "ratio": 4.53,
+     "fg": "113,113,122",
+     "bg": "254,246,246"
+    },
+    {
+     "text": "1",
+     "cls": "text-foreground",
+     "size": "12px",
+     "weight": "500",
+     "ratio": 18.65,
+     "fg": "9,9,11",
+     "bg": "254,246,246"
+    },
+    {
+     "text": "Error",
+     "cls": "text-destructive",
+     "size": "12px",
+     "weight": "500",
+     "ratio": 5.69,
+     "fg": "197,17,17",
+     "bg": "254,246,246"
+    },
+    {
+     "text": "— se omitirá al confirmar.",
+     "cls": "text-muted-foreground",
+     "size": "12px",
+     "weight": "400",
+     "ratio": 4.79,
+     "fg": "113,113,122",
+     "bg": "254,254,254"
+    },
+    {
+     "text": "1 fila con error",
+     "cls": "text-destructive",
+     "size": "12px",
+     "weight": "500",
+     "ratio": 6.01,
+     "fg": "197,17,17",
+     "bg": "254,254,254"
+    },
+    {
+     "text": "Se aplicará la fila válida.",
+     "cls": "",
+     "size": "12px",
+     "weight": "400",
+     "ratio": 4.79,
+     "fg": "113,113,122",
+     "bg": "254,254,254"
+    },
+    {
+     "text": "Cambiar archivo",
+     "cls": "",
+     "size": "14px",
+     "weight": "500",
+     "ratio": 19.9,
+     "fg": "9,9,11",
+     "bg": "255,255,255"
+    },
+    {
+     "text": "Cancelar",
+     "cls": "",
+     "size": "14px",
+     "weight": "500",
+     "ratio": 19.9,
+     "fg": "9,9,11",
+     "bg": "255,255,255"
+    },
+    {
+     "text": "Aplicar 1 ajuste",
+     "cls": "bg-primary text-primary-foreground",
+     "size": "14px",
+     "weight": "500",
+     "ratio": 8.6,
+     "fg": "10,10,10",
+     "bg": "33,196,93"
+    }
+   ]
+  },
+  "res": {
+   "step": "resultado",
+   "headline": "1 aplicado · 1 omitida",
+   "toastText": "1 aplicado · 1 omitida — revisá los detalles",
+   "omitidas": "Filas omitidasFila 3Producto escaso QAFalta el motivo",
+   "overflow": {
+    "docScrollWidth": 1280,
+    "innerWidth": 1280,
+    "docOverflowOk": true,
+    "dialogScrollWidth": 678,
+    "dialogClientWidth": 678,
+    "dialogOverflowOk": true,
+    "dialogRect": [
+     300,
+     980
+    ],
+    "outsideDialog": []
+   },
+   "contrast": [
+    {
+     "text": "Importar ajuste de stock",
+     "cls": "text-card-foreground",
+     "size": "16px",
+     "weight": "600",
+     "ratio": 19.9,
+     "fg": "9,9,11",
+     "bg": "255,255,255"
+    },
+    {
+     "text": "Cargá un CSV con los productos a ajustar",
+     "cls": "text-muted-foreground",
+     "size": "14px",
+     "weight": "400",
+     "ratio": 4.83,
+     "fg": "113,113,122",
+     "bg": "255,255,255"
+    },
+    {
+     "text": "Archivo",
+     "cls": "text-muted-foreground",
+     "size": "12px",
+     "weight": "400",
+     "ratio": 4.83,
+     "fg": "113,113,122",
+     "bg": "255,255,255"
+    },
+    {
+     "text": "Revisión",
+     "cls": "text-muted-foreground",
+     "size": "12px",
+     "weight": "400",
+     "ratio": 4.83,
+     "fg": "113,113,122",
+     "bg": "255,255,255"
+    },
+    {
+     "text": "3",
+     "cls": "bg-primary text-primary-foreground",
+     "size": "11px",
+     "weight": "600",
+     "ratio": 8.6,
+     "fg": "10,10,10",
+     "bg": "33,196,93"
+    },
+    {
+     "text": "Resultado",
+     "cls": "text-foreground",
+     "size": "12px",
+     "weight": "500",
+     "ratio": 19.9,
+     "fg": "9,9,11",
+     "bg": "255,255,255"
+    },
+    {
+     "text": "1 aplicado · 1 omitida",
+     "cls": "text-foreground",
+     "size": "16px",
+     "weight": "600",
+     "ratio": 19.9,
+     "fg": "9,9,11",
+     "bg": "255,255,255"
+    },
+    {
+     "text": "Las filas omitidas no modificaron el stock.",
+     "cls": "text-muted-foreground",
+     "size": "14px",
+     "weight": "400",
+     "ratio": 4.83,
+     "fg": "113,113,122",
+     "bg": "255,255,255"
+    },
+    {
+     "text": "1 aplicado",
+     "cls": "text-success",
+     "size": "12px",
+     "weight": "600",
+     "ratio": 6.1,
+     "fg": "19,113,54",
+     "bg": "255,255,255"
+    },
+    {
+     "text": "1 omitida",
+     "cls": "text-warning",
+     "size": "12px",
+     "weight": "600",
+     "ratio": 5.67,
+     "fg": "139,94,4",
+     "bg": "255,255,255"
+    },
+    {
+     "text": "Filas omitidas",
+     "cls": "text-muted-foreground",
+     "size": "12px",
+     "weight": "600",
+     "ratio": 4.83,
+     "fg": "113,113,122",
+     "bg": "255,255,255"
+    },
+    {
+     "text": "Fila 3",
+     "cls": "text-muted-foreground",
+     "size": "12px",
+     "weight": "400",
+     "ratio": 4.83,
+     "fg": "113,113,122",
+     "bg": "255,255,255"
+    },
+    {
+     "text": "Producto escaso QA",
+     "cls": "text-foreground",
+     "size": "12px",
+     "weight": "500",
+     "ratio": 19.9,
+     "fg": "9,9,11",
+     "bg": "255,255,255"
+    },
+    {
+     "text": "Falta el motivo",
+     "cls": "",
+     "size": "12px",
+     "weight": "400",
+     "ratio": 5.67,
+     "fg": "139,94,4",
+     "bg": "255,255,255"
+    },
+    {
+     "text": "Cerrar",
+     "cls": "",
+     "size": "14px",
+     "weight": "500",
+     "ratio": 19.9,
+     "fg": "9,9,11",
+     "bg": "255,255,255"
+    },
+    {
+     "text": "Importar otro archivo",
+     "cls": "bg-background",
+     "size": "14px",
+     "weight": "500",
+     "ratio": 19.73,
+     "fg": "9,9,11",
+     "bg": "254,254,254"
+    }
+   ],
+   "toastContrast": [
+    {
+     "text": "1 aplicado · 1 omitida — revisá los detalles",
+     "cls": "",
+     "size": "13px",
+     "weight": "500",
+     "ratio": 11.12,
+     "fg": "243,207,88",
+     "bg": "29,31,0"
+    }
+   ]
+  }
+ },
+ {
+  "vw": "1280",
+  "theme": "dark",
+  "isDark": true,
+  "stock": {
+   "aceite": [
+    31,
+    32
+   ],
+   "escaso": [
+    1,
+    1
+   ]
+  },
+  "rev": {
+   "step": "revision",
+   "btnText": "Aplicar 1 ajuste",
+   "nota": "1 fila con error — se omitirá al confirmar. Se aplicará la fila válida.",
+   "overflow": {
+    "docScrollWidth": 1280,
+    "innerWidth": 1280,
+    "docOverflowOk": true,
+    "dialogScrollWidth": 678,
+    "dialogClientWidth": 678,
+    "dialogOverflowOk": true,
+    "dialogRect": [
+     300,
+     980
+    ],
+    "outsideDialog": []
+   },
+   "contrast": [
+    {
+     "text": "Importar ajuste de stock",
+     "cls": "text-card-foreground",
+     "size": "16px",
+     "weight": "600",
+     "ratio": 17.77,
+     "fg": "250,250,250",
+     "bg": "19,19,22"
+    },
+    {
+     "text": "Cargá un CSV con los productos a ajustar",
+     "cls": "text-muted-foreground",
+     "size": "14px",
+     "weight": "400",
+     "ratio": 7.24,
+     "fg": "161,161,170",
+     "bg": "19,19,22"
+    },
+    {
+     "text": "Archivo",
+     "cls": "text-muted-foreground",
+     "size": "12px",
+     "weight": "400",
+     "ratio": 7.24,
+     "fg": "161,161,170",
+     "bg": "19,19,22"
+    },
+    {
+     "text": "2",
+     "cls": "bg-primary text-primary-foreground",
+     "size": "11px",
+     "weight": "600",
+     "ratio": 8.6,
+     "fg": "10,10,10",
+     "bg": "33,196,93"
+    },
+    {
+     "text": "Revisión",
+     "cls": "text-foreground",
+     "size": "12px",
+     "weight": "500",
+     "ratio": 17.77,
+     "fg": "250,250,250",
+     "bg": "19,19,22"
+    },
+    {
+     "text": "3",
+     "cls": "bg-muted text-muted-foreground",
+     "size": "11px",
+     "weight": "600",
+     "ratio": 5.81,
+     "fg": "161,161,170",
+     "bg": "39,39,42"
+    },
+    {
+     "text": "Resultado",
+     "cls": "text-muted-foreground",
+     "size": "12px",
+     "weight": "400",
+     "ratio": 7.24,
+     "fg": "161,161,170",
+     "bg": "19,19,22"
+    },
+    {
+     "text": "· Archivo: ajustes-mixto.csv",
+     "cls": "text-muted-foreground",
+     "size": "12px",
+     "weight": "400",
+     "ratio": 7.11,
+     "fg": "161,161,170",
+     "bg": "21,21,24"
+    },
+    {
+     "text": "2 filas",
+     "cls": "text-foreground",
+     "size": "12px",
+     "weight": "500",
+     "ratio": 17.46,
+     "fg": "250,250,250",
+     "bg": "21,21,24"
+    },
+    {
+     "text": "1 OK",
+     "cls": "text-success",
+     "size": "12px",
+     "weight": "600",
+     "ratio": 7.91,
+     "fg": "33,196,93",
+     "bg": "21,21,24"
+    },
+    {
+     "text": "1 error",
+     "cls": "text-destructive",
+     "size": "12px",
+     "weight": "600",
+     "ratio": 6.63,
+     "fg": "248,114,114",
+     "bg": "21,21,24"
+    },
+    {
+     "text": "#",
+     "cls": "",
+     "size": "11px",
+     "weight": "500",
+     "ratio": 7.24,
+     "fg": "161,161,170",
+     "bg": "19,19,22"
+    },
+    {
+     "text": "Producto",
+     "cls": "",
+     "size": "11px",
+     "weight": "500",
+     "ratio": 7.24,
+     "fg": "161,161,170",
+     "bg": "19,19,22"
+    },
+    {
+     "text": "Tipo",
+     "cls": "",
+     "size": "11px",
+     "weight": "500",
+     "ratio": 7.24,
+     "fg": "161,161,170",
+     "bg": "19,19,22"
+    },
+    {
+     "text": "Cantidad",
+     "cls": "",
+     "size": "11px",
+     "weight": "500",
+     "ratio": 7.24,
+     "fg": "161,161,170",
+     "bg": "19,19,22"
+    },
+    {
+     "text": "Estado",
+     "cls": "",
+     "size": "11px",
+     "weight": "500",
+     "ratio": 7.24,
+     "fg": "161,161,170",
+     "bg": "19,19,22"
+    },
+    {
+     "text": "2",
+     "cls": "text-muted-foreground",
+     "size": "11px",
+     "weight": "400",
+     "ratio": 7.24,
+     "fg": "161,161,170",
+     "bg": "19,19,22"
+    },
+    {
+     "text": "Aceite QA",
+     "cls": "text-foreground",
+     "size": "14px",
+     "weight": "500",
+     "ratio": 17.77,
+     "fg": "250,250,250",
+     "bg": "19,19,22"
+    },
+    {
+     "text": "Ajuste entrada",
+     "cls": "text-muted-foreground",
+     "size": "12px",
+     "weight": "400",
+     "ratio": 7.24,
+     "fg": "161,161,170",
+     "bg": "19,19,22"
+    },
+    {
+     "text": "1",
+     "cls": "text-foreground",
+     "size": "12px",
+     "weight": "500",
+     "ratio": 17.77,
+     "fg": "250,250,250",
+     "bg": "19,19,22"
+    },
+    {
+     "text": "OK",
+     "cls": "text-success",
+     "size": "12px",
+     "weight": "500",
+     "ratio": 8.05,
+     "fg": "33,196,93",
+     "bg": "19,19,22"
+    },
+    {
+     "text": "3",
+     "cls": "text-muted-foreground",
+     "size": "11px",
+     "weight": "400",
+     "ratio": 6.95,
+     "fg": "161,161,170",
+     "bg": "30,21,24"
+    },
+    {
+     "text": "Producto escaso QA",
+     "cls": "text-foreground",
+     "size": "14px",
+     "weight": "500",
+     "ratio": 17.06,
+     "fg": "250,250,250",
+     "bg": "30,21,24"
+    },
+    {
+     "text": "Falta el motivo",
+     "cls": "text-destructive",
+     "size": "11px",
+     "weight": "400",
+     "ratio": 6.48,
+     "fg": "248,114,114",
+     "bg": "30,21,24"
+    },
+    {
+     "text": "Pérdida / Robo",
+     "cls": "text-muted-foreground",
+     "size": "12px",
+     "weight": "400",
+     "ratio": 6.95,
+     "fg": "161,161,170",
+     "bg": "30,21,24"
+    },
+    {
+     "text": "1",
+     "cls": "text-foreground",
+     "size": "12px",
+     "weight": "500",
+     "ratio": 17.06,
+     "fg": "250,250,250",
+     "bg": "30,21,24"
+    },
+    {
+     "text": "Error",
+     "cls": "text-destructive",
+     "size": "12px",
+     "weight": "500",
+     "ratio": 6.48,
+     "fg": "248,114,114",
+     "bg": "30,21,24"
+    },
+    {
+     "text": "— se omitirá al confirmar.",
+     "cls": "text-muted-foreground",
+     "size": "12px",
+     "weight": "400",
+     "ratio": 7.11,
+     "fg": "161,161,170",
+     "bg": "21,21,24"
+    },
+    {
+     "text": "1 fila con error",
+     "cls": "text-destructive",
+     "size": "12px",
+     "weight": "500",
+     "ratio": 6.63,
+     "fg": "248,114,114",
+     "bg": "21,21,24"
+    },
+    {
+     "text": "Se aplicará la fila válida.",
+     "cls": "",
+     "size": "12px",
+     "weight": "400",
+     "ratio": 7.11,
+     "fg": "161,161,170",
+     "bg": "21,21,24"
+    },
+    {
+     "text": "Cambiar archivo",
+     "cls": "",
+     "size": "14px",
+     "weight": "500",
+     "ratio": 17.77,
+     "fg": "250,250,250",
+     "bg": "19,19,22"
+    },
+    {
+     "text": "Cancelar",
+     "cls": "",
+     "size": "14px",
+     "weight": "500",
+     "ratio": 17.77,
+     "fg": "250,250,250",
+     "bg": "19,19,22"
+    },
+    {
+     "text": "Aplicar 1 ajuste",
+     "cls": "bg-primary text-primary-foreground",
+     "size": "14px",
+     "weight": "500",
+     "ratio": 8.6,
+     "fg": "10,10,10",
+     "bg": "33,196,93"
+    }
+   ]
+  },
+  "res": {
+   "step": "resultado",
+   "headline": "1 aplicado · 1 omitida",
+   "toastText": "1 aplicado · 1 omitida — revisá los detalles",
+   "omitidas": "Filas omitidasFila 3Producto escaso QAFalta el motivo",
+   "overflow": {
+    "docScrollWidth": 1280,
+    "innerWidth": 1280,
+    "docOverflowOk": true,
+    "dialogScrollWidth": 678,
+    "dialogClientWidth": 678,
+    "dialogOverflowOk": true,
+    "dialogRect": [
+     300,
+     980
+    ],
+    "outsideDialog": []
+   },
+   "contrast": [
+    {
+     "text": "Importar ajuste de stock",
+     "cls": "text-card-foreground",
+     "size": "16px",
+     "weight": "600",
+     "ratio": 17.77,
+     "fg": "250,250,250",
+     "bg": "19,19,22"
+    },
+    {
+     "text": "Cargá un CSV con los productos a ajustar",
+     "cls": "text-muted-foreground",
+     "size": "14px",
+     "weight": "400",
+     "ratio": 7.24,
+     "fg": "161,161,170",
+     "bg": "19,19,22"
+    },
+    {
+     "text": "Archivo",
+     "cls": "text-muted-foreground",
+     "size": "12px",
+     "weight": "400",
+     "ratio": 7.24,
+     "fg": "161,161,170",
+     "bg": "19,19,22"
+    },
+    {
+     "text": "Revisión",
+     "cls": "text-muted-foreground",
+     "size": "12px",
+     "weight": "400",
+     "ratio": 7.24,
+     "fg": "161,161,170",
+     "bg": "19,19,22"
+    },
+    {
+     "text": "3",
+     "cls": "bg-primary text-primary-foreground",
+     "size": "11px",
+     "weight": "600",
+     "ratio": 8.6,
+     "fg": "10,10,10",
+     "bg": "33,196,93"
+    },
+    {
+     "text": "Resultado",
+     "cls": "text-foreground",
+     "size": "12px",
+     "weight": "500",
+     "ratio": 17.77,
+     "fg": "250,250,250",
+     "bg": "19,19,22"
+    },
+    {
+     "text": "1 aplicado · 1 omitida",
+     "cls": "text-foreground",
+     "size": "16px",
+     "weight": "600",
+     "ratio": 17.77,
+     "fg": "250,250,250",
+     "bg": "19,19,22"
+    },
+    {
+     "text": "Las filas omitidas no modificaron el stock.",
+     "cls": "text-muted-foreground",
+     "size": "14px",
+     "weight": "400",
+     "ratio": 7.24,
+     "fg": "161,161,170",
+     "bg": "19,19,22"
+    },
+    {
+     "text": "1 aplicado",
+     "cls": "text-success",
+     "size": "12px",
+     "weight": "600",
+     "ratio": 8.05,
+     "fg": "33,196,93",
+     "bg": "19,19,22"
+    },
+    {
+     "text": "1 omitida",
+     "cls": "text-warning",
+     "size": "12px",
+     "weight": "600",
+     "ratio": 12.11,
+     "fg": "250,204,20",
+     "bg": "19,19,22"
+    },
+    {
+     "text": "Filas omitidas",
+     "cls": "text-muted-foreground",
+     "size": "12px",
+     "weight": "600",
+     "ratio": 7.24,
+     "fg": "161,161,170",
+     "bg": "19,19,22"
+    },
+    {
+     "text": "Fila 3",
+     "cls": "text-muted-foreground",
+     "size": "12px",
+     "weight": "400",
+     "ratio": 7.24,
+     "fg": "161,161,170",
+     "bg": "19,19,22"
+    },
+    {
+     "text": "Producto escaso QA",
+     "cls": "text-foreground",
+     "size": "12px",
+     "weight": "500",
+     "ratio": 17.77,
+     "fg": "250,250,250",
+     "bg": "19,19,22"
+    },
+    {
+     "text": "Falta el motivo",
+     "cls": "",
+     "size": "12px",
+     "weight": "400",
+     "ratio": 12.11,
+     "fg": "250,204,20",
+     "bg": "19,19,22"
+    },
+    {
+     "text": "Cerrar",
+     "cls": "",
+     "size": "14px",
+     "weight": "500",
+     "ratio": 17.77,
+     "fg": "250,250,250",
+     "bg": "19,19,22"
+    },
+    {
+     "text": "Importar otro archivo",
+     "cls": "bg-background",
+     "size": "14px",
+     "weight": "500",
+     "ratio": 14.27,
+     "fg": "250,250,250",
+     "bg": "39,39,42"
+    }
+   ],
+   "toastContrast": [
+    {
+     "text": "1 aplicado · 1 omitida — revisá los detalles",
+     "cls": "",
+     "size": "13px",
+     "weight": "500",
+     "ratio": 11.12,
+     "fg": "243,207,88",
+     "bg": "29,31,0"
+    }
+   ]
+  }
+ },
+ {
+  "vw": "375",
+  "theme": "light",
+  "isDark": false,
+  "stock": {
+   "aceite": [
+    32,
+    33
+   ],
+   "escaso": [
+    1,
+    1
+   ]
+  },
+  "rev": {
+   "step": "revision",
+   "btnText": "Aplicar 1 ajuste",
+   "nota": "1 fila con error — se omitirá al confirmar. Se aplicará la fila válida.",
+   "overflow": {
+    "docScrollWidth": 375,
+    "innerWidth": 375,
+    "docOverflowOk": true,
+    "dialogScrollWidth": 341,
+    "dialogClientWidth": 341,
+    "dialogOverflowOk": true,
+    "dialogRect": [
+     16,
+     359
+    ],
+    "outsideDialog": []
+   },
+   "contrast": [
+    {
+     "text": "Importar ajuste de stock",
+     "cls": "text-card-foreground",
+     "size": "16px",
+     "weight": "600",
+     "ratio": 19.9,
+     "fg": "9,9,11",
+     "bg": "255,255,255"
+    },
+    {
+     "text": "Cargá un CSV con los productos a ajustar",
+     "cls": "text-muted-foreground",
+     "size": "14px",
+     "weight": "400",
+     "ratio": 4.83,
+     "fg": "113,113,122",
+     "bg": "255,255,255"
+    },
+    {
+     "text": "2",
+     "cls": "bg-primary text-primary-foreground",
+     "size": "11px",
+     "weight": "600",
+     "ratio": 8.6,
+     "fg": "10,10,10",
+     "bg": "33,196,93"
+    },
+    {
+     "text": "3",
+     "cls": "bg-muted text-muted-foreground",
+     "size": "11px",
+     "weight": "600",
+     "ratio": 4.4,
+     "fg": "113,113,122",
+     "bg": "244,244,245"
+    },
+    {
+     "text": "· Archivo: ajustes-mixto.csv",
+     "cls": "text-muted-foreground",
+     "size": "12px",
+     "weight": "400",
+     "ratio": 4.79,
+     "fg": "113,113,122",
+     "bg": "254,254,254"
+    },
+    {
+     "text": "2 filas",
+     "cls": "text-foreground",
+     "size": "12px",
+     "weight": "500",
+     "ratio": 19.71,
+     "fg": "9,9,11",
+     "bg": "254,254,254"
+    },
+    {
+     "text": "1 OK",
+     "cls": "text-success",
+     "size": "12px",
+     "weight": "600",
+     "ratio": 6.04,
+     "fg": "19,113,54",
+     "bg": "254,254,254"
+    },
+    {
+     "text": "1 error",
+     "cls": "text-destructive",
+     "size": "12px",
+     "weight": "600",
+     "ratio": 6.01,
+     "fg": "197,17,17",
+     "bg": "254,254,254"
+    },
+    {
+     "text": "Aceite QA",
+     "cls": "text-foreground",
+     "size": "14px",
+     "weight": "500",
+     "ratio": 19.9,
+     "fg": "9,9,11",
+     "bg": "255,255,255"
+    },
+    {
+     "text": "Producto escaso QA",
+     "cls": "text-foreground",
+     "size": "14px",
+     "weight": "500",
+     "ratio": 18.65,
+     "fg": "9,9,11",
+     "bg": "254,246,246"
+    },
+    {
+     "text": "Falta el motivo",
+     "cls": "text-destructive",
+     "size": "11px",
+     "weight": "400",
+     "ratio": 5.69,
+     "fg": "197,17,17",
+     "bg": "254,246,246"
+    },
+    {
+     "text": "— se omitirá al confirmar.",
+     "cls": "text-muted-foreground",
+     "size": "12px",
+     "weight": "400",
+     "ratio": 4.79,
+     "fg": "113,113,122",
+     "bg": "254,254,254"
+    },
+    {
+     "text": "1 fila con error",
+     "cls": "text-destructive",
+     "size": "12px",
+     "weight": "500",
+     "ratio": 6.01,
+     "fg": "197,17,17",
+     "bg": "254,254,254"
+    },
+    {
+     "text": "Se aplicará la fila válida.",
+     "cls": "",
+     "size": "12px",
+     "weight": "400",
+     "ratio": 4.79,
+     "fg": "113,113,122",
+     "bg": "254,254,254"
+    },
+    {
+     "text": "Cambiar archivo",
+     "cls": "",
+     "size": "14px",
+     "weight": "500",
+     "ratio": 19.9,
+     "fg": "9,9,11",
+     "bg": "255,255,255"
+    },
+    {
+     "text": "Cancelar",
+     "cls": "",
+     "size": "14px",
+     "weight": "500",
+     "ratio": 19.9,
+     "fg": "9,9,11",
+     "bg": "255,255,255"
+    },
+    {
+     "text": "Aplicar 1 ajuste",
+     "cls": "bg-primary text-primary-foreground",
+     "size": "14px",
+     "weight": "500",
+     "ratio": 8.6,
+     "fg": "10,10,10",
+     "bg": "33,196,93"
+    }
+   ]
+  },
+  "res": {
+   "step": "resultado",
+   "headline": "1 aplicado · 1 omitida",
+   "toastText": "1 aplicado · 1 omitida — revisá los detalles",
+   "omitidas": "Filas omitidasFila 3Producto escaso QAFalta el motivo",
+   "overflow": {
+    "docScrollWidth": 375,
+    "innerWidth": 375,
+    "docOverflowOk": true,
+    "dialogScrollWidth": 341,
+    "dialogClientWidth": 341,
+    "dialogOverflowOk": true,
+    "dialogRect": [
+     16,
+     359
+    ],
+    "outsideDialog": []
+   },
+   "contrast": [
+    {
+     "text": "Importar ajuste de stock",
+     "cls": "text-card-foreground",
+     "size": "16px",
+     "weight": "600",
+     "ratio": 19.9,
+     "fg": "9,9,11",
+     "bg": "255,255,255"
+    },
+    {
+     "text": "Cargá un CSV con los productos a ajustar",
+     "cls": "text-muted-foreground",
+     "size": "14px",
+     "weight": "400",
+     "ratio": 4.83,
+     "fg": "113,113,122",
+     "bg": "255,255,255"
+    },
+    {
+     "text": "3",
+     "cls": "bg-primary text-primary-foreground",
+     "size": "11px",
+     "weight": "600",
+     "ratio": 8.6,
+     "fg": "10,10,10",
+     "bg": "33,196,93"
+    },
+    {
+     "text": "1 aplicado · 1 omitida",
+     "cls": "text-foreground",
+     "size": "16px",
+     "weight": "600",
+     "ratio": 19.9,
+     "fg": "9,9,11",
+     "bg": "255,255,255"
+    },
+    {
+     "text": "Las filas omitidas no modificaron el stock.",
+     "cls": "text-muted-foreground",
+     "size": "14px",
+     "weight": "400",
+     "ratio": 4.83,
+     "fg": "113,113,122",
+     "bg": "255,255,255"
+    },
+    {
+     "text": "1 aplicado",
+     "cls": "text-success",
+     "size": "12px",
+     "weight": "600",
+     "ratio": 6.1,
+     "fg": "19,113,54",
+     "bg": "255,255,255"
+    },
+    {
+     "text": "1 omitida",
+     "cls": "text-warning",
+     "size": "12px",
+     "weight": "600",
+     "ratio": 5.67,
+     "fg": "139,94,4",
+     "bg": "255,255,255"
+    },
+    {
+     "text": "Filas omitidas",
+     "cls": "text-muted-foreground",
+     "size": "12px",
+     "weight": "600",
+     "ratio": 4.83,
+     "fg": "113,113,122",
+     "bg": "255,255,255"
+    },
+    {
+     "text": "Fila 3",
+     "cls": "text-muted-foreground",
+     "size": "12px",
+     "weight": "400",
+     "ratio": 4.83,
+     "fg": "113,113,122",
+     "bg": "255,255,255"
+    },
+    {
+     "text": "Producto escaso QA",
+     "cls": "text-foreground",
+     "size": "12px",
+     "weight": "500",
+     "ratio": 19.9,
+     "fg": "9,9,11",
+     "bg": "255,255,255"
+    },
+    {
+     "text": "Falta el motivo",
+     "cls": "",
+     "size": "12px",
+     "weight": "400",
+     "ratio": 5.67,
+     "fg": "139,94,4",
+     "bg": "255,255,255"
+    },
+    {
+     "text": "Cerrar",
+     "cls": "",
+     "size": "14px",
+     "weight": "500",
+     "ratio": 19.9,
+     "fg": "9,9,11",
+     "bg": "255,255,255"
+    },
+    {
+     "text": "Importar otro archivo",
+     "cls": "bg-background",
+     "size": "14px",
+     "weight": "500",
+     "ratio": 19.9,
+     "fg": "9,9,11",
+     "bg": "255,255,255"
+    }
+   ],
+   "toastContrast": [
+    {
+     "text": "1 aplicado · 1 omitida — revisá los detalles",
+     "cls": "",
+     "size": "13px",
+     "weight": "500",
+     "ratio": 11.12,
+     "fg": "243,207,88",
+     "bg": "29,31,0"
+    }
+   ]
+  }
+ },
+ {
+  "vw": "375",
+  "theme": "dark",
+  "isDark": true,
+  "stock": {
+   "aceite": [
+    33,
+    34
+   ],
+   "escaso": [
+    1,
+    1
+   ]
+  },
+  "rev": {
+   "step": "revision",
+   "btnText": "Aplicar 1 ajuste",
+   "nota": "1 fila con error — se omitirá al confirmar. Se aplicará la fila válida.",
+   "overflow": {
+    "docScrollWidth": 375,
+    "innerWidth": 375,
+    "docOverflowOk": true,
+    "dialogScrollWidth": 341,
+    "dialogClientWidth": 341,
+    "dialogOverflowOk": true,
+    "dialogRect": [
+     16,
+     359
+    ],
+    "outsideDialog": []
+   },
+   "contrast": [
+    {
+     "text": "Importar ajuste de stock",
+     "cls": "text-card-foreground",
+     "size": "16px",
+     "weight": "600",
+     "ratio": 17.77,
+     "fg": "250,250,250",
+     "bg": "19,19,22"
+    },
+    {
+     "text": "Cargá un CSV con los productos a ajustar",
+     "cls": "text-muted-foreground",
+     "size": "14px",
+     "weight": "400",
+     "ratio": 7.24,
+     "fg": "161,161,170",
+     "bg": "19,19,22"
+    },
+    {
+     "text": "2",
+     "cls": "bg-primary text-primary-foreground",
+     "size": "11px",
+     "weight": "600",
+     "ratio": 8.6,
+     "fg": "10,10,10",
+     "bg": "33,196,93"
+    },
+    {
+     "text": "3",
+     "cls": "bg-muted text-muted-foreground",
+     "size": "11px",
+     "weight": "600",
+     "ratio": 5.81,
+     "fg": "161,161,170",
+     "bg": "39,39,42"
+    },
+    {
+     "text": "· Archivo: ajustes-mixto.csv",
+     "cls": "text-muted-foreground",
+     "size": "12px",
+     "weight": "400",
+     "ratio": 7.11,
+     "fg": "161,161,170",
+     "bg": "21,21,24"
+    },
+    {
+     "text": "2 filas",
+     "cls": "text-foreground",
+     "size": "12px",
+     "weight": "500",
+     "ratio": 17.46,
+     "fg": "250,250,250",
+     "bg": "21,21,24"
+    },
+    {
+     "text": "1 OK",
+     "cls": "text-success",
+     "size": "12px",
+     "weight": "600",
+     "ratio": 7.91,
+     "fg": "33,196,93",
+     "bg": "21,21,24"
+    },
+    {
+     "text": "1 error",
+     "cls": "text-destructive",
+     "size": "12px",
+     "weight": "600",
+     "ratio": 6.63,
+     "fg": "248,114,114",
+     "bg": "21,21,24"
+    },
+    {
+     "text": "Aceite QA",
+     "cls": "text-foreground",
+     "size": "14px",
+     "weight": "500",
+     "ratio": 17.77,
+     "fg": "250,250,250",
+     "bg": "19,19,22"
+    },
+    {
+     "text": "Producto escaso QA",
+     "cls": "text-foreground",
+     "size": "14px",
+     "weight": "500",
+     "ratio": 17.06,
+     "fg": "250,250,250",
+     "bg": "30,21,24"
+    },
+    {
+     "text": "Falta el motivo",
+     "cls": "text-destructive",
+     "size": "11px",
+     "weight": "400",
+     "ratio": 6.48,
+     "fg": "248,114,114",
+     "bg": "30,21,24"
+    },
+    {
+     "text": "— se omitirá al confirmar.",
+     "cls": "text-muted-foreground",
+     "size": "12px",
+     "weight": "400",
+     "ratio": 7.11,
+     "fg": "161,161,170",
+     "bg": "21,21,24"
+    },
+    {
+     "text": "1 fila con error",
+     "cls": "text-destructive",
+     "size": "12px",
+     "weight": "500",
+     "ratio": 6.63,
+     "fg": "248,114,114",
+     "bg": "21,21,24"
+    },
+    {
+     "text": "Se aplicará la fila válida.",
+     "cls": "",
+     "size": "12px",
+     "weight": "400",
+     "ratio": 7.11,
+     "fg": "161,161,170",
+     "bg": "21,21,24"
+    },
+    {
+     "text": "Cambiar archivo",
+     "cls": "",
+     "size": "14px",
+     "weight": "500",
+     "ratio": 17.77,
+     "fg": "250,250,250",
+     "bg": "19,19,22"
+    },
+    {
+     "text": "Cancelar",
+     "cls": "",
+     "size": "14px",
+     "weight": "500",
+     "ratio": 17.77,
+     "fg": "250,250,250",
+     "bg": "19,19,22"
+    },
+    {
+     "text": "Aplicar 1 ajuste",
+     "cls": "bg-primary text-primary-foreground",
+     "size": "14px",
+     "weight": "500",
+     "ratio": 8.6,
+     "fg": "10,10,10",
+     "bg": "33,196,93"
+    }
+   ]
+  },
+  "res": {
+   "step": "resultado",
+   "headline": "1 aplicado · 1 omitida",
+   "toastText": "1 aplicado · 1 omitida — revisá los detalles",
+   "omitidas": "Filas omitidasFila 3Producto escaso QAFalta el motivo",
+   "overflow": {
+    "docScrollWidth": 375,
+    "innerWidth": 375,
+    "docOverflowOk": true,
+    "dialogScrollWidth": 341,
+    "dialogClientWidth": 341,
+    "dialogOverflowOk": true,
+    "dialogRect": [
+     16,
+     359
+    ],
+    "outsideDialog": []
+   },
+   "contrast": [
+    {
+     "text": "Importar ajuste de stock",
+     "cls": "text-card-foreground",
+     "size": "16px",
+     "weight": "600",
+     "ratio": 17.77,
+     "fg": "250,250,250",
+     "bg": "19,19,22"
+    },
+    {
+     "text": "Cargá un CSV con los productos a ajustar",
+     "cls": "text-muted-foreground",
+     "size": "14px",
+     "weight": "400",
+     "ratio": 7.24,
+     "fg": "161,161,170",
+     "bg": "19,19,22"
+    },
+    {
+     "text": "3",
+     "cls": "bg-primary text-primary-foreground",
+     "size": "11px",
+     "weight": "600",
+     "ratio": 8.6,
+     "fg": "10,10,10",
+     "bg": "33,196,93"
+    },
+    {
+     "text": "1 aplicado · 1 omitida",
+     "cls": "text-foreground",
+     "size": "16px",
+     "weight": "600",
+     "ratio": 17.77,
+     "fg": "250,250,250",
+     "bg": "19,19,22"
+    },
+    {
+     "text": "Las filas omitidas no modificaron el stock.",
+     "cls": "text-muted-foreground",
+     "size": "14px",
+     "weight": "400",
+     "ratio": 7.24,
+     "fg": "161,161,170",
+     "bg": "19,19,22"
+    },
+    {
+     "text": "1 aplicado",
+     "cls": "text-success",
+     "size": "12px",
+     "weight": "600",
+     "ratio": 8.05,
+     "fg": "33,196,93",
+     "bg": "19,19,22"
+    },
+    {
+     "text": "1 omitida",
+     "cls": "text-warning",
+     "size": "12px",
+     "weight": "600",
+     "ratio": 12.11,
+     "fg": "250,204,20",
+     "bg": "19,19,22"
+    },
+    {
+     "text": "Filas omitidas",
+     "cls": "text-muted-foreground",
+     "size": "12px",
+     "weight": "600",
+     "ratio": 7.24,
+     "fg": "161,161,170",
+     "bg": "19,19,22"
+    },
+    {
+     "text": "Fila 3",
+     "cls": "text-muted-foreground",
+     "size": "12px",
+     "weight": "400",
+     "ratio": 7.24,
+     "fg": "161,161,170",
+     "bg": "19,19,22"
+    },
+    {
+     "text": "Producto escaso QA",
+     "cls": "text-foreground",
+     "size": "12px",
+     "weight": "500",
+     "ratio": 17.77,
+     "fg": "250,250,250",
+     "bg": "19,19,22"
+    },
+    {
+     "text": "Falta el motivo",
+     "cls": "",
+     "size": "12px",
+     "weight": "400",
+     "ratio": 12.11,
+     "fg": "250,204,20",
+     "bg": "19,19,22"
+    },
+    {
+     "text": "Cerrar",
+     "cls": "",
+     "size": "14px",
+     "weight": "500",
+     "ratio": 17.77,
+     "fg": "250,250,250",
+     "bg": "19,19,22"
+    },
+    {
+     "text": "Importar otro archivo",
+     "cls": "bg-background",
+     "size": "14px",
+     "weight": "500",
+     "ratio": 19.06,
+     "fg": "250,250,250",
+     "bg": "9,9,11"
+    }
+   ],
+   "toastContrast": [
+    {
+     "text": "1 aplicado · 1 omitida — revisá los detalles",
+     "cls": "",
+     "size": "13px",
+     "weight": "500",
+     "ratio": 11.12,
+     "fg": "243,207,88",
+     "bg": "29,31,0"
+    }
+   ]
+  }
+ }
+]

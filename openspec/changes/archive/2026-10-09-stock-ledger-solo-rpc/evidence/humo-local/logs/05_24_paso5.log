@@ -1,0 +1,14 @@
+[paso5] HTTP 404 GET http://localhost:8000/fiscal/profile
+[paso5] console.error: Failed to load resource: the server responded with a status of 404 (Not Found)
+[paso5] console.warning: Warning: Missing `Description` or `aria-describedby={undefined}` for {DialogContent}.
+[paso5] console.warning: Warning: Missing `Description` or `aria-describedby={undefined}` for {DialogContent}.
+[paso5] HTTP 404 GET http://localhost:8000/fiscal/profile
+[paso5] console.error: Failed to load resource: the server responded with a status of 404 (Not Found)
+{"ts":"2026-10-10T01:11:56.322Z","step":"5a","action":"/ventas > Nueva venta: 2 x \"Producto humo local\" a \"Cliente humo local\"","expected":"La venta se registra y el stock baja 2","observed":"stock 7 -> 5; movimientos no manuales: sale/sale -2.0000 (7.0000->5.0000)","result":"PASS","shots":"paso5-01-venta-carrito.png, paso5-02-venta-registrada.png"}
+[venta] - alertdialog "¿Eliminar esta venta?": |   - heading "¿Eliminar esta venta?" [level=2] |   - paragraph: Esta acción no se puede deshacer. |   - button "Cancelar" |   - button "Eliminar"
+{"ts":"2026-10-10T01:12:01.429Z","step":"5b","action":"/ventas > Eliminar esta venta (confirmar)","expected":"La venta se borra y el stock vuelve","observed":"ventas 1 -> 0; stock 5 -> 7; movimientos no manuales: sale/sale -2.0000 (7.0000->5.0000) ; sale_return/sale_reversal 2.0000 (5.0000->7.0000)","result":"PASS","shots":"paso5-03-venta-borrada.png"}
+[paso5] console.warning: Warning: Missing `Description` or `aria-describedby={undefined}` for {DialogContent}.
+[paso5] console.warning: Warning: Missing `Description` or `aria-describedby={undefined}` for {DialogContent}.
+{"ts":"2026-10-10T01:12:11.311Z","step":"5c","action":"/compras > Nueva compra: 3 x \"Producto humo local\" a \"Proveedor humo local\"","expected":"La compra se registra y el stock sube 3","observed":"stock 7 -> 10; movimientos no manuales: sale/sale -2.0000 (7.0000->5.0000) ; sale_return/sale_reversal 2.0000 (5.0000->7.0000) ; purchase/purchase 3.0000 (7.0000->10.0000)","result":"PASS","shots":"paso5-04-compra-carrito.png, paso5-05-compra-registrada.png"}
+[compra] - alertdialog "¿Eliminar esta compra?": |   - heading "¿Eliminar esta compra?" [level=2] |   - paragraph: Esta acción no se puede deshacer. |   - paragraph: "Se va a compensar:" |   - list: |     - listitem: Se revertirá el ingreso de stock de esta compra (el stock vuelve al estado previo). |   - button "Cancelar" |   - button "Eliminar"
+{"ts":"2026-10-10T01:12:16.393Z","step":"5d","action":"/compras > Eliminar la compra (confirmar)","expected":"La compra se borra y el stock vuelve","observed":"compras 1 -> 0; stock 10 -> 7; movimientos no manuales: sale/sale -2.0000 (7.0000->5.0000) ; sale_return/sale_reversal 2.0000 (5.0000->7.0000) ; purchase/purchase 3.0000 (7.0000->10.0000) ; purchase_return/purchase_reversal -3.0000 (10.0000->7.0000)","result":"PASS","shots":"paso5-06-compra-borrada.png"}

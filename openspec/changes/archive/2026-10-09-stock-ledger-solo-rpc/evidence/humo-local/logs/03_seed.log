@@ -1,0 +1,4 @@
+qa.e2e@local.test 200
+qa.stock@local.test 200
+qa.seller@local.test 200
+seed OK {"accA":"6ca9f878-6bcc-4d16-9a26-af48e4675fcd","br1":"d2f49823-c240-4d82-bc17-6006e866f57e","br2":"4710acd1-8dfe-4d86-9c16-bc8d01b3f669","tomate":"da7edf37-f62d-4643-a25c-3f2cfa7dab9d","alf":"989a11c1-6e30-4d5e-8269-b11129831af9"}

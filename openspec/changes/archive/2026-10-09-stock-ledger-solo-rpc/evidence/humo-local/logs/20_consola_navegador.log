@@ -1,0 +1,22 @@
+[paso3-4] console.warning: Warning: Missing `Description` or `aria-describedby={undefined}` for {DialogContent}.
+[paso3-4] console.warning: Warning: Missing `Description` or `aria-describedby={undefined}` for {DialogContent}.
+[paso3-4] console.warning: Warning: Missing `Description` or `aria-describedby={undefined}` for {DialogContent}.
+[paso3-4] console.warning: Warning: Missing `Description` or `aria-describedby={undefined}` for {DialogContent}.
+[paso5] HTTP 404 GET http://localhost:8000/fiscal/profile
+[paso5] console.error: Failed to load resource: the server responded with a status of 404 (Not Found)
+[paso5] console.warning: Warning: Missing `Description` or `aria-describedby={undefined}` for {DialogContent}.
+[paso5] console.warning: Warning: Missing `Description` or `aria-describedby={undefined}` for {DialogContent}.
+[paso5] HTTP 404 GET http://localhost:8000/fiscal/profile
+[paso5] console.error: Failed to load resource: the server responded with a status of 404 (Not Found)
+[paso5] console.warning: Warning: Missing `Description` or `aria-describedby={undefined}` for {DialogContent}.
+[paso5] console.warning: Warning: Missing `Description` or `aria-describedby={undefined}` for {DialogContent}.
+[paso6] console.warning: Warning: Missing `Description` or `aria-describedby={undefined}` for {DialogContent}.
+[paso6] console.warning: Warning: Missing `Description` or `aria-describedby={undefined}` for {DialogContent}.
+[paso6] console.warning: Warning: Missing `Description` or `aria-describedby={undefined}` for {DialogContent}.
+[paso6] console.warning: Warning: Missing `Description` or `aria-describedby={undefined}` for {DialogContent}.
+[paso7] console.warning: Warning: Missing `Description` or `aria-describedby={undefined}` for {DialogContent}.
+[paso7] console.warning: Warning: Missing `Description` or `aria-describedby={undefined}` for {DialogContent}.
+[paso7] console.warning: Warning: Missing `Description` or `aria-describedby={undefined}` for {DialogContent}.
+[paso7] console.warning: Warning: Missing `Description` or `aria-describedby={undefined}` for {DialogContent}.
+[movil] console.warning: Warning: Missing `Description` or `aria-describedby={undefined}` for {DialogContent}.
+[movil] console.warning: Warning: Missing `Description` or `aria-describedby={undefined}` for {DialogContent}.

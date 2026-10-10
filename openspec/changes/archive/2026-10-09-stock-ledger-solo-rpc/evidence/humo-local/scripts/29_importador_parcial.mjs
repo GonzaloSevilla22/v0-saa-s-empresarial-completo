@@ -1,0 +1,25 @@
+// Complemento del paso 2: CSV mixto (una fila válida + una sin motivo) APLICADO -> se aplica la válida y la bloqueada no toca el stock.
+import { chromium, ctxFor, open, shot, watch, rec, sql } from './humo-lib.mjs'
+const browser = await chromium.launch()
+const ctx = await ctxFor(browser, 'owner')
+const page = await ctx.newPage()
+watch(page, 'paso2e')
+const S = 'paso2e'
+const stockOf = (sku) => Number(sql(`select coalesce(sum(bs.quantity),0) from branch_stock bs join products p on p.id=bs.product_id where p.sku='${sku}'`))
+const nMov = () => Number(sql('select count(*) from stock_movements'))
+const aceite0 = stockOf('QA-ACEITE'), escaso0 = stockOf('QA-ESCASO'), m0 = nMov()
+await open(page, '/stock', 'Aceite QA')
+await page.getByRole('button', { name: /importar ajuste/i }).click()
+const dialog = page.getByRole('dialog'); await dialog.waitFor()
+const csv = 'Nombre;Tipo;Cantidad;Motivo\nAceite QA;Ajuste entrada;1;Reposición parcial (humo)\nProducto escaso QA;Pérdida;1;\n'
+await dialog.locator('input[type=file]').setInputFiles({ name: 'ajustes-mixto.csv', mimeType: 'text/csv', buffer: Buffer.from(csv, 'utf8') })
+await dialog.getByText('Falta el motivo').first().waitFor({ timeout: 30000 })
+await dialog.getByRole('button', { name: /^aplicar 1 ajuste$/i }).click()
+await dialog.getByText(/registrados? correctamente|OK · \d+ con error|No se pudo aplicar/i).first().waitFor({ timeout: 60000 })
+const resumen = (await dialog.locator('p.text-base').first().textContent())?.trim()
+const detalle = await dialog.getByText('Detalle de errores').count()
+await shot(page, `${S}-01-resultado-parcial`)
+const aceite1 = stockOf('QA-ACEITE'), escaso1 = stockOf('QA-ESCASO'), m1 = nMov()
+const sinMotivo = sql("select count(*) from stock_movements where product_name='Producto escaso QA'")
+rec('2e', 'Importar ajuste con CSV mixto (Aceite QA con motivo + Producto escaso QA sin motivo) > Aplicar 1 ajuste', 'Se aplica sólo la fila válida; la fila bloqueada no modifica el stock ni deja movimiento', `resumen del diálogo="${resumen}" (panel "Detalle de errores"=${detalle}); Aceite QA ${aceite0} -> ${aceite1}; Producto escaso QA ${escaso0} -> ${escaso1} (movimientos de ese producto: ${sinMotivo}); movimientos totales ${m0} -> ${m1}`, aceite1 === aceite0 + 1 && escaso1 === escaso0 && sinMotivo === '0' && m1 === m0 + 1, `${S}-01-resultado-parcial.png`)
+await browser.close()

@@ -1,0 +1,2 @@
+[venta] - alertdialog "¿Eliminar esta venta?": |   - heading "¿Eliminar esta venta?" [level=2] |   - paragraph: Esta acción no se puede deshacer. |   - button "Cancelar" |   - button "Eliminar"
+[compra] - alertdialog "¿Eliminar esta compra?": |   - heading "¿Eliminar esta compra?" [level=2] |   - paragraph: Esta acción no se puede deshacer. |   - paragraph: "Se va a compensar:" |   - list: |     - listitem: Se revertirá el ingreso de stock de esta compra (el stock vuelve al estado previo). |   - button "Cancelar" |   - button "Eliminar"

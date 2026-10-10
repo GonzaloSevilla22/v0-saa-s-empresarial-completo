@@ -26,8 +26,12 @@
  *
  * Step 3 — Result
  *   Applies every valid row sequentially via rpc_stock_adjustment.
- *   Shows a summary: N OK · M errors.
- *   Errors from the server (e.g. stock insuficiente) are shown per-row.
+ *   Shows a summary: «N aplicados · M con error · K omitidas» (panel y toast, el
+ *   mismo texto). stock-import-resultado-parcial: una fila bloqueada por el parser
+ *   es OMITIDA (nunca llegó a la RPC) y se lista en «Filas omitidas» con su motivo;
+ *   «con error» es sólo un rechazo REAL de la RPC (rol, stock insuficiente…), que
+ *   se lista en «Detalle de errores» con su mensaje en castellano. Todo conteo
+ *   concuerda en singular y plural (`countLabel`).
  *
  * Product resolution by name:
  *   1. Exact match (case-insensitive): OK
@@ -69,6 +73,64 @@ function downloadTemplate() {
   })
   a.click()
   URL.revokeObjectURL(url)
+}
+
+// ── Conteos y textos de resultado ─────────────────────────────────────────────
+
+/** «1 fila» / «2 filas»: el sustantivo concuerda con el conteo. */
+function countLabel(n: number, one: string, many: string): string {
+  return `${n} ${n === 1 ? one : many}`
+}
+
+/**
+ * Fila que NO llegó a la RPC: el parser la bloqueó (motivo faltante, tipo inválido,
+ * producto no encontrado…) y `handleApply` la saltea sin tocar el stock. Mismo criterio
+ * que el salto de `handleApply` (`status === "error" || !product`): si cambia uno,
+ * cambia el otro.
+ */
+function isOmittedRow(row: ParsedImportRow): boolean {
+  return row.applied === false && (row.status === "error" || !row.product)
+}
+
+/** Fila que SÍ llegó a la RPC y la RPC rechazó (rol, stock insuficiente, red…). */
+function isRejectedRow(row: ParsedImportRow): boolean {
+  return row.applied === false && !isOmittedRow(row)
+}
+
+interface ApplyOutcome {
+  applied: number
+  /** Rechazadas por la RPC al aplicar. */
+  failed:  number
+  /** Bloqueadas por el parser antes de aplicar: no son un error de la RPC. */
+  omitted: number
+}
+
+function countApplyOutcome(rows: ParsedImportRow[]): ApplyOutcome {
+  return {
+    applied: rows.filter((r) => r.applied === true).length,
+    failed:  rows.filter(isRejectedRow).length,
+    omitted: rows.filter(isOmittedRow).length,
+  }
+}
+
+/** Titular del resultado: el panel del paso 3 y el toast muestran este mismo texto. */
+function resultHeadline({ applied, failed, omitted }: ApplyOutcome): string {
+  if (failed === 0 && omitted === 0) {
+    return `${countLabel(applied, "ajuste registrado", "ajustes registrados")} correctamente`
+  }
+  if (applied === 0) return "No se pudo aplicar ningún ajuste"
+  const parts = [countLabel(applied, "aplicado", "aplicados")]
+  if (failed  > 0) parts.push(`${failed} con error`)
+  if (omitted > 0) parts.push(countLabel(omitted, "omitida", "omitidas"))
+  return parts.join(" · ")
+}
+
+/** Aclaración bajo el titular: qué filas quedaron sin aplicar (siempre sin tocar el stock). */
+function resultNote({ failed, omitted }: ApplyOutcome): string | null {
+  if (failed > 0 && omitted > 0) return "Las filas omitidas o con error no modificaron el stock."
+  if (failed  > 0) return "Las filas con error no modificaron el stock."
+  if (omitted > 0) return "Las filas omitidas no modificaron el stock."
+  return null
 }
 
 // ── Status badge ───────────────────────────────────────────────────────────────
@@ -152,8 +214,11 @@ export function StockImportAdjustmentDialog({
   const okCount      = rows.filter((r) => r.status !== "error").length
   const errorCount   = rows.filter((r) => r.status === "error").length
   const warningCount = rows.filter((r) => r.status === "warning").length
-  const appliedOk    = rows.filter((r) => r.applied === true).length
-  const appliedErr   = rows.filter((r) => r.applied === false).length
+  // Resultado (paso 3): aplicadas · rechazadas por la RPC · omitidas por el parser.
+  const outcome      = countApplyOutcome(rows)
+  const rejectedRows = rows.filter(isRejectedRow)
+  const omittedRows  = rows.filter(isOmittedRow)
+  const outcomeNote  = resultNote(outcome)
 
   // ── Reset ──────────────────────────────────────────────────────────────────
   const reset = useCallback(() => {
@@ -257,15 +322,17 @@ export function StockImportAdjustmentDialog({
     setStep(3)
     await refreshData()
 
-    const ok  = updated.filter((r) => r.applied === true).length
-    const err = updated.filter((r) => r.applied === false && r.status !== "error").length
+    // El toast dice lo mismo que el panel del paso 3 (mismo conteo, mismo texto).
+    const result   = countApplyOutcome(updated)
+    const headline = resultHeadline(result)
 
-    if (err === 0) {
-      toast.success(`${ok} ajuste${ok !== 1 ? "s" : ""} registrado${ok !== 1 ? "s" : ""} correctamente`)
-      onSuccess?.()
+    if (result.failed === 0 && result.omitted === 0) {
+      toast.success(headline)
     } else {
-      toast.warning(`${ok} OK · ${err} con error — revisá los detalles`)
+      toast.warning(`${headline} — revisá los detalles`)
     }
+    // El padre se entera cuando no hubo rechazos de la RPC (las omitidas no tocan el stock).
+    if (result.failed === 0) onSuccess?.()
   }, [rows, products, supabase, refreshData, onSuccess])
 
   // ── Render ─────────────────────────────────────────────────────────────────
@@ -376,12 +443,12 @@ export function StockImportAdjustmentDialog({
               {/* Summary bar */}
               <div className="flex items-center gap-3 px-6 py-3 border-b border-border bg-muted/10 shrink-0 flex-wrap">
                 <span className="text-xs text-muted-foreground">
-                  <span className="font-medium text-foreground">{rows.length}</span> filas · Archivo: {fileName}
+                  <span className="font-medium text-foreground">{countLabel(rows.length, "fila", "filas")}</span> · Archivo: {fileName}
                 </span>
                 <div className="flex items-center gap-2 ml-auto flex-wrap">
                   {okCount > 0      && <Badge variant="outline" className="text-emerald-400 border-emerald-500/30 text-xs">{okCount - warningCount} OK</Badge>}
-                  {warningCount > 0 && <Badge variant="outline" className="text-yellow-400 border-yellow-500/30 text-xs">{warningCount} advertencia{warningCount !== 1 ? "s" : ""}</Badge>}
-                  {errorCount > 0   && <Badge variant="outline" className="text-red-400 border-red-500/30 text-xs">{errorCount} error{errorCount !== 1 ? "es" : ""}</Badge>}
+                  {warningCount > 0 && <Badge variant="outline" className="text-yellow-400 border-yellow-500/30 text-xs">{countLabel(warningCount, "advertencia", "advertencias")}</Badge>}
+                  {errorCount > 0   && <Badge variant="outline" className="text-red-400 border-red-500/30 text-xs">{countLabel(errorCount, "error", "errores")}</Badge>}
                 </div>
               </div>
 
@@ -462,9 +529,10 @@ export function StockImportAdjustmentDialog({
               {errorCount > 0 && (
                 <div className="px-6 py-2.5 border-t border-border bg-muted/10 shrink-0">
                   <p className="text-xs text-muted-foreground">
-                    <span className="text-red-400 font-medium">{errorCount} fila{errorCount !== 1 ? "s" : ""} con error</span>
-                    {" "}— se omitirán al confirmar.
-                    {okCount > 0 && <span> Se aplicarán las <span className="font-medium text-foreground">{okCount}</span> filas válidas.</span>}
+                    <span className="text-red-400 font-medium">{countLabel(errorCount, "fila", "filas")} con error</span>
+                    {" "}— {errorCount === 1 ? "se omitirá" : "se omitirán"} al confirmar.
+                    {okCount === 1 && <span> Se aplicará la fila válida.</span>}
+                    {okCount > 1 && <span> Se aplicarán las <span className="font-medium text-foreground">{okCount}</span> filas válidas.</span>}
                   </p>
                 </div>
               )}
@@ -477,49 +545,64 @@ export function StockImportAdjustmentDialog({
 
               {/* Summary */}
               <div className="flex flex-col items-center justify-center gap-3 px-6 py-6 border-b border-border shrink-0">
-                {appliedErr === 0 ? (
+                {outcome.failed === 0 && outcome.omitted === 0 ? (
                   <CheckCircle2 className="h-10 w-10 text-emerald-400" />
-                ) : appliedOk === 0 ? (
+                ) : outcome.applied === 0 ? (
                   <XCircle className="h-10 w-10 text-red-400" />
                 ) : (
                   <AlertTriangle className="h-10 w-10 text-yellow-400" />
                 )}
                 <div className="text-center">
                   <p className="text-base font-semibold text-foreground">
-                    {appliedErr === 0
-                      ? `${appliedOk} ajuste${appliedOk !== 1 ? "s" : ""} registrado${appliedOk !== 1 ? "s" : ""} correctamente`
-                      : appliedOk === 0
-                      ? "No se pudo aplicar ningún ajuste"
-                      : `${appliedOk} OK · ${appliedErr} con error`}
+                    {resultHeadline(outcome)}
                   </p>
-                  {appliedErr > 0 && (
+                  {outcomeNote && (
                     <p className="text-sm text-muted-foreground mt-1">
-                      Las filas con error no modificaron el stock.
+                      {outcomeNote}
                     </p>
                   )}
                 </div>
                 <div className="flex items-center gap-2">
-                  {appliedOk  > 0 && <Badge variant="outline" className="text-emerald-400 border-emerald-500/30">{appliedOk} aplicados</Badge>}
-                  {appliedErr > 0 && <Badge variant="outline" className="text-red-400 border-red-500/30">{appliedErr} errores</Badge>}
+                  {outcome.applied > 0 && <Badge variant="outline" className="text-emerald-400 border-emerald-500/30">{countLabel(outcome.applied, "aplicado", "aplicados")}</Badge>}
+                  {outcome.omitted > 0 && <Badge variant="outline" className="text-yellow-400 border-yellow-500/30">{countLabel(outcome.omitted, "omitida", "omitidas")}</Badge>}
+                  {outcome.failed  > 0 && <Badge variant="outline" className="text-red-400 border-red-500/30">{countLabel(outcome.failed, "error", "errores")}</Badge>}
                 </div>
               </div>
 
-              {/* Row results */}
-              {appliedErr > 0 && (
+              {/* Row results — cada fila que no se aplicó figura con su motivo */}
+              {(rejectedRows.length > 0 || omittedRows.length > 0) && (
                 <ScrollArea className="flex-1 h-[220px]">
-                  <div className="px-6 py-3 flex flex-col gap-1.5">
-                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">
-                      Detalle de errores
-                    </p>
-                    {rows
-                      .filter((r) => r.applied === false && r.applyError && r.status !== "error")
-                      .map((row) => (
-                        <div key={row.rowNum} className="flex items-start gap-2 text-xs">
-                          <span className="text-muted-foreground tabular-nums shrink-0 pt-0.5">Fila {row.rowNum}</span>
-                          <span className="font-medium text-foreground shrink-0">{row.resolvedName ?? row.rawName}</span>
-                          <span className="text-red-400">{row.applyError}</span>
-                        </div>
-                      ))}
+                  <div className="px-6 py-3 flex flex-col gap-4">
+                    {rejectedRows.length > 0 && (
+                      <div className="flex flex-col gap-1.5">
+                        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">
+                          Detalle de errores
+                        </p>
+                        {rejectedRows.map((row) => (
+                          <div key={row.rowNum} className="flex items-start gap-2 text-xs">
+                            <span className="text-muted-foreground tabular-nums shrink-0 pt-0.5">Fila {row.rowNum}</span>
+                            <span className="font-medium text-foreground shrink-0">{row.resolvedName ?? row.rawName}</span>
+                            <span className="text-red-400">{row.applyError}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {omittedRows.length > 0 && (
+                      <div className="flex flex-col gap-1.5">
+                        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">
+                          Filas omitidas
+                        </p>
+                        {omittedRows.map((row) => (
+                          <div key={row.rowNum} className="flex items-start gap-2 text-xs">
+                            <span className="text-muted-foreground tabular-nums shrink-0 pt-0.5">Fila {row.rowNum}</span>
+                            <span className="font-medium text-foreground shrink-0">{row.resolvedName ?? row.rawName}</span>
+                            <span className="flex flex-col text-yellow-400">
+                              {row.errors.map((e) => <span key={e}>{e}</span>)}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </ScrollArea>
               )}
@@ -558,12 +641,12 @@ export function StockImportAdjustmentDialog({
                 {applying ? (
                   <><Loader2 className="h-3.5 w-3.5 animate-spin" />Aplicando…</>
                 ) : (
-                  <>Aplicar {okCount} ajuste{okCount !== 1 ? "s" : ""}</>
+                  <>Aplicar {countLabel(okCount, "ajuste", "ajustes")}</>
                 )}
               </Button>
             )}
 
-            {step === 3 && appliedErr > 0 && (
+            {step === 3 && (outcome.failed > 0 || outcome.omitted > 0) && (
               <Button size="sm" variant="outline" onClick={reset} className="gap-1.5">
                 <RotateCcw className="h-3.5 w-3.5" />
                 Importar otro archivo

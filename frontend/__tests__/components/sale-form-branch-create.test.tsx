@@ -10,8 +10,13 @@
  * armar el `meta` sin `branchId`) no quede tapada por los tests del hook, que
  * arman el `meta` a mano.
  *
- * Sin cambios de UI: el selector, su opción por defecto "Sin sucursal
- * (general)" y el opt-in de caja quedan como están.
+ * ventas-sucursal-por-defecto (D9): el selector de la venta ya NO ofrece «Sin
+ * sucursal (general)» (`allowUnassigned={false}`, con el rótulo «Sucursal» dentro
+ * del componente) y muestra la principal. Sin tocar el selector el estado sigue
+ * en `null` y viaja `null`: el SERVIDOR resuelve la principal con datos vivos.
+ * Este archivo fija lo que el FORMULARIO le entrega al selector y lo que el
+ * selector le devuelve; el comportamiento del widget real (principal rotulada,
+ * re-elegirla no emite) lo cubre BranchSelect-sin-sucursal.test.tsx.
  */
 import { describe, it, expect, vi, afterEach } from "vitest"
 import { render, screen, fireEvent, waitFor } from "@testing-library/react"
@@ -19,6 +24,10 @@ import type { Product } from "@/lib/types"
 import { FACTORY_SCALE_SETTINGS } from "@/lib/scale-layout"
 
 const addSaleOperationMock = vi.fn().mockResolvedValue({ ok: true })
+// Props con las que el formulario monta el selector (última render).
+const branchSelectProps = vi.hoisted(() => ({
+  last: null as null | { value: string | null; allowUnassigned?: boolean; label?: string; placeholder?: string },
+}))
 
 const REMERA: Product = {
   id: "p-remera", name: "Remera", category: "Ropa", categoryId: "c1", cost: 50, price: 100, margin: 50,
@@ -37,18 +46,20 @@ vi.mock("@/hooks/data/use-sales", () => ({
 vi.mock("@tanstack/react-query", () => ({ useQueryClient: () => ({ invalidateQueries: vi.fn() }) }))
 vi.mock("@/contexts/auth-context", () => ({ useAuth: () => ({ user: { id: "u1", accountId: "acc-1" } }) }))
 vi.mock("@/hooks/use-units-of-measure", () => ({ useUnitsOfMeasure: () => ({ units: [], unitsById: new Map() }) }))
-// Mock mínimo del selector con el MISMO contrato que el real
-// (`value` + `onChange(id | null)`): una opción por sucursal y la de "Sin
-// sucursal (general)", que entrega `null` — el widget real no importa acá, lo
-// que importa es qué recibe el formulario.
+// Mock mínimo del selector con el MISMO contrato que el real con
+// `allowUnassigned={false}` (`value` + `onChange(id)`): una opción por sucursal y
+// la de la principal. NUNCA entrega `null`: ya no existe «Sin sucursal (general)».
 vi.mock("@/components/branches/BranchSelect", () => ({
-  BranchSelect: ({ onChange }: { value: string | null; onChange: (v: string | null) => void }) => (
-    <div>
-      <button type="button" onClick={() => onChange("branch-a")}>elegir sucursal A</button>
-      <button type="button" onClick={() => onChange("branch-b")}>elegir sucursal B</button>
-      <button type="button" onClick={() => onChange(null)}>sin sucursal</button>
-    </div>
-  ),
+  BranchSelect: (props: { value: string | null; onChange: (v: string | null) => void; allowUnassigned?: boolean; label?: string; placeholder?: string }) => {
+    branchSelectProps.last = props
+    return (
+      <div>
+        <button type="button" onClick={() => props.onChange("branch-a")}>elegir sucursal A</button>
+        <button type="button" onClick={() => props.onChange("branch-b")}>elegir sucursal B</button>
+        <button type="button" onClick={() => props.onChange("branch-principal")}>elegir la principal</button>
+      </div>
+    )
+  },
 }))
 vi.mock("@/components/payment-methods/PaymentMethodSelect", () => ({
   PaymentMethodSelect: () => null,
@@ -108,6 +119,7 @@ const clickBranch = (name: RegExp) => () => fireEvent.click(screen.getByRole("bu
 
 afterEach(() => {
   vi.clearAllMocks()
+  branchSelectProps.last = null
 })
 
 describe("SaleForm (alta) — la sucursal elegida viaja en el meta", () => {
@@ -124,19 +136,28 @@ describe("SaleForm (alta) — la sucursal elegida viaja en el meta", () => {
     expect(call.meta.branchId).toBe("branch-b")
   })
 
-  it("sin elegir ninguna, meta.branchId es null (la venta sigue sin sucursal)", async () => {
+  it("sin tocar el selector, meta.branchId es null: el servidor resuelve la principal (no hay un id inventado en el cliente)", async () => {
     const call = await confirmSale()
 
     expect(call.meta.branchId).toBeNull()
   })
 
-  it("elegir una sucursal y volver a \"Sin sucursal (general)\" entrega null", async () => {
+  it("elegir B y después volver a la principal manda el id de la principal (la última elección gana)", async () => {
     const call = await confirmSale(() => {
-      fireEvent.click(screen.getByRole("button", { name: /elegir sucursal A/i }))
-      fireEvent.click(screen.getByRole("button", { name: /sin sucursal/i }))
+      fireEvent.click(screen.getByRole("button", { name: /elegir sucursal B/i }))
+      fireEvent.click(screen.getByRole("button", { name: /elegir la principal/i }))
     })
 
-    expect(call.meta.branchId).toBeNull()
+    expect(call.meta.branchId).toBe("branch-principal")
+  })
+
+  it("monta el selector SIN la opción «Sin sucursal (general)» y con el rótulo «Sucursal» propio", () => {
+    render(<SaleForm onSuccess={() => {}} />)
+
+    expect(branchSelectProps.last?.allowUnassigned).toBe(false)
+    expect(branchSelectProps.last?.label).toBe("Sucursal")
+    expect(branchSelectProps.last?.placeholder).toBeUndefined()
+    expect(branchSelectProps.last?.value).toBeNull()
   })
 
   // Ronda 1 de revisión: el selector lista `is_active = true` y una sucursal

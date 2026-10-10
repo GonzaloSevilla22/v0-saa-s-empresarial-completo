@@ -8,11 +8,12 @@
  * sucursal por defecto de la cuenta como la primera sucursal ACTIVA por
  * `created_at ASC` (con fallback a la más antigua si ninguna quedó activa).
  * Es una función interna llamada sólo desde otras RPCs — ningún frontend la
- * consulta directo. El equivalente en el cliente ya existe: `useBranches()`
- * devuelve las sucursales activas ordenadas por `created_at ascending`
- * (ver `hooks/data/use-branches.ts`), así que `branches[0]` es EXACTAMENTE
- * esa misma sucursal — el mismo patrón que ya usa `useCashOptin`
- * (`branches[0]?.id`) para resolver la sucursal efectiva por defecto.
+ * consulta directo. El equivalente en el cliente es `resolveDefaultBranch`
+ * (`lib/default-branch.ts`, ventas-sucursal-por-defecto D10) sobre las
+ * sucursales activas que devuelve `useBranches()` ordenadas por `created_at`
+ * ascendente: la primera OPERATIVA (`status = 'active'`). Hasta ese change se
+ * tomaba `branches[0]`, que sólo coincide con el servidor mientras la más
+ * antigua no esté cerrada. Es el mismo helper que usa `useCashOptin`.
  *
  * El incidente que originó este aviso (22-08): una sucursal llena se
  * desactivó sin que nadie se enterara de que las operaciones sin sucursal
@@ -34,6 +35,7 @@
 import { useEffect } from "react"
 import { toast } from "sonner"
 import { useBranches } from "@/hooks/data/use-branches"
+import { resolveDefaultBranch } from "@/lib/default-branch"
 
 const SEEN_KEY = "eie_default_branch_seen"
 
@@ -46,7 +48,8 @@ export function useDefaultBranchNotice(): void {
     // movimiento de stock) — nada que comparar.
     if (branches.length === 0) return
 
-    const defaultBranch = branches[0]
+    const defaultBranch = resolveDefaultBranch(branches)
+    if (!defaultBranch) return
 
     let previous: string | null = null
     try {

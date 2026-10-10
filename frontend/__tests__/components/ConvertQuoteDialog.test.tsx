@@ -33,7 +33,7 @@ const mocks = vi.hoisted(() => ({
   customerBalance: 0,
   emitProps: vi.fn(),
   bankSelectProps: vi.fn(),
-  branches: [{ id: "b-1", name: "Central" }, { id: "b-2", name: "Norte" }] as Array<{ id: string; name: string; status?: string }>,
+  branches: [{ id: "b-1", name: "Central", isActive: true }, { id: "b-2", name: "Norte", isActive: true }] as Array<{ id: string; name: string; isActive?: boolean; status?: string }>,
 }))
 
 vi.mock("@/hooks/data/use-quotes", () => ({
@@ -76,9 +76,22 @@ vi.mock("@/components/fiscal/EmitInvoiceButton", () => ({
   },
 }))
 vi.mock("@/components/branches/BranchSelect", () => ({
-  BranchSelect: ({ value, onChange }: { value: string | null; onChange: (v: string | null) => void }) => (
-    <select aria-label="Sucursal" value={value ?? ""} onChange={(e) => onChange(e.target.value || null)}>
-      <option value="">Sucursal por defecto</option>
+  BranchSelect: ({
+    value,
+    onChange,
+    allowUnassigned = true,
+  }: {
+    value: string | null
+    onChange: (v: string | null) => void
+    allowUnassigned?: boolean
+  }) => (
+    <select
+      aria-label="Sucursal"
+      data-allow-unassigned={String(allowUnassigned)}
+      value={value ?? ""}
+      onChange={(e) => onChange(e.target.value || null)}
+    >
+      {allowUnassigned && <option value="">Sucursal por defecto</option>}
       <option value="b-1">Central</option>
       <option value="b-2">Norte</option>
     </select>
@@ -175,7 +188,7 @@ beforeEach(() => {
   window.sessionStorage.clear()
   mocks.session = { id: "cs-1" }
   mocks.customerBalance = 0
-  mocks.branches = [{ id: "b-1", name: "Central" }, { id: "b-2", name: "Norte" }]
+  mocks.branches = [{ id: "b-1", name: "Central", isActive: true }, { id: "b-2", name: "Norte", isActive: true }]
   mocks.convert.mockResolvedValue(RESULT)
   queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   invalidateSpy = vi.spyOn(queryClient, "invalidateQueries")
@@ -207,6 +220,32 @@ describe("ConvertQuoteDialog — resumen y campos", () => {
   it("la sucursal por defecto es la del presupuesto", () => {
     renderDialog(quote({ branch_id: "b-2" }))
     expect(screen.getByLabelText("Sucursal")).toHaveValue("b-2")
+  })
+
+  // ventas-sucursal-por-defecto (D9, 6.7): la conversión registra una venta, así que su
+  // selector no ofrece «sin sucursal» y muestra de entrada la que se va a usar.
+  it("el selector de la conversión no ofrece «sin sucursal»: con el presupuesto en B y la principal A, muestra B y la venta queda en B", async () => {
+    renderDialog(quote({ branch_id: "b-2" }))
+
+    const selector = screen.getByLabelText("Sucursal")
+    expect(selector).toHaveAttribute("data-allow-unassigned", "false")
+    expect(selector).toHaveValue("b-2")
+    expect(screen.queryByRole("option", { name: /por defecto/i })).not.toBeInTheDocument()
+
+    pickPayment("pm-transfer")
+    fireEvent.click(saleButton())
+    await waitFor(() => expect(mocks.convert).toHaveBeenCalledTimes(1))
+    expect(mocks.convert.mock.calls[0][0].payload.branch_id).toBe("b-2")
+  })
+
+  it("sin sucursal en el presupuesto muestra la principal (la primera operativa), y es la que viaja", async () => {
+    renderDialog()
+
+    expect(screen.getByLabelText("Sucursal")).toHaveValue("b-1")
+    pickPayment("pm-transfer")
+    fireEvent.click(saleButton())
+    await waitFor(() => expect(mocks.convert).toHaveBeenCalledTimes(1))
+    expect(mocks.convert.mock.calls[0][0].payload.branch_id).toBe("b-1")
   })
 
   it("la cuenta bancaria sólo se ofrece con una forma de pago bancaria y se manda si se elige", async () => {
@@ -299,8 +338,8 @@ describe("ConvertQuoteDialog — sucursal por defecto (revisión 6.11, B-02)", (
 
   it("la sucursal por defecto salta las cerradas: igual que c26_default_branch, así caja y venta caen en la misma", async () => {
     mocks.branches = [
-      { id: "b-1", name: "Central", status: "closed" },
-      { id: "b-2", name: "Norte", status: "active" },
+      { id: "b-1", name: "Central", isActive: true, status: "closed" },
+      { id: "b-2", name: "Norte", isActive: true, status: "active" },
     ]
     renderDialog()
     pickPayment("pm-cash")

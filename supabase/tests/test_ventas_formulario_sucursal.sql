@@ -16,14 +16,22 @@
 -- mirar sales.branch_id / stock_movements.branch_id, así que no distinguen "la
 -- elegida" de "la default".
 --
+-- ventas-sucursal-por-defecto (2026-10-09, decisión del PO «sí, que las ventas sin
+-- sucursal queden con la principal»): los bloques (2) y (6c) fijaban el contrato
+-- «sin sucursal -> sales.branch_id NULL» y quedaron escritos para que ESTE change los
+-- cambiara a conciencia. Ahora fijan el contrato nuevo: sin sucursal elegida la venta,
+-- su movimiento de stock y su movimiento bancario llevan la MISMA sucursal, la
+-- principal. El gate hermano test_ventas_sucursal_por_defecto.sql cubre la rama legacy,
+-- la edición, la principal cerrada y la cuenta sin sucursal operativa.
+--
 -- Qué verifica (todo contra Postgres real, llamando a la RPC como el backend):
 --   (1) Alta con sucursal elegida (NO default), operación de 2 líneas:
 --       sales.branch_id = la elegida en TODAS las líneas; stock_movements.
 --       branch_id = la elegida; branch_stock se descuenta en la elegida y la
 --       default NO se toca.
---   (2) Sin sucursal (NULL) — contrato VIGENTE que el fix NO cambia: la venta
---       sigue con branch_id NULL (lo dice la spec `branches`, asociación
---       opcional) y el stock sale de la default.
+--   (2) Sin sucursal (NULL) — contrato de ventas-sucursal-por-defecto: la venta
+--       y su movimiento de stock quedan en la PRINCIPAL (la misma sucursal de la
+--       que sale el stock) y el stock sale de la principal.
 --   (3) Stock insuficiente EN LA ELEGIDA aunque la default tenga de sobra:
 --       P0409 insufficient_branch_stock, nada persistido; la misma venta sin
 --       sucursal SÍ pasa (el gate es por sucursal elegida).
@@ -32,12 +40,12 @@
 --       se rechaza con P0422) y el movimiento aterriza en esa sesión.
 --   (6) Banco: el movimiento bancario lleva la sucursal elegida.
 --
--- Hallazgo que este gate deja ASERTADO (no corregido: es decisión del PO, ver
--- CHANGES.md): con la sucursal NULL la venta queda con branch_id NULL pero el
--- movimiento bancario nace con la sucursal por defecto (la RPC usa
--- v_gate_branch = COALESCE(elegida, default) para el banco y el stock, y la
--- CRUDA para la fila de la venta). El bloque (2) lo fija: si el PO decide
--- persistir la default cuando no se elige ninguna, ese bloque cambia a propósito.
+-- Hallazgo que este gate dejó ASERTADO hasta ventas-sucursal-por-defecto: con la
+-- sucursal NULL la venta quedaba con branch_id NULL pero el movimiento bancario
+-- nacía con la sucursal por defecto (la RPC usaba v_gate_branch =
+-- COALESCE(elegida, default) para el banco y el stock, y la CRUDA para la fila de
+-- la venta). La decisión del PO lo cerró: la RPC persiste v_gate_branch, y los
+-- bloques (2) y (6c) fijan que venta, movimiento de stock y banco coinciden.
 --
 -- Patrón del proyecto (test_edicion_preserva_contexto.sql): acumular fallos en
 -- text[], un solo RAISE EXCEPTION al final. Anchors sintéticos vía
@@ -279,7 +287,7 @@ BEGIN
   END IF;
 
   -- ═══════════════════════════════════════════════════════════════════════
-  -- (2) Sin sucursal (NULL): contrato VIGENTE, el fix NO lo cambia
+  -- (2) Sin sucursal (NULL): ventas-sucursal-por-defecto — queda la PRINCIPAL
   -- ═══════════════════════════════════════════════════════════════════════
   v_fail_before := COALESCE(array_length(v_failures, 1), 0);
 
@@ -295,16 +303,16 @@ BEGIN
   );
   v_op := (v_result->>'operation_id')::uuid;
 
-  SELECT COUNT(*) INTO v_n FROM public.sales WHERE operation_id = v_op AND branch_id IS NULL;
+  SELECT COUNT(*) INTO v_n FROM public.sales WHERE operation_id = v_op AND branch_id = v_branch_def;
   IF v_n <> 1 THEN
-    v_failures := array_append(v_failures, format('FAIL (2 sales.branch_id NULL): sin sucursal elegida la venta debía quedar con branch_id NULL (spec `branches`: asociación opcional), %s filas lo tienen NULL', v_n));
+    v_failures := array_append(v_failures, format('FAIL (2 sales.branch_id): sin sucursal elegida la venta debía quedar en la PRINCIPAL %s (ventas-sucursal-por-defecto), %s filas la tienen', v_branch_def, v_n));
   END IF;
 
   SELECT COUNT(*) INTO v_n
   FROM public.stock_movements sm
-  WHERE sm.operation_group_id = v_op AND sm.reference_type = 'sale' AND sm.branch_id IS NULL;
+  WHERE sm.operation_group_id = v_op AND sm.reference_type = 'sale' AND sm.branch_id = v_branch_def;
   IF v_n <> 1 THEN
-    v_failures := array_append(v_failures, format('FAIL (2 stock_movements.branch_id NULL): el movimiento de stock sin sucursal elegida debía llevar branch_id NULL, %s lo llevan NULL', v_n));
+    v_failures := array_append(v_failures, format('FAIL (2 stock_movements.branch_id): el movimiento de stock sin sucursal elegida debía llevar la PRINCIPAL %s, %s lo llevan', v_branch_def, v_n));
   END IF;
 
   SELECT quantity INTO v_val FROM public.branch_stock WHERE product_id = v_p1 AND branch_id = v_branch_def;
@@ -318,7 +326,7 @@ BEGIN
   END IF;
 
   IF COALESCE(array_length(v_failures, 1), 0) = v_fail_before THEN
-    RAISE NOTICE 'PASS (2): sin sucursal elegida la venta queda con branch_id NULL y el stock sale de la default (contrato vigente, sin cambios)';
+    RAISE NOTICE 'PASS (2): sin sucursal elegida la venta y su movimiento de stock quedan en la principal, de donde sale el stock (ventas-sucursal-por-defecto)';
   END IF;
 
   -- ═══════════════════════════════════════════════════════════════════════
@@ -533,9 +541,8 @@ BEGIN
     v_failures := array_append(v_failures, format('FAIL (6 banco, elegida): el movimiento bancario debía llevar la sucursal ELEGIDA %s, lleva %s', v_branch_b, v_uuid));
   END IF;
 
-  -- Contrato vigente que este gate deja a la vista (decisión del PO, ver el
-  -- encabezado): sin sucursal elegida la venta queda NULL pero el movimiento
-  -- bancario nace con la sucursal por defecto.
+  -- ventas-sucursal-por-defecto: sin sucursal elegida, la venta, su movimiento de
+  -- stock y el movimiento bancario llevan la MISMA sucursal, la principal.
   v_op := NULL;
   BEGIN
     v_result := public.rpc_create_sale_operation(
@@ -551,13 +558,17 @@ BEGIN
   IF v_uuid IS DISTINCT FROM v_branch_def THEN
     v_failures := array_append(v_failures, format('FAIL (6 banco, sin sucursal): sin elegir ninguna el movimiento bancario nace con la DEFAULT %s, lleva %s', v_branch_def, v_uuid));
   END IF;
-  SELECT COUNT(*) INTO v_n FROM public.sales WHERE operation_id = v_op AND branch_id IS NULL;
+  SELECT COUNT(*) INTO v_n FROM public.sales WHERE operation_id = v_op AND branch_id = v_branch_def;
   IF v_n <> 1 THEN
-    v_failures := array_append(v_failures, format('FAIL (6 banco, sin sucursal): la fila de venta de esa operación debía quedar con branch_id NULL, %s lo tienen NULL', v_n));
+    v_failures := array_append(v_failures, format('FAIL (6 banco, sin sucursal): la fila de venta debía llevar la MISMA sucursal que el movimiento bancario (la principal %s), %s la llevan', v_branch_def, v_n));
+  END IF;
+  SELECT COUNT(*) INTO v_n FROM public.stock_movements sm WHERE sm.operation_group_id = v_op AND sm.reference_type = 'sale' AND sm.branch_id = v_branch_def;
+  IF v_n <> 1 THEN
+    v_failures := array_append(v_failures, format('FAIL (6 banco, sin sucursal): el movimiento de stock debía llevar la MISMA sucursal que el movimiento bancario (la principal %s), %s lo llevan', v_branch_def, v_n));
   END IF;
 
   IF COALESCE(array_length(v_failures, 1), 0) = v_fail_before THEN
-    RAISE NOTICE 'PASS (6): banco — el movimiento lleva la sucursal elegida (y la default si no se eligió ninguna)';
+    RAISE NOTICE 'PASS (6): banco — el movimiento lleva la sucursal elegida y, sin elegir ninguna, venta, stock y banco coinciden en la principal';
   END IF;
 
   -- ═══════════════════════════════════════════════════════════════════════
@@ -567,7 +578,7 @@ BEGIN
     RAISE EXCEPTION E'GATE VENTAS-FORMULARIO-SUCURSAL FAILED:\n  %', array_to_string(v_failures, E'\n  ');
   END IF;
 
-  RAISE NOTICE 'GATE VENTAS-FORMULARIO-SUCURSAL PASSED: la sucursal elegida en el alta queda en sales.branch_id y stock_movements.branch_id, el stock/caja/banco se resuelven contra ELLA (P0409 si no alcanza, P0404/P0422 si es ajena/inactiva/cerrada) y sin elegir ninguna se mantiene el contrato vigente (branch_id NULL, stock de la default).';
+  RAISE NOTICE 'GATE VENTAS-FORMULARIO-SUCURSAL PASSED: la sucursal elegida en el alta queda en sales.branch_id y stock_movements.branch_id, el stock/caja/banco se resuelven contra ELLA (P0409 si no alcanza, P0404/P0422 si es ajena/inactiva/cerrada) y sin elegir ninguna la venta y su movimiento de stock quedan en la principal (ventas-sucursal-por-defecto).';
 
   -- ── Limpieza ────────────────────────────────────────────────────────────
   -- Se borra TODA fila con account_id de los dos anchors (incluidas las que

@@ -51,8 +51,12 @@ vi.mock("@/hooks/data/use-supplier-account", () => ({
   useRegisterPaymentMade: () => ({ mutateAsync: registerPaymentMadeMock }),
 }))
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }))
+// ventas-sucursal-por-defecto (D10): la lista es mutable para poder probar la
+// principal del servidor con la sucursal más antigua CERRADA.
+const BRANCHES_DEFAULT = [{ id: "branch-1", name: "Sucursal 1" }]
+let branchesMock: Array<Record<string, unknown>> = BRANCHES_DEFAULT
 vi.mock("@/hooks/data/use-branches", () => ({
-  useBranches: () => ({ branches: [{ id: "branch-1", name: "Sucursal 1" }] }),
+  useBranches: () => ({ branches: branchesMock }),
 }))
 vi.mock("@/hooks/data/use-cashboxes", () => ({
   useCashboxes: (...args: unknown[]) => useCashboxesMock(...args),
@@ -69,6 +73,7 @@ function setup() {
 afterEach(() => {
   vi.clearAllMocks()
   currentSessionMock = null
+  branchesMock = BRANCHES_DEFAULT
 })
 
 async function fillAmount(user: ReturnType<typeof userEvent.setup>, value = "400") {
@@ -84,6 +89,50 @@ async function selectTransfer(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByRole("combobox", { name: /forma de pago/i }))
   await user.click(await screen.findByRole("option", { name: "Transferencia" }))
 }
+
+describe("RegisterPaymentForm (cobro) — la sucursal de la caja es la principal del servidor (ventas-sucursal-por-defecto D10)", () => {
+  it("con la sucursal más antigua CERRADA, el modal ofrece la sesión de la principal OPERATIVA (la siguiente), no la de la cerrada", async () => {
+    branchesMock = [
+      { id: "b-cerrada", name: "Depósito viejo", isActive: true, status: "closed" },
+      { id: "b-operativa", name: "Centro", isActive: true, status: "active" },
+    ]
+    // Sólo la caja de la operativa tiene una sesión abierta.
+    useCashboxesMock.mockImplementation((branchId: string | null) => ({
+      data: branchId === "b-operativa" ? [{ id: "cashbox-operativa" }] : [],
+    }))
+    useCurrentSessionMock.mockImplementation((cashboxId: string | null) => ({
+      data: cashboxId === "cashbox-operativa" ? { id: "session-operativa-1" } : null,
+    }))
+    const user = userEvent.setup()
+    render(<RegisterPaymentForm clientId="client-1" />)
+    await selectCash(user)
+
+    expect(useCashboxesMock).toHaveBeenCalledWith("b-operativa")
+    expect(useCashboxesMock).not.toHaveBeenCalledWith("b-cerrada")
+    const checkbox = screen.getByRole("checkbox")
+    expect(checkbox).toHaveAttribute("data-state", "checked")
+    expect(screen.getByText(/Registrar en caja — sesión/i)).toBeInTheDocument()
+  })
+
+  it("sin ninguna cerrada: la caja sigue buscándose en la primera sucursal (sin cambio de comportamiento)", async () => {
+    branchesMock = [
+      { id: "b-primera", name: "Centro", isActive: true, status: "active" },
+      { id: "b-segunda", name: "Showroom", isActive: true, status: "active" },
+    ]
+    useCashboxesMock.mockImplementation((branchId: string | null) => ({
+      data: branchId === "b-primera" ? [{ id: "cashbox-primera" }] : [],
+    }))
+    useCurrentSessionMock.mockImplementation((cashboxId: string | null) => ({
+      data: cashboxId === "cashbox-primera" ? { id: "session-primera-1" } : null,
+    }))
+    const user = userEvent.setup()
+    render(<RegisterPaymentForm clientId="client-1" />)
+    await selectCash(user)
+
+    expect(useCashboxesMock).toHaveBeenCalledWith("b-primera")
+    expect(screen.getByRole("checkbox")).toHaveAttribute("data-state", "checked")
+  })
+})
 
 describe("RegisterPaymentForm (cobro) — opt-in de caja", () => {
   it("sin elegir forma de pago: el bloque de caja no se ofrece (nada seleccionado todavía)", () => {

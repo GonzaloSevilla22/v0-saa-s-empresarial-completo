@@ -49,11 +49,14 @@ class SaleOperationIn(BaseModel):
     # ventas-formulario-sucursal: sucursal que el usuario eligió en el
     # formulario. La RPC ya la aceptaba (p_branch_id) pero este esquema la
     # descartaba — la venta quedaba con branch_id NULL y el stock, la caja y el
-    # banco se resolvían contra la sucursal por defecto. None = sin sucursal
-    # elegida (cuenta sin módulo de sucursales, o "Sin sucursal (general)"): la
-    # RPC conserva NULL, nunca se inventa una acá. Pertenencia a la cuenta,
-    # sucursal activa y no cerrada las valida la RPC (P0404/P0422).
-    branch_id: uuid.UUID | None = None
+    # banco se resolvían contra la sucursal por defecto. ventas-sucursal-por-
+    # defecto: None = sin sucursal elegida (cuenta sin módulo de sucursales, o el
+    # formulario no la tocó): la RPC la registra en la sucursal PRINCIPAL de la
+    # cuenta (c26_default_branch), nunca se inventa una acá. Pertenencia a la
+    # cuenta, sucursal activa y no cerrada las valida la RPC (P0404/P0422), y sin
+    # ninguna sucursal operativa a la cual resolver rechaza con P0422
+    # no_branch_found.
+    branch_id: uuid.UUID | None = Field(default=None, description="Sin sucursal, la venta se registra en la sucursal principal de la cuenta (la más antigua activa y operativa).")
 
 
 class SaleOperationOut(BaseModel):
@@ -85,6 +88,13 @@ class SaleOperationUpdateIn(BaseModel):
 
     edicion-preserva-contexto (F1 §D3): `branch_id` y `canal` usan el MISMO
     contrato tri-estado por ausencia — `model_fields_set`, nunca `is None`.
+
+    ventas-sucursal-por-defecto (D5): para la VENTA, `branch_id` ya no puede
+    desimputar. Informarlo con `null`, o no informarlo sobre una venta vigente sin
+    sucursal (residuo histórico), la registra en la sucursal PRINCIPAL de la
+    cuenta; una sucursal explícita se reimputa como siempre. El tri-estado sigue
+    viajando igual (`model_fields_set`): lo que cambió es lo que la RPC hace con
+    el `null`. Compra y gasto conservan las tres intenciones.
     """
     sale_ids: list[str]
     items: list[SaleOperationUpdateItemIn]
@@ -92,7 +102,7 @@ class SaleOperationUpdateIn(BaseModel):
     client_id: str | None = None
     currency: str = "ARS"
     payment_method_id: uuid.UUID | None = None
-    branch_id: uuid.UUID | None = None
+    branch_id: uuid.UUID | None = Field(default=None, description="Sin sucursal (informada como null o sin informar sobre una venta sin sucursal), la venta se registra en la sucursal principal de la cuenta.")
     canal: str | None = Field(default=None, max_length=40)
 
 

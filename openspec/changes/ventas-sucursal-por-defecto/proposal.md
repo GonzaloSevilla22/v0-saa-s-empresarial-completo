@@ -74,8 +74,8 @@ Ninguna.
 ## Impact
 
 - **Base de datos**:
-  - `supabase/migrations/20261069000001_ventas_sucursal_por_defecto.sql`: reescribe `rpc_create_sale_operation_v2`, `rpc_create_sale_operation` (wrapper con rama legacy) y `rpc_atomic_update_sale_operation` desde su `pg_get_functiondef` **vivo de producción**, detrás de un preflight de `md5`. Sin cambio de firma (sin `DROP`, sin riesgo de overload `42725`). Se conservan `COMMENT` y ACLs.
-  - `supabase/migrations/20261069000002_ventas_sucursal_por_defecto_backfill.sql`: datos solamente; se escribe recién con el OK del PO sobre OQ-4, OQ-5 y OQ-6.
+  - `supabase/migrations/20261075000001_ventas_sucursal_por_defecto.sql`: reescribe `rpc_create_sale_operation_v2`, `rpc_create_sale_operation` (wrapper con rama legacy) y `rpc_atomic_update_sale_operation` desde su `pg_get_functiondef` **vivo de producción**, detrás de un preflight de `md5`. Sin cambio de firma (sin `DROP`, sin riesgo de overload `42725`). Se conservan `COMMENT` y ACLs.
+  - `supabase/migrations/20261075000002_ventas_sucursal_por_defecto_backfill.sql`: datos solamente; se escribe recién con el OK del PO sobre OQ-4, OQ-5 y OQ-6.
   - Las dos numeraciones quedan reservadas después de las de `presupuestos-modulo` (`20261067000001`/`20261068000001`), que no toca ninguna de estas funciones.
 - **Frontend**:
   - `frontend/lib/default-branch.ts` (nuevo);

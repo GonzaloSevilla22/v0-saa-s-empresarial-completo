@@ -999,9 +999,9 @@ jobs:
           # reconvergido.
 
           # punto-venta-seleccion (2026-09-26): reaplicación de 20261063000001
-          # sobre el estado reconvergido, DESPUÉS del bloque de 20261062000001
-          # (mismo criterio: el eslabón más nuevo se reaplica sobre la historia
-          # real completa). Es idempotente por construcción -- ADD COLUMN IF
+          # sobre el estado reconvergido (el bloque de reaplicación de
+          # 20261062000001 que la precedía se retiró, ver arriba; mismo criterio:
+          # el eslabón más nuevo se reaplica sobre la historia real completa). Es idempotente por construcción -- ADD COLUMN IF
           # NOT EXISTS, CHECK guardado contra pg_constraint, índice único
           # parcial IF NOT EXISTS, CREATE OR REPLACE de rpc_emit_pending_cae con
           # la MISMA firma de 9 parámetros (sin 42725), COMMENT y REVOKE/GRANT
@@ -1010,7 +1010,7 @@ jobs:
           # rpc_emit_subscription_payment_cae, que D5 deja intacta). SIN
           # tolerancia, y el schema (constraints + firmas + ACLs) tiene que
           # quedar IDÉNTICO al de antes del paso. No redefine ninguna de las
-          # diez funciones del bloque de 20261062000001.
+          # diez funciones de 20261062000001 (bloque retirado).
           PVS_OUT=$(psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261063000001_punto_venta_predeterminado.sql 2>&1) || { echo "$PVS_OUT"; echo "ERROR: el reapply de 20261063000001 falló (sin tolerancia)."; exit 1; }
           echo "$PVS_OUT"
           if ! echo "$PVS_OUT" | grep -qF 'punto-venta-seleccion (introspecci'; then
@@ -1032,7 +1032,7 @@ jobs:
           # FUNCTION IF EXISTS de la firma VIEJA de 4 parámetros (no-op en la
           # segunda pasada) + CREATE OR REPLACE de la de 5 (misma firma, sin
           # 42725); COMMENT y REVOKE/GRANT re-emitidos idénticos. No redefine
-          # ninguna de las diez funciones del bloque de 20261062000001 ni
+          # ninguna de las diez funciones de 20261062000001 (bloque retirado) ni
           # rpc_emit_pending_cae de 20261063000001. Su bloque DO de
           # introspección tiene que imprimir OK también en la segunda pasada;
           # SIN tolerancia, y el schema tiene que quedar IDÉNTICO.
@@ -1085,15 +1085,16 @@ jobs:
           # REPLACE VIEW/FUNCTION con la misma forma (rpc_bulk_upsert_products
           # con la MISMA firma, sin 42725), CREATE TABLE IF NOT EXISTS, DROP
           # POLICY/TRIGGER IF EXISTS + CREATE, REVOKE/GRANT idempotentes.
-          # Va DESPUÉS del bloque de 20261062000001 a propósito: esa
-          # reaplicación hace DROP VIEW + CREATE VIEW v_products_with_stock SIN
-          # scale_plu, y schema_snapshot() no mira las columnas de las vistas —
-          # así que, además del diff vacío, se exige que scale_plu vuelva a ser
-          # la ÚLTIMA columna de la vista (el NOTICE de la introspección de la
-          # migración la nombra, y se re-consulta information_schema). SIN
-          # tolerancia. Verificado local: dos aplicaciones seguidas sin error y
-          # schema idéntico; 20261062000001 reaplicada deja base_unit_id como
-          # última columna y 20261066000001 la devuelve a scale_plu.
+          # El bloque de reaplicación de 20261062000001 que la precedía (DROP
+          # VIEW + CREATE VIEW v_products_with_stock SIN scale_plu) se retiró;
+          # la aserción sigue valiendo sobre el estado reconvergido:
+          # schema_snapshot() no mira las columnas de las vistas, así que,
+          # además del diff vacío, se exige que scale_plu sea la ÚLTIMA columna
+          # de la vista (el NOTICE de la introspección de la migración la
+          # nombra, y se re-consulta information_schema). SIN tolerancia.
+          # Verificado local: dos aplicaciones seguidas sin error y schema
+          # idéntico (cuando el bloque retirado se reaplicaba dejaba base_unit_id
+          # como última columna y 20261066000001 la devolvía a scale_plu).
           BAL_OUT=$(psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261066000001_balanza_etiquetas_pos.sql 2>&1) || { echo "$BAL_OUT"; echo "ERROR: el reapply de 20261066000001 falló (sin tolerancia)."; exit 1; }
           echo "$BAL_OUT"
           if ! echo "$BAL_OUT" | grep -qF 'balanza-etiquetas-pos (introspecci'; then
@@ -1152,7 +1153,7 @@ jobs:
           # su EXECUTE (nunca lo re-otorga) y redefine el núcleo y
           # rpc_convert_quote_to_sale con CREATE OR REPLACE sobre firmas fijas
           # (sin overload, sin 42725). No toca _c29_confirm_order_core (el de
-          # 20261062000001, reaplicado arriba). SIN tolerancia: exige el OK de
+          # 20261062000001, que ya no se reaplica). SIN tolerancia: exige el OK de
           # su bloque de introspección (una definición de cada función, wrapper
           # que delega con su COMMENT vivo, ACLs) y el schema IDÉNTICO.
           PRESB_OUT=$(psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261068000001_presupuestos_conversion_venta.sql 2>&1) || { echo "$PRESB_OUT"; echo "ERROR: el reapply de 20261068000001 falló (sin tolerancia)."; exit 1; }
@@ -1286,6 +1287,56 @@ jobs:
             exit 1
           fi
           echo "20261071000001 idempotente: introspección OK, cuerpos de remitos-venta y remitos-compra presentes y schema IDÉNTICO al previo a este paso."
+
+          # ventas-sucursal-por-defecto (2026-10-09, governance MEDIA con tramo
+          # ALTO): reaplicación de 20261075000001 (las tres funciones de venta) y
+          # de 20261075000002 (el backfill de datos) AL FINAL de la cadena,
+          # DESPUÉS de 20261070000001 y de 20261071000001. 20261070000001
+          # reaplicada re-instala el cuerpo vivo de rpc_atomic_update_sale_
+          # operation (y su COMMENT) que 20261075000001 reescribe: por eso la
+          # PRIMERA pasada puede tomar la rama de reescritura de esa función (la
+          # v2 y el wrapper conservan el cuerpo de la migración desde el reset),
+          # y la SEGUNDA exige los TRES NOTICE «ya es el cuerpo de esta
+          # migración» (reaplicación pura). Una migración posterior que
+          # redefina cualquiera de las tres funciones tiene que retirar este
+          # bloque en el mismo PR (regla escrita arriba para 20261062000001):
+          # su preflight abortaría, igual que el de aquélla. SIN tolerancia, y el
+          # schema (constraints + firmas + ACLs) tiene que quedar IDÉNTICO tras
+          # cada pasada. El archivo de datos corre sobre una base sin ventas
+          # sin sucursal (recién reconvergida): su NOTICE final tiene que decir
+          # 0 ventas asignadas.
+          VSPD_OUT1=$(psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261075000001_ventas_sucursal_por_defecto.sql 2>&1) || { echo "$VSPD_OUT1"; echo "ERROR: el reapply de 20261075000001 falló (sin tolerancia)."; exit 1; }
+          echo "$VSPD_OUT1"
+          VSPD_OUT2=$(psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261075000001_ventas_sucursal_por_defecto.sql 2>&1) || { echo "$VSPD_OUT2"; echo "ERROR: la segunda pasada de 20261075000001 falló (sin tolerancia)."; exit 1; }
+          echo "$VSPD_OUT2"
+          VSPD_REAPPLIED=$(echo "$VSPD_OUT2" | grep -cF 'ya es el cuerpo de esta migración' || true)
+          if [ "$VSPD_REAPPLIED" != "3" ]; then
+            echo "ERROR: la segunda pasada de 20261075000001 imprimió $VSPD_REAPPLIED de 3 NOTICE de reaplicación (ya es el cuerpo de esta migración)."
+            exit 1
+          fi
+          if ! echo "$VSPD_OUT2" | grep -qF 'ventas-sucursal-por-defecto (introspecci'; then
+            echo "ERROR: el reapply de 20261075000001 no imprimió el OK de su bloque de introspección."
+            exit 1
+          fi
+          schema_snapshot > /tmp/schema_after_vspd_reapply.txt
+          if ! diff -u /tmp/schema_before_reapply.txt /tmp/schema_after_vspd_reapply.txt > /tmp/schema_diff_vspd.txt; then
+            echo "NOT IDEMPOTENT: reaplicar 20261075000001 cambió el schema (constraints + firmas de función + ACLs):"
+            cat /tmp/schema_diff_vspd.txt
+            exit 1
+          fi
+          VSPD_DATA_OUT=$(psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261075000002_ventas_sucursal_por_defecto_backfill.sql 2>&1) || { echo "$VSPD_DATA_OUT"; echo "ERROR: el reapply de 20261075000002 falló (sin tolerancia)."; exit 1; }
+          echo "$VSPD_DATA_OUT"
+          if ! echo "$VSPD_DATA_OUT" | grep -qF ' 0 ventas asignadas en 0 cuentas'; then
+            echo "ERROR: el reapply de 20261075000002 no informó 0 ventas asignadas (la base recién reconvergida no tiene ventas sin sucursal)."
+            exit 1
+          fi
+          schema_snapshot > /tmp/schema_after_vspd_data_reapply.txt
+          if ! diff -u /tmp/schema_before_reapply.txt /tmp/schema_after_vspd_data_reapply.txt > /tmp/schema_diff_vspd_data.txt; then
+            echo "NOT IDEMPOTENT: reaplicar 20261075000002 cambió el schema:"
+            cat /tmp/schema_diff_vspd_data.txt
+            exit 1
+          fi
+          echo "20261075000001 y 20261075000002 idempotentes: 3 NOTICE de reaplicación, introspección OK, 0 ventas asignadas por el backfill y schema IDÉNTICO al previo a este paso."
 
       # -v ON_ERROR_STOP=1 is required: without it psql prints RAISE EXCEPTION
       # errors but still exits 0, so failing assertions show green in CI.
@@ -2762,17 +2813,43 @@ jobs:
       # Llama a rpc_create_sale_operation como el backend: (1) alta en una sucursal
       # NO default, 2 líneas -> sales.branch_id y stock_movements.branch_id = la
       # elegida, branch_stock baja en la elegida y la default queda intacta; (2) sin
-      # sucursal -> branch_id NULL y stock de la default (contrato vigente, el fix NO
-      # lo cambia); (3) la elegida sin stock aunque la default alcance -> P0409
+      # sucursal -> la venta y su movimiento de stock quedan en la PRINCIPAL, de donde
+      # sale el stock (ventas-sucursal-por-defecto: este bloque fijaba antes
+      # branch_id NULL y cambió a propósito); (3) la elegida sin stock aunque la default alcance -> P0409
       # insufficient_branch_stock sin nada persistido, y la misma venta sin sucursal
       # pasa; (4) sucursal ajena/inactiva -> P0404, cerrada -> P0422; (5) caja: el
       # opt-in exige la sesión de la sucursal elegida (la de la default -> P0422) y
-      # el movimiento aterriza ahí; (6) banco: el movimiento lleva la elegida (y la
-      # default si no se eligió ninguna). created_at explícito y estrictamente
+      # el movimiento aterriza ahí; (6) banco: el movimiento lleva la elegida y, sin
+      # elegir ninguna, venta, stock y banco coinciden en la principal (el bloque 6c
+      # también cambió a propósito con ventas-sucursal-por-defecto). created_at explícito y estrictamente
       # posterior en las sucursales sintéticas (c26_default_branch no desempata) y
       # limpieza completa de las filas sembradas por handle_new_user.
       - name: Run ventas formulario sucursal gate
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_ventas_formulario_sucursal.sql
+
+      # ventas-sucursal-por-defecto (2026-10-09, governance MEDIA con tramo ALTO;
+      # decisión del PO «sí, que las ventas sin sucursal queden con la principal»).
+      # `supabase start` ya aplicó 20261075000001 y 20261075000002; este paso
+      # corre su gate, que EJECUTA las RPCs. PARTE A: (0) introspección de los
+      # cuerpos VIVOS (sucursal resuelta en los seis INSERT, guard P0422
+      # no_branch_found, md5 = el del preflight, COMMENT de la edición, una firma,
+      # ACLs; falla explícito si una reaplicación de CI pisó un cuerpo); (1) alta
+      # sin sucursal por el wrapper y por la v2: sales.branch_id y stock_movements
+      # .branch_id = la principal; (2) rama legacy (flag sale_items_rpc_v2 =
+      # false): paridad; (3) principal cerrada -> la siguiente operativa; (3b)
+      # ninguna sucursal operativa -> P0422 en la v2, la legacy y la edición; (4)
+      # cuenta sin sucursales -> P0422; (5) edición: NULL se resuelve a la
+      # principal; (6) caja y banco en la MISMA sucursal; (8b) y (9b)
+      # caracterización de OQ-8 (a): Facturar venta manual y el borrado sobre una
+      # sucursal guardada que dejó de operar (candidato aparte). PARTE B (una
+      # transacción, la migración de datos con \i DOS veces sobre fixtures reales):
+      # (7) cada caso de D6, movimientos completados sólo con origen demostrable,
+      # auditoría por cuenta, sin efectos laterales y segunda corrida sin cambios;
+      # (8) Facturar venta manual sobre la operación antes mixta; (9) el borrado
+      # repone donde dice el movimiento. Corre desde la raíz del repo (el \i es
+      # relativo). created_at explícito en las sucursales y los movimientos.
+      - name: Run ventas sucursal por defecto gate
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_ventas_sucursal_por_defecto.sql
 
       # presupuestos-modulo tanda A (2026-10-01, governance MEDIA; sign-off del
       # PO 2026-10-01). `supabase start` ya aplicó 20261067000001; este paso

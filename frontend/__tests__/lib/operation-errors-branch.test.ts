@@ -41,11 +41,34 @@ describe("humanizeOperationError — rechazos por sucursal", () => {
     expect(action).toBeUndefined()
   })
 
-  it("no atrapa tokens parecidos de otro dominio: `no_branch_found` del POS sigue pasando tal cual", () => {
-    const raw = "no_branch_found: la cuenta no tiene sucursal activa"
-    const { message, action } = humanizeOperationError(raw)
-    expect(message).toBe(raw)
+  // ventas-sucursal-por-defecto (D3, tarea 6.3): desde que el alta y la edición de
+  // una venta sin sucursal elegida se resuelven a la principal, una cuenta SIN
+  // ninguna sucursal operativa (ninguna, o todas desactivadas o cerradas) recibe
+  // P0422 `no_branch_found`. Este caso fijaba que el token pasaba tal cual y se
+  // modifica A PROPÓSITO: ahora se traduce, con el texto que ya usa "Facturar venta
+  // manual" (`use-promote-to-order`) ajustado sólo para nombrar la salida real.
+  it("no_branch_found (cuenta sin ninguna sucursal operativa) → explica la salida: crear o reabrir una desde Sucursales, sin el token", () => {
+    const { message, action } = humanizeOperationError(
+      "no_branch_found: la cuenta no tiene una sucursal operativa a la cual asignar la venta",
+    )
+    expect(message).toMatch(/No encontramos una sucursal activa en la cuenta/)
+    expect(message).toMatch(/Cre[aá] una o reabr[ií] una cerrada desde Sucursales/)
+    expect(message).not.toContain("no_branch_found")
     expect(action).toBeUndefined()
+  })
+
+  it("no_branch_found llega envuelto por el mapeo RFC 7807 del backend y se traduce igual", () => {
+    const { message } = humanizeOperationError(
+      "Conflicto: no_branch_found: la cuenta no tiene una sucursal operativa a la cual asignar la venta",
+    )
+    expect(message).toMatch(/No encontramos una sucursal activa en la cuenta/)
+  })
+
+  it("no confunde `no_branch_found` con `branch_not_found` (la sucursal elegida ajena o desactivada): cada token tiene su texto", () => {
+    const sinSucursal = humanizeOperationError("no_branch_found: la cuenta no tiene una sucursal operativa a la cual asignar la venta").message
+    const ajena = humanizeOperationError("branch_not_found or not active for this account").message
+    expect(sinSucursal).not.toBe(ajena)
+    expect(ajena).toMatch(/no existe, está desactivada o no pertenece a esta cuenta/i)
   })
 
   it("el stock insuficiente de la sucursal elegida sigue siendo el mensaje de stock con la acción de transferir", () => {

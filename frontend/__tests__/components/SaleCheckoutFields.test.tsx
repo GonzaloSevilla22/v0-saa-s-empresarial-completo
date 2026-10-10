@@ -2,38 +2,46 @@
  * remitos-venta (tanda B, 7.4) — `SaleCheckoutFields` gana la prop aditiva
  * `branchReadOnly`: la sucursal se MUESTRA (por nombre) en vez de elegirse. La
  * usa la conversión de un remito, que se imputa a la sucursal de donde salió el
- * stock (D7). El presupuesto no la pasa y tiene que seguir exactamente igual:
- * `BranchSelect` con su valor y su placeholder.
+ * stock (D7). El presupuesto no la pasa y sigue usando `BranchSelect` con su valor.
+ *
+ * ventas-sucursal-por-defecto (D9, tarea 6.7): la conversión de un presupuesto
+ * REGISTRA UNA VENTA, así que su selector de sucursal sigue la regla de toda
+ * superficie que registra una venta: `allowUnassigned={false}` (sin «Sucursal por
+ * defecto»/«Sin sucursal»: se ve siempre la sucursal que se va a usar) y el rótulo
+ * «Sucursal» DENTRO del selector (no huérfano en las cuentas sin el módulo).
  */
 import React from "react"
-import { describe, it, expect, vi } from "vitest"
+import { describe, it, expect, vi, beforeEach } from "vitest"
 import { render, screen, fireEvent } from "@testing-library/react"
 import "@testing-library/jest-dom"
 
 vi.mock("@/hooks/data/use-customer-account", () => ({
   useCustomerAccount: () => ({ data: undefined }),
 }))
+// Props con las que el contenedor monta el selector (última render).
+const branchSelectProps = vi.hoisted(() => ({
+  last: null as null | { value: string | null; allowUnassigned?: boolean; label?: string; placeholder?: string },
+}))
 vi.mock("@/components/branches/BranchSelect", () => ({
-  BranchSelect: ({
-    value,
-    onChange,
-    placeholder,
-  }: {
+  BranchSelect: (props: {
     value: string | null
     onChange: (v: string | null) => void
+    allowUnassigned?: boolean
+    label?: string
     placeholder?: string
-  }) => (
-    <select
-      aria-label="Selector de sucursal"
-      data-placeholder={placeholder}
-      value={value ?? ""}
-      onChange={(e) => onChange(e.target.value || null)}
-    >
-      <option value="">{placeholder}</option>
-      <option value="b-1">Central</option>
-      <option value="b-2">Norte</option>
-    </select>
-  ),
+  }) => {
+    branchSelectProps.last = props
+    return (
+      <select
+        aria-label="Selector de sucursal"
+        value={props.value ?? ""}
+        onChange={(e) => props.onChange(e.target.value || null)}
+      >
+        <option value="b-1">Central</option>
+        <option value="b-2">Norte</option>
+      </select>
+    )
+  },
 }))
 vi.mock("@/components/payment-methods/PaymentMethodSelect", () => ({
   PaymentMethodSelect: () => <div data-testid="payment-method-select" />,
@@ -69,15 +77,29 @@ function renderFields(extra: Partial<React.ComponentProps<typeof SaleCheckoutFie
   return { onBranchChange }
 }
 
+beforeEach(() => {
+  branchSelectProps.last = null
+})
+
 describe("SaleCheckoutFields — sucursal", () => {
-  it("sin la prop (el presupuesto): el selector de sucursal de siempre, con su valor y su placeholder", () => {
+  it("sin la prop (el presupuesto): el selector de sucursal con su valor, sin opción «sin sucursal» y con el rótulo propio (la venta siempre tiene sucursal)", () => {
     const { onBranchChange } = renderFields()
 
     const select = screen.getByLabelText("Selector de sucursal")
     expect(select).toHaveValue("b-1")
-    expect(select).toHaveAttribute("data-placeholder", "Sucursal por defecto")
+    expect(branchSelectProps.last?.allowUnassigned).toBe(false)
+    expect(branchSelectProps.last?.label).toBe("Sucursal")
+    expect(branchSelectProps.last?.placeholder).toBeUndefined()
     fireEvent.change(select, { target: { value: "b-2" } })
     expect(onBranchChange).toHaveBeenCalledWith("b-2")
+  })
+
+  it("el rótulo «Sucursal» lo pone el selector: el contenedor no agrega un <label> huérfano aparte", () => {
+    renderFields()
+
+    // El selector está mockeado y no dibuja su rótulo: si el contenedor lo dibujara
+    // también, aparecería acá (en las cuentas sin módulo quedaría suelto, sin control).
+    expect(screen.queryByText("Sucursal")).not.toBeInTheDocument()
   })
 
   it("con branchReadOnly: muestra el NOMBRE de la sucursal y no ofrece ningún selector", () => {

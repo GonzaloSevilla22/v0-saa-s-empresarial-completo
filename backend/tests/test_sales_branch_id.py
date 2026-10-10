@@ -72,8 +72,8 @@ async def test_repository_create_operation_binds_branch_id_by_name():
 
 
 async def test_repository_create_operation_without_branch_binds_null():
-    """Sin sucursal elegida la RPC recibe NULL (V6): la venta sigue quedando con
-    branch_id NULL, que es lo que declara la spec `branches` — nunca se
+    """Sin sucursal elegida la RPC recibe NULL (V6) y ella la registra en la
+    sucursal PRINCIPAL de la cuenta (ventas-sucursal-por-defecto) — nunca se
     inventa una sucursal en el repositorio."""
     conn, captured = _capturing_conn()
 
@@ -209,7 +209,8 @@ async def test_post_sales_delivers_the_chosen_branch_to_the_rpc(async_client, mo
 
 
 async def test_post_sales_without_branch_keeps_sending_null(async_client, mock_pool):
-    """V6: sin sucursal elegida el alta sigue exactamente como antes."""
+    """V6: sin sucursal elegida el alta sigue transportando NULL (la RPC la
+    resuelve a la sucursal principal de la cuenta)."""
     pool, conn = mock_pool
     captured = _post_capturing(conn)
 
@@ -285,3 +286,17 @@ async def test_post_sales_insufficient_stock_in_chosen_branch_is_409(async_clien
     body = resp.json()
     assert body["code"] == "P0409"
     assert "insufficient_branch_stock" in body["detail"]
+
+
+# ── ventas-sucursal-por-defecto (D11): el contrato queda documentado en OpenAPI ─────────────
+
+
+def test_schema_branch_id_documents_that_no_branch_means_the_principal():
+    """Sin sucursal, la venta se registra en la sucursal principal de la cuenta (la RPC la
+    resuelve): el campo lo dice en OpenAPI en el alta y en la edición, así el contrato no
+    depende de leer un comentario del servicio."""
+    from backend.schemas.sales import SaleOperationUpdateIn
+
+    for model in (SaleOperationIn, SaleOperationUpdateIn):
+        description = model.model_json_schema()["properties"]["branch_id"].get("description", "")
+        assert "sucursal principal" in description, model.__name__

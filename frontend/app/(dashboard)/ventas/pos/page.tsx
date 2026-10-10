@@ -78,6 +78,7 @@ import {
 } from "@/lib/unit-utils"
 import { getCanonicalLabel } from "@/lib/product-labels"
 import { humanizeOperationError } from "@/lib/operation-errors"
+import { resolveDefaultBranch } from "@/lib/default-branch"
 
 // ── Error code → friendly Spanish messages ────────────────────────────────────
 //
@@ -159,11 +160,15 @@ export default function PosPage() {
   const [focusQuantityToken, setFocusQuantityToken] = useState(0)
 
   // ── Branch / cash session resolution ─────────────────────────────────────────
-  // Use the first active branch to resolve the cashbox. The backend also resolves
+  // Use the principal branch to resolve the cashbox. The backend also resolves
   // the default branch (c26_default_branch) if branch_id is omitted, so we only
   // need the branch to look up the cashbox → session for cash payments.
+  // ventas-sucursal-por-defecto (D10): la principal es `resolveDefaultBranch`
+  // (espejo de c26_default_branch: la más antigua activa y OPERATIVA), no
+  // `branches[0]` — con la más antigua cerrada el POS mandaba la cerrada y
+  // _c29_confirm_order_core rechazaba la venta con `branch_closed`.
   const { branches }             = useBranches()
-  const activeBranch             = branches[0] ?? null
+  const activeBranch             = resolveDefaultBranch(branches)
 
   const { data: cashboxes }      = useCashboxes(activeBranch?.id ?? null)
   const firstCashbox             = cashboxes?.[0] ?? null

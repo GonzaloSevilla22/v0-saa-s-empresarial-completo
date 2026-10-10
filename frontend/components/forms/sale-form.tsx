@@ -734,10 +734,16 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
           </div>
 
           {/* ── Sucursal (solo plan PRO) ──────────────────────────────── */}
+          {/* ventas-sucursal-por-defecto (D9): sin «Sin sucursal (general)»: se ve la
+              principal ya elegida (marcada «(principal)») y el rótulo vive dentro del
+              selector, así que no queda huérfano en las cuentas sin el módulo. El
+              estado sigue en `null` hasta que se elige otra: viaja `null` y el
+              SERVIDOR resuelve la principal con datos vivos. */}
           <BranchSelect
             value={branchId}
             onChange={setBranchId}
-            placeholder="Sin sucursal (general)"
+            allowUnassigned={false}
+            label="Sucursal"
             className="bg-background border-border text-foreground text-sm"
           />
 

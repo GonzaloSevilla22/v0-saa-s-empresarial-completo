@@ -14,9 +14,17 @@
  * `branchReadOnly` (remitos-venta, D7): la sucursal NO se elige, se muestra por
  * nombre. La usa la conversión de un remito, que se imputa a la sucursal de donde
  * salió el stock: una venta en otra sucursal desalinearía la caja de su stock. Es
- * aditiva — sin ella (el presupuesto) el campo es el `BranchSelect` de siempre — y
- * muestra el nombre aunque el plan no tenga módulo de sucursales (el selector, en
- * cambio, no se renderiza en esos planes).
+ * aditiva — sin ella (el presupuesto) el campo es el `BranchSelect` — y muestra el
+ * nombre aunque el plan no tenga módulo de sucursales (el selector, en cambio, no
+ * se renderiza en esos planes).
+ *
+ * ventas-sucursal-por-defecto (D9, tarea 6.7): la conversión REGISTRA UNA VENTA, y
+ * toda superficie que registra una venta con un selector de sucursal usa
+ * `allowUnassigned={false}`: sin «Sin sucursal» ni «Sucursal por defecto», muestra de
+ * entrada la sucursal que el servidor va a usar. El contenedor ya resuelve esa
+ * sucursal (la elegida, la del documento de origen o la principal) y la pasa como
+ * `branchId`, así que lo mostrado es lo que se guarda. El rótulo «Sucursal» vive
+ * dentro del selector: sin el módulo de sucursales no queda un rótulo huérfano.
  *
  * El texto del bloqueo vive en un elemento con `id` estable
  * (`SALE_CHECKOUT_REASON_ID`) para que el botón lo referencie con
@@ -69,21 +77,22 @@ export function SaleCheckoutFields({
 
   return (
     <fieldset disabled={disabled} className="flex min-w-0 flex-col gap-4 border-0 p-0">
-      <div className="flex flex-col gap-2">
-        <Label className="text-sm text-foreground">Sucursal</Label>
-        {branchReadOnly ? (
+      {branchReadOnly ? (
+        <div className="flex flex-col gap-2">
+          <Label className="text-sm text-foreground">Sucursal</Label>
           <p className="min-w-0 break-words rounded-md border border-border bg-muted/40 px-3 py-2 text-sm font-medium text-foreground">
             {branchName ?? "La sucursal del remito"}
           </p>
-        ) : (
-          <BranchSelect
-            value={branchId}
-            onChange={onBranchChange}
-            placeholder="Sucursal por defecto"
-            className="bg-background border-border text-foreground"
-          />
-        )}
-      </div>
+        </div>
+      ) : (
+        <BranchSelect
+          value={branchId}
+          onChange={onBranchChange}
+          allowUnassigned={false}
+          label="Sucursal"
+          className="bg-background border-border text-foreground"
+        />
+      )}
 
       <PaymentMethodSelect
         value={paymentMethodId}

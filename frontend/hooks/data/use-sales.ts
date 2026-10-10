@@ -249,10 +249,12 @@ export function useSales() {
         client_id:       opMeta.clientId ?? null,
         currency:        opMeta.currency,
         // ventas-formulario-sucursal: la sucursal elegida en el formulario
-        // viaja SIEMPRE (null = "Sin sucursal (general)" o cuenta sin módulo).
-        // El tipo del `meta` ya la aceptaba, pero el alta no la incluía: la
-        // venta quedaba con branch_id NULL y el stock/caja/banco se resolvían
-        // contra la sucursal por defecto. Misma convención que compras.
+        // viaja SIEMPRE. ventas-sucursal-por-defecto: sin sucursal elegida (el
+        // formulario no la tocó, o la cuenta no tiene el módulo de sucursales)
+        // viaja `null` y la RPC registra la venta en la sucursal PRINCIPAL de la
+        // cuenta — la que resuelve el servidor, con datos vivos. Antes el alta no
+        // la incluía y la venta quedaba con branch_id NULL. Misma convención que
+        // compras en el transporte (compras sigue guardando NULL, OQ-3).
         branch_id:       opMeta.branchId ?? null,
         canal:           opMeta.canal ?? null,
         payment_method_id: opMeta.paymentMethodId ?? null,

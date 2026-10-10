@@ -41,6 +41,7 @@ import { useConvertQuote } from "@/hooks/data/use-quotes"
 import { useIdempotencyKey } from "@/hooks/use-idempotency-key"
 import { useSaleCheckout } from "@/hooks/use-sale-checkout"
 import { PythonApiError } from "@/lib/api/python-api-error"
+import { resolveDefaultBranch } from "@/lib/default-branch"
 import { formatMoney, formatNumber } from "@/lib/format"
 import { humanizeOperationError, type HumanizedOperationError } from "@/lib/operation-errors"
 import { queryKeys } from "@/lib/query-keys"
@@ -82,15 +83,17 @@ function ConvertQuoteDialogBody({ quote, open, onOpenChange }: ConvertQuoteDialo
   const submittingRef = useRef(false)
 
   // La sucursal de la venta: la elegida, la del presupuesto o, si no hay ninguna,
-  // la por defecto — la más antigua ACTIVA y ABIERTA, el mismo criterio de
+  // la por defecto — `resolveDefaultBranch` (lib/default-branch.ts, ventas-sucursal-
+  // por-defecto D10): la más antigua ACTIVA y ABIERTA, el mismo criterio de
   // `c26_default_branch` (el hook de sucursales sólo filtra `is_active`, así que
   // una sucursal cerrada podía quedar primera). Es la MISMA que se usa para
   // resolver la caja y la que viaja en el payload: el servidor aplica
   // `COALESCE(p_branch_id, quote.branch_id, default)`, así que resolverla
   // distinto acá dejaría la sesión de una sucursal y la venta en otra (P0422).
-  // Sin ninguna abierta queda `null`: el hook de caja y el servidor caen los dos
-  // en la más antigua a secas.
-  const defaultBranchId = branches.find((b) => b.status !== "closed")?.id ?? null
+  // El selector (`SaleCheckoutFields`, `allowUnassigned={false}`) muestra siempre
+  // esta sucursal: lo que se ve es lo que se guarda. Sin ninguna abierta,
+  // `resolveDefaultBranch` cae en la más antigua a secas, como el servidor.
+  const defaultBranchId = resolveDefaultBranch(branches)?.id ?? null
   const resolvedBranchId = branchId ?? quote.branch_id ?? defaultBranchId
   const checkout = useSaleCheckout({
     paymentMethodId,

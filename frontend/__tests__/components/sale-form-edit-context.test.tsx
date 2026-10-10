@@ -168,6 +168,16 @@ describe("SaleForm — edición preserva contexto (branch/canal/unit + bloqueo f
     expect(screen.getByTestId("branch-select-value").textContent).toBe("branch-b")
   })
 
+  it("una venta SIN sucursal (residuo histórico) abre con el selector en null — el selector real muestra la principal — y viaja null: el servidor la resuelve a la principal (ventas-sucursal-por-defecto D5)", async () => {
+    render(<SaleForm onSuccess={() => {}} editingOperation={makeOperation({ branchId: null })} />)
+    expect(screen.getByTestId("branch-select-value").textContent).toBe("null")
+
+    fireEvent.click(screen.getByRole("button", { name: /Guardar cambios/i }))
+
+    await vi.waitFor(() => expect(updateSaleOperationMock).toHaveBeenCalledTimes(1))
+    expect(updateSaleOperationMock.mock.calls[0][0].meta.branchId).toBeNull()
+  })
+
   it("el payload de edición incluye branchId y canal vigentes (no se omiten)", async () => {
     render(<SaleForm onSuccess={() => {}} editingOperation={makeOperation()} />)
     const submitButton = screen.getByRole("button", { name: /Guardar cambios/i })

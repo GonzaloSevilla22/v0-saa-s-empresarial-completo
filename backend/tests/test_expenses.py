@@ -146,3 +146,27 @@ async def test_get_expense_cross_org_empty(async_client, mock_pool):
             headers={"Authorization": f"Bearer {other_token}"},
         )
     assert resp.status_code == 404
+
+
+# ── compras-gastos-sucursal-por-defecto (D10): el contrato queda documentado en OpenAPI ─────────
+
+
+def test_schema_branch_id_documents_that_no_branch_means_the_principal():
+    """Sin sucursal, el gasto se registra en la sucursal principal de la cuenta (el alta la
+    resuelve desde gastos-forma-pago y la edición desde compras-gastos-sucursal-por-defecto): el
+    campo lo dice en OpenAPI en el alta y en la edición."""
+    from backend.schemas.expenses import ExpenseCreate, ExpenseUpdate
+
+    for model in (ExpenseCreate, ExpenseUpdate):
+        description = model.model_json_schema()["properties"]["branch_id"].get("description", "")
+        assert "sucursal principal" in description, model.__name__
+
+
+def test_update_schema_branch_id_documents_that_null_no_longer_unassigns():
+    """BREAKING declarado (design D5): en la edición, un branch_id null (informado, o un gasto
+    histórico sin sucursal) deja de desimputar y se resuelve a la sucursal principal; forma de
+    pago y centro de costo siguen desimputando con null."""
+    from backend.schemas.expenses import ExpenseUpdate
+
+    description = ExpenseUpdate.model_json_schema()["properties"]["branch_id"].get("description", "")
+    assert "null" in description and "desimputa" in description, description

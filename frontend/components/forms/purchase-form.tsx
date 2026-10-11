@@ -785,13 +785,19 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
               `PurchaseCheckoutFields` de este archivo): el selector de sucursal no está en lo
               que extrae, pero quien aplique segundo mantiene `allowUnassigned={false}` y el
               `label` acá. */}
-          <BranchSelect
-            value={branchId}
-            onChange={setBranchId}
-            allowUnassigned={false}
-            label="Sucursal"
-            className="bg-background border-border text-foreground text-sm"
-          />
+          {/* En móvil (375 px) la mitad de la fila trunca «Casa Central (principal)» y la marca
+              «(principal)» —lo que el usuario necesita ver— se pierde: el selector ocupa la fila
+              entera (`col-span-2`) y vuelve a media columna desde `sm`. `empty:hidden` evita una
+              celda vacía en las cuentas sin el módulo (el selector no renderiza nada). */}
+          <div className="col-span-2 sm:col-span-1 empty:hidden">
+            <BranchSelect
+              value={branchId}
+              onChange={setBranchId}
+              allowUnassigned={false}
+              label="Sucursal"
+              className="bg-background border-border text-foreground text-sm"
+            />
+          </div>
 
           {/* ── Centro de costo (opcional, V2.5) ──────────────────────── */}
           <CostCenterSelect

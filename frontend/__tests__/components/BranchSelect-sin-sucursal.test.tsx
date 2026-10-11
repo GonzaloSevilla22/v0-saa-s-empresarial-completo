@@ -167,7 +167,7 @@ describe("BranchSelect — rótulo propio", () => {
   })
 })
 
-describe("BranchSelect con allowUnassigned (por defecto true) — compra, gasto e importador no cambian", () => {
+describe("BranchSelect con allowUnassigned (por defecto true) — el presupuesto no cambia", () => {
   it("conserva «Sin sucursal (general)» como primera opción y NO marca ninguna como principal", async () => {
     const user = userEvent.setup()
     render(<BranchSelect value={null} onChange={vi.fn()} />)

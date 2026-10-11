@@ -1,0 +1,132 @@
+> **Governance:** tanda A **MEDIA**; tanda B **MEDIA-ALTA** (render de la Factura C). Los grupos marcados 🛑 reescriben
+> una RPC viva o dibujan el documento fiscal: se para, se muestra lo hecho (diff y evidencia) y se sigue con visto bueno.
+> El resto es autónomo.
+>
+> **TDD estricto** en SQL, backend y frontend: test que falla **visto fallar** → mínimo código → triangular → refactor.
+> Nunca aserciones triviales. Todo gate negativo exige **control positivo** del mismo camino. CUITs de fixtures sólo de la
+> allow-list sintética de `backend/tests/test_fixtures_sin_cuit_real.py`.
+>
+> **Todo commit vía PR, jamás a `main`.** Ramas: `opsx/documentos-marca-empresa-apply-a` (tanda A) y
+> `opsx/documentos-marca-empresa-apply-b` (tanda B, recién con la A verificada en prod). Archivos en LF, sin `\r`.
+>
+> **Sign-off del PO (2026-10-11):** *"continuá con todo lo recomendado"* — las OQ-1…OQ-14 del design se implementan según
+> su recomendación. Desvío del brief declarado: el logo se guarda **en la base** normalizado (D2), no en un bucket.
+>
+> **No tocar** `CHANGES.md`, `CLAUDE.md`, `AGENTS.md` ni `openspec/changes/{remitos-venta,remitos-compra,compras-gastos-sucursal-por-defecto}/`
+> hasta el archive (grupo 15).
+
+# Tanda A — marca de la cuenta en todos los papeles no fiscales (`20261078000001`)
+
+## 0. Checkpoint de estado (ANTES de escribir una línea)
+
+- [ ] 0.1 `git fetch origin main` + rama `opsx/documentos-marca-empresa-apply-a` desde `origin/main`. Elegir el número de migración: `ls supabase/migrations` en `origin/main`, `gh pr list --state open` y `MAX(version)` en prod (sólo lectura; al propose: `20261077000002`, 325 filas; `compras-gastos-sucursal-por-defecto` reserva `20261076000001/2`). Si `20261078000001` está tomado, usar el siguiente libre y anotarlo acá y en el design.
+- [ ] 0.2 Cuerpo vivo de `rpc_commercial_issuer(uuid)` en prod: `pg_get_functiondef` sin `\r` (md5 al propose `3abc66aee3eb3c2b19d5f8a3305941d9`, 1.119 caracteres), `COMMENT` (md5 `a5e87fd4ee87573eb38049659cd3ea37`), `proacl` (`{postgres=X, authenticated=X, service_role=X}`), `prosecdef`, `provolatile = s`. Comparar por líneas contra `20261067000001:939-980`. Si difiere, partir del vivo y anotar. Guardar el cuerpo previo fuera del repo para el rollback.
+- [ ] 0.3 Re-contar en prod y en el stack local las políticas que invocan `is_account_writer` (al propose **43 / 17 tablas**), el `relacl` de `scale_settings` (molde) y confirmar que `public.account_branding` no existe.
+- [ ] 0.4 **Safety net** (stack local, `supabase db reset` completo): backend `pytest` de `test_receipts.py`, `test_receipts_unit_price_precision.py`, `test_commercial_document_pdf.py`, `test_quotes_module*.py`, `test_delivery_notes_module*.py`, `test_invoice_pdf.py`, `test_factura_fiscal_*.py`; frontend `vitest` de `__tests__/lib/receipt*.test.ts`, `__tests__/components/ventas/sale-receipt-button*.test.tsx`, `__tests__/app/ConfiguracionPage-*.test.tsx`, `__tests__/lib/token-contrast-aa.test.ts`, `__tests__/QuoteDetailPage.test.tsx`, `__tests__/DeliveryNoteDetailPage.test.tsx`; gates `test_presupuestos_modulo.sql`, `test_is_account_writer_pivot.sql`, `test_function_acl_gate.sql`, `test_anon_table_writes_revoked.sql`, `test_balanza_etiquetas_pos.sql`, `test_remitos_venta.sql`, `test_remitos_compra.sql`. Anotar "N passing" por suite. Un rojo preexistente → parar y reportar, no se arregla acá.
+- [ ] 0.5 Grep de consumidores y anotarlos: `rpc_commercial_issuer`, `EMERALD`/`SLATE`/`GRAY`, `SalesReceiptData`, `build_quote_view`, `build_delivery_note_view`, `CommercialDocumentView(`, `resolve_commercial_issuer`, `_ISSUER_IVA_LEGEND`, `_format_cuit`, `generateReceipt`, `buildSalesReceiptPdfPayload`, `businessEmail`, `logoUrl`, `user?.avatar`. Ningún consumidor nuevo fuera de los del design → seguir; si aparece uno, sumarlo al plan.
+
+## 1. Gate SQL — RED
+
+- [ ] 1.1 Crear `supabase/tests/test_documentos_marca_empresa.sql` (molde `test_balanza_etiquetas_pos.sql` + `test_accounts_privilege_columns.sql`; `BEGIN … ROLLBACK`; usuarios `@test.local` con owner, admin, seller, viewer de la cuenta A y owner de la cuenta B; email de Auth del dueño A conocido) con los bloques del design D13: **(a)** metadatos y privilegios (3 políticas exactas sin DELETE, `relacl` sin `anon` y sin `d`/`D` para `authenticated`, disparador `BEFORE INSERT OR UPDATE`, función guard `SECURITY DEFINER` sin `EXECUTE` para `PUBLIC`/`anon`/`authenticated`); **(b)** matriz de `CHECK`s (texto en blanco, largos, email, CUIT, sitio con espacio o `<`, paleta fuera del catálogo, `personalizado` sin color, color con `azul`, color con mayúsculas o 3 dígitos, logo parcial, tipo que no coincide con la firma, logo > 300 KB, ancho > 1000) cada una con `23514` y su fila válida aceptada; **(c)** RLS y guard bajo `SET LOCAL ROLE authenticated` + claims (owner y admin insertan y actualizan; seller `P0401`; viewer `42501`; B no lee ni escribe la fila de A; mudar `account_id` `P0401`; `DELETE` → `42501` con texto *permission denied*); **(d)** `rpc_commercial_issuer` ejecutada como seller no dueño (18 claves exactas; valores de marca, fiscales y del dueño; **ningún valor** igual al email de Auth del dueño; sin fila de marca → claves nuevas `NULL`; `P0404` para B); **(e)** introspección (una sola firma, `prosecdef`, `STABLE`, ACL exacta, `COMMENT` con "document-branding"); **(f)** residuo cero.
+- [ ] 1.2 Correr el gate contra la base en HEAD (sin la migración): **RED visto** en (a)-(e). Pegar la salida en `openspec/changes/documentos-marca-empresa/evidence/logs/`.
+- [ ] 1.3 `supabase/tests/test_presupuestos_modulo.sql` bloque (n) (~L1124): de 6 a las **18 claves exactas** del design D4, con la aserción de que ningún valor es el email de Auth del dueño. `supabase/tests/test_is_account_writer_pivot.sql`: **43/17 → 45/18** con la línea de mantenimiento en la cabecera ("documentos-marca-empresa suma `account_branding_writer_insert`/`_update`"). Correr: **RED visto** en los dos.
+
+## 2. 🛑 Migración de la tanda A — GREEN
+
+- [ ] 2.1 Crear `supabase/migrations/20261078000001_documentos_marca_empresa.sql` (LF) con cabecera (procedencia, pedido del PO, medición del propose, sign-off, desvío del logo en la base): `CREATE TABLE IF NOT EXISTS public.account_branding` con las columnas y `CHECK`s de D1; `COMMENT ON TABLE/COLUMN`; `ENABLE ROW LEVEL SECURITY`; las tres políticas (`DROP POLICY IF EXISTS` + `CREATE`); `REVOKE ALL … FROM anon`; `REVOKE DELETE, TRUNCATE, REFERENCES, TRIGGER … FROM authenticated`; `account_branding_guard_owner_admin()` (cuerpo espejo de `scale_settings_guard_owner_admin`, `20261066000001:220-263`) + `REVOKE ALL ON FUNCTION … FROM PUBLIC, anon, authenticated` + trigger; `CREATE OR REPLACE FUNCTION public.rpc_commercial_issuer(uuid)` **desde el cuerpo vivo de 0.2**, cambiando SÓLO el `LEFT JOIN public.account_branding` y las 12 claves nuevas (marcadas con un comentario `documentos-marca-empresa`); `REVOKE ALL … FROM PUBLIC, anon` + `GRANT EXECUTE … TO authenticated` (idempotentes); `COMMENT` actualizado; bloque `DO` de introspección (una firma, ACL exacta, `prosecdef`). Sin `DROP FUNCTION`.
+- [ ] 2.2 🛑 Mostrar el diff del cuerpo de la RPC contra el vivo (sólo las líneas marcadas) antes de seguir.
+- [ ] 2.3 `supabase db reset` completo → gate nuevo **GREEN** en (a)-(f); `test_presupuestos_modulo.sql` y `test_is_account_writer_pivot.sql` **GREEN**; `test_function_acl_gate.sql` y `test_anon_table_writes_revoked.sql` siguen verdes.
+- [ ] 2.4 Reaplicar el archivo dos veces sobre la base migrada: sin error y mismo estado (idempotencia).
+- [ ] 2.5 Cablear `test_documentos_marca_empresa.sql` en `.github/workflows/KPI_Validation.yml` (paso nuevo con `psql -v ON_ERROR_STOP=1`, comentario de qué prueba), al final de la cadena de gates.
+
+## 3. Backend — paleta y contraste
+
+- [ ] 3.1 RED: fixture compartido `backend/tests/fixtures/document_palette_cases.json` (colores del catálogo, `#10b981` 2,54 rechazado, `#059669` 3,77 rechazado, `#7c2d12` 9,37 aceptado, `#facc15` 1,53 rechazado, `#ffffff`, `#000000`, texto esperado sobre cada acento) + `backend/tests/test_document_palette.py` (contraste a 2 decimales contra el fixture; todo el catálogo ≥ 4,5:1; Neutro sin acento y con la tinta de la factura; `best_text_on`; `resolve_palette` cae a Neutro con preset desconocido, color mal formado o ilegible). Visto fallar (el módulo no existe).
+- [ ] 3.2 GREEN: `backend/services/commercial_documents/palette.py` (D3/D5).
+- [ ] 3.3 Triangular con un segundo color personalizado aceptado y uno en el borde (4,49 vs 4,50); refactor con tests verdes.
+
+## 4. Backend — logo
+
+- [ ] 4.1 RED: `backend/tests/test_document_logo.py` con imágenes generadas en el test (Pillow): PNG 2400×600 con transparencia → PNG 1000×250 con canal alfa; JPEG 4000×3000 con EXIF → JPEG 1000×750 ≤ 300 KB sin EXIF; WebP → PNG o JPEG; foto con orientación EXIF → rotada; SVG, GIF, BMP y texto → `unsupported` (415); PNG cuyo encabezado declara 20000×20000 → `invalid` **sin** llamar a `load()` (espía); bytes corruptos → `invalid`; ruido que no baja de 300 KB a 1000 ni a 600 px → `too_heavy`; huella SHA-256 de los bytes guardados; `load_logo_for_render` → `None` con tipo distinto al guardado o > 1000 px, y `LogoImage` válido en el caso normal; `fit_box` (horizontal, vertical, cuadrado, más chico que la caja). Visto fallar.
+- [ ] 4.2 GREEN: `backend/services/commercial_documents/logo.py` (D2), sin dependencias nuevas.
+- [ ] 4.3 Triangular (PNG en modo `P` con transparencia; JPEG en CMYK) y refactor con tests verdes.
+
+## 5. Backend — emisor, marca y encabezado compartido
+
+- [ ] 5.1 Mover `_format_cuit` y `_ISSUER_IVA_LEGEND` de `backend/services/fiscal/invoice_pdf.py` a `backend/services/fiscal/comprobante.py` como `format_cuit` e `ISSUER_IVA_LEGEND`; `invoice_pdf.py` los importa. `test_invoice_pdf.py` y `test_factura_fiscal_*.py` verdes antes y después (sin cambios de comportamiento).
+- [ ] 5.2 RED: fixture compartido `backend/tests/fixtures/document_issuer_cascade_cases.json` (entrada = claves de la RPC; salida = emisor impreso y origen por campo: sin marca igual a hoy, marca completa sin perfil fiscal, perfil fiscal que manda sobre la marca, nombre comercial que manda sobre la fantasía, teléfono del dueño de respaldo, ningún email fuera de `brand_email`, CUIT con y sin guiones) + tests en `backend/tests/test_commercial_document_pdf.py`; **reemplazar** `test_the_issuer_never_carries_an_email` por "el emisor lleva sólo el email del negocio de la marca" y "`issuer_from_rpc` ignora cualquier otra clave con un email". Visto fallar.
+- [ ] 5.3 GREEN: `commercial_documents/issuer.py` (`CommercialIssuer` con `iva_legend`, `email`, `website`, y `sources`; cascada de D4) y `commercial_documents/text.py` (`pdf_text`, promovido desde `pdf.py`).
+- [ ] 5.4 RED → GREEN: `commercial_documents/branding.py` (`DocumentBranding`, `DocumentBranding.neutral(issuer)`, `resolve_document_branding`): un repositorio falso que cuenta llamadas prueba que (i) sólo se llama a la RPC, (ii) los bytes del logo se piden sólo con huella, (iii) el segundo pedido con la misma huella sale del caché y uno con huella nueva no, (iv) un logo ilegible deja `logo = None`, (v) claves nuevas ausentes (RPC vieja) → Neutro y sin logo. `CommercialIssuerMixin` (`repositories/commercial_document_support.py`) suma `get_document_logo(account_id)` con filtro explícito por `account_id`.
+- [ ] 5.5 RED → GREEN: `commercial_documents/header.py` (`IssuerBlock`, `HeaderLine`, `measure_issuer_column`, `draw_issuer_column`): el alto medido es igual al dibujado; con logo, el nombre empieza debajo del logo; sin logo, arriba; ningún texto sale del ancho de la columna (nombre largo y email largo); el logo nunca se deforma (proporción de `fit_box`).
+
+## 6. Backend — presupuesto y remitos
+
+- [ ] 6.1 RED en `backend/tests/test_commercial_document_pdf.py` (pypdf): presupuesto, remito de venta y remito de compra con logo → `len(page.images) == 1`; sin logo → 0; paleta "bordo" → el operador del bordó en el flujo de contenido; **ningún** papel contiene `0.0627 0.7255 0.5059` (el verde); presupuesto aceptado con Neutro → sello en tinta; leyenda al pie de la cuenta en todas las páginas de un presupuesto de 80 líneas y la leyenda del documento sigue; email del negocio, web y `CUIT: 20-12345678-6` impresos; logo ilegible → PDF sin imagen. Visto fallar.
+- [ ] 6.2 GREEN: `commercial_documents/view.py` (`branding: DocumentBranding` en lugar de `issuer`), `commercial_documents/pdf.py` (`_issuer_block` con `draw_issuer_column`, paleta en título/regla/cabecera/total/sello ACEPTADO, pie con la leyenda de la cuenta y alto calculado una vez; deja de importar `EMERALD`/`SLATE`/`GRAY`), `services/quotes.py` y `services/delivery_notes.py` (`resolve_document_branding` para el PDF; `issuer_name` sigue con `resolve_commercial_issuer`).
+- [ ] 6.3 Actualizar `test_quotes_module*.py` y `test_delivery_notes_module*.py`: el PDF recibe la marca; `issuer_name` con `brand_display_name` gana sobre la fantasía; sin marca, el mismo nombre que antes.
+- [ ] 6.4 Triangular (remito sin precios con logo cuadrado; presupuesto con emoji en el nombre comercial) y refactor con tests verdes.
+
+## 7. Backend — comprobante interno
+
+- [ ] 7.1 RED en `backend/tests/test_receipts.py`: `build_sales_receipt_pdf` con una marca (nombre, logo, email del negocio, paleta azul) → texto e imagen presentes, operador del azul, sin verde; sin marca → Neutro; `POST /sales/receipt-pdf` con `business_name` "Otro Nombre" y `business_email` "login@example.com" → 200 con el emisor de la cuenta del JWT y sin esos textos; payload sin los campos de negocio → 200; sin sesión → 401; el **recibo de suscripción** (`build_receipt_pdf`) conserva su `EMERALD` y "ALIADATA". Visto fallar.
+- [ ] 7.2 GREEN: `services/receipts.py` (`SalesReceiptData.branding`; encabezado con `draw_issuer_column`; paleta; pie con la leyenda de la cuenta), `services/sales_receipt.py` (nuevo: resuelve la marca y arma los datos), `routers/sales.py` (`get_account_id` + `get_db_conn`, sin lógica), `schemas/sales.py` (campos de negocio opcionales, ignorados y documentados como obsoletos).
+- [ ] 7.3 Triangular (venta sin cliente; nombre con "—") y refactor; `test_receipts_unit_price_precision.py` verde.
+
+## 8. Backend — API `/document-branding`
+
+- [ ] 8.1 RED: `backend/tests/test_document_branding_api.py`: `GET` sin fila → valores por defecto, `is_default`, Neutro, `palettes` con las 6 claves, `issuer` igual a la cascada, `sources`, `fiscal` `null` sin perfil fiscal, sin ningún email de Auth en todo el JSON; `PUT` de owner y de admin → 200 y el `GET` lo refleja; seller y cajero → 403 sin escribir; 422 por largo, email, CUIT, web, preset, coherencia paleta/color y `branding_accent_low_contrast`; texto en blanco → `null`; `PUT /logo` → 200 con `logo`, 413 por stream sin leer el resto y por `Content-Length`, 415 con SVG aunque el `Content-Type` diga `image/png`, 422 con bomba y con corrupto; `DELETE /logo` → 204 dos veces; `GET /logo` → 404 `branding_logo_not_found` y 200 con `Content-Type`, `ETag` y `Cache-Control: private`; 401 sin sesión en los cinco; el repositorio filtra por `account_id` (otra cuenta no ve nada). Visto fallar.
+- [ ] 8.2 GREEN: `schemas/document_branding.py`, `repositories/document_branding_repository.py`, `services/document_branding.py` (`require_account_role(conn, auth, CAN_CONFIGURE)` antes de escribir), `routers/document_branding.py` (lectura del cuerpo por `request.stream()` con tope de 2 MiB) y registro en `backend/main.py`.
+- [ ] 8.3 Triangular (dos `PUT` seguidos conservan el logo; `PUT /logo` sin fila crea la fila con Neutro) y refactor; backend completo verde con coverage ≥ el umbral de CI.
+
+## 9. Frontend — librerías y hooks
+
+- [ ] 9.1 RED → GREEN: `frontend/__tests__/lib/color-contrast.test.ts` lee `backend/tests/fixtures/document_palette_cases.json` → `frontend/lib/color-contrast.ts` (`hexToRgb`, `relativeLuminance`, `contrastRatio`, `bestTextOn`, `MIN_ACCENT_CONTRAST`). Refactor: `__tests__/lib/token-contrast-aa.test.ts` importa la aritmética de la lib (actualizar su comentario de "se promueve con un segundo consumidor"); sus 28 pares siguen verdes.
+- [ ] 9.2 RED → GREEN: `frontend/__tests__/lib/document-branding.test.ts` → `frontend/lib/document-branding.ts`: tipos del contrato (sin `any`), esquema Zod del formulario (largos, email, CUIT con `isValidCuit` de `lib/cuit-utils.ts`, web, hex), `previewIssuer(form, fiscal, ownerFallback)` contra `backend/tests/fixtures/document_issuer_cascade_cases.json`, `isSafeLogoDataUri`, `isSafeHexColor`, `toReceiptBranding`.
+- [ ] 9.3 `frontend/hooks/data/use-document-branding.ts` (`useDocumentBranding`, `useUpdateDocumentBranding`, `useUploadDocumentLogo` con `fetch` + `getAuthHeaders` + `redirectedOnUnauthorized` y cuerpo binario, `useDeleteDocumentLogo`, `useDocumentLogoDataUri`) + `lib/query-keys.ts` (`documentBranding.all/detail/logo`); tests con `pythonClient` mockeado (respuesta inválida → valores por defecto sin romper; guardar invalida marca, presupuestos y remitos).
+
+## 10. Frontend — comprobante interno
+
+- [ ] 10.1 RED en `frontend/__tests__/lib/receipt.test.ts` (y `receipt-unit-price.test.ts` donde aplique): HTML con nombre, razón social, CUIT, IVA, domicilio, teléfono, email del negocio, web y leyenda al pie de la marca; logo como `<img src="data:image/png;base64,…">`; un `data:` inválido o `https://…` → sin `<img>` (inicial); sin `--emerald`; variables de la paleta con hex validado (hex inválido → Neutro); escapado de todos los textos; la web como texto, nunca `<a>`; textos de WhatsApp y portapapeles con el contacto del negocio y sin email de login; `buildSalesReceiptPdfPayload` sin campos de negocio. Visto fallar.
+- [ ] 10.2 GREEN `frontend/lib/receipt.ts`.
+- [ ] 10.3 RED → GREEN en `__tests__/components/ventas/sale-receipt-button*.test.tsx` → `components/ventas/sale-receipt-button.tsx`: usa `useDocumentBranding` (nunca `user.businessName`, `user.email` ni `user.avatar`); precarga la marca y el logo al abrir el menú; si la marca no llegó al hacer clic, abre la pestaña primero y la llena después; si falla, imprime con Neutro y avisa; el flujo de factura no cambia.
+
+## 11. Frontend — pestaña "Documentos"
+
+- [ ] 11.1 RED → GREEN `components/settings/DocumentHeaderPreview.tsx` (+ test): logo, nombre, líneas, título de documento, banda y total con la paleta; fondo blanco también en tema oscuro; sin logo, sin `<img>`.
+- [ ] 11.2 RED → GREEN `components/settings/DocumentLogoUpload.tsx` (+ test): `accept` de PNG/JPEG/WebP; rechazo previo de > 2 MB y de otros tipos con mensaje; sube y muestra el logo que devolvió el servidor; "Quitar logo" con confirmación; mensajes en castellano para 413/415/422; deshabilitado en sólo lectura.
+- [ ] 11.3 RED → GREEN `components/settings/DocumentBrandingSettings.tsx` (+ test): campos y validaciones; con perfil fiscal, razón social/CUIT/domicilio/IVA de sólo lectura con enlace a `?tab=fiscal`; paletas como `RadioGroup` accesible; personalizado con `input type="color"` + hex y medidor de contraste que deshabilita Guardar bajo 4,5:1; vista previa que cambia en vivo; payload del `PUT` (vacíos como `null`); un vendedor ve todo en sólo lectura; aviso de qué papeles la usan.
+- [ ] 11.4 RED → GREEN `app/(dashboard)/configuracion/page.tsx`: `TAB_VALUES` con `"documentos"` después de `"fiscal"`, `TabsTrigger` + `TabsContent` con encabezado y descripción; test nuevo `__tests__/app/ConfiguracionPage-documentos-tab.test.tsx` (`?tab=documentos` abre la pestaña; 12 pestañas) y actualización de `ConfiguracionPage-balanza-tab.test.tsx` / `ConfiguracionPage-etiqueta-ia.test.tsx` si cuentan pestañas.
+- [ ] 11.5 E2E `frontend/e2e/documentos-marca.spec.ts` (molde `factura-imprimible.spec.ts` + `fixtures/fiscal-e2e.ts`, stack local): el dueño completa la marca, sube un PNG generado en el test, elige "Bordó", guarda, la vista previa lo refleja; un presupuesto sembrado por API descarga un PDF real (`%PDF`); un vendedor ve la pestaña en sólo lectura. Correr en las 4 combinaciones (1366×768 / 375×812 × claro / oscuro), con capturas y `expectNoHorizontalOverflow`.
+- [ ] 11.6 Revisión visual y de accesibilidad de la pestaña y del comprobante HTML: etiquetas asociadas, navegación con teclado del selector de paletas, foco visible, contraste de los textos de la pestaña (tokens semánticos; gate `token-contrast-aa` verde), sin desborde a 360 px.
+
+## 12. Verificación y PR de la tanda A
+
+- [ ] 12.1 Suites completas en local: backend `pytest -m "not integration"` con coverage (≥ umbral de CI), frontend `pnpm vitest run` (sin pipe que enmascare el exit code), `tsc --noEmit` sin errores nuevos, gates SQL en el orden real de `KPI_Validation.yml` sobre `db reset` limpio. Anotar resultados.
+- [ ] 12.2 Revisión adversarial (un solo juez): XSS en el HTML imprimible (logo, colores, textos), bomba de descompresión y tipos disfrazados en la subida, tenencia de la tabla y de los endpoints, email de Auth en cualquier salida (RPC, `GET`, PDFs, textos), ventanas de despliegue de D12. Corregir lo que encuentre antes del PR.
+- [ ] 12.3 Commit `feat(documentos): …` (co-autoría según la regla del proyecto) + PR con la evidencia de 1.2, 2.2 y 2.3 y la declaración de que la Factura C llega en la tanda B. CI verde (incluido `validate-kpis`). Merge.
+- [ ] 12.4 Post-merge, sólo lectura en prod: `MAX(version) = 20261078000001` (o el número elegido); `account_branding` con RLS, 3 políticas, `relacl`; `rpc_commercial_issuer` con una firma, ACL exacta y las 18 claves; deploy de Render confirmado (dispararlo si falta); un PDF de presupuesto de una cuenta sin marca sale sin verde.
+- [ ] 12.5 Humo del PO en prod: configurar su marca (logo, datos, paleta), descargar y mandar por WhatsApp un comprobante interno, un presupuesto y un remito.
+
+# Tanda B — la Factura C suma logo, contacto y color (sin migración)
+
+## 13. 🛑 Factura C
+
+- [ ] 13.0 Rama `opsx/documentos-marca-empresa-apply-b` desde `origin/main` con la tanda A en prod. Safety net: `test_invoice_pdf.py`, `test_factura_fiscal_*.py`, `frontend/e2e/factura-imprimible.spec.ts` verdes; anotar.
+- [ ] 13.1 RED en `backend/tests/test_invoice_pdf.py`: sin marca, el texto de la factura de prueba (molde del caso Sumar, con CUIT sintético) es **idéntico** al de antes y sin imágenes; con marca (logo + teléfono + email + web) → una imagen y los tres textos; cuenta sin marca con teléfono del dueño → el teléfono **no** aparece; paleta azul → operador del azul en la banda de la tabla y en "FACTURA", y el QR, la letra y el CAE en negro/tinta (operadores en el flujo); la leyenda al pie de la marca **no** aparece; una marca con razón social distinta no cambia la razón social impresa; recuadro que crece con logo cuadrado + fantasía larga + 3 líneas de contacto y la tabla empieza debajo (coordenadas del helper); 60 líneas → cada página repite el encabezado con el logo; `invoice_print_service` resuelve la marca de la cuenta del comprobante. Visto fallar.
+- [ ] 13.2 GREEN: `services/fiscal/invoice_pdf.py` (`render_invoice_pdf(view, branding=None)`; `_draw_header` con `IssuerBlock` medido y alto dinámico; `_draw_table_head` y el título con la paleta; `_INK`/`_MUTED`/`_RULE`/`_HEAD_FILL` desde `NEUTRAL`; QR sin cambios), `services/fiscal/invoice_print_service.py` y la dependencia del repositorio de marca en `routers/fiscal.py`. `build_invoice_view` **sin cambios**.
+- [ ] 13.3 Triangular (logo horizontal 4:1; sin nombre de fantasía; sólo email) y refactor con tests verdes.
+- [ ] 13.4 🛑 Verificación visual: en el stack local con el stub en homologación, facturas de 1 y de 60 líneas con logo horizontal y cuadrado, fantasía larga y las tres líneas de contacto, en Neutro y en Azul; y la factura 0003-00000501 de Sumar re-renderizada en local con sus datos (sólo lectura) sin marca y con una marca de prueba. Revisar superposiciones, márgenes y que el QR se lea con la cámara del celular. Capturas a `evidence/`. Parar y mostrar antes del PR.
+- [ ] 13.5 Frontend: la pestaña "Documentos" suma la Factura C en "Dónde se usa" ("sólo logo, contacto y color de la tabla"); test actualizado. `frontend/e2e/factura-imprimible.spec.ts` sigue verde.
+
+## 14. PR de la tanda B, verificación y humo
+
+- [ ] 14.1 Suites del backend y del frontend afectadas + `factura-imprimible.spec.ts`; revisión adversarial centrada en el documento fiscal (nada fiscal cambia de fuente ni de color; QR intacto).
+- [ ] 14.2 Commit `feat(fiscal): …` + PR (sin migración, declarado) con las capturas de 13.4. CI verde. Merge. Deploy de Render confirmado.
+- [ ] 14.3 Humo del PO en prod: reimprimir una factura propia con su marca configurada y escanear el QR.
+
+## 15. Archive
+
+- [ ] 15.1 `openspec archive documentos-marca-empresa` (después de `remitos-venta` y `remitos-compra` si es posible, D14): verificar en HEAD que los requirements de `document-branding`, los dos `MODIFIED` de `commercial-document-pdf` y el `ADDED` de `fiscal-invoice-print` quedaron sincronizados; CRLF → LF.
+- [ ] 15.2 Si los remitos ya están en main, revisar su escenario "el presupuesto no cambia… su contenido es el mismo que antes" en `commercial-document-pdf` y, si quedó ambiguo frente a la marca, acotarlo con un `MODIFIED` a la estructura (sin bloque de firma ni rótulo de origen).
+- [ ] 15.3 KB: regla nueva en `knowledge-base/05_reglas_de_negocio.md` (texto de D14) y la Épica 8 de `knowledge-base/06_funcionalidades.md`.
+- [ ] 15.4 `CHANGES.md` (ficha del change con PRs, migración, verificación y los hallazgos laterales del design), `CLAUDE.md` (puntero del roadmap) y `python scripts/ci/check_docs_sync.py --fix` para `AGENTS.md`, en el mismo PR del archive.

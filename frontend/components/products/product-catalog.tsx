@@ -399,6 +399,7 @@ export function ProductCatalog({
       rows.push({
         tipo: "Padre",
         nombre: g.parent.name,
+        sku: g.parent.sku ?? "",
         categoria: g.parent.category ?? "",
         precio: "",
         costo: "",
@@ -412,6 +413,7 @@ export function ProductCatalog({
         rows.push({
           tipo: "Variante",
           nombre: c.name,
+          sku: c.sku ?? "",
           categoria: c.category ?? "",
           precio: c.price,
           costo: c.cost,
@@ -428,6 +430,7 @@ export function ProductCatalog({
       rows.push({
         tipo: "Producto",
         nombre: p.name,
+        sku: p.sku ?? "",
         categoria: p.category ?? "",
         precio: p.price,
         costo: p.cost,
@@ -444,6 +447,7 @@ export function ProductCatalog({
       [
         { key: "tipo",         header: "Tipo"           },
         { key: "nombre",       header: "Nombre"         },
+        { key: "sku",          header: "SKU"            },
         { key: "categoria",    header: "Categoría"      },
         { key: "precio",       header: "Precio"         },
         { key: "costo",        header: "Costo"          },

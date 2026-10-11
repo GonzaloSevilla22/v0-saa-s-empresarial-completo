@@ -1,0 +1,4 @@
+A cap 25 M de nuevo -> KILLED ['8 failed, 55 passed in 3.02s']
+B off-by-one (>=) -> KILLED ['4 failed, 59 passed in 4.36s']
+C tope por lado en vez de por area -> KILLED ['1 failed, 62 passed in 4.52s']
+D cap 12 M (rechaza el legitimo de 15,9 M) -> KILLED ['6 failed, 57 passed in 2.55s']

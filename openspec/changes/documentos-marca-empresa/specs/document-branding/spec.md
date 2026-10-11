@@ -47,7 +47,7 @@ La escritura de la marca (datos, paleta y logo) SHALL estar restringida a los mi
 El logo SHALL subirse por el backend, que SHALL:
 - aceptar sólo PNG, JPEG o WebP, reconocidos por su contenido y no por el nombre ni el tipo declarado; rechazar SVG, GIF y cualquier otro formato con 415;
 - rechazar con 413 un archivo de más de 2 MB, sin leerlo entero;
-- leer las dimensiones **antes** de decodificar y rechazar con 422 una imagen de más de 25 millones de píxeles, una imagen corrupta o una que no se pueda decodificar;
+- leer las dimensiones **antes** de decodificar y rechazar con 422 una imagen de más de 16 millones de píxeles (4000 × 4000), una imagen corrupta o una que no se pueda decodificar;
 - reescalar la imagen para que su lado mayor no supere 1000 px, quitar sus metadatos y volver a codificarla —PNG si tiene transparencia, JPEG si no—, y rechazar con 422 un resultado que supere 300 KB después de intentar un tamaño menor;
 - guardar la imagen normalizada asociada a la cuenta, con su tipo, sus dimensiones y su huella SHA-256.
 

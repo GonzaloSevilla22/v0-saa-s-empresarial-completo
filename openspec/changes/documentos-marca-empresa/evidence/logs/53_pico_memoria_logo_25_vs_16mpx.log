@@ -1,0 +1,13 @@
+Pico de memoria de normalize_logo (PeakWorkingSetSize de un subproceso, imagen EN el tope; base ~23 MiB).
+Salida literal de scratchpad/mem_logo.py (mismo código sin copias; sólo cambia el tope MAX_PIXELS).
+
+ANTES (tope 25 Mpx, 5000x5000) — medido antes de tocar MAX_PIXELS en este paso:
+side=5000 rgba: archivo 107 KiB -> image/png 1000x1000 en 0.6s; pico total 239 MiB (base 23, incremento 216 MiB)
+side=5000 rgb: archivo 82 KiB -> image/jpeg 1000x1000 en 0.3s; pico total 157 MiB (base 23, incremento 134 MiB)
+
+DESPUES (tope 16 Mpx, 4000x4000) — medido con el código nuevo (y también antes del cambio, que sólo difiere en el tope):
+side=4000 rgba: archivo 69 KiB -> image/png 1000x1000 en 0.4s; pico total 166 MiB (base 23, incremento 143 MiB)
+side=4000 rgb: archivo 55 KiB -> image/jpeg 1000x1000 en 0.2s; pico total 112 MiB (base 23, incremento 89 MiB)
+
+Referencia previa a quitar las copias de Pillow (apply, 25 Mpx): RGBA +406 MiB, RGB +325 MiB.
+Con el tope nuevo, una imagen de 5000x5000 ya no se normaliza: LogoInvalid "La imagen del logo es demasiado grande." (422, sin decodificar).

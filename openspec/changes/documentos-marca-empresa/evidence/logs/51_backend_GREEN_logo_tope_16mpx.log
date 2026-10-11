@@ -1,0 +1,132 @@
+...............................................................          [100%]
+=================================== PASSES ====================================
+__ test_load_for_render_rejects_a_stored_type_that_differs_from_the_content ___
+------------------------------ Captured log call ------------------------------
+WARNING  backend.services.commercial_documents.logo:logo.py:222 document-branding: el logo guardado como image/jpeg es en realidad PNG; se dibuja sin logo
+______________ test_load_for_render_rejects_an_unsupported_mime _______________
+------------------------------ Captured log call ------------------------------
+WARNING  backend.services.commercial_documents.logo:logo.py:217 document-branding: logo con tipo guardado no soportado ('image/gif'); se dibuja sin logo
+WARNING  backend.services.commercial_documents.logo:logo.py:217 document-branding: logo con tipo guardado no soportado ('image/svg+xml'); se dibuja sin logo
+_______________ test_load_for_render_rejects_a_side_over_1000px _______________
+------------------------------ Captured log call ------------------------------
+WARNING  backend.services.commercial_documents.logo:logo.py:228 document-branding: logo de 1200x300 px excede 1000 px; se dibuja sin logo
+____________ test_load_for_render_rejects_bytes_that_do_not_decode ____________
+------------------------------ Captured log call ------------------------------
+WARNING  backend.services.commercial_documents.logo:logo.py:232 document-branding: logo guardado ilegible; se dibuja sin logo
+Traceback (most recent call last):
+  File "C:\Users\Usuario\Desktop\EIE\v0-saa-s-empresarial-completo\.claude\worktrees\sad-shamir-6c7415\backend\.venv\Lib\site-packages\PIL\ImageFile.py", line 392, in load
+    s = read(read_bytes)
+  File "C:\Users\Usuario\Desktop\EIE\v0-saa-s-empresarial-completo\.claude\worktrees\sad-shamir-6c7415\backend\.venv\Lib\site-packages\PIL\PngImagePlugin.py", line 1002, in load_read
+    cid, pos, length = self.png.read()
+                       ~~~~~~~~~~~~~^^
+  File "C:\Users\Usuario\Desktop\EIE\v0-saa-s-empresarial-completo\.claude\worktrees\sad-shamir-6c7415\backend\.venv\Lib\site-packages\PIL\PngImagePlugin.py", line 179, in read
+    length = i32(s)
+  File "C:\Users\Usuario\Desktop\EIE\v0-saa-s-empresarial-completo\.claude\worktrees\sad-shamir-6c7415\backend\.venv\Lib\site-packages\PIL\_binary.py", line 96, in i32be
+    return unpack_from(">I", c, o)[0]
+           ~~~~~~~~~~~^^^^^^^^^^^^
+struct.error: unpack_from requires a buffer of at least 4 bytes for unpacking 4 bytes at offset 0 (actual buffer size is 0)
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\Usuario\Desktop\EIE\v0-saa-s-empresarial-completo\.claude\worktrees\sad-shamir-6c7415\backend\services\commercial_documents\logo.py", line 230, in load_logo_for_render
+    img.load()                                    # comprueba que de verdad decodifica
+    ~~~~~~~~^^
+  File "C:\Users\Usuario\Desktop\EIE\v0-saa-s-empresarial-completo\.claude\worktrees\sad-shamir-6c7415\backend\.venv\Lib\site-packages\PIL\ImageFile.py", line 399, in load
+    raise OSError(msg) from e
+OSError: image file is truncated
+________ test_load_for_render_rejects_a_declared_bomb_without_decoding ________
+------------------------------ Captured log call ------------------------------
+WARNING  backend.services.commercial_documents.logo:logo.py:232 document-branding: logo guardado ilegible; se dibuja sin logo
+Traceback (most recent call last):
+  File "C:\Users\Usuario\Desktop\EIE\v0-saa-s-empresarial-completo\.claude\worktrees\sad-shamir-6c7415\backend\services\commercial_documents\logo.py", line 220, in load_logo_for_render
+    img = Image.open(io.BytesIO(data), formats=_OPEN_FORMATS)
+  File "C:\Users\Usuario\Desktop\EIE\v0-saa-s-empresarial-completo\.claude\worktrees\sad-shamir-6c7415\backend\.venv\Lib\site-packages\PIL\Image.py", line 3689, in open
+    im = _open_core(fp, filename, prefix, formats)
+  File "C:\Users\Usuario\Desktop\EIE\v0-saa-s-empresarial-completo\.claude\worktrees\sad-shamir-6c7415\backend\.venv\Lib\site-packages\PIL\Image.py", line 3678, in _open_core
+    _decompression_bomb_check(im.size)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\Usuario\Desktop\EIE\v0-saa-s-empresarial-completo\.claude\worktrees\sad-shamir-6c7415\backend\.venv\Lib\site-packages\PIL\Image.py", line 3575, in _decompression_bomb_check
+    raise DecompressionBombError(msg)
+PIL.Image.DecompressionBombError: Image size (400000000 pixels) exceeds limit of 178956970 pixels, could be decompression bomb DOS attack.
+_______________ test_load_for_render_rejects_garbage_and_empty ________________
+------------------------------ Captured log call ------------------------------
+WARNING  backend.services.commercial_documents.logo:logo.py:232 document-branding: logo guardado ilegible; se dibuja sin logo
+Traceback (most recent call last):
+  File "C:\Users\Usuario\Desktop\EIE\v0-saa-s-empresarial-completo\.claude\worktrees\sad-shamir-6c7415\backend\services\commercial_documents\logo.py", line 220, in load_logo_for_render
+    img = Image.open(io.BytesIO(data), formats=_OPEN_FORMATS)
+  File "C:\Users\Usuario\Desktop\EIE\v0-saa-s-empresarial-completo\.claude\worktrees\sad-shamir-6c7415\backend\.venv\Lib\site-packages\PIL\Image.py", line 3715, in open
+    raise UnidentifiedImageError(msg)
+PIL.UnidentifiedImageError: cannot identify image file <_io.BytesIO object at 0x000002E9CB1536F0>
+WARNING  backend.services.commercial_documents.logo:logo.py:232 document-branding: logo guardado ilegible; se dibuja sin logo
+Traceback (most recent call last):
+  File "C:\Users\Usuario\Desktop\EIE\v0-saa-s-empresarial-completo\.claude\worktrees\sad-shamir-6c7415\backend\services\commercial_documents\logo.py", line 220, in load_logo_for_render
+    img = Image.open(io.BytesIO(data), formats=_OPEN_FORMATS)
+  File "C:\Users\Usuario\Desktop\EIE\v0-saa-s-empresarial-completo\.claude\worktrees\sad-shamir-6c7415\backend\.venv\Lib\site-packages\PIL\Image.py", line 3715, in open
+    raise UnidentifiedImageError(msg)
+PIL.UnidentifiedImageError: cannot identify image file <_io.BytesIO object at 0x000002E9CAE22390>
+=========================== short test summary info ===========================
+PASSED backend\tests\test_document_logo.py::test_png_with_transparency_becomes_a_1000px_png_with_alpha
+PASSED backend\tests\test_document_logo.py::test_sha256_is_the_hash_of_the_stored_bytes
+PASSED backend\tests\test_document_logo.py::test_the_same_input_always_gives_the_same_fingerprint
+PASSED backend\tests\test_document_logo.py::test_a_small_image_is_not_enlarged
+PASSED backend\tests\test_document_logo.py::test_large_jpeg_with_exif_becomes_a_small_jpeg_without_metadata
+PASSED backend\tests\test_document_logo.py::test_exif_orientation_is_applied_before_the_metadata_is_dropped
+PASSED backend\tests\test_document_logo.py::test_png_text_chunks_and_icc_profile_are_dropped
+PASSED backend\tests\test_document_logo.py::test_webp_is_stored_as_png_or_jpeg
+PASSED backend\tests\test_document_logo.py::test_webp_with_transparency_keeps_it_as_png
+PASSED backend\tests\test_document_logo.py::test_palette_png_with_transparency_becomes_rgba
+PASSED backend\tests\test_document_logo.py::test_cmyk_jpeg_is_converted_to_rgb
+PASSED backend\tests\test_document_logo.py::test_grayscale_png_without_alpha_becomes_jpeg
+PASSED backend\tests\test_document_logo.py::test_other_formats_are_unsupported_whatever_the_name_says[svg-<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><script>alert(1)</script></svg>]
+PASSED backend\tests\test_document_logo.py::test_other_formats_are_unsupported_whatever_the_name_says[svg con encabezado xml-<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><script>alert(1)</script></svg>]
+PASSED backend\tests\test_document_logo.py::test_other_formats_are_unsupported_whatever_the_name_says[gif-GIF89a\x01\x00\x01\x00\x80\x00\x00\x00\x00\x00\xff\xff\xff!\xf9\x04\x01\x00\x00\x00\x00,\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02D\x01\x00;]
+PASSED backend\tests\test_document_logo.py::test_other_formats_are_unsupported_whatever_the_name_says[bmp-BM\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00]
+PASSED backend\tests\test_document_logo.py::test_other_formats_are_unsupported_whatever_the_name_says[texto-esto no es una imagen]
+PASSED backend\tests\test_document_logo.py::test_other_formats_are_unsupported_whatever_the_name_says[pdf-%PDF-1.4\n%\xe2\xe3\xcf\xd3\n]
+PASSED backend\tests\test_document_logo.py::test_other_formats_are_unsupported_whatever_the_name_says[vac\xedo-]
+PASSED backend\tests\test_document_logo.py::test_other_formats_are_unsupported_whatever_the_name_says[html-<html><body>hola</body></html>]
+PASSED backend\tests\test_document_logo.py::test_gif_saved_by_pillow_is_unsupported
+PASSED backend\tests\test_document_logo.py::test_tiff_saved_by_pillow_is_unsupported
+PASSED backend\tests\test_document_logo.py::test_upload_over_2_mib_is_too_large
+PASSED backend\tests\test_document_logo.py::test_png_that_declares_20000_by_20000_is_invalid_without_decoding
+PASSED backend\tests\test_document_logo.py::test_the_pixel_cap_is_16_megapixels
+PASSED backend\tests\test_document_logo.py::test_png_over_the_pixel_cap_is_invalid_without_decoding[30 Mpx: Pillow lo abre sin chistar (su alarma salta a los 89 M)]
+PASSED backend\tests\test_document_logo.py::test_png_over_the_pixel_cap_is_invalid_without_decoding[25 Mpx: el tope anterior ya no entra]
+PASSED backend\tests\test_document_logo.py::test_png_over_the_pixel_cap_is_invalid_without_decoding[16 Mpx + 4000 px: apenas por encima]
+PASSED backend\tests\test_document_logo.py::test_png_over_the_pixel_cap_is_invalid_without_decoding[16 Mpx + 1 px exactos, en una fila]
+PASSED backend\tests\test_document_logo.py::test_image_exactly_at_the_pixel_limit_is_not_rejected_by_the_pixel_check[4000-4000]
+PASSED backend\tests\test_document_logo.py::test_image_exactly_at_the_pixel_limit_is_not_rejected_by_the_pixel_check[16000000-1]
+PASSED backend\tests\test_document_logo.py::test_a_15_9_megapixel_image_is_normalized_not_rejected
+PASSED backend\tests\test_document_logo.py::test_corrupt_bytes_after_a_valid_header_are_invalid
+PASSED backend\tests\test_document_logo.py::test_truncated_jpeg_is_invalid
+PASSED backend\tests\test_document_logo.py::test_png_signature_with_garbage_is_not_a_picture
+PASSED backend\tests\test_document_logo.py::test_noise_that_does_not_fit_300kb_at_1000_nor_at_600px_is_too_heavy
+PASSED backend\tests\test_document_logo.py::test_an_image_too_heavy_at_1000px_is_retried_at_600px
+PASSED backend\tests\test_document_logo.py::test_load_for_render_returns_the_image_for_a_normal_logo
+PASSED backend\tests\test_document_logo.py::test_load_for_render_rejects_a_stored_type_that_differs_from_the_content
+PASSED backend\tests\test_document_logo.py::test_load_for_render_rejects_an_unsupported_mime
+PASSED backend\tests\test_document_logo.py::test_load_for_render_rejects_a_side_over_1000px
+PASSED backend\tests\test_document_logo.py::test_load_for_render_rejects_bytes_that_do_not_decode
+PASSED backend\tests\test_document_logo.py::test_load_for_render_rejects_a_declared_bomb_without_decoding
+PASSED backend\tests\test_document_logo.py::test_load_for_render_rejects_garbage_and_empty
+PASSED backend\tests\test_document_logo.py::test_load_for_render_accepts_a_jpeg
+PASSED backend\tests\test_document_logo.py::test_fit_box_horizontal_logo_is_limited_by_the_box_height
+PASSED backend\tests\test_document_logo.py::test_fit_box_vertical_logo_is_limited_by_the_box_height
+PASSED backend\tests\test_document_logo.py::test_fit_box_square_logo_uses_the_height
+PASSED backend\tests\test_document_logo.py::test_fit_box_image_smaller_than_the_box_keeps_its_ratio_and_fits
+PASSED backend\tests\test_document_logo.py::test_fit_box_never_deforms_and_never_overflows_the_box[size0]
+PASSED backend\tests\test_document_logo.py::test_fit_box_never_deforms_and_never_overflows_the_box[size1]
+PASSED backend\tests\test_document_logo.py::test_fit_box_never_deforms_and_never_overflows_the_box[size2]
+PASSED backend\tests\test_document_logo.py::test_fit_box_never_deforms_and_never_overflows_the_box[size3]
+PASSED backend\tests\test_document_logo.py::test_fit_box_never_deforms_and_never_overflows_the_box[size4]
+PASSED backend\tests\test_document_logo.py::test_fit_box_never_deforms_and_never_overflows_the_box[size5]
+PASSED backend\tests\test_document_logo.py::test_fit_box_rejects_non_positive_dimensions[bad0]
+PASSED backend\tests\test_document_logo.py::test_fit_box_rejects_non_positive_dimensions[bad1]
+PASSED backend\tests\test_document_logo.py::test_fit_box_rejects_non_positive_dimensions[bad2]
+PASSED backend\tests\test_document_logo.py::test_fit_box_rejects_non_positive_dimensions[bad3]
+PASSED backend\tests\test_document_logo.py::test_fit_box_rejects_non_positive_dimensions[bad4]
+PASSED backend\tests\test_document_logo.py::test_a_16_megapixel_image_does_not_multiply_its_memory_footprint[RGBA]
+PASSED backend\tests\test_document_logo.py::test_a_16_megapixel_image_does_not_multiply_its_memory_footprint[RGB]
+PASSED backend\tests\test_document_logo.py::test_normalizations_never_run_concurrently
+63 passed in 4.78s

@@ -67,3 +67,5 @@ RIESGOS RESIDUALES (no bloqueantes, declarados)
    dialog-motivo, banco-conciliacion-import-warnings) fallaron una vez bajo carga (pytest + 102 gates SQL en
    paralelo) y pasan aislados y en la corrida completa sin carga: flaky preexistente, no tocan ningun modulo
    de este change.
+
+ACTUALIZACION (decision del coordinador): el residuo se resolvio bajando MAX_PIXELS de 25 M a 16 M: pico RGBA +216 -> +143 MiB, RGB +134 -> +90 MiB (logs/50-53).

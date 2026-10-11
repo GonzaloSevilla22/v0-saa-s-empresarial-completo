@@ -1,0 +1,60 @@
+FFF                                                                      [100%]
+================================== FAILURES ===================================
+___ test_a_25_megapixel_image_does_not_multiply_its_memory_footprint[RGBA] ____
+
+mode = 'RGBA'
+
+    @pytest.mark.parametrize("mode", ["RGBA", "RGB"])
+    def test_a_25_megapixel_image_does_not_multiply_its_memory_footprint(mode):
+        """5000×5000 comprime a ~100 KiB y está EN el tope: normalizarla puede pedir, a lo sumo, una
+        copia decodificada (RGBA = 100 MB) más el trabajo del redimensionado, nunca cuatro."""
+        side = int(MAX_PIXELS ** 0.5)
+        colour = (30, 90, 200, 255) if mode == "RGBA" else (30, 90, 200)
+        raw = _png_bytes(Image.new(mode, (side, side), colour))
+        assert len(raw) < MAX_UPLOAD_BYTES
+    
+        growth = _peak_growth_mib(raw)
+    
+>       assert growth < 250, f"normalizar una imagen de {MAX_PIXELS} px sumó {growth:.0f} MiB de pico (tope razonable: 250)"
+E       AssertionError: normalizar una imagen de 25000000 px sumó 406 MiB de pico (tope razonable: 250)
+E       assert 406.1171875 < 250
+
+backend\tests\test_document_logo.py:518: AssertionError
+____ test_a_25_megapixel_image_does_not_multiply_its_memory_footprint[RGB] ____
+
+mode = 'RGB'
+
+    @pytest.mark.parametrize("mode", ["RGBA", "RGB"])
+    def test_a_25_megapixel_image_does_not_multiply_its_memory_footprint(mode):
+        """5000×5000 comprime a ~100 KiB y está EN el tope: normalizarla puede pedir, a lo sumo, una
+        copia decodificada (RGBA = 100 MB) más el trabajo del redimensionado, nunca cuatro."""
+        side = int(MAX_PIXELS ** 0.5)
+        colour = (30, 90, 200, 255) if mode == "RGBA" else (30, 90, 200)
+        raw = _png_bytes(Image.new(mode, (side, side), colour))
+        assert len(raw) < MAX_UPLOAD_BYTES
+    
+        growth = _peak_growth_mib(raw)
+    
+>       assert growth < 250, f"normalizar una imagen de {MAX_PIXELS} px sumó {growth:.0f} MiB de pico (tope razonable: 250)"
+E       AssertionError: normalizar una imagen de 25000000 px sumó 325 MiB de pico (tope razonable: 250)
+E       assert 325.26953125 < 250
+
+backend\tests\test_document_logo.py:518: AssertionError
+_________________ test_normalizations_never_run_concurrently __________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000018361D643E0>
+
+    def test_normalizations_never_run_concurrently(monkeypatch):
+        """Dos subidas a la vez duplicarían el pico de memoria: la normalización se serializa por proceso."""
+        state = {"active": 0, "peak": 0}
+        guard = threading.Lock()
+>       original = logo_module._normalize
+                   ^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'backend.services.commercial_documents.logo' has no attribute '_normalize'
+
+backend\tests\test_document_logo.py:525: AttributeError
+=========================== short test summary info ===========================
+FAILED backend\tests\test_document_logo.py::test_a_25_megapixel_image_does_not_multiply_its_memory_footprint[RGBA]
+FAILED backend\tests\test_document_logo.py::test_a_25_megapixel_image_does_not_multiply_its_memory_footprint[RGB]
+FAILED backend\tests\test_document_logo.py::test_normalizations_never_run_concurrently
+3 failed, 54 deselected in 9.18s

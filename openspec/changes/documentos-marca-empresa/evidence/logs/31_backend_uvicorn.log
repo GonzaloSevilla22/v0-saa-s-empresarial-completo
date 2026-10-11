@@ -1,0 +1,42 @@
+INFO:     Started server process [16352]
+INFO:     Waiting for application startup.
+REDIS_URL not set — Redis disabled (rate limiting unavailable)
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+INFO:     127.0.0.1:54901 - "GET /health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54914 - "PUT /document-branding HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54917 - "DELETE /document-branding/logo HTTP/1.1" 204 No Content
+INFO:     127.0.0.1:54914 - "GET /quotes/f642afd3-fca3-478b-b906-c42049e82805/pdf HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54917 - "GET /delivery-notes/bc692e6b-a107-48a9-8e25-7890d53d7a86/pdf HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54914 - "PUT /document-branding HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54917 - "PUT /document-branding/logo HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54914 - "GET /quotes/f642afd3-fca3-478b-b906-c42049e82805/pdf HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54917 - "GET /delivery-notes/bc692e6b-a107-48a9-8e25-7890d53d7a86/pdf HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54914 - "PUT /document-branding HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54917 - "PUT /document-branding/logo HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54914 - "GET /quotes/f642afd3-fca3-478b-b906-c42049e82805/pdf HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54917 - "GET /delivery-notes/bc692e6b-a107-48a9-8e25-7890d53d7a86/pdf HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54914 - "PUT /document-branding HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54917 - "PUT /document-branding/logo HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54914 - "GET /quotes/f642afd3-fca3-478b-b906-c42049e82805/pdf HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54917 - "GET /delivery-notes/bc692e6b-a107-48a9-8e25-7890d53d7a86/pdf HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56690 - "PUT /document-branding HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56692 - "DELETE /document-branding/logo HTTP/1.1" 204 No Content
+INFO:     127.0.0.1:56690 - "GET /quotes/f642afd3-fca3-478b-b906-c42049e82805/pdf HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56692 - "GET /delivery-notes/bc692e6b-a107-48a9-8e25-7890d53d7a86/pdf HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56690 - "POST /sales/receipt-pdf HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56692 - "PUT /document-branding HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56690 - "PUT /document-branding/logo HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56692 - "GET /quotes/f642afd3-fca3-478b-b906-c42049e82805/pdf HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56690 - "GET /delivery-notes/bc692e6b-a107-48a9-8e25-7890d53d7a86/pdf HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56692 - "POST /sales/receipt-pdf HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56690 - "PUT /document-branding HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56692 - "PUT /document-branding/logo HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56690 - "GET /quotes/f642afd3-fca3-478b-b906-c42049e82805/pdf HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56692 - "GET /delivery-notes/bc692e6b-a107-48a9-8e25-7890d53d7a86/pdf HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56690 - "POST /sales/receipt-pdf HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56692 - "PUT /document-branding HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56690 - "PUT /document-branding/logo HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56692 - "GET /quotes/f642afd3-fca3-478b-b906-c42049e82805/pdf HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56690 - "GET /delivery-notes/bc692e6b-a107-48a9-8e25-7890d53d7a86/pdf HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56692 - "POST /sales/receipt-pdf HTTP/1.1" 200 OK

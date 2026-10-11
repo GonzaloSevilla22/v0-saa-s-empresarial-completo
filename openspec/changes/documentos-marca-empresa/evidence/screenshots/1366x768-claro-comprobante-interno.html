@@ -1,0 +1,425 @@
+<!DOCTYPE html><html lang="es"><head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Comprobante CB1147F8 — Sumar Ropa Deportiva</title>
+  <style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  /* La paleta de la cuenta se declara aparte (paletteCss): --ink, --muted, --heading,
+     --strong-rule, --thead-bg, --thead-text, --total y --accent salen de ahí. */
+  :root {
+    --border:   #e5e7eb;
+    --radius:   8px;
+  }
+
+  html, body {
+    background: #ffffff;
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  body {
+    padding: 32px 24px;
+    max-width: 680px;
+    margin: 0 auto;
+  }
+
+  /* ── Header ── */
+  .receipt-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    padding-bottom: 20px;
+    border-bottom: 2px solid var(--strong-rule);
+    margin-bottom: 20px;
+  }
+
+  .business-block {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .business-logo {
+    max-width: 150px;
+    max-height: 56px;
+    width: auto;
+    height: auto;
+    object-fit: contain;
+    flex-shrink: 0;
+  }
+
+  .business-initial {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: var(--on-accent);
+    font-size: 22px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    letter-spacing: -1px;
+  }
+
+  .business-name {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--ink);
+    line-height: 1.2;
+  }
+
+  .business-legal {
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 2px;
+  }
+
+  .business-contact {
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 3px;
+  }
+
+  .receipt-meta {
+    text-align: right;
+    flex-shrink: 0;
+  }
+
+  .receipt-label {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .receipt-number {
+    font-size: 22px;
+    font-weight: 800;
+    color: var(--heading);
+    letter-spacing: -0.5px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .receipt-type {
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 2px;
+  }
+
+  /* ── Info section ── */
+  .info-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px 24px;
+    padding: 16px 0;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 20px;
+  }
+
+  .info-block {}
+  .info-label {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    margin-bottom: 3px;
+  }
+  .info-value {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--ink);
+  }
+  .info-value.muted {
+    font-weight: 400;
+    color: var(--muted);
+    font-style: italic;
+  }
+
+  /* ── Items table ── */
+  .items-section {
+    margin-bottom: 0;
+  }
+
+  .items-table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  .items-table thead tr {
+    background: var(--thead-bg);
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .items-table th {
+    padding: 8px 10px;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--thead-text);
+    text-align: left;
+  }
+
+  .items-table th.right, .items-table td.right { text-align: right; }
+  .items-table th.center, .items-table td.center { text-align: center; }
+
+  .items-table tbody tr {
+    border-bottom: 1px solid var(--border);
+  }
+
+  .items-table tbody tr:last-child {
+    border-bottom: none;
+  }
+
+  .items-table td {
+    padding: 10px 10px;
+    font-size: 13px;
+    color: var(--ink);
+    vertical-align: middle;
+  }
+
+  .items-table td.product-name {
+    font-weight: 600;
+  }
+
+  .items-table td.subtotal {
+    font-weight: 700;
+    color: var(--ink);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ── Total footer ── */
+  .total-section {
+    border-top: 2px solid var(--strong-rule);
+    margin-top: 0;
+    padding-top: 12px;
+    display: flex;
+    justify-content: flex-end;
+    gap: 24px;
+    align-items: baseline;
+  }
+
+  .total-label {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  .total-amount {
+    font-size: 26px;
+    font-weight: 800;
+    color: var(--total);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -1px;
+  }
+
+  /* ── Footer ── */
+  .receipt-footer {
+    margin-top: 28px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    gap: 12px;
+  }
+
+  .footer-thanks {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--ink);
+  }
+  .footer-thanks-sub {
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 2px;
+  }
+
+  .footer-note {
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 6px;
+    white-space: pre-line;
+    max-width: 420px;
+  }
+
+  .footer-id {
+    text-align: right;
+    font-size: 10px;
+    color: var(--border);
+    font-variant-numeric: tabular-nums;
+    word-break: break-all;
+    max-width: 240px;
+  }
+
+  /* ── Print bar (visible fallback button) ── */
+  .print-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+  }
+
+  .print-hint {
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  .print-button {
+    appearance: none;
+    border: 1px solid var(--ink);
+    border-radius: var(--radius);
+    background: var(--ink);
+    color: #ffffff;
+    font: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 8px 16px;
+    cursor: pointer;
+  }
+
+  .print-button:hover {
+    opacity: 0.9;
+  }
+
+  /* ── Print optimisation ── */
+  @page {
+    size: A4 portrait;
+    margin: 1.5cm 1.5cm 2cm;
+  }
+
+  @media print {
+    body { padding: 0; }
+    .no-print { display: none !important; }
+    .receipt-footer { page-break-inside: avoid; }
+    .total-section  { page-break-inside: avoid; }
+  }
+
+  :root {
+    --ink: #1e293b;
+    --muted: #64748b;
+    --accent: #9f1239;
+    --on-accent: #ffffff;
+    --heading: #9f1239;
+    --strong-rule: #9f1239;
+    --thead-bg: #9f1239;
+    --thead-text: #ffffff;
+    --total: #9f1239;
+  }
+</style>
+</head>
+<body>
+
+  <!-- ── Print bar ──────────────────────────────────────────────────────
+       fix/comprobante-print-csp-nonce: red de seguridad visible. El script
+       de más abajo dispara window.print() solo, pero si algún navegador
+       igual bloquea la ejecución automática (o el usuario cerró el diálogo
+       sin querer), este botón es el único camino manual. La pista de texto
+       de al lado (revisión adversarial MINOR 2) no depende del script: cubre
+       también el caso en que el propio script con nonce no llegó a correr,
+       que es justo el modo de falla que motiva este fix. No se imprime a sí
+       mismo (.no-print). -->
+  <div class="no-print">
+    <div class="print-bar">
+      <span class="print-hint">Si el diálogo no se abre solo: Ctrl+P (⌘+P en Mac)</span>
+      <button type="button" id="receipt-print-button" class="print-button">Imprimir / Guardar como PDF</button>
+    </div>
+  </div>
+
+  <!-- ── Header ─────────────────────────────────────────────────────── -->
+  <div class="receipt-header">
+    <div class="business-block">
+      <img class="business-logo" src="data:image/jpeg;base64,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" alt="Logo">
+      <div>
+        <div class="business-name">Sumar Ropa Deportiva</div>
+        <div class="business-legal">PEREZ MARIA LAURA</div><div class="business-legal">CUIT: 27-12345678-7</div><div class="business-legal">IVA RESPONSABLE MONOTRIBUTO</div><div class="business-legal">Calle Fiscal 99, Mendoza</div><div class="business-contact">2617175072 &nbsp;·&nbsp; ventas@sumar.com.ar &nbsp;·&nbsp; sumar.com.ar</div>
+      </div>
+    </div>
+    <div class="receipt-meta">
+      <div class="receipt-label">Comprobante</div>
+      <div class="receipt-number">#CB1147F8</div>
+      <div class="receipt-type">Comprobante de venta</div>
+    </div>
+  </div>
+
+  <!-- ── Info grid ───────────────────────────────────────────────────── -->
+  <div class="info-grid">
+    <div class="info-block">
+      <div class="info-label">Cliente</div>
+      <div class="info-value muted">Consumidor final</div>
+    </div>
+    <div class="info-block">
+      <div class="info-label">Fecha</div>
+      <div class="info-value">Domingo, 11 de octubre de 2026</div>
+    </div>
+  </div>
+
+  <!-- ── Items ───────────────────────────────────────────────────────── -->
+  <div class="items-section">
+    <table class="items-table">
+      <thead>
+        <tr>
+          <th>Descripción</th>
+          <th class="center">Cant.</th>
+          <th class="right">Precio unit.</th>
+          <th class="right">Subtotal</th>
+        </tr>
+      </thead>
+      <tbody>
+        
+      <tr>
+        <td class="product-name">Venta marca 1366x768-claro 1791745434925</td>
+        <td class="center">2</td>
+        <td class="right">$&nbsp;1.234,5</td>
+        <td class="right subtotal">$&nbsp;2.469</td>
+      </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ── Total ───────────────────────────────────────────────────────── -->
+  <div class="total-section">
+    <span class="total-label">Total</span>
+    <span class="total-amount">$&nbsp;2.469</span>
+  </div>
+
+  <!-- ── Footer ──────────────────────────────────────────────────────── -->
+  <div class="receipt-footer">
+    <div>
+      <div class="footer-thanks">¡Gracias por su compra!</div>
+      <div class="footer-thanks-sub">Este documento es su comprobante de venta.</div>
+      <div class="footer-note">Alias para transferencias: sumar.ropa</div>
+    </div>
+    <div class="footer-id">ID: a3b4561f-37ab-4183-8025-b75ecb1147f8</div>
+  </div>
+
+  <script nonce="">
+    // fix/comprobante-print-csp-nonce: sin atributos on*= (script-src los
+    // bloquea igual bajo CSP; el cableado va por addEventListener). Cablea
+    // el botón visible y conserva la apertura automática del diálogo de
+    // impresión — el usuario puede elegir "Guardar como PDF" o mandarlo a
+    // una impresora física por cualquiera de los dos caminos.
+    (function () {
+      var btn = document.getElementById("receipt-print-button")
+      if (btn) {
+        btn.addEventListener("click", function () { window.print() })
+      }
+      window.onload = function () { window.print() }
+    })()
+  </script>
+
+
+</body></html>

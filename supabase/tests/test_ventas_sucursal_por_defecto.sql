@@ -49,9 +49,11 @@
 --          operativa» lo cambia a conciencia.
 --     (9b) Una venta nueva sin sucursal elegida (movimiento en A por D2);
 --          después A se vacía por transferencia y se DESACTIVA, y se borra la
---          venta con rpc_delete_sale_operation EJECUTADA. CARACTERIZACIÓN a
---          propósito (OQ-8 (a)): el stock vuelve a A desactivada. El mismo
---          candidato lo cambia a conciencia.
+--          venta con rpc_delete_sale_operation EJECUTADA. CAMBIADO A PROPÓSITO
+--          por stock-movimientos-sucursal-origen (OQ-D (a), 2026-10-11): antes
+--          fijaba como CARACTERIZACIÓN (OQ-8 (a)) que el stock volvía a A
+--          desactivada; ahora la reversa lo repone en la principal operativa
+--          (G1) y el contramovimiento registra G1, con G0 en metadata.
 --
 --   PARTE B (varios DO + `\i` de la migración de datos, dos veces): el
 --     backfill (7), (8) y (9), dentro de una sola transacción (BEGIN ... COMMIT).
@@ -790,7 +792,8 @@ BEGIN
 
   -- ═══════════════════════════════════════════════════════════════════════
   -- (9b) Venta sin sucursal elegida; A se vacía por transferencia y se DESACTIVA;
-  --      se borra la venta (CARACTERIZACIÓN a propósito — OQ-8 (a))
+  --      se borra la venta (cambiado a propósito por stock-movimientos-sucursal-origen
+  --      — OQ-D (a): el stock vuelve a la principal operativa, no a la desactivada)
   -- ═══════════════════════════════════════════════════════════════════════
   v_fail_before := COALESCE(array_length(v_failures, 1), 0);
   PERFORM pg_temp.vspd_as(v_user_g);
@@ -807,15 +810,22 @@ BEGIN
     BEGIN
       PERFORM public.rpc_delete_sale_operation(NULL, v_op, 'gate 9b');
       v_val := pg_temp.vspd_qty(v_g0, v_pg);
-      IF v_val IS DISTINCT FROM 2 OR pg_temp.vspd_qty(v_g1, v_pg) IS DISTINCT FROM 3 THEN
-        v_failures := array_append(v_failures, format('FAIL (9b): CARACTERIZACIÓN de OQ-8 (a): al borrar una venta sin sucursal elegida cuya principal se vació y se desactivó, el stock vuelve hoy a la sucursal del movimiento (G0 desactivada), que no se ve ni se puede reactivar desde la app. Esperaba G0=2 y G1=3, quedó G0=%s y G1=%s. Si esto cambió, lo cambió el candidato «reversa y Facturar venta manual con la sucursal guardada no operativa»: actualizar este bloque a propósito.', v_val, pg_temp.vspd_qty(v_g1, v_pg)));
+      IF v_val IS DISTINCT FROM 0 OR pg_temp.vspd_qty(v_g1, v_pg) IS DISTINCT FROM 5 THEN
+        v_failures := array_append(v_failures, format('FAIL (9b): stock-movimientos-sucursal-origen (OQ-D (a)): al borrar una venta sin sucursal elegida cuya principal se vació y se desactivó, el stock debe volver a la principal operativa (G1), no a la sucursal desactivada (G0), que no se ve ni se puede reactivar desde la app. Esperaba G0=0 y G1=5, quedó G0=%s y G1=%s.', v_val, pg_temp.vspd_qty(v_g1, v_pg)));
+      END IF;
+      -- El contramovimiento registra la sucursal efectiva (G1) y deja la original (G0) en metadata.
+      SELECT sm.branch_id, sm.metadata->>'fallback_from_branch_id' INTO v_uuid, v_text
+      FROM public.stock_movements sm
+      WHERE sm.account_id = v_acc_g AND sm.reference_type = 'sale_reversal';
+      IF v_uuid IS DISTINCT FROM v_g1 OR v_text IS DISTINCT FROM v_g0::text THEN
+        v_failures := array_append(v_failures, format('FAIL (9b): stock-movimientos-sucursal-origen (OQ-D (a)): el contramovimiento debía registrar la principal operativa (G1=%s) con la sucursal desactivada (G0=%s) en metadata.fallback_from_branch_id; registró branch_id=%s y fallback_from_branch_id=%s.', v_g1, v_g0, v_uuid, v_text));
       END IF;
     EXCEPTION WHEN OTHERS THEN
-      v_failures := array_append(v_failures, format('FAIL (9b): CARACTERIZACIÓN de OQ-8 (a): el borrado debía reponer el stock en G0 desactivada (comportamiento actual), levantó %s / %s. Si esto cambió, lo cambió el candidato «reversa y Facturar venta manual con la sucursal guardada no operativa»: actualizar este bloque a propósito.', SQLSTATE, SQLERRM));
+      v_failures := array_append(v_failures, format('FAIL (9b): stock-movimientos-sucursal-origen (OQ-D (a)): el borrado debía reponer el stock en la principal operativa G1 (la sucursal del movimiento, G0, está desactivada), levantó %s / %s.', SQLSTATE, SQLERRM));
     END;
   END IF;
   IF COALESCE(array_length(v_failures, 1), 0) = v_fail_before THEN
-    RAISE NOTICE 'PASS (9b): caracterización de OQ-8 (a) — el borrado repone el stock en la sucursal del movimiento aunque esté desactivada (candidato aparte)';
+    RAISE NOTICE 'PASS (9b): stock-movimientos-sucursal-origen (OQ-D (a)) — el borrado repone el stock en la principal operativa cuando la sucursal del movimiento está desactivada, y el contramovimiento registra la principal';
   END IF;
 
   -- ═══════════════════════════════════════════════════════════════════════

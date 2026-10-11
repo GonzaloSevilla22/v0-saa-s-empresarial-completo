@@ -1338,6 +1338,54 @@ jobs:
           fi
           echo "20261075000001 y 20261075000002 idempotentes: 3 NOTICE de reaplicación, introspección OK, 0 ventas asignadas por el backfill y schema IDÉNTICO al previo a este paso."
 
+          # stock-movimientos-sucursal-origen (2026-10-11, governance ALTA):
+          # reaplicación de 20261077000001 (rpc_reverse_stock_movement con el
+          # respaldo a la principal operativa cuando la sucursal del movimiento
+          # está desactivada) y de 20261077000002 (la migración de datos que
+          # completa la sucursal de origen de los movimientos 'sale') AL FINAL de
+          # la cadena, DESPUÉS de 20261075000002. Ninguna migración reaplicada
+          # antes de este punto redefine rpc_reverse_stock_movement, así que la
+          # función ya es el cuerpo de esta migración desde `supabase start` y las
+          # DOS pasadas toman la rama «ya es el cuerpo de esta migración»; la
+          # SEGUNDA lo exige. Una migración posterior que redefina
+          # rpc_reverse_stock_movement tiene que retirar este bloque en el mismo PR
+          # (su preflight abortaría, igual que el de 20261075000001). SIN
+          # tolerancia, y el schema (constraints + firmas + ACLs) tiene que quedar
+          # IDÉNTICO tras cada paso. El archivo de datos corre sobre una base sin
+          # movimientos 'sale' nulos de ventas vivas (recién reconvergida): su
+          # NOTICE final tiene que decir 0 movimientos completados.
+          SSO_OUT1=$(psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261077000001_reversa_stock_sucursal_desactivada.sql 2>&1) || { echo "$SSO_OUT1"; echo "ERROR: el reapply de 20261077000001 falló (sin tolerancia)."; exit 1; }
+          echo "$SSO_OUT1"
+          SSO_OUT2=$(psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261077000001_reversa_stock_sucursal_desactivada.sql 2>&1) || { echo "$SSO_OUT2"; echo "ERROR: la segunda pasada de 20261077000001 falló (sin tolerancia)."; exit 1; }
+          echo "$SSO_OUT2"
+          if ! echo "$SSO_OUT2" | grep -qF 'ya es el cuerpo de esta migración'; then
+            echo "ERROR: la segunda pasada de 20261077000001 no imprimió el NOTICE de reaplicación (ya es el cuerpo de esta migración)."
+            exit 1
+          fi
+          if ! echo "$SSO_OUT2" | grep -qF 'stock-movimientos-sucursal-origen (introspecci'; then
+            echo "ERROR: el reapply de 20261077000001 no imprimió el OK de su bloque de introspección."
+            exit 1
+          fi
+          schema_snapshot > /tmp/schema_after_sso_reapply.txt
+          if ! diff -u /tmp/schema_before_reapply.txt /tmp/schema_after_sso_reapply.txt > /tmp/schema_diff_sso.txt; then
+            echo "NOT IDEMPOTENT: reaplicar 20261077000001 cambió el schema (constraints + firmas de función + ACLs):"
+            cat /tmp/schema_diff_sso.txt
+            exit 1
+          fi
+          SSO_DATA_OUT=$(psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261077000002_stock_movimientos_sucursal_origen.sql 2>&1) || { echo "$SSO_DATA_OUT"; echo "ERROR: el reapply de 20261077000002 falló (sin tolerancia)."; exit 1; }
+          echo "$SSO_DATA_OUT"
+          if ! echo "$SSO_DATA_OUT" | grep -qF ' 0 movimientos completados en 0 cuentas'; then
+            echo "ERROR: el reapply de 20261077000002 no informó 0 movimientos completados (la base recién reconvergida no tiene movimientos sale nulos de ventas vivas)."
+            exit 1
+          fi
+          schema_snapshot > /tmp/schema_after_sso_data_reapply.txt
+          if ! diff -u /tmp/schema_before_reapply.txt /tmp/schema_after_sso_data_reapply.txt > /tmp/schema_diff_sso_data.txt; then
+            echo "NOT IDEMPOTENT: reaplicar 20261077000002 cambió el schema:"
+            cat /tmp/schema_diff_sso_data.txt
+            exit 1
+          fi
+          echo "20261077000001 y 20261077000002 idempotentes: NOTICE de reaplicación, introspección OK, 0 movimientos completados por el backfill y schema IDÉNTICO al previo a este paso."
+
       # -v ON_ERROR_STOP=1 is required: without it psql prints RAISE EXCEPTION
       # errors but still exits 0, so failing assertions show green in CI.
       - name: Run deterministic KPI tests
@@ -2850,6 +2898,30 @@ jobs:
       # relativo). created_at explícito en las sucursales y los movimientos.
       - name: Run ventas sucursal por defecto gate
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_ventas_sucursal_por_defecto.sql
+
+      # stock-movimientos-sucursal-origen (2026-10-11, governance ALTA; decisión
+      # del PO «vamos con todo lo recomendado»: OQ-A (a), OQ-B (a), OQ-C (a),
+      # OQ-D (a)). `supabase start` ya aplicó 20261077000001 y 20261077000002;
+      # este paso corre su gate, que EJECUTA las RPCs y la migración de datos.
+      # PARTE A (la reversa): (A0) introspección del cuerpo VIVO (una firma,
+      # SECURITY DEFINER, sin EXECUTE para anon/authenticated/PUBLIC, COMMENT con
+      # el fallback, md5 = el del preflight; falla explícito si una reaplicación
+      # de CI pisó el cuerpo); (A1) venta con el movimiento en una sucursal
+      # vaciada y dada de baja: el borrado repone en la principal operativa y el
+      # contramovimiento lo deja anotado; (A2) compra, con piso trazable; (A3)
+      # sucursal cerrada y activa -> P0422 sin cambios, desactivada y cerrada ->
+      # respaldo; (A3c) sin ninguna sucursal operativa no hay error nuevo; (A4)
+      # movimiento nulo u operativo sin cambios; (A5) operación de dos líneas.
+      # PARTE B (una transacción con ROLLBACK, la migración de datos con \i DOS
+      # veces sobre fixtures con la historia de sucursales armada a mano):
+      # pre_sucursal, unica y reconstruida con el estado registrado (T >= X y
+      # T < X), veto por caja y banco, controles intactos, ninguna otra columna ni
+      # otra tabla salvo audit_logs, auditoría por cuenta con ids por regla,
+      # segunda corrida sin cambios y el borrado ejecutado sobre el resultado.
+      # Corre desde la raíz del repo (el \i es relativo). created_at explícito en
+      # las sucursales y los movimientos.
+      - name: Run stock movimientos sucursal origen gate
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_stock_movimientos_sucursal_origen.sql
 
       # presupuestos-modulo tanda A (2026-10-01, governance MEDIA; sign-off del
       # PO 2026-10-01). `supabase start` ya aplicó 20261067000001; este paso

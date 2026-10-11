@@ -3,7 +3,8 @@
 /**
  * documentos-marca-empresa (D10, task 11.3) — pestaña «Documentos» de /configuracion.
  *
- * La marca de la CUENTA para sus papeles (comprobante de venta, presupuestos y remitos):
+ * La marca de la CUENTA para sus papeles (comprobante de venta, presupuestos, remitos y, con lo
+ * no fiscal nada más, la Factura C):
  * logo, datos de la empresa y paleta, con una vista previa en vivo de lo que se está
  * editando. Tres reglas de fondo:
  *
@@ -101,7 +102,7 @@ function FiscalReadOnlyBlock({ fiscal }: { fiscal: FiscalData }) {
   return (
     <section className="rounded-md border border-border bg-muted/40 p-3" aria-labelledby="documentos-fiscal-title">
       <h4 id="documentos-fiscal-title" className="text-sm font-semibold text-foreground">
-        Sale de Datos fiscales (AFIP)
+        Tomado de Datos fiscales (AFIP)
       </h4>
       <dl className="mt-2 grid gap-x-4 gap-y-1 text-sm sm:grid-cols-[auto_minmax(0,1fr)]">
         {rows.map(([label, value]) =>
@@ -266,7 +267,8 @@ function BrandingEditor({ branding }: { branding: DocumentBranding }) {
           <CardHeader>
             <CardTitle className="text-lg">Marca de tu negocio</CardTitle>
             <CardDescription>
-              Tu logo, tus datos y tus colores salen en el comprobante de venta, presupuestos y remitos.
+              Tu logo, tus datos y tus colores salen en el comprobante de venta, presupuestos y remitos. En la
+              Factura C salen sólo el logo, el contacto y el color de la tabla: sus datos fiscales no cambian.
             </CardDescription>
           </CardHeader>
           <CardContent className="grid gap-6">

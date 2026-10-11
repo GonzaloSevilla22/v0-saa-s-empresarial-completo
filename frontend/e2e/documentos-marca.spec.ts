@@ -445,7 +445,7 @@ test.describe('Documentos con la marca de la cuenta (stack local)', () => {
           razon_social: 'PEREZ MARIA LAURA', nombre_fantasia: 'Sumar Fiscal', domicilio_comercial: 'Calle Fiscal 99, Mendoza',
         })
         await page.reload()
-        const fiscalBlock = page.getByText(/Sale de Datos fiscales \(AFIP\)/)
+        const fiscalBlock = page.getByText(/Tomado de Datos fiscales \(AFIP\)/)
         await expect(fiscalBlock).toBeVisible({ timeout: 60_000 })
         const block = page.locator('section', { has: fiscalBlock })
         await expect(block).toContainText('PEREZ MARIA LAURA')

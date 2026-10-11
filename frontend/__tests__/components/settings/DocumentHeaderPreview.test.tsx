@@ -122,6 +122,41 @@ describe("DocumentHeaderPreview", () => {
     expect(within(paper()).getByText("<img src=x onerror=alert(1)>")).toBeInTheDocument()
   })
 
+  describe("logo ancho (360×120) en el encabezado: no se superpone con el bloque del título", () => {
+    // jsdom no calcula layout: se fijan las clases de acotación y el e2e mide las cajas reales
+    // (frontend/e2e/documentos-marca.spec.ts: el logo termina antes de que empiece el título).
+    const logo = () => within(paper()).getByAltText("Logo de la empresa")
+    const titleBlock = () => within(paper()).getByText("PRESUPUESTO").parentElement as HTMLElement
+
+    it("el logo se acota al ancho de SU columna (nunca un ancho fijo), con alto máximo y sin deformarse", () => {
+      renderPreview()
+      const classes = logo().className
+      expect(classes).toMatch(/\bmax-w-full\b/)          // como mucho, la columna del emisor
+      expect(classes).toMatch(/\bmax-h-\d+\b/)           // y un alto máximo
+      expect(classes).toMatch(/\bobject-contain\b/)       // proporción intacta
+      expect(classes).not.toMatch(/max-w-\[\d+(\.\d+)?(rem|px)\]/)   // el tope fijo de 10 rem se salía de una columna de ~7 rem
+    })
+
+    it("la columna del emisor puede encogerse (min-w-0) y parte las palabras largas", () => {
+      renderPreview()
+      const column = logo().parentElement as HTMLElement
+      expect(column.className).toMatch(/\bmin-w-0\b/)
+      expect(paper().className).toMatch(/break-words|\[overflow-wrap:anywhere\]/)
+    })
+
+    it("el bloque del título no se encoge ni se deja pisar: ocupa su ancho a la derecha", () => {
+      renderPreview()
+      expect(titleBlock().className).toMatch(/\bshrink-0\b|\bflex-none\b|\bw-max\b/)
+      expect(titleBlock().className).toMatch(/\btext-right\b/)
+    })
+
+    it("el encabezado reparte columna del emisor (flexible) + título (a su contenido), como el PDF", () => {
+      renderPreview()
+      const row = (logo().parentElement as HTMLElement).parentElement as HTMLElement
+      expect(row.className).toMatch(/grid-cols-\[minmax\(0,1fr\)_auto\]/)
+    })
+  })
+
   it("no desborda su contenedor a 360 px: usa ancho fluido y permite partir las palabras largas", () => {
     renderPreview({ issuer: { ...ISSUER, email: "un.correo.muy.largo.del.negocio@dominio-largo-de-ejemplo.com.ar" } })
     expect(paper().className).toMatch(/\bw-full\b/)

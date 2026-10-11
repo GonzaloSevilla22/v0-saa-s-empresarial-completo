@@ -11,6 +11,10 @@
  *
  * Los textos se renderizan como texto (React escapa) y el logo sólo como `data:` PNG/JPEG
  * validado. Ancho fluido y palabras largas que se parten: no desborda a 360 px.
+ *
+ * El logo se acota al ancho de SU columna (la del emisor, `min-w-0`) y a 3 rem de alto, sin deformarse
+ * (`object-contain`), y el bloque del título no se encoge (`shrink-0`): como en el PDF, emisor a la
+ * izquierda y título a la derecha SIN solaparse, aunque el logo sea ancho (360×120) y la columna chica.
  */
 
 import { isSafeHexColor, isSafeLogoDataUri, NEUTRAL_PALETTE, type PrintedIssuer, type ResolvedPalette } from "@/lib/document-branding"
@@ -70,7 +74,7 @@ export function DocumentHeaderPreview({ issuer, footerNote, palette, logoDataUri
         <div className="min-w-0">
           {isSafeLogoDataUri(logoDataUri) && (
             // eslint-disable-next-line @next/next/no-img-element -- data: URI normalizado por el servidor
-            <img src={logoDataUri} alt="Logo de la empresa" className="mb-1.5 max-h-12 max-w-[10rem] object-contain" />
+            <img src={logoDataUri} alt="Logo de la empresa" className="mb-1.5 block h-auto max-h-12 w-auto max-w-full object-contain" />
           )}
           <p className="text-sm font-bold leading-tight" style={{ color: ink }}>{issuer.name}</p>
           {lines.map((line) => (
@@ -79,7 +83,7 @@ export function DocumentHeaderPreview({ issuer, footerNote, palette, logoDataUri
             </p>
           ))}
         </div>
-        <div className="text-right">
+        <div className="shrink-0 text-right">
           <p className="text-sm font-bold" style={{ color: heading }}>PRESUPUESTO</p>
           <p className="mt-0.5 text-[11px] font-semibold" style={{ color: ink }}>N° P-00000001</p>
           <p className="mt-0.5 text-[11px]" style={{ color: ink }}>Fecha: 01/10/2026</p>

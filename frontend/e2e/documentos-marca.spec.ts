@@ -286,6 +286,35 @@ async function pressArrow(page: Page, key: 'ArrowUp' | 'ArrowDown'): Promise<voi
   await page.keyboard.up(key)
 }
 
+/**
+ * El logo de la vista previa convive con el título del documento sin pisarlo: lado a lado (el logo termina
+ * antes de que empiece el título) o, si no alcanza el ancho, el título debajo. Ambos dentro del papel.
+ * Mide las cajas reales del navegador; jsdom no calcula layout. Deja la geometría en DOCS_VISUAL_DIR.
+ */
+async function expectPreviewLogoClearOfTitle(page: Page, label: string): Promise<void> {
+  const g = await page.evaluate(() => {
+    const paper = document.querySelector('[role="img"][aria-label^="Vista previa del encabezado"]')
+    const logo = paper?.querySelector('img[alt="Logo de la empresa"]')
+    const title = Array.from(paper?.querySelectorAll('p') ?? []).find((p) => p.textContent === 'PRESUPUESTO')
+    if (!paper || !logo || !title) return null
+    const r = (el: Element) => { const b = el.getBoundingClientRect(); return { left: b.left, right: b.right, top: b.top, bottom: b.bottom, width: b.width, height: b.height } }
+    return { paper: r(paper), logo: r(logo), title: r(title) }
+  })
+  expect(g, `${label}: no se encontró el logo o el título en la vista previa`).not.toBeNull()
+  const { paper, logo, title } = g!
+  const sideBySide = logo.right <= title.left + 0.5
+  const stacked = logo.bottom <= title.top + 0.5
+  expect(sideBySide || stacked, `${label}: el logo (${logo.left.toFixed(0)}-${logo.right.toFixed(0)}) se superpone con el título (${title.left.toFixed(0)}-${title.right.toFixed(0)})`).toBe(true)
+  expect(logo.left, `${label}: el logo se sale del papel por la izquierda`).toBeGreaterThanOrEqual(paper.left - 0.5)
+  expect(title.right, `${label}: el título se sale del papel por la derecha`).toBeLessThanOrEqual(paper.right + 0.5)
+  expect(logo.right, `${label}: el logo se sale del papel por la derecha`).toBeLessThanOrEqual(paper.right + 0.5)
+  if (VISUAL_DIR) {
+    await mkdir(VISUAL_DIR, { recursive: true })
+    const line = { label, layout: sideBySide ? 'lado a lado' : 'apilado', logo, title, paper }
+    await appendFile(path.join(VISUAL_DIR, 'preview-logo-geometria.jsonl'), JSON.stringify(line) + '\n')
+  }
+}
+
 /** La pestaña es más larga que el viewport: se captura con uno alto y se restaura el de la combinación. */
 async function snapTall(page: Page, combo: Combo, name: string): Promise<void> {
   if (!VISUAL_DIR) return
@@ -346,6 +375,7 @@ test.describe('Documentos con la marca de la cuenta (stack local)', () => {
         await page.locator('input[type="file"]').setInputFiles({ name: 'logo.png', mimeType: 'image/png', buffer: makeLogoPng() })
         await expect(page.getByText(/Logo actualizado/)).toBeVisible({ timeout: 60_000 })
         await expect(preview.getByAltText('Logo de la empresa')).toBeVisible({ timeout: 30_000 })
+        await expectPreviewLogoClearOfTitle(page, `${tag} logo recién subido`)
 
         await page.getByRole('radio', { name: 'Bordó' }).click()
         await expect(preview.getByText('PRESUPUESTO')).toHaveCSS('color', 'rgb(159, 18, 57)')
@@ -375,6 +405,7 @@ test.describe('Documentos con la marca de la cuenta (stack local)', () => {
         await expect(page.getByRole('radio', { name: 'Bordó' })).toBeChecked()
         await expect(preview.getByAltText('Logo de la empresa')).toBeVisible({ timeout: 30_000 })
         await expect(preview.getByText('PRESUPUESTO')).toHaveCSS('color', 'rgb(159, 18, 57)')
+        await expectPreviewLogoClearOfTitle(page, `${tag} guardado y recargado`)
         await snapTall(page, combo, `${tag}-3-documentos-guardado-bordo`)
 
         // Teclado: las flechas recorren las paletas (RadioGroup), el foco se ve y la elección cambia la vista previa.
@@ -426,6 +457,7 @@ test.describe('Documentos con la marca de la cuenta (stack local)', () => {
         await expect(preview).toContainText('Sumar Ropa Deportiva') // el nombre comercial de la marca gana
         await expectNoHorizontalOverflow(page)
         await expectAccessibleText(page, `${tag} con perfil fiscal (bloque de sólo lectura)`)
+        await expectPreviewLogoClearOfTitle(page, `${tag} con perfil fiscal (más líneas de emisor)`)
         await snapTall(page, combo, `${tag}-6-documentos-con-perfil-fiscal`)
 
         // ── 5. Papeles reales: presupuesto y remito en PDF, comprobante interno en HTML ─
@@ -515,6 +547,7 @@ test.describe('Documentos con la marca de la cuenta (stack local)', () => {
         await expect(seller.page.getByText(/Sólo el dueño o un administrador/)).toBeVisible()
         await expectNoHorizontalOverflow(seller.page)
         await expectAccessibleText(seller.page, `${tag} vendedor (aviso de sólo lectura)`)
+        await expectPreviewLogoClearOfTitle(seller.page, `${tag} vendedor`)
         await snapTall(seller.page, combo, `${tag}-9-documentos-vendedor-solo-lectura`)
 
         // El servidor también lo cierra: el vendedor no puede guardar por la API.

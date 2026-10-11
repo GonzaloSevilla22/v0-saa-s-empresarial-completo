@@ -260,7 +260,7 @@ function BrandingEditor({ branding }: { branding: DocumentBranding }) {
   const footerError = dirtyFields.footer_note ? fieldErrors.footer_note : undefined
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,19rem)]">
+    <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]">
       <form className="grid min-w-0 gap-6" onSubmit={form.handleSubmit(onSubmit)} noValidate>
         <Card>
           <CardHeader>

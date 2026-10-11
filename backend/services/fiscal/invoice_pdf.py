@@ -475,6 +475,7 @@ _QR_QUIET = 4           # módulos de zona de silencio
 _COLUMNS = (("Descripción", 96.0, "L"), ("Cantidad", 24.0, "R"),
             ("Precio unitario", 33.0, "R"), ("Subtotal", 33.0, "R"))
 _ROW_LINE = 4.6
+_HEAD_H = 7.0           # alto de la banda de la cabecera de la tabla
 # Alto de los totales + el bloque del CAE y el QR: van JUNTOS en la última
 # página (un total sin su CAE al lado no se entiende como factura).
 _TOTALS_H = 18.0
@@ -673,9 +674,12 @@ def _draw_table_head(pdf: _InvoicePDF) -> None:
     pdf.set_text_color(*palette.table_head_text)
     pdf.set_font("Helvetica", "B", 8.5)
     pdf.set_x(_MARGIN)
+    # Un solo relleno de punta a punta: rellenar cada celda por separado deja una línea clara en cada unión
+    # (se nota al verlo en pantalla con un acento). Los rótulos van sobre él, con sus bordes superior e inferior.
+    pdf.rect(_MARGIN, pdf.get_y(), _WIDTH, _HEAD_H, style="F")
     for label, width, align in _COLUMNS:
-        pdf.cell(width, 7, _latin1(label), border="TB", fill=True, align=align)
-    pdf.ln(7)
+        pdf.cell(width, _HEAD_H, _latin1(label), border="TB", align=align)
+    pdf.ln(_HEAD_H)
     pdf.set_text_color(*_INK)
 
 

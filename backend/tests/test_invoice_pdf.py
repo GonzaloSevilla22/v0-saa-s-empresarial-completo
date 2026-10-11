@@ -849,8 +849,10 @@ class TestPaletaSoloEnLoNoFiscal:
         titulo = [e for e in events if e[0] == "text" and e[1] == "FACTURA"]
         banda = [e for e in events if e[0] == "rect" and e[2] == "f" and e[3] == BLUE]
         assert [t[2] for t in titulo] == [BLUE]
-        assert len(banda) == 4                                         # las cuatro columnas de la cabecera
-        assert {round(abs(r[1][3]) / PT, 2) for r in banda} == {7.0}   # 7 mm de alto
+        # UN solo relleno de punta a punta (186 × 7 mm): cuatro celdas rellenas por separado dejan una línea
+        # clara en cada unión al verlas en pantalla.
+        assert len(banda) == 1
+        assert round(banda[0][1][2] / PT, 2) == 186.0 and round(abs(banda[0][1][3]) / PT, 2) == 7.0
 
     def test_el_texto_de_la_banda_es_el_de_mayor_contraste(self):
         rotulos = [(e[1], e[2]) for e in self._events("azul")[0] if e[0] == "text" and e[1] in HEAD_LABELS]
@@ -861,7 +863,7 @@ class TestPaletaSoloEnLoNoFiscal:
         azul = [e for e in self._events("azul")[0] if e[0] != "image" and e[-1] == BLUE]
 
         assert sorted((e[0], e[1] if e[0] == "text" else e[2]) for e in azul) \
-            == sorted([("text", "FACTURA")] + [("rect", "f")] * 4)
+            == sorted([("text", "FACTURA"), ("rect", "f")])
 
     @pytest.mark.parametrize("preset", ["azul", "bordo", "verde", "grafito"])
     def test_lo_fiscal_no_cambia_de_color_con_ninguna_paleta(self, preset):
@@ -881,7 +883,7 @@ class TestPaletaSoloEnLoNoFiscal:
 
         assert [e[2] for e in events if e[0] == "text" and e[1] == "FACTURA"] == [INK]
         assert [e[2] for e in events if e[0] == "text" and e[1] in HEAD_LABELS] == [INK] * 4
-        assert len([e for e in events if e[0] == "rect" and e[2] == "f" and e[3] == SURFACE]) == 4
+        assert len([e for e in events if e[0] == "rect" and e[2] == "f" and e[3] == SURFACE]) == 1
 
     def test_con_neutro_no_hay_ningun_color_de_acento(self):
         usados = {e[-1] for page in self._events() for e in page if e[0] != "image"}
@@ -918,7 +920,7 @@ class TestPaletaSoloEnLoNoFiscal:
 
         assert len(paginas) >= 2
         for events in paginas:
-            assert len([e for e in events if e[0] == "rect" and e[2] == "f" and e[3] == BLUE]) == 4
+            assert len([e for e in events if e[0] == "rect" and e[2] == "f" and e[3] == BLUE]) == 1
             assert [e[2] for e in events if e[0] == "text" and e[1] == "FACTURA"] == [BLUE]
         # el cuerpo de la tabla NO hereda el color del texto de la banda (blanco sobre blanco)
         cuerpo = [e for events in paginas for e in events if e[0] == "text" and e[1].startswith("Producto")]

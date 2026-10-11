@@ -19,13 +19,23 @@ import { formatMoney, formatUnitPrice } from "@/lib/format"
 import { formatQuantity } from "@/lib/format-unit"
 import type { SaleOperation } from "@/lib/group-operations"
 import type { Currency } from "@/lib/format"
+import {
+  NEUTRAL_PALETTE,
+  isSafeHexColor,
+  isSafeLogoDataUri,
+  type ReceiptBranding,
+  type ReceiptPalette,
+} from "@/lib/document-branding"
 
 export interface ReceiptOptions {
-  businessName: string
-  businessPhone?: string
-  businessEmail?: string
-  /** Avatar URL — used as logo when available */
-  logoUrl?: string
+  /**
+   * documentos-marca-empresa (D8): la MARCA de la cuenta —emisor resuelto por la cascada del
+   * servidor, paleta, logo como `data:` URI y leyenda al pie—, tal como la devuelve
+   * `GET /document-branding` (`toReceiptBranding`). Reemplaza al nombre, teléfono, email de
+   * login y avatar del usuario que imprime: el comprobante es de la CUENTA y sale igual para
+   * cualquier miembro. Sin marca cargada, `defaultReceiptBranding()` (Neutro, sin logo).
+   */
+  branding: ReceiptBranding
   /**
    * ventas-unidades-conversion (D8): símbolo de la unidad de la LÍNEA (la que
    * eligió el usuario al vender: "450 g", "0.450 kg"), resuelto por el caller
@@ -96,13 +106,10 @@ function capitalise(str: string): string {
 const CSS = `
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+  /* La paleta de la cuenta se declara aparte (paletteCss): --ink, --muted, --heading,
+     --strong-rule, --thead-bg, --thead-text, --total y --accent salen de ahí. */
   :root {
-    --ink:      #111111;
-    --muted:    #6b7280;
     --border:   #e5e7eb;
-    --accent:   #f9fafb;
-    --primary:  #0f172a;
-    --emerald:  #059669;
     --radius:   8px;
   }
 
@@ -129,7 +136,7 @@ const CSS = `
     justify-content: space-between;
     gap: 16px;
     padding-bottom: 20px;
-    border-bottom: 2px solid var(--primary);
+    border-bottom: 2px solid var(--strong-rule);
     margin-bottom: 20px;
   }
 
@@ -140,10 +147,11 @@ const CSS = `
   }
 
   .business-logo {
-    width: 48px;
-    height: 48px;
-    border-radius: 50%;
-    object-fit: cover;
+    max-width: 150px;
+    max-height: 56px;
+    width: auto;
+    height: auto;
+    object-fit: contain;
     flex-shrink: 0;
   }
 
@@ -151,8 +159,8 @@ const CSS = `
     width: 48px;
     height: 48px;
     border-radius: 50%;
-    background: var(--primary);
-    color: #ffffff;
+    background: var(--accent);
+    color: var(--on-accent);
     font-size: 22px;
     font-weight: 700;
     display: flex;
@@ -165,8 +173,14 @@ const CSS = `
   .business-name {
     font-size: 20px;
     font-weight: 700;
-    color: var(--primary);
+    color: var(--ink);
     line-height: 1.2;
+  }
+
+  .business-legal {
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 2px;
   }
 
   .business-contact {
@@ -191,7 +205,7 @@ const CSS = `
   .receipt-number {
     font-size: 22px;
     font-weight: 800;
-    color: var(--primary);
+    color: var(--heading);
     letter-spacing: -0.5px;
     font-variant-numeric: tabular-nums;
   }
@@ -243,7 +257,7 @@ const CSS = `
   }
 
   .items-table thead tr {
-    background: var(--accent);
+    background: var(--thead-bg);
     border-top: 1px solid var(--border);
     border-bottom: 1px solid var(--border);
   }
@@ -254,7 +268,7 @@ const CSS = `
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.08em;
-    color: var(--muted);
+    color: var(--thead-text);
     text-align: left;
   }
 
@@ -282,13 +296,13 @@ const CSS = `
 
   .items-table td.subtotal {
     font-weight: 700;
-    color: var(--emerald);
+    color: var(--ink);
     font-variant-numeric: tabular-nums;
   }
 
   /* ── Total footer ── */
   .total-section {
-    border-top: 2px solid var(--primary);
+    border-top: 2px solid var(--strong-rule);
     margin-top: 0;
     padding-top: 12px;
     display: flex;
@@ -308,7 +322,7 @@ const CSS = `
   .total-amount {
     font-size: 26px;
     font-weight: 800;
-    color: var(--primary);
+    color: var(--total);
     font-variant-numeric: tabular-nums;
     letter-spacing: -1px;
   }
@@ -327,12 +341,20 @@ const CSS = `
   .footer-thanks {
     font-size: 13px;
     font-weight: 600;
-    color: var(--primary);
+    color: var(--ink);
   }
   .footer-thanks-sub {
     font-size: 11px;
     color: var(--muted);
     margin-top: 2px;
+  }
+
+  .footer-note {
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 6px;
+    white-space: pre-line;
+    max-width: 420px;
   }
 
   .footer-id {
@@ -359,9 +381,9 @@ const CSS = `
 
   .print-button {
     appearance: none;
-    border: 1px solid var(--primary);
+    border: 1px solid var(--ink);
     border-radius: var(--radius);
-    background: var(--primary);
+    background: var(--ink);
     color: #ffffff;
     font: inherit;
     font-size: 13px;
@@ -388,6 +410,51 @@ const CSS = `
   }
 `
 
+// ── Paleta de la cuenta → variables CSS ───────────────────────────────────────
+
+function neutralFor(key: keyof ReceiptPalette): string {
+  const map: Record<keyof ReceiptPalette, string> = {
+    accent: NEUTRAL_PALETTE.ink,
+    ink: NEUTRAL_PALETTE.ink,
+    muted: NEUTRAL_PALETTE.muted,
+    rule: NEUTRAL_PALETTE.rule,
+    surface: NEUTRAL_PALETTE.surface,
+    heading: NEUTRAL_PALETTE.heading,
+    strongRule: NEUTRAL_PALETTE.strong_rule,
+    tableHeadFill: NEUTRAL_PALETTE.table_head_fill,
+    tableHeadText: NEUTRAL_PALETTE.table_head_text,
+    total: NEUTRAL_PALETTE.total,
+  }
+  return map[key]
+}
+
+/** Un color de la paleta sólo entra al CSS si es `#rrggbb` (minúsculas): cualquier otra cosa
+ *  —un valor mal formado o con intención de salirse del estilo— cae al de Neutro. */
+function cssColor(value: string | null | undefined, key: keyof ReceiptPalette): string {
+  return isSafeHexColor(value) ? value : neutralFor(key)
+}
+
+/** `:root` con las variables de la paleta (todas validadas con `isSafeHexColor`). El texto
+ *  sobre el acento de la inicial es blanco: todo acento aceptado se lee sobre blanco al revés
+ *  (>= 4,5:1 contra blanco), así que el blanco se lee sobre el acento. */
+function paletteCss(palette: ReceiptPalette): string {
+  const ink = cssColor(palette.ink, "ink")
+  const accent = isSafeHexColor(palette.accent) ? palette.accent : ink
+  return `
+  :root {
+    --ink: ${ink};
+    --muted: ${cssColor(palette.muted, "muted")};
+    --accent: ${accent};
+    --on-accent: #ffffff;
+    --heading: ${cssColor(palette.heading, "heading")};
+    --strong-rule: ${cssColor(palette.strongRule, "strongRule")};
+    --thead-bg: ${cssColor(palette.tableHeadFill, "tableHeadFill")};
+    --thead-text: ${cssColor(palette.tableHeadText, "tableHeadText")};
+    --total: ${cssColor(palette.total, "total")};
+  }
+`
+}
+
 // ── Main generator ────────────────────────────────────────────────────────────
 
 export function generateReceiptHTML(
@@ -396,22 +463,36 @@ export function generateReceiptHTML(
 ): string {
   const num       = receiptNumber(op)
   const dateLabel = capitalise(longDate(op.date))
-  const biz       = opts.businessName || "Mi Negocio"
+  const brand     = opts.branding
+  const issuer    = brand.issuer
+  const biz       = issuer.name || "Mi Negocio"
   const initial   = biz.charAt(0).toUpperCase()
   const hasClient = op.clientName && op.clientName !== "Consumidor Final"
 
   // ── Logo / initial ──────────────────────────────────────────────────────
-  const logoHTML = opts.logoUrl
-    ? `<img class="business-logo" src="${esc(opts.logoUrl)}" alt="Logo" />`
+  // Sólo un `data:` PNG/JPEG validado entra al `src`: nunca una URL (el avatar del usuario ya
+  // no se usa), nunca un SVG ni nada con comillas.
+  const logoHTML = isSafeLogoDataUri(brand.logoDataUri)
+    ? `<img class="business-logo" src="${esc(brand.logoDataUri)}" alt="Logo" />`
     : `<div class="business-initial">${esc(initial)}</div>`
 
-  // ── Contact line ────────────────────────────────────────────────────────
+  // ── Identidad y contacto del negocio (la web, como TEXTO: nunca un enlace) ──
+  const identityLines: string[] = []
+  if (issuer.legalName && issuer.legalName.trim().toLowerCase() !== biz.trim().toLowerCase()) {
+    identityLines.push(`<div class="business-legal">${esc(issuer.legalName)}</div>`)
+  }
+  if (issuer.cuit) identityLines.push(`<div class="business-legal">CUIT: ${esc(issuer.cuit)}</div>`)
+  if (issuer.ivaLegend) identityLines.push(`<div class="business-legal">${esc(issuer.ivaLegend)}</div>`)
+  if (issuer.address) identityLines.push(`<div class="business-legal">${esc(issuer.address)}</div>`)
   const contactParts: string[] = []
-  if (opts.businessPhone) contactParts.push(esc(opts.businessPhone))
-  if (opts.businessEmail) contactParts.push(esc(opts.businessEmail))
-  const contactHTML = contactParts.length
-    ? `<div class="business-contact">${contactParts.join(" &nbsp;·&nbsp; ")}</div>`
-    : ""
+  if (issuer.phone) contactParts.push(esc(issuer.phone))
+  if (issuer.email) contactParts.push(esc(issuer.email))
+  if (issuer.website) contactParts.push(esc(issuer.website))
+  const contactHTML = [
+    ...identityLines,
+    contactParts.length ? `<div class="business-contact">${contactParts.join(" &nbsp;·&nbsp; ")}</div>` : "",
+  ].join("")
+  const footerNoteHTML = brand.footerNote ? `<div class="footer-note">${esc(brand.footerNote)}</div>` : ""
 
   // ── Items rows ──────────────────────────────────────────────────────────
   const itemsHTML = op.items
@@ -446,7 +527,7 @@ export function generateReceiptHTML(
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Comprobante ${num} — ${esc(biz)}</title>
-  <style>${CSS}</style>
+  <style>${CSS}${paletteCss(brand.palette)}</style>
 </head>
 <body>
 
@@ -522,6 +603,7 @@ export function generateReceiptHTML(
     <div>
       <div class="footer-thanks">¡Gracias por su compra!</div>
       <div class="footer-thanks-sub">Este documento es su comprobante de venta.</div>
+      ${footerNoteHTML}
     </div>
     <div class="footer-id">ID: ${esc(opId)}</div>
   </div>
@@ -564,7 +646,8 @@ export function generateReceiptText(
   op: SaleOperation,
   opts: ReceiptTextOptions,
 ): string {
-  const biz   = opts.businessName || "Mi Negocio"
+  const issuer = opts.branding.issuer
+  const biz   = issuer.name || "Mi Negocio"
   const num   = receiptNumber(op)
   const date  = capitalise(longDate(op.date))
   const lines: string[] = []
@@ -602,12 +685,13 @@ export function generateReceiptText(
   lines.push("")
   lines.push(`💰 *TOTAL: ${formatMoney(op.total, op.currency as Currency)}*`)
 
-  // ── Business contact ──────────────────────────────────────────────────────
-  if (opts.businessPhone || opts.businessEmail) {
+  // ── Business contact (el de la marca: nunca el email de acceso de nadie) ───
+  if (issuer.phone || issuer.email || issuer.website) {
     lines.push("")
     lines.push("📞 Contacto:")
-    if (opts.businessPhone) lines.push(`  ${opts.businessPhone}`)
-    if (opts.businessEmail) lines.push(`  ${opts.businessEmail}`)
+    if (issuer.phone) lines.push(`  ${issuer.phone}`)
+    if (issuer.email) lines.push(`  ${issuer.email}`)
+    if (issuer.website) lines.push(`  ${issuer.website}`)
   }
 
   lines.push("")
@@ -626,7 +710,7 @@ export function generateReceiptShortText(
   op: SaleOperation,
   opts: ReceiptTextOptions,
 ): string {
-  const biz = opts.businessName || "Mi Negocio"
+  const biz = opts.branding.issuer.name || "Mi Negocio"
   const firstName = opts.clientFirstName?.split(" ")[0].trim()
   const lines: string[] = []
 
@@ -643,25 +727,26 @@ export function generateReceiptShortText(
 
 // ── Payload for the backend sales-receipt PDF endpoint ───────────────────────
 
+/**
+ * documentos-marca-empresa (D7): el servidor resuelve el emisor del comprobante por la CUENTA
+ * del usuario autenticado, así que el payload ya NO manda nombre, teléfono ni email del
+ * negocio (los campos obsoletos se aceptan e ignoran del lado del servidor).
+ */
 export interface SalesReceiptPdfPayload {
-  business_name: string
   receipt_number: string
   date_label: string
   items: { name: string; quantity: string; unit_price: string; subtotal: string }[]
   total: string
   currency: string
   client_name?: string | null
-  business_phone?: string | null
-  business_email?: string | null
 }
 
 export function buildSalesReceiptPdfPayload(
   op: SaleOperation,
-  opts: ReceiptOptions,
+  opts: Pick<ReceiptOptions, "unitSymbolFor">,
 ): SalesReceiptPdfPayload {
   const hasClient = op.clientName && op.clientName !== "Consumidor Final"
   return {
-    business_name:  opts.businessName || "Mi Negocio",
     receipt_number: receiptNumber(op),
     date_label:     capitalise(longDate(op.date)),
     items: op.items.map((i) => ({
@@ -675,7 +760,5 @@ export function buildSalesReceiptPdfPayload(
     total:          String(op.total),
     currency:       op.currency,
     client_name:    hasClient ? op.clientName : null,
-    business_phone: opts.businessPhone ?? null,
-    business_email: opts.businessEmail ?? null,
   }
 }

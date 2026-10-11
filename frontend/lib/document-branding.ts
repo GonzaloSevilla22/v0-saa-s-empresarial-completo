@@ -517,3 +517,15 @@ export function toReceiptBranding(branding: DocumentBranding, logoDataUri?: stri
     logoDataUri: isSafeLogoDataUri(logoDataUri) ? logoDataUri : undefined,
   }
 }
+
+/**
+ * La marca por defecto del comprobante: Neutro, sin logo, sin contacto, con el nombre que se
+ * tenga (el último cacheado o "Mi Negocio"). Es el camino de respaldo cuando la marca no se
+ * pudo cargar: el comprobante sale igual, con el diseño básico.
+ */
+export function defaultReceiptBranding(name: string = DEFAULT_ISSUER_NAME): ReceiptBranding {
+  return toReceiptBranding({
+    ...DEFAULT_DOCUMENT_BRANDING,
+    issuer: { ...DEFAULT_DOCUMENT_BRANDING.issuer, name: name.trim() || DEFAULT_ISSUER_NAME },
+  })
+}

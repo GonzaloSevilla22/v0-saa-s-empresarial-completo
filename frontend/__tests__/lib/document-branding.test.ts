@@ -16,6 +16,7 @@ import fs from "node:fs"
 import path from "node:path"
 import {
   DEFAULT_DOCUMENT_BRANDING,
+  defaultReceiptBranding,
   documentBrandingFormSchema,
   emptyBrandingForm,
   formFromSettings,
@@ -367,4 +368,19 @@ describe("formatCuit", () => {
     "%j → %j",
     (input, out) => expect(formatCuit(input)).toBe(out),
   )
+})
+
+describe("defaultReceiptBranding", () => {
+  it("es Neutro, sin logo, sin contacto y con el nombre dado", () => {
+    const branding = defaultReceiptBranding("Kiosco Lola")
+    expect(branding.issuer).toMatchObject({ name: "Kiosco Lola", phone: null, email: null, website: null, cuit: null })
+    expect(branding.palette.accent).toBeNull()
+    expect(branding.logoDataUri).toBeUndefined()
+    expect(branding.footerNote).toBeNull()
+  })
+
+  it("sin nombre (o en blanco) usa Mi Negocio", () => {
+    expect(defaultReceiptBranding().issuer.name).toBe("Mi Negocio")
+    expect(defaultReceiptBranding("   ").issuer.name).toBe("Mi Negocio")
+  })
 })

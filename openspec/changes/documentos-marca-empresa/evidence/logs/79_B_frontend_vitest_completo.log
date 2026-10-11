@@ -1,0 +1,50 @@
+
+ RUN  v4.1.8 C:/Users/Usuario/Desktop/EIE/v0-saa-s-empresarial-completo/.claude/worktrees/sad-shamir-6c7415/frontend
+
+ ❯ __tests__/pages/banco-conciliacion-import-warnings.test.tsx (8 tests | 2 failed) 71126ms
+     × muestra el conteo y el detalle de advertencias cuando el parser devuelve líneas ambiguas 21070ms
+     × F5: el aviso se numera con la fila física del archivo (source_row), la misma convención que usan los descartes 46320ms
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  __tests__/pages/banco-conciliacion-import-warnings.test.tsx > ConciliacionTab — avisos de ambigüedad > muestra el conteo y el detalle de advertencias cuando el parser devuelve líneas ambiguas
+Error: Test timed out in 20000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ __tests__/pages/banco-conciliacion-import-warnings.test.tsx:77:3
+     75|
+     76| describe("ConciliacionTab — avisos de ambigüedad", () => {
+     77|   it("muestra el conteo y el detalle de advertencias cuando el parser …
+       |   ^
+     78|     mockParseBankStatementFile.mockResolvedValue({
+     79|       ok: true,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  __tests__/pages/banco-conciliacion-import-warnings.test.tsx > ConciliacionTab — avisos de ambigüedad > F5: el aviso se numera con la fila física del archivo (source_row), la misma convención que usan los descartes
+Error: Test timed out in 20000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ __tests__/pages/banco-conciliacion-import-warnings.test.tsx:107:3
+    105|   })
+    106|
+    107|   it("F5: el aviso se numera con la fila física del archivo (source_ro…
+       |   ^
+    108|     mockParseBankStatementFile.mockResolvedValue({
+    109|       ok: true,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed | 537 passed (538)
+      Tests  2 failed | 6314 passed | 1 skipped (6317)
+   Start at  18:10:04
+   Duration  1533.25s (transform 266.31s, setup 725.32s, import 2186.13s, tests 1238.16s, environment 6531.55s)
+
+vitest_exit=1

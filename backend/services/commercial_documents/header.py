@@ -55,6 +55,7 @@ class HeaderLine:
     bold: bool = False
     size: float = DEFAULT_LINE_SIZE
     muted: bool = True        # gris de la paleta; False = la tinta
+    line_height: float | None = None   # mm; por defecto, la mitad del cuerpo en pt
 
 
 @dataclass(frozen=True)
@@ -63,6 +64,7 @@ class IssuerBlock:
     lines: tuple[HeaderLine, ...] = ()
     logo: LogoImage | None = None
     name_size: float = NAME_SIZE
+    name_line_height: float = NAME_LINE_HEIGHT
 
 
 @dataclass(frozen=True)
@@ -144,13 +146,13 @@ def layout_issuer_column(
         items: list[LayoutItem] = []
 
         pdf.set_font("Helvetica", "B", block.name_size)
-        name_lines = _wrap(pdf, width, NAME_LINE_HEIGHT, pdf_text(block.name))
-        items.append(LayoutItem(name_lines, True, block.name_size, NAME_LINE_HEIGHT, False, cursor))
-        cursor += len(name_lines) * NAME_LINE_HEIGHT
+        name_lines = _wrap(pdf, width, block.name_line_height, pdf_text(block.name))
+        items.append(LayoutItem(name_lines, True, block.name_size, block.name_line_height, False, cursor))
+        cursor += len(name_lines) * block.name_line_height
 
         for line in block.lines:
             pdf.set_font("Helvetica", "B" if line.bold else "", line.size)
-            line_height = line.size * 0.5
+            line_height = line.line_height if line.line_height is not None else line.size * 0.5
             wrapped = _wrap(pdf, width, line_height, pdf_text(line.text))
             items.append(LayoutItem(wrapped, line.bold, line.size, line_height, line.muted, cursor))
             cursor += len(wrapped) * line_height

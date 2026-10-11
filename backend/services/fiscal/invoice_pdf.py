@@ -12,15 +12,33 @@ Tres piezas separadas a propósito (D2):
      los numéricos como números, claves en el orden de la especificación,
      serializado sin espacios, en Base64. Con esa serialización el ejemplo
      oficial se reproduce byte a byte (test).
-  3. `render_invoice_pdf(view)` — dibuja con `fpdf2` (fuentes core, latin-1) y
-     el QR como rectángulos a partir de la matriz de `segno` (vectorial, sin
-     imágenes ni archivos temporales). Sin lógica de negocio.
+  3. `render_invoice_pdf(view, branding=None)` — dibuja con `fpdf2` (fuentes
+     core, latin-1) y el QR como rectángulos a partir de la matriz de `segno`
+     (vectorial; la única imagen de la factura es el logo de la cuenta, si lo
+     tiene). Sin lógica de negocio.
 
 Normativa: RG 1415/2003 (contenido de la factura), RG 4892/2020 (QR).
 Decisiones firmadas por el PO el 2026-09-26 (design.md): OQ-1 datos del emisor,
 OQ-2 ORIGINAL/DUPLICADO, OQ-3 fantasía grande + razón social siempre, OQ-5 sin
 el nombre del cliente si fue consumidor final sin identificar, OQ-8 dominio
 afip.gob.ar del ejemplo oficial.
+
+MARCA DE LA CUENTA (documentos-marca-empresa, tanda B, design D11). La factura
+suma, EN VIVO y sin entrar jamás en `emisor_snapshot`: el LOGO y las líneas de
+CONTACTO (teléfono, email del negocio, web) que la cuenta cargó en su marca, y
+el color de dos elementos NO fiscales —la banda de la cabecera de la tabla y el
+título "FACTURA"—. Todo lo fiscal (recuadro de la letra, datos del emisor, CUIT,
+receptor, totales, CAE y su vencimiento) queda en tinta y el QR de ARCA se
+dibuja siempre negro sobre blanco. El contacto sale SÓLO de la marca, sin el
+respaldo del teléfono del dueño que sí usan los papeles no fiscales: una cuenta
+que nunca configuró su marca recibe la misma factura de siempre. La leyenda al
+pie de la marca NO va (un "precios con IVA incluido" en una Factura C engaña).
+
+Esto SUPERA OQ-1 (sin teléfono, email ni web) y OQ-4 de `factura-fiscal-imprimible`
+por el pedido del PO del 2026-10-11: "toda la información de la empresa y el logo"
+en todos los papeles, facturas incluidas. La RG 1415/2003 fija el CONTENIDO de la
+factura y la RG 4892/2020 el QR; ninguna fija colores ni prohíbe un logo o datos
+de contacto.
 """
 from __future__ import annotations
 
@@ -35,6 +53,15 @@ from decimal import Decimal
 import segno
 from fpdf import FPDF
 
+from backend.services.commercial_documents.branding import BrandContact, DocumentBranding
+from backend.services.commercial_documents.header import (
+    ColumnLayout,
+    HeaderLine,
+    IssuerBlock,
+    draw_issuer_column,
+    layout_issuer_column,
+)
+from backend.services.commercial_documents.palette import NEUTRAL, DocumentPalette
 from backend.services.fiscal.comprobante import (
     COMPROBANTE_AFIP_CODE,
     COMPROBANTE_LETTER,
@@ -429,16 +456,26 @@ def build_qr_url(qr: QrData) -> str:
 
 _MARGIN = 12.0
 _WIDTH = 186.0          # 210 - 2 × 12
-_INK = (30, 41, 59)
-_MUTED = (100, 116, 139)
-_RULE = (148, 163, 184)
-_HEAD_FILL = (241, 245, 249)
+# La tinta, el gris y la regla de la factura son la BASE de toda paleta (`palette.NEUTRAL`): una sola
+# fuente para los papeles de la cuenta y la Factura C. El relleno de la banda de la tabla ya no es una
+# constante: lo da la paleta (`table_head_fill`; con Neutro, la superficie gris de siempre).
+_INK = NEUTRAL.ink
+_MUTED = NEUTRAL.muted
+_RULE = NEUTRAL.rule
 _WATERMARK = (226, 232, 240)
+# Encabezado: la columna del emisor (izquierda) y el recuadro que la contiene.
+_LOGO_BOX = (40.0, 16.0)            # mm máximos del logo, sin deformarse
+_COPY_H = 7.0                       # leyenda ORIGINAL / DUPLICADO sobre el recuadro
+_BOX_MIN_H = 42.0                   # alto del recuadro cuando no hay logo ni contacto (el de siempre)
+_BOX_PAD = 3.0                      # aire arriba y abajo de lo que contiene
+_LEFT_X = _MARGIN + 2
+_LEFT_W = _WIDTH / 2 - 12
 _QR_SIZE = 30.0         # mm — muy por encima del mínimo legible por una cámara
 _QR_QUIET = 4           # módulos de zona de silencio
 _COLUMNS = (("Descripción", 96.0, "L"), ("Cantidad", 24.0, "R"),
             ("Precio unitario", 33.0, "R"), ("Subtotal", 33.0, "R"))
 _ROW_LINE = 4.6
+_HEAD_H = 7.0           # alto de la banda de la cabecera de la tabla
 # Alto de los totales + el bloque del CAE y el QR: van JUNTOS en la última
 # página (un total sin su CAE al lado no se entiende como factura).
 _TOTALS_H = 18.0
@@ -448,9 +485,11 @@ _AUTH_H = _QR_SIZE + 8
 class _InvoicePDF(FPDF):
     """FPDF con el encabezado de la factura repetido en cada página."""
 
-    def __init__(self, view: InvoiceView) -> None:
+    def __init__(self, view: InvoiceView, branding: DocumentBranding | None = None) -> None:
         super().__init__(orientation="P", unit="mm", format="A4")
         self.view = view
+        self.branding = branding
+        self.palette: DocumentPalette = branding.palette if branding is not None else NEUTRAL
         self.in_table = False
         self.set_margins(_MARGIN, _MARGIN, _MARGIN)
         self.set_auto_page_break(auto=True, margin=16)
@@ -482,8 +521,71 @@ def _draw_watermark(pdf: _InvoicePDF) -> None:
             pdf.cell(210, 12, "COMPROBANTE DE PRUEBA - SIN VALIDEZ FISCAL", align="C")
 
 
+def _issuer_block(view: InvoiceView, branding: DocumentBranding | None) -> IssuerBlock:
+    """La columna izquierda: lo FISCAL (foto congelada; conserva su sanitizador `_latin1` de siempre y las
+    alturas de renglón de siempre, para que sin marca el diseño no se mueva) y, de la marca, el logo y las
+    líneas de contacto cargadas en ella. OQ-3 de la factura intacta: fantasía grande arriba y razón social
+    SIEMPRE."""
+    contact = branding.brand_contact if branding is not None else BrandContact()
+    logo = branding.logo if branding is not None else None
+
+    def line(text: str, *, bold: bool = False, size: float = 8.5, height: float = 4.2) -> HeaderLine:
+        return HeaderLine(text, bold=bold, size=size, muted=False, line_height=height)
+
+    lines: list[HeaderLine] = []
+    if view.issuer_display_name:
+        name, name_size, name_height = _latin1(view.issuer_display_name), 15.0, 7.0
+        lines.append(line(_latin1(view.issuer_legal_name), bold=True, size=9.0, height=4.5))
+    else:
+        name, name_size, name_height = _latin1(view.issuer_legal_name), 13.0, 6.0
+    lines.append(line(_latin1(view.issuer_address)))
+    lines.append(line(view.issuer_iva_legend, bold=True, height=4.5))
+    if contact.phone:
+        lines.append(line(f"Tel: {contact.phone}"))
+    if contact.email:
+        lines.append(line(contact.email))
+    if contact.website:
+        lines.append(line(contact.website))
+    return IssuerBlock(name=name, lines=tuple(lines), logo=logo, name_size=name_size,
+                       name_line_height=name_height)
+
+
+def _right_height(view: InvoiceView) -> float:
+    """Alto de la columna derecha (título, leyenda de homologación y cinco renglones de datos)."""
+    return 7.0 + (4.0 if view.is_homologacion else 0.0) + 5 * 5.0
+
+
+@dataclass(frozen=True)
+class InvoiceHeaderLayout:
+    """La geometría del encabezado, medida ANTES de dibujar: dónde queda el recuadro y la columna del emisor."""
+
+    box_top: float
+    box_height: float
+    left: ColumnLayout
+
+    @property
+    def box_bottom(self) -> float:
+        return self.box_top + self.box_height
+
+
+def layout_invoice_header(
+    pdf: FPDF, view: InvoiceView, branding: DocumentBranding | None = None
+) -> InvoiceHeaderLayout:
+    """Mide el encabezado: el recuadro toma `max(42 mm, columna izquierda + aire, columna derecha + aire)`.
+    Es determinístico (depende sólo de la vista y de la marca), así que todas las páginas —el encabezado se
+    repite en cada una— tienen el MISMO alto y la tabla arranca siempre debajo."""
+    box_top = _MARGIN + _COPY_H
+    left = layout_issuer_column(
+        pdf, _LEFT_X, box_top + _BOX_PAD, _LEFT_W, _issuer_block(view, branding), _LOGO_BOX
+    )
+    box_height = max(_BOX_MIN_H, left.height + 2 * _BOX_PAD, _right_height(view) + 2 * _BOX_PAD)
+    return InvoiceHeaderLayout(box_top=box_top, box_height=box_height, left=left)
+
+
 def _draw_header(pdf: _InvoicePDF, view: InvoiceView) -> None:
     top = _MARGIN
+    layout = layout_invoice_header(pdf, view, pdf.branding)
+    box_top, box_h = layout.box_top, layout.box_height
     pdf.set_draw_color(*_RULE)
     pdf.set_line_width(0.3)
     pdf.set_text_color(*_INK)
@@ -491,10 +593,8 @@ def _draw_header(pdf: _InvoicePDF, view: InvoiceView) -> None:
     # Leyenda de copia (OQ-2)
     pdf.set_xy(_MARGIN, top)
     pdf.set_font("Helvetica", "B", 11)
-    pdf.cell(_WIDTH, 7, view.copy_label, border=1, align="C")
+    pdf.cell(_WIDTH, _COPY_H, view.copy_label, border=1, align="C")
 
-    box_top = top + 7
-    box_h = 42.0
     pdf.rect(_MARGIN, box_top, _WIDTH, box_h)
     mid = _MARGIN + _WIDTH / 2
     pdf.line(mid, box_top + 15, mid, box_top + box_h)
@@ -509,31 +609,19 @@ def _draw_header(pdf: _InvoicePDF, view: InvoiceView) -> None:
     pdf.set_font("Helvetica", "B", 6.5)
     pdf.cell(16, 4, f"COD. {view.code}", align="C")
 
-    # Emisor (izquierda). OQ-3: fantasía grande arriba, razón social SIEMPRE.
-    left_w = _WIDTH / 2 - 12
-    pdf.set_xy(_MARGIN + 2, box_top + 3)
-    if view.issuer_display_name:
-        pdf.set_font("Helvetica", "B", 15)
-        pdf.multi_cell(left_w, 7, _latin1(view.issuer_display_name), new_x="LMARGIN", new_y="NEXT")
-        pdf.set_x(_MARGIN + 2)
-        pdf.set_font("Helvetica", "B", 9)
-        pdf.multi_cell(left_w, 4.5, _latin1(view.issuer_legal_name), new_x="LMARGIN", new_y="NEXT")
-    else:
-        pdf.set_font("Helvetica", "B", 13)
-        pdf.multi_cell(left_w, 6, _latin1(view.issuer_legal_name), new_x="LMARGIN", new_y="NEXT")
-    pdf.set_x(_MARGIN + 2)
-    pdf.set_font("Helvetica", "", 8.5)
-    pdf.multi_cell(left_w, 4.2, _latin1(view.issuer_address), new_x="LMARGIN", new_y="NEXT")
-    pdf.set_x(_MARGIN + 2)
-    pdf.set_font("Helvetica", "B", 8.5)
-    pdf.multi_cell(left_w, 4.5, view.issuer_iva_legend, new_x="LMARGIN", new_y="NEXT")
+    # Emisor (izquierda): logo, nombre, razón social, domicilio, leyenda de IVA y contacto de la marca.
+    draw_issuer_column(
+        pdf, _LEFT_X, box_top + _BOX_PAD, _LEFT_W, _issuer_block(view, pdf.branding), pdf.palette, _LOGO_BOX
+    )
 
-    # Comprobante (derecha)
+    # Comprobante (derecha). El título lleva el color de la paleta; todo lo demás, la tinta.
     right_x = mid + 10
     right_w = _MARGIN + _WIDTH - right_x - 2
     pdf.set_xy(right_x, box_top + 3)
     pdf.set_font("Helvetica", "B", 15)
+    pdf.set_text_color(*pdf.palette.heading)
     pdf.cell(right_w, 7, view.title, new_x="LMARGIN", new_y="NEXT")
+    pdf.set_text_color(*_INK)
     if view.is_homologacion:
         pdf.set_x(right_x)
         pdf.set_font("Helvetica", "B", 8)
@@ -578,13 +666,21 @@ def _draw_receptor(pdf: _InvoicePDF, view: InvoiceView) -> None:
 
 
 def _draw_table_head(pdf: _InvoicePDF) -> None:
-    pdf.set_fill_color(*_HEAD_FILL)
-    pdf.set_text_color(*_INK)
+    """La banda de la cabecera de la tabla: el único relleno de color de la factura (con Neutro, la
+    superficie gris de siempre). El texto toma el color de mayor contraste sobre ella; al terminar, el color
+    del texto vuelve a la tinta para que el cuerpo de la tabla no herede el blanco de una banda con acento."""
+    palette = pdf.palette
+    pdf.set_fill_color(*palette.table_head_fill)
+    pdf.set_text_color(*palette.table_head_text)
     pdf.set_font("Helvetica", "B", 8.5)
     pdf.set_x(_MARGIN)
+    # Un solo relleno de punta a punta: rellenar cada celda por separado deja una línea clara en cada unión
+    # (se nota al verlo en pantalla con un acento). Los rótulos van sobre él, con sus bordes superior e inferior.
+    pdf.rect(_MARGIN, pdf.get_y(), _WIDTH, _HEAD_H, style="F")
     for label, width, align in _COLUMNS:
-        pdf.cell(width, 7, _latin1(label), border="TB", fill=True, align=align)
-    pdf.ln(7)
+        pdf.cell(width, _HEAD_H, _latin1(label), border="TB", align=align)
+    pdf.ln(_HEAD_H)
+    pdf.set_text_color(*_INK)
 
 
 def _draw_line(pdf: _InvoicePDF, line: InvoiceLineView) -> None:
@@ -679,9 +775,11 @@ def _draw_authorization(pdf: _InvoicePDF, view: InvoiceView) -> None:
     pdf.set_y(max(pdf.get_y(), top + _QR_SIZE))
 
 
-def render_invoice_pdf(view: InvoiceView) -> bytes:
-    """Dibuja la factura (A4). Sin lógica de negocio: todo sale de `view`."""
-    pdf = _InvoicePDF(view)
+def render_invoice_pdf(view: InvoiceView, branding: DocumentBranding | None = None) -> bytes:
+    """Dibuja la factura (A4). Sin lógica de negocio: lo fiscal sale de `view`; la marca de la cuenta
+    (`branding`, opcional) suma el logo, el contacto y el color de la banda y del título. Sin marca,
+    dibuja exactamente lo de siempre."""
+    pdf = _InvoicePDF(view, branding)
     pdf.set_title(_latin1(f"{view.title} {view.letter} {view.comprobante_number}"))
     pdf.set_creator("Aliadata")
     pdf.add_page()

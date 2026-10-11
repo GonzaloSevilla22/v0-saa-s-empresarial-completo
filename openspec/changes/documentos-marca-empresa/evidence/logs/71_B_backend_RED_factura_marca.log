@@ -1,0 +1,101 @@
+................................................FFFFFFFFFFF.FFFFFFF..FFF [ 69%]
+FFFFFFFFFF...F..................                                         [100%]
+================================== FAILURES ===================================
+E   TypeError: render_invoice_pdf() takes 1 positional argument but 2 were given
+C:\Users\Usuario\Desktop\EIE\v0-saa-s-empresarial-completo\.claude\worktrees\sad-shamir-6c7415\backend\tests\test_invoice_pdf.py:638: TypeError: render_invoice_pdf() takes 1 positional argument but 2 were given
+E   TypeError: render_invoice_pdf() takes 1 positional argument but 2 were given
+C:\Users\Usuario\Desktop\EIE\v0-saa-s-empresarial-completo\.claude\worktrees\sad-shamir-6c7415\backend\tests\test_invoice_pdf.py:638: TypeError: render_invoice_pdf() takes 1 positional argument but 2 were given
+E   TypeError: render_invoice_pdf() takes 1 positional argument but 2 were given
+C:\Users\Usuario\Desktop\EIE\v0-saa-s-empresarial-completo\.claude\worktrees\sad-shamir-6c7415\backend\tests\test_invoice_pdf.py:638: TypeError: render_invoice_pdf() takes 1 positional argument but 2 were given
+E   TypeError: render_invoice_pdf() takes 1 positional argument but 2 were given
+C:\Users\Usuario\Desktop\EIE\v0-saa-s-empresarial-completo\.claude\worktrees\sad-shamir-6c7415\backend\tests\test_invoice_pdf.py:638: TypeError: render_invoice_pdf() takes 1 positional argument but 2 were given
+E   TypeError: render_invoice_pdf() takes 1 positional argument but 2 were given
+C:\Users\Usuario\Desktop\EIE\v0-saa-s-empresarial-completo\.claude\worktrees\sad-shamir-6c7415\backend\tests\test_invoice_pdf.py:638: TypeError: render_invoice_pdf() takes 1 positional argument but 2 were given
+E   TypeError: render_invoice_pdf() takes 1 positional argument but 2 were given
+C:\Users\Usuario\Desktop\EIE\v0-saa-s-empresarial-completo\.claude\worktrees\sad-shamir-6c7415\backend\tests\test_invoice_pdf.py:638: TypeError: render_invoice_pdf() takes 1 positional argument but 2 were given
+E   TypeError: render_invoice_pdf() takes 1 positional argument but 2 were given
+C:\Users\Usuario\Desktop\EIE\v0-saa-s-empresarial-completo\.claude\worktrees\sad-shamir-6c7415\backend\tests\test_invoice_pdf.py:638: TypeError: render_invoice_pdf() takes 1 positional argument but 2 were given
+E   TypeError: render_invoice_pdf() takes 1 positional argument but 2 were given
+C:\Users\Usuario\Desktop\EIE\v0-saa-s-empresarial-completo\.claude\worktrees\sad-shamir-6c7415\backend\tests\test_invoice_pdf.py:638: TypeError: render_invoice_pdf() takes 1 positional argument but 2 were given
+E   TypeError: render_invoice_pdf() takes 1 positional argument but 2 were given
+C:\Users\Usuario\Desktop\EIE\v0-saa-s-empresarial-completo\.claude\worktrees\sad-shamir-6c7415\backend\tests\test_invoice_pdf.py:638: TypeError: render_invoice_pdf() takes 1 positional argument but 2 were given
+E   TypeError: render_invoice_pdf() takes 1 positional argument but 2 were given
+C:\Users\Usuario\Desktop\EIE\v0-saa-s-empresarial-completo\.claude\worktrees\sad-shamir-6c7415\backend\tests\test_invoice_pdf.py:638: TypeError: render_invoice_pdf() takes 1 positional argument but 2 were given
+E   TypeError: render_invoice_pdf() takes 1 positional argument but 2 were given
+C:\Users\Usuario\Desktop\EIE\v0-saa-s-empresarial-completo\.claude\worktrees\sad-shamir-6c7415\backend\tests\test_invoice_pdf.py:638: TypeError: render_invoice_pdf() takes 1 positional argument but 2 were given
+E   TypeError: render_invoice_pdf() takes 1 positional argument but 2 were given
+C:\Users\Usuario\Desktop\EIE\v0-saa-s-empresarial-completo\.claude\worktrees\sad-shamir-6c7415\backend\tests\test_invoice_pdf.py:638: TypeError: render_invoice_pdf() takes 1 positional argument but 2 were given
+E   TypeError: render_invoice_pdf() takes 1 positional argument but 2 were given
+C:\Users\Usuario\Desktop\EIE\v0-saa-s-empresarial-completo\.claude\worktrees\sad-shamir-6c7415\backend\tests\test_invoice_pdf.py:638: TypeError: render_invoice_pdf() takes 1 positional argument but 2 were given
+E   TypeError: render_invoice_pdf() takes 1 positional argument but 2 were given
+C:\Users\Usuario\Desktop\EIE\v0-saa-s-empresarial-completo\.claude\worktrees\sad-shamir-6c7415\backend\tests\test_invoice_pdf.py:638: TypeError: render_invoice_pdf() takes 1 positional argument but 2 were given
+E   TypeError: render_invoice_pdf() takes 1 positional argument but 2 were given
+C:\Users\Usuario\Desktop\EIE\v0-saa-s-empresarial-completo\.claude\worktrees\sad-shamir-6c7415\backend\tests\test_invoice_pdf.py:638: TypeError: render_invoice_pdf() takes 1 positional argument but 2 were given
+E   TypeError: render_invoice_pdf() takes 1 positional argument but 2 were given
+C:\Users\Usuario\Desktop\EIE\v0-saa-s-empresarial-completo\.claude\worktrees\sad-shamir-6c7415\backend\tests\test_invoice_pdf.py:638: TypeError: render_invoice_pdf() takes 1 positional argument but 2 were given
+E   TypeError: render_invoice_pdf() takes 1 positional argument but 2 were given
+C:\Users\Usuario\Desktop\EIE\v0-saa-s-empresarial-completo\.claude\worktrees\sad-shamir-6c7415\backend\tests\test_invoice_pdf.py:638: TypeError: render_invoice_pdf() takes 1 positional argument but 2 were given
+E   TypeError: render_invoice_pdf() takes 1 positional argument but 2 were given
+C:\Users\Usuario\Desktop\EIE\v0-saa-s-empresarial-completo\.claude\worktrees\sad-shamir-6c7415\backend\tests\test_invoice_pdf.py:638: TypeError: render_invoice_pdf() takes 1 positional argument but 2 were given
+E   TypeError: render_invoice_pdf() takes 1 positional argument but 2 were given
+C:\Users\Usuario\Desktop\EIE\v0-saa-s-empresarial-completo\.claude\worktrees\sad-shamir-6c7415\backend\tests\test_invoice_pdf.py:638: TypeError: render_invoice_pdf() takes 1 positional argument but 2 were given
+E   TypeError: render_invoice_pdf() takes 1 positional argument but 2 were given
+C:\Users\Usuario\Desktop\EIE\v0-saa-s-empresarial-completo\.claude\worktrees\sad-shamir-6c7415\backend\tests\test_invoice_pdf.py:638: TypeError: render_invoice_pdf() takes 1 positional argument but 2 were given
+E   TypeError: _InvoicePDF.__init__() takes 2 positional arguments but 3 were given
+C:\Users\Usuario\Desktop\EIE\v0-saa-s-empresarial-completo\.claude\worktrees\sad-shamir-6c7415\backend\tests\test_invoice_pdf.py:934: TypeError: _InvoicePDF.__init__() takes 2 positional arguments but 3 were given
+E   TypeError: _InvoicePDF.__init__() takes 2 positional arguments but 3 were given
+C:\Users\Usuario\Desktop\EIE\v0-saa-s-empresarial-completo\.claude\worktrees\sad-shamir-6c7415\backend\tests\test_invoice_pdf.py:934: TypeError: _InvoicePDF.__init__() takes 2 positional arguments but 3 were given
+E   TypeError: _InvoicePDF.__init__() takes 2 positional arguments but 3 were given
+C:\Users\Usuario\Desktop\EIE\v0-saa-s-empresarial-completo\.claude\worktrees\sad-shamir-6c7415\backend\tests\test_invoice_pdf.py:934: TypeError: _InvoicePDF.__init__() takes 2 positional arguments but 3 were given
+E   TypeError: _InvoicePDF.__init__() takes 2 positional arguments but 3 were given
+C:\Users\Usuario\Desktop\EIE\v0-saa-s-empresarial-completo\.claude\worktrees\sad-shamir-6c7415\backend\tests\test_invoice_pdf.py:934: TypeError: _InvoicePDF.__init__() takes 2 positional arguments but 3 were given
+E   TypeError: render_invoice_pdf() takes 1 positional argument but 2 were given
+C:\Users\Usuario\Desktop\EIE\v0-saa-s-empresarial-completo\.claude\worktrees\sad-shamir-6c7415\backend\tests\test_invoice_pdf.py:638: TypeError: render_invoice_pdf() takes 1 positional argument but 2 were given
+E   TypeError: render_invoice_pdf() takes 1 positional argument but 2 were given
+C:\Users\Usuario\Desktop\EIE\v0-saa-s-empresarial-completo\.claude\worktrees\sad-shamir-6c7415\backend\tests\test_invoice_pdf.py:638: TypeError: render_invoice_pdf() takes 1 positional argument but 2 were given
+E   TypeError: get_invoice_pdf() got multiple values for argument 'account_id'
+C:\Users\Usuario\Desktop\EIE\v0-saa-s-empresarial-completo\.claude\worktrees\sad-shamir-6c7415\backend\tests\test_invoice_pdf.py:1048: TypeError: get_invoice_pdf() got multiple values for argument 'account_id'
+E   TypeError: get_invoice_pdf() got multiple values for argument 'account_id'
+C:\Users\Usuario\Desktop\EIE\v0-saa-s-empresarial-completo\.claude\worktrees\sad-shamir-6c7415\backend\tests\test_invoice_pdf.py:1064: TypeError: get_invoice_pdf() got multiple values for argument 'account_id'
+E   TypeError: get_invoice_pdf() got multiple values for argument 'account_id'
+C:\Users\Usuario\Desktop\EIE\v0-saa-s-empresarial-completo\.claude\worktrees\sad-shamir-6c7415\backend\tests\test_invoice_pdf.py:1075: TypeError: get_invoice_pdf() got multiple values for argument 'account_id'
+E   TypeError: get_invoice_pdf() got multiple values for argument 'account_id'
+C:\Users\Usuario\Desktop\EIE\v0-saa-s-empresarial-completo\.claude\worktrees\sad-shamir-6c7415\backend\tests\test_invoice_pdf.py:1089: TypeError: get_invoice_pdf() got multiple values for argument 'account_id'
+E   TypeError: get_invoice_pdf() got multiple values for argument 'account_id'
+C:\Users\Usuario\Desktop\EIE\v0-saa-s-empresarial-completo\.claude\worktrees\sad-shamir-6c7415\backend\tests\test_invoice_pdf.py:1103: TypeError: get_invoice_pdf() got multiple values for argument 'account_id'
+E   AssertionError: assert ('2615550101' in 'ORIGINAL\nC\nCOD. 011\nSumar\nPEREZ MARIA LAURA\nAv. San Martín 1234, Mendoza\nIVA RESPONSABLE MONOTRIBUTO\nFACTURA\n...caneando el código QR o en servicioscf.afip.gob.ar/publico/comprobantes/cae.aspx\nFACTURA C 0003-00000501 - Página 1/1')
+C:\Users\Usuario\Desktop\EIE\v0-saa-s-empresarial-completo\.claude\worktrees\sad-shamir-6c7415\backend\tests\test_factura_fiscal_endpoint.py:150: AssertionError: assert ('2615550101' in 'ORIGINAL\nC\nCOD. 011\nSumar\nPEREZ MARIA LAURA\nAv. San Martín 1234, Mendoza\nIVA RESPONSABLE MONOTRIBUTO\nFACTURA\n...caneando el código QR o en servicioscf.afip.gob.ar/publico/comprobantes/cae.aspx\nFACTURA C 0003-00000501 - Página 1/1')
+=========================== short test summary info ===========================
+FAILED backend\tests\test_invoice_pdf.py::TestSinMarcaLaFacturaQuedaComoHoy::test_una_cuenta_sin_marca_recibe_la_misma_factura[sumar_1_linea]
+FAILED backend\tests\test_invoice_pdf.py::TestSinMarcaLaFacturaQuedaComoHoy::test_una_cuenta_sin_marca_recibe_la_misma_factura[sumar_homologacion_duplicado]
+FAILED backend\tests\test_invoice_pdf.py::TestSinMarcaLaFacturaQuedaComoHoy::test_una_cuenta_sin_marca_recibe_la_misma_factura[sumar_sin_fantasia_55_lineas]
+FAILED backend\tests\test_invoice_pdf.py::TestSinMarcaLaFacturaQuedaComoHoy::test_el_telefono_del_duenio_no_se_imprime_en_la_factura
+FAILED backend\tests\test_invoice_pdf.py::TestConLaMarcaDeLaCuenta::test_logo_y_las_tres_lineas_de_contacto
+FAILED backend\tests\test_invoice_pdf.py::TestConLaMarcaDeLaCuenta::test_todo_el_contenido_de_la_factura_sin_marca_sigue_estando
+FAILED backend\tests\test_invoice_pdf.py::TestConLaMarcaDeLaCuenta::test_las_lineas_de_contacto_van_debajo_de_la_leyenda_de_iva_en_su_orden
+FAILED backend\tests\test_invoice_pdf.py::TestConLaMarcaDeLaCuenta::test_solo_email_no_inventa_telefono_ni_web
+FAILED backend\tests\test_invoice_pdf.py::TestConLaMarcaDeLaCuenta::test_el_contacto_nuevo_pasa_por_el_sanitizador_cp1252
+FAILED backend\tests\test_invoice_pdf.py::TestConLaMarcaDeLaCuenta::test_la_leyenda_al_pie_de_la_marca_no_va_en_la_factura
+FAILED backend\tests\test_invoice_pdf.py::TestConLaMarcaDeLaCuenta::test_una_marca_con_otra_identidad_no_cambia_lo_fiscal_impreso
+FAILED backend\tests\test_invoice_pdf.py::TestPaletaSoloEnLoNoFiscal::test_el_titulo_y_la_banda_de_la_tabla_usan_el_azul
+FAILED backend\tests\test_invoice_pdf.py::TestPaletaSoloEnLoNoFiscal::test_el_texto_de_la_banda_es_el_de_mayor_contraste
+FAILED backend\tests\test_invoice_pdf.py::TestPaletaSoloEnLoNoFiscal::test_el_azul_aparece_solo_en_el_titulo_y_en_la_banda
+FAILED backend\tests\test_invoice_pdf.py::TestPaletaSoloEnLoNoFiscal::test_lo_fiscal_no_cambia_de_color_con_ninguna_paleta[azul]
+FAILED backend\tests\test_invoice_pdf.py::TestPaletaSoloEnLoNoFiscal::test_lo_fiscal_no_cambia_de_color_con_ninguna_paleta[bordo]
+FAILED backend\tests\test_invoice_pdf.py::TestPaletaSoloEnLoNoFiscal::test_lo_fiscal_no_cambia_de_color_con_ninguna_paleta[verde]
+FAILED backend\tests\test_invoice_pdf.py::TestPaletaSoloEnLoNoFiscal::test_lo_fiscal_no_cambia_de_color_con_ninguna_paleta[grafito]
+FAILED backend\tests\test_invoice_pdf.py::TestPaletaSoloEnLoNoFiscal::test_el_qr_se_dibuja_siempre_negro_sobre_blanco
+FAILED backend\tests\test_invoice_pdf.py::TestPaletaSoloEnLoNoFiscal::test_la_banda_de_la_tabla_se_repite_con_la_paleta_en_cada_pagina
+FAILED backend\tests\test_invoice_pdf.py::TestElRecuadroDelEmisorSeMideAntesDeDibujar::test_sin_logo_ni_contacto_el_recuadro_mide_lo_de_siempre
+FAILED backend\tests\test_invoice_pdf.py::TestElRecuadroDelEmisorSeMideAntesDeDibujar::test_crece_con_logo_cuadrado_fantasia_larga_y_tres_lineas_de_contacto
+FAILED backend\tests\test_invoice_pdf.py::TestElRecuadroDelEmisorSeMideAntesDeDibujar::test_logo_horizontal_4_a_1_entra_en_40_mm_de_ancho
+FAILED backend\tests\test_invoice_pdf.py::TestElRecuadroDelEmisorSeMideAntesDeDibujar::test_sin_nombre_de_fantasia_el_nombre_es_la_razon_social_en_13_pt
+FAILED backend\tests\test_invoice_pdf.py::TestElRecuadroDelEmisorSeMideAntesDeDibujar::test_el_recuadro_dibujado_contiene_logo_nombre_iva_y_contacto
+FAILED backend\tests\test_invoice_pdf.py::TestElRecuadroDelEmisorSeMideAntesDeDibujar::test_con_muchas_lineas_cada_pagina_repite_el_encabezado_con_el_logo
+FAILED backend\tests\test_invoice_pdf.py::TestLaMarcaSeResuelveDeLaCuentaDelComprobante::test_pide_la_marca_de_la_cuenta_del_comprobante_y_la_imprime
+FAILED backend\tests\test_invoice_pdf.py::TestLaMarcaSeResuelveDeLaCuentaDelComprobante::test_baja_los_bytes_del_logo_solo_si_la_marca_tiene_huella
+FAILED backend\tests\test_invoice_pdf.py::TestLaMarcaSeResuelveDeLaCuentaDelComprobante::test_una_cuenta_sin_huella_no_baja_ningun_logo
+FAILED backend\tests\test_invoice_pdf.py::TestLaMarcaSeResuelveDeLaCuentaDelComprobante::test_si_la_marca_no_se_puede_leer_la_factura_sale_igual_sin_marca
+FAILED backend\tests\test_invoice_pdf.py::TestLaMarcaSeResuelveDeLaCuentaDelComprobante::test_un_error_de_la_factura_no_se_traga_con_la_marca
+FAILED backend\tests\test_factura_fiscal_endpoint.py::TestEndpoint::test_la_factura_lleva_la_marca_de_la_cuenta_del_request
+32 failed, 72 passed in 13.24s

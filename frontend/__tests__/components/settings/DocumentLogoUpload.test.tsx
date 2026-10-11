@@ -152,6 +152,16 @@ describe("DocumentLogoUpload — edición (owner/admin)", () => {
   })
 
   describe("quitar el logo", () => {
+    it("avisa que todos los papeles, la factura incluida, salen sin logo hasta que se suba otro", async () => {
+      const user = userEvent.setup()
+      render(<DocumentLogoUpload logo={LOGO} dataUri={PNG_DATA_URI} canEdit />)
+
+      await user.click(screen.getByRole("button", { name: /quitar logo/i }))
+      const dialog = await screen.findByRole("alertdialog")
+
+      expect(dialog).toHaveTextContent(/comprobantes, presupuestos, remitos y facturas van a salir sin logo/i)
+    })
+
     it("pide confirmación y, al confirmar, lo quita", async () => {
       const user = userEvent.setup()
       render(<DocumentLogoUpload logo={LOGO} dataUri={PNG_DATA_URI} canEdit />)

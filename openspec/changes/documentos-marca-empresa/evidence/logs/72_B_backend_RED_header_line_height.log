@@ -1,0 +1,7 @@
+..............................F.                                         [100%]
+================================== FAILURES ===================================
+E   TypeError: HeaderLine.__init__() got an unexpected keyword argument 'line_height'
+C:\Users\Usuario\Desktop\EIE\v0-saa-s-empresarial-completo\.claude\worktrees\sad-shamir-6c7415\backend\tests\test_document_header.py:287: TypeError: HeaderLine.__init__() got an unexpected keyword argument 'line_height'
+=========================== short test summary info ===========================
+FAILED backend\tests\test_document_header.py::test_a_line_height_of_its_own_changes_the_measured_height_and_the_y_of_the_next_line
+1 failed, 31 passed in 1.66s

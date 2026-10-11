@@ -98,7 +98,7 @@ describe("DocumentBrandingSettings — datos de la empresa", () => {
     setBranding({ ...BRANDING_RESPONSE, fiscal: FISCAL })
     render(<DocumentBrandingSettings />)
 
-    const block = screen.getByText(/sale de datos fiscales \(afip\)/i).closest("section") as HTMLElement
+    const block = screen.getByText(/tomado de datos fiscales \(afip\)/i).closest("section") as HTMLElement
     expect(within(block).getByText("Ropa Deportiva SRL")).toBeInTheDocument()
     expect(within(block).getByText("20-12345678-6")).toBeInTheDocument()
     expect(within(block).getByText("Av. San Martín 1234")).toBeInTheDocument()
@@ -112,6 +112,14 @@ describe("DocumentBrandingSettings — datos de la empresa", () => {
   it("explica qué papeles usan la marca", () => {
     render(<DocumentBrandingSettings />)
     expect(screen.getByText(/comprobante de venta, presupuestos y remitos/i)).toBeInTheDocument()
+  })
+
+  it("explica que la Factura C sólo toma el logo, el contacto y el color de la tabla (sus datos fiscales no cambian)", () => {
+    render(<DocumentBrandingSettings />)
+    const where = screen.getByText(/tu logo, tus datos y tus colores salen en/i)
+    expect(where).toHaveTextContent(/factura c/i)
+    expect(where).toHaveTextContent(/sólo el logo, el contacto y el color de la tabla/i)
+    expect(where).toHaveTextContent(/datos fiscales no cambian/i)
   })
 
   it("mientras carga muestra un estado de carga y no el formulario", () => {

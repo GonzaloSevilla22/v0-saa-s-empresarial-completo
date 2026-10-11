@@ -126,7 +126,7 @@ export function DocumentLogoUpload({ logo, dataUri, canEdit }: DocumentLogoUploa
           <AlertDialogHeader>
             <AlertDialogTitle>¿Quitar el logo?</AlertDialogTitle>
             <AlertDialogDescription>
-              Tus comprobantes, presupuestos y remitos van a salir sin logo hasta que subas otro.
+              Tus comprobantes, presupuestos, remitos y facturas van a salir sin logo hasta que subas otro.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

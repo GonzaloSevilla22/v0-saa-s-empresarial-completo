@@ -1,0 +1,24 @@
+............................................................F.F....F..F. [ 87%]
+..........                                                               [100%]
+================================== FAILURES ===================================
+E   AssertionError: assert 4 == 1
+     +  where 4 = len([('rect', (34.02, 606.61, 272.13, -19.84), 'f', (29, 78, 216)), ('rect', (306.14, 606.61, 68.03, -19.84), 'f', (29, 78...', (374.17, 606.61, 93.54, -19.84), 'f', (29, 78, 216)), ('rect', (467.72, 606.61, 93.54, -19.84), 'f', (29, 78, 216))])
+C:\Users\Usuario\Desktop\EIE\v0-saa-s-empresarial-completo\.claude\worktrees\sad-shamir-6c7415\backend\tests\test_invoice_pdf.py:854: AssertionError: assert 4 == 1
+E   AssertionError: assert [('rect', 'f'...', 'FACTURA')] == [('rect', 'f'...', 'FACTURA')]
+      
+      At index 1 diff: ('rect', 'f') != ('text', 'FACTURA')
+      Left contains 3 more items, first extra item: ('rect', 'f')
+      Use -v to get more diff
+C:\Users\Usuario\Desktop\EIE\v0-saa-s-empresarial-completo\.claude\worktrees\sad-shamir-6c7415\backend\tests\test_invoice_pdf.py:865: AssertionError: assert [('rect', 'f'...', 'FACTURA')] == [('rect', 'f'...', 'FACTURA')]
+E   AssertionError: assert 4 == 1
+     +  where 4 = len([('rect', (34.02, 606.61, 272.13, -19.84), 'f', (241, 245, 249)), ('rect', (306.14, 606.61, 68.03, -19.84), 'f', (241,...374.17, 606.61, 93.54, -19.84), 'f', (241, 245, 249)), ('rect', (467.72, 606.61, 93.54, -19.84), 'f', (241, 245, 249))])
+C:\Users\Usuario\Desktop\EIE\v0-saa-s-empresarial-completo\.claude\worktrees\sad-shamir-6c7415\backend\tests\test_invoice_pdf.py:886: AssertionError: assert 4 == 1
+E   AssertionError: assert 4 == 1
+     +  where 4 = len([('rect', (34.02, 606.61, 272.13, -19.84), 'f', (29, 78, 216)), ('rect', (306.14, 606.61, 68.03, -19.84), 'f', (29, 78...', (374.17, 606.61, 93.54, -19.84), 'f', (29, 78, 216)), ('rect', (467.72, 606.61, 93.54, -19.84), 'f', (29, 78, 216))])
+C:\Users\Usuario\Desktop\EIE\v0-saa-s-empresarial-completo\.claude\worktrees\sad-shamir-6c7415\backend\tests\test_invoice_pdf.py:923: AssertionError: assert 4 == 1
+=========================== short test summary info ===========================
+FAILED backend\tests\test_invoice_pdf.py::TestPaletaSoloEnLoNoFiscal::test_el_titulo_y_la_banda_de_la_tabla_usan_el_azul
+FAILED backend\tests\test_invoice_pdf.py::TestPaletaSoloEnLoNoFiscal::test_el_azul_aparece_solo_en_el_titulo_y_en_la_banda
+FAILED backend\tests\test_invoice_pdf.py::TestPaletaSoloEnLoNoFiscal::test_con_neutro_el_titulo_y_la_banda_quedan_como_hoy
+FAILED backend\tests\test_invoice_pdf.py::TestPaletaSoloEnLoNoFiscal::test_la_banda_de_la_tabla_se_repite_con_la_paleta_en_cada_pagina
+4 failed, 78 passed in 11.47s

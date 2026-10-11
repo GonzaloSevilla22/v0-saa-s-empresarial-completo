@@ -1,0 +1,16 @@
+matada     m1 el domicilio cambia de alto de renglón (sin marca el diseño se mueve) | 1 failed, 45 passed in 39.70s
+matada     m2 el título ignora la paleta | 1 failed, 60 passed in 45.79s
+matada     m3 el cuerpo de la tabla hereda el color del texto de la banda | 1 failed, 63 passed in 47.53s
+matada     m15 la banda sin su relleno único | 1 failed, 60 passed in 43.42s
+matada     m4 el QR toma el acento | 1 failed, 60 passed in 49.70s
+matada     m5 el recuadro no crece (alto fijo de 42 mm) | 1 failed, 72 passed in 52.68s
+matada     m6 el contacto cae al teléfono del dueño | 1 failed, 48 passed in 40.75s
+matada     m7 la banda ignora la paleta | 1 failed, 36 passed in 10.05s
+matada     m8 el recuadro de la letra toma el acento | 1 failed, 62 passed in 49.85s
+matada     m9 el logo se dibuja sólo en la primera página | 1 failed, 76 passed in 55.11s
+matada     m10 el servicio pide la marca antes de validar el comprobante | 1 failed, 77 passed in 65.17s (0:01:05)
+matada     m11 un error de la marca tumba la factura | 1 failed, 80 passed in 67.40s (0:01:07)
+matada     m12 el servicio olvida la marca | 1 failed, 77 passed in 38.79s
+matada     m13 la marca imprime la razón social de la marca | 1 failed, 58 passed in 9.80s
+matada     m14 el texto de la banda siempre blanco | 1 failed, 67 passed in 10.46s
+sobrevivientes: ninguno

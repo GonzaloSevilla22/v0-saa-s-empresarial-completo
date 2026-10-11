@@ -1,0 +1,80 @@
+[
+ {
+  "document": "sumar-1-linea",
+  "variant": "sin-marca",
+  "file": "sumar-1-linea__sin-marca.pdf",
+  "doc_id": "773bbb50-4f13-45f8-8d38-1fcb9b95ca2c"
+ },
+ {
+  "document": "fantasia-larga-1-linea",
+  "variant": "sin-marca",
+  "file": "fantasia-larga-1-linea__sin-marca.pdf",
+  "doc_id": "c00dda53-8ae8-4a3b-99e2-252eb05713b5"
+ },
+ {
+  "document": "fantasia-larga-60-lineas",
+  "variant": "sin-marca",
+  "file": "fantasia-larga-60-lineas__sin-marca.pdf",
+  "doc_id": "91758ad3-1152-4429-8e30-411f2e4b7d8f"
+ },
+ {
+  "document": "sin-fantasia-1-linea",
+  "variant": "sin-marca",
+  "file": "sin-fantasia-1-linea__sin-marca.pdf",
+  "doc_id": "76070eca-c10e-4c2e-b7c6-98b5198e65aa"
+ },
+ {
+  "document": "sumar-1-linea",
+  "variant": "neutro-logo-horizontal",
+  "file": "sumar-1-linea__neutro-logo-horizontal.pdf",
+  "doc_id": "773bbb50-4f13-45f8-8d38-1fcb9b95ca2c"
+ },
+ {
+  "document": "fantasia-larga-1-linea",
+  "variant": "neutro-logo-horizontal",
+  "file": "fantasia-larga-1-linea__neutro-logo-horizontal.pdf",
+  "doc_id": "c00dda53-8ae8-4a3b-99e2-252eb05713b5"
+ },
+ {
+  "document": "fantasia-larga-60-lineas",
+  "variant": "neutro-logo-horizontal",
+  "file": "fantasia-larga-60-lineas__neutro-logo-horizontal.pdf",
+  "doc_id": "91758ad3-1152-4429-8e30-411f2e4b7d8f"
+ },
+ {
+  "document": "sumar-1-linea",
+  "variant": "azul-logo-cuadrado",
+  "file": "sumar-1-linea__azul-logo-cuadrado.pdf",
+  "doc_id": "773bbb50-4f13-45f8-8d38-1fcb9b95ca2c"
+ },
+ {
+  "document": "fantasia-larga-1-linea",
+  "variant": "azul-logo-cuadrado",
+  "file": "fantasia-larga-1-linea__azul-logo-cuadrado.pdf",
+  "doc_id": "c00dda53-8ae8-4a3b-99e2-252eb05713b5"
+ },
+ {
+  "document": "fantasia-larga-60-lineas",
+  "variant": "azul-logo-cuadrado",
+  "file": "fantasia-larga-60-lineas__azul-logo-cuadrado.pdf",
+  "doc_id": "91758ad3-1152-4429-8e30-411f2e4b7d8f"
+ },
+ {
+  "document": "sin-fantasia-1-linea",
+  "variant": "azul-logo-cuadrado",
+  "file": "sin-fantasia-1-linea__azul-logo-cuadrado.pdf",
+  "doc_id": "76070eca-c10e-4c2e-b7c6-98b5198e65aa"
+ },
+ {
+  "document": "sumar-1-linea",
+  "variant": "bordo-logo-horizontal",
+  "file": "sumar-1-linea__bordo-logo-horizontal.pdf",
+  "doc_id": "773bbb50-4f13-45f8-8d38-1fcb9b95ca2c"
+ },
+ {
+  "document": "sumar-1-linea",
+  "variant": "grafito-solo-email",
+  "file": "sumar-1-linea__grafito-solo-email.pdf",
+  "doc_id": "773bbb50-4f13-45f8-8d38-1fcb9b95ca2c"
+ }
+]

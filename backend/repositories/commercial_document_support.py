@@ -9,6 +9,10 @@ comerciales no fiscales (presupuesto, remito): una sola definición de cada una
     vía `rpc_commercial_issuer` (definer, con guard de membresía). La política de
     `profiles` sólo deja ver el perfil propio, así que leerlo por la conexión
     del request devolvería vacío cuando descarga alguien que no es el dueño.
+  - `CommercialIssuerMixin.get_document_logo`: los BYTES del logo de la cuenta
+    (documentos-marca-empresa D2). Se piden sólo cuando la huella que devolvió la
+    RPC no está en el caché de `resolve_document_branding`; filtro explícito por
+    `account_id` además de la RLS (regla dura desde el incidente #446).
 """
 from __future__ import annotations
 
@@ -41,3 +45,13 @@ class CommercialIssuerMixin:
         (definer, con guard de membresía): ver el docstring del módulo."""
         raw = await self._conn.fetchval("SELECT public.rpc_commercial_issuer($1::uuid)", account_id)
         return jsonb_value(raw)
+
+    async def get_document_logo(self, account_id: str) -> dict | None:
+        """Imagen NORMALIZADA del logo de la cuenta (bytes, tipo y huella), o `None`
+        si no tiene. Sólo las columnas del logo: nada de los datos de la marca."""
+        row = await self._conn.fetchrow(
+            "SELECT logo_image, logo_mime, logo_sha256 FROM public.account_branding"
+            " WHERE account_id = $1::uuid AND logo_image IS NOT NULL",
+            account_id,
+        )
+        return dict(row) if row else None

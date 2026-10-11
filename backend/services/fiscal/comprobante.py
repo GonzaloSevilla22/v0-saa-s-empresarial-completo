@@ -31,6 +31,26 @@ COMPROBANTE_LETTER: dict[str, str] = {
     "factura_c": "C",
 }
 
+# Leyenda de la condición frente al IVA del EMISOR tal como se imprime en el
+# encabezado de un comprobante. documentos-marca-empresa (D4): sale de
+# `invoice_pdf.py` porque el encabezado de los papeles no fiscales (presupuesto,
+# remitos, comprobante interno) imprime la misma leyenda, una sola vez definida.
+ISSUER_IVA_LEGEND: dict[str, str] = {
+    "monotributista": "IVA RESPONSABLE MONOTRIBUTO",
+    "exento": "IVA EXENTO",
+    "responsable_inscripto": "IVA RESPONSABLE INSCRIPTO",
+}
+
+
+def format_cuit(value: object) -> str:
+    """`20123456786` / `20-12345678-6` -> `20-12345678-6`. Un valor que no tiene
+    11 dígitos se devuelve sin guiones, tal cual (no se inventa un formato)."""
+    digits = str(value or "").replace("-", "").strip()
+    if len(digits) == 11 and digits.isdigit():
+        return f"{digits[:2]}-{digits[2:10]}-{digits[10]}"
+    return digits
+
+
 # DocTipo de ARCA para el receptor.
 DOC_TIPO_CUIT = 80
 DOC_TIPO_DNI = 96

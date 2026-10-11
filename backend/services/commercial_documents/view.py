@@ -26,6 +26,7 @@ from decimal import Decimal
 from typing import Any
 
 from backend.core.timezone import today_in_argentina
+from backend.services.commercial_documents.branding import DocumentBranding
 from backend.services.commercial_documents.issuer import CommercialIssuer
 from backend.services.commercial_documents.numbering import format_internal_document_number
 
@@ -79,7 +80,9 @@ class CommercialDocumentView:
     issued_on: datetime.date
     valid_until: datetime.date | None
     status_stamp: str | None
-    issuer: CommercialIssuer
+    # documentos-marca-empresa (D6): la MARCA de la cuenta (emisor resuelto por la
+    # cascada única, paleta, logo y leyenda al pie) reemplaza al `issuer` suelto.
+    branding: DocumentBranding
     recipient: CommercialRecipient
     lines: tuple[CommercialLine, ...]
     show_prices: bool
@@ -93,6 +96,11 @@ class CommercialDocumentView:
     # de compra) y la línea con el número del remito del proveedor.
     recipient_label: str = _DEFAULT_RECIPIENT_LABEL
     reference_label: str | None = None
+
+    @property
+    def issuer(self) -> CommercialIssuer:
+        """El emisor impreso en el encabezado (el de la marca)."""
+        return self.branding.issuer
 
 
 def format_quantity(quantity: Decimal | int | float | str) -> str:
@@ -139,7 +147,7 @@ def build_quote_view(
     quote: Mapping[str, Any],
     lines: Sequence[Mapping[str, Any]],
     client: Mapping[str, Any],
-    issuer: CommercialIssuer,
+    branding: DocumentBranding,
     today: datetime.date,
 ) -> CommercialDocumentView:
     """Vista del PDF de un presupuesto. Pura: el sello "VENCIDO" de un abierto
@@ -155,7 +163,7 @@ def build_quote_view(
         issued_on=today_in_argentina(quote["created_at"]),
         valid_until=valid_until,
         status_stamp=_status_stamp(quote["status"], valid_until, today),
-        issuer=issuer,
+        branding=branding,
         recipient=CommercialRecipient(
             name=_text(client.get("name")) or NO_CLIENT_NAME,
             tax_id=_text(client.get("tax_id")),
@@ -175,7 +183,7 @@ def build_delivery_note_view(
     lines: Sequence[Mapping[str, Any]],
     client: Mapping[str, Any],
     branch: Mapping[str, Any],
-    issuer: CommercialIssuer,
+    branding: DocumentBranding,
     show_prices: bool,
     today: datetime.date,
 ) -> CommercialDocumentView:
@@ -206,7 +214,7 @@ def build_delivery_note_view(
         issued_on=delivery_note.get("issued_on") or today,
         valid_until=None,
         status_stamp="ANULADO" if delivery_note["status"] == "canceled" else None,
-        issuer=issuer,
+        branding=branding,
         recipient=CommercialRecipient(
             name=_text(client.get("name")) or (NO_SUPPLIER_NAME if purchase else NO_CLIENT_NAME),
             tax_id=_text(client.get("tax_id")),

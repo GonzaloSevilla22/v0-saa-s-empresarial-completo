@@ -20,9 +20,11 @@ from __future__ import annotations
 
 import datetime
 import io
+import json
 import re
 import uuid
 from decimal import Decimal
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -78,11 +80,20 @@ def _issuer(**over):
     return CommercialIssuer(**base)
 
 
-def _view(quote=None, lines=None, client=None, issuer=None, today=TODAY):
+def _neutral(issuer=None):
+    """documentos-marca-empresa: la vista recibe la MARCA de la cuenta; los tests que sólo
+    ejercitan el contenido usan la marca por defecto (Neutro, sin logo) de un emisor."""
+    from backend.services.commercial_documents.branding import DocumentBranding
+
+    return DocumentBranding.neutral(issuer or _issuer())
+
+
+def _view(quote=None, lines=None, client=None, issuer=None, today=TODAY, branding=None):
     from backend.services.commercial_documents.view import build_quote_view
 
     return build_quote_view(
-        quote or _quote(), lines if lines is not None else [_line()], client or CLIENT, issuer or _issuer(), today,
+        quote or _quote(), lines if lines is not None else [_line()], client or CLIENT,
+        branding or _neutral(issuer), today,
     )
 
 
@@ -215,7 +226,7 @@ class TestResolveCommercialIssuer:
 
         assert issuer.name == "Sumar"
         assert issuer.legal_name == "PEREZ MARIA LAURA"
-        assert issuer.cuit == "20123456786"
+        assert issuer.cuit == "20-12345678-6"      # documentos-marca-empresa: el CUIT se imprime NN-NNNNNNNN-N
         assert issuer.address == "Av. San Martín 1234, Mendoza"
         assert issuer.phone == "2615550101"
         repo.get_commercial_issuer.assert_awaited_once_with(ACCOUNT_ID)
@@ -284,12 +295,86 @@ class TestResolveCommercialIssuer:
         assert issuer.name == "Almacén Don José" and issuer.phone == "2615550101"
         assert [call[0] for call in repo.method_calls] == ["get_commercial_issuer"]
 
-    def test_the_issuer_never_carries_an_email(self):
-        """El email de acceso del dueño no se imprime en un documento para
-        terceros: el emisor no tiene ese campo."""
-        from backend.services.commercial_documents.issuer import CommercialIssuer
+    def test_the_issuer_carries_only_the_business_email_of_the_brand(self):
+        """documentos-marca-empresa (D4): el emisor SÍ tiene un `email`, pero es
+        EXCLUSIVAMENTE el email del negocio cargado en la marca. El email de acceso
+        del dueño no se imprime en un documento para terceros: ninguna otra clave de
+        la respuesta —aunque traiga un email— alimenta el campo."""
+        from backend.services.commercial_documents.issuer import CommercialIssuer, issuer_from_rpc
 
-        assert "email" not in {f for f in CommercialIssuer.__dataclass_fields__}
+        assert "email" in CommercialIssuer.__dataclass_fields__
+        leaky = {
+            **_RPC_EMPTY, "business_name": "Almacén Don José",
+            "email": "login@example.com", "owner_email": "duenio@example.com",
+            "auth_email": "auth@example.com", "contact_email": "otro@example.com",
+        }
+        assert issuer_from_rpc(leaky).email is None
+        assert issuer_from_rpc({**leaky, "brand_email": "ventas@sumar.com.ar"}).email == "ventas@sumar.com.ar"
+
+    def test_issuer_from_rpc_ignores_any_other_key_that_holds_an_email(self):
+        """Ningún campo del emisor impreso puede terminar siendo un email de acceso."""
+        from backend.services.commercial_documents.issuer import issuer_from_rpc
+
+        leaky = {**_RPC_EMPTY, "business_name": "Almacén Don José", "phone": "2615550101",
+                 "email": "login@example.com", "owner_email": "duenio@example.com"}
+        issuer = issuer_from_rpc(leaky)
+        printed = [issuer.name, issuer.legal_name, issuer.cuit, issuer.address, issuer.phone,
+                   issuer.iva_legend, issuer.email, issuer.website]
+        assert not any(value and "@" in value for value in printed)
+
+
+_RPC_EMPTY = {
+    "nombre_fantasia": None, "razon_social": None, "cuit": None, "domicilio_comercial": None,
+    "business_name": None, "phone": None, "iva_condition": None,
+    "brand_display_name": None, "brand_legal_name": None, "brand_tax_id": None, "brand_address": None,
+    "brand_phone": None, "brand_email": None, "brand_website": None, "brand_footer_note": None,
+    "palette_preset": None, "accent_color": None, "logo_sha256": None,
+}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# documentos-marca-empresa 5.2 — la cascada única, atada al fixture compartido con el frontend
+# ══════════════════════════════════════════════════════════════════════════════
+
+_CASCADE = json.loads(
+    (Path(__file__).parent / "fixtures" / "document_issuer_cascade_cases.json").read_text(encoding="utf-8")
+)["cases"]
+
+
+class TestIssuerCascade:
+    @pytest.mark.parametrize("case", _CASCADE, ids=[c["name"] for c in _CASCADE])
+    def test_the_printed_issuer_and_its_sources_follow_the_shared_fixture(self, case):
+        from backend.services.commercial_documents.issuer import issuer_from_rpc
+
+        issuer = issuer_from_rpc(case["rpc"])
+        expected = case["expected"]
+
+        assert issuer.name == expected["name"]
+        assert issuer.legal_name == expected["legal_name"]
+        assert issuer.cuit == expected["cuit"]
+        assert issuer.address == expected["address"]
+        assert issuer.phone == expected["phone"]
+        assert issuer.iva_legend == expected["iva_legend"]
+        assert issuer.email == expected["email"]
+        assert issuer.website == expected["website"]
+        assert dict(issuer.sources) == case["sources"]
+
+    @pytest.mark.parametrize("case", _CASCADE, ids=[c["name"] for c in _CASCADE])
+    def test_the_footer_note_comes_only_from_the_brand(self, case):
+        from backend.services.commercial_documents.branding import branding_from_rpc
+
+        assert branding_from_rpc(case["rpc"]).footer_note == case["expected"]["footer_note"]
+
+    def test_a_vendor_who_is_not_the_owner_gets_the_owners_phone(self):
+        """Los datos son los de la CUENTA: no dependen de quien descarga."""
+        from backend.services.commercial_documents.issuer import resolve_commercial_issuer
+
+        repo = AsyncMock()
+        repo.get_commercial_issuer.return_value = {**_RPC_EMPTY, "business_name": "Almacén Don José", "phone": "2615550101"}
+        import asyncio
+
+        issuer = asyncio.run(resolve_commercial_issuer(repo, ACCOUNT_ID))
+        assert issuer.phone == "2615550101" and issuer.sources["phone"] == "owner"
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -329,10 +414,12 @@ class TestBuildCommercialDocumentPdf:
         assert "Almacén Don José" in text
 
     def test_issuer_with_fiscal_data_prints_it_and_without_omits_it(self):
-        full = _pdf_text(_pdf(_view(issuer=_issuer(
-            name="Sumar", legal_name="PEREZ MARIA LAURA", cuit="20123456786", address="Av. San Martín 1234, Mendoza"))))
+        from backend.services.commercial_documents.issuer import issuer_from_rpc
+
+        # El emisor sale de la cascada real (no de uno armado a mano): el CUIT llega formateado.
+        full = _pdf_text(_pdf(_view(issuer=issuer_from_rpc(RAW_FULL))))
         assert "Sumar" in full and "PEREZ MARIA LAURA" in full
-        assert "CUIT" in full and "20123456786" in full
+        assert "CUIT: 20-12345678-6" in full
         assert "Av. San Martín 1234, Mendoza" in full
 
         bare = _pdf_text(_pdf(_view(issuer=_issuer(name="Mi Negocio", phone=None))))
@@ -607,7 +694,7 @@ def _dn(**over) -> dict:
 BRANCH = {"name": "Sucursal Centro"}
 
 
-def _dn_view(dn=None, lines=None, client=None, branch=None, issuer=None, show_prices=False, today=TODAY):
+def _dn_view(dn=None, lines=None, client=None, branch=None, issuer=None, show_prices=False, today=TODAY, branding=None):
     from backend.services.commercial_documents.view import build_delivery_note_view
 
     return build_delivery_note_view(
@@ -615,7 +702,7 @@ def _dn_view(dn=None, lines=None, client=None, branch=None, issuer=None, show_pr
         lines if lines is not None else [_line("Tornillo", "2", "750", "1500", unit_symbol="kg")],
         client or CLIENT,
         branch or BRANCH,
-        issuer or _issuer(),
+        branding or _neutral(issuer),
         show_prices,
         today,
     )
@@ -771,7 +858,7 @@ def _purchase_dn(**over) -> dict:
     return _dn(**base)
 
 
-def _purchase_view(dn=None, lines=None, supplier=None, branch=None, show_prices=False, today=TODAY):
+def _purchase_view(dn=None, lines=None, supplier=None, branch=None, show_prices=False, today=TODAY, branding=None):
     from backend.services.commercial_documents.view import build_delivery_note_view
 
     return build_delivery_note_view(
@@ -779,7 +866,7 @@ def _purchase_view(dn=None, lines=None, supplier=None, branch=None, show_prices=
         lines if lines is not None else [_line("Harina", "0.333", "999", "332.67", unit_symbol="kg")],
         supplier or SUPPLIER,
         branch or BRANCH,
-        _issuer(),
+        branding or _neutral(),
         show_prices,
         today,
     )
@@ -878,3 +965,339 @@ class TestBuildPurchaseDeliveryNotePdf:
         assert len(holders) == 1
         for number, page in enumerate(pages, start=1):
             assert "no válido como factura" in _flat(page), number
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# documentos-marca-empresa (tanda A, grupo 6) — presupuesto y remitos con la MARCA
+# de la cuenta: logo, identidad completa, leyenda al pie y paleta (Neutro por
+# defecto: ni un solo píxel del verde anterior).
+#
+# Strict TDD: escritos antes que `CommercialDocumentView.branding`, el dibujo del
+# logo/paleta/pie en `pdf.py` y `resolve_document_branding` en los services.
+# ══════════════════════════════════════════════════════════════════════════════
+
+OLD_GREEN = "0.0627 0.7255 0.5059"                 # (16, 185, 129): el EMERALD de hoy
+
+
+def _rgb_ops(rgb) -> str:
+    """Los tres componentes como los escribe fpdf2 en el flujo de contenido (4 decimales)."""
+    return " ".join(f"{channel / 255:.4f}" for channel in rgb)
+
+
+def _content(pdf: bytes) -> str:
+    """Los flujos de contenido de todas las páginas, descomprimidos."""
+    return "\n".join(
+        page.get_contents().get_data().decode("latin-1") for page in PdfReader(io.BytesIO(pdf)).pages
+    )
+
+
+def _text_color_before(content: str, word: str) -> str:
+    """El color de relleno (`r g b rg`) con que se dibuja la palabra: fpdf2 lo escribe justo
+    antes de `(texto) Tj`, dentro del mismo grupo `q BT … ET Q`."""
+    match = re.search(r"([0-9.]+ [0-9.]+ [0-9.]+) rg \(" + re.escape(word) + r"\) Tj", content)
+    assert match, f"no se encontró el texto {word!r} con su color"
+    return match.group(1)
+
+
+def _images(pdf: bytes) -> int:
+    return sum(len(page.images) for page in PdfReader(io.BytesIO(pdf)).pages)
+
+
+def _logo_image(size=(400, 100)):
+    from PIL import Image
+
+    from backend.services.commercial_documents.logo import normalize_logo
+
+    buf = io.BytesIO()
+    Image.new("RGBA", size, (200, 30, 30, 255)).save(buf, "PNG")
+    return normalize_logo(buf.getvalue())
+
+
+def _brand(*, preset=None, accent=None, logo=None, footer=None, **rpc_over):
+    """La marca armada con la cascada REAL a partir de lo que devolvería la RPC."""
+    from backend.services.commercial_documents.branding import branding_from_rpc
+
+    raw = dict(_RPC_EMPTY)
+    raw.update(
+        business_name="Almacén Don José", phone="2615550101", palette_preset=preset, accent_color=accent,
+        brand_footer_note=footer,
+    )
+    raw.update(rpc_over)
+    return branding_from_rpc(raw, logo)
+
+
+_ALL_PALETTES = [
+    (None, None), ("neutro", None), ("azul", None), ("verde", None), ("grafito", None), ("bordo", None),
+    ("personalizado", "#7c2d12"),
+]
+
+
+def _four_papers(branding):
+    """Presupuesto, presupuesto aceptado, remito de venta con precios y remito de compra."""
+    return {
+        "presupuesto": _pdf(_view(branding=branding)),
+        "presupuesto aceptado": _pdf(_view(_quote(status="accepted"), branding=branding)),
+        "remito de venta": _pdf(_dn_view(show_prices=True, branding=branding)),
+        "remito de compra": _pdf(_purchase_view(show_prices=True, branding=branding)),
+    }
+
+
+class TestBrandedLogo:
+    def test_the_quote_carries_the_logo_as_one_image(self):
+        assert _images(_pdf(_view(branding=_brand(logo=_logo_image())))) == 1
+
+    def test_the_sale_delivery_note_carries_the_same_logo(self):
+        assert _images(_pdf(_dn_view(branding=_brand(logo=_logo_image())))) == 1
+
+    def test_the_purchase_delivery_note_carries_the_same_logo(self):
+        assert _images(_pdf(_purchase_view(branding=_brand(logo=_logo_image())))) == 1
+
+    def test_without_a_logo_no_paper_embeds_an_image(self):
+        for name, pdf in _four_papers(_brand()).items():
+            assert _images(pdf) == 0, name
+
+    def test_an_unreadable_stored_logo_resolves_to_no_image(self):
+        """`load_logo_for_render` devolvió None: el papel sale igual, sin imagen."""
+        from backend.services.commercial_documents.logo import load_logo_for_render
+
+        unreadable = load_logo_for_render(b"no es una imagen", "image/png")
+        assert unreadable is None
+        assert _images(_pdf(_view(branding=_brand(logo=unreadable)))) == 0
+
+    def test_the_name_starts_below_the_logo_so_nothing_overlaps(self):
+        with_logo = _pages(_pdf(_view(branding=_brand(logo=_logo_image((400, 400))))))[0]
+        assert "Almacén Don José" in with_logo and "PRESUPUESTO" in with_logo
+
+    def test_the_logo_never_pushes_the_totals_off_a_one_page_document(self):
+        pdf = _pdf(_view(branding=_brand(logo=_logo_image((300, 300)))))
+        assert len(PdfReader(io.BytesIO(pdf)).pages) == 1
+
+
+class TestBrandedPalette:
+    @pytest.mark.parametrize("preset,accent", _ALL_PALETTES, ids=[f"{p}/{a}" for p, a in _ALL_PALETTES])
+    def test_no_paper_prints_the_old_green_whatever_the_palette(self, preset, accent):
+        for name, pdf in _four_papers(_brand(preset=preset, accent=accent)).items():
+            assert OLD_GREEN not in _content(pdf), name
+
+    def test_bordo_draws_the_title_the_rule_the_table_header_and_the_total(self):
+        bordo = (159, 18, 57)
+        content = _content(_pdf(_view(branding=_brand(preset="bordo"))))
+        ops = _rgb_ops(bordo)
+        assert content.count(f"{ops} rg") >= 3        # título + relleno de la cabecera + total
+        assert content.count(f"{ops} RG") >= 1        # regla gruesa del encabezado
+
+    def test_neutral_has_no_accent_color_at_all(self):
+        content = _content(_pdf(_view(branding=_brand())))
+        for accent in ((29, 78, 216), (4, 120, 87), (51, 65, 85), (159, 18, 57)):
+            assert _rgb_ops(accent) not in content
+
+    def test_the_ink_of_neutral_is_the_ink_of_the_invoice(self):
+        assert f"{_rgb_ops((30, 41, 59))} rg" in _content(_pdf(_view(branding=_brand())))
+
+    def test_the_table_header_of_neutral_is_the_light_surface(self):
+        assert f"{_rgb_ops((241, 245, 249))} rg" in _content(_pdf(_view(branding=_brand())))
+
+    def test_a_custom_color_is_used_as_is(self):
+        content = _content(_pdf(_view(branding=_brand(preset="personalizado", accent="#7c2d12"))))
+        assert f"{_rgb_ops((124, 45, 18))} rg" in content
+
+    def test_an_illegible_custom_color_falls_back_to_neutral(self):
+        """Un color guardado ilegible (escrito directo en la tabla) NO se dibuja."""
+        content = _content(_pdf(_view(branding=_brand(preset="personalizado", accent="#facc15"))))
+        assert _rgb_ops((250, 204, 21)) not in content
+
+    @pytest.mark.parametrize("preset,expected", [(None, (30, 41, 59)), ("azul", (29, 78, 216)), ("bordo", (159, 18, 57))])
+    def test_the_accepted_stamp_takes_the_accent_or_the_ink(self, preset, expected):
+        content = _content(_pdf(_view(_quote(status="accepted"), branding=_brand(preset=preset))))
+        assert _text_color_before(content, "ACEPTADO") == _rgb_ops(expected)
+
+    @pytest.mark.parametrize("status,word", [("rejected", "RECHAZADO"), ("expired", "VENCIDO")])
+    def test_the_warning_stamps_keep_their_red(self, status, word):
+        content = _content(_pdf(_view(_quote(status=status), branding=_brand(preset="azul"))))
+        assert _text_color_before(content, word) == _rgb_ops((185, 28, 28))
+
+    def test_a_canceled_delivery_note_keeps_the_warning_red(self):
+        content = _content(_pdf(_dn_view(_dn(status="canceled"), branding=_brand(preset="bordo"))))
+        assert _text_color_before(content, "ANULADO") == _rgb_ops((185, 28, 28))
+
+
+class TestBrandedIssuerData:
+    FULL = dict(
+        brand_display_name="Kiosco Lola", brand_tax_id="20111111112", brand_address="Calle Marca 123",
+        brand_phone="2615550999", brand_email="hola@kioscolola.com", brand_website="kioscolola.com",
+        iva_condition="monotributista",
+    )
+
+    def test_the_quote_prints_the_whole_identity(self):
+        text = _pdf_text(_pdf(_view(branding=_brand(**self.FULL))))
+        for needle in ("Kiosco Lola", "CUIT: 20-11111111-2", "IVA RESPONSABLE MONOTRIBUTO", "Calle Marca 123",
+                       "Tel: 2615550999", "hola@kioscolola.com", "kioscolola.com"):
+            assert needle in text, needle
+
+    def test_the_fiscal_cuit_is_printed_with_dashes(self):
+        text = _pdf_text(_pdf(_dn_view(branding=_brand(cuit="20123456786"))))
+        assert "CUIT: 20-12345678-6" in text and "CUIT: 20123456786" not in text
+
+    def test_the_delivery_notes_print_the_same_header(self):
+        branding = _brand(**self.FULL)
+        for pdf in (_pdf(_dn_view(branding=branding)), _pdf(_purchase_view(branding=branding))):
+            text = _pdf_text(pdf)
+            assert "Kiosco Lola" in text and "hola@kioscolola.com" in text and "CUIT: 20-11111111-2" in text
+
+    def test_the_access_email_of_the_owner_is_never_printed(self):
+        branding = _brand(**{**self.FULL, "brand_email": None}, email="duenio@example.com", owner_email="duenio@example.com")
+        for pdf in _four_papers(branding).values():
+            assert "duenio@example.com" not in _pdf_text(pdf)
+
+    def test_a_long_name_wraps_instead_of_overflowing(self):
+        long_name = "Distribuidora Mayorista de Productos Regionales y Artículos de Almacén del Oeste Argentino SA"
+        pdf = _pdf(_view(branding=_brand(brand_display_name=long_name)))
+        assert len(PdfReader(io.BytesIO(pdf)).pages) == 1
+        assert "Distribuidora Mayorista" in _pdf_text(pdf)
+
+    def test_an_emoji_in_the_commercial_name_does_not_break_the_paper(self):
+        text = _pdf_text(_pdf(_view(branding=_brand(brand_display_name="Dulces Mía 🍰"))))
+        assert "Dulces Mía" in text
+
+
+NOTE = "Alias para transferencias: sumar.ropa"
+
+
+class TestBrandedFooter:
+    def test_the_account_note_and_the_document_legend_print_on_every_page(self):
+        lines = [_line(f"Producto {i:02d}", "1", "100", "100") for i in range(80)]
+        pdf = _pdf(_view(lines=lines, branding=_brand(footer=NOTE)))
+        pages = _pages(pdf)
+        assert len(pages) >= 2
+        for number, text in enumerate(pages, 1):
+            assert NOTE in text, f"página {number}"
+            assert "no válido como factura" in " ".join(text.split()), f"página {number}"
+
+    def test_the_delivery_notes_print_the_note_too(self):
+        lines = [_line(f"Producto {i:02d}", "1", "100", "100") for i in range(80)]
+        for pdf in (_pdf(_dn_view(lines=lines, branding=_brand(footer=NOTE))),
+                    _pdf(_purchase_view(lines=lines, branding=_brand(footer=NOTE)))):
+            assert all(NOTE in text for text in _pages(pdf))
+
+    def test_without_a_note_the_footer_is_just_the_legend(self):
+        text = _pdf_text(_pdf(_view(branding=_brand())))
+        assert NOTE not in text and "no válido como factura" in " ".join(text.split())
+
+    def test_a_long_note_is_cut_to_three_lines_with_an_ellipsis(self):
+        words = ["palabra"] * 200 + ["ULTIMAPALABRA"]
+        text = _pdf_text(_pdf(_view(branding=_brand(footer=" ".join(words)))))
+        assert "ULTIMAPALABRA" not in text
+        assert "…" in text
+
+    def test_a_long_note_never_makes_the_footer_overlap_the_table(self):
+        """El margen de salto de página sigue al alto del pie: con una nota larga el documento
+        no pierde líneas ni el total."""
+        lines = [_line(f"Producto {i:02d}", "1", "100", "100") for i in range(30)]
+        text = _pdf_text(_pdf(_view(lines=lines, branding=_brand(footer=" ".join(["palabra"] * 200)))))
+        assert "Producto 00" in text and "Producto 29" in text and "TOTAL" in text
+
+    def test_the_page_number_and_the_legend_still_print(self):
+        text = _pdf_text(_pdf(_view(branding=_brand(footer=NOTE))))
+        assert "Página 1/1" in text
+
+
+class TestViewCarriesTheBranding:
+    def test_the_view_exposes_the_branding_and_its_issuer(self):
+        branding = _brand(brand_display_name="Kiosco Lola")
+        view = _view(branding=branding)
+        assert view.branding is branding
+        assert view.issuer is branding.issuer and view.issuer.name == "Kiosco Lola"
+
+    def test_the_delivery_note_view_takes_the_branding_in_the_issuers_position(self):
+        branding = _brand(brand_display_name="Kiosco Lola")
+        assert _dn_view(branding=branding).branding is branding
+        assert _purchase_view(branding=branding).branding is branding
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# documentos-marca-empresa 6.3 — los services del presupuesto y del remito resuelven
+# la MARCA de la cuenta para el PDF; `issuer_name` sigue la misma cascada pero sin
+# bajar el logo.
+# ══════════════════════════════════════════════════════════════════════════════
+
+_BRAND_RPC = {
+    **_RPC_EMPTY,
+    "nombre_fantasia": "Sumar", "razon_social": "PEREZ MARIA LAURA", "business_name": "Almacén Don José",
+    "brand_display_name": "Marca Gate", "palette_preset": "bordo", "brand_footer_note": "Alias: marca.gate",
+    "brand_email": "ventas@marcagate.test",
+}
+
+
+@pytest.fixture(autouse=False)
+def _clean_logo_cache():
+    from backend.services.commercial_documents.branding import clear_logo_cache
+
+    clear_logo_cache()
+    yield
+    clear_logo_cache()
+
+
+class TestQuoteServiceResolvesTheBranding:
+    @pytest.mark.asyncio
+    async def test_the_pdf_carries_the_brand_name_palette_footer_and_email(self, _clean_logo_cache):
+        from backend.services import quotes as svc
+
+        repo = _repo()
+        repo.get_commercial_issuer.return_value = dict(_BRAND_RPC)
+
+        pdf, _ = await svc.get_quote_pdf(repo, ACCOUNT_ID, QUOTE_ID, today=TODAY)
+
+        text = _pdf_text(pdf)
+        assert "Marca Gate" in text and "ventas@marcagate.test" in text and "Alias: marca.gate" in text
+        assert f"{_rgb_ops((159, 18, 57))} rg" in _content(pdf)           # bordó
+        assert OLD_GREEN not in _content(pdf)
+        repo.get_commercial_issuer.assert_awaited_once_with(ACCOUNT_ID)
+
+    @pytest.mark.asyncio
+    async def test_the_pdf_of_an_account_without_brand_keeps_its_name_and_is_neutral(self, _clean_logo_cache):
+        from backend.services import quotes as svc
+
+        pdf, _ = await svc.get_quote_pdf(_repo(), ACCOUNT_ID, QUOTE_ID, today=TODAY)   # RPC de 6 claves
+
+        assert "Sumar" in _pdf_text(pdf)
+        assert OLD_GREEN not in _content(pdf) and _images(pdf) == 0
+        assert f"{_rgb_ops((159, 18, 57))}" not in _content(pdf)
+
+    @pytest.mark.asyncio
+    async def test_the_logo_is_fetched_only_when_the_rpc_reports_a_fingerprint(self, _clean_logo_cache):
+        from backend.services import quotes as svc
+
+        stored = _logo_image()
+        repo = _repo()
+        repo.get_commercial_issuer.return_value = {**_BRAND_RPC, "logo_sha256": stored.sha256}
+        repo.get_document_logo.return_value = {
+            "logo_image": stored.data, "logo_mime": stored.mime, "logo_sha256": stored.sha256}
+
+        pdf, _ = await svc.get_quote_pdf(repo, ACCOUNT_ID, QUOTE_ID, today=TODAY)
+
+        assert _images(pdf) == 1
+        repo.get_document_logo.assert_awaited_once_with(ACCOUNT_ID)
+
+        without = _repo()
+        without.get_commercial_issuer.return_value = dict(_BRAND_RPC)
+        await svc.get_quote_pdf(without, ACCOUNT_ID, QUOTE_ID, today=TODAY)
+        without.get_document_logo.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_issuer_name_prefers_the_brand_display_name_and_does_not_fetch_the_logo(self, _clean_logo_cache):
+        from backend.services import quotes as svc
+
+        repo = _repo()
+        repo.get_commercial_issuer.return_value = {**_BRAND_RPC, "logo_sha256": "a" * 64}
+
+        detail = await svc.get_quote_detail(repo, ACCOUNT_ID, QUOTE_ID)
+
+        assert detail["issuer_name"] == "Marca Gate"                 # gana sobre la fantasía fiscal "Sumar"
+        repo.get_document_logo.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_issuer_name_without_brand_is_what_it_was(self, _clean_logo_cache):
+        from backend.services import quotes as svc
+
+        detail = await svc.get_quote_detail(_repo(), ACCOUNT_ID, QUOTE_ID)
+        assert detail["issuer_name"] == "Sumar"

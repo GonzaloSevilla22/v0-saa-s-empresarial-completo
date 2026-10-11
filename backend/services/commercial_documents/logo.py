@@ -44,6 +44,7 @@ from __future__ import annotations
 import hashlib
 import io
 import logging
+import threading
 from dataclasses import dataclass
 
 from PIL import Image, ImageOps
@@ -151,10 +152,25 @@ def _open_checked(raw: bytes) -> Image.Image:
     return img
 
 
+# Una normalización a la vez por proceso. Una imagen EN el tope de píxeles (25 M) ocupa ~100 MB
+# decodificada (RGBA): dos subidas simultáneas la duplicarían en la instancia free de Render
+# (512 MB). Subir el logo es un acto raro de owner/admin, así que serializar no se nota.
+_NORMALIZE_LOCK = threading.Lock()
+
+
 def normalize_logo(raw: bytes) -> LogoImage:
     """Valida y normaliza la imagen subida. Ver el docstring del módulo."""
     if len(raw) > MAX_UPLOAD_BYTES:
         raise LogoTooLarge()
+    with _NORMALIZE_LOCK:
+        return _normalize(raw)
+
+
+def _normalize(raw: bytes) -> LogoImage:
+    """El trabajo pesado, SIN copias de la imagen completa: se decodifica una vez, la
+    orientación y el modo se aplican en el lugar cuando no hace falta otra copia, y la imagen se
+    reduce en el lugar (el segundo intento parte de la versión ya reducida). El pico queda en ~1×
+    la imagen decodificada (medido: un PNG RGBA de 25 Mpx pasó de +406 MiB a ~+120 MiB)."""
     img = _open_checked(raw)
     try:
         if img.format in ("JPEG", "MPO"):
@@ -162,9 +178,10 @@ def normalize_logo(raw: bytes) -> LogoImage:
             # necesita ocupar 36 MB para terminar en 1000 px.
             img.draft("RGB", (MAX_SIDE, MAX_SIDE))
         img.load()                                    # <- recién acá se decodifican los píxeles
-        img = ImageOps.exif_transpose(img)
+        ImageOps.exif_transpose(img, in_place=True)   # sin copia cuando no hay orientación que aplicar
         alpha = _has_alpha(img)
-        base = img.convert("RGBA" if alpha else "RGB")        # `convert` devuelve una copia nueva
+        target = "RGBA" if alpha else "RGB"
+        base = img if img.mode == target else img.convert(target)   # `convert` copia: sólo si cambia el modo
         base.info = {}                                        # sin EXIF/ICC/texto PNG/dpi: Pillow los escribe desde `info`
     except LogoError:
         raise
@@ -172,18 +189,17 @@ def normalize_logo(raw: bytes) -> LogoImage:
         raise LogoInvalid() from exc
 
     for side in (MAX_SIDE, FALLBACK_SIDE):
-        candidate = base.copy()
-        candidate.thumbnail((side, side), Image.Resampling.LANCZOS)   # nunca agranda
+        base.thumbnail((side, side), Image.Resampling.LANCZOS)   # EN el lugar; nunca agranda
         try:
-            data, mime = _encode(candidate, alpha)
+            data, mime = _encode(base, alpha)
         except Exception as exc:
             raise LogoInvalid() from exc
         if len(data) <= MAX_STORED_BYTES:
             return LogoImage(
                 data=data,
                 mime=mime,
-                width=candidate.width,
-                height=candidate.height,
+                width=base.width,
+                height=base.height,
                 sha256=hashlib.sha256(data).hexdigest(),
             )
     raise LogoTooHeavy()

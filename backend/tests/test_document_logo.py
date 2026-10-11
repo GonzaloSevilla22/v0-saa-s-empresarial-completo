@@ -443,3 +443,107 @@ def test_fit_box_never_deforms_and_never_overflows_the_box(size):
 def test_fit_box_rejects_non_positive_dimensions(bad):
     with pytest.raises(ValueError):
         fit_box(*bad)
+
+
+# ── memoria: el tope de píxeles no alcanza si cada copia cuesta lo mismo que la imagen ───────────
+#
+# Revisión adversarial (grupo 12): un PNG RGBA de 107 KiB que declara 25 millones de píxeles
+# pasa todos los topes (2 MiB, 25 Mpx) y obligaba a Pillow a sostener ~4 copias de 100 MB
+# (decodificada, transpuesta, convertida y la del reintento): +406 MiB de pico medido, que en la
+# instancia free de Render (512 MB) la tumba. El pico tiene que quedar cerca de UNA copia.
+
+import subprocess
+import sys
+import threading
+import time
+from pathlib import Path
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+
+_PEAK_PROBE = r'''
+import sys
+
+def peak_mib():
+    if sys.platform == "win32":
+        import ctypes
+        import ctypes.wintypes as wt
+
+        class PMC(ctypes.Structure):
+            _fields_ = [("cb", wt.DWORD), ("PageFaultCount", wt.DWORD), ("PeakWorkingSetSize", ctypes.c_size_t),
+                        ("WorkingSetSize", ctypes.c_size_t), ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
+                        ("QuotaPagedPoolUsage", ctypes.c_size_t), ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
+                        ("QuotaNonPagedPoolUsage", ctypes.c_size_t), ("PagefileUsage", ctypes.c_size_t),
+                        ("PeakPagefileUsage", ctypes.c_size_t)]
+
+        k32 = ctypes.WinDLL("kernel32")
+        k32.GetCurrentProcess.restype = wt.HANDLE
+        psapi = ctypes.WinDLL("psapi")
+        psapi.GetProcessMemoryInfo.argtypes = [wt.HANDLE, ctypes.POINTER(PMC), wt.DWORD]
+        pmc = PMC()
+        pmc.cb = ctypes.sizeof(PMC)
+        assert psapi.GetProcessMemoryInfo(k32.GetCurrentProcess(), ctypes.byref(pmc), pmc.cb)
+        return pmc.PeakWorkingSetSize / 1048576
+    import resource
+    peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    return peak / 1048576 if sys.platform == "darwin" else peak / 1024
+
+from backend.services.commercial_documents.logo import normalize_logo
+
+raw = sys.stdin.buffer.read()
+before = peak_mib()
+normalize_logo(raw)
+print(peak_mib() - before)
+'''
+
+
+def _peak_growth_mib(raw: bytes) -> float:
+    done = subprocess.run(
+        [sys.executable, "-c", _PEAK_PROBE], input=raw, cwd=_REPO_ROOT,
+        capture_output=True, timeout=120, check=True,
+    )
+    return float(done.stdout.decode().strip().splitlines()[-1])
+
+
+@pytest.mark.parametrize("mode", ["RGBA", "RGB"])
+def test_a_25_megapixel_image_does_not_multiply_its_memory_footprint(mode):
+    """5000×5000 comprime a ~100 KiB y está EN el tope: normalizarla puede pedir, a lo sumo, una
+    copia decodificada (RGBA = 100 MB) más el trabajo del decodificador y del redimensionado (~+216 MiB
+    medidos con RGBA; antes del arreglo +406), nunca cuatro copias."""
+    side = int(MAX_PIXELS ** 0.5)
+    colour = (30, 90, 200, 255) if mode == "RGBA" else (30, 90, 200)
+    raw = _png_bytes(Image.new(mode, (side, side), colour))
+    assert len(raw) < MAX_UPLOAD_BYTES
+
+    growth = _peak_growth_mib(raw)
+
+    assert growth < 300, f"normalizar una imagen de {MAX_PIXELS} px sumó {growth:.0f} MiB de pico (tope razonable: 300)"
+
+
+def test_normalizations_never_run_concurrently(monkeypatch):
+    """Dos subidas a la vez duplicarían el pico de memoria: la normalización se serializa por proceso."""
+    state = {"active": 0, "peak": 0}
+    guard = threading.Lock()
+    original = logo_module._normalize
+
+    def spy(raw: bytes):
+        with guard:
+            state["active"] += 1
+            state["peak"] = max(state["peak"], state["active"])
+        time.sleep(0.05)
+        try:
+            return original(raw)
+        finally:
+            with guard:
+                state["active"] -= 1
+
+    monkeypatch.setattr(logo_module, "_normalize", spy)
+    raw = _png_bytes(_drawn_logo((300, 200)))
+    results: list[LogoImage] = []
+    threads = [threading.Thread(target=lambda: results.append(normalize_logo(raw))) for _ in range(5)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert len(results) == 5
+    assert state["peak"] == 1

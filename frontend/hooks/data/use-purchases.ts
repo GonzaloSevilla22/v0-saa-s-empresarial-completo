@@ -211,6 +211,9 @@ export function usePurchases() {
         // compras con branch_id). Es el ancla de la condición 2 del opt-in
         // de caja: sin sucursal persistida, la compra y la caja podrían
         // quedar en sucursales distintas sin que nada lo note.
+        // compras-gastos-sucursal-por-defecto: sin sucursal elegida viaja null y
+        // la RPC guarda la sucursal PRINCIPAL (la misma con la que mueve stock,
+        // caja y banco): ninguna compra nueva queda sin sucursal.
         branch_id:        opMeta.branchId ?? null,
         // cost-center-dimension: shared by all lines of the operation
         cost_center_id:   opMeta.costCenterId ?? null,

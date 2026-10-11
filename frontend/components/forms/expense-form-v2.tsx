@@ -228,10 +228,17 @@ export function ExpenseForm({ onSuccess, initialData }: ExpenseFormProps) {
       )}
 
       {/* ── Sucursal (solo plan PRO) ───────────────────────────────── */}
+      {/* compras-gastos-sucursal-por-defecto (D9): sin «Sin sucursal (general)»: se ve la
+          sucursal PRINCIPAL ya elegida, rotulada «Nombre (principal)», con el rótulo
+          «Sucursal» dentro del selector (desaparece junto con él en las cuentas sin el
+          módulo de sucursales). El estado sigue en `null` hasta que se elige otra: viaja
+          `null` y el SERVIDOR resuelve la principal — en el alta (desde gastos-forma-pago)
+          y en la edición (un gasto histórico sin sucursal toma la principal al guardarse). */}
       <BranchSelect
         value={branchId}
         onChange={setBranchId}
-        placeholder="Sin sucursal (general)"
+        allowUnassigned={false}
+        label="Sucursal"
         className="bg-background border-border text-foreground text-sm"
       />
 

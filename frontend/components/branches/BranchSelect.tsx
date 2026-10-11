@@ -35,8 +35,10 @@ interface BranchSelectProps {
    * (principal)». El estado del formulario NO cambia: sigue en `null` hasta que el
    * usuario elige otra sucursal; con `null` viaja `null` y el SERVIDOR resuelve la
    * principal con datos vivos. Elegir la principal que ya se muestra no emite
-   * `onChange` (Radix sólo emite cuando el valor cambia). Default `true`: compra,
-   * gasto e importador de gastos conservan su opción sin sucursal.
+   * `onChange` (Radix sólo emite cuando el valor cambia). Default `true`: sólo el
+   * presupuesto (`QuoteForm`, que no mueve stock ni es una compra) conserva su opción
+   * sin sucursal. Venta, compra, gasto e importador de gastos usan `false`
+   * (compras-gastos-sucursal-por-defecto D9): lo que se muestra es lo que el servidor guarda.
    */
   allowUnassigned?: boolean
   /**

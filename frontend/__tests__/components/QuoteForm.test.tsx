@@ -31,6 +31,8 @@ const mocks = vi.hoisted(() => ({
   toastSuccess: vi.fn(),
   toastInfo: vi.fn(),
   invalidateQueries: vi.fn(),
+  // compras-gastos-sucursal-por-defecto (D9): últimas props con las que el formulario monta el selector.
+  branchSelectProps: { last: null as null | { allowUnassigned?: boolean; label?: string; placeholder?: string } },
 }))
 
 const KG: UnitOfMeasure = { id: "u-kg", name: "Kilogramo", symbol: "kg", type: "weight", factor: 1, isSystem: true }
@@ -88,12 +90,21 @@ vi.mock("@/hooks/data/use-quotes", () => ({
   useQuoteSettings: () => ({ data: { defaultQuoteValidityDays: validityDays } }),
 }))
 vi.mock("@/components/branches/BranchSelect", () => ({
-  BranchSelect: ({ value, onChange }: { value: string | null; onChange: (v: string | null) => void }) => (
-    <select aria-label="Sucursal" value={value ?? ""} onChange={(e) => onChange(e.target.value || null)}>
-      <option value="">Sin sucursal</option>
-      <option value="b-1">Centro</option>
-    </select>
-  ),
+  BranchSelect: (props: {
+    value: string | null
+    onChange: (v: string | null) => void
+    allowUnassigned?: boolean
+    label?: string
+    placeholder?: string
+  }) => {
+    mocks.branchSelectProps.last = props
+    return (
+      <select aria-label="Sucursal" value={props.value ?? ""} onChange={(e) => props.onChange(e.target.value || null)}>
+        <option value="">Sin sucursal</option>
+        <option value="b-1">Centro</option>
+      </select>
+    )
+  },
 }))
 vi.mock("@/components/ui/searchable-select", () => ({
   SearchableSelect: ({
@@ -649,6 +660,19 @@ describe("QuoteForm — edición", () => {
     fireEvent.click(within(alert).getByRole("button", { name: /recargar/i }))
 
     expect(mocks.invalidateQueries).toHaveBeenCalledWith({ queryKey: ["quotes", "detail", "q-1"] })
+  })
+})
+
+describe("QuoteForm — selector de sucursal (compras-gastos-sucursal-por-defecto D9)", () => {
+  // El presupuesto NO mueve stock ni es una compra: conserva «Sin sucursal (general)». Sólo la
+  // compra, el gasto y el importador de gastos piden `allowUnassigned={false}`.
+  it("conserva la opción «Sin sucursal (general)»: no pide allowUnassigned={false} ni un rótulo propio", () => {
+    render(<QuoteForm />)
+
+    expect(mocks.branchSelectProps.last).not.toBeNull()
+    expect(mocks.branchSelectProps.last?.allowUnassigned).not.toBe(false)
+    expect(mocks.branchSelectProps.last?.label).toBeUndefined()
+    expect(mocks.branchSelectProps.last?.placeholder).toBe("Sin sucursal (general)")
   })
 })
 

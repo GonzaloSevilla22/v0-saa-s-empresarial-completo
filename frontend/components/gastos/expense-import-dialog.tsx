@@ -685,10 +685,16 @@ export function ExpenseImportDialog({
                   showSupportText={false}
                   className="bg-background border-border text-foreground text-sm"
                 />
+                {/* compras-gastos-sucursal-por-defecto (D9): sin «Sin sucursal por defecto»: se
+                    ve la sucursal PRINCIPAL ya elegida (a juego con los dos selectores vecinos,
+                    que también llevan «por defecto» en su rótulo). El estado sigue en `null`
+                    hasta que se elige otra: el lote viaja con `default_branch_id` null y cada
+                    fila sin sucursal propia cae en la principal por el alta del gasto. */}
                 <BranchSelect
                   value={defaultBranchId}
                   onChange={setDefaultBranchId}
-                  placeholder="Sin sucursal por defecto"
+                  allowUnassigned={false}
+                  label="Sucursal por defecto"
                   className="bg-background border-border text-foreground text-sm"
                 />
                 <CostCenterSelect

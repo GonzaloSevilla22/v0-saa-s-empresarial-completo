@@ -1,0 +1,216 @@
+{
+  "_comment": "Casos compartidos de contraste y paleta (documentos-marca-empresa D3). Los lee pytest (backend/tests/test_document_palette.py) y vitest (frontend/__tests__/lib/color-contrast.test.ts). Python (palette.py) es la autoridad. 'contrast' es el contraste contra BLANCO redondeado a 2 decimales, salvo que el valor exacto sea < 4,5 y el redondeo diera 4,50 (entonces 4,49, para que el aviso no contradiga el rechazo); 'accepted' = contraste exacto >= 4,5; 'text_on' = el texto de mayor contraste sobre ese fondo (blanco o la tinta).",
+  "min_accent_contrast": 4.5,
+  "ink": "#1e293b",
+  "catalog": {
+    "azul": "#1d4ed8",
+    "verde": "#047857",
+    "grafito": "#334155",
+    "bordo": "#9f1239"
+  },
+  "cases": [
+    {
+      "color": "#1d4ed8",
+      "note": "azul del catálogo",
+      "contrast": 6.7,
+      "accepted": true,
+      "text_on": "white"
+    },
+    {
+      "color": "#047857",
+      "note": "verde del catálogo",
+      "contrast": 5.48,
+      "accepted": true,
+      "text_on": "white"
+    },
+    {
+      "color": "#334155",
+      "note": "grafito del catálogo",
+      "contrast": 10.35,
+      "accepted": true,
+      "text_on": "white"
+    },
+    {
+      "color": "#9f1239",
+      "note": "bordó del catálogo",
+      "contrast": 8.02,
+      "accepted": true,
+      "text_on": "white"
+    },
+    {
+      "color": "#7c2d12",
+      "note": "personalizado válido (marrón oscuro)",
+      "contrast": 9.37,
+      "accepted": true,
+      "text_on": "white"
+    },
+    {
+      "color": "#10b981",
+      "note": "el verde anterior de los papeles",
+      "contrast": 2.54,
+      "accepted": false,
+      "text_on": "ink"
+    },
+    {
+      "color": "#059669",
+      "note": "el verde de los subtotales HTML",
+      "contrast": 3.77,
+      "accepted": false,
+      "text_on": "ink"
+    },
+    {
+      "color": "#facc15",
+      "note": "amarillo claro",
+      "contrast": 1.53,
+      "accepted": false,
+      "text_on": "ink"
+    },
+    {
+      "color": "#ffffff",
+      "note": "blanco",
+      "contrast": 1.0,
+      "accepted": false,
+      "text_on": "ink"
+    },
+    {
+      "color": "#000000",
+      "note": "negro",
+      "contrast": 21.0,
+      "accepted": true,
+      "text_on": "white"
+    },
+    {
+      "color": "#1e293b",
+      "note": "la tinta",
+      "contrast": 14.63,
+      "accepted": true,
+      "text_on": "white"
+    },
+    {
+      "color": "#64748b",
+      "note": "gris pizarra (texto secundario)",
+      "contrast": 4.76,
+      "accepted": true,
+      "text_on": "white"
+    },
+    {
+      "color": "#a76180",
+      "note": "borde: apenas por encima de 4,5 (4,50192)",
+      "contrast": 4.5,
+      "accepted": true,
+      "text_on": "white"
+    },
+    {
+      "color": "#a96081",
+      "note": "borde: 4,49",
+      "contrast": 4.49,
+      "accepted": false,
+      "text_on": "white"
+    },
+    {
+      "color": "#ac5e80",
+      "note": "borde: 4,49976 se muestra 4,49 y se rechaza",
+      "contrast": 4.49,
+      "accepted": false,
+      "text_on": "white"
+    }
+  ],
+  "resolve": [
+    {
+      "preset": "neutro",
+      "accent": null,
+      "key": "neutro",
+      "accent_hex": null
+    },
+    {
+      "preset": "azul",
+      "accent": null,
+      "key": "azul",
+      "accent_hex": "#1d4ed8"
+    },
+    {
+      "preset": "verde",
+      "accent": null,
+      "key": "verde",
+      "accent_hex": "#047857"
+    },
+    {
+      "preset": "grafito",
+      "accent": null,
+      "key": "grafito",
+      "accent_hex": "#334155"
+    },
+    {
+      "preset": "bordo",
+      "accent": null,
+      "key": "bordo",
+      "accent_hex": "#9f1239"
+    },
+    {
+      "preset": "azul",
+      "accent": "#7c2d12",
+      "key": "azul",
+      "accent_hex": "#1d4ed8"
+    },
+    {
+      "preset": "personalizado",
+      "accent": "#7c2d12",
+      "key": "personalizado",
+      "accent_hex": "#7c2d12"
+    },
+    {
+      "preset": "personalizado",
+      "accent": "#a76180",
+      "key": "personalizado",
+      "accent_hex": "#a76180"
+    },
+    {
+      "preset": "personalizado",
+      "accent": "#a96081",
+      "key": "neutro",
+      "accent_hex": null
+    },
+    {
+      "preset": "personalizado",
+      "accent": "#10b981",
+      "key": "neutro",
+      "accent_hex": null
+    },
+    {
+      "preset": "personalizado",
+      "accent": "#facc15",
+      "key": "neutro",
+      "accent_hex": null
+    },
+    {
+      "preset": "personalizado",
+      "accent": null,
+      "key": "neutro",
+      "accent_hex": null
+    },
+    {
+      "preset": "personalizado",
+      "accent": "#ZZZZZZ",
+      "key": "neutro",
+      "accent_hex": null
+    },
+    {
+      "preset": "personalizado",
+      "accent": "#ABCDEF",
+      "key": "neutro",
+      "accent_hex": null
+    },
+    {
+      "preset": "rosa",
+      "accent": null,
+      "key": "neutro",
+      "accent_hex": null
+    },
+    {
+      "preset": null,
+      "accent": null,
+      "key": "neutro",
+      "accent_hex": null
+    }
+  ]
+}

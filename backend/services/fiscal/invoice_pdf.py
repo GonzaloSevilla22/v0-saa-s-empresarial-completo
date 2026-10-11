@@ -41,6 +41,8 @@ from backend.services.fiscal.comprobante import (
     DOC_TIPO_CUIT,
     DOC_TIPO_DNI,
     DOC_TIPO_SIN_IDENTIFICAR,
+    ISSUER_IVA_LEGEND,
+    format_cuit,
     resolve_receptor_doc,
 )
 from backend.services.receipts import _format_amount, _format_unit_price, _latin1
@@ -60,12 +62,6 @@ CONSTATACION_URL = "https://servicioscf.afip.gob.ar/publico/comprobantes/cae.asp
 PRINTABLE_TYPES = frozenset({"factura_c"})
 
 _COPY_LABELS = {"original": "ORIGINAL", "duplicado": "DUPLICADO"}
-
-_ISSUER_IVA_LEGEND = {
-    "monotributista": "IVA RESPONSABLE MONOTRIBUTO",
-    "exento": "IVA EXENTO",
-    "responsable_inscripto": "IVA RESPONSABLE INSCRIPTO",
-}
 
 _RECEPTOR_IVA_LABEL = {
     "responsable_inscripto": "IVA Responsable Inscripto",
@@ -170,13 +166,6 @@ def _json_number(value: Decimal | int) -> int | float:
     return float(dec.normalize())
 
 
-def _format_cuit(value: object) -> str:
-    digits = str(value or "").replace("-", "").strip()
-    if len(digits) == 11 and digits.isdigit():
-        return f"{digits[:2]}-{digits[2:10]}-{digits[10]}"
-    return digits
-
-
 def _format_thousands(digits: str) -> str:
     return f"{int(digits):,}".replace(",", ".") if digits.isdigit() else digits
 
@@ -265,7 +254,7 @@ def _receptor_lines(doc: Mapping, doc_tipo: int, doc_nro: int) -> tuple[str, ...
     if doc_tipo == DOC_TIPO_SIN_IDENTIFICAR:
         return ("Consumidor Final",)
     if doc_tipo == DOC_TIPO_CUIT:
-        ident = f"CUIT: {_format_cuit(doc_nro)}"
+        ident = f"CUIT: {format_cuit(doc_nro)}"
     elif doc_tipo == DOC_TIPO_DNI:
         ident = f"DNI: {_format_thousands(str(doc_nro))}"
     else:
@@ -381,8 +370,8 @@ def build_invoice_view(
         issuer_display_name=None if _blank(display_name) else str(display_name).strip(),
         issuer_legal_name=str(issuer["razon_social"]).strip(),
         issuer_address=str(issuer["domicilio_comercial"]).strip(),
-        issuer_iva_legend=_ISSUER_IVA_LEGEND.get(issuer.get("iva_condition"), "IVA RESPONSABLE MONOTRIBUTO"),
-        issuer_cuit=_format_cuit(cuit_digits),
+        issuer_iva_legend=ISSUER_IVA_LEGEND.get(issuer.get("iva_condition"), "IVA RESPONSABLE MONOTRIBUTO"),
+        issuer_cuit=format_cuit(cuit_digits),
         issuer_iibb=str(iibb).strip(),
         issuer_start_date=_format_date(_as_date(issuer.get("inicio_actividades"))),
         punto_de_venta=pv_text,

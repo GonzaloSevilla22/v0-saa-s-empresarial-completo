@@ -1,0 +1,130 @@
+........................F.FFFFF.............................FF.          [100%]
+================================== FAILURES ===================================
+_____________________ test_the_pixel_cap_is_16_megapixels _____________________
+
+    def test_the_pixel_cap_is_16_megapixels():
+        """Ajustado de 25 M a 16 M por el hallazgo H1 de la revisión adversarial del apply: un logo de
+        4000×4000 sigue entrando, y el pico de memoria de la normalización baja de ~216 a ~143 MiB."""
+>       assert MAX_PIXELS == 16_000_000
+E       assert 25000000 == 16000000
+
+backend\tests\test_document_logo.py:286: AssertionError
+_ test_png_over_the_pixel_cap_is_invalid_without_decoding[25 Mpx: el tope anterior ya no entra] _
+
+load_spy = [], width = 5000, height = 5000
+
+    @pytest.mark.parametrize(
+        "width,height",
+        [
+            pytest.param(6000, 5000, id="30 Mpx: Pillow lo abre sin chistar (su alarma salta a los 89 M)"),
+            pytest.param(5000, 5000, id="25 Mpx: el tope anterior ya no entra"),
+            pytest.param(4001, 4000, id="16 Mpx + 4000 px: apenas por encima"),
+            pytest.param(16_000_001, 1, id="16 Mpx + 1 px exactos, en una fila"),
+        ],
+    )
+    def test_png_over_the_pixel_cap_is_invalid_without_decoding(load_spy, width, height):
+        """El tope de píxeles lo pone el servicio y ANTES de decodificar."""
+>       assert width * height > MAX_PIXELS
+E       assert (5000 * 5000) > 25000000
+
+backend\tests\test_document_logo.py:301: AssertionError
+_ test_png_over_the_pixel_cap_is_invalid_without_decoding[16 Mpx + 4000 px: apenas por encima] _
+
+load_spy = [], width = 4001, height = 4000
+
+    @pytest.mark.parametrize(
+        "width,height",
+        [
+            pytest.param(6000, 5000, id="30 Mpx: Pillow lo abre sin chistar (su alarma salta a los 89 M)"),
+            pytest.param(5000, 5000, id="25 Mpx: el tope anterior ya no entra"),
+            pytest.param(4001, 4000, id="16 Mpx + 4000 px: apenas por encima"),
+            pytest.param(16_000_001, 1, id="16 Mpx + 1 px exactos, en una fila"),
+        ],
+    )
+    def test_png_over_the_pixel_cap_is_invalid_without_decoding(load_spy, width, height):
+        """El tope de píxeles lo pone el servicio y ANTES de decodificar."""
+>       assert width * height > MAX_PIXELS
+E       assert (4001 * 4000) > 25000000
+
+backend\tests\test_document_logo.py:301: AssertionError
+_ test_png_over_the_pixel_cap_is_invalid_without_decoding[16 Mpx + 1 px exactos, en una fila] _
+
+load_spy = [], width = 16000001, height = 1
+
+    @pytest.mark.parametrize(
+        "width,height",
+        [
+            pytest.param(6000, 5000, id="30 Mpx: Pillow lo abre sin chistar (su alarma salta a los 89 M)"),
+            pytest.param(5000, 5000, id="25 Mpx: el tope anterior ya no entra"),
+            pytest.param(4001, 4000, id="16 Mpx + 4000 px: apenas por encima"),
+            pytest.param(16_000_001, 1, id="16 Mpx + 1 px exactos, en una fila"),
+        ],
+    )
+    def test_png_over_the_pixel_cap_is_invalid_without_decoding(load_spy, width, height):
+        """El tope de píxeles lo pone el servicio y ANTES de decodificar."""
+>       assert width * height > MAX_PIXELS
+E       assert (16000001 * 1) > 25000000
+
+backend\tests\test_document_logo.py:301: AssertionError
+_ test_image_exactly_at_the_pixel_limit_is_not_rejected_by_the_pixel_check[4000-4000] _
+
+load_spy = [], width = 4000, height = 4000
+
+    @pytest.mark.parametrize("width,height", [(4000, 4000), (16_000_000, 1)])
+    def test_image_exactly_at_the_pixel_limit_is_not_rejected_by_the_pixel_check(load_spy, width, height):
+        """El borde: 16 M píxeles exactos pasan el chequeo de tamaño (y recién ahí se decodifica; este
+        PNG sintético tiene datos de 1 píxel, así que falla DESPUÉS por corrupto)."""
+>       assert width * height == MAX_PIXELS
+E       assert (4000 * 4000) == 25000000
+
+backend\tests\test_document_logo.py:312: AssertionError
+_ test_image_exactly_at_the_pixel_limit_is_not_rejected_by_the_pixel_check[16000000-1] _
+
+load_spy = [], width = 16000000, height = 1
+
+    @pytest.mark.parametrize("width,height", [(4000, 4000), (16_000_000, 1)])
+    def test_image_exactly_at_the_pixel_limit_is_not_rejected_by_the_pixel_check(load_spy, width, height):
+        """El borde: 16 M píxeles exactos pasan el chequeo de tamaño (y recién ahí se decodifica; este
+        PNG sintético tiene datos de 1 píxel, así que falla DESPUÉS por corrupto)."""
+>       assert width * height == MAX_PIXELS
+E       assert (16000000 * 1) == 25000000
+
+backend\tests\test_document_logo.py:312: AssertionError
+___ test_a_16_megapixel_image_does_not_multiply_its_memory_footprint[RGBA] ____
+
+mode = 'RGBA'
+
+    @pytest.mark.parametrize("mode", ["RGBA", "RGB"])
+    def test_a_16_megapixel_image_does_not_multiply_its_memory_footprint(mode):
+        """4000×4000 comprime a ~70 KiB y está EN el tope: normalizarla puede pedir, a lo sumo, una
+        copia decodificada (RGBA = 64 MB) más el trabajo del decodificador y del redimensionado (~+143 MiB
+        medidos con RGBA; con el tope anterior de 25 Mpx eran +216 y antes de quitar las copias +406)."""
+        side = 4000
+>       assert side * side == MAX_PIXELS
+E       assert (4000 * 4000) == 25000000
+
+backend\tests\test_document_logo.py:541: AssertionError
+____ test_a_16_megapixel_image_does_not_multiply_its_memory_footprint[RGB] ____
+
+mode = 'RGB'
+
+    @pytest.mark.parametrize("mode", ["RGBA", "RGB"])
+    def test_a_16_megapixel_image_does_not_multiply_its_memory_footprint(mode):
+        """4000×4000 comprime a ~70 KiB y está EN el tope: normalizarla puede pedir, a lo sumo, una
+        copia decodificada (RGBA = 64 MB) más el trabajo del decodificador y del redimensionado (~+143 MiB
+        medidos con RGBA; con el tope anterior de 25 Mpx eran +216 y antes de quitar las copias +406)."""
+        side = 4000
+>       assert side * side == MAX_PIXELS
+E       assert (4000 * 4000) == 25000000
+
+backend\tests\test_document_logo.py:541: AssertionError
+=========================== short test summary info ===========================
+FAILED backend\tests\test_document_logo.py::test_the_pixel_cap_is_16_megapixels
+FAILED backend\tests\test_document_logo.py::test_png_over_the_pixel_cap_is_invalid_without_decoding[25 Mpx: el tope anterior ya no entra]
+FAILED backend\tests\test_document_logo.py::test_png_over_the_pixel_cap_is_invalid_without_decoding[16 Mpx + 4000 px: apenas por encima]
+FAILED backend\tests\test_document_logo.py::test_png_over_the_pixel_cap_is_invalid_without_decoding[16 Mpx + 1 px exactos, en una fila]
+FAILED backend\tests\test_document_logo.py::test_image_exactly_at_the_pixel_limit_is_not_rejected_by_the_pixel_check[4000-4000]
+FAILED backend\tests\test_document_logo.py::test_image_exactly_at_the_pixel_limit_is_not_rejected_by_the_pixel_check[16000000-1]
+FAILED backend\tests\test_document_logo.py::test_a_16_megapixel_image_does_not_multiply_its_memory_footprint[RGBA]
+FAILED backend\tests\test_document_logo.py::test_a_16_megapixel_image_does_not_multiply_its_memory_footprint[RGB]
+8 failed, 55 passed in 3.07s

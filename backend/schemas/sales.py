@@ -267,12 +267,18 @@ class SalesReceiptItemIn(BaseModel):
 
 
 class SalesReceiptPdfIn(BaseModel):
-    business_name: str
+    """documentos-marca-empresa (D7): el emisor del comprobante lo resuelve el SERVIDOR por
+    la cuenta del usuario autenticado. `business_name`, `business_phone` y `business_email`
+    quedan como campos OBSOLETOS: se aceptan e ignoran para no rechazar con 422 a un
+    navegador con el frontend anterior abierto (que los mandaba, `business_name`
+    obligatorio). Nunca se imprimen."""
+
     receipt_number: str
     date_label: str
     items: list[SalesReceiptItemIn]
     total: Decimal
     currency: str = "ARS"
     client_name: str | None = None
-    business_phone: str | None = None
-    business_email: str | None = None
+    business_name: str | None = Field(default=None, deprecated=True, description="Obsoleto: se ignora.")
+    business_phone: str | None = Field(default=None, deprecated=True, description="Obsoleto: se ignora.")
+    business_email: str | None = Field(default=None, deprecated=True, description="Obsoleto: se ignora.")

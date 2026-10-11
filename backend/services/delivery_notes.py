@@ -65,6 +65,7 @@ from backend.schemas.delivery_notes import (
     PurchaseDeliveryNoteCreateIn,
     PurchaseDeliveryNoteUpdateIn,
 )
+from backend.services.commercial_documents.branding import resolve_document_branding
 from backend.services.commercial_documents.issuer import resolve_commercial_issuer
 from backend.services.commercial_documents.numbering import (
     format_internal_document_number,
@@ -456,12 +457,13 @@ async def get_delivery_note_pdf(
     nombre del archivo (`remito-R-….pdf` / `remito-R-…-con-precios.pdf`; en compra
     `remito-compra-RC-….pdf` / `…-con-precios.pdf`) para que las dos variantes no
     se confundan. La contraparte de la vista es el cliente (venta) o el proveedor,
-    con su CUIT (compra). El emisor se resuelve sin bloquear y siempre
-    por `rpc_commercial_issuer`. `today` se inyecta sólo para fijarlo en los tests.
+    con su CUIT (compra). La MARCA de la cuenta (emisor, paleta, logo y leyenda al
+    pie) se resuelve sin bloquear y siempre por `rpc_commercial_issuer`.
+    `today` se inyecta sólo para fijarlo en los tests.
     """
     record = await get_delivery_note(repo, account_id, delivery_note_id)
     with _pg_errors_as_problems():
-        issuer = await resolve_commercial_issuer(repo, account_id)
+        branding = await resolve_document_branding(repo, account_id)
     purchase = record.get("direction") == "purchase"
     counterparty = (
         {"name": record.get("supplier_name"), "tax_id": record.get("supplier_tax_id"), "phone": record.get("supplier_phone")}
@@ -473,7 +475,7 @@ async def get_delivery_note_pdf(
         record["items"],
         counterparty,
         {"name": record.get("branch_name")},
-        issuer,
+        branding,
         show_prices,
         today or today_in_argentina(),
     )

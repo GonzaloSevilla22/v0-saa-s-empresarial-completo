@@ -85,6 +85,10 @@ export function rest(request: APIRequestContext) {
       expect(res.ok(), `PATCH ${pathAndQuery} → ${res.status()} ${await res.text()}`).toBeTruthy()
       return (await res.json()) as Row[]
     },
+    async del(pathAndQuery: string): Promise<void> {
+      const res = await request.delete(`${SUPABASE_URL}/rest/v1/${pathAndQuery}`, { headers })
+      expect(res.ok(), `DELETE ${pathAndQuery} → ${res.status()} ${await res.text()}`).toBeTruthy()
+    },
   }
 }
 

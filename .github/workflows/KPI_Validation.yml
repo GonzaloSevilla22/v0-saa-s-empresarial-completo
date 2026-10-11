@@ -3134,3 +3134,26 @@ jobs:
       # la base con la huella de funciones/ACL/constraint identica.
       - name: Run stock ledger solo RPC gate
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_stock_ledger_solo_rpc.sql
+      # documentos-marca-empresa TANDA A (20261078000001, governance MEDIA): la
+      # marca de la cuenta para sus papeles (logo, datos de la empresa y paleta).
+      # Este paso EJECUTA la tabla nueva public.account_branding, su RLS, el
+      # disparador de guard owner/admin y la RPC rpc_commercial_issuer ampliada:
+      # (a) metadatos y privilegios (3 politicas sin DELETE; anon sin NINGUN
+      # privilegio; authenticated sin DELETE/TRUNCATE/REFERENCES/TRIGGER; funcion
+      # guard sin EXECUTE), (b) matriz de CHECKs con constraint nombrada y control
+      # positivo por campo, (c) RLS + guard bajo SET LOCAL ROLE con claims reales
+      # (owner y admin escriben; seller P0401; viewer; otra cuenta ciega;
+      # account_id inmutable; DELETE/TRUNCATE con 'permission denied'; la RLS
+      # sola con el disparador desactivado), (d) rpc_commercial_issuer ejecutada
+      # como vendedor NO dueno: las 18 claves exactas, los valores de marca,
+      # fiscales y del dueno, NINGUN valor igual al email de Auth, sin fila de
+      # marca -> claves nuevas NULL, P0404 a otra cuenta, (e) introspeccion de la
+      # RPC (una firma, DEFINER, STABLE, ACL exacta, COMMENT) y (f) residuo cero.
+      # La migracion NO entra en la cadena de reaplicacion idempotente de arriba
+      # (no amplia ningun CHECK compartido con lista fija); su idempotencia
+      # (CREATE TABLE IF NOT EXISTS + DROP POLICY/TRIGGER IF EXISTS + CREATE OR
+      # REPLACE con la misma firma) se verifico reaplicandola dos veces contra la
+      # base. Actualiza ademas test_presupuestos_modulo.sql (n) (6 -> 18 claves) y
+      # test_is_account_writer_pivot.sql (43/17 -> 45/18).
+      - name: Run documentos marca empresa gate
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_documentos_marca_empresa.sql

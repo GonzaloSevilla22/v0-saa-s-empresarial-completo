@@ -1,0 +1,19 @@
+BEGIN
+DO
+NOTICE:  PASS (a): authenticated y anon sin INSERT/UPDATE/DELETE/TRUNCATE de tabla sobre accounts y profiles.
+NOTICE:  PASS (b): las 16 columnas de accounts son de sólo lectura para authenticated/anon (allow-list declarada: vacía).
+DO
+NOTICE:  PASS (c): de las 33 columnas de profiles, authenticated escribe exactamente las 11 declaradas.
+DO
+NOTICE:  PASS (d): las 2 vistas sobre accounts/profiles en public+community son o de sólo lectura o security_invoker.
+DO
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=80c74bf1-36d2-4c15-90e8-ba26136623ed
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=f0719b46-a870-4db9-beb9-41c291feec82
+NOTICE:  PASS (e0): alta de usuario → perfil + cuenta + membresía owner creados por handle_new_user (account=34d49ed5-359c-459b-b79f-0bca5635a46e).
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=47a07162-14ff-4854-b31f-3cad18eeb4f1
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=683c330a-50fe-418e-8876-a7ed78db5c3c
+DO
+ROLLBACK
+NOTICE:  PASS (e9): miembro no titular → outcome=P0400 y la cuenta ajena quedó intacta (billing_status=active).
+NOTICE:  PASS (e): matriz de evasión completa (UPDATE, UPDATE…RETURNING, upsert, vista actualizable, contadores de cuota, role) rechazada por la capa de PRIVILEGIO; camino legítimo (perfil, preferencias, 2 RPCs de configuración, cancelación) intacto; fila de accounts y contadores de profiles sin tocar.
+GATE_EXIT=0

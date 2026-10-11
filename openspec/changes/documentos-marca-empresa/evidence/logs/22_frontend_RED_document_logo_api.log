@@ -1,0 +1,33 @@
+
+ RUN  v4.1.8 C:/Users/Usuario/Desktop/EIE/v0-saa-s-empresarial-completo/.claude/worktrees/sad-shamir-6c7415/frontend
+
+ ❯ __tests__/lib/document-logo-api.test.ts (0 test)
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  __tests__/lib/document-logo-api.test.ts [ __tests__/lib/document-logo-api.test.ts ]
+Error: Failed to resolve import "@/lib/api/document-logo" from "__tests__/lib/document-logo-api.test.ts". Does the file exist?
+  Plugin: vite:import-analysis
+  File: C:/Users/Usuario/Desktop/EIE/v0-saa-s-empresarial-completo/.claude/worktrees/sad-shamir-6c7415/frontend/__tests__/lib/document-logo-api.test.ts:21:0
+  8  |  	redirectedOnUnauthorized: redirectedMock
+  9  |  }));
+  10 |  const __vi_import_0__ = await import("@/lib/api/document-logo");
+     |                                       ^
+  11 |  /**
+  12 |  * documentos-marca-empresa (task 9.3) — transportes BINARIOS del logo:
+ ❯ TransformPluginContext._formatLog ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:30602:39
+ ❯ TransformPluginContext.error ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:30599:14
+ ❯ normalizeUrl ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:27842:18
+ ❯ ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:27905:30
+ ❯ TransformPluginContext.transform ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:27873:4
+ ❯ EnvironmentPluginContainer.transform ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:30387:14
+ ❯ loadAndTransform ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:24646:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  no tests
+   Start at  14:47:10
+   Duration  4.68s (transform 42ms, setup 415ms, import 0ms, tests 0ms, environment 3.50s)
+

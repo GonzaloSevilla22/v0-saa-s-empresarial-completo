@@ -1,0 +1,12 @@
+NOTICE:  PASS (0): columna, 2 CHECK, índice único parcial, vista (última columna + security_invoker), scale_settings (RLS, 3 políticas, disparador, ACLs) y rpc_bulk_upsert_products (firma única, DEFINER, ACL, cuerpo, COMMENT).
+DO
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=514d42ab-2531-4533-a0d5-1ad393007417
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=3833bc02-ac88-4e29-ab32-27b78f4f4229
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=48184d77-693f-4f58-80b4-da470e23aed5
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=f54938ca-7991-4b06-98aa-61a7d39751df
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=3259baf7-ab4f-4be4-b4bd-9608e2ed85e6
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=66af2771-5552-453c-aeba-c79efdb010b4
+NOTICE:  PASS (a-e): unicidad por cuenta, rango, padre, vista, scale_settings (seller P0401, owner ok, otra cuenta ciega, sin DELETE) y rpc_import_products (asigna, conserva, rechaza PLU ajeno y fila Padre con el código en el mensaje).
+NOTICE:  PASS (z): limpieza verificada — cero filas del fixture en toda tabla de public con account_id.
+DO
+GATE_EXIT=0

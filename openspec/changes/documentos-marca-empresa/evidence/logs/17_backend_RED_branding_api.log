@@ -1,0 +1,5 @@
+ERROR backend\tests\test_document_branding_api.py::TestGetLogo::test_an_account_without_a_logo_is_404_with_a_stable_code
+ERROR backend\tests\test_document_branding_api.py::TestGetLogo::test_any_member_gets_the_image_with_type_etag_and_private_cache
+ERROR backend\tests\test_document_branding_api.py::TestGetLogo::test_a_matching_if_none_match_is_304_without_a_body
+ERROR backend\tests\test_document_branding_api.py::TestGetLogo::test_it_requires_a_session
+1 failed, 66 errors in 6.81s

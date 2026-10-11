@@ -8,11 +8,12 @@
  */
 import { describe, it, expect } from "vitest"
 import { generateReceiptHTML, type ReceiptOptions } from "@/lib/receipt"
+import { defaultReceiptBranding } from "@/lib/document-branding"
 import type { SaleOperation } from "@/lib/group-operations"
 import type { Sale } from "@/lib/types"
 
 const OPTS: ReceiptOptions = {
-  businessName: "Fiambrería",
+  branding: defaultReceiptBranding("Fiambrería"),
   unitSymbolFor: (unitId?: string) => (unitId === "u-g" ? "g" : undefined),
 }
 

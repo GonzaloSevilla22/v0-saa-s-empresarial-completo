@@ -14,9 +14,10 @@
  */
 import React from "react"
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
-import { render, screen, waitFor } from "@testing-library/react"
+import { screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import "@testing-library/jest-dom"
+import { renderWithClient, BRANDING_RESPONSE } from "../../helpers/branding-fixtures"
 
 import type { SaleOperation } from "@/lib/group-operations"
 import type { Sale, SaleFiscalState } from "@/lib/types"
@@ -30,8 +31,11 @@ vi.mock("@/hooks/use-units-of-measure", () => ({
   useUnitsOfMeasure: () => ({ units: [], unitsById: new Map(), loading: false, error: null }),
 }))
 vi.mock("sonner", () => ({ toast: toastMock }))
-vi.mock("@/contexts/auth-context", () => ({
-  useAuth: () => ({ user: { businessName: "Sumar", name: "Sumar", phone: "", email: "", avatar: undefined } }),
+// documentos-marca-empresa: el comprobante interno (fallback de WhatsApp) lee la marca de la
+// cuenta por `GET /document-branding`; se mockea el transporte para que `fetch` quede libre
+// para lo que estos tests cuentan (el PDF del comprobante interno).
+vi.mock("@/lib/api/python-client", () => ({
+  pythonClient: { get: vi.fn(), post: vi.fn(), put: vi.fn(), patch: vi.fn(), delete: vi.fn() },
 }))
 // El comprobante interno (fallback de WhatsApp) pide su PDF con la sesión.
 vi.mock("@/lib/api/auth-headers", () => ({
@@ -46,6 +50,7 @@ vi.mock("@/lib/api/fiscal-invoice", async (importOriginal) => {
 
 import { SaleReceiptButton } from "@/components/ventas/sale-receipt-button"
 import { FiscalInvoiceError } from "@/lib/api/fiscal-invoice"
+import { pythonClient } from "@/lib/api/python-client"
 
 const fiscal: SaleFiscalState = {
   documentId: "fd-1",
@@ -75,7 +80,7 @@ function makeOp(overrides: Partial<SaleOperation> = {}): SaleOperation {
 
 async function openMenu() {
   const user = userEvent.setup()
-  render(<SaleReceiptButton op={makeOp()} clientPhone="2615551234" clientFirstName="Ana" />)
+  renderWithClient(<SaleReceiptButton op={makeOp()} clientPhone="2615551234" clientFirstName="Ana" />)
   await user.click(screen.getByRole("button", { name: /^factura/i }))
   return user
 }
@@ -86,6 +91,7 @@ describe("SaleReceiptButton — factura autorizada", () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.mocked(pythonClient.get).mockResolvedValue(BRANDING_RESPONSE)
     fetchInvoiceMock.mockResolvedValue(new Blob(["%PDF-1.4"], { type: "application/pdf" }))
     vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:factura-1")
     vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {})
@@ -188,7 +194,7 @@ describe("SaleReceiptButton — factura autorizada", () => {
     Object.assign(navigator, { canShare: () => true, share })
     const fetchSpy = vi.spyOn(globalThis, "fetch")
     const user = userEvent.setup()
-    render(<SaleReceiptButton op={makeOp()} clientPhone="2615551234" clientFirstName="Ana" />)
+    renderWithClient(<SaleReceiptButton op={makeOp()} clientPhone="2615551234" clientFirstName="Ana" />)
 
     await user.click(screen.getByRole("button", { name: /whatsapp/i }))
 
@@ -223,7 +229,7 @@ describe("SaleReceiptButton — factura autorizada", () => {
       const fetchSpy = mockInternalReceiptPdf()
       fetchInvoiceMock.mockRejectedValue(new FiscalInvoiceError(code, message))
       const user = userEvent.setup()
-      render(<SaleReceiptButton op={makeOp()} clientPhone="2615551234" clientFirstName="Ana" />)
+      renderWithClient(<SaleReceiptButton op={makeOp()} clientPhone="2615551234" clientFirstName="Ana" />)
 
       await user.click(screen.getByRole("button", { name: /whatsapp/i }))
 
@@ -245,7 +251,7 @@ describe("SaleReceiptButton — factura autorizada", () => {
         "issuer_data_incomplete", "Para imprimir la factura falta completar el domicilio comercial.", ["domicilio_comercial"],
       ))
       const user = userEvent.setup()
-      render(<SaleReceiptButton op={makeOp()} clientPhone="2615551234" clientFirstName="Ana" />)
+      renderWithClient(<SaleReceiptButton op={makeOp()} clientPhone="2615551234" clientFirstName="Ana" />)
 
       await user.click(screen.getByRole("button", { name: /whatsapp/i }))
 
@@ -262,7 +268,7 @@ describe("SaleReceiptButton — factura autorizada", () => {
       const fetchSpy = mockInternalReceiptPdf()
       fetchInvoiceMock.mockResolvedValue(null)
       const user = userEvent.setup()
-      render(<SaleReceiptButton op={makeOp()} clientPhone="2615551234" clientFirstName="Ana" />)
+      renderWithClient(<SaleReceiptButton op={makeOp()} clientPhone="2615551234" clientFirstName="Ana" />)
 
       await user.click(screen.getByRole("button", { name: /whatsapp/i }))
 
@@ -310,7 +316,7 @@ describe("SaleReceiptButton — sin factura autorizada", () => {
     ["sin comprobante", null],
     ["pendiente", { ...fiscal, status: "pending_cae" as const, cae: null }],
   ])("%s: el menú sigue siendo «Comprobante»", async (_n, f) => {
-    render(<SaleReceiptButton op={makeOp({ fiscal: f })} clientPhone={null} clientFirstName={null} />)
+    renderWithClient(<SaleReceiptButton op={makeOp({ fiscal: f })} clientPhone={null} clientFirstName={null} />)
 
     expect(screen.getByRole("button", { name: /^comprobante/i })).toBeInTheDocument()
     expect(screen.queryByRole("button", { name: /^factura/i })).toBeNull()

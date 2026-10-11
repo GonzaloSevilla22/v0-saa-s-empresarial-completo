@@ -2384,3 +2384,102 @@ class TestPurchaseEndpoints:
         assert plain.headers["content-disposition"] == 'inline; filename="remito-compra-RC-00000012.pdf"'
         assert priced.headers["content-disposition"] == (
             'attachment; filename="remito-compra-RC-00000012-con-precios.pdf"')
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# documentos-marca-empresa 6.3 — el remito (venta y compra) resuelve la MARCA de la
+# cuenta para el PDF; `issuer_name` sigue la misma cascada sin bajar el logo.
+# ══════════════════════════════════════════════════════════════════════════════
+
+_BRAND_RPC = {
+    "nombre_fantasia": "Sumar", "razon_social": "PEREZ MARIA LAURA", "business_name": "Almacén Don José",
+    "iva_condition": None, "brand_display_name": "Marca Gate", "brand_legal_name": None, "brand_tax_id": None,
+    "brand_address": None, "brand_phone": None, "brand_email": "ventas@marcagate.test", "brand_website": None,
+    "brand_footer_note": "Alias: marca.gate", "palette_preset": "bordo", "accent_color": None, "logo_sha256": None,
+}
+
+
+def _pdf_content(pdf: bytes) -> str:
+    import io
+
+    from pypdf import PdfReader
+
+    return "\n".join(p.get_contents().get_data().decode("latin-1") for p in PdfReader(io.BytesIO(pdf)).pages)
+
+
+def _pdf_text_of(pdf: bytes) -> str:
+    import io
+
+    from pypdf import PdfReader
+
+    return "\n".join(p.extract_text() for p in PdfReader(io.BytesIO(pdf)).pages)
+
+
+class TestPdfServiceResolvesTheBranding:
+    @pytest.fixture(autouse=True)
+    def _clean_logo_cache(self):
+        from backend.services.commercial_documents.branding import clear_logo_cache
+
+        clear_logo_cache()
+        yield
+        clear_logo_cache()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("direction", ["sale", "purchase"])
+    async def test_the_pdf_carries_the_brand(self, direction):
+        from backend.services import delivery_notes as svc
+
+        repo = _repo(get_delivery_note=_dn_record(direction=direction))
+        repo.get_commercial_issuer.return_value = dict(_BRAND_RPC)
+
+        pdf, _ = await svc.get_delivery_note_pdf(repo, ACCOUNT_ID, DN_ID, today=datetime.date(2026, 10, 2))
+
+        text = _pdf_text_of(pdf)
+        assert "Marca Gate" in text and "ventas@marcagate.test" in text and "Alias: marca.gate" in text
+        assert "0.6235 0.0706 0.2235 rg" in _pdf_content(pdf)                # bordó
+        assert "0.0627 0.7255 0.5059" not in _pdf_content(pdf)               # ni un píxel del verde anterior
+
+    @pytest.mark.asyncio
+    async def test_an_account_without_brand_is_neutral_and_keeps_its_name(self):
+        from backend.services import delivery_notes as svc
+
+        pdf, _ = await svc.get_delivery_note_pdf(_repo(), ACCOUNT_ID, DN_ID, today=datetime.date(2026, 10, 2))
+
+        assert "Sumar" in _pdf_text_of(pdf)
+        assert "0.0627 0.7255 0.5059" not in _pdf_content(pdf)
+
+    @pytest.mark.asyncio
+    async def test_the_logo_is_fetched_only_with_a_fingerprint(self):
+        import io
+
+        from PIL import Image
+
+        from backend.services import delivery_notes as svc
+        from backend.services.commercial_documents.logo import normalize_logo
+
+        buf = io.BytesIO()
+        Image.new("RGBA", (300, 100), (200, 30, 30, 255)).save(buf, "PNG")
+        stored = normalize_logo(buf.getvalue())
+        repo = _repo()
+        repo.get_commercial_issuer.return_value = {**_BRAND_RPC, "logo_sha256": stored.sha256}
+        repo.get_document_logo.return_value = {
+            "logo_image": stored.data, "logo_mime": stored.mime, "logo_sha256": stored.sha256}
+
+        pdf, _ = await svc.get_delivery_note_pdf(repo, ACCOUNT_ID, DN_ID, today=datetime.date(2026, 10, 2))
+
+        from pypdf import PdfReader
+
+        assert sum(len(p.images) for p in PdfReader(io.BytesIO(pdf)).pages) == 1
+        repo.get_document_logo.assert_awaited_once_with(ACCOUNT_ID)
+
+    @pytest.mark.asyncio
+    async def test_issuer_name_prefers_the_brand_display_name_and_does_not_fetch_the_logo(self):
+        from backend.services import delivery_notes as svc
+
+        repo = _repo()
+        repo.get_commercial_issuer.return_value = {**_BRAND_RPC, "logo_sha256": "a" * 64}
+
+        detail = await svc.get_delivery_note_detail(repo, ACCOUNT_ID, DN_ID)
+
+        assert detail["issuer_name"] == "Marca Gate"
+        repo.get_document_logo.assert_not_awaited()

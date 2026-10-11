@@ -49,6 +49,7 @@ from backend.schemas.quotes import (
     QuoteTransitionIn,
     QuoteUpdateIn,
 )
+from backend.services.commercial_documents.branding import resolve_document_branding
 from backend.services.commercial_documents.issuer import resolve_commercial_issuer
 from backend.services.commercial_documents.numbering import (
     format_internal_document_number,
@@ -334,19 +335,21 @@ async def get_quote_pdf(
     Lectura de cualquier miembro, para cualquier estado (un presupuesto
     rechazado o vencido se puede volver a descargar, con su sello). El
     contenido sale de la base por la cuenta del caller —nunca del request—, con
-    el mismo 404 para un id ajeno que para uno inexistente. El emisor se resuelve
-    sin bloquear y siempre por `rpc_commercial_issuer` (ver
-    `commercial_documents/issuer.py`). `today` es el día de negocio argentino;
-    se inyecta sólo para fijarlo en los tests.
+    el mismo 404 para un id ajeno que para uno inexistente. La MARCA de la cuenta
+    (emisor por la cascada única, paleta, logo y leyenda al pie) se resuelve sin
+    bloquear y siempre por `rpc_commercial_issuer` (ver
+    `commercial_documents/branding.py`); el logo se baja sólo si la RPC informa su
+    huella. `today` es el día de negocio argentino; se inyecta sólo para fijarlo en
+    los tests.
     """
     record = await get_quote(repo, account_id, quote_id)
     with _pg_errors_as_problems():
-        issuer = await resolve_commercial_issuer(repo, account_id)
+        branding = await resolve_document_branding(repo, account_id)
     view = build_quote_view(
         record,
         record["items"],
         {"name": record.get("client_name"), "tax_id": record.get("client_tax_id"), "phone": record.get("client_phone")},
-        issuer,
+        branding,
         today or today_in_argentina(),
     )
     label = record["number_label"] or str(record["id"])[:8]

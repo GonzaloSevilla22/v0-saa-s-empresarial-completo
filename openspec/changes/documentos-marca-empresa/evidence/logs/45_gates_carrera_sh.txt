@@ -1,0 +1,27 @@
+test_ventas_unidades_conversion_race exit=0
+    PASS (e): con el cambio de base del padre nuevo abierto, el re-parent espera (FOR SHARE), lee la unidad nueva y rechaza con P0409.
+    GATE VENTAS-UNIDADES-CONVERSION-RACE PASSED: cambio de unidad base vs compra en las dos direcciones y con herencia de variante — la cantidad se normaliza con la fila tomada —, y re-parent vs cambio de la base del padre nuevo en los dos órdenes (FOR SHARE). Fixtures limpios.
+test_facturar_venta_manual_race exit=0
+    R1 PASS=20/20  R1b PASS=20/20  R2 PASS=20/20  R3 PASS=20/20  R4 PASS=20/20  R5 PASS=20/20  R6 PASS=20/20  R7 PASS=20/20  R8 PASS=20/20  (comprobantes dañados observados: 0)
+    GATE FACTURAR-VENTA-MANUAL-RACE PASSED: R1 PASS=20/20  R1b PASS=20/20  R2 PASS=20/20  R3 PASS=20/20  R4 PASS=20/20  R5 PASS=20/20  R6 PASS=20/20  R7 PASS=20/20  R8 PASS=20/20  (comprobantes dañados observados: 0) — la promoción, la edición y el borrado se excluyen por las filas de la venta (sales → sales_orders → fiscal_documents), sin deadlocks, sin comprobantes vivos con importes viejos, un doble «Guardar» no duplica la operación, un borrado que pierde contra la edición devuelve false sin evento espurio, una promoción en replay frenada en la orden no se cruza con la edición, y la promoción ajena no bloquea filas. Fixtures limpios.
+test_remitos_venta_race exit=0
+    PASS (10): conversión pausada tras su primera línea vs emisión de otro remito con los mismos productos en orden inverso -> sin 40P01; la emisión esperó el FOR KEY SHARE ordenado de la conversión.
+    GATE REMITOS-VENTA-RACE PASSED: 15 carreras (las 9 de D16, en los dos órdenes donde aplica, más la 10 de la revisión 8.5) con bloqueo real verificado (residuo cero).
+test_remitos_compra_race exit=0
+    PASS (6c): edición abierta vs borrado del proveedor -> el borrado esperó el FOR SHARE y no borró.
+    GATE REMITOS-COMPRA-RACE PASSED: 12 carreras con bloqueo real verificado (recepciones concurrentes, doble clic, anulación contra venta del POS en los dos órdenes, edición contra anulación en los dos órdenes, recepción y edición contra la baja de una sucursal vacía, recepción y edición contra el borrado del proveedor), residuo cero.
+test_venta_editable_sin_cae_race exit=0
+    PASS (c-reintento): liberado el lock, el mismo pedido edita y anula — el rechazo era TRANSITORIO, no un bloqueo permanente.
+    GATE VENTA-EDITABLE-SIN-CAE-RACE PASSED: exclusión contra la EMISIÓN (e), orden de locks sin deadlock (f) y NOWAIT contra el RELAY (c) — el rechazo es transitorio y el reintento funciona. Fixtures limpios.
+test_presupuesto_a_venta_race exit=0
+    PASS (4): 12 rondas de dos conversiones simultáneas de presupuestos distintos con los mismos dos productos -> 24 ventas, ningún deadlock.
+    GATE PRESUPUESTO-A-VENTA-RACE PASSED: 5 carreras con bloqueo real verificado + el caso de deadlock (4), ninguna orden sin presupuesto de origen (residuo cero).
+test_internal_document_numbering_race:remito_venta exit=0
+    PASS (delivery_note_sale): 20 altas concurrentes del primer documento de una cuenta sin fila de secuencia recibieron 1..20, sin huecos ni repetidos; la secuencia quedó en 20.
+    GATE INTERNAL-DOCUMENT-NUMBERING-RACE PASSED (residuo cero).
+test_internal_document_numbering_race:remito_compra exit=0
+    PASS (delivery_note_purchase): 20 altas concurrentes del primer documento de una cuenta sin fila de secuencia recibieron 1..20, sin huecos ni repetidos; la secuencia quedó en 20.
+    GATE INTERNAL-DOCUMENT-NUMBERING-RACE PASSED (residuo cero).
+test_punto_venta_predeterminado_race exit=0
+      iter 10: PASS (c1 esperó a c2, P0404 tras el commit, 0 comprobantes en el PV inactivo)
+    PASS: test_punto_venta_predeterminado_race.sh — 10 iteración(es), TOCTOU cerrado (FOR SHARE espera y re-evalúa; nunca un pending_cae en un PV que quedó inactivo).

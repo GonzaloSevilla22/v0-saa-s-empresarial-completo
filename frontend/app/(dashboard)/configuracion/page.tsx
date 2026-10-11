@@ -12,7 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
-import { Crown, Check, X, Package, Users, Sparkles, User, Settings2, ShieldCheck, FileText, Tags, Wallet, CalendarClock, Shapes, ScanBarcode } from "lucide-react"
+import { Crown, Check, X, Package, Users, Sparkles, User, Settings2, ShieldCheck, FileText, Tags, Wallet, CalendarClock, Shapes, ScanBarcode, Stamp } from "lucide-react"
 import { MAX_PRODUCTS_FREE, MAX_CLIENTS_FREE, MAX_INSIGHTS_FREE } from "@/lib/constants"
 import { ProfileForm } from "@/components/settings/ProfileForm"
 import { AccountForm } from "@/components/settings/AccountForm"
@@ -25,6 +25,7 @@ import { QuoteSettingsCard } from "@/components/quotes/QuoteSettingsCard"
 import { PaymentMethodManager } from "@/components/payment-methods/PaymentMethodManager"
 import { ProductCategoryManager } from "@/components/product-categories/ProductCategoryManager"
 import { ScaleSettings } from "@/components/settings/ScaleSettings"
+import { DocumentBrandingSettings } from "@/components/settings/DocumentBrandingSettings"
 
 // ── Plan comparison data (unchanged from original) ────────────────────────────
 const features = [
@@ -42,7 +43,7 @@ const features = [
 // ── Page ─────────────────────────────────────────────────────────────────────
 
 const TAB_VALUES = [
-  "perfil", "cuenta", "fiscal", "sistema", "equipo",
+  "perfil", "cuenta", "fiscal", "documentos", "sistema", "equipo",
   "centros-costo", "formas-pago", "categorias", "cobranzas", "balanza", "plan",
 ] as const
 
@@ -87,6 +88,10 @@ export default function ConfiguracionPage() {
             (4+4+3 desde sm, ~192px por pestaña en el contenedor de 768px sin
             desborde de "Centros de costo"/"Formas de pago"; 3+3+3+2 en móvil,
             375px, sin desborde horizontal — medido en el apply). */}
+        {/* documentos-marca-empresa (D10): 12 tabs — «Documentos» va después de
+            «AFIP» (su bloque fiscal enlaza ahí). Con el mismo grid-cols-3
+            sm:grid-cols-4 queda 4+4+4 desde sm y 3+3+3+3 en móvil: cuenta
+            redonda, sin fila suelta. */}
         <TabsList className="grid w-full grid-cols-3 sm:grid-cols-4 mb-6 h-auto">
           <TabsTrigger value="perfil" className="flex items-center gap-1.5 text-xs sm:text-sm">
             <User className="h-3.5 w-3.5" />
@@ -99,6 +104,10 @@ export default function ConfiguracionPage() {
           <TabsTrigger value="fiscal" className="flex items-center gap-1.5 text-xs sm:text-sm">
             <FileText className="h-3.5 w-3.5" />
             <span>AFIP</span>
+          </TabsTrigger>
+          <TabsTrigger value="documentos" className="flex items-center gap-1.5 text-xs sm:text-sm">
+            <Stamp className="h-3.5 w-3.5" />
+            <span>Documentos</span>
           </TabsTrigger>
           <TabsTrigger value="sistema" className="flex items-center gap-1.5 text-xs sm:text-sm">
             <Settings2 className="h-3.5 w-3.5" />
@@ -153,6 +162,20 @@ export default function ConfiguracionPage() {
             </p>
           </div>
           <FiscalSettings />
+        </TabsContent>
+
+        {/* ── Documentos (documentos-marca-empresa D10) ───────────────────────
+            La marca de la CUENTA para sus papeles: logo, datos de la empresa y
+            paleta, con vista previa en vivo. Sólo owner/admin editan; el resto
+            lo ve en sólo lectura. */}
+        <TabsContent value="documentos">
+          <div className="flex flex-col gap-1 mb-4">
+            <h2 className="text-lg font-semibold text-foreground">Documentos</h2>
+            <p className="text-sm text-muted-foreground">
+              Cómo se ve tu negocio en lo que le entregás a tus clientes: logo, datos de contacto y colores.
+            </p>
+          </div>
+          <DocumentBrandingSettings />
         </TabsContent>
 
         {/* ── Sistema ────────────────────────────────────────────────────────── */}

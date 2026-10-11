@@ -1,0 +1,71 @@
+REVISION ADVERSARIAL — documentos-marca-empresa, tanda A (task 12.2)
+Juez: el propio agente del apply (un solo juez; sin delegar, por instruccion del encargo). 2026-10-11.
+Metodo: lectura del codigo de cada frontera de confianza + una medicion/prueba real por cada hipotesis.
+
+HALLAZGOS CORREGIDOS
+--------------------
+H1 (ALTA en la instancia free de Render, 512 MB) — amplificacion de memoria en la normalizacion del logo.
+   Un PNG RGBA de 107 KiB que declara 25 Mpx pasa TODOS los topes (2 MiB de subida, 25 Mpx de encabezado)
+   y obligaba a Pillow a sostener ~4 copias de 100 MB (decodificada, exif_transpose, convert y la
+   `copy()` por intento). Medido (PeakWorkingSetSize de un subproceso, imagen en el tope):
+       RGBA 5000x5000: +406 MiB      RGB 5000x5000: +325 MiB      JPEG 5000x5000: +28 MiB
+   Arreglo (backend/services/commercial_documents/logo.py): exif_transpose in_place, `convert` sólo si cambia
+   el modo, thumbnail EN el lugar (el reintento a 600 px parte de la version ya reducida) y un
+   threading.Lock: una normalizacion a la vez por proceso.
+       RGBA: +406 -> +216 MiB      RGB: +325 -> +134 MiB      JPEG: +28 -> +16 MiB
+   Tests (backend/tests/test_document_logo.py): pico medido en un subproceso (psapi en Windows, ru_maxrss en
+   Linux) < 300 MiB para RGBA y RGB en el tope (RED visto: 406 y 325), y serializacion con 5 hilos.
+   Mutaciones (logs/36): sin lock -> muerta; convert siempre -> muerta; reintento desde copia completa -> muerta;
+   exif_transpose sin in_place -> SOBREVIVE (equivalente: su copia transitoria queda por debajo del pico del
+   decodificador PNG, no es el pico vinculante).
+   Residuo aceptado: un RGBA de 25 Mpx sigue pidiendo ~+216 MiB (el decodificador PNG necesita el buffer
+   completo). Bajar MAX_PIXELS de 25 M a 16 M lo llevaria a ~+140 MiB; es una decision de producto sobre un
+   tope firmado en el design, NO se tomo aca.
+
+REVISADO SIN HALLAZGO
+---------------------
+XSS en el HTML imprimible (frontend/lib/receipt.ts, DocumentHeaderPreview):
+   - todo texto del emisor pasa por esc() (& < > "), incluido <title>; los atributos usan comillas dobles;
+   - los colores entran al CSS sólo si cumplen /^#[0-9a-f]{6}$/ (isSafeHexColor), si no caen al de Neutro
+     (test con "red;background:url(x)");
+   - el logo entra a `src` sólo si cumple /^data:image\/(png|jpeg);base64,[A-Za-z0-9+/]+={0,2}$/ y <= tope de
+     largo (nunca URL, SVG ni comillas); sin ReDoS (cuantificadores lineales);
+   - CSP real: `img-src 'self' data: blob: https:` (lib/supabase/middleware.ts) — el logo data: se ve en la
+     pestaña blob: (e2e en las 4 combinaciones lo confirma con la imagen renderizada);
+   - sitio web y email salen como TEXTO, nunca como enlace.
+Bomba de descompresion y tipos disfrazados (logo.py):
+   - formato por CONTENIDO con Image.open(formats=[PNG, JPEG, WEBP]); SVG/GIF/BMP/TIFF/PDF/texto -> 415;
+   - pixeles declarados leidos del encabezado y rechazados (422) ANTES de decodificar (espia en el test);
+   - re-codificacion completa: un poliglota (PNG + bytes de mas) no sobrevive; info/EXIF/ICC descartados;
+   - WebP y PNG animados: colapsan al primer cuadro en 0,01 s (probado con 60 cuadros de 800x800);
+   - el router corta el stream a 2 MiB sin leer el resto y rechaza Content-Length declarado mayor;
+   - el guard de rol corre ANTES de leer el cuerpo (un vendedor con 100 MB recibe 403 sin lectura).
+Tenencia:
+   - tabla: RLS con 3 politicas (select de miembros; insert/update de escritores), sin DELETE, anon sin
+     privilegios, trigger que exige owner/admin (P0401) y account_id inmutable — gate SQL + 102/102 gates;
+   - endpoints: account_id sale del JWT (get_account_id) y el repositorio filtra explicito; el logo se pide
+     por la cuenta del JWT (la huella `?v=` sólo busta cache, no selecciona nada);
+   - e2e: el vendedor recibe 403 por la API y la base conserva lo del dueño.
+Email de Auth en cualquier salida:
+   - rpc_commercial_issuer no lee auth.users; el email impreso sale SÓLO de brand_email (gate asserta que
+     ningun VALOR de las 18 claves sea el email de Auth del dueño);
+   - texto extraido de 12 PDF reales (presupuesto, remito, comprobante x Neutro/Azul/Bordó/Personalizado):
+     ningun "@local.test" (logs/38); el comprobante-pdf ignora los campos obsoletos business_name /
+     business_email que manda un navegador con el frontend anterior (se les mando un nombre falso y el email
+     de acceso: no aparecen);
+   - HTML del comprobante interno en 4 combinaciones: sin "@local.test" (assert del e2e).
+Ventanas de despliegue (D12): claves de la RPC aditivas (backend viejo + base nueva anda); el backend nuevo + base vieja
+   genera todos los papeles (resolve_document_branding sólo usa la RPC); sólo GET/PUT /document-branding dan
+   42P01 durante los minutos de la ventana. Sin cambios respecto del design.
+
+RIESGOS RESIDUALES (no bloqueantes, declarados)
+-----------------------------------------------
+ - Sin rate limit propio en PUT /document-branding/logo (endpoint de owner/admin; la serializacion de H1 acota
+   el pico de memoria por proceso).
+ - La conexion de la request queda tomada mientras se normaliza el logo (~0,6 s en el peor caso medido).
+ - 3 tests de frontend ajenos a este change (expense-import-dialog-review-findings, stock-import-adjustment-
+   dialog-motivo, banco-conciliacion-import-warnings) fallaron una vez bajo carga (pytest + 102 gates SQL en
+   paralelo) y pasan aislados y en la corrida completa sin carga: flaky preexistente, no tocan ningun modulo
+   de este change.
+
+ACTUALIZACION (decision del coordinador): el residuo se resolvio bajando MAX_PIXELS de 25 M a 16 M: pico RGBA +216 -> +143 MiB, RGB +134 -> +90 MiB (logs/50-53).

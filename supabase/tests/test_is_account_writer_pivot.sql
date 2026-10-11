@@ -38,8 +38,13 @@
 -- permitía ocupar la fila de otra cuenta). Mismo criterio que R2 y
 -- presupuestos-modulo: bajar este número es correcto ACÁ y sospechoso en
 -- cualquier otro lado.
+-- documentos-marca-empresa (20261078000001) lo sube de 43/17 a 45/18: la tabla
+-- nueva `account_branding` (marca de la cuenta para sus papeles) suma sus 2
+-- policies de escritura (`account_branding_writer_insert`/`_update`), ambas
+-- invocando is_account_writer(account_id) — mismo criterio que scale_settings:
+-- subir el conteo al sumar una tabla nueva con escritura RLS-gated es esperado.
 --
---   (1) estructura: la firma no cambió y las 43 policies sobre 17 tablas
+--   (1) estructura: la firma no cambió y las 45 policies sobre 18 tablas
 --       siguen existiendo (8.2) — no depende de datos, corre siempre.
 --   (2) un miembro con un rol que CONCEDE escritura (is_writer=true, p.ej.
 --       'seller') -> is_account_writer = true (8.1).
@@ -60,7 +65,7 @@
 -- y no se aborta el gate completo por esto.
 -- =============================================================================
 
--- ── (1) Estructura: firma sin cambios + 43 policies / 17 tablas ─────────────
+-- ── (1) Estructura: firma sin cambios + 45 policies / 18 tablas ─────────────
 DO $$
 DECLARE
   v_nargs   int;
@@ -79,11 +84,11 @@ BEGIN
   WHERE schemaname = 'public'
     AND (qual ILIKE '%is_account_writer%' OR with_check ILIKE '%is_account_writer%');
 
-  IF v_n_pol <> 43 OR v_n_tab <> 17 THEN
-    RAISE EXCEPTION 'GATE FAILED (1): se esperaban 43 policies sobre 17 tablas invocando is_account_writer, hay % sobre %. (El conteo bajó de 49/20 a 45/18 en presupuestos-modulo y de 45/18 a 43/17 en stock-ledger-solo-rpc, que retiró las 2 policies de escritura directa de branch_stock — ver la cabecera.)', v_n_pol, v_n_tab;
+  IF v_n_pol <> 45 OR v_n_tab <> 18 THEN
+    RAISE EXCEPTION 'GATE FAILED (1): se esperaban 45 policies sobre 18 tablas invocando is_account_writer, hay % sobre %. (El conteo bajó de 49/20 a 45/18 en presupuestos-modulo, de 45/18 a 43/17 en stock-ledger-solo-rpc, que retiró las 2 policies de escritura directa de branch_stock, y volvió a 45/18 con documentos-marca-empresa, que suma la tabla account_branding — ver la cabecera.)', v_n_pol, v_n_tab;
   END IF;
 
-  RAISE NOTICE 'PASS (1): is_account_writer conserva su firma (1 arg) y las 43 policies sobre 17 tablas.';
+  RAISE NOTICE 'PASS (1): is_account_writer conserva su firma (1 arg) y las 45 policies sobre 18 tablas.';
 END $$;
 
 

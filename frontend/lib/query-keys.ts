@@ -98,6 +98,13 @@ export const queryKeys = {
     all:    () => ["scaleSettings"] as const,
     detail: () => ["scaleSettings", "detail"] as const,
   },
+  // documentos-marca-empresa: marca de la cuenta para sus papeles (datos, paleta y logo).
+  documentBranding: {
+    all:    () => ["documentBranding"] as const,
+    detail: () => ["documentBranding", "detail"] as const,
+    /** El logo como data: URI, por huella SHA-256: un logo nuevo es otra clave. */
+    logo:   (sha256: string) => ["documentBranding", "logo", sha256] as const,
+  },
   // C-28: CashSession / CashMovement
   cashboxes: {
     all:      () => ["cashboxes"] as const,

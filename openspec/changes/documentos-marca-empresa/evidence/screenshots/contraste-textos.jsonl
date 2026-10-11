@@ -1,0 +1,20 @@
+{"label":"1366x768-claro sin marca","checked":29,"lowest":"4.83:1 \"Cómo se ve tu negocio en lo que le entre (normal)\""}
+{"label":"1366x768-claro color ilegible (aviso en destructive)","checked":38,"lowest":"4.83:1 \"Cómo se ve tu negocio en lo que le entre (normal)\""}
+{"label":"1366x768-claro color legible (aviso en success)","checked":39,"lowest":"4.83:1 \"Cómo se ve tu negocio en lo que le entre (normal)\""}
+{"label":"1366x768-claro con perfil fiscal (bloque de sólo lectura)","checked":43,"lowest":"4.66:1 \"Razón social (normal)\""}
+{"label":"1366x768-claro vendedor (aviso de sólo lectura)","checked":12,"lowest":"4.66:1 \"Sólo el dueño o un administrador puede c (normal)\""}
+{"label":"1366x768-oscuro sin marca","checked":29,"lowest":"7.24:1 \"Tu logo, tus datos y tus colores salen e (normal)\""}
+{"label":"1366x768-oscuro color ilegible (aviso en destructive)","checked":38,"lowest":"6.75:1 \"No se lee bien sobre blanco (normal)\""}
+{"label":"1366x768-oscuro color legible (aviso en success)","checked":39,"lowest":"7.24:1 \"Tu logo, tus datos y tus colores salen e (normal)\""}
+{"label":"1366x768-oscuro con perfil fiscal (bloque de sólo lectura)","checked":43,"lowest":"6.70:1 \"Razón social (normal)\""}
+{"label":"1366x768-oscuro vendedor (aviso de sólo lectura)","checked":12,"lowest":"6.70:1 \"Sólo el dueño o un administrador puede c (normal)\""}
+{"label":"375x812-claro sin marca","checked":29,"lowest":"4.83:1 \"Cómo se ve tu negocio en lo que le entre (normal)\""}
+{"label":"375x812-claro color ilegible (aviso en destructive)","checked":38,"lowest":"4.83:1 \"Cómo se ve tu negocio en lo que le entre (normal)\""}
+{"label":"375x812-claro color legible (aviso en success)","checked":39,"lowest":"4.83:1 \"Cómo se ve tu negocio en lo que le entre (normal)\""}
+{"label":"375x812-claro con perfil fiscal (bloque de sólo lectura)","checked":43,"lowest":"4.66:1 \"Razón social (normal)\""}
+{"label":"375x812-claro vendedor (aviso de sólo lectura)","checked":12,"lowest":"4.66:1 \"Sólo el dueño o un administrador puede c (normal)\""}
+{"label":"375x812-oscuro sin marca","checked":29,"lowest":"7.24:1 \"Tu logo, tus datos y tus colores salen e (normal)\""}
+{"label":"375x812-oscuro color ilegible (aviso en destructive)","checked":38,"lowest":"6.75:1 \"No se lee bien sobre blanco (normal)\""}
+{"label":"375x812-oscuro color legible (aviso en success)","checked":39,"lowest":"7.24:1 \"Tu logo, tus datos y tus colores salen e (normal)\""}
+{"label":"375x812-oscuro con perfil fiscal (bloque de sólo lectura)","checked":43,"lowest":"6.70:1 \"Razón social (normal)\""}
+{"label":"375x812-oscuro vendedor (aviso de sólo lectura)","checked":12,"lowest":"6.70:1 \"Sólo el dueño o un administrador puede c (normal)\""}

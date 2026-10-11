@@ -1,0 +1,15 @@
+BEGIN
+NOTICE:  PASS (a): 96 tablas base de public+community revisadas, ninguna con INSERT/UPDATE/DELETE/TRUNCATE para anon fuera de la allowlist (vacía).
+DO
+DO
+NOTICE:  PASS (b) [public]: el default privilege de postgres en public no incluye a anon para INSERT/UPDATE/DELETE/TRUNCATE.
+NOTICE:  PASS (b) [community]: el default privilege de postgres en community no incluye a anon para INSERT/UPDATE/DELETE/TRUNCATE.
+NOTICE:  table "_gate_anon_table_writes_probe" does not exist, skipping
+NOTICE:  PASS (c) [public]: una tabla nueva creada por postgres en public nace sin INSERT/UPDATE/DELETE/TRUNCATE para anon (comportamiento real).
+NOTICE:  table "_gate_anon_table_writes_probe" does not exist, skipping
+NOTICE:  PASS (c) [community]: una tabla nueva creada por postgres en community nace sin INSERT/UPDATE/DELETE/TRUNCATE para anon (comportamiento real).
+DO
+DO
+NOTICE:  PASS (d): 16 tablas representativas (public+community) rechazan el INSERT de anon con "permission denied for table" (capa de GRANT, no RLS).
+ROLLBACK
+GATE_EXIT=0

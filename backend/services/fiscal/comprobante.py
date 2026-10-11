@@ -12,6 +12,8 @@ Módulo puro: sin zeep, sin I/O.
 """
 from __future__ import annotations
 
+import re
+
 # Mapping de comprobante_type a código ARCA (CbteTipo).
 COMPROBANTE_AFIP_CODE: dict[str, int] = {
     "factura_a": 1,
@@ -30,6 +32,45 @@ COMPROBANTE_LETTER: dict[str, str] = {
     "factura_b": "B",
     "factura_c": "C",
 }
+
+# Leyenda de la condición frente al IVA del EMISOR tal como se imprime en el
+# encabezado de un comprobante. documentos-marca-empresa (D4): sale de
+# `invoice_pdf.py` porque el encabezado de los papeles no fiscales (presupuesto,
+# remitos, comprobante interno) imprime la misma leyenda, una sola vez definida.
+ISSUER_IVA_LEGEND: dict[str, str] = {
+    "monotributista": "IVA RESPONSABLE MONOTRIBUTO",
+    "exento": "IVA EXENTO",
+    "responsable_inscripto": "IVA RESPONSABLE INSCRIPTO",
+}
+
+
+def format_cuit(value: object) -> str:
+    """`20123456786` / `20-12345678-6` -> `20-12345678-6`. Un valor que no tiene
+    11 dígitos se devuelve sin guiones, tal cual (no se inventa un formato)."""
+    digits = str(value or "").replace("-", "").strip()
+    if len(digits) == 11 and digits.isdigit():
+        return f"{digits[:2]}-{digits[2:10]}-{digits[10]}"
+    return digits
+
+
+_CUIT_WEIGHTS = (5, 4, 3, 2, 7, 6, 5, 4, 3, 2)
+
+
+def is_valid_cuit(value: object) -> bool:
+    """¿Es un CUIT válido? 11 dígitos (con o sin guiones en `NN-NNNNNNNN-N`) y dígito
+    verificador módulo 11 (pesos 5,4,3,2,7,6,5,4,3,2; 11 -> 0 y 10 -> 9). Espeja
+    `isValidCuit` de `frontend/lib/cuit-utils.ts`."""
+    text = str(value or "").strip()
+    if not re.fullmatch(r"\d{2}-?\d{8}-?\d", text):
+        return False
+    digits = [int(char) for char in text.replace("-", "")]
+    check = 11 - (sum(d * w for d, w in zip(digits[:10], _CUIT_WEIGHTS)) % 11)
+    if check == 11:
+        check = 0
+    elif check == 10:
+        check = 9
+    return check == digits[10]
+
 
 # DocTipo de ARCA para el receptor.
 DOC_TIPO_CUIT = 80

@@ -12,6 +12,8 @@ from __future__ import annotations
 from decimal import Decimal
 
 from backend.services import receipts
+from backend.services.commercial_documents.branding import DocumentBranding
+from backend.services.commercial_documents.issuer import CommercialIssuer
 from backend.services.receipts import (
     SalesReceiptData,
     SalesReceiptItem,
@@ -49,7 +51,7 @@ def test_sales_receipt_pdf_prints_the_unit_price_with_its_precision(monkeypatch)
     monkeypatch.setattr(receipts, "_format_unit_price", spy)
     pdf = build_sales_receipt_pdf(
         SalesReceiptData(
-            business_name="Fiambrería",
+            branding=DocumentBranding.neutral(CommercialIssuer(name="Fiambrería")),
             receipt_number="0001",
             date_label="Jueves 25 de septiembre de 2026",
             items=[SalesReceiptItem(name="Jamón", quantity="100 g", unit_price=Decimal("4.575"), subtotal=Decimal("457.5"))],

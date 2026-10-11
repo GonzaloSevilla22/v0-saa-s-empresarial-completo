@@ -20,53 +20,33 @@ from backend.schemas.sales import (
     SalesReceiptPdfIn,
 )
 from backend.services import sales as sales_service
-from backend.services.receipts import (
-    SalesReceiptData,
-    SalesReceiptItem,
-    build_sales_receipt_pdf,
-)
+from backend.services import sales_receipt as sales_receipt_service
 
 router = APIRouter(prefix="/sales", tags=["sales"])
+
+
+def get_repo(conn: asyncpg.Connection = Depends(get_db_conn)) -> SalesRepository:
+    return SalesRepository(conn)
 
 
 @router.post("/receipt-pdf")
 async def sales_receipt_pdf(
     payload: SalesReceiptPdfIn,
     auth: dict = Depends(get_current_user),
+    account_id: uuid.UUID = Depends(get_account_id),
+    repo: SalesRepository = Depends(get_repo),
 ) -> Response:
-    """Genera el PDF del comprobante de venta a partir de los datos provistos
-    (para compartirlo por WhatsApp). No toca la DB: render stateless."""
-    data = SalesReceiptData(
-        business_name=payload.business_name,
-        receipt_number=payload.receipt_number,
-        date_label=payload.date_label,
-        items=[
-            SalesReceiptItem(
-                name=i.name,
-                quantity=i.quantity,
-                unit_price=i.unit_price,
-                subtotal=i.subtotal,
-            )
-            for i in payload.items
-        ],
-        total=payload.total,
-        currency=payload.currency,
-        client_name=payload.client_name,
-        business_phone=payload.business_phone,
-        business_email=payload.business_email,
-    )
-    pdf = build_sales_receipt_pdf(data)
+    """Genera el PDF del comprobante de venta para compartirlo (WhatsApp).
+
+    documentos-marca-empresa (D7): el emisor —nombre, datos, logo, paleta y leyenda
+    al pie— lo resuelve el servidor por la CUENTA del usuario autenticado; los
+    campos de negocio que mandaba el navegador se aceptan e ignoran."""
+    pdf, file_name = await sales_receipt_service.build_sale_receipt(repo, str(account_id), payload)
     return Response(
         content=pdf,
         media_type="application/pdf",
-        headers={
-            "Content-Disposition": f'inline; filename="comprobante-{payload.receipt_number}.pdf"'
-        },
+        headers={"Content-Disposition": f'inline; filename="{file_name}"'},
     )
-
-
-def get_repo(conn: asyncpg.Connection = Depends(get_db_conn)) -> SalesRepository:
-    return SalesRepository(conn)
 
 
 @router.get("", response_model=SalesPageOut)

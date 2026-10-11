@@ -1,0 +1,9 @@
+
+ RUN  v4.1.8 C:/Users/Usuario/Desktop/EIE/v0-saa-s-empresarial-completo/.claude/worktrees/sad-shamir-6c7415/frontend
+
+
+ Test Files  3 passed (3)
+      Tests  13 passed (13)
+   Start at  15:15:35
+   Duration  10.02s (transform 973ms, setup 1.35s, import 5.44s, tests 3.28s, environment 15.65s)
+

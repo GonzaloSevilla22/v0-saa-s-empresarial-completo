@@ -1,0 +1,13 @@
+NOTICE:  PASS (1): 5 columnas del emisor en fiscal_profiles + fecha_comprobante/emisor_snapshot en fiscal_documents, NULLABLE y sin default.
+DO
+NOTICE:  PASS (2): rpc_fiscal_document_authorize con firma única de 5 parámetros, SECURITY DEFINER, search_path=public, ACL interna y COMMENT vivo conservado.
+DO
+NOTICE:  PASS (3): rpc_fiscal_document_set_fecha_comprobante interna (SECURITY DEFINER, search_path fijo, sin anon/authenticated).
+DO
+CREATE FUNCTION
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=ad85283e-d9a2-454c-829f-14369f125ce0
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=16b8bd5a-027b-49ed-813e-de24e23a087e
+NOTICE:  PASS (4)-(6): la transición real congela fecha y foto del emisor con una fila de historial; el perfil posterior no la altera; idempotencia y colisión irresoluble no escriben nada; la firma vieja autoriza con fecha NULL; set_fecha sólo completa NULL sobre authorized; authenticated no ejecuta ninguna.
+NOTICE:  PASS (7): limpieza verificada — cero filas del fixture en toda tabla de public con account_id/user_id, accounts y auth.users.
+DO
+GATE_EXIT=0

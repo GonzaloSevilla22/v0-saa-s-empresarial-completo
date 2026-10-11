@@ -1,0 +1,4 @@
+A sin lock (normaliza en paralelo) -> KILLED ['1 failed, 2 passed, 54 deselected in 2.74s']
+B exif_transpose copia (no in_place) -> SURVIVED ['3 passed, 54 deselected in 2.84s']
+C convert siempre (copia aun sin cambiar el modo) -> KILLED ['1 failed, 54 deselected in 2.05s']
+D reintento desde copia completa -> KILLED ['1 failed, 54 deselected in 1.96s']

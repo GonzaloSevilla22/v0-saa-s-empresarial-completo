@@ -3,6 +3,11 @@
 Comprobante simple emitido por ALIADATA al aprobarse un pago de MercadoPago.
 Usa fpdf2 (fuentes core latin-1): evitar caracteres fuera de latin-1 (no usar
 em-dash ni comillas tipográficas) o fpdf lanzará al renderizar.
+
+`EMERALD`/`SLATE`/`GRAY` son la marca de la PLATAFORMA (ALIADATA) y sólo los usa
+`build_receipt_pdf` (el recibo de suscripción). Los papeles de la cuenta —el
+comprobante de venta de abajo, el presupuesto y los remitos— usan la paleta de la
+cuenta (`commercial_documents/palette.py`, Neutro por defecto).
 """
 from __future__ import annotations
 
@@ -13,6 +18,10 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 from fpdf import FPDF
+
+from backend.services.commercial_documents.branding import DocumentBranding
+from backend.services.commercial_documents.header import draw_issuer_column, issuer_block
+from backend.services.commercial_documents.text import pdf_text
 
 PLAN_DISPLAY = {
     "gratis": "Gratis",
@@ -164,6 +173,12 @@ def _latin1(text: str | None) -> str:
 
 
 # ── Comprobante de VENTA (el que el comercio le manda a su cliente) ───────────
+#
+# documentos-marca-empresa (D7): la MARCA de la cuenta —emisor resuelto por la
+# cascada única, paleta, logo y leyenda al pie— se resuelve en el SERVIDOR por la
+# cuenta de la venta (`services/sales_receipt.py`), nunca desde el perfil, el
+# avatar ni el email de acceso de quien lo descarga. Este comprobante NO tiene
+# validez fiscal y sigue rotulado como tal.
 
 @dataclass(frozen=True)
 class SalesReceiptItem:
@@ -175,91 +190,98 @@ class SalesReceiptItem:
 
 @dataclass(frozen=True)
 class SalesReceiptData:
-    business_name: str
+    branding: DocumentBranding
     receipt_number: str
     date_label: str
     items: list[SalesReceiptItem]
     total: Decimal | float | int
     currency: str = "ARS"
     client_name: str | None = None
-    business_phone: str | None = None
-    business_email: str | None = None
+
+
+_SALES_MARGIN = 18
+_SALES_CONTENT_WIDTH = 174.0
+_SALES_LOGO_BOX = (50.0, 18.0)
 
 
 def build_sales_receipt_pdf(data: SalesReceiptData) -> bytes:
-    """PDF de una página del comprobante de venta (negocio → cliente final)."""
-    biz = _latin1(data.business_name) or "Mi Negocio"
+    """PDF del comprobante de venta (negocio → cliente final), con la marca de la cuenta."""
+    branding = data.branding
+    palette = branding.palette
 
     pdf = FPDF(orientation="P", unit="mm", format="A4")
-    pdf.set_auto_page_break(auto=True, margin=18)
+    pdf.set_margins(_SALES_MARGIN, _SALES_MARGIN, _SALES_MARGIN)
+    pdf.set_auto_page_break(auto=True, margin=_SALES_MARGIN)
     pdf.add_page()
-    pdf.set_margins(18, 18, 18)
 
-    # ── Encabezado: negocio + N° de comprobante ───────────────────────────────
-    pdf.set_font("Helvetica", "B", 20)
-    pdf.set_text_color(*SLATE)
-    pdf.cell(120, 10, biz[:38], new_x="RIGHT", new_y="TOP")
-    pdf.set_font("Helvetica", "B", 13)
-    pdf.set_text_color(*EMERALD)
-    pdf.cell(0, 10, f"N {data.receipt_number}", align="R", new_x="LMARGIN", new_y="NEXT")
-
-    pdf.set_font("Helvetica", "", 10)
-    pdf.set_text_color(*GRAY)
-    contacto = " | ".join(
-        p for p in [_latin1(data.business_phone), _latin1(data.business_email)] if p
+    # ── Encabezado: el emisor a la izquierda; el título y el N° a la derecha ──
+    top = pdf.get_y()
+    left_bottom = draw_issuer_column(
+        pdf, _SALES_MARGIN, top, 105.0, issuer_block(branding.issuer, branding.logo), palette, _SALES_LOGO_BOX
     )
-    if contacto:
-        pdf.cell(0, 6, contacto, new_x="LMARGIN", new_y="NEXT")
-    pdf.cell(0, 6, "Comprobante de venta", new_x="LMARGIN", new_y="NEXT")
+    right_x, right_w = _SALES_MARGIN + 110, _SALES_CONTENT_WIDTH - 110
+    pdf.set_xy(right_x, top)
+    pdf.set_font("Helvetica", "B", 17)
+    pdf.set_text_color(*palette.heading)
+    pdf.cell(right_w, 9, "Comprobante de venta", align="R", new_x="LEFT", new_y="NEXT")
+    pdf.set_font("Helvetica", "B", 11)
+    pdf.set_text_color(*palette.ink)
+    pdf.cell(right_w, 6, pdf_text(f"N° {data.receipt_number}"), align="R", new_x="LEFT", new_y="NEXT")
+    right_bottom = pdf.get_y()
 
-    pdf.ln(4)
-    pdf.set_draw_color(*EMERALD)
+    pdf.set_xy(_SALES_MARGIN, max(left_bottom, right_bottom) + 2)
+    pdf.set_draw_color(*palette.strong_rule)
     pdf.set_line_width(0.6)
-    pdf.line(18, pdf.get_y(), 192, pdf.get_y())
+    pdf.line(_SALES_MARGIN, pdf.get_y(), _SALES_MARGIN + _SALES_CONTENT_WIDTH, pdf.get_y())
     pdf.ln(6)
 
     # ── Cliente + fecha ───────────────────────────────────────────────────────
     pdf.set_font("Helvetica", "", 11)
-    pdf.set_text_color(*SLATE)
-    cliente = _latin1(data.client_name) if data.client_name else "Consumidor final"
+    pdf.set_text_color(*palette.ink)
+    cliente = pdf_text(data.client_name) if data.client_name else "Consumidor final"
     pdf.cell(110, 6, f"Cliente: {cliente}", new_x="RIGHT", new_y="TOP")
-    pdf.cell(0, 6, _latin1(data.date_label), align="R", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(0, 6, pdf_text(data.date_label), align="R", new_x="LMARGIN", new_y="NEXT")
     pdf.ln(4)
 
     # ── Tabla de items ────────────────────────────────────────────────────────
-    pdf.set_fill_color(*EMERALD)
-    pdf.set_text_color(255, 255, 255)
+    pdf.set_fill_color(*palette.table_head_fill)
+    pdf.set_text_color(*palette.table_head_text)
     pdf.set_font("Helvetica", "B", 10)
     pdf.cell(86, 9, "  Descripcion", fill=True, new_x="RIGHT", new_y="TOP")
     pdf.cell(18, 9, "Cant.", fill=True, align="C", new_x="RIGHT", new_y="TOP")
     pdf.cell(35, 9, "P. unit.", fill=True, align="R", new_x="RIGHT", new_y="TOP")
     pdf.cell(35, 9, "Subtotal  ", fill=True, align="R", new_x="LMARGIN", new_y="NEXT")
 
-    pdf.set_text_color(*SLATE)
+    pdf.set_text_color(*palette.ink)
+    pdf.set_draw_color(*palette.rule)
+    pdf.set_line_width(0.2)
     pdf.set_font("Helvetica", "", 10)
     for item in data.items:
-        pdf.cell(86, 9, "  " + _latin1(item.name)[:46], border="B", new_x="RIGHT", new_y="TOP")
-        pdf.cell(18, 9, str(item.quantity), border="B", align="C", new_x="RIGHT", new_y="TOP")
+        pdf.cell(86, 9, "  " + pdf_text(item.name)[:46], border="B", new_x="RIGHT", new_y="TOP")
+        pdf.cell(18, 9, pdf_text(str(item.quantity)), border="B", align="C", new_x="RIGHT", new_y="TOP")
         pdf.cell(35, 9, _format_unit_price(item.unit_price, data.currency), border="B", align="R", new_x="RIGHT", new_y="TOP")
         pdf.cell(35, 9, _format_amount(item.subtotal, data.currency) + "  ", border="B", align="R", new_x="LMARGIN", new_y="NEXT")
 
     # ── Total ─────────────────────────────────────────────────────────────────
     pdf.ln(2)
     pdf.set_font("Helvetica", "B", 13)
-    pdf.set_text_color(*SLATE)
+    pdf.set_text_color(*palette.ink)
     pdf.cell(104, 11, "", new_x="RIGHT", new_y="TOP")
     pdf.cell(35, 11, "TOTAL", align="R", new_x="RIGHT", new_y="TOP")
-    pdf.set_text_color(*EMERALD)
+    pdf.set_text_color(*palette.total)
     pdf.cell(35, 11, _format_amount(data.total, data.currency) + "  ", align="R", new_x="LMARGIN", new_y="NEXT")
 
     # ── Pie ───────────────────────────────────────────────────────────────────
     pdf.ln(10)
     pdf.set_font("Helvetica", "B", 11)
-    pdf.set_text_color(*SLATE)
-    pdf.cell(0, 6, "Gracias por su compra!", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_text_color(*palette.ink)
+    pdf.cell(0, 6, pdf_text("¡Gracias por su compra!"), new_x="LMARGIN", new_y="NEXT")
     pdf.set_font("Helvetica", "", 9)
-    pdf.set_text_color(*GRAY)
+    pdf.set_text_color(*palette.muted)
     pdf.cell(0, 5, "Este documento es su comprobante de venta.", new_x="LMARGIN", new_y="NEXT")
+    if branding.footer_note:
+        pdf.ln(2)
+        pdf.multi_cell(_SALES_CONTENT_WIDTH, 4.5, pdf_text(branding.footer_note), new_x="LMARGIN", new_y="NEXT")
 
     return bytes(pdf.output())
 

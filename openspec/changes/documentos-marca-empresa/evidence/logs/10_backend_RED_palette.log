@@ -1,0 +1,8 @@
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+backend\tests\test_document_palette.py:24: in <module>
+    from backend.services.commercial_documents.palette import (
+E   ModuleNotFoundError: No module named 'backend.services.commercial_documents.palette'
+=========================== short test summary info ===========================
+ERROR backend\tests\test_document_palette.py
+!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!
+1 error in 0.67s

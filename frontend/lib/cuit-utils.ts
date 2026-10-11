@@ -35,3 +35,14 @@ export function isValidTaxId(value: string): boolean {
   if (DNI_REGEX.test(trimmed)) return true
   return isValidCuit(trimmed)
 }
+
+/**
+ * `20123456786` / `20-12345678-6` → `20-12345678-6`. Un valor que no tiene 11 dígitos se
+ * devuelve sin guiones y sin tocar (no se inventa un formato). Espeja
+ * `format_cuit` de `backend/services/fiscal/comprobante.py`.
+ */
+export function formatCuit(value: string): string {
+  const digits = value.replace(/-/g, "").trim()
+  if (/^\d{11}$/.test(digits)) return `${digits.slice(0, 2)}-${digits.slice(2, 10)}-${digits.slice(10)}`
+  return digits
+}

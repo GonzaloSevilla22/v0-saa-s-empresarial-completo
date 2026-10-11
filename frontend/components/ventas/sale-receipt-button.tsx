@@ -15,6 +15,13 @@
  * aviso del motivo). El PDF lo genera el backend (`GET /fiscal/documents/{id}/pdf`)
  * desde lo autorizado; el compartir/descargar es el MISMO flujo del
  * comprobante interno (helpers de abajo), no una copia.
+ *
+ * documentos-marca-empresa (D7/D8): el comprobante interno lleva la MARCA de la
+ * CUENTA —emisor, paleta, logo y leyenda al pie, resueltos por el servidor y leídos
+ * de `GET /document-branding`—, nunca el perfil, el avatar ni el email de login de
+ * quien lo imprime. La marca se PRECARGA al abrir el menú; si al hacer clic todavía
+ * no llegó, la pestaña se abre primero (dentro del gesto) y se llena cuando llega;
+ * si no se puede cargar, el comprobante sale con el diseño básico (Neutro) y se avisa.
  */
 
 import { useState, useCallback } from "react"
@@ -39,7 +46,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { toast } from "sonner"
-import { useAuth } from "@/contexts/auth-context"
+import { useQueryClient } from "@tanstack/react-query"
 import { getAuthHeaders, redirectedOnUnauthorized, tokenFromHeaders } from "@/lib/api/auth-headers"
 import {
   generateReceiptHTML,
@@ -47,6 +54,9 @@ import {
   generateReceiptShortText,
   buildSalesReceiptPdfPayload,
 } from "@/lib/receipt"
+import { documentBrandingQueryOptions, documentLogoQueryOptions } from "@/hooks/data/use-document-branding"
+import { defaultReceiptBranding, toReceiptBranding, type DocumentBranding, type ReceiptBranding } from "@/lib/document-branding"
+import { queryKeys } from "@/lib/query-keys"
 import { getDocumentScriptNonce } from "@/lib/script-nonce"
 import { normalizeWhatsAppPhone } from "@/lib/phone-utils"
 import { downloadBlob, openWhatsAppText as openWhatsAppChat, sharePdf, type SharePdfResult } from "@/lib/document-share"
@@ -103,7 +113,7 @@ export function SaleReceiptButton({
   clientPhone,
   clientFirstName,
 }: SaleReceiptButtonProps) {
-  const { user } = useAuth()
+  const queryClient = useQueryClient()
   const fiscal = op.fiscal
   const invoice = hasPrintableInvoice(fiscal) ? fiscal : null
   const [loadingPrint, setLoadingPrint] = useState(false)
@@ -118,12 +128,47 @@ export function SaleReceiptButton({
     [unitsById],
   )
 
-  // ── Receipt options derived from user profile ────────────────────────────
-  const receiptOpts = {
-    businessName:    user?.businessName || user?.name || "Mi Negocio",
-    businessPhone:   user?.phone,
-    businessEmail:   user?.email,
-    logoUrl:         user?.avatar,
+  // ── Marca de la cuenta (documentos-marca-empresa D8) ─────────────────────
+  // Lo que el comprobante lleva de la CUENTA. Se lee de la caché de React Query, que el menú
+  // precarga al abrirse; `loadBranding` completa lo que falte.
+  const readCachedBranding = useCallback((): ReceiptBranding | null => {
+    const branding = queryClient.getQueryData<DocumentBranding>(queryKeys.documentBranding.detail())
+    if (!branding) return null
+    const sha = branding.logo?.sha256
+    if (!sha) return toReceiptBranding(branding, null)
+    const logo = queryClient.getQueryData<string | null>(queryKeys.documentBranding.logo(sha))
+    return logo === undefined ? null : toReceiptBranding(branding, logo)
+  }, [queryClient])
+
+  const loadBranding = useCallback(async (): Promise<ReceiptBranding> => {
+    try {
+      const branding = await queryClient.fetchQuery(documentBrandingQueryOptions())
+      let logo: string | null = null
+      if (branding.logo) {
+        try {
+          logo = await queryClient.fetchQuery(documentLogoQueryOptions(branding.logo.sha256))
+        } catch {
+          logo = null // sin logo antes que sin comprobante
+        }
+      }
+      return toReceiptBranding(branding, logo)
+    } catch {
+      const cachedName = queryClient.getQueryData<DocumentBranding>(queryKeys.documentBranding.detail())?.issuer.name
+      toast.info("No pudimos cargar los datos de tu empresa. El comprobante sale con el diseño básico.")
+      return defaultReceiptBranding(cachedName)
+    }
+  }, [queryClient])
+
+  /** Precarga la marca y el logo al abrir el menú, para que el clic no espere un fetch. */
+  const preloadBranding = useCallback(() => {
+    queryClient
+      .fetchQuery(documentBrandingQueryOptions())
+      .then((branding) => (branding.logo ? queryClient.prefetchQuery(documentLogoQueryOptions(branding.logo.sha256)) : undefined))
+      .catch(() => undefined)
+  }, [queryClient])
+
+  // Opciones comunes de los textos y el HTML (la marca se agrega en cada uso).
+  const baseOpts = {
     clientFirstName: clientFirstName ?? undefined,
     unitSymbolFor,
   }
@@ -133,8 +178,15 @@ export function SaleReceiptButton({
 
   // ── Download / print ─────────────────────────────────────────────────────
   const handleDownload = useCallback(async () => {
+    // La marca ya cargada (precarga del menú) permite abrir la pestaña con la URL del
+    // comprobante dentro del gesto, como siempre. Si todavía no llegó, la pestaña se abre YA
+    // (vacía) —abrirla después del `await` la bloquean los navegadores móviles— y se llena
+    // cuando la marca llega (mismo patrón que `handleInvoice`).
+    const cached = readCachedBranding()
+    const pendingTab = cached ? null : window.open("", "_blank")
     setLoadingPrint(true)
     try {
+      const branding = cached ?? (await loadBranding())
       // fix/comprobante-print-csp-nonce: la pestaña `blob:` que abrimos más
       // abajo HEREDA la CSP de este documento (script-src sin
       // 'unsafe-inline'). Sin el nonce vigente, el <script> de auto-impresión
@@ -142,12 +194,18 @@ export function SaleReceiptButton({
       // dispara window.print(). El helper lee el nonce del <script> que Next
       // ya montó con la política de ESTA carga.
       const scriptNonce = getDocumentScriptNonce()
-      const html = generateReceiptHTML(op, { ...receiptOpts, scriptNonce })
+      const html = generateReceiptHTML(op, { ...baseOpts, branding, scriptNonce })
       const blob = new Blob([html], { type: "text/html;charset=utf-8" })
       const url  = URL.createObjectURL(blob)
 
-      const win = window.open(url, "_blank")
-      if (!win) {
+      let opened = false
+      if (pendingTab) {
+        pendingTab.location.href = url
+        opened = true
+      } else if (cached) {
+        opened = Boolean(window.open(url, "_blank"))
+      }
+      if (!opened) {
         // Popup blocked — fall back to anchor download
         const a = document.createElement("a")
         a.href = url
@@ -161,16 +219,22 @@ export function SaleReceiptButton({
       // Revoke after enough time for the new tab to read the blob
       setTimeout(() => URL.revokeObjectURL(url), 10_000)
     } catch (err: unknown) {
+      try {
+        pendingTab?.close() // no dejar una pestaña vacía abierta
+      } catch {
+        /* la pestaña ya no existe */
+      }
       const message = err instanceof Error ? err.message : undefined
       toast.error(message || "No se pudo generar el comprobante.")
     } finally {
       setLoadingPrint(false)
     }
-  }, [op, receiptOpts])
+  }, [op, baseOpts, readCachedBranding, loadBranding])
 
   // ── Copy text to clipboard ───────────────────────────────────────────────
   const handleCopy = useCallback(async () => {
-    const text = generateReceiptText(op, receiptOpts)
+    const branding = readCachedBranding() ?? (await loadBranding())
+    const text = generateReceiptText(op, { ...baseOpts, branding })
     try {
       await navigator.clipboard.writeText(text)
       setCopied(true)
@@ -179,7 +243,7 @@ export function SaleReceiptButton({
     } catch {
       toast.error("No se pudo copiar el texto")
     }
-  }, [op, receiptOpts])
+  }, [op, baseOpts, readCachedBranding, loadBranding])
 
   // ── Send via WhatsApp (mensaje corto + PDF adjunto) ──────────────────────
   // En el celular: abre el menú de compartir con el PDF real + el mensaje corto
@@ -248,10 +312,12 @@ export function SaleReceiptButton({
   }, [])
 
   const handleWhatsApp = useCallback(async () => {
-    const shortText = generateReceiptShortText(op, receiptOpts)
     setLoadingWa(true)
+    const branding = readCachedBranding() ?? (await loadBranding())
+    const shortText = generateReceiptShortText(op, { ...baseOpts, branding })
     try {
-      const payload = buildSalesReceiptPdfPayload(op, receiptOpts)
+      // El servidor resuelve el emisor del PDF por la cuenta: el payload no lleva datos del negocio.
+      const payload = buildSalesReceiptPdfPayload(op, baseOpts)
       // auth-hardening-jwt-cookies (D21/14.8): antes se mandaba
       // `Bearer ` VACÍO cuando no había sesión, en vez de omitir el
       // encabezado. Los encabezados los arma ahora el helper compartido.
@@ -284,7 +350,7 @@ export function SaleReceiptButton({
     } finally {
       setLoadingWa(false)
     }
-  }, [op, receiptOpts, openWhatsAppText])
+  }, [op, baseOpts, readCachedBranding, loadBranding, openWhatsAppText])
 
   // Con una factura que todavía no se puede imprimir (sin fecha confirmada,
   // datos del emisor incompletos, …) WhatsApp NO se queda sin nada que mandar:
@@ -292,11 +358,13 @@ export function SaleReceiptButton({
   // imprimible. Una sesión vencida (null) ya navegó al login: no manda nada.
   const handleWhatsAppInvoice = useCallback(async () => {
     if (!invoice) return
+    setLoadingWa(true)
+    const branding = readCachedBranding() ?? (await loadBranding())
     const shortText = generateReceiptShortText(op, {
-      ...receiptOpts,
+      ...baseOpts,
+      branding,
       documentName: `la ${invoiceDisplayName(invoice) ?? "factura"}`,
     })
-    setLoadingWa(true)
     let fallbackToInternal = false
     try {
       const blob = await fetchFiscalInvoicePdf(invoice.documentId, { disposition: "attachment", copy: "original" })
@@ -317,13 +385,13 @@ export function SaleReceiptButton({
       setLoadingWa(false)
     }
     if (fallbackToInternal) await handleWhatsApp()
-  }, [invoice, op, receiptOpts, openWhatsAppText, handleWhatsApp])
+  }, [invoice, op, baseOpts, readCachedBranding, loadBranding, openWhatsAppText, handleWhatsApp])
 
   return (
     <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
 
       {/* ── Comprobante / Factura dropdown ───────────────────────────────── */}
-      <DropdownMenu>
+      <DropdownMenu onOpenChange={(open) => { if (open) preloadBranding() }}>
         <DropdownMenuTrigger asChild>
           <Button
             variant="outline"

@@ -30,6 +30,9 @@ vi.mock("@/components/settings/AccountForm", () => ({ AccountForm: () => <div da
 vi.mock("@/components/settings/SystemForm", () => ({ SystemForm: () => <div data-testid="stub-sistema" /> }))
 vi.mock("@/components/settings/TeamSection", () => ({ TeamSection: () => <div data-testid="stub-equipo" /> }))
 vi.mock("@/components/settings/FiscalSettings", () => ({ FiscalSettings: () => <div data-testid="stub-fiscal" /> }))
+vi.mock("@/components/settings/DocumentBrandingSettings", () => ({
+  DocumentBrandingSettings: () => <div data-testid="stub-documentos" />,
+}))
 vi.mock("@/components/cost-centers/CostCenterManager", () => ({
   CostCenterManager: () => <div data-testid="stub-centros-costo" />,
 }))

@@ -1,0 +1,268 @@
+[seed-users] ya existia: qa.e2e@local.test
+[seed-users] ya existia: qa.logout@local.test
+[seed-users] listo.
+[WebServer]  WARN  The field "pnpm.overrides" was found in C:\Users\Usuario\Desktop\EIE\v0-saa-s-empresarial-completo\.claude\worktrees\sad-shamir-6c7415\frontend/package.json. This will not take effect. You should configure "pnpm.overrides" at the root of the workspace instead.
+
+[WebServer] 
+[WebServer] > my-project@0.1.0 dev C:\Users\Usuario\Desktop\EIE\v0-saa-s-empresarial-completo\.claude\worktrees\sad-shamir-6c7415\frontend
+[WebServer] > next dev --turbo
+[WebServer] 
+
+
+[WebServer] ⚠ Warning: Next.js inferred your workspace root, but it may not be correct.
+[WebServer]  We detected multiple lockfiles and selected the directory of C:\Users\Usuario\Desktop\EIE\v0-saa-s-empresarial-completo\pnpm-lock.yaml as the root directory.
+[WebServer]  To silence this warning, set `turbopack.root` in your Next.js config, or consider removing one of the lockfiles if it's not needed.
+[WebServer]    See https://nextjs.org/docs/app/api-reference/config/next-config-js/turbopack#root-directory for more information.
+[WebServer]  Detected additional lockfiles: 
+[WebServer]    * C:\Users\Usuario\Desktop\EIE\v0-saa-s-empresarial-completo\.claude\worktrees\sad-shamir-6c7415\pnpm-lock.yaml
+[WebServer] 
+[WebServer] ▲ Next.js 16.1.6 (Turbopack)
+
+[WebServer] - Local:         http://localhost:3000
+[WebServer] - Network:       http://192.168.100.10:3000
+[WebServer] - Environments: .env.local
+[WebServer] 
+
+[WebServer] ✓ Starting...
+
+
+[WebServer] ⚠ The "middleware" file convention is deprecated. Please use "proxy" instead. Learn more: https://nextjs.org/docs/messages/middleware-to-proxy
+[WebServer] ✓ Ready in 2.8s
+
+[WebServer] ○ Compiling / ...
+
+[WebServer]  GET / 200 in 5.9s (compile: 4.3s, proxy.ts: 129ms, render: 1461ms)
+
+[WebServer]  GET / 200 in 400ms (compile: 15ms, proxy.ts: 16ms, render: 369ms)
+
+[WebServer]  GET /auth/login 200 in 414ms (compile: 217ms, proxy.ts: 15ms, render: 182ms)
+
+
+Running 5 tests using 1 worker
+
+[1/5] [setup] › e2e\fixtures\auth.setup.ts:5:6 › authenticate
+[WebServer]  GET /auth/login 200 in 267ms (compile: 37ms, proxy.ts: 8ms, render: 222ms)
+
+[WebServer]  GET /api/auth/token 200 in 440ms (compile: 357ms, proxy.ts: 19ms, render: 64ms)
+
+[WebServer]  POST /auth/login 200 in 783ms (compile: 27ms, proxy.ts: 18ms, render: 738ms)
+
+[WebServer]  GET /api/auth/token 200 in 65ms (compile: 28ms, proxy.ts: 8ms, render: 29ms)
+
+[WebServer]  GET /dashboard 200 in 1321ms (compile: 771ms, proxy.ts: 227ms, render: 323ms)
+
+[WebServer]  GET /dashboard 200 in 645ms (compile: 63ms, proxy.ts: 252ms, render: 330ms)
+
+[2/5] [chromium] › e2e\documentos-marca.spec.ts:306:9 › Documentos con la marca de la cuenta (stack local) › marca → vista previa → PDF/comprobante con logo y paleta → vendedor en sólo lectura · 1366x768-claro
+[WebServer]  GET /auth/login 200 in 122ms (compile: 14ms, proxy.ts: 6ms, render: 102ms)
+
+[WebServer]  GET /api/auth/token 200 in 34ms (compile: 12ms, proxy.ts: 12ms, render: 9ms)
+
+[WebServer]  POST /auth/login 200 in 345ms (compile: 22ms, proxy.ts: 13ms, render: 311ms)
+
+[WebServer]  GET /api/auth/token 200 in 27ms (compile: 14ms, proxy.ts: 4ms, render: 9ms)
+
+[WebServer]  GET /dashboard 200 in 369ms (compile: 25ms, proxy.ts: 181ms, render: 163ms)
+
+[WebServer]  GET /dashboard 200 in 1546ms (compile: 24ms, proxy.ts: 746ms, render: 776ms)
+
+[WebServer]  GET /configuracion?tab=documentos 200 in 3.1s (compile: 1588ms, proxy.ts: 702ms, render: 804ms)
+
+[WebServer]  GET /api/auth/token 200 in 134ms (compile: 27ms, proxy.ts: 13ms, render: 94ms)
+
+[WebServer]  GET /configuracion?tab=documentos 200 in 561ms (compile: 6ms, proxy.ts: 221ms, render: 333ms)
+
+[WebServer]  GET /api/auth/token 200 in 169ms (compile: 83ms, proxy.ts: 24ms, render: 63ms)
+
+[WebServer]  GET /configuracion?tab=documentos 200 in 440ms (compile: 6ms, proxy.ts: 151ms, render: 283ms)
+
+[WebServer]  GET /api/auth/token 200 in 33ms (compile: 16ms, proxy.ts: 5ms, render: 12ms)
+
+[WebServer]  GET /presupuestos/aa8ffa8a-3019-4d3e-8490-fbc00beba9dc 200 in 2.0s (compile: 1668ms, proxy.ts: 101ms, render: 279ms)
+
+[WebServer]  GET /api/auth/token 200 in 133ms (compile: 34ms, proxy.ts: 82ms, render: 18ms)
+
+[WebServer]  GET /remitos/ae956a19-0b0b-4ae1-9813-8b627aeb562c 200 in 1944ms (compile: 1531ms, proxy.ts: 125ms, render: 288ms)
+
+[WebServer]  GET /api/auth/token 200 in 88ms (compile: 77ms, proxy.ts: 4ms, render: 7ms)
+
+[WebServer]  GET /ventas 200 in 1213ms (compile: 357ms, proxy.ts: 148ms, render: 708ms)
+
+[WebServer]  GET /api/auth/token 200 in 84ms (compile: 55ms, proxy.ts: 15ms, render: 14ms)
+
+[WebServer]  GET /auth/login 200 in 282ms (compile: 5ms, proxy.ts: 6ms, render: 270ms)
+
+[WebServer]  GET /api/auth/token 200 in 165ms (compile: 121ms, proxy.ts: 35ms, render: 9ms)
+
+[WebServer]  POST /auth/login 200 in 345ms (compile: 7ms, proxy.ts: 9ms, render: 328ms)
+
+[WebServer]  GET /api/auth/token 200 in 46ms (compile: 18ms, proxy.ts: 6ms, render: 22ms)
+
+[WebServer]  GET /dashboard 200 in 267ms (compile: 9ms, proxy.ts: 137ms, render: 122ms)
+
+[WebServer]  GET /dashboard 200 in 355ms (compile: 10ms, proxy.ts: 273ms, render: 72ms)
+
+[WebServer]  GET /configuracion?tab=documentos 200 in 1482ms (compile: 6ms, proxy.ts: 906ms, render: 570ms)
+
+[WebServer]  GET /api/auth/token 200 in 146ms (compile: 114ms, proxy.ts: 10ms, render: 21ms)
+
+[3/5] [chromium] › e2e\documentos-marca.spec.ts:306:9 › Documentos con la marca de la cuenta (stack local) › marca → vista previa → PDF/comprobante con logo y paleta → vendedor en sólo lectura · 1366x768-oscuro
+[WebServer]  GET /auth/login 200 in 196ms (compile: 5ms, proxy.ts: 7ms, render: 185ms)
+
+[WebServer]  GET /api/auth/token 200 in 73ms (compile: 62ms, proxy.ts: 4ms, render: 6ms)
+
+[WebServer]  POST /auth/login 200 in 610ms (compile: 6ms, proxy.ts: 11ms, render: 592ms)
+
+[WebServer]  GET /api/auth/token 200 in 66ms (compile: 44ms, proxy.ts: 12ms, render: 10ms)
+
+[WebServer]  GET /dashboard 200 in 503ms (compile: 34ms, proxy.ts: 204ms, render: 264ms)
+
+[WebServer]  GET /dashboard 200 in 1016ms (compile: 16ms, proxy.ts: 811ms, render: 189ms)
+
+[WebServer]  GET /configuracion?tab=documentos 200 in 853ms (compile: 7ms, proxy.ts: 543ms, render: 303ms)
+
+[WebServer]  GET /api/auth/token 200 in 133ms (compile: 116ms, proxy.ts: 7ms, render: 10ms)
+
+[WebServer]  GET /configuracion?tab=documentos 200 in 453ms (compile: 9ms, proxy.ts: 165ms, render: 279ms)
+
+[WebServer]  GET /api/auth/token 200 in 159ms (compile: 82ms, proxy.ts: 12ms, render: 64ms)
+
+[WebServer]  GET /configuracion?tab=documentos 200 in 476ms (compile: 8ms, proxy.ts: 171ms, render: 297ms)
+
+[WebServer]  GET /api/auth/token 200 in 36ms (compile: 20ms, proxy.ts: 8ms, render: 9ms)
+
+[WebServer]  GET /presupuestos/94c2f64b-e033-48c7-8857-574e6ca16023 200 in 540ms (compile: 38ms, proxy.ts: 117ms, render: 385ms)
+
+[WebServer]  GET /api/auth/token 200 in 84ms (compile: 33ms, proxy.ts: 37ms, render: 14ms)
+
+[WebServer]  GET /remitos/e788a4b2-c049-4129-a89c-a8341e4bd380 200 in 956ms (compile: 78ms, proxy.ts: 305ms, render: 572ms)
+
+[WebServer]  GET /api/auth/token 200 in 181ms (compile: 103ms, proxy.ts: 50ms, render: 28ms)
+
+[WebServer]  GET /ventas 200 in 463ms (compile: 8ms, proxy.ts: 135ms, render: 320ms)
+
+[WebServer]  GET /api/auth/token 200 in 121ms (compile: 104ms, proxy.ts: 5ms, render: 12ms)
+
+[WebServer]  GET /auth/login 200 in 288ms (compile: 9ms, proxy.ts: 5ms, render: 275ms)
+
+[WebServer]  GET /api/auth/token 200 in 89ms (compile: 63ms, proxy.ts: 18ms, render: 7ms)
+
+[WebServer]  POST /auth/login 200 in 354ms (compile: 15ms, proxy.ts: 8ms, render: 331ms)
+
+[WebServer]  GET /api/auth/token 200 in 22ms (compile: 11ms, proxy.ts: 4ms, render: 7ms)
+
+[WebServer]  GET /dashboard 200 in 471ms (compile: 14ms, proxy.ts: 237ms, render: 220ms)
+
+[WebServer]  GET /dashboard 200 in 854ms (compile: 327ms, proxy.ts: 193ms, render: 333ms)
+
+[WebServer]  GET /configuracion?tab=documentos 200 in 1364ms (compile: 73ms, proxy.ts: 417ms, render: 874ms)
+
+[WebServer]  GET /api/auth/token 200 in 185ms (compile: 164ms, proxy.ts: 5ms, render: 17ms)
+
+[4/5] [chromium] › e2e\documentos-marca.spec.ts:306:9 › Documentos con la marca de la cuenta (stack local) › marca → vista previa → PDF/comprobante con logo y paleta → vendedor en sólo lectura · 375x812-claro
+[WebServer]  GET /auth/login 200 in 122ms (compile: 4ms, proxy.ts: 9ms, render: 109ms)
+
+[WebServer]  GET /api/auth/token 200 in 23ms (compile: 7ms, proxy.ts: 7ms, render: 8ms)
+
+[WebServer]  POST /auth/login 200 in 318ms (compile: 12ms, proxy.ts: 8ms, render: 298ms)
+
+[WebServer]  GET /api/auth/token 200 in 18ms (compile: 4ms, proxy.ts: 5ms, render: 10ms)
+
+[WebServer]  GET /dashboard 200 in 254ms (compile: 8ms, proxy.ts: 173ms, render: 72ms)
+
+[WebServer]  GET /dashboard 200 in 267ms (compile: 19ms, proxy.ts: 182ms, render: 67ms)
+
+[WebServer]  GET /configuracion?tab=documentos 200 in 701ms (compile: 13ms, proxy.ts: 317ms, render: 371ms)
+
+[WebServer]  GET /api/auth/token 200 in 168ms (compile: 108ms, proxy.ts: 7ms, render: 53ms)
+
+[WebServer]  GET /configuracion?tab=documentos 200 in 437ms (compile: 6ms, proxy.ts: 198ms, render: 233ms)
+
+[WebServer]  GET /api/auth/token 200 in 52ms (compile: 39ms, proxy.ts: 6ms, render: 6ms)
+
+[WebServer]  GET /configuracion?tab=documentos 200 in 338ms (compile: 5ms, proxy.ts: 102ms, render: 231ms)
+
+[WebServer]  GET /api/auth/token 200 in 79ms (compile: 62ms, proxy.ts: 7ms, render: 10ms)
+
+[WebServer]  GET /presupuestos/678b07f0-bc0d-442f-95e3-3063ba7d1405 200 in 400ms (compile: 26ms, proxy.ts: 99ms, render: 275ms)
+
+[WebServer]  GET /api/auth/token 200 in 54ms (compile: 18ms, proxy.ts: 17ms, render: 19ms)
+
+[WebServer]  GET /remitos/b1c5fed7-a39c-423d-a14d-61ebdfb83e95 200 in 497ms (compile: 26ms, proxy.ts: 166ms, render: 304ms)
+
+[WebServer]  GET /api/auth/token 200 in 77ms (compile: 57ms, proxy.ts: 12ms, render: 8ms)
+
+[WebServer]  GET /ventas 200 in 298ms (compile: 7ms, proxy.ts: 89ms, render: 202ms)
+
+[WebServer]  GET /api/auth/token 200 in 362ms (compile: 345ms, proxy.ts: 5ms, render: 11ms)
+
+[WebServer]  GET /auth/login 200 in 187ms (compile: 5ms, proxy.ts: 4ms, render: 177ms)
+
+[WebServer]  GET /api/auth/token 200 in 32ms (compile: 18ms, proxy.ts: 7ms, render: 7ms)
+
+[WebServer]  POST /auth/login 200 in 252ms (compile: 7ms, proxy.ts: 10ms, render: 235ms)
+
+[WebServer]  GET /api/auth/token 200 in 18ms (compile: 5ms, proxy.ts: 5ms, render: 9ms)
+
+[WebServer]  GET /dashboard 200 in 361ms (compile: 10ms, proxy.ts: 136ms, render: 216ms)
+
+[WebServer]  GET /dashboard 200 in 620ms (compile: 37ms, proxy.ts: 417ms, render: 167ms)
+
+[WebServer]  GET /configuracion?tab=documentos 200 in 1108ms (compile: 16ms, proxy.ts: 665ms, render: 428ms)
+
+[WebServer]  GET /api/auth/token 200 in 352ms (compile: 137ms, proxy.ts: 16ms, render: 199ms)
+
+[5/5] [chromium] › e2e\documentos-marca.spec.ts:306:9 › Documentos con la marca de la cuenta (stack local) › marca → vista previa → PDF/comprobante con logo y paleta → vendedor en sólo lectura · 375x812-oscuro
+[WebServer]  GET /auth/login 200 in 279ms (compile: 13ms, proxy.ts: 5ms, render: 261ms)
+
+[WebServer]  GET /api/auth/token 200 in 22ms (compile: 8ms, proxy.ts: 5ms, render: 8ms)
+
+[WebServer]  POST /auth/login 200 in 254ms (compile: 12ms, proxy.ts: 9ms, render: 233ms)
+
+[WebServer]  GET /api/auth/token 200 in 17ms (compile: 5ms, proxy.ts: 5ms, render: 6ms)
+
+[WebServer]  GET /dashboard 200 in 332ms (compile: 10ms, proxy.ts: 184ms, render: 137ms)
+
+[WebServer]  GET /dashboard 200 in 725ms (compile: 154ms, proxy.ts: 335ms, render: 237ms)
+
+[WebServer]  GET /configuracion?tab=documentos 200 in 445ms (compile: 9ms, proxy.ts: 330ms, render: 106ms)
+
+[WebServer]  GET /api/auth/token 200 in 91ms (compile: 76ms, proxy.ts: 5ms, render: 9ms)
+
+[WebServer]  GET /configuracion?tab=documentos 200 in 519ms (compile: 8ms, proxy.ts: 309ms, render: 201ms)
+
+[WebServer]  GET /api/auth/token 200 in 82ms (compile: 61ms, proxy.ts: 5ms, render: 16ms)
+
+[WebServer]  GET /configuracion?tab=documentos 200 in 527ms (compile: 7ms, proxy.ts: 117ms, render: 403ms)
+
+[WebServer]  GET /api/auth/token 200 in 117ms (compile: 99ms, proxy.ts: 8ms, render: 9ms)
+
+[WebServer]  GET /presupuestos/f642afd3-fca3-478b-b906-c42049e82805 200 in 301ms (compile: 23ms, proxy.ts: 97ms, render: 182ms)
+
+[WebServer]  GET /api/auth/token 200 in 70ms (compile: 24ms, proxy.ts: 16ms, render: 30ms)
+
+[WebServer]  GET /remitos/bc692e6b-a107-48a9-8e25-7890d53d7a86 200 in 848ms (compile: 64ms, proxy.ts: 330ms, render: 454ms)
+
+[WebServer]  GET /api/auth/token 200 in 112ms (compile: 79ms, proxy.ts: 19ms, render: 14ms)
+
+[WebServer]  GET /ventas 200 in 547ms (compile: 8ms, proxy.ts: 217ms, render: 323ms)
+
+[WebServer]  GET /api/auth/token 200 in 178ms (compile: 149ms, proxy.ts: 15ms, render: 14ms)
+
+[WebServer]  GET /auth/login 200 in 224ms (compile: 6ms, proxy.ts: 10ms, render: 207ms)
+
+[WebServer]  GET /api/auth/token 200 in 29ms (compile: 15ms, proxy.ts: 9ms, render: 5ms)
+
+[WebServer]  POST /auth/login 200 in 502ms (compile: 62ms, proxy.ts: 7ms, render: 433ms)
+
+[WebServer]  GET /api/auth/token 200 in 108ms (compile: 92ms, proxy.ts: 5ms, render: 11ms)
+
+[WebServer]  GET /dashboard 200 in 320ms (compile: 6ms, proxy.ts: 135ms, render: 178ms)
+
+[WebServer]  GET /dashboard 200 in 434ms (compile: 31ms, proxy.ts: 171ms, render: 232ms)
+
+[WebServer]  GET /configuracion?tab=documentos 200 in 538ms (compile: 10ms, proxy.ts: 259ms, render: 269ms)
+
+[WebServer]  GET /api/auth/token 200 in 55ms (compile: 44ms, proxy.ts: 4ms, render: 7ms)
+
+  5 passed (3.6m)

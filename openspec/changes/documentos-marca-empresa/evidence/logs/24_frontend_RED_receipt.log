@@ -1,0 +1,4739 @@
+
+ RUN  v4.1.8 C:/Users/Usuario/Desktop/EIE/v0-saa-s-empresarial-completo/.claude/worktrees/sad-shamir-6c7415/frontend
+
+ ❯ __tests__/lib/receipt.test.ts (36 tests | 15 failed) 227ms
+     × business name, cliente y producto con HTML/comillas siguen escapados 26ms
+     × imprime nombre, razón social, CUIT, IVA, domicilio, teléfono, email del negocio, web y leyenda al pie 5ms
+     × la razón social sólo se imprime si difiere del nombre 3ms
+     × el logo es una imagen data: PNG/JPEG y no la URL de un avatar 66ms
+     × sin logo se dibuja la inicial del nombre 17ms
+     × ya no queda ningún rastro del verde anterior 4ms
+     × la paleta de la cuenta entra como variables CSS 4ms
+     × Neutro: sin acento, tinta de la factura y cabecera de la tabla en la superficie clara 4ms
+     × un color inválido NO entra al HTML: cae al de Neutro 5ms
+     × todos los textos de la marca van escapados 6ms
+     × la web se imprime como TEXTO, nunca como enlace 3ms
+     × no imprime el email de acceso: sólo existe el del negocio 3ms
+     × el texto largo lleva el contacto del negocio (teléfono, email del negocio, web) 1ms
+     × el mensaje corto nombra al negocio de la marca 1ms
+     × ya no manda nombre, teléfono ni email del negocio: los resuelve el servidor 3ms
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 15 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  __tests__/lib/receipt.test.ts > generateReceiptHTML — escapado de datos del usuario (no regresión) > business name, cliente y producto con HTML/comillas siguen escapados
+AssertionError: expected '<!DOCTYPE html>\n<html lang="es">\n<h…' to contain '&lt;script&gt;alert(2)&lt;/script&gt;'
+
+- Expected
++ Received
+
+- &lt;script&gt;alert(2)&lt;/script&gt;
++ <!DOCTYPE html>
++ <html lang="es">
++ <head>
++   <meta charset="UTF-8" />
++   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
++   <title>Comprobante OP1 — Mi Negocio</title>
++   <style>
++   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
++
++   :root {
++     --ink:      #111111;
++     --muted:    #6b7280;
++     --border:   #e5e7eb;
++     --accent:   #f9fafb;
++     --primary:  #0f172a;
++     --emerald:  #059669;
++     --radius:   8px;
++   }
++
++   html, body {
++     background: #ffffff;
++     color: var(--ink);
++     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
++     font-size: 14px;
++     line-height: 1.5;
++     -webkit-print-color-adjust: exact;
++     print-color-adjust: exact;
++   }
++
++   body {
++     padding: 32px 24px;
++     max-width: 680px;
++     margin: 0 auto;
++   }
++
++   /* ── Header ── */
++   .receipt-header {
++     display: flex;
++     align-items: flex-start;
++     justify-content: space-between;
++     gap: 16px;
++     padding-bottom: 20px;
++     border-bottom: 2px solid var(--primary);
++     margin-bottom: 20px;
++   }
++
++   .business-block {
++     display: flex;
++     align-items: center;
++     gap: 12px;
++   }
++
++   .business-logo {
++     width: 48px;
++     height: 48px;
++     border-radius: 50%;
++     object-fit: cover;
++     flex-shrink: 0;
++   }
++
++   .business-initial {
++     width: 48px;
++     height: 48px;
++     border-radius: 50%;
++     background: var(--primary);
++     color: #ffffff;
++     font-size: 22px;
++     font-weight: 700;
++     display: flex;
++     align-items: center;
++     justify-content: center;
++     flex-shrink: 0;
++     letter-spacing: -1px;
++   }
++
++   .business-name {
++     font-size: 20px;
++     font-weight: 700;
++     color: var(--primary);
++     line-height: 1.2;
++   }
++
++   .business-contact {
++     font-size: 12px;
++     color: var(--muted);
++     margin-top: 3px;
++   }
++
++   .receipt-meta {
++     text-align: right;
++     flex-shrink: 0;
++   }
++
++   .receipt-label {
++     font-size: 11px;
++     font-weight: 600;
++     letter-spacing: 0.08em;
++     text-transform: uppercase;
++     color: var(--muted);
++   }
++
++   .receipt-number {
++     font-size: 22px;
++     font-weight: 800;
++     color: var(--primary);
++     letter-spacing: -0.5px;
++     font-variant-numeric: tabular-nums;
++   }
++
++   .receipt-type {
++     font-size: 12px;
++     color: var(--muted);
++     margin-top: 2px;
++   }
++
++   /* ── Info section ── */
++   .info-grid {
++     display: grid;
++     grid-template-columns: 1fr 1fr;
++     gap: 12px 24px;
++     padding: 16px 0;
++     border-bottom: 1px solid var(--border);
++     margin-bottom: 20px;
++   }
++
++   .info-block {}
++   .info-label {
++     font-size: 10px;
++     font-weight: 600;
++     text-transform: uppercase;
++     letter-spacing: 0.08em;
++     color: var(--muted);
++     margin-bottom: 3px;
++   }
++   .info-value {
++     font-size: 14px;
++     font-weight: 600;
++     color: var(--ink);
++   }
++   .info-value.muted {
++     font-weight: 400;
++     color: var(--muted);
++     font-style: italic;
++   }
++
++   /* ── Items table ── */
++   .items-section {
++     margin-bottom: 0;
++   }
++
++   .items-table {
++     width: 100%;
++     border-collapse: collapse;
++   }
++
++   .items-table thead tr {
++     background: var(--accent);
++     border-top: 1px solid var(--border);
++     border-bottom: 1px solid var(--border);
++   }
++
++   .items-table th {
++     padding: 8px 10px;
++     font-size: 10px;
++     font-weight: 700;
++     text-transform: uppercase;
++     letter-spacing: 0.08em;
++     color: var(--muted);
++     text-align: left;
++   }
++
++   .items-table th.right, .items-table td.right { text-align: right; }
++   .items-table th.center, .items-table td.center { text-align: center; }
++
++   .items-table tbody tr {
++     border-bottom: 1px solid var(--border);
++   }
++
++   .items-table tbody tr:last-child {
++     border-bottom: none;
++   }
++
++   .items-table td {
++     padding: 10px 10px;
++     font-size: 13px;
++     color: var(--ink);
++     vertical-align: middle;
++   }
++
++   .items-table td.product-name {
++     font-weight: 600;
++   }
++
++   .items-table td.subtotal {
++     font-weight: 700;
++     color: var(--emerald);
++     font-variant-numeric: tabular-nums;
++   }
++
++   /* ── Total footer ── */
++   .total-section {
++     border-top: 2px solid var(--primary);
++     margin-top: 0;
++     padding-top: 12px;
++     display: flex;
++     justify-content: flex-end;
++     gap: 24px;
++     align-items: baseline;
++   }
++
++   .total-label {
++     font-size: 13px;
++     font-weight: 600;
++     color: var(--muted);
++     text-transform: uppercase;
++     letter-spacing: 0.06em;
++   }
++
++   .total-amount {
++     font-size: 26px;
++     font-weight: 800;
++     color: var(--primary);
++     font-variant-numeric: tabular-nums;
++     letter-spacing: -1px;
++   }
++
++   /* ── Footer ── */
++   .receipt-footer {
++     margin-top: 28px;
++     padding-top: 16px;
++     border-top: 1px solid var(--border);
++     display: flex;
++     justify-content: space-between;
++     align-items: flex-end;
++     gap: 12px;
++   }
++
++   .footer-thanks {
++     font-size: 13px;
++     font-weight: 600;
++     color: var(--primary);
++   }
++   .footer-thanks-sub {
++     font-size: 11px;
++     color: var(--muted);
++     margin-top: 2px;
++   }
++
++   .footer-id {
++     text-align: right;
++     font-size: 10px;
++     color: var(--border);
++     font-variant-numeric: tabular-nums;
++     word-break: break-all;
++     max-width: 240px;
++   }
++
++   /* ── Print bar (visible fallback button) ── */
++   .print-bar {
++     display: flex;
++     justify-content: space-between;
++     align-items: center;
++     margin-bottom: 16px;
++   }
++
++   .print-hint {
++     font-size: 12px;
++     color: var(--muted);
++   }
++
++   .print-button {
++     appearance: none;
++     border: 1px solid var(--primary);
++     border-radius: var(--radius);
++     background: var(--primary);
++     color: #ffffff;
++     font: inherit;
++     font-size: 13px;
++     font-weight: 600;
++     padding: 8px 16px;
++     cursor: pointer;
++   }
++
++   .print-button:hover {
++     opacity: 0.9;
++   }
++
++   /* ── Print optimisation ── */
++   @page {
++     size: A4 portrait;
++     margin: 1.5cm 1.5cm 2cm;
++   }
++
++   @media print {
++     body { padding: 0; }
++     .no-print { display: none !important; }
++     .receipt-footer { page-break-inside: avoid; }
++     .total-section  { page-break-inside: avoid; }
++   }
++ </style>
++ </head>
++ <body>
++
++   <!-- ── Print bar ──────────────────────────────────────────────────────
++        fix/comprobante-print-csp-nonce: red de seguridad visible. El script
++        de más abajo dispara window.print() solo, pero si algún navegador
++        igual bloquea la ejecución automática (o el usuario cerró el diálogo
++        sin querer), este botón es el único camino manual. La pista de texto
++        de al lado (revisión adversarial MINOR 2) no depende del script: cubre
++        también el caso en que el propio script con nonce no llegó a correr,
++        que es justo el modo de falla que motiva este fix. No se imprime a sí
++        mismo (.no-print). -->
++   <div class="no-print">
++     <div class="print-bar">
++       <span class="print-hint">Si el diálogo no se abre solo: Ctrl+P (⌘+P en Mac)</span>
++       <button type="button" id="receipt-print-button" class="print-button">Imprimir / Guardar como PDF</button>
++     </div>
++   </div>
++
++   <!-- ── Header ─────────────────────────────────────────────────────── -->
++   <div class="receipt-header">
++     <div class="business-block">
++       <div class="business-initial">M</div>
++       <div>
++         <div class="business-name">Mi Negocio</div>
++         
++       </div>
++     </div>
++     <div class="receipt-meta">
++       <div class="receipt-label">Comprobante</div>
++       <div class="receipt-number">#OP1</div>
++       <div class="receipt-type">Comprobante de venta</div>
++     </div>
++   </div>
++
++   <!-- ── Info grid ───────────────────────────────────────────────────── -->
++   <div class="info-grid">
++     <div class="info-block">
++       <div class="info-label">Cliente</div>
++       <div class="info-value">&lt;img src=x onerror=alert(1)&gt; &amp; &quot;Cliente&quot;</div>
++     </div>
++     <div class="info-block">
++       <div class="info-label">Fecha</div>
++       <div class="info-value">Viernes, 18 de septiembre de 2026</div>
++     </div>
++   </div>
++
++   <!-- ── Items ───────────────────────────────────────────────────────── -->
++   <div class="items-section">
++     <table class="items-table">
++       <thead>
++         <tr>
++           <th>Descripción</th>
++           <th class="center">Cant.</th>
++           <th class="right">Precio unit.</th>
++           <th class="right">Subtotal</th>
++         </tr>
++       </thead>
++       <tbody>
++         
++       <tr>
++         <td class="product-name">&lt;b&gt;Producto&lt;/b&gt; &amp; &quot;especial&quot;</td>
++         <td class="center">2</td>
++         <td class="right">$ 100</td>
++         <td class="right subtotal">$ 200</td>
++       </tr>
++       </tbody>
++     </table>
++   </div>
++
++   <!-- ── Total ───────────────────────────────────────────────────────── -->
++   <div class="total-section">
++     <span class="total-label">Total</span>
++     <span class="total-amount">$ 200</span>
++   </div>
++
++   <!-- ── Footer ──────────────────────────────────────────────────────── -->
++   <div class="receipt-footer">
++     <div>
++       <div class="footer-thanks">¡Gracias por su compra!</div>
++       <div class="footer-thanks-sub">Este documento es su comprobante de venta.</div>
++     </div>
++     <div class="footer-id">ID: op1</div>
++   </div>
++
++   <script>
++     // fix/comprobante-print-csp-nonce: sin atributos on*= (script-src los
++     // bloquea igual bajo CSP; el cableado va por addEventListener). Cablea
++     // el botón visible y conserva la apertura automática del diálogo de
++     // impresión — el usuario puede elegir "Guardar como PDF" o mandarlo a
++     // una impresora física por cualquiera de los dos caminos.
++     (function () {
++       var btn = document.getElementById("receipt-print-button")
++       if (btn) {
++         btn.addEventListener("click", function () { window.print() })
++       }
++       window.onload = function () { window.print() }
++     })()
++   </script>
++
++ </body>
++ </html>
+
+ ❯ __tests__/lib/receipt.test.ts:182:18
+    180|     expect(html).toContain("&lt;img src=x onerror=alert(1)&gt;")
+    181|     expect(html).toContain("&lt;b&gt;Producto&lt;/b&gt;")
+    182|     expect(html).toContain("&lt;script&gt;alert(2)&lt;/script&gt;")
+       |                  ^
+    183|     expect(html).toContain("&quot;Cliente&quot;")
+    184|     expect(html).toContain("&quot;especial&quot;")
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/15]⎯
+
+ FAIL  __tests__/lib/receipt.test.ts > comprobante interno — la marca de la cuenta en el HTML > imprime nombre, razón social, CUIT, IVA, domicilio, teléfono, email del negocio, web y leyenda al pie
+AssertionError: Sumar: expected '<!DOCTYPE html>\n<html lang="es">\n<h…' to contain 'Sumar'
+
+- Expected
++ Received
+
+- Sumar
++ <!DOCTYPE html>
++ <html lang="es">
++ <head>
++   <meta charset="UTF-8" />
++   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
++   <title>Comprobante OP1 — Mi Negocio</title>
++   <style>
++   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
++
++   :root {
++     --ink:      #111111;
++     --muted:    #6b7280;
++     --border:   #e5e7eb;
++     --accent:   #f9fafb;
++     --primary:  #0f172a;
++     --emerald:  #059669;
++     --radius:   8px;
++   }
++
++   html, body {
++     background: #ffffff;
++     color: var(--ink);
++     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
++     font-size: 14px;
++     line-height: 1.5;
++     -webkit-print-color-adjust: exact;
++     print-color-adjust: exact;
++   }
++
++   body {
++     padding: 32px 24px;
++     max-width: 680px;
++     margin: 0 auto;
++   }
++
++   /* ── Header ── */
++   .receipt-header {
++     display: flex;
++     align-items: flex-start;
++     justify-content: space-between;
++     gap: 16px;
++     padding-bottom: 20px;
++     border-bottom: 2px solid var(--primary);
++     margin-bottom: 20px;
++   }
++
++   .business-block {
++     display: flex;
++     align-items: center;
++     gap: 12px;
++   }
++
++   .business-logo {
++     width: 48px;
++     height: 48px;
++     border-radius: 50%;
++     object-fit: cover;
++     flex-shrink: 0;
++   }
++
++   .business-initial {
++     width: 48px;
++     height: 48px;
++     border-radius: 50%;
++     background: var(--primary);
++     color: #ffffff;
++     font-size: 22px;
++     font-weight: 700;
++     display: flex;
++     align-items: center;
++     justify-content: center;
++     flex-shrink: 0;
++     letter-spacing: -1px;
++   }
++
++   .business-name {
++     font-size: 20px;
++     font-weight: 700;
++     color: var(--primary);
++     line-height: 1.2;
++   }
++
++   .business-contact {
++     font-size: 12px;
++     color: var(--muted);
++     margin-top: 3px;
++   }
++
++   .receipt-meta {
++     text-align: right;
++     flex-shrink: 0;
++   }
++
++   .receipt-label {
++     font-size: 11px;
++     font-weight: 600;
++     letter-spacing: 0.08em;
++     text-transform: uppercase;
++     color: var(--muted);
++   }
++
++   .receipt-number {
++     font-size: 22px;
++     font-weight: 800;
++     color: var(--primary);
++     letter-spacing: -0.5px;
++     font-variant-numeric: tabular-nums;
++   }
++
++   .receipt-type {
++     font-size: 12px;
++     color: var(--muted);
++     margin-top: 2px;
++   }
++
++   /* ── Info section ── */
++   .info-grid {
++     display: grid;
++     grid-template-columns: 1fr 1fr;
++     gap: 12px 24px;
++     padding: 16px 0;
++     border-bottom: 1px solid var(--border);
++     margin-bottom: 20px;
++   }
++
++   .info-block {}
++   .info-label {
++     font-size: 10px;
++     font-weight: 600;
++     text-transform: uppercase;
++     letter-spacing: 0.08em;
++     color: var(--muted);
++     margin-bottom: 3px;
++   }
++   .info-value {
++     font-size: 14px;
++     font-weight: 600;
++     color: var(--ink);
++   }
++   .info-value.muted {
++     font-weight: 400;
++     color: var(--muted);
++     font-style: italic;
++   }
++
++   /* ── Items table ── */
++   .items-section {
++     margin-bottom: 0;
++   }
++
++   .items-table {
++     width: 100%;
++     border-collapse: collapse;
++   }
++
++   .items-table thead tr {
++     background: var(--accent);
++     border-top: 1px solid var(--border);
++     border-bottom: 1px solid var(--border);
++   }
++
++   .items-table th {
++     padding: 8px 10px;
++     font-size: 10px;
++     font-weight: 700;
++     text-transform: uppercase;
++     letter-spacing: 0.08em;
++     color: var(--muted);
++     text-align: left;
++   }
++
++   .items-table th.right, .items-table td.right { text-align: right; }
++   .items-table th.center, .items-table td.center { text-align: center; }
++
++   .items-table tbody tr {
++     border-bottom: 1px solid var(--border);
++   }
++
++   .items-table tbody tr:last-child {
++     border-bottom: none;
++   }
++
++   .items-table td {
++     padding: 10px 10px;
++     font-size: 13px;
++     color: var(--ink);
++     vertical-align: middle;
++   }
++
++   .items-table td.product-name {
++     font-weight: 600;
++   }
++
++   .items-table td.subtotal {
++     font-weight: 700;
++     color: var(--emerald);
++     font-variant-numeric: tabular-nums;
++   }
++
++   /* ── Total footer ── */
++   .total-section {
++     border-top: 2px solid var(--primary);
++     margin-top: 0;
++     padding-top: 12px;
++     display: flex;
++     justify-content: flex-end;
++     gap: 24px;
++     align-items: baseline;
++   }
++
++   .total-label {
++     font-size: 13px;
++     font-weight: 600;
++     color: var(--muted);
++     text-transform: uppercase;
++     letter-spacing: 0.06em;
++   }
++
++   .total-amount {
++     font-size: 26px;
++     font-weight: 800;
++     color: var(--primary);
++     font-variant-numeric: tabular-nums;
++     letter-spacing: -1px;
++   }
++
++   /* ── Footer ── */
++   .receipt-footer {
++     margin-top: 28px;
++     padding-top: 16px;
++     border-top: 1px solid var(--border);
++     display: flex;
++     justify-content: space-between;
++     align-items: flex-end;
++     gap: 12px;
++   }
++
++   .footer-thanks {
++     font-size: 13px;
++     font-weight: 600;
++     color: var(--primary);
++   }
++   .footer-thanks-sub {
++     font-size: 11px;
++     color: var(--muted);
++     margin-top: 2px;
++   }
++
++   .footer-id {
++     text-align: right;
++     font-size: 10px;
++     color: var(--border);
++     font-variant-numeric: tabular-nums;
++     word-break: break-all;
++     max-width: 240px;
++   }
++
++   /* ── Print bar (visible fallback button) ── */
++   .print-bar {
++     display: flex;
++     justify-content: space-between;
++     align-items: center;
++     margin-bottom: 16px;
++   }
++
++   .print-hint {
++     font-size: 12px;
++     color: var(--muted);
++   }
++
++   .print-button {
++     appearance: none;
++     border: 1px solid var(--primary);
++     border-radius: var(--radius);
++     background: var(--primary);
++     color: #ffffff;
++     font: inherit;
++     font-size: 13px;
++     font-weight: 600;
++     padding: 8px 16px;
++     cursor: pointer;
++   }
++
++   .print-button:hover {
++     opacity: 0.9;
++   }
++
++   /* ── Print optimisation ── */
++   @page {
++     size: A4 portrait;
++     margin: 1.5cm 1.5cm 2cm;
++   }
++
++   @media print {
++     body { padding: 0; }
++     .no-print { display: none !important; }
++     .receipt-footer { page-break-inside: avoid; }
++     .total-section  { page-break-inside: avoid; }
++   }
++ </style>
++ </head>
++ <body>
++
++   <!-- ── Print bar ──────────────────────────────────────────────────────
++        fix/comprobante-print-csp-nonce: red de seguridad visible. El script
++        de más abajo dispara window.print() solo, pero si algún navegador
++        igual bloquea la ejecución automática (o el usuario cerró el diálogo
++        sin querer), este botón es el único camino manual. La pista de texto
++        de al lado (revisión adversarial MINOR 2) no depende del script: cubre
++        también el caso en que el propio script con nonce no llegó a correr,
++        que es justo el modo de falla que motiva este fix. No se imprime a sí
++        mismo (.no-print). -->
++   <div class="no-print">
++     <div class="print-bar">
++       <span class="print-hint">Si el diálogo no se abre solo: Ctrl+P (⌘+P en Mac)</span>
++       <button type="button" id="receipt-print-button" class="print-button">Imprimir / Guardar como PDF</button>
++     </div>
++   </div>
++
++   <!-- ── Header ─────────────────────────────────────────────────────── -->
++   <div class="receipt-header">
++     <div class="business-block">
++       <div class="business-initial">M</div>
++       <div>
++         <div class="business-name">Mi Negocio</div>
++         
++       </div>
++     </div>
++     <div class="receipt-meta">
++       <div class="receipt-label">Comprobante</div>
++       <div class="receipt-number">#OP1</div>
++       <div class="receipt-type">Comprobante de venta</div>
++     </div>
++   </div>
++
++   <!-- ── Info grid ───────────────────────────────────────────────────── -->
++   <div class="info-grid">
++     <div class="info-block">
++       <div class="info-label">Cliente</div>
++       <div class="info-value muted">Consumidor final</div>
++     </div>
++     <div class="info-block">
++       <div class="info-label">Fecha</div>
++       <div class="info-value">Viernes, 18 de septiembre de 2026</div>
++     </div>
++   </div>
++
++   <!-- ── Items ───────────────────────────────────────────────────────── -->
++   <div class="items-section">
++     <table class="items-table">
++       <thead>
++         <tr>
++           <th>Descripción</th>
++           <th class="center">Cant.</th>
++           <th class="right">Precio unit.</th>
++           <th class="right">Subtotal</th>
++         </tr>
++       </thead>
++       <tbody>
++         
++       <tr>
++         <td class="product-name">Producto A</td>
++         <td class="center">2</td>
++         <td class="right">$ 100</td>
++         <td class="right subtotal">$ 200</td>
++       </tr>
++       </tbody>
++     </table>
++   </div>
++
++   <!-- ── Total ───────────────────────────────────────────────────────── -->
++   <div class="total-section">
++     <span class="total-label">Total</span>
++     <span class="total-amount">$ 200</span>
++   </div>
++
++   <!-- ── Footer ──────────────────────────────────────────────────────── -->
++   <div class="receipt-footer">
++     <div>
++       <div class="footer-thanks">¡Gracias por su compra!</div>
++       <div class="footer-thanks-sub">Este documento es su comprobante de venta.</div>
++     </div>
++     <div class="footer-id">ID: op1</div>
++   </div>
++
++   <script>
++     // fix/comprobante-print-csp-nonce: sin atributos on*= (script-src los
++     // bloquea igual bajo CSP; el cableado va por addEventListener). Cablea
++     // el botón visible y conserva la apertura automática del diálogo de
++     // impresión — el usuario puede elegir "Guardar como PDF" o mandarlo a
++     // una impresora física por cualquiera de los dos caminos.
++     (function () {
++       var btn = document.getElementById("receipt-print-button")
++       if (btn) {
++         btn.addEventListener("click", function () { window.print() })
++       }
++       window.onload = function () { window.print() }
++     })()
++   </script>
++
++ </body>
++ </html>
+
+ ❯ __tests__/lib/receipt.test.ts:278:28
+    276|       "Alias para transferencias: sumar.ropa",
+    277|     ]) {
+    278|       expect(html, needle).toContain(needle)
+       |                            ^
+    279|     }
+    280|   })
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/15]⎯
+
+ FAIL  __tests__/lib/receipt.test.ts > comprobante interno — la marca de la cuenta en el HTML > la razón social sólo se imprime si difiere del nombre
+TypeError: Cannot read properties of null (reading 'length')
+ ❯ __tests__/lib/receipt.test.ts:285:44
+    283|     const same = { ...FULL, issuer: { ...FULL.issuer, name: "Ropa Depo…
+    284|     const html = generateReceiptHTML(makeOp(), { branding: toReceiptBr…
+    285|     expect(html.match(/Ropa Deportiva SRL/g)!.length).toBe(2)   // el …
+       |                                            ^
+    286|   })
+    287|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/15]⎯
+
+ FAIL  __tests__/lib/receipt.test.ts > comprobante interno — la marca de la cuenta en el HTML > el logo es una imagen data: PNG/JPEG y no la URL de un avatar
+AssertionError: expected '<!DOCTYPE html>\n<html lang="es">\n<h…' to contain '<img class="business-logo" src="data:…'
+
+- Expected
++ Received
+
+- <img class="business-logo" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
++ <!DOCTYPE html>
++ <html lang="es">
++ <head>
++   <meta charset="UTF-8" />
++   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
++   <title>Comprobante OP1 — Mi Negocio</title>
++   <style>
++   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
++
++   :root {
++     --ink:      #111111;
++     --muted:    #6b7280;
++     --border:   #e5e7eb;
++     --accent:   #f9fafb;
++     --primary:  #0f172a;
++     --emerald:  #059669;
++     --radius:   8px;
++   }
++
++   html, body {
++     background: #ffffff;
++     color: var(--ink);
++     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
++     font-size: 14px;
++     line-height: 1.5;
++     -webkit-print-color-adjust: exact;
++     print-color-adjust: exact;
++   }
++
++   body {
++     padding: 32px 24px;
++     max-width: 680px;
++     margin: 0 auto;
++   }
++
++   /* ── Header ── */
++   .receipt-header {
++     display: flex;
++     align-items: flex-start;
++     justify-content: space-between;
++     gap: 16px;
++     padding-bottom: 20px;
++     border-bottom: 2px solid var(--primary);
++     margin-bottom: 20px;
++   }
++
++   .business-block {
++     display: flex;
++     align-items: center;
++     gap: 12px;
++   }
++
++   .business-logo {
++     width: 48px;
++     height: 48px;
++     border-radius: 50%;
++     object-fit: cover;
++     flex-shrink: 0;
++   }
++
++   .business-initial {
++     width: 48px;
++     height: 48px;
++     border-radius: 50%;
++     background: var(--primary);
++     color: #ffffff;
++     font-size: 22px;
++     font-weight: 700;
++     display: flex;
++     align-items: center;
++     justify-content: center;
++     flex-shrink: 0;
++     letter-spacing: -1px;
++   }
++
++   .business-name {
++     font-size: 20px;
++     font-weight: 700;
++     color: var(--primary);
++     line-height: 1.2;
++   }
++
++   .business-contact {
++     font-size: 12px;
++     color: var(--muted);
++     margin-top: 3px;
++   }
++
++   .receipt-meta {
++     text-align: right;
++     flex-shrink: 0;
++   }
++
++   .receipt-label {
++     font-size: 11px;
++     font-weight: 600;
++     letter-spacing: 0.08em;
++     text-transform: uppercase;
++     color: var(--muted);
++   }
++
++   .receipt-number {
++     font-size: 22px;
++     font-weight: 800;
++     color: var(--primary);
++     letter-spacing: -0.5px;
++     font-variant-numeric: tabular-nums;
++   }
++
++   .receipt-type {
++     font-size: 12px;
++     color: var(--muted);
++     margin-top: 2px;
++   }
++
++   /* ── Info section ── */
++   .info-grid {
++     display: grid;
++     grid-template-columns: 1fr 1fr;
++     gap: 12px 24px;
++     padding: 16px 0;
++     border-bottom: 1px solid var(--border);
++     margin-bottom: 20px;
++   }
++
++   .info-block {}
++   .info-label {
++     font-size: 10px;
++     font-weight: 600;
++     text-transform: uppercase;
++     letter-spacing: 0.08em;
++     color: var(--muted);
++     margin-bottom: 3px;
++   }
++   .info-value {
++     font-size: 14px;
++     font-weight: 600;
++     color: var(--ink);
++   }
++   .info-value.muted {
++     font-weight: 400;
++     color: var(--muted);
++     font-style: italic;
++   }
++
++   /* ── Items table ── */
++   .items-section {
++     margin-bottom: 0;
++   }
++
++   .items-table {
++     width: 100%;
++     border-collapse: collapse;
++   }
++
++   .items-table thead tr {
++     background: var(--accent);
++     border-top: 1px solid var(--border);
++     border-bottom: 1px solid var(--border);
++   }
++
++   .items-table th {
++     padding: 8px 10px;
++     font-size: 10px;
++     font-weight: 700;
++     text-transform: uppercase;
++     letter-spacing: 0.08em;
++     color: var(--muted);
++     text-align: left;
++   }
++
++   .items-table th.right, .items-table td.right { text-align: right; }
++   .items-table th.center, .items-table td.center { text-align: center; }
++
++   .items-table tbody tr {
++     border-bottom: 1px solid var(--border);
++   }
++
++   .items-table tbody tr:last-child {
++     border-bottom: none;
++   }
++
++   .items-table td {
++     padding: 10px 10px;
++     font-size: 13px;
++     color: var(--ink);
++     vertical-align: middle;
++   }
++
++   .items-table td.product-name {
++     font-weight: 600;
++   }
++
++   .items-table td.subtotal {
++     font-weight: 700;
++     color: var(--emerald);
++     font-variant-numeric: tabular-nums;
++   }
++
++   /* ── Total footer ── */
++   .total-section {
++     border-top: 2px solid var(--primary);
++     margin-top: 0;
++     padding-top: 12px;
++     display: flex;
++     justify-content: flex-end;
++     gap: 24px;
++     align-items: baseline;
++   }
++
++   .total-label {
++     font-size: 13px;
++     font-weight: 600;
++     color: var(--muted);
++     text-transform: uppercase;
++     letter-spacing: 0.06em;
++   }
++
++   .total-amount {
++     font-size: 26px;
++     font-weight: 800;
++     color: var(--primary);
++     font-variant-numeric: tabular-nums;
++     letter-spacing: -1px;
++   }
++
++   /* ── Footer ── */
++   .receipt-footer {
++     margin-top: 28px;
++     padding-top: 16px;
++     border-top: 1px solid var(--border);
++     display: flex;
++     justify-content: space-between;
++     align-items: flex-end;
++     gap: 12px;
++   }
++
++   .footer-thanks {
++     font-size: 13px;
++     font-weight: 600;
++     color: var(--primary);
++   }
++   .footer-thanks-sub {
++     font-size: 11px;
++     color: var(--muted);
++     margin-top: 2px;
++   }
++
++   .footer-id {
++     text-align: right;
++     font-size: 10px;
++     color: var(--border);
++     font-variant-numeric: tabular-nums;
++     word-break: break-all;
++     max-width: 240px;
++   }
++
++   /* ── Print bar (visible fallback button) ── */
++   .print-bar {
++     display: flex;
++     justify-content: space-between;
++     align-items: center;
++     margin-bottom: 16px;
++   }
++
++   .print-hint {
++     font-size: 12px;
++     color: var(--muted);
++   }
++
++   .print-button {
++     appearance: none;
++     border: 1px solid var(--primary);
++     border-radius: var(--radius);
++     background: var(--primary);
++     color: #ffffff;
++     font: inherit;
++     font-size: 13px;
++     font-weight: 600;
++     padding: 8px 16px;
++     cursor: pointer;
++   }
++
++   .print-button:hover {
++     opacity: 0.9;
++   }
++
++   /* ── Print optimisation ── */
++   @page {
++     size: A4 portrait;
++     margin: 1.5cm 1.5cm 2cm;
++   }
++
++   @media print {
++     body { padding: 0; }
++     .no-print { display: none !important; }
++     .receipt-footer { page-break-inside: avoid; }
++     .total-section  { page-break-inside: avoid; }
++   }
++ </style>
++ </head>
++ <body>
++
++   <!-- ── Print bar ──────────────────────────────────────────────────────
++        fix/comprobante-print-csp-nonce: red de seguridad visible. El script
++        de más abajo dispara window.print() solo, pero si algún navegador
++        igual bloquea la ejecución automática (o el usuario cerró el diálogo
++        sin querer), este botón es el único camino manual. La pista de texto
++        de al lado (revisión adversarial MINOR 2) no depende del script: cubre
++        también el caso en que el propio script con nonce no llegó a correr,
++        que es justo el modo de falla que motiva este fix. No se imprime a sí
++        mismo (.no-print). -->
++   <div class="no-print">
++     <div class="print-bar">
++       <span class="print-hint">Si el diálogo no se abre solo: Ctrl+P (⌘+P en Mac)</span>
++       <button type="button" id="receipt-print-button" class="print-button">Imprimir / Guardar como PDF</button>
++     </div>
++   </div>
++
++   <!-- ── Header ─────────────────────────────────────────────────────── -->
++   <div class="receipt-header">
++     <div class="business-block">
++       <div class="business-initial">M</div>
++       <div>
++         <div class="business-name">Mi Negocio</div>
++         
++       </div>
++     </div>
++     <div class="receipt-meta">
++       <div class="receipt-label">Comprobante</div>
++       <div class="receipt-number">#OP1</div>
++       <div class="receipt-type">Comprobante de venta</div>
++     </div>
++   </div>
++
++   <!-- ── Info grid ───────────────────────────────────────────────────── -->
++   <div class="info-grid">
++     <div class="info-block">
++       <div class="info-label">Cliente</div>
++       <div class="info-value muted">Consumidor final</div>
++     </div>
++     <div class="info-block">
++       <div class="info-label">Fecha</div>
++       <div class="info-value">Viernes, 18 de septiembre de 2026</div>
++     </div>
++   </div>
++
++   <!-- ── Items ───────────────────────────────────────────────────────── -->
++   <div class="items-section">
++     <table class="items-table">
++       <thead>
++         <tr>
++           <th>Descripción</th>
++           <th class="center">Cant.</th>
++           <th class="right">Precio unit.</th>
++           <th class="right">Subtotal</th>
++         </tr>
++       </thead>
++       <tbody>
++         
++       <tr>
++         <td class="product-name">Producto A</td>
++         <td class="center">2</td>
++         <td class="right">$ 100</td>
++         <td class="right subtotal">$ 200</td>
++       </tr>
++       </tbody>
++     </table>
++   </div>
++
++   <!-- ── Total ───────────────────────────────────────────────────────── -->
++   <div class="total-section">
++     <span class="total-label">Total</span>
++     <span class="total-amount">$ 200</span>
++   </div>
++
++   <!-- ── Footer ──────────────────────────────────────────────────────── -->
++   <div class="receipt-footer">
++     <div>
++       <div class="footer-thanks">¡Gracias por su compra!</div>
++       <div class="footer-thanks-sub">Este documento es su comprobante de venta.</div>
++     </div>
++     <div class="footer-id">ID: op1</div>
++   </div>
++
++   <script>
++     // fix/comprobante-print-csp-nonce: sin atributos on*= (script-src los
++     // bloquea igual bajo CSP; el cableado va por addEventListener). Cablea
++     // el botón visible y conserva la apertura automática del diálogo de
++     // impresión — el usuario puede elegir "Guardar como PDF" o mandarlo a
++     // una impresora física por cualquiera de los dos caminos.
++     (function () {
++       var btn = document.getElementById("receipt-print-button")
++       if (btn) {
++         btn.addEventListener("click", function () { window.print() })
++       }
++       window.onload = function () { window.print() }
++     })()
++   </script>
++
++ </body>
++ </html>
+
+ ❯ __tests__/lib/receipt.test.ts:290:18
+    288|   it("el logo es una imagen data: PNG/JPEG y no la URL de un avatar", …
+    289|     const html = generateReceiptHTML(makeOp(), fullOpts())
+    290|     expect(html).toContain(`<img class="business-logo" src="${PNG_URI}…
+       |                  ^
+    291|     expect(html).not.toMatch(/src="https?:/)
+    292|   })
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/15]⎯
+
+ FAIL  __tests__/lib/receipt.test.ts > comprobante interno — la marca de la cuenta en el HTML > sin logo se dibuja la inicial del nombre
+AssertionError: expected '<!DOCTYPE html>\n<html lang="es">\n<h…' to contain '<div class="business-initial">S</div>'
+
+- Expected
++ Received
+
+- <div class="business-initial">S</div>
++ <!DOCTYPE html>
++ <html lang="es">
++ <head>
++   <meta charset="UTF-8" />
++   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
++   <title>Comprobante OP1 — Mi Negocio</title>
++   <style>
++   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
++
++   :root {
++     --ink:      #111111;
++     --muted:    #6b7280;
++     --border:   #e5e7eb;
++     --accent:   #f9fafb;
++     --primary:  #0f172a;
++     --emerald:  #059669;
++     --radius:   8px;
++   }
++
++   html, body {
++     background: #ffffff;
++     color: var(--ink);
++     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
++     font-size: 14px;
++     line-height: 1.5;
++     -webkit-print-color-adjust: exact;
++     print-color-adjust: exact;
++   }
++
++   body {
++     padding: 32px 24px;
++     max-width: 680px;
++     margin: 0 auto;
++   }
++
++   /* ── Header ── */
++   .receipt-header {
++     display: flex;
++     align-items: flex-start;
++     justify-content: space-between;
++     gap: 16px;
++     padding-bottom: 20px;
++     border-bottom: 2px solid var(--primary);
++     margin-bottom: 20px;
++   }
++
++   .business-block {
++     display: flex;
++     align-items: center;
++     gap: 12px;
++   }
++
++   .business-logo {
++     width: 48px;
++     height: 48px;
++     border-radius: 50%;
++     object-fit: cover;
++     flex-shrink: 0;
++   }
++
++   .business-initial {
++     width: 48px;
++     height: 48px;
++     border-radius: 50%;
++     background: var(--primary);
++     color: #ffffff;
++     font-size: 22px;
++     font-weight: 700;
++     display: flex;
++     align-items: center;
++     justify-content: center;
++     flex-shrink: 0;
++     letter-spacing: -1px;
++   }
++
++   .business-name {
++     font-size: 20px;
++     font-weight: 700;
++     color: var(--primary);
++     line-height: 1.2;
++   }
++
++   .business-contact {
++     font-size: 12px;
++     color: var(--muted);
++     margin-top: 3px;
++   }
++
++   .receipt-meta {
++     text-align: right;
++     flex-shrink: 0;
++   }
++
++   .receipt-label {
++     font-size: 11px;
++     font-weight: 600;
++     letter-spacing: 0.08em;
++     text-transform: uppercase;
++     color: var(--muted);
++   }
++
++   .receipt-number {
++     font-size: 22px;
++     font-weight: 800;
++     color: var(--primary);
++     letter-spacing: -0.5px;
++     font-variant-numeric: tabular-nums;
++   }
++
++   .receipt-type {
++     font-size: 12px;
++     color: var(--muted);
++     margin-top: 2px;
++   }
++
++   /* ── Info section ── */
++   .info-grid {
++     display: grid;
++     grid-template-columns: 1fr 1fr;
++     gap: 12px 24px;
++     padding: 16px 0;
++     border-bottom: 1px solid var(--border);
++     margin-bottom: 20px;
++   }
++
++   .info-block {}
++   .info-label {
++     font-size: 10px;
++     font-weight: 600;
++     text-transform: uppercase;
++     letter-spacing: 0.08em;
++     color: var(--muted);
++     margin-bottom: 3px;
++   }
++   .info-value {
++     font-size: 14px;
++     font-weight: 600;
++     color: var(--ink);
++   }
++   .info-value.muted {
++     font-weight: 400;
++     color: var(--muted);
++     font-style: italic;
++   }
++
++   /* ── Items table ── */
++   .items-section {
++     margin-bottom: 0;
++   }
++
++   .items-table {
++     width: 100%;
++     border-collapse: collapse;
++   }
++
++   .items-table thead tr {
++     background: var(--accent);
++     border-top: 1px solid var(--border);
++     border-bottom: 1px solid var(--border);
++   }
++
++   .items-table th {
++     padding: 8px 10px;
++     font-size: 10px;
++     font-weight: 700;
++     text-transform: uppercase;
++     letter-spacing: 0.08em;
++     color: var(--muted);
++     text-align: left;
++   }
++
++   .items-table th.right, .items-table td.right { text-align: right; }
++   .items-table th.center, .items-table td.center { text-align: center; }
++
++   .items-table tbody tr {
++     border-bottom: 1px solid var(--border);
++   }
++
++   .items-table tbody tr:last-child {
++     border-bottom: none;
++   }
++
++   .items-table td {
++     padding: 10px 10px;
++     font-size: 13px;
++     color: var(--ink);
++     vertical-align: middle;
++   }
++
++   .items-table td.product-name {
++     font-weight: 600;
++   }
++
++   .items-table td.subtotal {
++     font-weight: 700;
++     color: var(--emerald);
++     font-variant-numeric: tabular-nums;
++   }
++
++   /* ── Total footer ── */
++   .total-section {
++     border-top: 2px solid var(--primary);
++     margin-top: 0;
++     padding-top: 12px;
++     display: flex;
++     justify-content: flex-end;
++     gap: 24px;
++     align-items: baseline;
++   }
++
++   .total-label {
++     font-size: 13px;
++     font-weight: 600;
++     color: var(--muted);
++     text-transform: uppercase;
++     letter-spacing: 0.06em;
++   }
++
++   .total-amount {
++     font-size: 26px;
++     font-weight: 800;
++     color: var(--primary);
++     font-variant-numeric: tabular-nums;
++     letter-spacing: -1px;
++   }
++
++   /* ── Footer ── */
++   .receipt-footer {
++     margin-top: 28px;
++     padding-top: 16px;
++     border-top: 1px solid var(--border);
++     display: flex;
++     justify-content: space-between;
++     align-items: flex-end;
++     gap: 12px;
++   }
++
++   .footer-thanks {
++     font-size: 13px;
++     font-weight: 600;
++     color: var(--primary);
++   }
++   .footer-thanks-sub {
++     font-size: 11px;
++     color: var(--muted);
++     margin-top: 2px;
++   }
++
++   .footer-id {
++     text-align: right;
++     font-size: 10px;
++     color: var(--border);
++     font-variant-numeric: tabular-nums;
++     word-break: break-all;
++     max-width: 240px;
++   }
++
++   /* ── Print bar (visible fallback button) ── */
++   .print-bar {
++     display: flex;
++     justify-content: space-between;
++     align-items: center;
++     margin-bottom: 16px;
++   }
++
++   .print-hint {
++     font-size: 12px;
++     color: var(--muted);
++   }
++
++   .print-button {
++     appearance: none;
++     border: 1px solid var(--primary);
++     border-radius: var(--radius);
++     background: var(--primary);
++     color: #ffffff;
++     font: inherit;
++     font-size: 13px;
++     font-weight: 600;
++     padding: 8px 16px;
++     cursor: pointer;
++   }
++
++   .print-button:hover {
++     opacity: 0.9;
++   }
++
++   /* ── Print optimisation ── */
++   @page {
++     size: A4 portrait;
++     margin: 1.5cm 1.5cm 2cm;
++   }
++
++   @media print {
++     body { padding: 0; }
++     .no-print { display: none !important; }
++     .receipt-footer { page-break-inside: avoid; }
++     .total-section  { page-break-inside: avoid; }
++   }
++ </style>
++ </head>
++ <body>
++
++   <!-- ── Print bar ──────────────────────────────────────────────────────
++        fix/comprobante-print-csp-nonce: red de seguridad visible. El script
++        de más abajo dispara window.print() solo, pero si algún navegador
++        igual bloquea la ejecución automática (o el usuario cerró el diálogo
++        sin querer), este botón es el único camino manual. La pista de texto
++        de al lado (revisión adversarial MINOR 2) no depende del script: cubre
++        también el caso en que el propio script con nonce no llegó a correr,
++        que es justo el modo de falla que motiva este fix. No se imprime a sí
++        mismo (.no-print). -->
++   <div class="no-print">
++     <div class="print-bar">
++       <span class="print-hint">Si el diálogo no se abre solo: Ctrl+P (⌘+P en Mac)</span>
++       <button type="button" id="receipt-print-button" class="print-button">Imprimir / Guardar como PDF</button>
++     </div>
++   </div>
++
++   <!-- ── Header ─────────────────────────────────────────────────────── -->
++   <div class="receipt-header">
++     <div class="business-block">
++       <div class="business-initial">M</div>
++       <div>
++         <div class="business-name">Mi Negocio</div>
++         
++       </div>
++     </div>
++     <div class="receipt-meta">
++       <div class="receipt-label">Comprobante</div>
++       <div class="receipt-number">#OP1</div>
++       <div class="receipt-type">Comprobante de venta</div>
++     </div>
++   </div>
++
++   <!-- ── Info grid ───────────────────────────────────────────────────── -->
++   <div class="info-grid">
++     <div class="info-block">
++       <div class="info-label">Cliente</div>
++       <div class="info-value muted">Consumidor final</div>
++     </div>
++     <div class="info-block">
++       <div class="info-label">Fecha</div>
++       <div class="info-value">Viernes, 18 de septiembre de 2026</div>
++     </div>
++   </div>
++
++   <!-- ── Items ───────────────────────────────────────────────────────── -->
++   <div class="items-section">
++     <table class="items-table">
++       <thead>
++         <tr>
++           <th>Descripción</th>
++           <th class="center">Cant.</th>
++           <th class="right">Precio unit.</th>
++           <th class="right">Subtotal</th>
++         </tr>
++       </thead>
++       <tbody>
++         
++       <tr>
++         <td class="product-name">Producto A</td>
++         <td class="center">2</td>
++         <td class="right">$ 100</td>
++         <td class="right subtotal">$ 200</td>
++       </tr>
++       </tbody>
++     </table>
++   </div>
++
++   <!-- ── Total ───────────────────────────────────────────────────────── -->
++   <div class="total-section">
++     <span class="total-label">Total</span>
++     <span class="total-amount">$ 200</span>
++   </div>
++
++   <!-- ── Footer ──────────────────────────────────────────────────────── -->
++   <div class="receipt-footer">
++     <div>
++       <div class="footer-thanks">¡Gracias por su compra!</div>
++       <div class="footer-thanks-sub">Este documento es su comprobante de venta.</div>
++     </div>
++     <div class="footer-id">ID: op1</div>
++   </div>
++
++   <script>
++     // fix/comprobante-print-csp-nonce: sin atributos on*= (script-src los
++     // bloquea igual bajo CSP; el cableado va por addEventListener). Cablea
++     // el botón visible y conserva la apertura automática del diálogo de
++     // impresión — el usuario puede elegir "Guardar como PDF" o mandarlo a
++     // una impresora física por cualquiera de los dos caminos.
++     (function () {
++       var btn = document.getElementById("receipt-print-button")
++       if (btn) {
++         btn.addEventListener("click", function () { window.print() })
++       }
++       window.onload = function () { window.print() }
++     })()
++   </script>
++
++ </body>
++ </html>
+
+ ❯ __tests__/lib/receipt.test.ts:306:18
+    304|   it("sin logo se dibuja la inicial del nombre", () => {
+    305|     const html = generateReceiptHTML(makeOp(), fullOpts({}, undefined))
+    306|     expect(html).toContain('<div class="business-initial">S</div>')
+       |                  ^
+    307|   })
+    308|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/15]⎯
+
+ FAIL  __tests__/lib/receipt.test.ts > comprobante interno — la marca de la cuenta en el HTML > ya no queda ningún rastro del verde anterior
+AssertionError: expected '<!DOCTYPE html>\n<html lang="es">\n<h…' not to match /emerald/i
+
+- Expected:
+/emerald/i
+
++ Received:
+"<!DOCTYPE html>
+<html lang=\"es\">
+<head>
+  <meta charset=\"UTF-8\" />
+  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />
+  <title>Comprobante OP1 — Mi Negocio</title>
+  <style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --ink:      #111111;
+    --muted:    #6b7280;
+    --border:   #e5e7eb;
+    --accent:   #f9fafb;
+    --primary:  #0f172a;
+    --emerald:  #059669;
+    --radius:   8px;
+  }
+
+  html, body {
+    background: #ffffff;
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", Helvetica, Arial, sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  body {
+    padding: 32px 24px;
+    max-width: 680px;
+    margin: 0 auto;
+  }
+
+  /* ── Header ── */
+  .receipt-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    padding-bottom: 20px;
+    border-bottom: 2px solid var(--primary);
+    margin-bottom: 20px;
+  }
+
+  .business-block {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .business-logo {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    object-fit: cover;
+    flex-shrink: 0;
+  }
+
+  .business-initial {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: var(--primary);
+    color: #ffffff;
+    font-size: 22px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    letter-spacing: -1px;
+  }
+
+  .business-name {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--primary);
+    line-height: 1.2;
+  }
+
+  .business-contact {
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 3px;
+  }
+
+  .receipt-meta {
+    text-align: right;
+    flex-shrink: 0;
+  }
+
+  .receipt-label {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .receipt-number {
+    font-size: 22px;
+    font-weight: 800;
+    color: var(--primary);
+    letter-spacing: -0.5px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .receipt-type {
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 2px;
+  }
+
+  /* ── Info section ── */
+  .info-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px 24px;
+    padding: 16px 0;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 20px;
+  }
+
+  .info-block {}
+  .info-label {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    margin-bottom: 3px;
+  }
+  .info-value {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--ink);
+  }
+  .info-value.muted {
+    font-weight: 400;
+    color: var(--muted);
+    font-style: italic;
+  }
+
+  /* ── Items table ── */
+  .items-section {
+    margin-bottom: 0;
+  }
+
+  .items-table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  .items-table thead tr {
+    background: var(--accent);
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .items-table th {
+    padding: 8px 10px;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    text-align: left;
+  }
+
+  .items-table th.right, .items-table td.right { text-align: right; }
+  .items-table th.center, .items-table td.center { text-align: center; }
+
+  .items-table tbody tr {
+    border-bottom: 1px solid var(--border);
+  }
+
+  .items-table tbody tr:last-child {
+    border-bottom: none;
+  }
+
+  .items-table td {
+    padding: 10px 10px;
+    font-size: 13px;
+    color: var(--ink);
+    vertical-align: middle;
+  }
+
+  .items-table td.product-name {
+    font-weight: 600;
+  }
+
+  .items-table td.subtotal {
+    font-weight: 700;
+    color: var(--emerald);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ── Total footer ── */
+  .total-section {
+    border-top: 2px solid var(--primary);
+    margin-top: 0;
+    padding-top: 12px;
+    display: flex;
+    justify-content: flex-end;
+    gap: 24px;
+    align-items: baseline;
+  }
+
+  .total-label {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  .total-amount {
+    font-size: 26px;
+    font-weight: 800;
+    color: var(--primary);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -1px;
+  }
+
+  /* ── Footer ── */
+  .receipt-footer {
+    margin-top: 28px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    gap: 12px;
+  }
+
+  .footer-thanks {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--primary);
+  }
+  .footer-thanks-sub {
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 2px;
+  }
+
+  .footer-id {
+    text-align: right;
+    font-size: 10px;
+    color: var(--border);
+    font-variant-numeric: tabular-nums;
+    word-break: break-all;
+    max-width: 240px;
+  }
+
+  /* ── Print bar (visible fallback button) ── */
+  .print-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+  }
+
+  .print-hint {
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  .print-button {
+    appearance: none;
+    border: 1px solid var(--primary);
+    border-radius: var(--radius);
+    background: var(--primary);
+    color: #ffffff;
+    font: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 8px 16px;
+    cursor: pointer;
+  }
+
+  .print-button:hover {
+    opacity: 0.9;
+  }
+
+  /* ── Print optimisation ── */
+  @page {
+    size: A4 portrait;
+    margin: 1.5cm 1.5cm 2cm;
+  }
+
+  @media print {
+    body { padding: 0; }
+    .no-print { display: none !important; }
+    .receipt-footer { page-break-inside: avoid; }
+    .total-section  { page-break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+
+  <!-- ── Print bar ──────────────────────────────────────────────────────
+       fix/comprobante-print-csp-nonce: red de seguridad visible. El script
+       de más abajo dispara window.print() solo, pero si algún navegador
+       igual bloquea la ejecución automática (o el usuario cerró el diálogo
+       sin querer), este botón es el único camino manual. La pista de texto
+       de al lado (revisión adversarial MINOR 2) no depende del script: cubre
+       también el caso en que el propio script con nonce no llegó a correr,
+       que es justo el modo de falla que motiva este fix. No se imprime a sí
+       mismo (.no-print). -->
+  <div class=\"no-print\">
+    <div class=\"print-bar\">
+      <span class=\"print-hint\">Si el diálogo no se abre solo: Ctrl+P (⌘+P en Mac)</span>
+      <button type=\"button\" id=\"receipt-print-button\" class=\"print-button\">Imprimir / Guardar como PDF</button>
+    </div>
+  </div>
+
+  <!-- ── Header ─────────────────────────────────────────────────────── -->
+  <div class=\"receipt-header\">
+    <div class=\"business-block\">
+      <div class=\"business-initial\">M</div>
+      <div>
+        <div class=\"business-name\">Mi Negocio</div>
+        
+      </div>
+    </div>
+    <div class=\"receipt-meta\">
+      <div class=\"receipt-label\">Comprobante</div>
+      <div class=\"receipt-number\">#OP1</div>
+      <div class=\"receipt-type\">Comprobante de venta</div>
+    </div>
+  </div>
+
+  <!-- ── Info grid ───────────────────────────────────────────────────── -->
+  <div class=\"info-grid\">
+    <div class=\"info-block\">
+      <div class=\"info-label\">Cliente</div>
+      <div class=\"info-value muted\">Consumidor final</div>
+    </div>
+    <div class=\"info-block\">
+      <div class=\"info-label\">Fecha</div>
+      <div class=\"info-value\">Viernes, 18 de septiembre de 2026</div>
+    </div>
+  </div>
+
+  <!-- ── Items ───────────────────────────────────────────────────────── -->
+  <div class=\"items-section\">
+    <table class=\"items-table\">
+      <thead>
+        <tr>
+          <th>Descripción</th>
+          <th class=\"center\">Cant.</th>
+          <th class=\"right\">Precio unit.</th>
+          <th class=\"right\">Subtotal</th>
+        </tr>
+      </thead>
+      <tbody>
+        
+      <tr>
+        <td class=\"product-name\">Producto A</td>
+        <td class=\"center\">2</td>
+        <td class=\"right\">$ 100</td>
+        <td class=\"right subtotal\">$ 200</td>
+      </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ── Total ───────────────────────────────────────────────────────── -->
+  <div class=\"total-section\">
+    <span class=\"total-label\">Total</span>
+    <span class=\"total-amount\">$ 200</span>
+  </div>
+
+  <!-- ── Footer ──────────────────────────────────────────────────────── -->
+  <div class=\"receipt-footer\">
+    <div>
+      <div class=\"footer-thanks\">¡Gracias por su compra!</div>
+      <div class=\"footer-thanks-sub\">Este documento es su comprobante de venta.</div>
+    </div>
+    <div class=\"footer-id\">ID: op1</div>
+  </div>
+
+  <script>
+    // fix/comprobante-print-csp-nonce: sin atributos on*= (script-src los
+    // bloquea igual bajo CSP; el cableado va por addEventListener). Cablea
+    // el botón visible y conserva la apertura automática del diálogo de
+    // impresión — el usuario puede elegir \"Guardar como PDF\" o mandarlo a
+    // una impresora física por cualquiera de los dos caminos.
+    (function () {
+      var btn = document.getElementById(\"receipt-print-button\")
+      if (btn) {
+        btn.addEventListener(\"click\", function () { window.print() })
+      }
+      window.onload = function () { window.print() }
+    })()
+  </script>
+
+</body>
+</html>"
+
+ ❯ __tests__/lib/receipt.test.ts:312:24
+    310|     for (const opts of [fullOpts(), { branding: defaultReceiptBranding…
+    311|       const html = generateReceiptHTML(makeOp(), opts)
+    312|       expect(html).not.toMatch(/emerald/i)
+       |                        ^
+    313|       expect(html).not.toMatch(/#059669|#10b981|rgb\(16,\s*185,\s*129\…
+    314|     }
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/15]⎯
+
+ FAIL  __tests__/lib/receipt.test.ts > comprobante interno — la marca de la cuenta en el HTML > la paleta de la cuenta entra como variables CSS
+AssertionError: expected '<!DOCTYPE html>\n<html lang="es">\n<h…' to contain '--heading: #1d4ed8'
+
+- Expected
++ Received
+
+- --heading: #1d4ed8
++ <!DOCTYPE html>
++ <html lang="es">
++ <head>
++   <meta charset="UTF-8" />
++   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
++   <title>Comprobante OP1 — Mi Negocio</title>
++   <style>
++   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
++
++   :root {
++     --ink:      #111111;
++     --muted:    #6b7280;
++     --border:   #e5e7eb;
++     --accent:   #f9fafb;
++     --primary:  #0f172a;
++     --emerald:  #059669;
++     --radius:   8px;
++   }
++
++   html, body {
++     background: #ffffff;
++     color: var(--ink);
++     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
++     font-size: 14px;
++     line-height: 1.5;
++     -webkit-print-color-adjust: exact;
++     print-color-adjust: exact;
++   }
++
++   body {
++     padding: 32px 24px;
++     max-width: 680px;
++     margin: 0 auto;
++   }
++
++   /* ── Header ── */
++   .receipt-header {
++     display: flex;
++     align-items: flex-start;
++     justify-content: space-between;
++     gap: 16px;
++     padding-bottom: 20px;
++     border-bottom: 2px solid var(--primary);
++     margin-bottom: 20px;
++   }
++
++   .business-block {
++     display: flex;
++     align-items: center;
++     gap: 12px;
++   }
++
++   .business-logo {
++     width: 48px;
++     height: 48px;
++     border-radius: 50%;
++     object-fit: cover;
++     flex-shrink: 0;
++   }
++
++   .business-initial {
++     width: 48px;
++     height: 48px;
++     border-radius: 50%;
++     background: var(--primary);
++     color: #ffffff;
++     font-size: 22px;
++     font-weight: 700;
++     display: flex;
++     align-items: center;
++     justify-content: center;
++     flex-shrink: 0;
++     letter-spacing: -1px;
++   }
++
++   .business-name {
++     font-size: 20px;
++     font-weight: 700;
++     color: var(--primary);
++     line-height: 1.2;
++   }
++
++   .business-contact {
++     font-size: 12px;
++     color: var(--muted);
++     margin-top: 3px;
++   }
++
++   .receipt-meta {
++     text-align: right;
++     flex-shrink: 0;
++   }
++
++   .receipt-label {
++     font-size: 11px;
++     font-weight: 600;
++     letter-spacing: 0.08em;
++     text-transform: uppercase;
++     color: var(--muted);
++   }
++
++   .receipt-number {
++     font-size: 22px;
++     font-weight: 800;
++     color: var(--primary);
++     letter-spacing: -0.5px;
++     font-variant-numeric: tabular-nums;
++   }
++
++   .receipt-type {
++     font-size: 12px;
++     color: var(--muted);
++     margin-top: 2px;
++   }
++
++   /* ── Info section ── */
++   .info-grid {
++     display: grid;
++     grid-template-columns: 1fr 1fr;
++     gap: 12px 24px;
++     padding: 16px 0;
++     border-bottom: 1px solid var(--border);
++     margin-bottom: 20px;
++   }
++
++   .info-block {}
++   .info-label {
++     font-size: 10px;
++     font-weight: 600;
++     text-transform: uppercase;
++     letter-spacing: 0.08em;
++     color: var(--muted);
++     margin-bottom: 3px;
++   }
++   .info-value {
++     font-size: 14px;
++     font-weight: 600;
++     color: var(--ink);
++   }
++   .info-value.muted {
++     font-weight: 400;
++     color: var(--muted);
++     font-style: italic;
++   }
++
++   /* ── Items table ── */
++   .items-section {
++     margin-bottom: 0;
++   }
++
++   .items-table {
++     width: 100%;
++     border-collapse: collapse;
++   }
++
++   .items-table thead tr {
++     background: var(--accent);
++     border-top: 1px solid var(--border);
++     border-bottom: 1px solid var(--border);
++   }
++
++   .items-table th {
++     padding: 8px 10px;
++     font-size: 10px;
++     font-weight: 700;
++     text-transform: uppercase;
++     letter-spacing: 0.08em;
++     color: var(--muted);
++     text-align: left;
++   }
++
++   .items-table th.right, .items-table td.right { text-align: right; }
++   .items-table th.center, .items-table td.center { text-align: center; }
++
++   .items-table tbody tr {
++     border-bottom: 1px solid var(--border);
++   }
++
++   .items-table tbody tr:last-child {
++     border-bottom: none;
++   }
++
++   .items-table td {
++     padding: 10px 10px;
++     font-size: 13px;
++     color: var(--ink);
++     vertical-align: middle;
++   }
++
++   .items-table td.product-name {
++     font-weight: 600;
++   }
++
++   .items-table td.subtotal {
++     font-weight: 700;
++     color: var(--emerald);
++     font-variant-numeric: tabular-nums;
++   }
++
++   /* ── Total footer ── */
++   .total-section {
++     border-top: 2px solid var(--primary);
++     margin-top: 0;
++     padding-top: 12px;
++     display: flex;
++     justify-content: flex-end;
++     gap: 24px;
++     align-items: baseline;
++   }
++
++   .total-label {
++     font-size: 13px;
++     font-weight: 600;
++     color: var(--muted);
++     text-transform: uppercase;
++     letter-spacing: 0.06em;
++   }
++
++   .total-amount {
++     font-size: 26px;
++     font-weight: 800;
++     color: var(--primary);
++     font-variant-numeric: tabular-nums;
++     letter-spacing: -1px;
++   }
++
++   /* ── Footer ── */
++   .receipt-footer {
++     margin-top: 28px;
++     padding-top: 16px;
++     border-top: 1px solid var(--border);
++     display: flex;
++     justify-content: space-between;
++     align-items: flex-end;
++     gap: 12px;
++   }
++
++   .footer-thanks {
++     font-size: 13px;
++     font-weight: 600;
++     color: var(--primary);
++   }
++   .footer-thanks-sub {
++     font-size: 11px;
++     color: var(--muted);
++     margin-top: 2px;
++   }
++
++   .footer-id {
++     text-align: right;
++     font-size: 10px;
++     color: var(--border);
++     font-variant-numeric: tabular-nums;
++     word-break: break-all;
++     max-width: 240px;
++   }
++
++   /* ── Print bar (visible fallback button) ── */
++   .print-bar {
++     display: flex;
++     justify-content: space-between;
++     align-items: center;
++     margin-bottom: 16px;
++   }
++
++   .print-hint {
++     font-size: 12px;
++     color: var(--muted);
++   }
++
++   .print-button {
++     appearance: none;
++     border: 1px solid var(--primary);
++     border-radius: var(--radius);
++     background: var(--primary);
++     color: #ffffff;
++     font: inherit;
++     font-size: 13px;
++     font-weight: 600;
++     padding: 8px 16px;
++     cursor: pointer;
++   }
++
++   .print-button:hover {
++     opacity: 0.9;
++   }
++
++   /* ── Print optimisation ── */
++   @page {
++     size: A4 portrait;
++     margin: 1.5cm 1.5cm 2cm;
++   }
++
++   @media print {
++     body { padding: 0; }
++     .no-print { display: none !important; }
++     .receipt-footer { page-break-inside: avoid; }
++     .total-section  { page-break-inside: avoid; }
++   }
++ </style>
++ </head>
++ <body>
++
++   <!-- ── Print bar ──────────────────────────────────────────────────────
++        fix/comprobante-print-csp-nonce: red de seguridad visible. El script
++        de más abajo dispara window.print() solo, pero si algún navegador
++        igual bloquea la ejecución automática (o el usuario cerró el diálogo
++        sin querer), este botón es el único camino manual. La pista de texto
++        de al lado (revisión adversarial MINOR 2) no depende del script: cubre
++        también el caso en que el propio script con nonce no llegó a correr,
++        que es justo el modo de falla que motiva este fix. No se imprime a sí
++        mismo (.no-print). -->
++   <div class="no-print">
++     <div class="print-bar">
++       <span class="print-hint">Si el diálogo no se abre solo: Ctrl+P (⌘+P en Mac)</span>
++       <button type="button" id="receipt-print-button" class="print-button">Imprimir / Guardar como PDF</button>
++     </div>
++   </div>
++
++   <!-- ── Header ─────────────────────────────────────────────────────── -->
++   <div class="receipt-header">
++     <div class="business-block">
++       <div class="business-initial">M</div>
++       <div>
++         <div class="business-name">Mi Negocio</div>
++         
++       </div>
++     </div>
++     <div class="receipt-meta">
++       <div class="receipt-label">Comprobante</div>
++       <div class="receipt-number">#OP1</div>
++       <div class="receipt-type">Comprobante de venta</div>
++     </div>
++   </div>
++
++   <!-- ── Info grid ───────────────────────────────────────────────────── -->
++   <div class="info-grid">
++     <div class="info-block">
++       <div class="info-label">Cliente</div>
++       <div class="info-value muted">Consumidor final</div>
++     </div>
++     <div class="info-block">
++       <div class="info-label">Fecha</div>
++       <div class="info-value">Viernes, 18 de septiembre de 2026</div>
++     </div>
++   </div>
++
++   <!-- ── Items ───────────────────────────────────────────────────────── -->
++   <div class="items-section">
++     <table class="items-table">
++       <thead>
++         <tr>
++           <th>Descripción</th>
++           <th class="center">Cant.</th>
++           <th class="right">Precio unit.</th>
++           <th class="right">Subtotal</th>
++         </tr>
++       </thead>
++       <tbody>
++         
++       <tr>
++         <td class="product-name">Producto A</td>
++         <td class="center">2</td>
++         <td class="right">$ 100</td>
++         <td class="right subtotal">$ 200</td>
++       </tr>
++       </tbody>
++     </table>
++   </div>
++
++   <!-- ── Total ───────────────────────────────────────────────────────── -->
++   <div class="total-section">
++     <span class="total-label">Total</span>
++     <span class="total-amount">$ 200</span>
++   </div>
++
++   <!-- ── Footer ──────────────────────────────────────────────────────── -->
++   <div class="receipt-footer">
++     <div>
++       <div class="footer-thanks">¡Gracias por su compra!</div>
++       <div class="footer-thanks-sub">Este documento es su comprobante de venta.</div>
++     </div>
++     <div class="footer-id">ID: op1</div>
++   </div>
++
++   <script>
++     // fix/comprobante-print-csp-nonce: sin atributos on*= (script-src los
++     // bloquea igual bajo CSP; el cableado va por addEventListener). Cablea
++     // el botón visible y conserva la apertura automática del diálogo de
++     // impresión — el usuario puede elegir "Guardar como PDF" o mandarlo a
++     // una impresora física por cualquiera de los dos caminos.
++     (function () {
++       var btn = document.getElementById("receipt-print-button")
++       if (btn) {
++         btn.addEventListener("click", function () { window.print() })
++       }
++       window.onload = function () { window.print() }
++     })()
++   </script>
++
++ </body>
++ </html>
+
+ ❯ __tests__/lib/receipt.test.ts:319:18
+    317|   it("la paleta de la cuenta entra como variables CSS", () => {
+    318|     const html = generateReceiptHTML(makeOp(), fullOpts())
+    319|     expect(html).toContain("--heading: #1d4ed8")
+       |                  ^
+    320|     expect(html).toContain("--strong-rule: #1d4ed8")
+    321|     expect(html).toContain("--thead-bg: #1d4ed8")
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/15]⎯
+
+ FAIL  __tests__/lib/receipt.test.ts > comprobante interno — la marca de la cuenta en el HTML > Neutro: sin acento, tinta de la factura y cabecera de la tabla en la superficie clara
+AssertionError: expected '<!DOCTYPE html>\n<html lang="es">\n<h…' to contain '--heading: #1e293b'
+
+- Expected
++ Received
+
+- --heading: #1e293b
++ <!DOCTYPE html>
++ <html lang="es">
++ <head>
++   <meta charset="UTF-8" />
++   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
++   <title>Comprobante OP1 — Mi Negocio</title>
++   <style>
++   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
++
++   :root {
++     --ink:      #111111;
++     --muted:    #6b7280;
++     --border:   #e5e7eb;
++     --accent:   #f9fafb;
++     --primary:  #0f172a;
++     --emerald:  #059669;
++     --radius:   8px;
++   }
++
++   html, body {
++     background: #ffffff;
++     color: var(--ink);
++     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
++     font-size: 14px;
++     line-height: 1.5;
++     -webkit-print-color-adjust: exact;
++     print-color-adjust: exact;
++   }
++
++   body {
++     padding: 32px 24px;
++     max-width: 680px;
++     margin: 0 auto;
++   }
++
++   /* ── Header ── */
++   .receipt-header {
++     display: flex;
++     align-items: flex-start;
++     justify-content: space-between;
++     gap: 16px;
++     padding-bottom: 20px;
++     border-bottom: 2px solid var(--primary);
++     margin-bottom: 20px;
++   }
++
++   .business-block {
++     display: flex;
++     align-items: center;
++     gap: 12px;
++   }
++
++   .business-logo {
++     width: 48px;
++     height: 48px;
++     border-radius: 50%;
++     object-fit: cover;
++     flex-shrink: 0;
++   }
++
++   .business-initial {
++     width: 48px;
++     height: 48px;
++     border-radius: 50%;
++     background: var(--primary);
++     color: #ffffff;
++     font-size: 22px;
++     font-weight: 700;
++     display: flex;
++     align-items: center;
++     justify-content: center;
++     flex-shrink: 0;
++     letter-spacing: -1px;
++   }
++
++   .business-name {
++     font-size: 20px;
++     font-weight: 700;
++     color: var(--primary);
++     line-height: 1.2;
++   }
++
++   .business-contact {
++     font-size: 12px;
++     color: var(--muted);
++     margin-top: 3px;
++   }
++
++   .receipt-meta {
++     text-align: right;
++     flex-shrink: 0;
++   }
++
++   .receipt-label {
++     font-size: 11px;
++     font-weight: 600;
++     letter-spacing: 0.08em;
++     text-transform: uppercase;
++     color: var(--muted);
++   }
++
++   .receipt-number {
++     font-size: 22px;
++     font-weight: 800;
++     color: var(--primary);
++     letter-spacing: -0.5px;
++     font-variant-numeric: tabular-nums;
++   }
++
++   .receipt-type {
++     font-size: 12px;
++     color: var(--muted);
++     margin-top: 2px;
++   }
++
++   /* ── Info section ── */
++   .info-grid {
++     display: grid;
++     grid-template-columns: 1fr 1fr;
++     gap: 12px 24px;
++     padding: 16px 0;
++     border-bottom: 1px solid var(--border);
++     margin-bottom: 20px;
++   }
++
++   .info-block {}
++   .info-label {
++     font-size: 10px;
++     font-weight: 600;
++     text-transform: uppercase;
++     letter-spacing: 0.08em;
++     color: var(--muted);
++     margin-bottom: 3px;
++   }
++   .info-value {
++     font-size: 14px;
++     font-weight: 600;
++     color: var(--ink);
++   }
++   .info-value.muted {
++     font-weight: 400;
++     color: var(--muted);
++     font-style: italic;
++   }
++
++   /* ── Items table ── */
++   .items-section {
++     margin-bottom: 0;
++   }
++
++   .items-table {
++     width: 100%;
++     border-collapse: collapse;
++   }
++
++   .items-table thead tr {
++     background: var(--accent);
++     border-top: 1px solid var(--border);
++     border-bottom: 1px solid var(--border);
++   }
++
++   .items-table th {
++     padding: 8px 10px;
++     font-size: 10px;
++     font-weight: 700;
++     text-transform: uppercase;
++     letter-spacing: 0.08em;
++     color: var(--muted);
++     text-align: left;
++   }
++
++   .items-table th.right, .items-table td.right { text-align: right; }
++   .items-table th.center, .items-table td.center { text-align: center; }
++
++   .items-table tbody tr {
++     border-bottom: 1px solid var(--border);
++   }
++
++   .items-table tbody tr:last-child {
++     border-bottom: none;
++   }
++
++   .items-table td {
++     padding: 10px 10px;
++     font-size: 13px;
++     color: var(--ink);
++     vertical-align: middle;
++   }
++
++   .items-table td.product-name {
++     font-weight: 600;
++   }
++
++   .items-table td.subtotal {
++     font-weight: 700;
++     color: var(--emerald);
++     font-variant-numeric: tabular-nums;
++   }
++
++   /* ── Total footer ── */
++   .total-section {
++     border-top: 2px solid var(--primary);
++     margin-top: 0;
++     padding-top: 12px;
++     display: flex;
++     justify-content: flex-end;
++     gap: 24px;
++     align-items: baseline;
++   }
++
++   .total-label {
++     font-size: 13px;
++     font-weight: 600;
++     color: var(--muted);
++     text-transform: uppercase;
++     letter-spacing: 0.06em;
++   }
++
++   .total-amount {
++     font-size: 26px;
++     font-weight: 800;
++     color: var(--primary);
++     font-variant-numeric: tabular-nums;
++     letter-spacing: -1px;
++   }
++
++   /* ── Footer ── */
++   .receipt-footer {
++     margin-top: 28px;
++     padding-top: 16px;
++     border-top: 1px solid var(--border);
++     display: flex;
++     justify-content: space-between;
++     align-items: flex-end;
++     gap: 12px;
++   }
++
++   .footer-thanks {
++     font-size: 13px;
++     font-weight: 600;
++     color: var(--primary);
++   }
++   .footer-thanks-sub {
++     font-size: 11px;
++     color: var(--muted);
++     margin-top: 2px;
++   }
++
++   .footer-id {
++     text-align: right;
++     font-size: 10px;
++     color: var(--border);
++     font-variant-numeric: tabular-nums;
++     word-break: break-all;
++     max-width: 240px;
++   }
++
++   /* ── Print bar (visible fallback button) ── */
++   .print-bar {
++     display: flex;
++     justify-content: space-between;
++     align-items: center;
++     margin-bottom: 16px;
++   }
++
++   .print-hint {
++     font-size: 12px;
++     color: var(--muted);
++   }
++
++   .print-button {
++     appearance: none;
++     border: 1px solid var(--primary);
++     border-radius: var(--radius);
++     background: var(--primary);
++     color: #ffffff;
++     font: inherit;
++     font-size: 13px;
++     font-weight: 600;
++     padding: 8px 16px;
++     cursor: pointer;
++   }
++
++   .print-button:hover {
++     opacity: 0.9;
++   }
++
++   /* ── Print optimisation ── */
++   @page {
++     size: A4 portrait;
++     margin: 1.5cm 1.5cm 2cm;
++   }
++
++   @media print {
++     body { padding: 0; }
++     .no-print { display: none !important; }
++     .receipt-footer { page-break-inside: avoid; }
++     .total-section  { page-break-inside: avoid; }
++   }
++ </style>
++ </head>
++ <body>
++
++   <!-- ── Print bar ──────────────────────────────────────────────────────
++        fix/comprobante-print-csp-nonce: red de seguridad visible. El script
++        de más abajo dispara window.print() solo, pero si algún navegador
++        igual bloquea la ejecución automática (o el usuario cerró el diálogo
++        sin querer), este botón es el único camino manual. La pista de texto
++        de al lado (revisión adversarial MINOR 2) no depende del script: cubre
++        también el caso en que el propio script con nonce no llegó a correr,
++        que es justo el modo de falla que motiva este fix. No se imprime a sí
++        mismo (.no-print). -->
++   <div class="no-print">
++     <div class="print-bar">
++       <span class="print-hint">Si el diálogo no se abre solo: Ctrl+P (⌘+P en Mac)</span>
++       <button type="button" id="receipt-print-button" class="print-button">Imprimir / Guardar como PDF</button>
++     </div>
++   </div>
++
++   <!-- ── Header ─────────────────────────────────────────────────────── -->
++   <div class="receipt-header">
++     <div class="business-block">
++       <div class="business-initial">M</div>
++       <div>
++         <div class="business-name">Mi Negocio</div>
++         
++       </div>
++     </div>
++     <div class="receipt-meta">
++       <div class="receipt-label">Comprobante</div>
++       <div class="receipt-number">#OP1</div>
++       <div class="receipt-type">Comprobante de venta</div>
++     </div>
++   </div>
++
++   <!-- ── Info grid ───────────────────────────────────────────────────── -->
++   <div class="info-grid">
++     <div class="info-block">
++       <div class="info-label">Cliente</div>
++       <div class="info-value muted">Consumidor final</div>
++     </div>
++     <div class="info-block">
++       <div class="info-label">Fecha</div>
++       <div class="info-value">Viernes, 18 de septiembre de 2026</div>
++     </div>
++   </div>
++
++   <!-- ── Items ───────────────────────────────────────────────────────── -->
++   <div class="items-section">
++     <table class="items-table">
++       <thead>
++         <tr>
++           <th>Descripción</th>
++           <th class="center">Cant.</th>
++           <th class="right">Precio unit.</th>
++           <th class="right">Subtotal</th>
++         </tr>
++       </thead>
++       <tbody>
++         
++       <tr>
++         <td class="product-name">Producto A</td>
++         <td class="center">2</td>
++         <td class="right">$ 100</td>
++         <td class="right subtotal">$ 200</td>
++       </tr>
++       </tbody>
++     </table>
++   </div>
++
++   <!-- ── Total ───────────────────────────────────────────────────────── -->
++   <div class="total-section">
++     <span class="total-label">Total</span>
++     <span class="total-amount">$ 200</span>
++   </div>
++
++   <!-- ── Footer ──────────────────────────────────────────────────────── -->
++   <div class="receipt-footer">
++     <div>
++       <div class="footer-thanks">¡Gracias por su compra!</div>
++       <div class="footer-thanks-sub">Este documento es su comprobante de venta.</div>
++     </div>
++     <div class="footer-id">ID: op1</div>
++   </div>
++
++   <script>
++     // fix/comprobante-print-csp-nonce: sin atributos on*= (script-src los
++     // bloquea igual bajo CSP; el cableado va por addEventListener). Cablea
++     // el botón visible y conserva la apertura automática del diálogo de
++     // impresión — el usuario puede elegir "Guardar como PDF" o mandarlo a
++     // una impresora física por cualquiera de los dos caminos.
++     (function () {
++       var btn = document.getElementById("receipt-print-button")
++       if (btn) {
++         btn.addEventListener("click", function () { window.print() })
++       }
++       window.onload = function () { window.print() }
++     })()
++   </script>
++
++ </body>
++ </html>
+
+ ❯ __tests__/lib/receipt.test.ts:329:18
+    327|   it("Neutro: sin acento, tinta de la factura y cabecera de la tabla e…
+    328|     const html = generateReceiptHTML(makeOp(), { branding: defaultRece…
+    329|     expect(html).toContain("--heading: #1e293b")
+       |                  ^
+    330|     expect(html).toContain("--thead-bg: #f1f5f9")
+    331|     expect(html).toContain("--thead-text: #1e293b")
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/15]⎯
+
+ FAIL  __tests__/lib/receipt.test.ts > comprobante interno — la marca de la cuenta en el HTML > un color inválido NO entra al HTML: cae al de Neutro
+AssertionError: expected '<!DOCTYPE html>\n<html lang="es">\n<h…' to contain '--heading: #1e293b'
+
+- Expected
++ Received
+
+- --heading: #1e293b
++ <!DOCTYPE html>
++ <html lang="es">
++ <head>
++   <meta charset="UTF-8" />
++   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
++   <title>Comprobante OP1 — Mi Negocio</title>
++   <style>
++   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
++
++   :root {
++     --ink:      #111111;
++     --muted:    #6b7280;
++     --border:   #e5e7eb;
++     --accent:   #f9fafb;
++     --primary:  #0f172a;
++     --emerald:  #059669;
++     --radius:   8px;
++   }
++
++   html, body {
++     background: #ffffff;
++     color: var(--ink);
++     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
++     font-size: 14px;
++     line-height: 1.5;
++     -webkit-print-color-adjust: exact;
++     print-color-adjust: exact;
++   }
++
++   body {
++     padding: 32px 24px;
++     max-width: 680px;
++     margin: 0 auto;
++   }
++
++   /* ── Header ── */
++   .receipt-header {
++     display: flex;
++     align-items: flex-start;
++     justify-content: space-between;
++     gap: 16px;
++     padding-bottom: 20px;
++     border-bottom: 2px solid var(--primary);
++     margin-bottom: 20px;
++   }
++
++   .business-block {
++     display: flex;
++     align-items: center;
++     gap: 12px;
++   }
++
++   .business-logo {
++     width: 48px;
++     height: 48px;
++     border-radius: 50%;
++     object-fit: cover;
++     flex-shrink: 0;
++   }
++
++   .business-initial {
++     width: 48px;
++     height: 48px;
++     border-radius: 50%;
++     background: var(--primary);
++     color: #ffffff;
++     font-size: 22px;
++     font-weight: 700;
++     display: flex;
++     align-items: center;
++     justify-content: center;
++     flex-shrink: 0;
++     letter-spacing: -1px;
++   }
++
++   .business-name {
++     font-size: 20px;
++     font-weight: 700;
++     color: var(--primary);
++     line-height: 1.2;
++   }
++
++   .business-contact {
++     font-size: 12px;
++     color: var(--muted);
++     margin-top: 3px;
++   }
++
++   .receipt-meta {
++     text-align: right;
++     flex-shrink: 0;
++   }
++
++   .receipt-label {
++     font-size: 11px;
++     font-weight: 600;
++     letter-spacing: 0.08em;
++     text-transform: uppercase;
++     color: var(--muted);
++   }
++
++   .receipt-number {
++     font-size: 22px;
++     font-weight: 800;
++     color: var(--primary);
++     letter-spacing: -0.5px;
++     font-variant-numeric: tabular-nums;
++   }
++
++   .receipt-type {
++     font-size: 12px;
++     color: var(--muted);
++     margin-top: 2px;
++   }
++
++   /* ── Info section ── */
++   .info-grid {
++     display: grid;
++     grid-template-columns: 1fr 1fr;
++     gap: 12px 24px;
++     padding: 16px 0;
++     border-bottom: 1px solid var(--border);
++     margin-bottom: 20px;
++   }
++
++   .info-block {}
++   .info-label {
++     font-size: 10px;
++     font-weight: 600;
++     text-transform: uppercase;
++     letter-spacing: 0.08em;
++     color: var(--muted);
++     margin-bottom: 3px;
++   }
++   .info-value {
++     font-size: 14px;
++     font-weight: 600;
++     color: var(--ink);
++   }
++   .info-value.muted {
++     font-weight: 400;
++     color: var(--muted);
++     font-style: italic;
++   }
++
++   /* ── Items table ── */
++   .items-section {
++     margin-bottom: 0;
++   }
++
++   .items-table {
++     width: 100%;
++     border-collapse: collapse;
++   }
++
++   .items-table thead tr {
++     background: var(--accent);
++     border-top: 1px solid var(--border);
++     border-bottom: 1px solid var(--border);
++   }
++
++   .items-table th {
++     padding: 8px 10px;
++     font-size: 10px;
++     font-weight: 700;
++     text-transform: uppercase;
++     letter-spacing: 0.08em;
++     color: var(--muted);
++     text-align: left;
++   }
++
++   .items-table th.right, .items-table td.right { text-align: right; }
++   .items-table th.center, .items-table td.center { text-align: center; }
++
++   .items-table tbody tr {
++     border-bottom: 1px solid var(--border);
++   }
++
++   .items-table tbody tr:last-child {
++     border-bottom: none;
++   }
++
++   .items-table td {
++     padding: 10px 10px;
++     font-size: 13px;
++     color: var(--ink);
++     vertical-align: middle;
++   }
++
++   .items-table td.product-name {
++     font-weight: 600;
++   }
++
++   .items-table td.subtotal {
++     font-weight: 700;
++     color: var(--emerald);
++     font-variant-numeric: tabular-nums;
++   }
++
++   /* ── Total footer ── */
++   .total-section {
++     border-top: 2px solid var(--primary);
++     margin-top: 0;
++     padding-top: 12px;
++     display: flex;
++     justify-content: flex-end;
++     gap: 24px;
++     align-items: baseline;
++   }
++
++   .total-label {
++     font-size: 13px;
++     font-weight: 600;
++     color: var(--muted);
++     text-transform: uppercase;
++     letter-spacing: 0.06em;
++   }
++
++   .total-amount {
++     font-size: 26px;
++     font-weight: 800;
++     color: var(--primary);
++     font-variant-numeric: tabular-nums;
++     letter-spacing: -1px;
++   }
++
++   /* ── Footer ── */
++   .receipt-footer {
++     margin-top: 28px;
++     padding-top: 16px;
++     border-top: 1px solid var(--border);
++     display: flex;
++     justify-content: space-between;
++     align-items: flex-end;
++     gap: 12px;
++   }
++
++   .footer-thanks {
++     font-size: 13px;
++     font-weight: 600;
++     color: var(--primary);
++   }
++   .footer-thanks-sub {
++     font-size: 11px;
++     color: var(--muted);
++     margin-top: 2px;
++   }
++
++   .footer-id {
++     text-align: right;
++     font-size: 10px;
++     color: var(--border);
++     font-variant-numeric: tabular-nums;
++     word-break: break-all;
++     max-width: 240px;
++   }
++
++   /* ── Print bar (visible fallback button) ── */
++   .print-bar {
++     display: flex;
++     justify-content: space-between;
++     align-items: center;
++     margin-bottom: 16px;
++   }
++
++   .print-hint {
++     font-size: 12px;
++     color: var(--muted);
++   }
++
++   .print-button {
++     appearance: none;
++     border: 1px solid var(--primary);
++     border-radius: var(--radius);
++     background: var(--primary);
++     color: #ffffff;
++     font: inherit;
++     font-size: 13px;
++     font-weight: 600;
++     padding: 8px 16px;
++     cursor: pointer;
++   }
++
++   .print-button:hover {
++     opacity: 0.9;
++   }
++
++   /* ── Print optimisation ── */
++   @page {
++     size: A4 portrait;
++     margin: 1.5cm 1.5cm 2cm;
++   }
++
++   @media print {
++     body { padding: 0; }
++     .no-print { display: none !important; }
++     .receipt-footer { page-break-inside: avoid; }
++     .total-section  { page-break-inside: avoid; }
++   }
++ </style>
++ </head>
++ <body>
++
++   <!-- ── Print bar ──────────────────────────────────────────────────────
++        fix/comprobante-print-csp-nonce: red de seguridad visible. El script
++        de más abajo dispara window.print() solo, pero si algún navegador
++        igual bloquea la ejecución automática (o el usuario cerró el diálogo
++        sin querer), este botón es el único camino manual. La pista de texto
++        de al lado (revisión adversarial MINOR 2) no depende del script: cubre
++        también el caso en que el propio script con nonce no llegó a correr,
++        que es justo el modo de falla que motiva este fix. No se imprime a sí
++        mismo (.no-print). -->
++   <div class="no-print">
++     <div class="print-bar">
++       <span class="print-hint">Si el diálogo no se abre solo: Ctrl+P (⌘+P en Mac)</span>
++       <button type="button" id="receipt-print-button" class="print-button">Imprimir / Guardar como PDF</button>
++     </div>
++   </div>
++
++   <!-- ── Header ─────────────────────────────────────────────────────── -->
++   <div class="receipt-header">
++     <div class="business-block">
++       <div class="business-initial">M</div>
++       <div>
++         <div class="business-name">Mi Negocio</div>
++         
++       </div>
++     </div>
++     <div class="receipt-meta">
++       <div class="receipt-label">Comprobante</div>
++       <div class="receipt-number">#OP1</div>
++       <div class="receipt-type">Comprobante de venta</div>
++     </div>
++   </div>
++
++   <!-- ── Info grid ───────────────────────────────────────────────────── -->
++   <div class="info-grid">
++     <div class="info-block">
++       <div class="info-label">Cliente</div>
++       <div class="info-value muted">Consumidor final</div>
++     </div>
++     <div class="info-block">
++       <div class="info-label">Fecha</div>
++       <div class="info-value">Viernes, 18 de septiembre de 2026</div>
++     </div>
++   </div>
++
++   <!-- ── Items ───────────────────────────────────────────────────────── -->
++   <div class="items-section">
++     <table class="items-table">
++       <thead>
++         <tr>
++           <th>Descripción</th>
++           <th class="center">Cant.</th>
++           <th class="right">Precio unit.</th>
++           <th class="right">Subtotal</th>
++         </tr>
++       </thead>
++       <tbody>
++         
++       <tr>
++         <td class="product-name">Producto A</td>
++         <td class="center">2</td>
++         <td class="right">$ 100</td>
++         <td class="right subtotal">$ 200</td>
++       </tr>
++       </tbody>
++     </table>
++   </div>
++
++   <!-- ── Total ───────────────────────────────────────────────────────── -->
++   <div class="total-section">
++     <span class="total-label">Total</span>
++     <span class="total-amount">$ 200</span>
++   </div>
++
++   <!-- ── Footer ──────────────────────────────────────────────────────── -->
++   <div class="receipt-footer">
++     <div>
++       <div class="footer-thanks">¡Gracias por su compra!</div>
++       <div class="footer-thanks-sub">Este documento es su comprobante de venta.</div>
++     </div>
++     <div class="footer-id">ID: op1</div>
++   </div>
++
++   <script>
++     // fix/comprobante-print-csp-nonce: sin atributos on*= (script-src los
++     // bloquea igual bajo CSP; el cableado va por addEventListener). Cablea
++     // el botón visible y conserva la apertura automática del diálogo de
++     // impresión — el usuario puede elegir "Guardar como PDF" o mandarlo a
++     // una impresora física por cualquiera de los dos caminos.
++     (function () {
++       var btn = document.getElementById("receipt-print-button")
++       if (btn) {
++         btn.addEventListener("click", function () { window.print() })
++       }
++       window.onload = function () { window.print() }
++     })()
++   </script>
++
++ </body>
++ </html>
+
+ ❯ __tests__/lib/receipt.test.ts:342:18
+    340|     }
+    341|     const html = generateReceiptHTML(makeOp(), { branding: evil })
+    342|     expect(html).toContain("--heading: #1e293b")
+       |                  ^
+    343|     expect(html).toContain("--total: #1e293b")
+    344|     expect(html).toContain("--thead-bg: #f1f5f9")
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/15]⎯
+
+ FAIL  __tests__/lib/receipt.test.ts > comprobante interno — la marca de la cuenta en el HTML > todos los textos de la marca van escapados
+AssertionError: expected '<!DOCTYPE html>\n<html lang="es">\n<h…' to contain '&lt;script&gt;alert(&#39;'
+
+- Expected
++ Received
+
+- &lt;script&gt;alert(&#39;
++ <!DOCTYPE html>
++ <html lang="es">
++ <head>
++   <meta charset="UTF-8" />
++   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
++   <title>Comprobante OP1 — Mi Negocio</title>
++   <style>
++   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
++
++   :root {
++     --ink:      #111111;
++     --muted:    #6b7280;
++     --border:   #e5e7eb;
++     --accent:   #f9fafb;
++     --primary:  #0f172a;
++     --emerald:  #059669;
++     --radius:   8px;
++   }
++
++   html, body {
++     background: #ffffff;
++     color: var(--ink);
++     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
++     font-size: 14px;
++     line-height: 1.5;
++     -webkit-print-color-adjust: exact;
++     print-color-adjust: exact;
++   }
++
++   body {
++     padding: 32px 24px;
++     max-width: 680px;
++     margin: 0 auto;
++   }
++
++   /* ── Header ── */
++   .receipt-header {
++     display: flex;
++     align-items: flex-start;
++     justify-content: space-between;
++     gap: 16px;
++     padding-bottom: 20px;
++     border-bottom: 2px solid var(--primary);
++     margin-bottom: 20px;
++   }
++
++   .business-block {
++     display: flex;
++     align-items: center;
++     gap: 12px;
++   }
++
++   .business-logo {
++     width: 48px;
++     height: 48px;
++     border-radius: 50%;
++     object-fit: cover;
++     flex-shrink: 0;
++   }
++
++   .business-initial {
++     width: 48px;
++     height: 48px;
++     border-radius: 50%;
++     background: var(--primary);
++     color: #ffffff;
++     font-size: 22px;
++     font-weight: 700;
++     display: flex;
++     align-items: center;
++     justify-content: center;
++     flex-shrink: 0;
++     letter-spacing: -1px;
++   }
++
++   .business-name {
++     font-size: 20px;
++     font-weight: 700;
++     color: var(--primary);
++     line-height: 1.2;
++   }
++
++   .business-contact {
++     font-size: 12px;
++     color: var(--muted);
++     margin-top: 3px;
++   }
++
++   .receipt-meta {
++     text-align: right;
++     flex-shrink: 0;
++   }
++
++   .receipt-label {
++     font-size: 11px;
++     font-weight: 600;
++     letter-spacing: 0.08em;
++     text-transform: uppercase;
++     color: var(--muted);
++   }
++
++   .receipt-number {
++     font-size: 22px;
++     font-weight: 800;
++     color: var(--primary);
++     letter-spacing: -0.5px;
++     font-variant-numeric: tabular-nums;
++   }
++
++   .receipt-type {
++     font-size: 12px;
++     color: var(--muted);
++     margin-top: 2px;
++   }
++
++   /* ── Info section ── */
++   .info-grid {
++     display: grid;
++     grid-template-columns: 1fr 1fr;
++     gap: 12px 24px;
++     padding: 16px 0;
++     border-bottom: 1px solid var(--border);
++     margin-bottom: 20px;
++   }
++
++   .info-block {}
++   .info-label {
++     font-size: 10px;
++     font-weight: 600;
++     text-transform: uppercase;
++     letter-spacing: 0.08em;
++     color: var(--muted);
++     margin-bottom: 3px;
++   }
++   .info-value {
++     font-size: 14px;
++     font-weight: 600;
++     color: var(--ink);
++   }
++   .info-value.muted {
++     font-weight: 400;
++     color: var(--muted);
++     font-style: italic;
++   }
++
++   /* ── Items table ── */
++   .items-section {
++     margin-bottom: 0;
++   }
++
++   .items-table {
++     width: 100%;
++     border-collapse: collapse;
++   }
++
++   .items-table thead tr {
++     background: var(--accent);
++     border-top: 1px solid var(--border);
++     border-bottom: 1px solid var(--border);
++   }
++
++   .items-table th {
++     padding: 8px 10px;
++     font-size: 10px;
++     font-weight: 700;
++     text-transform: uppercase;
++     letter-spacing: 0.08em;
++     color: var(--muted);
++     text-align: left;
++   }
++
++   .items-table th.right, .items-table td.right { text-align: right; }
++   .items-table th.center, .items-table td.center { text-align: center; }
++
++   .items-table tbody tr {
++     border-bottom: 1px solid var(--border);
++   }
++
++   .items-table tbody tr:last-child {
++     border-bottom: none;
++   }
++
++   .items-table td {
++     padding: 10px 10px;
++     font-size: 13px;
++     color: var(--ink);
++     vertical-align: middle;
++   }
++
++   .items-table td.product-name {
++     font-weight: 600;
++   }
++
++   .items-table td.subtotal {
++     font-weight: 700;
++     color: var(--emerald);
++     font-variant-numeric: tabular-nums;
++   }
++
++   /* ── Total footer ── */
++   .total-section {
++     border-top: 2px solid var(--primary);
++     margin-top: 0;
++     padding-top: 12px;
++     display: flex;
++     justify-content: flex-end;
++     gap: 24px;
++     align-items: baseline;
++   }
++
++   .total-label {
++     font-size: 13px;
++     font-weight: 600;
++     color: var(--muted);
++     text-transform: uppercase;
++     letter-spacing: 0.06em;
++   }
++
++   .total-amount {
++     font-size: 26px;
++     font-weight: 800;
++     color: var(--primary);
++     font-variant-numeric: tabular-nums;
++     letter-spacing: -1px;
++   }
++
++   /* ── Footer ── */
++   .receipt-footer {
++     margin-top: 28px;
++     padding-top: 16px;
++     border-top: 1px solid var(--border);
++     display: flex;
++     justify-content: space-between;
++     align-items: flex-end;
++     gap: 12px;
++   }
++
++   .footer-thanks {
++     font-size: 13px;
++     font-weight: 600;
++     color: var(--primary);
++   }
++   .footer-thanks-sub {
++     font-size: 11px;
++     color: var(--muted);
++     margin-top: 2px;
++   }
++
++   .footer-id {
++     text-align: right;
++     font-size: 10px;
++     color: var(--border);
++     font-variant-numeric: tabular-nums;
++     word-break: break-all;
++     max-width: 240px;
++   }
++
++   /* ── Print bar (visible fallback button) ── */
++   .print-bar {
++     display: flex;
++     justify-content: space-between;
++     align-items: center;
++     margin-bottom: 16px;
++   }
++
++   .print-hint {
++     font-size: 12px;
++     color: var(--muted);
++   }
++
++   .print-button {
++     appearance: none;
++     border: 1px solid var(--primary);
++     border-radius: var(--radius);
++     background: var(--primary);
++     color: #ffffff;
++     font: inherit;
++     font-size: 13px;
++     font-weight: 600;
++     padding: 8px 16px;
++     cursor: pointer;
++   }
++
++   .print-button:hover {
++     opacity: 0.9;
++   }
++
++   /* ── Print optimisation ── */
++   @page {
++     size: A4 portrait;
++     margin: 1.5cm 1.5cm 2cm;
++   }
++
++   @media print {
++     body { padding: 0; }
++     .no-print { display: none !important; }
++     .receipt-footer { page-break-inside: avoid; }
++     .total-section  { page-break-inside: avoid; }
++   }
++ </style>
++ </head>
++ <body>
++
++   <!-- ── Print bar ──────────────────────────────────────────────────────
++        fix/comprobante-print-csp-nonce: red de seguridad visible. El script
++        de más abajo dispara window.print() solo, pero si algún navegador
++        igual bloquea la ejecución automática (o el usuario cerró el diálogo
++        sin querer), este botón es el único camino manual. La pista de texto
++        de al lado (revisión adversarial MINOR 2) no depende del script: cubre
++        también el caso en que el propio script con nonce no llegó a correr,
++        que es justo el modo de falla que motiva este fix. No se imprime a sí
++        mismo (.no-print). -->
++   <div class="no-print">
++     <div class="print-bar">
++       <span class="print-hint">Si el diálogo no se abre solo: Ctrl+P (⌘+P en Mac)</span>
++       <button type="button" id="receipt-print-button" class="print-button">Imprimir / Guardar como PDF</button>
++     </div>
++   </div>
++
++   <!-- ── Header ─────────────────────────────────────────────────────── -->
++   <div class="receipt-header">
++     <div class="business-block">
++       <div class="business-initial">M</div>
++       <div>
++         <div class="business-name">Mi Negocio</div>
++         
++       </div>
++     </div>
++     <div class="receipt-meta">
++       <div class="receipt-label">Comprobante</div>
++       <div class="receipt-number">#OP1</div>
++       <div class="receipt-type">Comprobante de venta</div>
++     </div>
++   </div>
++
++   <!-- ── Info grid ───────────────────────────────────────────────────── -->
++   <div class="info-grid">
++     <div class="info-block">
++       <div class="info-label">Cliente</div>
++       <div class="info-value muted">Consumidor final</div>
++     </div>
++     <div class="info-block">
++       <div class="info-label">Fecha</div>
++       <div class="info-value">Viernes, 18 de septiembre de 2026</div>
++     </div>
++   </div>
++
++   <!-- ── Items ───────────────────────────────────────────────────────── -->
++   <div class="items-section">
++     <table class="items-table">
++       <thead>
++         <tr>
++           <th>Descripción</th>
++           <th class="center">Cant.</th>
++           <th class="right">Precio unit.</th>
++           <th class="right">Subtotal</th>
++         </tr>
++       </thead>
++       <tbody>
++         
++       <tr>
++         <td class="product-name">Producto A</td>
++         <td class="center">2</td>
++         <td class="right">$ 100</td>
++         <td class="right subtotal">$ 200</td>
++       </tr>
++       </tbody>
++     </table>
++   </div>
++
++   <!-- ── Total ───────────────────────────────────────────────────────── -->
++   <div class="total-section">
++     <span class="total-label">Total</span>
++     <span class="total-amount">$ 200</span>
++   </div>
++
++   <!-- ── Footer ──────────────────────────────────────────────────────── -->
++   <div class="receipt-footer">
++     <div>
++       <div class="footer-thanks">¡Gracias por su compra!</div>
++       <div class="footer-thanks-sub">Este documento es su comprobante de venta.</div>
++     </div>
++     <div class="footer-id">ID: op1</div>
++   </div>
++
++   <script>
++     // fix/comprobante-print-csp-nonce: sin atributos on*= (script-src los
++     // bloquea igual bajo CSP; el cableado va por addEventListener). Cablea
++     // el botón visible y conserva la apertura automática del diálogo de
++     // impresión — el usuario puede elegir "Guardar como PDF" o mandarlo a
++     // una impresora física por cualquiera de los dos caminos.
++     (function () {
++       var btn = document.getElementById("receipt-print-button")
++       if (btn) {
++         btn.addEventListener("click", function () { window.print() })
++       }
++       window.onload = function () { window.print() }
++     })()
++   </script>
++
++ </body>
++ </html>
+
+ ❯ __tests__/lib/receipt.test.ts:361:18
+    359|     const html = generateReceiptHTML(makeOp(), { branding })
+    360|     expect(html.match(/<script(?:\s|>)/gi)).toHaveLength(1)     // sól…
+    361|     expect(html).toContain("&lt;script&gt;alert(&#39;")  // escapado (…
+       |                  ^
+    362|   })
+    363|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/15]⎯
+
+ FAIL  __tests__/lib/receipt.test.ts > comprobante interno — la marca de la cuenta en el HTML > la web se imprime como TEXTO, nunca como enlace
+AssertionError: expected '<!DOCTYPE html>\n<html lang="es">\n<h…' to contain 'sumar.com.ar'
+
+- Expected
++ Received
+
+- sumar.com.ar
++ <!DOCTYPE html>
++ <html lang="es">
++ <head>
++   <meta charset="UTF-8" />
++   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
++   <title>Comprobante OP1 — Mi Negocio</title>
++   <style>
++   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
++
++   :root {
++     --ink:      #111111;
++     --muted:    #6b7280;
++     --border:   #e5e7eb;
++     --accent:   #f9fafb;
++     --primary:  #0f172a;
++     --emerald:  #059669;
++     --radius:   8px;
++   }
++
++   html, body {
++     background: #ffffff;
++     color: var(--ink);
++     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
++     font-size: 14px;
++     line-height: 1.5;
++     -webkit-print-color-adjust: exact;
++     print-color-adjust: exact;
++   }
++
++   body {
++     padding: 32px 24px;
++     max-width: 680px;
++     margin: 0 auto;
++   }
++
++   /* ── Header ── */
++   .receipt-header {
++     display: flex;
++     align-items: flex-start;
++     justify-content: space-between;
++     gap: 16px;
++     padding-bottom: 20px;
++     border-bottom: 2px solid var(--primary);
++     margin-bottom: 20px;
++   }
++
++   .business-block {
++     display: flex;
++     align-items: center;
++     gap: 12px;
++   }
++
++   .business-logo {
++     width: 48px;
++     height: 48px;
++     border-radius: 50%;
++     object-fit: cover;
++     flex-shrink: 0;
++   }
++
++   .business-initial {
++     width: 48px;
++     height: 48px;
++     border-radius: 50%;
++     background: var(--primary);
++     color: #ffffff;
++     font-size: 22px;
++     font-weight: 700;
++     display: flex;
++     align-items: center;
++     justify-content: center;
++     flex-shrink: 0;
++     letter-spacing: -1px;
++   }
++
++   .business-name {
++     font-size: 20px;
++     font-weight: 700;
++     color: var(--primary);
++     line-height: 1.2;
++   }
++
++   .business-contact {
++     font-size: 12px;
++     color: var(--muted);
++     margin-top: 3px;
++   }
++
++   .receipt-meta {
++     text-align: right;
++     flex-shrink: 0;
++   }
++
++   .receipt-label {
++     font-size: 11px;
++     font-weight: 600;
++     letter-spacing: 0.08em;
++     text-transform: uppercase;
++     color: var(--muted);
++   }
++
++   .receipt-number {
++     font-size: 22px;
++     font-weight: 800;
++     color: var(--primary);
++     letter-spacing: -0.5px;
++     font-variant-numeric: tabular-nums;
++   }
++
++   .receipt-type {
++     font-size: 12px;
++     color: var(--muted);
++     margin-top: 2px;
++   }
++
++   /* ── Info section ── */
++   .info-grid {
++     display: grid;
++     grid-template-columns: 1fr 1fr;
++     gap: 12px 24px;
++     padding: 16px 0;
++     border-bottom: 1px solid var(--border);
++     margin-bottom: 20px;
++   }
++
++   .info-block {}
++   .info-label {
++     font-size: 10px;
++     font-weight: 600;
++     text-transform: uppercase;
++     letter-spacing: 0.08em;
++     color: var(--muted);
++     margin-bottom: 3px;
++   }
++   .info-value {
++     font-size: 14px;
++     font-weight: 600;
++     color: var(--ink);
++   }
++   .info-value.muted {
++     font-weight: 400;
++     color: var(--muted);
++     font-style: italic;
++   }
++
++   /* ── Items table ── */
++   .items-section {
++     margin-bottom: 0;
++   }
++
++   .items-table {
++     width: 100%;
++     border-collapse: collapse;
++   }
++
++   .items-table thead tr {
++     background: var(--accent);
++     border-top: 1px solid var(--border);
++     border-bottom: 1px solid var(--border);
++   }
++
++   .items-table th {
++     padding: 8px 10px;
++     font-size: 10px;
++     font-weight: 700;
++     text-transform: uppercase;
++     letter-spacing: 0.08em;
++     color: var(--muted);
++     text-align: left;
++   }
++
++   .items-table th.right, .items-table td.right { text-align: right; }
++   .items-table th.center, .items-table td.center { text-align: center; }
++
++   .items-table tbody tr {
++     border-bottom: 1px solid var(--border);
++   }
++
++   .items-table tbody tr:last-child {
++     border-bottom: none;
++   }
++
++   .items-table td {
++     padding: 10px 10px;
++     font-size: 13px;
++     color: var(--ink);
++     vertical-align: middle;
++   }
++
++   .items-table td.product-name {
++     font-weight: 600;
++   }
++
++   .items-table td.subtotal {
++     font-weight: 700;
++     color: var(--emerald);
++     font-variant-numeric: tabular-nums;
++   }
++
++   /* ── Total footer ── */
++   .total-section {
++     border-top: 2px solid var(--primary);
++     margin-top: 0;
++     padding-top: 12px;
++     display: flex;
++     justify-content: flex-end;
++     gap: 24px;
++     align-items: baseline;
++   }
++
++   .total-label {
++     font-size: 13px;
++     font-weight: 600;
++     color: var(--muted);
++     text-transform: uppercase;
++     letter-spacing: 0.06em;
++   }
++
++   .total-amount {
++     font-size: 26px;
++     font-weight: 800;
++     color: var(--primary);
++     font-variant-numeric: tabular-nums;
++     letter-spacing: -1px;
++   }
++
++   /* ── Footer ── */
++   .receipt-footer {
++     margin-top: 28px;
++     padding-top: 16px;
++     border-top: 1px solid var(--border);
++     display: flex;
++     justify-content: space-between;
++     align-items: flex-end;
++     gap: 12px;
++   }
++
++   .footer-thanks {
++     font-size: 13px;
++     font-weight: 600;
++     color: var(--primary);
++   }
++   .footer-thanks-sub {
++     font-size: 11px;
++     color: var(--muted);
++     margin-top: 2px;
++   }
++
++   .footer-id {
++     text-align: right;
++     font-size: 10px;
++     color: var(--border);
++     font-variant-numeric: tabular-nums;
++     word-break: break-all;
++     max-width: 240px;
++   }
++
++   /* ── Print bar (visible fallback button) ── */
++   .print-bar {
++     display: flex;
++     justify-content: space-between;
++     align-items: center;
++     margin-bottom: 16px;
++   }
++
++   .print-hint {
++     font-size: 12px;
++     color: var(--muted);
++   }
++
++   .print-button {
++     appearance: none;
++     border: 1px solid var(--primary);
++     border-radius: var(--radius);
++     background: var(--primary);
++     color: #ffffff;
++     font: inherit;
++     font-size: 13px;
++     font-weight: 600;
++     padding: 8px 16px;
++     cursor: pointer;
++   }
++
++   .print-button:hover {
++     opacity: 0.9;
++   }
++
++   /* ── Print optimisation ── */
++   @page {
++     size: A4 portrait;
++     margin: 1.5cm 1.5cm 2cm;
++   }
++
++   @media print {
++     body { padding: 0; }
++     .no-print { display: none !important; }
++     .receipt-footer { page-break-inside: avoid; }
++     .total-section  { page-break-inside: avoid; }
++   }
++ </style>
++ </head>
++ <body>
++
++   <!-- ── Print bar ──────────────────────────────────────────────────────
++        fix/comprobante-print-csp-nonce: red de seguridad visible. El script
++        de más abajo dispara window.print() solo, pero si algún navegador
++        igual bloquea la ejecución automática (o el usuario cerró el diálogo
++        sin querer), este botón es el único camino manual. La pista de texto
++        de al lado (revisión adversarial MINOR 2) no depende del script: cubre
++        también el caso en que el propio script con nonce no llegó a correr,
++        que es justo el modo de falla que motiva este fix. No se imprime a sí
++        mismo (.no-print). -->
++   <div class="no-print">
++     <div class="print-bar">
++       <span class="print-hint">Si el diálogo no se abre solo: Ctrl+P (⌘+P en Mac)</span>
++       <button type="button" id="receipt-print-button" class="print-button">Imprimir / Guardar como PDF</button>
++     </div>
++   </div>
++
++   <!-- ── Header ─────────────────────────────────────────────────────── -->
++   <div class="receipt-header">
++     <div class="business-block">
++       <div class="business-initial">M</div>
++       <div>
++         <div class="business-name">Mi Negocio</div>
++         
++       </div>
++     </div>
++     <div class="receipt-meta">
++       <div class="receipt-label">Comprobante</div>
++       <div class="receipt-number">#OP1</div>
++       <div class="receipt-type">Comprobante de venta</div>
++     </div>
++   </div>
++
++   <!-- ── Info grid ───────────────────────────────────────────────────── -->
++   <div class="info-grid">
++     <div class="info-block">
++       <div class="info-label">Cliente</div>
++       <div class="info-value muted">Consumidor final</div>
++     </div>
++     <div class="info-block">
++       <div class="info-label">Fecha</div>
++       <div class="info-value">Viernes, 18 de septiembre de 2026</div>
++     </div>
++   </div>
++
++   <!-- ── Items ───────────────────────────────────────────────────────── -->
++   <div class="items-section">
++     <table class="items-table">
++       <thead>
++         <tr>
++           <th>Descripción</th>
++           <th class="center">Cant.</th>
++           <th class="right">Precio unit.</th>
++           <th class="right">Subtotal</th>
++         </tr>
++       </thead>
++       <tbody>
++         
++       <tr>
++         <td class="product-name">Producto A</td>
++         <td class="center">2</td>
++         <td class="right">$ 100</td>
++         <td class="right subtotal">$ 200</td>
++       </tr>
++       </tbody>
++     </table>
++   </div>
++
++   <!-- ── Total ───────────────────────────────────────────────────────── -->
++   <div class="total-section">
++     <span class="total-label">Total</span>
++     <span class="total-amount">$ 200</span>
++   </div>
++
++   <!-- ── Footer ──────────────────────────────────────────────────────── -->
++   <div class="receipt-footer">
++     <div>
++       <div class="footer-thanks">¡Gracias por su compra!</div>
++       <div class="footer-thanks-sub">Este documento es su comprobante de venta.</div>
++     </div>
++     <div class="footer-id">ID: op1</div>
++   </div>
++
++   <script>
++     // fix/comprobante-print-csp-nonce: sin atributos on*= (script-src los
++     // bloquea igual bajo CSP; el cableado va por addEventListener). Cablea
++     // el botón visible y conserva la apertura automática del diálogo de
++     // impresión — el usuario puede elegir "Guardar como PDF" o mandarlo a
++     // una impresora física por cualquiera de los dos caminos.
++     (function () {
++       var btn = document.getElementById("receipt-print-button")
++       if (btn) {
++         btn.addEventListener("click", function () { window.print() })
++       }
++       window.onload = function () { window.print() }
++     })()
++   </script>
++
++ </body>
++ </html>
+
+ ❯ __tests__/lib/receipt.test.ts:366:18
+    364|   it("la web se imprime como TEXTO, nunca como enlace", () => {
+    365|     const html = generateReceiptHTML(makeOp(), fullOpts())
+    366|     expect(html).toContain("sumar.com.ar")
+       |                  ^
+    367|     expect(html).not.toMatch(/<a\s/i)
+    368|     expect(html).not.toMatch(/href=/i)
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/15]⎯
+
+ FAIL  __tests__/lib/receipt.test.ts > comprobante interno — la marca de la cuenta en el HTML > no imprime el email de acceso: sólo existe el del negocio
+AssertionError: expected '<!DOCTYPE html>\n<html lang="es">\n<h…' not to match /@/
+
+- Expected:
+/@/
+
++ Received:
+"<!DOCTYPE html>
+<html lang=\"es\">
+<head>
+  <meta charset=\"UTF-8\" />
+  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />
+  <title>Comprobante OP1 — Mi Negocio</title>
+  <style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --ink:      #111111;
+    --muted:    #6b7280;
+    --border:   #e5e7eb;
+    --accent:   #f9fafb;
+    --primary:  #0f172a;
+    --emerald:  #059669;
+    --radius:   8px;
+  }
+
+  html, body {
+    background: #ffffff;
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", Helvetica, Arial, sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  body {
+    padding: 32px 24px;
+    max-width: 680px;
+    margin: 0 auto;
+  }
+
+  /* ── Header ── */
+  .receipt-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    padding-bottom: 20px;
+    border-bottom: 2px solid var(--primary);
+    margin-bottom: 20px;
+  }
+
+  .business-block {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .business-logo {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    object-fit: cover;
+    flex-shrink: 0;
+  }
+
+  .business-initial {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: var(--primary);
+    color: #ffffff;
+    font-size: 22px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    letter-spacing: -1px;
+  }
+
+  .business-name {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--primary);
+    line-height: 1.2;
+  }
+
+  .business-contact {
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 3px;
+  }
+
+  .receipt-meta {
+    text-align: right;
+    flex-shrink: 0;
+  }
+
+  .receipt-label {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .receipt-number {
+    font-size: 22px;
+    font-weight: 800;
+    color: var(--primary);
+    letter-spacing: -0.5px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .receipt-type {
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 2px;
+  }
+
+  /* ── Info section ── */
+  .info-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px 24px;
+    padding: 16px 0;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 20px;
+  }
+
+  .info-block {}
+  .info-label {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    margin-bottom: 3px;
+  }
+  .info-value {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--ink);
+  }
+  .info-value.muted {
+    font-weight: 400;
+    color: var(--muted);
+    font-style: italic;
+  }
+
+  /* ── Items table ── */
+  .items-section {
+    margin-bottom: 0;
+  }
+
+  .items-table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  .items-table thead tr {
+    background: var(--accent);
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .items-table th {
+    padding: 8px 10px;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    text-align: left;
+  }
+
+  .items-table th.right, .items-table td.right { text-align: right; }
+  .items-table th.center, .items-table td.center { text-align: center; }
+
+  .items-table tbody tr {
+    border-bottom: 1px solid var(--border);
+  }
+
+  .items-table tbody tr:last-child {
+    border-bottom: none;
+  }
+
+  .items-table td {
+    padding: 10px 10px;
+    font-size: 13px;
+    color: var(--ink);
+    vertical-align: middle;
+  }
+
+  .items-table td.product-name {
+    font-weight: 600;
+  }
+
+  .items-table td.subtotal {
+    font-weight: 700;
+    color: var(--emerald);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ── Total footer ── */
+  .total-section {
+    border-top: 2px solid var(--primary);
+    margin-top: 0;
+    padding-top: 12px;
+    display: flex;
+    justify-content: flex-end;
+    gap: 24px;
+    align-items: baseline;
+  }
+
+  .total-label {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  .total-amount {
+    font-size: 26px;
+    font-weight: 800;
+    color: var(--primary);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -1px;
+  }
+
+  /* ── Footer ── */
+  .receipt-footer {
+    margin-top: 28px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    gap: 12px;
+  }
+
+  .footer-thanks {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--primary);
+  }
+  .footer-thanks-sub {
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 2px;
+  }
+
+  .footer-id {
+    text-align: right;
+    font-size: 10px;
+    color: var(--border);
+    font-variant-numeric: tabular-nums;
+    word-break: break-all;
+    max-width: 240px;
+  }
+
+  /* ── Print bar (visible fallback button) ── */
+  .print-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+  }
+
+  .print-hint {
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  .print-button {
+    appearance: none;
+    border: 1px solid var(--primary);
+    border-radius: var(--radius);
+    background: var(--primary);
+    color: #ffffff;
+    font: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 8px 16px;
+    cursor: pointer;
+  }
+
+  .print-button:hover {
+    opacity: 0.9;
+  }
+
+  /* ── Print optimisation ── */
+  @page {
+    size: A4 portrait;
+    margin: 1.5cm 1.5cm 2cm;
+  }
+
+  @media print {
+    body { padding: 0; }
+    .no-print { display: none !important; }
+    .receipt-footer { page-break-inside: avoid; }
+    .total-section  { page-break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+
+  <!-- ── Print bar ──────────────────────────────────────────────────────
+       fix/comprobante-print-csp-nonce: red de seguridad visible. El script
+       de más abajo dispara window.print() solo, pero si algún navegador
+       igual bloquea la ejecución automática (o el usuario cerró el diálogo
+       sin querer), este botón es el único camino manual. La pista de texto
+       de al lado (revisión adversarial MINOR 2) no depende del script: cubre
+       también el caso en que el propio script con nonce no llegó a correr,
+       que es justo el modo de falla que motiva este fix. No se imprime a sí
+       mismo (.no-print). -->
+  <div class=\"no-print\">
+    <div class=\"print-bar\">
+      <span class=\"print-hint\">Si el diálogo no se abre solo: Ctrl+P (⌘+P en Mac)</span>
+      <button type=\"button\" id=\"receipt-print-button\" class=\"print-button\">Imprimir / Guardar como PDF</button>
+    </div>
+  </div>
+
+  <!-- ── Header ─────────────────────────────────────────────────────── -->
+  <div class=\"receipt-header\">
+    <div class=\"business-block\">
+      <div class=\"business-initial\">M</div>
+      <div>
+        <div class=\"business-name\">Mi Negocio</div>
+        
+      </div>
+    </div>
+    <div class=\"receipt-meta\">
+      <div class=\"receipt-label\">Comprobante</div>
+      <div class=\"receipt-number\">#OP1</div>
+      <div class=\"receipt-type\">Comprobante de venta</div>
+    </div>
+  </div>
+
+  <!-- ── Info grid ───────────────────────────────────────────────────── -->
+  <div class=\"info-grid\">
+    <div class=\"info-block\">
+      <div class=\"info-label\">Cliente</div>
+      <div class=\"info-value muted\">Consumidor final</div>
+    </div>
+    <div class=\"info-block\">
+      <div class=\"info-label\">Fecha</div>
+      <div class=\"info-value\">Viernes, 18 de septiembre de 2026</div>
+    </div>
+  </div>
+
+  <!-- ── Items ───────────────────────────────────────────────────────── -->
+  <div class=\"items-section\">
+    <table class=\"items-table\">
+      <thead>
+        <tr>
+          <th>Descripción</th>
+          <th class=\"center\">Cant.</th>
+          <th class=\"right\">Precio unit.</th>
+          <th class=\"right\">Subtotal</th>
+        </tr>
+      </thead>
+      <tbody>
+        
+      <tr>
+        <td class=\"product-name\">Producto A</td>
+        <td class=\"center\">2</td>
+        <td class=\"right\">$ 100</td>
+        <td class=\"right subtotal\">$ 200</td>
+      </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ── Total ───────────────────────────────────────────────────────── -->
+  <div class=\"total-section\">
+    <span class=\"total-label\">Total</span>
+    <span class=\"total-amount\">$ 200</span>
+  </div>
+
+  <!-- ── Footer ──────────────────────────────────────────────────────── -->
+  <div class=\"receipt-footer\">
+    <div>
+      <div class=\"footer-thanks\">¡Gracias por su compra!</div>
+      <div class=\"footer-thanks-sub\">Este documento es su comprobante de venta.</div>
+    </div>
+    <div class=\"footer-id\">ID: op1</div>
+  </div>
+
+  <script>
+    // fix/comprobante-print-csp-nonce: sin atributos on*= (script-src los
+    // bloquea igual bajo CSP; el cableado va por addEventListener). Cablea
+    // el botón visible y conserva la apertura automática del diálogo de
+    // impresión — el usuario puede elegir \"Guardar como PDF\" o mandarlo a
+    // una impresora física por cualquiera de los dos caminos.
+    (function () {
+      var btn = document.getElementById(\"receipt-print-button\")
+      if (btn) {
+        btn.addEventListener(\"click\", function () { window.print() })
+      }
+      window.onload = function () { window.print() }
+    })()
+  </script>
+
+</body>
+</html>"
+
+ ❯ __tests__/lib/receipt.test.ts:373:22
+    371|   it("no imprime el email de acceso: sólo existe el del negocio", () =…
+    372|     const html = generateReceiptHTML(makeOp(), { branding: defaultRece…
+    373|     expect(html).not.toMatch(/@/)
+       |                      ^
+    374|   })
+    375|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[12/15]⎯
+
+ FAIL  __tests__/lib/receipt.test.ts > comprobante interno — textos de WhatsApp y portapapeles > el texto largo lleva el contacto del negocio (teléfono, email del negocio, web)
+AssertionError: expected '🧾 *Comprobante de Venta — Mi Negocio…' to contain 'Sumar'
+
+- Expected
++ Received
+
+- Sumar
++ 🧾 *Comprobante de Venta — Mi Negocio*
++
++ 📋 *Comprobante N° OP1*
++ 📅 Viernes, 18 de septiembre de 2026
++
++ *Detalle de la compra:*
++   • Producto A x2 → $ 200
++
++ 💰 *TOTAL: $ 200*
++
++ ¡Gracias por tu compra! 🙌
+
+ ❯ __tests__/lib/receipt.test.ts:386:18
+    384|   it("el texto largo lleva el contacto del negocio (teléfono, email de…
+    385|     const text = generateReceiptText(makeOp(), fullOpts())
+    386|     expect(text).toContain("Sumar")
+       |                  ^
+    387|     expect(text).toContain("2615550999")
+    388|     expect(text).toContain("ventas@sumar.com.ar")
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[13/15]⎯
+
+ FAIL  __tests__/lib/receipt.test.ts > comprobante interno — textos de WhatsApp y portapapeles > el mensaje corto nombra al negocio de la marca
+AssertionError: expected 'Hola Ana 👋\n\nTe enviamos el comprob…' to contain '*Sumar*'
+
+- Expected
++ Received
+
+- *Sumar*
++ Hola Ana 👋
++
++ Te enviamos el comprobante de tu compra en *Mi Negocio*.
++
++ ¡Gracias por tu compra! 🙌
+
+ ❯ __tests__/lib/receipt.test.ts:400:18
+    398|   it("el mensaje corto nombra al negocio de la marca", () => {
+    399|     const text = generateReceiptShortText(makeOp(), { ...fullOpts(), c…
+    400|     expect(text).toContain("*Sumar*")
+       |                  ^
+    401|   })
+    402|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[14/15]⎯
+
+ FAIL  __tests__/lib/receipt.test.ts > comprobante interno — payload del PDF del servidor > ya no manda nombre, teléfono ni email del negocio: los resuelve el servidor
+AssertionError: expected [ 'business_email', …(8) ] to deeply equal [ 'client_name', 'currency', …(4) ]
+
+- Expected
++ Received
+
+@@ -1,6 +1,9 @@
+  [
++   "business_email",
++   "business_name",
++   "business_phone",
+    "client_name",
+    "currency",
+    "date_label",
+    "items",
+    "receipt_number",
+
+ ❯ __tests__/lib/receipt.test.ts:411:41
+    409|   it("ya no manda nombre, teléfono ni email del negocio: los resuelve …
+    410|     const payload = buildSalesReceiptPdfPayload(makeOp(), fullOpts())
+    411|     expect(Object.keys(payload).sort()).toEqual(
+       |                                         ^
+    412|       ["client_name", "currency", "date_label", "items", "receipt_numb…
+    413|     )
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[15/15]⎯
+
+
+ Test Files  1 failed | 2 passed (3)
+      Tests  15 failed | 129 passed (144)
+   Start at  14:52:09
+   Duration  6.98s (transform 318ms, setup 1.49s, import 712ms, tests 316ms, environment 13.35s)
+

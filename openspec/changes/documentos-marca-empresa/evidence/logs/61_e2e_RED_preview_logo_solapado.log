@@ -1,0 +1,111 @@
+[seed-users] creado: qa.e2e@local.test
+[seed-users] creado: qa.logout@local.test
+[seed-users] listo.
+[WebServer]  WARN  The field "pnpm.overrides" was found in C:\Users\Usuario\Desktop\EIE\v0-saa-s-empresarial-completo\.claude\worktrees\sad-shamir-6c7415\frontend/package.json. This will not take effect. You should configure "pnpm.overrides" at the root of the workspace instead.
+
+[WebServer] 
+[WebServer] > my-project@0.1.0 dev C:\Users\Usuario\Desktop\EIE\v0-saa-s-empresarial-completo\.claude\worktrees\sad-shamir-6c7415\frontend
+[WebServer] > next dev --turbo
+[WebServer] 
+
+
+[WebServer] ⚠ Warning: Next.js inferred your workspace root, but it may not be correct.
+[WebServer]  We detected multiple lockfiles and selected the directory of C:\Users\Usuario\Desktop\EIE\v0-saa-s-empresarial-completo\pnpm-lock.yaml as the root directory.
+[WebServer]  To silence this warning, set `turbopack.root` in your Next.js config, or consider removing one of the lockfiles if it's not needed.
+[WebServer]    See https://nextjs.org/docs/app/api-reference/config/next-config-js/turbopack#root-directory for more information.
+[WebServer]  Detected additional lockfiles: 
+[WebServer]    * C:\Users\Usuario\Desktop\EIE\v0-saa-s-empresarial-completo\.claude\worktrees\sad-shamir-6c7415\pnpm-lock.yaml
+[WebServer] 
+[WebServer] ▲ Next.js 16.1.6 (Turbopack)
+
+[WebServer] - Local:         http://localhost:3000
+[WebServer] - Network:       http://192.168.100.10:3000
+[WebServer] - Environments: .env.local
+
+[WebServer] 
+[WebServer] ✓ Starting...
+
+
+[WebServer] ⚠ The "middleware" file convention is deprecated. Please use "proxy" instead. Learn more: https://nextjs.org/docs/messages/middleware-to-proxy
+[WebServer] ✓ Ready in 10s
+
+[WebServer] ○ Compiling / ...
+
+[WebServer]  GET / 200 in 6.9s (compile: 5.3s, proxy.ts: 167ms, render: 1508ms)
+
+[WebServer]  GET / 200 in 375ms (compile: 22ms, proxy.ts: 10ms, render: 343ms)
+
+[WebServer]  GET /auth/login 200 in 389ms (compile: 225ms, proxy.ts: 14ms, render: 150ms)
+
+
+Running 2 tests using 1 worker
+
+[1/2] [setup] › e2e\fixtures\auth.setup.ts:5:6 › authenticate
+[WebServer]  GET /auth/login 200 in 487ms (compile: 66ms, proxy.ts: 10ms, render: 410ms)
+
+[WebServer]  GET /api/auth/token 200 in 640ms (compile: 576ms, proxy.ts: 17ms, render: 48ms)
+
+[WebServer]  POST /auth/login 200 in 373ms (compile: 9ms, proxy.ts: 17ms, render: 347ms)
+
+[WebServer]  GET /api/auth/token 200 in 30ms (compile: 6ms, proxy.ts: 8ms, render: 17ms)
+
+[WebServer]  GET /dashboard 200 in 1751ms (compile: 1173ms, proxy.ts: 193ms, render: 385ms)
+
+[WebServer]  GET /dashboard 200 in 732ms (compile: 84ms, proxy.ts: 280ms, render: 369ms)
+
+[2/2] [chromium] › e2e\documentos-marca.spec.ts:335:9 › Documentos con la marca de la cuenta (stack local) › marca → vista previa → PDF/comprobante con logo y paleta → vendedor en sólo lectura · 1366x768-claro
+[WebServer]  GET /auth/login 200 in 183ms (compile: 6ms, proxy.ts: 7ms, render: 170ms)
+
+[WebServer]  GET /api/auth/token 200 in 185ms (compile: 159ms, proxy.ts: 8ms, render: 18ms)
+
+[WebServer]  GET /api/auth/token 200 in 47ms (compile: 16ms, proxy.ts: 15ms, render: 16ms)
+
+[WebServer]  POST /auth/login 200 in 621ms (compile: 16ms, proxy.ts: 10ms, render: 595ms)
+
+[WebServer]  GET /dashboard 200 in 404ms (compile: 10ms, proxy.ts: 294ms, render: 100ms)
+
+[WebServer]  GET /dashboard 200 in 479ms (compile: 15ms, proxy.ts: 398ms, render: 66ms)
+
+[WebServer] ○ Compiling /configuracion ...
+
+[WebServer]  GET /configuracion?tab=documentos 200 in 6.0s (compile: 5.0s, proxy.ts: 382ms, render: 662ms)
+
+[WebServer]  GET /api/auth/token 200 in 29ms (compile: 9ms, proxy.ts: 8ms, render: 12ms)
+
+  1) [chromium] › e2e\documentos-marca.spec.ts:335:9 › Documentos con la marca de la cuenta (stack local) › marca → vista previa → PDF/comprobante con logo y paleta → vendedor en sólo lectura · 1366x768-claro 
+
+    Error: 1366x768-claro logo recién subido: el logo (786-930) se superpone con el título (911-1006)
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: true
+    Received: false
+
+      305 |   const sideBySide = logo.right <= title.left + 0.5
+      306 |   const stacked = logo.bottom <= title.top + 0.5
+    > 307 |   expect(sideBySide || stacked, `${label}: el logo (${logo.left.toFixed(0)}-${logo.right.toFixed(0)}) se superpone con el título (${title.left.toFixed(0)}-${title.right.toFixed(0)})`).toBe(true)
+          |                                                                                                                                                                                         ^
+      308 |   expect(logo.left, `${label}: el logo se sale del papel por la izquierda`).toBeGreaterThanOrEqual(paper.left - 0.5)
+      309 |   expect(title.right, `${label}: el título se sale del papel por la derecha`).toBeLessThanOrEqual(paper.right + 0.5)
+      310 |   expect(logo.right, `${label}: el logo se sale del papel por la derecha`).toBeLessThanOrEqual(paper.right + 0.5)
+        at expectPreviewLogoClearOfTitle (C:\Users\Usuario\Desktop\EIE\v0-saa-s-empresarial-completo\.claude\worktrees\sad-shamir-6c7415\frontend\e2e\documentos-marca.spec.ts:307:185)
+        at C:\Users\Usuario\Desktop\EIE\v0-saa-s-empresarial-completo\.claude\worktrees\sad-shamir-6c7415\frontend\e2e\documentos-marca.spec.ts:378:9
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results\documentos-marca-Documento-8af93-lo-lectura-·-1366x768-claro-chromium\test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results\documentos-marca-Documento-8af93-lo-lectura-·-1366x768-claro-chromium\error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results\documentos-marca-Documento-8af93-lo-lectura-·-1366x768-claro-chromium\trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results\documentos-marca-Documento-8af93-lo-lectura-·-1366x768-claro-chromium\trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+  1 failed
+    [chromium] › e2e\documentos-marca.spec.ts:335:9 › Documentos con la marca de la cuenta (stack local) › marca → vista previa → PDF/comprobante con logo y paleta → vendedor en sólo lectura · 1366x768-claro 
+  1 passed (56.9s)

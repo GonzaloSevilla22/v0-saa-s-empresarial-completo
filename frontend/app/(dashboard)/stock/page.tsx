@@ -313,6 +313,7 @@ export default function StockPage() {
         mobileCard={buildMobileCard(unitSymbolFor)}
         exportColumns={[
           { key: "name",     header: "Producto"      },
+          { key: "sku",      header: "SKU"           },
           { key: "category", header: "Categoría"     },
           { key: "stock",    header: "Stock actual"  },
           { key: "minStock", header: "Stock mínimo"  },

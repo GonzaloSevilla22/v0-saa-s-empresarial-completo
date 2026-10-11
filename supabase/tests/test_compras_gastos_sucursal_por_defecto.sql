@@ -248,9 +248,9 @@ DECLARE
 
   -- Cuerpos que deja 20261076000001: md5(replace(prosrc, E'\r', '')), medidos en
   -- el stack local después de aplicarla. Son el `v_rewritten` de su preflight.
-  v_md5_create        constant text := '__MD5_CREATE__';
-  v_md5_edit_purchase constant text := '__MD5_EDIT_PURCHASE__';
-  v_md5_edit_expense  constant text := '__MD5_EDIT_EXPENSE__';
+  v_md5_create        constant text := '361a1ffc0c3e31ee2bb1b677cfab2394';
+  v_md5_edit_purchase constant text := '2d4c92f6fd3dbfd52d2225edb0a82827';
+  v_md5_edit_expense  constant text := 'bb8e7d02f737937fdd120804722a3151';
 
   -- Cuenta A (principal A0 + B): bloques (1), (6), (7), (8), (9), (10).
   r_a jsonb; v_user_a uuid; v_acc_a uuid; v_a0 uuid; v_b uuid;

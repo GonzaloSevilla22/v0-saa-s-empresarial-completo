@@ -1338,6 +1338,47 @@ jobs:
           fi
           echo "20261075000001 y 20261075000002 idempotentes: 3 NOTICE de reaplicación, introspección OK, 0 ventas asignadas por el backfill y schema IDÉNTICO al previo a este paso."
 
+          # compras-gastos-sucursal-por-defecto (2026-10-11, governance MEDIA con
+          # tramo ALTO): reaplicación de 20261076000001 (las tres funciones: el alta
+          # y la edición de compra, y la edición de gasto) AL FINAL de la cadena,
+          # DESPUÉS de 20261075000001/2 (que no tocan ninguna de ellas). Ninguna
+          # migración reaplicada antes de este punto redefine estas funciones (el
+          # bloque de 20261062000001 se retiró, y las de 20261070000001 y
+          # 20261071000001 sólo tocan venta y remitos), así que ya después del reset
+          # el cuerpo vivo ES el de esta migración: las DOS pasadas imprimen los
+          # TRES NOTICE «ya es el cuerpo de esta migración» (reaplicación pura). SIN
+          # tolerancia, y el schema (constraints + firmas + ACLs) tiene que quedar
+          # IDÉNTICO tras cada pasada. NO hay migración de datos (OQ-1 (a): los
+          # históricos no se rellenan).
+          #
+          # REGLA PARA EL PR SIGUIENTE (design D6/D12): una migración posterior que
+          # redefina cualquiera de las tres funciones (p. ej. remitos-compra tanda
+          # B, que extrae _purchase_operation_core desde rpc_create_purchase_
+          # operation) tiene que RETIRAR este bloque en el mismo PR (su preflight
+          # abortaría, igual que el de 20261062000001 y el de 20261075000001) y
+          # apuntar el bloque (0) de test_compras_gastos_sucursal_por_defecto.sql al
+          # cuerpo que contenga la lógica (el núcleo), actualizando los md5.
+          CGSD_OUT1=$(psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261076000001_compras_gastos_sucursal_por_defecto.sql 2>&1) || { echo "$CGSD_OUT1"; echo "ERROR: el reapply de 20261076000001 falló (sin tolerancia)."; exit 1; }
+          echo "$CGSD_OUT1"
+          CGSD_OUT2=$(psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261076000001_compras_gastos_sucursal_por_defecto.sql 2>&1) || { echo "$CGSD_OUT2"; echo "ERROR: la segunda pasada de 20261076000001 falló (sin tolerancia)."; exit 1; }
+          echo "$CGSD_OUT2"
+          CGSD_REAPPLIED=$(echo "$CGSD_OUT2" | grep -cF 'ya es el cuerpo de esta migración' || true)
+          if [ "$CGSD_REAPPLIED" != "3" ]; then
+            echo "ERROR: la segunda pasada de 20261076000001 imprimió $CGSD_REAPPLIED de 3 NOTICE de reaplicación (ya es el cuerpo de esta migración)."
+            exit 1
+          fi
+          if ! echo "$CGSD_OUT2" | grep -qF 'compras-gastos-sucursal-por-defecto (introspecci'; then
+            echo "ERROR: el reapply de 20261076000001 no imprimió el OK de su bloque de introspección."
+            exit 1
+          fi
+          schema_snapshot > /tmp/schema_after_cgsd_reapply.txt
+          if ! diff -u /tmp/schema_before_reapply.txt /tmp/schema_after_cgsd_reapply.txt > /tmp/schema_diff_cgsd.txt; then
+            echo "NOT IDEMPOTENT: reaplicar 20261076000001 cambió el schema (constraints + firmas de función + ACLs):"
+            cat /tmp/schema_diff_cgsd.txt
+            exit 1
+          fi
+          echo "20261076000001 idempotente: 3 NOTICE de reaplicación, introspección OK y schema IDÉNTICO al previo a este paso."
+
           # stock-movimientos-sucursal-origen (2026-10-11, governance ALTA):
           # reaplicación de 20261077000001 (rpc_reverse_stock_movement con el
           # respaldo a la principal operativa cuando la sucursal del movimiento
@@ -1914,7 +1955,9 @@ jobs:
       #     rechazo de kind='credit' con P0400 (D3, el gasto a crédito es una
       #     compra a proveedor);
       #   - inmutabilidad P0423 con mensajes distinguibles por pata (caja /
-      #     bancario) y contrato tri-estado de la edición;
+      #     bancario) y contrato tri-estado de la edición (forma de pago y centro
+      #     de costo desimputan con el nulo; la SUCURSAL, desde compras-gastos-
+      #     sucursal-por-defecto, registra la default — 4.3b/4.3c/4.4/4.4b);
       #   - borrado que compensa las DOS patas (expense_reversal POSITIVO en
       #     caja con el guard de signo INVERTIDO respecto de la venta, y
       #     transfer_in espejo en banco) y P0426 cuando no hay ninguna sesión
@@ -2898,6 +2941,37 @@ jobs:
       # relativo). created_at explícito en las sucursales y los movimientos.
       - name: Run ventas sucursal por defecto gate
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_ventas_sucursal_por_defecto.sql
+
+      # compras-gastos-sucursal-por-defecto (2026-10-11, governance MEDIA con tramo
+      # ALTO; sign-off del PO «vamos con todo lo recomendado»). `supabase start` ya
+      # aplicó 20261076000001; este paso corre su gate, que EJECUTA las tres RPCs
+      # contra Postgres real, con cuatro cuentas sintéticas. (0) introspección de
+      # los cuerpos VIVOS (sucursal resuelta en los seis puntos de la compra,
+      # guards no_branch_found y branch_closed, md5 = el del preflight, COMMENT, una
+      # firma, ACLs; falla explícito si una reaplicación de CI pisó un cuerpo, y es
+      # el bloque que hay que apuntar al núcleo cuando remitos-compra tanda B
+      # extraiga _purchase_operation_core); (1) alta sin sucursal: purchases,
+      # stock_movements y branch_stock en la principal, el ledger reconstruye por
+      # (producto, sucursal) y el replay no duplica; (2) principal cerrada -> la
+      # siguiente operativa; (3) ninguna sucursal operativa -> P0422
+      # no_branch_found sin filas, sin idempotencia y sin tocar stock; (4) cuenta sin
+      # sucursales -> P0422 y ninguna "Casa Central" creada; (5) sucursal ELEGIDA
+      # cerrada -> P0422 branch_closed (OQ-2 (a)), inactiva y ajena -> P0404; (6)
+      # caja: la compra en efectivo SIN sucursal elegida con la sesión de la
+      # principal se registra (el opt-in pre-marcado que hoy se rechaza), con la de
+      # otra sucursal se rechaza; (7) banco: la MISMA sucursal que la compra; (8)
+      # edición de compra: NULL informado o vigente -> la principal (REVERSE y APPLY
+      # netos), proveedor y centro de costo preservados, sin sucursal operativa se
+      # rechaza ANTES de tocar stock; (9) edición de gasto: NULL informado, residual
+      # o histórico -> la principal, forma de pago y centro de costo siguen
+      # desimputándose, y sin sucursal operativa persiste c26_default_branch (OQ-3
+      # (a)); (10) borrado ejecutado: repone en la sucursal del movimiento; (11)
+      # remito -> compra, sólo si existe rpc_convert_delivery_note_to_purchase.
+      # created_at explícito y estrictamente posterior en las sucursales sintéticas
+      # (c26_default_branch no desempata) y limpieza completa. Mutaciones M1-M9
+      # corridas a mano (detalle en el change).
+      - name: Run compras gastos sucursal por defecto gate
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_compras_gastos_sucursal_por_defecto.sql
 
       # stock-movimientos-sucursal-origen (2026-10-11, governance ALTA; decisión
       # del PO «vamos con todo lo recomendado»: OQ-A (a), OQ-B (a), OQ-C (a),

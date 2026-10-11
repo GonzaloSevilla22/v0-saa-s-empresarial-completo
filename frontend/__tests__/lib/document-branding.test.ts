@@ -23,6 +23,7 @@ import {
   formToPayload,
   isSafeHexColor,
   isSafeLogoDataUri,
+  paletteForPreview,
   parseDocumentBranding,
   previewIssuer,
   toReceiptBranding,
@@ -382,5 +383,47 @@ describe("defaultReceiptBranding", () => {
   it("sin nombre (o en blanco) usa Mi Negocio", () => {
     expect(defaultReceiptBranding().issuer.name).toBe("Mi Negocio")
     expect(defaultReceiptBranding("   ").issuer.name).toBe("Mi Negocio")
+  })
+})
+
+// ─── paletteForPreview: los roles de color de una paleta, para la vista previa SIN guardar ───
+
+describe("paletteForPreview", () => {
+  const BASE = DEFAULT_DOCUMENT_BRANDING.palette
+
+  it("Neutro: sin acento, todo en tinta y la cabecera de la tabla en la superficie clara", () => {
+    const p = paletteForPreview(null, BASE, "neutro")
+    expect(p).toMatchObject({
+      key: "neutro", accent: null, heading: "#1e293b", strong_rule: "#1e293b", total: "#1e293b",
+      accepted_stamp: "#1e293b", table_head_fill: "#f1f5f9", table_head_text: "#1e293b",
+    })
+  })
+
+  it("con acento: título, regla, cabecera, total y sello en el acento; texto blanco sobre la banda", () => {
+    const p = paletteForPreview("#1d4ed8", BASE, "azul")
+    expect(p).toMatchObject({
+      key: "azul", accent: "#1d4ed8", heading: "#1d4ed8", strong_rule: "#1d4ed8", total: "#1d4ed8",
+      accepted_stamp: "#1d4ed8", table_head_fill: "#1d4ed8", table_head_text: "#ffffff",
+    })
+    expect(p.ink).toBe("#1e293b")
+  })
+
+  it("coincide con la paleta que resuelve el servidor para el mismo acento", () => {
+    // Mismos valores que `palette_as_hex(resolve_palette("azul", None))` (test_document_branding_api.py).
+    expect(paletteForPreview("#1d4ed8", BASE, "azul")).toEqual({
+      key: "azul", accent: "#1d4ed8", ink: "#1e293b", muted: "#64748b", rule: "#94a3b8", surface: "#f1f5f9",
+      heading: "#1d4ed8", strong_rule: "#1d4ed8", table_head_fill: "#1d4ed8", table_head_text: "#ffffff",
+      total: "#1d4ed8", accepted_stamp: "#1d4ed8",
+    })
+  })
+
+  it("un acento ilegible o inválido se muestra como Neutro (el servidor lo rechazaría)", () => {
+    expect(paletteForPreview("#10b981", BASE, "personalizado").accent).toBeNull()
+    expect(paletteForPreview("no-es-color", BASE, "personalizado").accent).toBeNull()
+    expect(paletteForPreview("#10b981", BASE, "personalizado").heading).toBe("#1e293b")
+  })
+
+  it("un acento válido pero escrito en mayúsculas se normaliza", () => {
+    expect(paletteForPreview("#7C2D12", BASE, "personalizado").accent).toBe("#7c2d12")
   })
 })

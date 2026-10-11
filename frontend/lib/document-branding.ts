@@ -20,7 +20,15 @@
  */
 
 import { z } from "zod"
-import { displayContrast, hexToRgb, contrastRatio, MIN_ACCENT_CONTRAST, WHITE } from "@/lib/color-contrast"
+import {
+  MIN_ACCENT_CONTRAST,
+  WHITE,
+  bestTextOn,
+  contrastRatio,
+  displayContrast,
+  hexToRgb,
+  isValidAccent,
+} from "@/lib/color-contrast"
 import { formatCuit, isValidCuit } from "@/lib/cuit-utils"
 
 // ─── Contrato de la API ──────────────────────────────────────────────────────
@@ -343,9 +351,54 @@ export function formToPayload(form: BrandingForm): BrandingPayload {
   }
 }
 
+// ─── Paleta de la vista previa (sin guardar) ─────────────────────────────────
+
+function rgbToHex({ r, g, b }: { r: number; g: number; b: number }): string {
+  return "#" + [r, g, b].map((channel) => channel.toString(16).padStart(2, "0")).join("")
+}
+
+/**
+ * Los colores de un papel para un acento dado, con los MISMOS roles que
+ * `DocumentPalette` del servidor (título, regla, total y sello en el acento; cabecera de la
+ * tabla en el acento con texto blanco o tinta, el de mayor contraste; Neutro = todo en tinta
+ * y cabecera en la superficie clara). Sólo se usa para la vista previa de lo que se está
+ * eligiendo ANTES de guardar; lo guardado lo resuelve el servidor (`palette` del `GET`). Un
+ * acento inválido o ilegible se ve como Neutro, igual que lo dibujaría el servidor.
+ */
+export function paletteForPreview(accent: string | null, base: ResolvedPalette, key: string): ResolvedPalette {
+  const normalized = accent?.trim().toLowerCase() ?? null
+  const valid = normalized !== null && isValidAccent(normalized) ? normalized : null
+  if (valid === null) {
+    return {
+      ...base,
+      key: "neutro",
+      accent: null,
+      heading: base.ink,
+      strong_rule: base.ink,
+      total: base.ink,
+      accepted_stamp: base.ink,
+      table_head_fill: base.surface,
+      table_head_text: base.ink,
+    }
+  }
+  const text = bestTextOn(hexToRgb(valid)!)
+  return {
+    ...base,
+    key,
+    accent: valid,
+    heading: valid,
+    strong_rule: valid,
+    total: valid,
+    accepted_stamp: valid,
+    table_head_fill: valid,
+    table_head_text: rgbToHex(text),
+  }
+}
+
 // ─── Vista previa del emisor (refleja la cascada del servidor) ───────────────
 
-const ISSUER_IVA_LEGEND: Record<string, string> = {
+/** Leyenda de IVA que imprimen los papeles según la condición del perfil fiscal. */
+export const ISSUER_IVA_LEGEND: Record<string, string> = {
   monotributista: "IVA RESPONSABLE MONOTRIBUTO",
   exento: "IVA EXENTO",
   responsable_inscripto: "IVA RESPONSABLE INSCRIPTO",

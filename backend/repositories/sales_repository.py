@@ -7,9 +7,12 @@ from decimal import Decimal
 import asyncpg
 
 from backend.repositories.base import BaseRepository
+from backend.repositories.commercial_document_support import CommercialIssuerMixin
 
 
-class SalesRepository(BaseRepository):
+class SalesRepository(CommercialIssuerMixin, BaseRepository):
+    # CommercialIssuerMixin: la marca de la cuenta para el comprobante interno de venta
+    # (documentos-marca-empresa D7) se lee por `rpc_commercial_issuer`, como en el presupuesto.
     async def list_by_org(self, account_id: str) -> list[dict]:
         return await self.fetch(
             "SELECT * FROM sales WHERE account_id = $1 ORDER BY date DESC",

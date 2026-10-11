@@ -48,6 +48,7 @@ from backend.core.auth import get_current_user
 from backend.core.config import settings
 from backend.core.database import get_db_conn, get_service_conn
 from backend.core.deps import get_account_id
+from backend.repositories.document_branding_repository import DocumentBrandingRepository
 from backend.repositories.fiscal_document_repository import FiscalDocumentRepository
 from backend.repositories.fiscal_profile_repository import FiscalProfileRepository
 from backend.repositories.point_of_sale_repository import PointOfSaleRepository
@@ -83,6 +84,11 @@ def get_pv_repo(conn: asyncpg.Connection = Depends(get_db_conn)) -> PointOfSaleR
 
 def get_fd_repo(conn: asyncpg.Connection = Depends(get_db_conn)) -> FiscalDocumentRepository:
     return FiscalDocumentRepository(conn)
+
+
+def get_branding_repo(conn: asyncpg.Connection = Depends(get_db_conn)) -> DocumentBrandingRepository:
+    """La marca de la cuenta (logo, contacto y color) que lleva la factura impresa."""
+    return DocumentBrandingRepository(conn)
 
 
 # ── FiscalProfile endpoints ───────────────────────────────────────────────────
@@ -344,16 +350,19 @@ async def get_fiscal_document_pdf(
     account_id: uuid.UUID = Depends(get_account_id),
     doc_repo: FiscalDocumentRepository = Depends(get_fd_repo),
     profile_repo: FiscalProfileRepository = Depends(get_fp_repo),
+    branding_repo: DocumentBrandingRepository = Depends(get_branding_repo),
 ) -> Response:
     """Factura impresa (PDF) de un comprobante autorizado — factura-fiscal-imprimible.
 
     Reglas en `invoice_print_service`: 404 idéntico para uno ajeno o
     inexistente, 409 RFC 7807 si no está autorizado o faltan datos para
     imprimirlo. `copia=duplicado` cambia la leyenda (OQ-2). `no-store`: una
-    factura con datos fiscales no se guarda en cachés compartidas.
+    factura con datos fiscales no se guarda en cachés compartidas. Lleva la
+    marca de la cuenta (documentos-marca-empresa): logo, contacto y color de
+    la banda y del título; lo fiscal no cambia.
     """
     pdf, filename = await invoice_print_service.get_invoice_pdf(
-        doc_repo, profile_repo, str(account_id), doc_id, copy=copia,
+        doc_repo, profile_repo, branding_repo, str(account_id), doc_id, copy=copia,
     )
     return Response(
         content=pdf,

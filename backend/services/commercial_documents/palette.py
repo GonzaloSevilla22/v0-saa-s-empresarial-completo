@@ -48,8 +48,8 @@ WHITE: RGB = (255, 255, 255)
 MIN_ACCENT_CONTRAST = 4.5
 
 # Base compartida por todas las paletas = la tinta de la Factura C
-# (`invoice_pdf._INK/_MUTED/_RULE/_HEAD_FILL`, que pasan a importarla en la
-# tanda B). #1e293b sobre blanco mide 14,63:1; #64748b, 4,76:1.
+# (`invoice_pdf._INK/_MUTED/_RULE` importan estos valores desde NEUTRAL, y la banda
+# de su tabla toma `table_head_fill`). #1e293b sobre blanco mide 14,63:1; #64748b, 4,76:1.
 _INK: RGB = (30, 41, 59)
 _MUTED: RGB = (100, 116, 139)
 _RULE: RGB = (148, 163, 184)

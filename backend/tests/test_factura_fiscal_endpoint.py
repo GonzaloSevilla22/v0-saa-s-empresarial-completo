@@ -80,10 +80,17 @@ def _auth():
 
 
 async def _get(async_client, mock_pool, *, document, profile=PROFILE, invoice=INVOICE,
-               path=None, headers=None):
+               path=None, headers=None, issuer=None):
+    """`issuer`: doble de `rpc_commercial_issuer` (la marca de la cuenta). Sin él responde `None`, es decir
+    una cuenta que nunca configuró su marca: la factura sale como siempre. Se declara acá, y no se deja al
+    `fetchval` pelado del mock del pool, para que la marca sea una dependencia EXPLÍCITA del endpoint."""
     pool, _conn = mock_pool
+    issuer = issuer if issuer is not None else AsyncMock(return_value=None)
     with (
         patch("backend.core.database.pool", pool),
+        patch("backend.repositories.commercial_document_support.CommercialIssuerMixin.get_commercial_issuer", issuer),
+        patch("backend.repositories.commercial_document_support.CommercialIssuerMixin.get_document_logo",
+              AsyncMock(return_value=None)),
         patch("backend.repositories.fiscal_document_repository.FiscalDocumentRepository.get_by_id",
               AsyncMock(return_value=document)) as get_by_id,
         patch("backend.repositories.fiscal_document_repository.FiscalDocumentRepository.get_invoice_lines",
@@ -129,6 +136,42 @@ class TestEndpoint:
         pypdf = pytest.importorskip("pypdf")
         text = "".join(p.extract_text() for p in pypdf.PdfReader(io.BytesIO(resp.content)).pages)
         assert "DUPLICADO" in text and "ORIGINAL" not in text
+
+    async def test_la_factura_lleva_la_marca_de_la_cuenta_del_request(self, async_client, mock_pool):
+        """documentos-marca-empresa (tanda B): el contacto y la paleta de la marca de la cuenta viajan a la
+        factura; la marca se pide con el `account_id` del request, el mismo con que se leyó el comprobante."""
+        issuer = AsyncMock(return_value={"brand_phone": "2615550101", "brand_email": "ventas@negocio.com.ar",
+                                         "palette_preset": "azul"})
+        resp, get_by_id = await _get(async_client, mock_pool, document=doc(), issuer=issuer)
+
+        assert resp.status_code == 200
+        pypdf = pytest.importorskip("pypdf")
+        text = "".join(p.extract_text() for p in pypdf.PdfReader(io.BytesIO(resp.content)).pages)
+        assert "2615550101" in text and "ventas@negocio.com.ar" in text
+        assert issuer.await_args.args[-1] == str(TEST_ACCOUNT_ID) == get_by_id.await_args.args[1]
+
+    async def test_sin_marca_la_factura_no_cambia(self, async_client, mock_pool):
+        resp, _ = await _get(async_client, mock_pool, document=doc(),
+                             issuer=AsyncMock(return_value={"phone": "2615550101"}))   # sólo el teléfono del dueño
+
+        assert resp.status_code == 200
+        pypdf = pytest.importorskip("pypdf")
+        text = "".join(p.extract_text() for p in pypdf.PdfReader(io.BytesIO(resp.content)).pages)
+        assert "2615550101" not in text
+
+    async def test_un_comprobante_ajeno_no_consulta_la_marca(self, async_client, mock_pool):
+        issuer = AsyncMock(return_value={"brand_phone": "2615550101"})
+        resp, _ = await _get(async_client, mock_pool, document=None, issuer=issuer)
+
+        assert resp.status_code == 404
+        issuer.assert_not_awaited()
+
+    async def test_si_la_marca_falla_la_factura_se_descarga_igual(self, async_client, mock_pool):
+        """Un detalle de presentación no puede bloquear la reimpresión de una factura autorizada."""
+        resp, _ = await _get(async_client, mock_pool, document=doc(),
+                             issuer=AsyncMock(side_effect=RuntimeError("la base no contesta")))
+
+        assert resp.status_code == 200 and resp.content.startswith(b"%PDF")
 
     async def test_otra_cuenta_e_inexistente_responden_igual(self, async_client, mock_pool):
         """Contrato HTTP: un comprobante ajeno llega del repositorio como None,

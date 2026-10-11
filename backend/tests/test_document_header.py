@@ -22,6 +22,7 @@ from PIL import Image
 from pypdf import PdfReader
 
 from backend.services.commercial_documents.header import (
+    NAME_LINE_HEIGHT,
     HeaderLine,
     IssuerBlock,
     draw_issuer_column,
@@ -273,3 +274,31 @@ def test_each_text_is_drawn_exactly_where_the_layout_said():
         reference.set_xy(18, item.y)
         reference.multi_cell(WIDTH, item.line_height, needle, align="L", new_x="LEFT", new_y="NEXT")
         assert _origin_y(drawn, needle) == pytest.approx(_origin_y(reference, needle), abs=0.01), needle
+
+
+# ── alto de renglón propio (documentos-marca-empresa, tanda B: la Factura C) ──
+# La columna del emisor de la Factura C ya tenía alturas de renglón fijas (7 mm el nombre de 15 pt, 4,2 mm el
+# domicilio de 8,5 pt…); para que SIN marca su diseño no se mueva, el helper acepta una altura propia por
+# renglón. Los otros papeles no las usan: el valor por defecto (la mitad del cuerpo) no cambia.
+
+def test_a_line_height_of_its_own_changes_the_measured_height_and_the_y_of_the_next_line():
+    block = IssuerBlock(
+        name="Sumar", name_size=15.0, name_line_height=7.0,
+        lines=(HeaderLine("Av. San Martín 1234", size=8.5, muted=False, line_height=4.2),
+               HeaderLine("IVA RESPONSABLE MONOTRIBUTO", bold=True, size=8.5, muted=False, line_height=4.5)),
+    )
+    layout = layout_issuer_column(_pdf(), 18, 20, WIDTH, block, LOGO_BOX)
+    name, address, iva = layout.items
+
+    assert (name.line_height, address.line_height, iva.line_height) == (7.0, 4.2, 4.5)
+    assert address.y == pytest.approx(20 + 7.0)
+    assert iva.y == pytest.approx(20 + 7.0 + 4.2)
+    assert layout.height == pytest.approx(7.0 + 4.2 + 4.5)
+
+
+def test_without_a_line_height_of_its_own_nothing_changes():
+    block = IssuerBlock(name="Sumar", lines=(HeaderLine("Av. San Martín 1234", size=8.5),))
+    layout = layout_issuer_column(_pdf(), 18, 20, WIDTH, block, LOGO_BOX)
+
+    assert layout.items[0].line_height == NAME_LINE_HEIGHT == 8.0
+    assert layout.items[1].line_height == pytest.approx(8.5 * 0.5)

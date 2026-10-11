@@ -1,0 +1,28 @@
+
+ RUN  v4.1.8 C:/Users/Usuario/Desktop/EIE/v0-saa-s-empresarial-completo/.claude/worktrees/sad-shamir-6c7415/frontend
+
+ ❯ __tests__/components/stock-import-adjustment-dialog-motivo.test.tsx (8 tests | 1 failed) 2180ms
+     × «Transferencia salida» bloquea la fila y deriva a «Transferir stock»: jamás llega a la RPC 156ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  __tests__/components/stock-import-adjustment-dialog-motivo.test.tsx > StockImportAdjustmentDialog — motivo obligatorio > «Transferencia salida» bloquea la fila y deriva a «Transferir stock»: jamás llega a la RPC
+Error: [2mexpect([22m[31melement[39m[2m).toBeInTheDocument()[22m
+
+[31melement could not be found in the document[39m
+ ❯ __tests__/components/stock-import-adjustment-dialog-motivo.test.tsx:110:79
+    108|     async (alias) => {
+    109|       await uploadCsv(`${HEADER}\nHarina 000;${alias};4;Movimiento de …
+    110|       expect(await screen.findByText(/Transferir stock/i, { selector: …
+       |                                                                               ^
+    111|       expect(screen.getByRole("button", { name: /Aplicar 0 ajustes/ })…
+    112|       expect(rpcMock).not.toHaveBeenCalled()
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 2 passed (3)
+      Tests  1 failed | 19 passed (20)
+   Start at  16:37:20
+   Duration  14.34s (transform 1.06s, setup 1.53s, import 5.07s, tests 14.88s, environment 12.18s)
+

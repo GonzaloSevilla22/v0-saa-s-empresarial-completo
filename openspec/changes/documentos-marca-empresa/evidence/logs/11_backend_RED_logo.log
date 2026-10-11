@@ -1,0 +1,6 @@
+    from backend.services.commercial_documents import logo as logo_module
+E   ImportError: cannot import name 'logo' from 'backend.services.commercial_documents' (C:\Users\Usuario\Desktop\EIE\v0-saa-s-empresarial-completo\.claude\worktrees\sad-shamir-6c7415\backend\services\commercial_documents\__init__.py)
+=========================== short test summary info ===========================
+ERROR backend\tests\test_document_logo.py
+!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!
+1 error in 0.71s

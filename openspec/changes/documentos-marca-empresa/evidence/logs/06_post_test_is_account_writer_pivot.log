@@ -1,0 +1,5 @@
+DO
+NOTICE:  PASS (1): is_account_writer conserva su firma (1 arg) y las 45 policies sobre 18 tablas.
+NOTICE:  GATE DEGRADED: no hay ningún auth.users para anclar el fixture — se omite el resto del gate.
+DO
+GATE_EXIT=0

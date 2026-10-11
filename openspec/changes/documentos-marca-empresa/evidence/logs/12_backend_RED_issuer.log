@@ -1,0 +1,8 @@
+FAILED backend\tests\test_commercial_document_pdf.py::TestIssuerCascade::test_the_footer_note_comes_only_from_the_brand[domicilio de la marca cuando el fiscal falta]
+FAILED backend\tests\test_commercial_document_pdf.py::TestIssuerCascade::test_the_footer_note_comes_only_from_the_brand[responsable inscripto]
+FAILED backend\tests\test_commercial_document_pdf.py::TestIssuerCascade::test_the_footer_note_comes_only_from_the_brand[exento]
+FAILED backend\tests\test_commercial_document_pdf.py::TestIssuerCascade::test_the_footer_note_comes_only_from_the_brand[una condici\xf3n que no es de emisor no imprime leyenda]
+FAILED backend\tests\test_commercial_document_pdf.py::TestIssuerCascade::test_the_footer_note_comes_only_from_the_brand[los textos en blanco no cuentan como dato]
+FAILED backend\tests\test_commercial_document_pdf.py::TestIssuerCascade::test_a_vendor_who_is_not_the_owner_gets_the_owners_phone
+FAILED backend\tests\test_commercial_document_pdf.py::TestBuildCommercialDocumentPdf::test_issuer_with_fiscal_data_prints_it_and_without_omits_it
+51 failed, 4 passed, 98 deselected in 13.78s

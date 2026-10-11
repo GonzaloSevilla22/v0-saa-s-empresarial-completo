@@ -1,0 +1,8 @@
+constraints | b0fc615db4585059147e828285a59249
+policies | fb60b39927b6fdf62dc29cc88ab3883c
+table_acl | {postgres=arwdDxtm/postgres,authenticated=arwm/postgres,service_role=arwdDxtm/postgres}
+columns | 6f6b414fd58dc0d28577b3d141a54465
+guard_fn | d3557ebcf6ee754ea18d99bad0f27c87{postgres=X/postgres,service_role=X/postgres}
+trigger | 84d00630548de159afcc1b8fe087a4bd
+rpc | ac2953b9f033a89358ee7f0ce7e04d00{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}commercial-document-pdf (D8) + document-branding (D4): datos del emisor y de la marca de la cuenta para los papeles — 18 claves: nombre_fantasia, razon_social, cuit, domicilio_comercial, iva_condition (fiscal_profiles); business_name, phone (profiles del dueño); brand_display_name, brand_legal_name, brand_tax_id, brand_address, brand_phone, brand_email, brand_website, brand_footer_note, palette_preset, accent_color y logo_sha256 (account_branding; NUNCA la imagen). Miembro de la cuenta o P0404 account_not_found. SECURITY DEFINER porque la RLS de profiles sólo deja ver el perfil propio. Sin ningún email de acceso (no lee auth.users).
+n_funcs | 2

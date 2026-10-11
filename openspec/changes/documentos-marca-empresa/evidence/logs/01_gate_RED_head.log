@@ -1,0 +1,82 @@
+ERROR:  GATE DOCUMENTOS-MARCA-EMPRESA (a,e) FAILED:
+  (a) la tabla public.account_branding no existe
+  (e) el COMMENT de rpc_commercial_issuer debía citar document-branding; es: commercial-document-pdf (D8): datos del emisor para el PDF comercial — sólo nombre_fantasia, razon_social, cuit, domicilio_comercial (fiscal_profiles) y business_name, phone (profiles del dueño). Miembro de la cuenta o P0404 account_not_found. SECURITY DEFINER porque la RLS de profiles sólo deja ver el perfil propio. Sin email.
+CONTEXT:  PL/pgSQL function inline_code_block line 152 at RAISE
+CREATE FUNCTION
+CREATE FUNCTION
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=a1ddf863-2f0e-4007-a742-0c08e8b3f18f
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=29204841-94c0-45cd-a61a-0e2b2fc8171e
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=78b5ad2e-5120-4912-872a-903242d555e3
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=b35e301b-882a-4830-bcc3-f5369469e96c
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=36a91d12-0b95-4539-a866-5762a6b79da8
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=29d1e8e7-7d21-40ab-9405-8b0c8b955aaf
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=5d8ff77b-ddb0-45bc-8ea9-3ba38a772066
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=7c5a3727-516a-436e-8d7e-df40079b470a
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=9eca9abd-b095-4404-a38a-282c29082add
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=dddc6f54-c9fd-4511-acf3-472f9dd80c36
+ERROR:  GATE DOCUMENTOS-MARCA-EMPRESA (b,c,d) FAILED:
+  (b) display_name válido (80): se esperaba ok; salió 42P01:
+  (b) display_name en blanco: se esperaba 23514:account_branding_display_name_check; salió 42P01:
+  (b) display_name vacío: se esperaba 23514:account_branding_display_name_check; salió 42P01:
+  (b) display_name 81 caracteres: se esperaba 23514:account_branding_display_name_check; salió 42P01:
+  (b) legal_name válido (120): se esperaba ok; salió 42P01:
+  (b) legal_name 121 caracteres: se esperaba 23514:account_branding_legal_name_check; salió 42P01:
+  (b) legal_name en blanco: se esperaba 23514:account_branding_legal_name_check; salió 42P01:
+  (b) address válido (200): se esperaba ok; salió 42P01:
+  (b) address 201 caracteres: se esperaba 23514:account_branding_address_check; salió 42P01:
+  (b) address en blanco: se esperaba 23514:account_branding_address_check; salió 42P01:
+  (b) phone válido (40): se esperaba ok; salió 42P01:
+  (b) phone 41 caracteres: se esperaba 23514:account_branding_phone_check; salió 42P01:
+  (b) phone en blanco: se esperaba 23514:account_branding_phone_check; salió 42P01:
+  (b) footer_note válido (280): se esperaba ok; salió 42P01:
+  (b) footer_note 281 caracteres: se esperaba 23514:account_branding_footer_note_check; salió 42P01:
+  (b) footer_note en blanco: se esperaba 23514:account_branding_footer_note_check; salió 42P01:
+  (b) email válido: se esperaba ok; salió 42P01:
+  (b) email sin arroba: se esperaba 23514:account_branding_email_check; salió 42P01:
+  (b) email con espacio: se esperaba 23514:account_branding_email_check; salió 42P01:
+  (b) email sin dominio con punto: se esperaba 23514:account_branding_email_check; salió 42P01:
+  (b) email con marcado: se esperaba 23514:account_branding_email_check; salió 42P01:
+  (b) email de 121 caracteres: se esperaba 23514:account_branding_email_check; salió 42P01:
+  (b) tax_id con guiones: se esperaba ok; salió 42P01:
+  (b) tax_id sin guiones: se esperaba ok; salió 42P01:
+  (b) tax_id corto: se esperaba 23514:account_branding_tax_id_check; salió 42P01:
+  (b) tax_id con guiones mal puestos: se esperaba 23514:account_branding_tax_id_check; salió 42P01:
+  (b) tax_id con letras: se esperaba 23514:account_branding_tax_id_check; salió 42P01:
+  (b) website válido: se esperaba ok; salió 42P01:
+  (b) website con espacio: se esperaba 23514:account_branding_website_check; salió 42P01:
+  (b) website con marcado <: se esperaba 23514:account_branding_website_check; salió 42P01:
+  (b) website con comillas: se esperaba 23514:account_branding_website_check; salió 42P01:
+  (b) website de 121 caracteres: se esperaba 23514:account_branding_website_check; salió 42P01:
+  (b) paleta del catálogo: se esperaba ok; salió 42P01:
+  (b) paleta fuera del catálogo: se esperaba 23514:account_branding_palette_preset_check; salió 42P01:
+  (b) personalizado con color válido: se esperaba ok; salió 42P01:
+  (b) personalizado sin color: se esperaba 23514:account_branding_palette_accent_coherent_check; salió 42P01:
+  (b) color con una paleta del catálogo: se esperaba 23514:account_branding_palette_accent_coherent_check; salió 42P01:
+  (b) color con mayúsculas: se esperaba 23514:account_branding_accent_color_check; salió 42P01:
+  (b) color de 3 dígitos: se esperaba 23514:account_branding_accent_color_check; salió 42P01:
+  (b) color sin almohadilla: se esperaba 23514:account_branding_accent_color_check; salió 42P01:
+  (b) logo PNG completo: se esperaba ok; salió 42P01:
+  (b) logo JPEG completo: se esperaba ok; salió 42P01:
+  (b) logo parcial (sólo el tipo): se esperaba 23514:account_branding_logo_all_or_nothing_check; salió 42P01:
+  (b) logo parcial (sin huella): se esperaba 23514:account_branding_logo_all_or_nothing_check; salió 42P01:
+  (b) logo: el tipo dice JPEG y los bytes son PNG: se esperaba 23514:account_branding_logo_signature_check; salió 42P01:
+  (b) logo: el tipo dice PNG y los bytes son JPEG: se esperaba 23514:account_branding_logo_signature_check; salió 42P01:
+  (b) logo: bytes sin firma de imagen: se esperaba 23514:account_branding_logo_signature_check; salió 42P01:
+  (b) logo: tipo fuera de PNG/JPEG: se esperaba 23514:account_branding_logo_mime_check; salió 42P01:
+  (b) logo de exactamente 300 KB: se esperaba ok; salió 42P01:
+  (b) logo de 300 KB + 1 byte: se esperaba 23514:account_branding_logo_size_check; salió 42P01:
+  (b) logo: huella con forma inválida: se esperaba 23514:account_branding_logo_sha256_check; salió 42P01:
+  (b) logo: huella en mayúsculas: se esperaba 23514:account_branding_logo_sha256_check; salió 42P01:
+  (b) logo: ancho 1001: se esperaba 23514:account_branding_logo_dimensions_check; salió 42P01:
+  (b) logo: alto 0: se esperaba 23514:account_branding_logo_dimensions_check; salió 42P01:
+  (b) la fila completa y válida debía aceptarse; salió 42P01:
+  (c0) INSERT de un seller debía rechazarse con P0401 (guard owner/admin); salió 42P01
+  (c0) INSERT de un viewer debía rechazarse con P0401 (guard owner/admin); salió 42P01
+  (c) error inesperado: 42P01 relation "public.account_branding" does not exist
+  (d1) rpc_commercial_issuer debía devolver EXACTAMENTE las 18 claves del design D4; devolvió business_name,cuit,domicilio_comercial,nombre_fantasia,phone,razon_social
+  (d1) iva_condition debía salir del perfil fiscal; salió 
+  (d1) valores de la marca incorrectos: {"cuit": "20123456786", "phone": "2615550101", "razon_social": "Razón Fiscal Gate SRL", "business_name": "Negocio Gate Dueño A", "nombre_fantasia": "Fantasía Gate", "domicilio_comercial": "Calle Fiscal 1"}
+  (d2) sin fila de marca también debían salir las 18 claves; salió business_name,cuit,domicilio_comercial,nombre_fantasia,phone,razon_social
+  (d2) sin fila de marca ni perfil fiscal las claves nuevas debían ser NULL: {"cuit": null, "phone": "2615550202", "razon_social": null, "business_name": "Negocio Gate Dueño B", "nombre_fantasia": null, "domicilio_comercial": null}
+CONTEXT:  PL/pgSQL function inline_code_block line 501 at RAISE
+psql exit 0

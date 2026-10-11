@@ -1,0 +1,29 @@
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=cc2e4abe-0e98-4ef8-8ade-ca824681e935
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=29d23444-6e41-41dc-99fb-10756dbaa893
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=4dd6f166-8613-470d-9592-b45210896370
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=080db8ea-9a0a-4943-9b50-6331d7ab656c
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=21f3ab82-0b38-4eed-ab8f-2bae8b6f9f1d
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=fe68612e-1924-48f1-8fc1-b511cc584b34
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=ea1d097c-27c0-42ed-a21e-05316aa4befa
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=6311aa7d-df24-4488-a36f-7dcbc7cd18fb
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=20ad832d-3515-4e86-a95b-4e3cc8c28784
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=d8c9ba66-c2b2-4e8c-8ba9-0c330a13ea35
+NOTICE:  PASS (b): alta con guards de cliente/producto/padre/unidad/servicio/validez/sucursal, total del servidor y snapshots de la cuenta.
+NOTICE:  PASS (a): numeración correlativa por cuenta, sin consumir en altas fallidas, explícito duplicado 23505, explícito mayor avanza, default de validez y disparador genérico.
+NOTICE:  PASS (d): edición con reemplazo atómico, snapshots re-tomados, revisión, quote_changed, validez obligatoria, reapertura de rejected/expired y P0423 en accepted.
+NOTICE:  PASS (e): draft->sent con sent_at e historial, sent->sent no-op, ->rejected con motivo, ->accepted/->expired P0400.
+NOTICE:  PASS (f): borrado sólo de borradores nunca enviados, bajo lock y con el predicado de estado en el DELETE.
+NOTICE:  PASS (g): cashier P0403 en crear/editar/borrar/enviar, viewer P0401, otra cuenta P0404, seller crea.
+NOTICE:  PASS (c): crear y editar presupuestos (incluso por encima del stock) no tocan stock, caja, cuenta corriente ni banco.
+NOTICE:  PASS (h): INSERT/UPDATE directos de authenticated rechazados; la RPC sí es invocable.
+NOTICE:  PASS (i): _expire_overdue_quotes vence draft/sent pasados con actor uuid cero y motivo, es idempotente y no toca accepted.
+NOTICE:  PASS (j): rpc_set_default_quote_validity(cuenta, días) valida 1..365, exige owner/admin en ESA cuenta (dos membresías no se confunden, cuenta ajena P0404) y el alta usa el valor nuevo.
+NOTICE:  PASS (l): la baja de un producto incluido en un presupuesto draft sigue rechazándose con P0B04; el alta registró NULL -> draft con el creador.
+NOTICE:  PASS (o): el backfill numera y completa la validez de un presupuesto sin disparadores, y una segunda ejecución no cambia nada.
+ERROR:  GATE PRESUPUESTOS-MODULO FAILED (abortó): P0001 / GATE PRESUPUESTOS-MODULO FAILED:
+  FAIL (n): rpc_commercial_issuer debe devolver exactamente los 18 campos del emisor (design D4), devolvió business_name,cuit,domicilio_comercial,nombre_fantasia,phone,razon_social
+CONTEXT:  PL/pgSQL function inline_code_block line 1159 at RAISE
+GATE_EXIT=3

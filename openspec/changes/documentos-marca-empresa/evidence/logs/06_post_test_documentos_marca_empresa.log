@@ -1,0 +1,18 @@
+NOTICE:  PASS (a,e): account_branding (PK/FK, RLS, 3 políticas sin DELETE, privilegios, disparador y función guard, la marca no vive en otras tablas) y rpc_commercial_issuer (firma única, DEFINER, STABLE, ACL exacta, COMMENT).
+DO
+CREATE FUNCTION
+CREATE FUNCTION
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=a472d7b3-42ab-4684-a9cf-8c0b335c1888
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=f9722ad2-4f16-4c4e-9c0b-dcad109e0b8d
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=1ab73cdd-2813-4ac1-b097-89648ddfe7e4
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=63ee11a1-3a84-41ca-accf-403c4ef426b9
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=3bb76767-9cb4-4021-ad7d-20c9ce26ff2e
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=80f5d4ad-d504-45dd-be55-13df5279703f
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=d2cee9bc-6aaf-42f5-8733-781249ed8af2
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=c881a4f5-8dee-4b02-82c8-5f54a6034205
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=badcd9d6-0a76-4d08-9282-c23e2cafc190
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=4e41e89b-b0c7-4ee1-9cb2-cec47d96ab1a
+NOTICE:  PASS (b,c,d): matriz de CHECKs (con control positivo por campo), RLS + guard (owner/admin escriben; seller P0401; viewer; otra cuenta ciega; account_id inmutable; sin DELETE/TRUNCATE con permission denied; anon no lee) y rpc_commercial_issuer (18 claves, valores, sin email de acceso, sin fila de marca, P0404).
+NOTICE:  PASS (f): limpieza verificada — cero filas del fixture en toda tabla de public con account_id.
+DO
+GATE_EXIT=0

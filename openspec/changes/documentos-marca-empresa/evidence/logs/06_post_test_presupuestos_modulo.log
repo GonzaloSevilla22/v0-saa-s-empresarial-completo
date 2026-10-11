@@ -1,0 +1,34 @@
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=b99404d0-3791-4a27-8178-adb46b693caf
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=234fe515-d9cb-4fa0-b249-410c3b4a46a3
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=3da0b144-17c4-4990-a244-991f044e5108
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=64e4dd1a-b1bd-49fa-9390-2dae75509835
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=b0f0d110-e532-475b-9db1-75317365dcfe
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=0d070155-baae-4e60-8499-d3a7653dbb4c
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=72886fda-e7e9-4505-b1e0-31dd5457e8df
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=fd246940-eb34-48cd-86c9-aaa42d3622fd
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=cd62a44b-fdba-411c-99dc-f0071ed69293
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=532c30da-6b5a-40a4-b3d1-783affe7f182
+NOTICE:  PASS (b): alta con guards de cliente/producto/padre/unidad/servicio/validez/sucursal, total del servidor y snapshots de la cuenta.
+NOTICE:  PASS (a): numeración correlativa por cuenta, sin consumir en altas fallidas, explícito duplicado 23505, explícito mayor avanza, default de validez y disparador genérico.
+NOTICE:  PASS (d): edición con reemplazo atómico, snapshots re-tomados, revisión, quote_changed, validez obligatoria, reapertura de rejected/expired y P0423 en accepted.
+NOTICE:  PASS (e): draft->sent con sent_at e historial, sent->sent no-op, ->rejected con motivo, ->accepted/->expired P0400.
+NOTICE:  PASS (f): borrado sólo de borradores nunca enviados, bajo lock y con el predicado de estado en el DELETE.
+NOTICE:  PASS (g): cashier P0403 en crear/editar/borrar/enviar, viewer P0401, otra cuenta P0404, seller crea.
+NOTICE:  PASS (c): crear y editar presupuestos (incluso por encima del stock) no tocan stock, caja, cuenta corriente ni banco.
+NOTICE:  PASS (h): INSERT/UPDATE directos de authenticated rechazados; la RPC sí es invocable.
+NOTICE:  PASS (i): _expire_overdue_quotes vence draft/sent pasados con actor uuid cero y motivo, es idempotente y no toca accepted.
+NOTICE:  PASS (j): rpc_set_default_quote_validity(cuenta, días) valida 1..365, exige owner/admin en ESA cuenta (dos membresías no se confunden, cuenta ajena P0404) y el alta usa el valor nuevo.
+NOTICE:  PASS (l): la baja de un producto incluido en un presupuesto draft sigue rechazándose con P0B04; el alta registró NULL -> draft con el creador.
+NOTICE:  PASS (n): rpc_commercial_issuer devuelve al vendedor no dueño el negocio y el teléfono del dueño, exactamente 18 campos (sin ningún email de acceso), y P0404 a otra cuenta.
+NOTICE:  PASS (o): el backfill numera y completa la validez de un presupuesto sin disparadores, y una segunda ejecución no cambia nada.
+NOTICE:  GATE PRESUPUESTOS-MODULO PASSED: numeración, alta, edición, transiciones, borrado, roles, escritura directa, barrido, validez por defecto, emisor y backfill — residuo cero.
+DO
+NOTICE:  PASS (k): helpers internos y disparadores sin EXECUTE para authenticated/anon; las 6 RPCs SECURITY DEFINER, sin anon y con authenticated; secuencias sin escritura de la API.
+DO
+NOTICE:  NOTA (m): 1 transición(es) fuera de quote salen de un estado terminal (preexistente: sales_order confirmed->canceled).
+NOTICE:  PASS (m): quote tiene a accepted como único terminal, la reapertura expired|rejected -> draft está catalogada y ninguna transición de quote sale de un terminal.
+DO
+GATE_EXIT=0

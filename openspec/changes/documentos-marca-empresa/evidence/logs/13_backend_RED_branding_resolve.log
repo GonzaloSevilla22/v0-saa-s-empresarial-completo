@@ -1,0 +1,6 @@
+    from backend.services.commercial_documents.branding import (
+E   ImportError: cannot import name 'LOGO_CACHE_SIZE' from 'backend.services.commercial_documents.branding' (C:\Users\Usuario\Desktop\EIE\v0-saa-s-empresarial-completo\.claude\worktrees\sad-shamir-6c7415\backend\services\commercial_documents\branding.py)
+=========================== short test summary info ===========================
+ERROR backend\tests\test_document_branding_resolve.py
+!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!
+1 error in 1.49s

@@ -1,0 +1,29 @@
+=== MUTACION M1 GRANT DELETE a authenticated
+ERROR:  GATE DOCUMENTOS-MARCA-EMPRESA (a,e) FAILED:
+  (a) privilegios de tabla que no debían existir: authenticated/DELETE 
+=== MUTACION M2 sin disparador de guard
+ERROR:  GATE DOCUMENTOS-MARCA-EMPRESA (a,e) FAILED:
+  (a) falta el disparador trg_account_branding_guard_owner_admin
+=== MUTACION M3 RPC con un email de acceso como valor
+NOTICE:  PASS (a,e): account_branding (PK/FK, RLS, 3 políticas sin DELETE, privilegios, disparador y función guard, la marca no vive en otras tablas) y rpc_commercial_issuer (firma única, DEFINER, STABLE, ACL exacta, COMMENT).
+ERROR:  GATE DOCUMENTOS-MARCA-EMPRESA (b,c,d) FAILED:
+  (d1) valores legados incorrectos (perfil fiscal / dueño): {"cuit": null, "phone": null, "brand_email": "docmarca-gate-owner-a@test.local", "brand_phone": null, "logo_sha256": null, "accent_color": null, "brand_tax_id": null, "razon_social": null, "brand_add
+  (d1) iva_condition debía salir del perfil fiscal; salió 
+  (d1) valores de la marca incorrectos: {"cuit": null, "phone": null, "brand_email": "docmarca-gate-owner-a@test.local", "brand_phone": null, "logo_sha256": null, "accent_color": null, "brand_tax_id": null, "razon_social": null, "brand_address": null, "brand_w
+  (d1) un VALOR de la lectura del emisor es un email de acceso: {"cuit": null, "phone": null, "brand_email": "docmarca-gate-owner-a@test.local", "brand_phone": null, "logo_sha256": null, "accent_color": null, "brand_tax_id": null, "razon_social": null, "brand_
+  (d2) sin marca las claves legadas debían ser las del perfil del dueño: {"cuit": null, "phone": null, "brand_email": "docmarca-gate-owner-b@test.local", "brand_phone": null, "logo_sha256": null, "accent_color": null, "brand_tax_id": null, "razon_social": nu
+  (d2) sin fila de marca ni perfil fiscal las claves nuevas debían ser NULL: {"cuit": null, "phone": null, "brand_email": "docmarca-gate-owner-b@test.local", "brand_phone": null, "logo_sha256": null, "accent_color": null, "brand_tax_id": null, "razon_social":
+=== MUTACION M4 sin CHECK de firma del logo
+NOTICE:  PASS (a,e): account_branding (PK/FK, RLS, 3 políticas sin DELETE, privilegios, disparador y función guard, la marca no vive en otras tablas) y rpc_commercial_issuer (firma única, DEFINER, STABLE, ACL exacta, COMMENT).
+ERROR:  GATE DOCUMENTOS-MARCA-EMPRESA (b,c,d) FAILED:
+  (b) logo: el tipo dice JPEG y los bytes son PNG: se esperaba 23514:account_branding_logo_signature_check; salió ok
+  (b) logo: el tipo dice PNG y los bytes son JPEG: se esperaba 23514:account_branding_logo_signature_check; salió ok
+  (b) logo: bytes sin firma de imagen: se esperaba 23514:account_branding_logo_signature_check; salió ok
+=== MUTACION M5 policy de DELETE
+ERROR:  GATE DOCUMENTOS-MARCA-EMPRESA (a,e) FAILED:
+  (a) account_branding debía tener 3 políticas (member_select, writer_insert, writer_update; sin DELETE); tiene 4: account_branding_member_select:SELECT,account_branding_writer_insert:INSERT,account_branding_writer_update:UPDATE,zz_del:DELETE
+=== MUTACION M6 sin CHECK de coherencia paleta/color
+NOTICE:  PASS (a,e): account_branding (PK/FK, RLS, 3 políticas sin DELETE, privilegios, disparador y función guard, la marca no vive en otras tablas) y rpc_commercial_issuer (firma única, DEFINER, STABLE, ACL exacta, COMMENT).
+ERROR:  GATE DOCUMENTOS-MARCA-EMPRESA (b,c,d) FAILED:
+  (b) personalizado sin color: se esperaba 23514:account_branding_palette_accent_coherent_check; salió ok
+  (b) color con una paleta del catálogo: se esperaba 23514:account_branding_palette_accent_coherent_check; salió ok

@@ -1,0 +1,29 @@
+--- openspec/changes/documentos-marca-empresa/evidence/logs/_live_body.txt	2026-10-11 11:40:05.344039100 -0300
++++ openspec/changes/documentos-marca-empresa/evidence/logs/_mig_body.txt	2026-10-11 11:40:05.344039100 -0300
+@@ -14,11 +14,25 @@
+            'cuit',                fp.cuit,
+            'domicilio_comercial', fp.domicilio_comercial,
+            'business_name',       pr.business_name,
+-           'phone',               pr.phone)
++           'phone',               pr.phone,
++           -- documentos-marca-empresa: claves nuevas, planas y aditivas (un backend viejo sigue leyendo las 6 de arriba).
++           'iva_condition',       fp.iva_condition,
++           'brand_display_name',  ab.display_name,
++           'brand_legal_name',    ab.legal_name,
++           'brand_tax_id',        ab.tax_id,
++           'brand_address',       ab.address,
++           'brand_phone',         ab.phone,
++           'brand_email',         ab.email,
++           'brand_website',       ab.website,
++           'brand_footer_note',   ab.footer_note,
++           'palette_preset',      ab.palette_preset,
++           'accent_color',        ab.accent_color,
++           'logo_sha256',         ab.logo_sha256)
+   INTO   v_result
+   FROM   public.accounts a
+   LEFT JOIN public.fiscal_profiles fp ON fp.account_id = a.id
+   LEFT JOIN public.profiles pr        ON pr.id = a.owner_user_id
++  LEFT JOIN public.account_branding ab ON ab.account_id = a.id  -- documentos-marca-empresa
+   WHERE  a.id = p_account_id;
+ 
+   IF v_result IS NULL THEN

@@ -204,6 +204,30 @@ def resolve_palette(preset: str | None, accent_color: str | None) -> DocumentPal
     return NEUTRAL
 
 
+def rgb_to_hex(rgb: RGB) -> str:
+    """(r, g, b) -> `#rrggbb` en minúsculas (la inversa de `hex_to_rgb`)."""
+    return "#{:02x}{:02x}{:02x}".format(*rgb)
+
+
+def palette_as_hex(palette: DocumentPalette) -> dict[str, str | None]:
+    """La paleta resuelta en `#rrggbb`, para la API: la vista previa de la pestaña y el HTML
+    imprimible pintan con estos mismos colores que el PDF."""
+    return {
+        "key": palette.key,
+        "accent": rgb_to_hex(palette.accent) if palette.accent else None,
+        "ink": rgb_to_hex(palette.ink),
+        "muted": rgb_to_hex(palette.muted),
+        "rule": rgb_to_hex(palette.rule),
+        "surface": rgb_to_hex(palette.surface),
+        "heading": rgb_to_hex(palette.heading),
+        "strong_rule": rgb_to_hex(palette.strong_rule),
+        "table_head_fill": rgb_to_hex(palette.table_head_fill),
+        "table_head_text": rgb_to_hex(palette.table_head_text),
+        "total": rgb_to_hex(palette.total),
+        "accepted_stamp": rgb_to_hex(palette.accepted_stamp),
+    }
+
+
 def palette_catalog_for_api() -> list[dict[str, str | None]]:
     """El catálogo para `GET /document-branding`: las 6 opciones, con su
     acento (el de "Personalizado" lo elige la cuenta)."""

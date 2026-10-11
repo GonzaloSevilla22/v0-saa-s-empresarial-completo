@@ -26,6 +26,7 @@ from backend.routers import (
     cost_centers,
     customer_accounts,
     delivery_notes,
+    document_branding,
     expenses,
     fiscal,
     health,
@@ -224,3 +225,5 @@ app.include_router(bank_movements.router)
 app.include_router(members.router)
 # balanza-etiquetas-pos (D13): configuración de la balanza etiquetadora por cuenta
 app.include_router(scale_settings.router)
+# documentos-marca-empresa (D9): marca de la cuenta para sus papeles (datos, paleta y logo)
+app.include_router(document_branding.router)

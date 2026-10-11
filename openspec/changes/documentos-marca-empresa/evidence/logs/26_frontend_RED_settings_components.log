@@ -1,0 +1,75 @@
+
+ RUN  v4.1.8 C:/Users/Usuario/Desktop/EIE/v0-saa-s-empresarial-completo/.claude/worktrees/sad-shamir-6c7415/frontend
+
+ ❯ __tests__/components/settings/DocumentHeaderPreview.test.tsx (0 test)
+ ❯ __tests__/components/settings/DocumentLogoUpload.test.tsx (0 test)
+ ❯ __tests__/components/settings/DocumentBrandingSettings.test.tsx (0 test)
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  __tests__/components/settings/DocumentBrandingSettings.test.tsx [ __tests__/components/settings/DocumentBrandingSettings.test.tsx ]
+Error: Failed to resolve import "@/components/settings/DocumentBrandingSettings" from "__tests__/components/settings/DocumentBrandingSettings.test.tsx". Does the file exist?
+  Plugin: vite:import-analysis
+  File: C:/Users/Usuario/Desktop/EIE/v0-saa-s-empresarial-completo/.claude/worktrees/sad-shamir-6c7415/frontend/__tests__/components/settings/DocumentBrandingSettings.test.tsx:41:0
+  44 |  const __vi_import_3__ = await import("@testing-library/jest-dom");
+  45 |  const __vi_import_4__ = await import("react/jsx-dev-runtime");
+  46 |  const __vi_import_5__ = await import("@/components/settings/DocumentBrandingSettings");
+     |                                       ^
+  47 |  const __vi_import_6__ = await import("@/lib/document-branding");
+  48 |  const __vi_import_7__ = await import("@/lib/api/python-api-error");
+ ❯ TransformPluginContext._formatLog ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:30602:39
+ ❯ TransformPluginContext.error ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:30599:14
+ ❯ normalizeUrl ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:27842:18
+ ❯ ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:27905:30
+ ❯ TransformPluginContext.transform ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:27873:4
+ ❯ EnvironmentPluginContainer.transform ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:30387:14
+ ❯ loadAndTransform ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:24646:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  __tests__/components/settings/DocumentHeaderPreview.test.tsx [ __tests__/components/settings/DocumentHeaderPreview.test.tsx ]
+Error: Failed to resolve import "@/components/settings/DocumentHeaderPreview" from "__tests__/components/settings/DocumentHeaderPreview.test.tsx". Does the file exist?
+  Plugin: vite:import-analysis
+  File: C:/Users/Usuario/Desktop/EIE/v0-saa-s-empresarial-completo/.claude/worktrees/sad-shamir-6c7415/frontend/__tests__/components/settings/DocumentHeaderPreview.test.tsx:12:38
+  9  |  import { render, screen, within } from "@testing-library/react";
+  10 |  import "@testing-library/jest-dom";
+  11 |  import { DocumentHeaderPreview } from "@/components/settings/DocumentHeaderPreview";
+     |                                         ^
+  12 |  import { AZUL_PALETTE, NEUTRO_PALETTE, PNG_DATA_URI } from "../../helpers/branding-fixtures";
+  13 |  var _jsxFileName = "C:/Users/Usuario/Desktop/EIE/v0-saa-s-empresarial-completo/.claude/worktrees/sad-shamir-6c7415/fr...
+ ❯ TransformPluginContext._formatLog ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:30602:39
+ ❯ TransformPluginContext.error ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:30599:14
+ ❯ normalizeUrl ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:27842:18
+ ❯ ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:27905:30
+ ❯ TransformPluginContext.transform ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:27873:4
+ ❯ EnvironmentPluginContainer.transform ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:30387:14
+ ❯ loadAndTransform ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:24646:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  __tests__/components/settings/DocumentLogoUpload.test.tsx [ __tests__/components/settings/DocumentLogoUpload.test.tsx ]
+Error: Failed to resolve import "@/components/settings/DocumentLogoUpload" from "__tests__/components/settings/DocumentLogoUpload.test.tsx". Does the file exist?
+  Plugin: vite:import-analysis
+  File: C:/Users/Usuario/Desktop/EIE/v0-saa-s-empresarial-completo/.claude/worktrees/sad-shamir-6c7415/frontend/__tests__/components/settings/DocumentLogoUpload.test.tsx:33:0
+  26 |  const __vi_import_3__ = await import("@testing-library/jest-dom");
+  27 |  const __vi_import_4__ = await import("react/jsx-dev-runtime");
+  28 |  const __vi_import_5__ = await import("@/components/settings/DocumentLogoUpload");
+     |                                       ^
+  29 |  const __vi_import_6__ = await import("@/lib/api/document-logo");
+  30 |  const __vi_import_7__ = await import("../../helpers/branding-fixtures");
+ ❯ TransformPluginContext._formatLog ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:30602:39
+ ❯ TransformPluginContext.error ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:30599:14
+ ❯ normalizeUrl ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:27842:18
+ ❯ ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:27905:30
+ ❯ TransformPluginContext.transform ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:27873:4
+ ❯ EnvironmentPluginContainer.transform ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:30387:14
+ ❯ loadAndTransform ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:24646:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+ Test Files  3 failed (3)
+      Tests  no tests
+   Start at  15:04:01
+   Duration  6.25s (transform 63ms, setup 1.45s, import 0ms, tests 0ms, environment 13.76s)
+

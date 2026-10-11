@@ -1,0 +1,556 @@
+
+ RUN  v4.1.8 C:/Users/Usuario/Desktop/EIE/v0-saa-s-empresarial-completo/.claude/worktrees/sad-shamir-6c7415/frontend
+
+ ❯ __tests__/app/ConfiguracionPage-documentos-tab.test.tsx (6 tests | 4 failed) 745ms
+     × muestra el trigger «Documentos» en la lista de pestañas 411ms
+     × la pestaña va inmediatamente después de «AFIP» 67ms
+     × son 12 pestañas: la nueva no pisa a ninguna de las existentes 86ms
+     × ?tab=documentos abre la pestaña Documentos directamente, con su título 53ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  __tests__/app/ConfiguracionPage-documentos-tab.test.tsx > ConfiguracionPage — pestaña Documentos (documentos-marca-empresa D10) > muestra el trigger «Documentos» en la lista de pestañas
+TestingLibraryElementError: Unable to find an accessible element with the role "tab" and name `/documentos/i`
+
+Here are the accessible roles:
+
+  heading:
+
+  Name "Configuración":
+  [36m<h1[39m
+    [33mclass[39m=[32m"text-2xl font-bold text-foreground tracking-tight"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  paragraph:
+
+  Name "":
+  [36m<p[39m
+    [33mclass[39m=[32m"text-sm text-muted-foreground mt-1"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  tablist:
+
+  Name "":
+  [36m<div[39m
+    [33maria-orientation[39m=[32m"horizontal"[39m
+    [33mclass[39m=[32m"items-center justify-center rounded-md bg-muted p-1 text-muted-foreground grid w-full grid-cols-3 sm:grid-cols-4 mb-6 h-auto"[39m
+    [33mdata-orientation[39m=[32m"horizontal"[39m
+    [33mrole[39m=[32m"tablist"[39m
+    [33mstyle[39m=[32m"outline: none;"[39m
+    [33mtabindex[39m=[32m"0"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  tab:
+
+  Name "Perfil":
+  [36m<button[39m
+    [33maria-controls[39m=[32m"radix-_r_0_-content-perfil"[39m
+    [33maria-selected[39m=[32m"true"[39m
+    [33mclass[39m=[32m"justify-center whitespace-nowrap rounded-sm px-3 py-1.5 font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm flex items-center gap-1.5 text-xs sm:text-sm"[39m
+    [33mdata-orientation[39m=[32m"horizontal"[39m
+    [33mdata-radix-collection-item[39m=[32m""[39m
+    [33mdata-state[39m=[32m"active"[39m
+    [33mid[39m=[32m"radix-_r_0_-trigger-perfil"[39m
+    [33mrole[39m=[32m"tab"[39m
+    [33mtabindex[39m=[32m"-1"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Cuenta":
+  [36m<button[39m
+    [33maria-controls[39m=[32m"radix-_r_0_-content-cuenta"[39m
+    [33maria-selected[39m=[32m"false"[39m
+    [33mclass[39m=[32m"justify-center whitespace-nowrap rounded-sm px-3 py-1.5 font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm flex items-center gap-1.5 text-xs sm:text-sm"[39m
+    [33mdata-orientation[39m=[32m"horizontal"[39m
+    [33mdata-radix-collection-item[39m=[32m""[39m
+    [33mdata-state[39m=[32m"inactive"[39m
+    [33mid[39m=[32m"radix-_r_0_-trigger-cuenta"[39m
+    [33mrole[39m=[32m"tab"[39m
+    [33mtabindex[39m=[32m"-1"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "AFIP":
+  [36m<button[39m
+    [33maria-controls[39m=[32m"radix-_r_0_-content-fiscal"[39m
+    [33maria-selected[39m=[32m"false"[39m
+    [33mclass[39m=[32m"justify-center whitespace-nowrap rounded-sm px-3 py-1.5 font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm flex items-center gap-1.5 text-xs sm:text-sm"[39m
+    [33mdata-orientation[39m=[32m"horizontal"[39m
+    [33mdata-radix-collection-item[39m=[32m""[39m
+    [33mdata-state[39m=[32m"inactive"[39m
+    [33mid[39m=[32m"radix-_r_0_-trigger-fiscal"[39m
+    [33mrole[39m=[32m"tab"[39m
+    [33mtabindex[39m=[32m"-1"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Sistema":
+  [36m<button[39m
+    [33maria-controls[39m=[32m"radix-_r_0_-content-sistema"[39m
+    [33maria-selected[39m=[32m"false"[39m
+    [33mclass[39m=[32m"justify-center whitespace-nowrap rounded-sm px-3 py-1.5 font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm flex items-center gap-1.5 text-xs sm:text-sm"[39m
+    [33mdata-orientation[39m=[32m"horizontal"[39m
+    [33mdata-radix-collection-item[39m=[32m""[39m
+    [33mdata-state[39m=[32m"inactive"[39m
+    [33mid[39m=[32m"radix-_r_0_-trigger-sistema"[39m
+    [33mrole[39m=[32m"tab"[39m
+    [33mtabindex[39m=[32m"-1"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Equipo":
+  [36m<button[39m
+    [33maria-controls[39m=[32m"radix-_r_0_-content-equipo"[39m
+    [33maria-selected[39m=[32m"false"[39m
+    [33mclass[39m=[32m"justify-center whitespace-nowrap rounded-sm px-3 py-1.5 font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm flex items-center gap-1.5 text-xs sm:text-sm"[39m
+    [33mdata-orientation[39m=[32m"horizontal"[39m
+    [33mdata-radix-collection-item[39m=[32m""[39m
+    [33mdata-state[39m=[32m"inactive"[39m
+    [33mid[39m=[32m"radix-_r_0_-trigger-equipo"[39m
+    [33mrole[39m=[32m"tab"[39m
+    [33mtabindex[39m=[32m"-1"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Centros de costo":
+  [36m<button[39m
+    [33maria-controls[39m=[32m"radix-_r_0_-content-centros-costo"[39m
+    [33maria-selected[39m=[32m"false"[39m
+    [33mclass[39m=[32m"justify-center whitespace-nowrap rounded-sm px-3 py-1.5 font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm flex items-center gap-1.5 text-xs sm:text-sm"[39m
+    [33mdata-orientation[39m=[32m"horizontal"[39m
+    [33mdata-radix-collection-item[39m=[32m""[39m
+    [33mdata-state[39m=[32m"inactive"[39m
+    [33mid[39m=[32m"radix-_r_0_-trigger-centros-costo"[39m
+    [33mrole[39m=[32m"tab"[39m
+    [33mtabindex[39m=[32m"-1"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Formas de pago":
+  [36m<button[39m
+    [33maria-controls[39m=[32m"radix-_r_0_-content-formas-pago"[39m
+    [33maria-selected[39m=[32m"false"[39m
+    [33mclass[39m=[32m"justify-center whitespace-nowrap rounded-sm px-3 py-1.5 font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm flex items-center gap-1.5 text-xs sm:text-sm"[39m
+    [33mdata-orientation[39m=[32m"horizontal"[39m
+    [33mdata-radix-collection-item[39m=[32m""[39m
+    [33mdata-state[39m=[32m"inactive"[39m
+    [33mid[39m=[32m"radix-_r_0_-trigger-formas-pago"[39m
+    [33mrole[39m=[32m"tab"[39m
+    [33mtabindex[39m=[32m"-1"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Categorías":
+  [36m<button[39m
+    [33maria-controls[39m=[32m"radix-_r_0_-content-categorias"[39m
+    [33maria-selected[39m=[32m"false"[39m
+    [33mclass[39m=[32m"justify-center whitespace-nowrap rounded-sm px-3 py-1.5 font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm flex items-center gap-1.5 text-xs sm:text-sm"[39m
+    [33mdata-orientation[39m=[32m"horizontal"[39m
+    [33mdata-radix-collection-item[39m=[32m""[39m
+    [33mdata-state[39m=[32m"inactive"[39m
+    [33mid[39m=[32m"radix-_r_0_-trigger-categorias"[39m
+    [33mrole[39m=[32m"tab"[39m
+    [33mtabindex[39m=[32m"-1"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Cobranzas":
+  [36m<button[39m
+    [33maria-controls[39m=[32m"radix-_r_0_-content-cobranzas"[39m
+    [33maria-selected[39m=[32m"false"[39m
+    [33mclass[39m=[32m"justify-center whitespace-nowrap rounded-sm px-3 py-1.5 font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm flex items-center gap-1.5 text-xs sm:text-sm"[39m
+    [33mdata-orientation[39m=[32m"horizontal"[39m
+    [33mdata-radix-collection-item[39m=[32m""[39m
+    [33mdata-state[39m=[32m"inactive"[39m
+    [33mid[39m=[32m"radix-_r_0_-trigger-cobranzas"[39m
+    [33mrole[39m=[32m"tab"[39m
+    [33mtabindex[39m=[32m"-1"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Balanza":
+  [36m<button[39m
+    [33maria-controls[39m=[32m"radix-_r_0_-content-balanza"[39m
+    [33maria-selected[39m=[32m"false"[39m
+    [33mclass[39m=[32m"justify-center whitespace-nowrap rounded-sm px-3 py-1.5 font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm flex items-center gap-1.5 text-xs sm:text-sm"[39m
+    [33mdata-orientation[39m=[32m"horizontal"[39m
+    [33mdata-radix-collection-item[39m=[32m""[39m
+    [33mdata-state[39m=[32m"inactive"[39m
+    [33mid[39m=[32m"radix-_r_0_-trigger-balanza"[39m
+    [33mrole[39m=[32m"tab"[39m
+    [33mtabindex[39m=[32m"-1"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Plan":
+  [36m<button[39m
+    [33maria-controls[39m=[32m"radix-_r_0_-content-plan"[39m
+    [33maria-selected[39m=[32m"false"[39m
+    [33mclass[39m=[32m"justify-center whitespace-nowrap rounded-sm px-3 py-1.5 font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm flex items-center gap-1.5 text-xs sm:text-sm"[39m
+    [33mdata-orientation[39m=[32m"horizontal"[39m
+    [33mdata-radix-collection-item[39m=[32m""[39m
+    [33mdata-state[39m=[32m"inactive"[39m
+    [33mid[39m=[32m"radix-_r_0_-trigger-plan"[39m
+    [33mrole[39m=[32m"tab"[39m
+    [33mtabindex[39m=[32m"-1"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  tabpanel:
+
+  Name "Perfil":
+  [36m<div[39m
+    [33maria-labelledby[39m=[32m"radix-_r_0_-trigger-perfil"[39m
+    [33mclass[39m=[32m"mt-2 ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"[39m
+    [33mdata-orientation[39m=[32m"horizontal"[39m
+    [33mdata-state[39m=[32m"active"[39m
+    [33mid[39m=[32m"radix-_r_0_-content-perfil"[39m
+    [33mrole[39m=[32m"tabpanel"[39m
+    [33mstyle[39m=[32m"animation-duration: 0s;"[39m
+    [33mtabindex[39m=[32m"0"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"flex flex-col gap-6 max-w-3xl"[39m
+    [36m>[39m
+      [36m<div>[39m
+        [36m<h1[39m
+          [33mclass[39m=[32m"text-2xl font-bold text-foreground tracking-tight"[39m
+        [36m>[39m
+          [0mConfiguración[0m
+        [36m</h1>[39m
+        [36m<p[39m
+          [33mclass[39m=[32m"text-sm text-muted-foreground mt-1"[39m
+        [36m>[39m
+          [0mGestioná tu perfil, cuenta y preferencias[0m
+        [36m</p>[39m
+      [36m</div>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"w-full"[39m
+        [33mdata-orientation[39m=[32m"horizontal"[39m
+        [33mdir[39m=[32m"ltr"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33maria-orientation[39m=[32m"horizontal"[39m
+          [33mclass[39m=[32m"items-center justify-center rounded-md bg-muted p-1 text-muted-foreground grid w-full grid-cols-3 sm:grid-cols-4 mb-6 h-auto"[39m
+          [33mdata-orientation[39m=[32m"horizontal"[39m
+          [33mrole[39m=[32m"tablist"[39m
+          [33mstyle[39m=[32m"outline: none;"[39m
+          [33mtabindex[39m=[32m"0"[39m
+        [36m>[39m
+          [36m<button[39m
+            [33maria-controls[39m=[32m"radix-_r_0_-content-perfil"[39m
+            [33maria-selected[39m=[32m"true"[39m
+            [33mclass[39m=[32m"justify-center whitespace-nowrap rounded-sm px-3 py-1.5 font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm flex items-center gap-1.5 text-xs sm:text-sm"[39m
+            [33mdata-orientation[39m=[32m"horizontal"[39m
+            [33mdata-radix-collection-item[39m=[32m""[39m
+            [33mdata-state[39m=[32m"active"[39m
+            [33mid[39m=[32m"radix-_r_0_-trigger-perfil"[39m
+            [33mrole[39m=[32m"tab"[39m
+            [33mtabindex[39m=[32m"-1"[39m
+            [33mtype[39m=[32m"button"[39m
+          [36m>[39m
+            [36m<svg[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"lucide lucide-user h-3.5 w-3.5"[39m
+              [33mfill[39m=[32m"none"[39m
+              [33mheight[39m=[32m"24"[39m
+              [33mstroke[39m=[32m"currentColor"[39m
+              [33mstroke-linecap[39m=[32m"round"[39m
+              [33mstroke-linejoin[39m=[32m"round"[39m
+              [33mstroke-width[39m=[32m"2"[39m
+              [33mviewBox[39m=[32m"0 0 24 24"[39m
+              [33mwidth[39m=[32m"24"[39m
+              [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+            [36m>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"[39m
+              [36m/>[39m
+              [36m<circle[39m
+                [33mcx[39m=[32m"12"[39m
+                [33mcy[39m=[32m"7"[39m
+                [33mr[39m=[32m"4"[39m
+              [36m/>[39m
+            [36m</svg>[39m
+            [36m<span>[39m
+              [0mPerfil[0m
+            [36m</span>[39m
+          [36m</button>[39m
+          [36m<button[39m
+            [33maria-controls[39m=[32m"radix-_r_0_-content-cuenta"[39m
+            [33maria-selected[39m=[32m"false"[39m
+            [33mclass[39m=[32m"justify-center whitespace-nowrap rounded-sm px-3 py-1.5 font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm flex items-center gap-1.5 text-xs sm:text-sm"[39m
+            [33mdata-orientation[39m=[32m"horizontal"[39m
+            [33mdata-radix-collection-item[39m=[32m""[39m
+            [33mdata-state[39m=[32m"inactive"[39m
+            [33mid[39m=[32m"radix-_r_0_-trigger-cuenta"[39m
+            [33mrole[39m=[32m"tab"[39m
+            [33mtabindex[39m=[32m"-1"[39m
+            [33mtype[39m=[32m"button"[39m
+          [36m>[39m
+            [36m<svg[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"lucide lucide-shield-check h-3.5 w-3.5"[39m
+              [33mfill[39m=[32m"none"[39m
+              [33mheight[39m=[32m"24"[39m
+              [33mstroke[39m=[32m"currentColor"[39m
+              [33mstroke-linecap[39m=[32m"round"[39m
+              [33mstroke-linejoin[39m=[32m"round"[39m
+              [33mstroke-width[39m=[32m"2"[39m
+              [33mviewBox[39m=[32m"0 0 24 24"[39m
+              [33mwidth[39m=[32m"24"[39m
+              [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+            [36m>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"[39m
+              [36m/>[39m
+              [36m<path[39m
+                [33md[39m=[32m"m9 12 2 2 4-4"[39m
+              [36m/>[39m
+            [36m</svg>[39m
+            [36m<span>[39m
+              [0mCuenta[0m
+            [36m</span>[39m
+          [36m</button>[39m
+          [36m<button[39m
+            [33maria-controls[39m=[32m"radix-_r_0_-content-fiscal"[39m
+            [33maria-selected[39m=[32m"false"[39m
+            [33mclass[39m=[32m"justify-center whitespace-nowrap rounded-sm px-3 py-1.5 font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm flex items-center gap-1.5 text-xs sm:text-sm"[39m
+            [33mdata-orientation[39m=[32m"horizontal"[39m
+            [33mdata-radix-collection-item[39m=[32m""[39m
+            [33mdata-state[39m=[32m"inactive"[39m
+            [33mid[39m=[32m"radix-_r_0_-trigger-fiscal"[39m
+            [33mrole[39m=[32m"tab"[39m
+            [33mtabindex[39m=[32m"-1"[39m
+            [33mtype[39m=[32m"button"[39m
+          [36m>[39m
+            [36m<svg[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"lucide lucide-file-text h-3.5 w-3.5"[39m
+              [33mfill[39m=[32m"none"[39m
+              [33mheight[39m=[32m"24"[39m
+              [33mstroke[39m=[32m"currentColor"[39m
+              [33mstroke-linecap[39m=[32m"round"[39m
+              [33mstroke-linejoin[39m=[32m"round"[39m
+              [33mstroke-width[39m=[32m"2"[39m
+              [33...
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ __tests__/app/ConfiguracionPage-documentos-tab.test.tsx:59:19
+     57|     searchParamsFixture = new URLSearchParams()
+     58|     render(<ConfiguracionPage />)
+     59|     expect(screen.getByRole("tab", { name: /documentos/i })).toBeInThe…
+       |                   ^
+     60|   })
+     61|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  __tests__/app/ConfiguracionPage-documentos-tab.test.tsx > ConfiguracionPage — pestaña Documentos (documentos-marca-empresa D10) > la pestaña va inmediatamente después de «AFIP»
+AssertionError: expected -1 to be 3 // Object.is equality
+
+- Expected
++ Received
+
+- 3
++ -1
+
+ ❯ __tests__/app/ConfiguracionPage-documentos-tab.test.tsx:66:41
+     64|     render(<ConfiguracionPage />)
+     65|     const names = screen.getAllByRole("tab").map((tab) => tab.textCont…
+     66|     expect(names.indexOf("Documentos")).toBe(names.indexOf("AFIP") + 1)
+       |                                         ^
+     67|   })
+     68|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  __tests__/app/ConfiguracionPage-documentos-tab.test.tsx > ConfiguracionPage — pestaña Documentos (documentos-marca-empresa D10) > son 12 pestañas: la nueva no pisa a ninguna de las existentes
+AssertionError: expected [ 'Perfil', 'Cuenta', 'AFIP', …(8) ] to deeply equal [ 'Perfil', 'Cuenta', 'AFIP', …(9) ]
+
+- Expected
++ Received
+
+@@ -1,10 +1,9 @@
+  [
+    "Perfil",
+    "Cuenta",
+    "AFIP",
+-   "Documentos",
+    "Sistema",
+    "Equipo",
+    "Centros de costo",
+    "Formas de pago",
+    "Categorías",
+
+ ❯ __tests__/app/ConfiguracionPage-documentos-tab.test.tsx:72:70
+     70|     searchParamsFixture = new URLSearchParams()
+     71|     render(<ConfiguracionPage />)
+     72|     expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).t…
+       |                                                                      ^
+     73|       "Perfil", "Cuenta", "AFIP", "Documentos", "Sistema", "Equipo",
+     74|       "Centros de costo", "Formas de pago", "Categorías", "Cobranzas",…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+ FAIL  __tests__/app/ConfiguracionPage-documentos-tab.test.tsx > ConfiguracionPage — pestaña Documentos (documentos-marca-empresa D10) > ?tab=documentos abre la pestaña Documentos directamente, con su título
+TestingLibraryElementError: Unable to find an element by: [data-testid="stub-documentos"]
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"flex flex-col gap-6 max-w-3xl"[39m
+    [36m>[39m
+      [36m<div>[39m
+        [36m<h1[39m
+          [33mclass[39m=[32m"text-2xl font-bold text-foreground tracking-tight"[39m
+        [36m>[39m
+          [0mConfiguración[0m
+        [36m</h1>[39m
+        [36m<p[39m
+          [33mclass[39m=[32m"text-sm text-muted-foreground mt-1"[39m
+        [36m>[39m
+          [0mGestioná tu perfil, cuenta y preferencias[0m
+        [36m</p>[39m
+      [36m</div>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"w-full"[39m
+        [33mdata-orientation[39m=[32m"horizontal"[39m
+        [33mdir[39m=[32m"ltr"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33maria-orientation[39m=[32m"horizontal"[39m
+          [33mclass[39m=[32m"items-center justify-center rounded-md bg-muted p-1 text-muted-foreground grid w-full grid-cols-3 sm:grid-cols-4 mb-6 h-auto"[39m
+          [33mdata-orientation[39m=[32m"horizontal"[39m
+          [33mrole[39m=[32m"tablist"[39m
+          [33mstyle[39m=[32m"outline: none;"[39m
+          [33mtabindex[39m=[32m"0"[39m
+        [36m>[39m
+          [36m<button[39m
+            [33maria-controls[39m=[32m"radix-_r_14_-content-perfil"[39m
+            [33maria-selected[39m=[32m"true"[39m
+            [33mclass[39m=[32m"justify-center whitespace-nowrap rounded-sm px-3 py-1.5 font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm flex items-center gap-1.5 text-xs sm:text-sm"[39m
+            [33mdata-orientation[39m=[32m"horizontal"[39m
+            [33mdata-radix-collection-item[39m=[32m""[39m
+            [33mdata-state[39m=[32m"active"[39m
+            [33mid[39m=[32m"radix-_r_14_-trigger-perfil"[39m
+            [33mrole[39m=[32m"tab"[39m
+            [33mtabindex[39m=[32m"-1"[39m
+            [33mtype[39m=[32m"button"[39m
+          [36m>[39m
+            [36m<svg[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"lucide lucide-user h-3.5 w-3.5"[39m
+              [33mfill[39m=[32m"none"[39m
+              [33mheight[39m=[32m"24"[39m
+              [33mstroke[39m=[32m"currentColor"[39m
+              [33mstroke-linecap[39m=[32m"round"[39m
+              [33mstroke-linejoin[39m=[32m"round"[39m
+              [33mstroke-width[39m=[32m"2"[39m
+              [33mviewBox[39m=[32m"0 0 24 24"[39m
+              [33mwidth[39m=[32m"24"[39m
+              [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+            [36m>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"[39m
+              [36m/>[39m
+              [36m<circle[39m
+                [33mcx[39m=[32m"12"[39m
+                [33mcy[39m=[32m"7"[39m
+                [33mr[39m=[32m"4"[39m
+              [36m/>[39m
+            [36m</svg>[39m
+            [36m<span>[39m
+              [0mPerfil[0m
+            [36m</span>[39m
+          [36m</button>[39m
+          [36m<button[39m
+            [33maria-controls[39m=[32m"radix-_r_14_-content-cuenta"[39m
+            [33maria-selected[39m=[32m"false"[39m
+            [33mclass[39m=[32m"justify-center whitespace-nowrap rounded-sm px-3 py-1.5 font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm flex items-center gap-1.5 text-xs sm:text-sm"[39m
+            [33mdata-orientation[39m=[32m"horizontal"[39m
+            [33mdata-radix-collection-item[39m=[32m""[39m
+            [33mdata-state[39m=[32m"inactive"[39m
+            [33mid[39m=[32m"radix-_r_14_-trigger-cuenta"[39m
+            [33mrole[39m=[32m"tab"[39m
+            [33mtabindex[39m=[32m"-1"[39m
+            [33mtype[39m=[32m"button"[39m
+          [36m>[39m
+            [36m<svg[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"lucide lucide-shield-check h-3.5 w-3.5"[39m
+              [33mfill[39m=[32m"none"[39m
+              [33mheight[39m=[32m"24"[39m
+              [33mstroke[39m=[32m"currentColor"[39m
+              [33mstroke-linecap[39m=[32m"round"[39m
+              [33mstroke-linejoin[39m=[32m"round"[39m
+              [33mstroke-width[39m=[32m"2"[39m
+              [33mviewBox[39m=[32m"0 0 24 24"[39m
+              [33mwidth[39m=[32m"24"[39m
+              [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+            [36m>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"[39m
+              [36m/>[39m
+              [36m<path[39m
+                [33md[39m=[32m"m9 12 2 2 4-4"[39m
+              [36m/>[39m
+            [36m</svg>[39m
+            [36m<span>[39m
+              [0mCuenta[0m
+            [36m</span>[39m
+          [36m</button>[39m
+          [36m<button[39m
+            [33maria-controls[39m=[32m"radix-_r_14_-content-fiscal"[39m
+            [33maria-selected[39m=[32m"false"[39m
+            [33mclass[39m=[32m"justify-center whitespace-nowrap rounded-sm px-3 py-1.5 font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm flex items-center gap-1.5 text-xs sm:text-sm"[39m
+            [33mdata-orientation[39m=[32m"horizontal"[39m
+            [33mdata-radix-collection-item[39m=[32m""[39m
+            [33mdata-state[39m=[32m"inactive"[39m
+            [33mid[39m=[32m"radix-_r_14_-trigger-fiscal"[39m
+            [33mrole[39m=[32m"tab"[39m
+            [33mtabindex[39m=[32m"-1"[39m
+            [33mtype[39m=[32m"button"[39m
+          [36m>[39m
+            [36m<svg[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"lucide lucide-file-text h-3.5 w-3.5"[39m
+              [33mfill[39m=[32m"none"[39m
+              [33mheight[39m=[32m"24"[39m
+              [33mstroke[39m=[32m"currentColor"[39m
+              [33mstroke-linecap[39m=[32m"round"[39m
+              [33mstroke-linejoin[39m=[32m"round"[39m
+              [33mstroke-width[39m=[32m"2"[39m
+            ...
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ __tests__/app/ConfiguracionPage-documentos-tab.test.tsx:81:19
+     79|     searchParamsFixture = new URLSearchParams("tab=documentos")
+     80|     render(<ConfiguracionPage />)
+     81|     expect(screen.getByTestId("stub-documentos")).toBeInTheDocument()
+       |                   ^
+     82|     expect(screen.getByRole("heading", { name: /documentos/i })).toBeI…
+     83|     expect(screen.queryByTestId("stub-perfil")).toBeNull()
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  4 failed | 2 passed (6)
+   Start at  15:15:14
+   Duration  6.77s (transform 343ms, setup 406ms, import 1.52s, tests 745ms, environment 3.54s)
+

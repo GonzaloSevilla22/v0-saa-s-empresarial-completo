@@ -1068,6 +1068,17 @@ class TestBrandedLogo:
         with_logo = _pages(_pdf(_view(branding=_brand(logo=_logo_image((400, 400))))))[0]
         assert "Almacén Don José" in with_logo and "PRESUPUESTO" in with_logo
 
+    def test_a_priceless_delivery_note_with_a_square_logo_keeps_its_signature_block(self):
+        pdf = _pdf(_dn_view(branding=_brand(logo=_logo_image((300, 300)))))     # sin precios por defecto
+        text = _pdf_text(pdf)
+        assert "Recibí conforme" in text and "TOTAL" not in text
+        assert _images(pdf) == 1 and len(PdfReader(io.BytesIO(pdf)).pages) == 1
+
+    def test_a_tall_logo_is_drawn_inside_its_box_and_the_header_still_fits(self):
+        pdf = _pdf(_view(branding=_brand(logo=_logo_image((100, 400)), **TestBrandedIssuerData.FULL)))
+        text = _pdf_text(pdf)
+        assert _images(pdf) == 1 and "Kiosco Lola" in text and "TOTAL" in text
+
     def test_the_logo_never_pushes_the_totals_off_a_one_page_document(self):
         pdf = _pdf(_view(branding=_brand(logo=_logo_image((300, 300)))))
         assert len(PdfReader(io.BytesIO(pdf)).pages) == 1
@@ -1085,6 +1096,18 @@ class TestBrandedPalette:
         ops = _rgb_ops(bordo)
         assert content.count(f"{ops} rg") >= 3        # título + relleno de la cabecera + total
         assert content.count(f"{ops} RG") >= 1        # regla gruesa del encabezado
+
+    def test_bordo_colors_the_title_and_the_total_text(self):
+        content = _content(_pdf(_view(branding=_brand(preset="bordo"))))
+        bordo = _rgb_ops((159, 18, 57))
+        assert _text_color_before(content, "PRESUPUESTO") == bordo
+        assert _text_color_before(content, "$ 1.800,50") == bordo
+
+    def test_neutral_keeps_the_title_and_the_total_in_ink(self):
+        content = _content(_pdf(_view(branding=_brand())))
+        ink = _rgb_ops((30, 41, 59))
+        assert _text_color_before(content, "PRESUPUESTO") == ink
+        assert _text_color_before(content, "$ 1.800,50") == ink
 
     def test_neutral_has_no_accent_color_at_all(self):
         content = _content(_pdf(_view(branding=_brand())))
@@ -1195,6 +1218,36 @@ class TestBrandedFooter:
         lines = [_line(f"Producto {i:02d}", "1", "100", "100") for i in range(30)]
         text = _pdf_text(_pdf(_view(lines=lines, branding=_brand(footer=" ".join(["palabra"] * 200)))))
         assert "Producto 00" in text and "Producto 29" in text and "TOTAL" in text
+
+    def test_the_auto_page_break_margin_follows_the_height_of_the_footer(self):
+        from backend.services.commercial_documents.pdf import _CommercialPdf
+
+        plain = _CommercialPdf("Presupuesto — documento no válido como factura.", _brand().palette, None)
+        long_note = _CommercialPdf("Presupuesto — documento no válido como factura.", _brand().palette, " ".join(["palabra"] * 200))
+        assert long_note.footer_height > plain.footer_height >= 20
+        assert plain.b_margin >= plain.footer_height and long_note.b_margin >= long_note.footer_height
+
+    def test_the_body_never_reaches_the_footer_on_any_page(self):
+        """Geometría: con una nota de 3 renglones el pie crece y el margen de salto de página
+        crece con él, así que ninguna línea de la tabla queda dentro de la zona del pie. Se barre
+        la cantidad de líneas para que el último renglón de alguna página caiga cerca del pie."""
+        from backend.services.commercial_documents.pdf import _CommercialPdf
+
+        branding = _brand(footer=" ".join(["palabra"] * 200))
+        footer_mm = _CommercialPdf("x", branding.palette, branding.footer_note).footer_height
+        footer_top_pt = footer_mm * 72 / 25.4
+        for count in range(40, 70):
+            view = _view(lines=[_line(f"Producto {i:02d}", "1", "100", "100") for i in range(count)], branding=branding)
+            lowest: list[float] = []
+
+            def visitor(text, cm, tm, font_dict, font_size):
+                if text.strip().startswith("Producto"):
+                    lowest.append(tm[5] * cm[3] + cm[5])
+
+            for page in PdfReader(io.BytesIO(_pdf(view))).pages:
+                page.extract_text(visitor_text=visitor)
+            assert len(lowest) == count
+            assert min(lowest) > footer_top_pt, f"{count} líneas"
 
     def test_the_page_number_and_the_legend_still_print(self):
         text = _pdf_text(_pdf(_view(branding=_brand(footer=NOTE))))

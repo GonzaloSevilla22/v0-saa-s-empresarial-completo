@@ -1,0 +1,201 @@
+
+ RUN  v4.1.8 C:/Users/Usuario/Desktop/EIE/v0-saa-s-empresarial-completo/.claude/worktrees/sad-shamir-6c7415/frontend
+
+ ❯ __tests__/components/settings/DocumentLogoUpload.test.tsx (24 tests | 1 failed) 1808ms
+       × avisa que todos los papeles, la factura incluida, salen sin logo hasta que se suba otro 152ms
+ ❯ __tests__/components/settings/DocumentBrandingSettings.test.tsx (36 tests | 2 failed) 5671ms
+     × con perfil fiscal, esos datos se muestran como tales, de sólo lectura y con enlace a AFIP 146ms
+     × explica que la Factura C sólo toma el logo, el contacto y el color de la tabla (sus datos fiscales no cambian) 124ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  __tests__/components/settings/DocumentBrandingSettings.test.tsx > DocumentBrandingSettings — datos de la empresa > con perfil fiscal, esos datos se muestran como tales, de sólo lectura y con enlace a AFIP
+TestingLibraryElementError: Unable to find an element with the text: /tomado de datos fiscales \(afip\)/i. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+
+Ignored nodes: comments, script, style
+<body>
+  <div>
+    <div
+      class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]"
+    >
+      <form
+        class="grid min-w-0 gap-6"
+        novalidate=""
+      >
+        <div
+          class="rounded-lg border bg-card text-card-foreground shadow-elevation-1 transition-shadow duration-base ease-standard"
+        >
+          <div
+            class="flex flex-col space-y-1.5 p-4 md:p-6"
+          >
+            <div
+              class="font-semibold tracking-tight text-lg"
+            >
+              Marca de tu negocio
+            </div>
+            <div
+              class="text-sm text-muted-foreground"
+            >
+              Tu logo, tus datos y tus colores salen en el comprobante de venta, presupuestos y remitos.
+            </div>
+          </div>
+          <div
+            class="p-4 md:p-6 pt-0 grid gap-6"
+          >
+            <div
+              class="grid gap-2"
+            >
+              <h3
+                class="text-sm font-semibold text-foreground"
+              >
+                Logo
+              </h3>
+              <div
+                class="flex flex-col gap-3"
+              >
+                <div
+                  class="flex items-center gap-4"
+                >
+                  <div
+                    class="flex h-20 w-40 shrink-0 items-center justify-center rounded-md border border-border bg-white p-2"
+                  >
+                    <span
+                      class="text-center text-xs text-neutral-600"
+                    >
+                      Todavía no hay logo.
+                    </span>
+                  </div>
+                </div>
+                <div
+                  class="flex flex-wrap items-center gap-2"
+                >
+                  <input
+                    accept="image/png,image/jpeg,image/webp"
+                    aria-label="Elegir archivo de logo"
+                    class="sr-only"
+                    tabindex="-1"
+                    type="file"
+                  />
+                  <button
+                    class="inline-flex items-center justify-center gap-2 whitespace-nowrap text-sm font-medium ring-offset-background transition-colors duration-base ease-standard focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 border border-input bg-background hover:bg-accent hover:text-accent-foreground h-10 rounded-md px-3 md:h-9"
+                    type="button"
+                  >
+                    <svg
+                      aria-hidden="true"
+                      class="lucide lucide-image-plus mr-1.5 h-3.5 w-3.5"
+                      fill="none"
+                      height="24"
+                      stroke="currentColor"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width="2"
+                      viewBox="0 0 24 24"
+                      width="24"
+                      xmlns="http://www.w3.org/2000/svg"
+                    >
+                      <path
+                        d="M16 5h6"
+                      />
+                      <path
+                        d="M19 2v6"
+                      />
+                      <path
+                        d="M21 11.5V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7.5"
+                      />
+                      <path
+                        d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"
+                      />
+                      <circle
+                        cx="9"
+                        cy="9"
+                        r="2"
+                      />
+                    </svg>
+                    Subir logo
+                  </button>
+                </div>
+                <p
+                  class="text-xs text-muted-foreground"
+                >
+                  PNG, JPEG o WebP de hasta 2 MB. Lo reducimos y optimizamos solos; un PNG con fondo transparente queda mejor sobre el papel blanco.
+                </p>
+              </div>
+            </div>
+            <fieldset
+              class="grid min-w-0 gap-6 border-0 p-0"
+            >
+              <div
+                class="grid gap-4"
+              >
+                <h3
+                  class="text-sm font-semibold text-foreground"
+                >
+                  Datos de la empresa
+                </h3>
+                <div
+                  class="grid gap-1.5"
+                >
+                  <label
+                    class="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                    for="_r_u_-display_name"
+                  >
+                    Nombre comercial
+                  </label>
+                  <input
+                    aria-describedby="_r_u_-display_name-hint"
+                    autocomplete="off"
+                    class="flex h-11 md:h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-base ring-offset-background transition-colors duration-base ease-standard file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-muted-f...
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ __tests__/components/settings/DocumentBrandingSettings.test.tsx:101:26
+     99|     render(<DocumentBrandingSettings />)
+    100|
+    101|     const block = screen.getByText(/tomado de datos fiscales \(afip\)/…
+       |                          ^
+    102|     expect(within(block).getByText("Ropa Deportiva SRL")).toBeInTheDoc…
+    103|     expect(within(block).getByText("20-12345678-6")).toBeInTheDocument…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  __tests__/components/settings/DocumentBrandingSettings.test.tsx > DocumentBrandingSettings — datos de la empresa > explica que la Factura C sólo toma el logo, el contacto y el color de la tabla (sus datos fiscales no cambian)
+Error: expect(element).toHaveTextContent()
+
+Expected element to have text content:
+  /factura c/i
+Received:
+  Tu logo, tus datos y tus colores salen en el comprobante de venta, presupuestos y remitos.
+ ❯ __tests__/components/settings/DocumentBrandingSettings.test.tsx:120:19
+    118|     render(<DocumentBrandingSettings />)
+    119|     const where = screen.getByText(/tu logo, tus datos y tus colores s…
+    120|     expect(where).toHaveTextContent(/factura c/i)
+       |                   ^
+    121|     expect(where).toHaveTextContent(/sólo el logo, el contacto y el co…
+    122|     expect(where).toHaveTextContent(/datos fiscales no cambian/i)
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  __tests__/components/settings/DocumentLogoUpload.test.tsx > DocumentLogoUpload — edición (owner/admin) > quitar el logo > avisa que todos los papeles, la factura incluida, salen sin logo hasta que se suba otro
+Error: expect(element).toHaveTextContent()
+
+Expected element to have text content:
+  /comprobantes, presupuestos, remitos y facturas van a salir sin logo/i
+Received:
+  ¿Quitar el logo?Tus comprobantes, presupuestos y remitos van a salir sin logo hasta que subas otro.CancelarQuitar
+ ❯ __tests__/components/settings/DocumentLogoUpload.test.tsx:162:22
+    160|       const dialog = await screen.findByRole("alertdialog")
+    161|
+    162|       expect(dialog).toHaveTextContent(/comprobantes, presupuestos, re…
+       |                      ^
+    163|     })
+    164|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+ Test Files  2 failed (2)
+      Tests  3 failed | 57 passed (60)
+   Start at  17:58:25
+   Duration  13.78s (transform 721ms, setup 931ms, import 4.47s, tests 7.48s, environment 7.71s)
+

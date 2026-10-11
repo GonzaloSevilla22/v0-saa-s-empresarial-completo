@@ -1,0 +1,14 @@
+OK    {"pdf": "fantasia-larga-1-linea__sin-marca.pdf", "paginas": 1, "modulos": 69, "modulos_ni_negros_ni_claros": 0, "zona_de_silencio_clara": true, "igual_al_vector": true, "igual_a_sin_marca": true, "ok": true}
+OK    {"pdf": "fantasia-larga-1-linea__azul-logo-cuadrado.pdf", "paginas": 1, "modulos": 69, "modulos_ni_negros_ni_claros": 0, "zona_de_silencio_clara": true, "igual_al_vector": true, "igual_a_sin_marca": true, "ok": true}
+OK    {"pdf": "fantasia-larga-1-linea__neutro-logo-horizontal.pdf", "paginas": 1, "modulos": 69, "modulos_ni_negros_ni_claros": 0, "zona_de_silencio_clara": true, "igual_al_vector": true, "igual_a_sin_marca": true, "ok": true}
+OK    {"pdf": "fantasia-larga-60-lineas__sin-marca.pdf", "paginas": 3, "modulos": 69, "modulos_ni_negros_ni_claros": 0, "zona_de_silencio_clara": true, "igual_al_vector": true, "igual_a_sin_marca": true, "ok": true}
+OK    {"pdf": "fantasia-larga-60-lineas__azul-logo-cuadrado.pdf", "paginas": 3, "modulos": 69, "modulos_ni_negros_ni_claros": 0, "zona_de_silencio_clara": true, "igual_al_vector": true, "igual_a_sin_marca": true, "ok": true}
+OK    {"pdf": "fantasia-larga-60-lineas__neutro-logo-horizontal.pdf", "paginas": 3, "modulos": 69, "modulos_ni_negros_ni_claros": 0, "zona_de_silencio_clara": true, "igual_al_vector": true, "igual_a_sin_marca": true, "ok": true}
+OK    {"pdf": "sin-fantasia-1-linea__sin-marca.pdf", "paginas": 1, "modulos": 69, "modulos_ni_negros_ni_claros": 0, "zona_de_silencio_clara": true, "igual_al_vector": true, "igual_a_sin_marca": true, "ok": true}
+OK    {"pdf": "sin-fantasia-1-linea__azul-logo-cuadrado.pdf", "paginas": 1, "modulos": 69, "modulos_ni_negros_ni_claros": 0, "zona_de_silencio_clara": true, "igual_al_vector": true, "igual_a_sin_marca": true, "ok": true}
+OK    {"pdf": "sumar-1-linea__sin-marca.pdf", "paginas": 1, "modulos": 69, "modulos_ni_negros_ni_claros": 0, "zona_de_silencio_clara": true, "igual_al_vector": true, "igual_a_sin_marca": true, "ok": true}
+OK    {"pdf": "sumar-1-linea__azul-logo-cuadrado.pdf", "paginas": 1, "modulos": 69, "modulos_ni_negros_ni_claros": 0, "zona_de_silencio_clara": true, "igual_al_vector": true, "igual_a_sin_marca": true, "ok": true}
+OK    {"pdf": "sumar-1-linea__bordo-logo-horizontal.pdf", "paginas": 1, "modulos": 69, "modulos_ni_negros_ni_claros": 0, "zona_de_silencio_clara": true, "igual_al_vector": true, "igual_a_sin_marca": true, "ok": true}
+OK    {"pdf": "sumar-1-linea__grafito-solo-email.pdf", "paginas": 1, "modulos": 69, "modulos_ni_negros_ni_claros": 0, "zona_de_silencio_clara": true, "igual_al_vector": true, "igual_a_sin_marca": true, "ok": true}
+OK    {"pdf": "sumar-1-linea__neutro-logo-horizontal.pdf", "paginas": 1, "modulos": 69, "modulos_ni_negros_ni_claros": 0, "zona_de_silencio_clara": true, "igual_al_vector": true, "igual_a_sin_marca": true, "ok": true}
+13/13 PDF con el QR integro

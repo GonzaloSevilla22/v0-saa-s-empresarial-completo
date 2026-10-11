@@ -1,0 +1,169 @@
+[seed-users] ya existia: qa.e2e@local.test
+[seed-users] ya existia: qa.logout@local.test
+[seed-users] listo.
+
+
+
+
+
+
+
+
+
+
+
+
+
+Running 9 tests using 1 worker
+
+[1/9] [setup] › e2e\fixtures\auth.setup.ts:5:6 › authenticate
+
+
+
+
+
+
+[2/9] [chromium] › e2e\documentos-marca.spec.ts:335:9 › Documentos con la marca de la cuenta (stack local) › marca → vista previa → PDF/comprobante con logo y paleta → vendedor en sólo lectura · 1366x768-claro
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[3/9] [chromium] › e2e\documentos-marca.spec.ts:335:9 › Documentos con la marca de la cuenta (stack local) › marca → vista previa → PDF/comprobante con logo y paleta → vendedor en sólo lectura · 1366x768-oscuro
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[4/9] [chromium] › e2e\documentos-marca.spec.ts:335:9 › Documentos con la marca de la cuenta (stack local) › marca → vista previa → PDF/comprobante con logo y paleta → vendedor en sólo lectura · 375x812-claro
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[5/9] [chromium] › e2e\documentos-marca.spec.ts:335:9 › Documentos con la marca de la cuenta (stack local) › marca → vista previa → PDF/comprobante con logo y paleta → vendedor en sólo lectura · 375x812-oscuro
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[6/9] [chromium] › e2e\factura-imprimible.spec.ts:45:9 › Factura imprimible (stack local + stub) › datos del emisor → factura autorizada con CAE → PDF → órdenes · 1366x768-claro
+
+
+
+
+
+
+
+
+
+[7/9] [chromium] › e2e\factura-imprimible.spec.ts:45:9 › Factura imprimible (stack local + stub) › datos del emisor → factura autorizada con CAE → PDF → órdenes · 1366x768-oscuro
+
+
+
+
+
+
+[8/9] [chromium] › e2e\factura-imprimible.spec.ts:45:9 › Factura imprimible (stack local + stub) › datos del emisor → factura autorizada con CAE → PDF → órdenes · 375x812-claro
+
+
+
+
+
+
+[9/9] [chromium] › e2e\factura-imprimible.spec.ts:45:9 › Factura imprimible (stack local + stub) › datos del emisor → factura autorizada con CAE → PDF → órdenes · 375x812-oscuro
+
+
+
+
+
+
+  Slow test file: [chromium] › e2e\documentos-marca.spec.ts (5.9m)
+  Consider running tests from slow files in parallel. See: https://playwright.dev/docs/test-parallel
+  9 passed (8.2m)

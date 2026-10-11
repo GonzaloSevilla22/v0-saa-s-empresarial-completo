@@ -16,7 +16,7 @@ módulo es la frontera de confianza: el navegador no lo es.
     ni el `Content-Type`), restringiendo los decodificadores que Pillow puede
     probar: SVG, GIF, BMP, TIFF, PDF y texto -> 415;
   - las dimensiones se leen del ENCABEZADO —`Image.open` es perezoso— y se
-    rechaza (422) lo que supere 25 millones de píxeles ANTES de decodificar: un
+    rechaza (422) lo que supere 16 millones de píxeles (4000×4000) ANTES de decodificar: un
     PNG de 300 KB puede declarar 20000×20000 (una bomba de descompresión que
     tumba la instancia free de Render, 512 MB). Pillow además lanza su propia
     `DecompressionBombError` por encima de los 178 M; se traduce igual;
@@ -52,7 +52,7 @@ from PIL import Image, ImageOps
 logger = logging.getLogger(__name__)
 
 MAX_UPLOAD_BYTES = 2 * 1024 * 1024        # lo que se acepta de un navegador
-MAX_PIXELS = 25_000_000                   # ancho × alto declarados en el encabezado
+MAX_PIXELS = 16_000_000                   # ancho × alto declarados en el encabezado (4000×4000; era 25 M, ver H1)
 MAX_SIDE = 1000                           # lado mayor de la imagen guardada
 FALLBACK_SIDE = 600                       # segundo intento si no entra en MAX_STORED_BYTES
 MAX_STORED_BYTES = 300 * 1024             # = el CHECK account_branding_logo_size_check (307200)
@@ -152,9 +152,13 @@ def _open_checked(raw: bytes) -> Image.Image:
     return img
 
 
-# Una normalización a la vez por proceso. Una imagen EN el tope de píxeles (25 M) ocupa ~100 MB
-# decodificada (RGBA): dos subidas simultáneas la duplicarían en la instancia free de Render
+# Una normalización a la vez por proceso. Una imagen EN el tope de píxeles (16 M) ocupa ~64 MB
+# decodificada (RGBA): dos subidas simultáneas duplicarían el pico en la instancia free de Render
 # (512 MB). Subir el logo es un acto raro de owner/admin, así que serializar no se nota.
+#
+# Ajustado de 25 M a 16 M por el hallazgo H1 de la revisión adversarial del apply (pico medido de
+# un PNG RGBA en el tope: +406 MiB con copias y 25 M, +216 MiB sin copias y 25 M, +143 MiB sin
+# copias y 16 M). Un logo de 4000×4000 sigue entrando; ninguno legítimo pasa de ahí.
 _NORMALIZE_LOCK = threading.Lock()
 
 
@@ -170,7 +174,7 @@ def _normalize(raw: bytes) -> LogoImage:
     """El trabajo pesado, SIN copias de la imagen completa: se decodifica una vez, la
     orientación y el modo se aplican en el lugar cuando no hace falta otra copia, y la imagen se
     reduce en el lugar (el segundo intento parte de la versión ya reducida). El pico queda en ~1×
-    la imagen decodificada (medido: un PNG RGBA de 25 Mpx pasó de +406 MiB a ~+120 MiB)."""
+    la imagen decodificada (medido con un PNG RGBA en el tope: +406 MiB -> +216 MiB a 25 Mpx -> +143 MiB a 16 Mpx)."""
     img = _open_checked(raw)
     try:
         if img.format in ("JPEG", "MPO"):

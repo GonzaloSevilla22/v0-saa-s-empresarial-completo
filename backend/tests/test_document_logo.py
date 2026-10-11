@@ -280,22 +280,49 @@ def test_png_that_declares_20000_by_20000_is_invalid_without_decoding(load_spy):
     assert load_spy == []                       # NUNCA decodificó los píxeles
 
 
-def test_png_between_the_limit_and_pillows_own_bomb_check_is_invalid_without_decoding(load_spy):
-    """6000×5000 = 30 millones de píxeles: Pillow lo abre sin chistar (su alarma salta a los
-    89 M), así que el tope de 25 M lo pone el servicio y ANTES de decodificar."""
-    assert 6000 * 5000 > MAX_PIXELS
-    with pytest.raises(LogoInvalid):
-        normalize_logo(_png_declaring(6000, 5000))
+def test_the_pixel_cap_is_16_megapixels():
+    """Ajustado de 25 M a 16 M por el hallazgo H1 de la revisión adversarial del apply: un logo de
+    4000×4000 sigue entrando, y el pico de memoria de la normalización baja de ~216 a ~143 MiB."""
+    assert MAX_PIXELS == 16_000_000
+    assert 4000 * 4000 == MAX_PIXELS
+
+
+@pytest.mark.parametrize(
+    "width,height",
+    [
+        pytest.param(6000, 5000, id="30 Mpx: Pillow lo abre sin chistar (su alarma salta a los 89 M)"),
+        pytest.param(5000, 5000, id="25 Mpx: el tope anterior ya no entra"),
+        pytest.param(4001, 4000, id="16 Mpx + 4000 px: apenas por encima"),
+        pytest.param(16_000_001, 1, id="16 Mpx + 1 px exactos, en una fila"),
+    ],
+)
+def test_png_over_the_pixel_cap_is_invalid_without_decoding(load_spy, width, height):
+    """El tope de píxeles lo pone el servicio y ANTES de decodificar."""
+    assert width * height > MAX_PIXELS
+    with pytest.raises(LogoInvalid) as info:
+        normalize_logo(_png_declaring(width, height))
+    assert info.value.code == "branding_logo_invalid"
     assert load_spy == []
 
 
-def test_image_exactly_at_the_pixel_limit_is_not_rejected_by_the_pixel_check(load_spy):
-    """El borde: 5000×5000 = 25 M píxeles exactos pasa el chequeo de tamaño (y recién ahí se
-    decodifica; este PNG sintético tiene datos de 1 píxel, así que falla DESPUÉS por corrupto)."""
-    assert 5000 * 5000 == MAX_PIXELS
+@pytest.mark.parametrize("width,height", [(4000, 4000), (16_000_000, 1)])
+def test_image_exactly_at_the_pixel_limit_is_not_rejected_by_the_pixel_check(load_spy, width, height):
+    """El borde: 16 M píxeles exactos pasan el chequeo de tamaño (y recién ahí se decodifica; este
+    PNG sintético tiene datos de 1 píxel, así que falla DESPUÉS por corrupto)."""
+    assert width * height == MAX_PIXELS
     with pytest.raises(LogoInvalid):
-        normalize_logo(_png_declaring(5000, 5000))
+        normalize_logo(_png_declaring(width, height))
     assert load_spy != []                       # llegó a decodificar: el rechazo no fue por el tope
+
+
+def test_a_15_9_megapixel_image_is_normalized_not_rejected():
+    """3990×3985 = 15,9 M píxeles: un logo grande pero legítimo se normaliza (lado mayor 1000)."""
+    assert 3990 * 3985 < MAX_PIXELS
+    raw = _png_bytes(Image.new("RGB", (3990, 3985), (30, 90, 200)))
+    result = normalize_logo(raw)
+    assert max(result.width, result.height) == MAX_SIDE
+    assert result.mime == "image/jpeg"
+    assert len(result.data) <= MAX_STORED_BYTES
 
 
 def test_corrupt_bytes_after_a_valid_header_are_invalid():
@@ -447,10 +474,11 @@ def test_fit_box_rejects_non_positive_dimensions(bad):
 
 # ── memoria: el tope de píxeles no alcanza si cada copia cuesta lo mismo que la imagen ───────────
 #
-# Revisión adversarial (grupo 12): un PNG RGBA de 107 KiB que declara 25 millones de píxeles
-# pasa todos los topes (2 MiB, 25 Mpx) y obligaba a Pillow a sostener ~4 copias de 100 MB
+# Revisión adversarial (grupo 12): un PNG RGBA de 107 KiB que declaraba 25 millones de píxeles
+# pasaba todos los topes (2 MiB, 25 Mpx) y obligaba a Pillow a sostener ~4 copias de 100 MB
 # (decodificada, transpuesta, convertida y la del reintento): +406 MiB de pico medido, que en la
-# instancia free de Render (512 MB) la tumba. El pico tiene que quedar cerca de UNA copia.
+# instancia free de Render (512 MB) la tumba. Sin copias quedó en +216 MiB y, con el tope bajado
+# a 16 Mpx (decisión del coordinador sobre el residuo), en +143 MiB (RGBA) / +90 (RGB).
 
 import subprocess
 import sys
@@ -505,18 +533,19 @@ def _peak_growth_mib(raw: bytes) -> float:
 
 
 @pytest.mark.parametrize("mode", ["RGBA", "RGB"])
-def test_a_25_megapixel_image_does_not_multiply_its_memory_footprint(mode):
-    """5000×5000 comprime a ~100 KiB y está EN el tope: normalizarla puede pedir, a lo sumo, una
-    copia decodificada (RGBA = 100 MB) más el trabajo del decodificador y del redimensionado (~+216 MiB
-    medidos con RGBA; antes del arreglo +406), nunca cuatro copias."""
-    side = int(MAX_PIXELS ** 0.5)
+def test_a_16_megapixel_image_does_not_multiply_its_memory_footprint(mode):
+    """4000×4000 comprime a ~70 KiB y está EN el tope: normalizarla puede pedir, a lo sumo, una
+    copia decodificada (RGBA = 64 MB) más el trabajo del decodificador y del redimensionado (~+143 MiB
+    medidos con RGBA; con el tope anterior de 25 Mpx eran +216 y antes de quitar las copias +406)."""
+    side = 4000
+    assert side * side == MAX_PIXELS
     colour = (30, 90, 200, 255) if mode == "RGBA" else (30, 90, 200)
     raw = _png_bytes(Image.new(mode, (side, side), colour))
     assert len(raw) < MAX_UPLOAD_BYTES
 
     growth = _peak_growth_mib(raw)
 
-    assert growth < 300, f"normalizar una imagen de {MAX_PIXELS} px sumó {growth:.0f} MiB de pico (tope razonable: 300)"
+    assert growth < 200, f"normalizar una imagen de {MAX_PIXELS} px sumó {growth:.0f} MiB de pico (tope razonable: 200)"
 
 
 def test_normalizations_never_run_concurrently(monkeypatch):

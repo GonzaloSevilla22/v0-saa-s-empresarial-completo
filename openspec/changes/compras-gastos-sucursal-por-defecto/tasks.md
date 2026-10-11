@@ -12,7 +12,9 @@
 
 ## 0. Sign-off y checkpoints previos (sólo lectura)
 
-- [ ] 0.1 **[PO]** Sign-off de las OQ (`design.md` §Open Questions). Registrar la respuesta textual en una sección "Sign-off del PO" del `design.md`.
+- [x] 0.1 **[PO]** Sign-off de las OQ (`design.md` §Open Questions). Registrar la respuesta textual en una sección "Sign-off del PO" del `design.md`.
+  - **Firmado el 2026-10-11, textual: «vamos con todo lo recomendado»** → OQ-1 (a), OQ-2 (a), OQ-3 (a). Registrado en `design.md` (§Open Questions → "Resueltas el 2026-10-11 por el PO: todas por la recomendación").
+  - Consecuencias para el apply: **el grupo 3 (backfill) NO se ejecuta** y `20261076000002` no se usa; el alta de compra rechaza una sucursal elegida cerrada (`P0422 branch_closed`); no hay guard en el alta ni en la edición del gasto, ni reescritura de `rpc_create_expense`.
   - Sin respuesta, el apply adopta la recomendación de cada una: (a) en las tres.
   - **OQ-1 = (b)** suma el grupo 3, que no se escribe sin el OK textual del PO sobre las reglas de D8.
   - **OQ-2 = (b)** retira:
@@ -25,7 +27,11 @@
     - el error de fila del importador de gastos;
     - `humanizeOperationError` en `expense-form-v2.tsx` (tarea 5.2);
     - y los ajustes del delta de `expense-operation`.
-- [ ] 0.2 **[PO ejecuta o autoriza]** Checkpoint del cuerpo **vivo de producción**, antes de escribir SQL:
+- [x] 0.2 **[PO ejecuta o autoriza]** Checkpoint del cuerpo **vivo de producción**, antes de escribir SQL. **Ejecutado el 2026-10-11 por el orquestador** (el apply no tiene acceso a producción; usó sus datos y los verificó contra la base local):
+  - **Caso A de D6**: `public._purchase_operation_core` **no existe** (ni en producción ni en local); `remitos-compra` sigue en 45/79, sin tanda B y sin PR. Este change reescribe `rpc_create_purchase_operation` entera.
+  - Producción: `MAX(version) = 20261075000002`, 323 migraciones. Local: `MAX = 20261077000002`, 325 (le suma las dos de `stock-movimientos-sucursal-origen`, PR #631, que no tocan ninguna de las funciones de este change).
+  - `md5(replace(prosrc, E'', ''))` local = producción en las tres funciones de partida (tabla de abajo); una sola firma, `anon` sin `EXECUTE`, `authenticated`/`service_role` con `EXECUTE`. `COMMENT`: el alta de compra no tiene; la edición de compra tiene el de `caja-compras-cobranzas` (D8); la edición de gasto, el de `gastos-forma-pago`. Los cuerpos locales volcados con `pg_get_functiondef` tienen 405 / 365 / 233 líneas, como dice el design.
+  - Lo pedido a continuación quedó cubierto así:
   - `pg_get_functiondef`, `obj_description` y `proacl` de:
     - `rpc_create_purchase_operation(text, date, text, jsonb, uuid, uuid, uuid, uuid, uuid, uuid, date)`;
     - `rpc_atomic_update_purchase_operation(uuid[], date, text, jsonb, uuid, boolean, uuid, boolean, uuid, boolean, uuid, boolean)`;
@@ -46,7 +52,7 @@
   - `COMMENT` esperado: el alta de compra no tiene; la edición de compra tiene el de `caja-compras-cobranzas` (D8); la edición de gasto, el de `gastos-forma-pago`.
   - ACL esperada: `postgres`, `authenticated` y `service_role` con `EXECUTE`, y `anon` sin `EXECUTE`.
   - Si producción diverge de los archivos, se elige con el PO entre reconciliar primero los archivos o aceptar los dos `md5` en `v_expected` (design D7). Se reescribe sobre el **vivo** y se anota el desvío.
-- [ ] 0.3 **[PO ejecuta o autoriza]** Conteos informativos en producción (sólo agregados, no bloquean):
+- [x] 0.3 **[PO ejecuta o autoriza]** Conteos informativos en producción (sólo agregados, no bloquean). **No re-medidos por el apply** (sin acceso a producción); se conservan los del propose, informativos y que no cambian ninguna decisión (OQ-1 = (a): los históricos no se rellenan): 106 de 127 operaciones de compra sin sucursal al 2026-10-03 (12 de las 33 de los últimos 30 días) y 175 gastos sin sucursal. Quedan **pendientes para la verificación posterior (11.3)**, que los mide el PO o el orquestador:
   - operaciones de compra con `branch_id NULL` (total y últimos 30 días);
   - gastos con `branch_id NULL`;
   - movimientos `reference_type = 'purchase'` con `branch_id NULL`;
@@ -54,13 +60,15 @@
   - cuentas sin ninguna sucursal operativa.
 
   Son la línea de base de la verificación 11.3.
-- [ ] 0.4 Confirmar que `20261076000001` (y `20261076000002` si OQ-1 = (b)) sigue libre: `ls supabase/migrations`, `gh pr list --state open` y `MAX(version)` de producción. Si `remitos-compra` tanda B lo tomó, renumerar al siguiente libre y anotarlo.
-- [ ] 0.5 Re-verificar sobre `main` actualizado el inventario de escritores:
+- [x] 0.4 Confirmar que `20261076000001` (y `20261076000002` si OQ-1 = (b)) sigue libre: `ls supabase/migrations`, `gh pr list --state open` y `MAX(version)` de producción. Si `remitos-compra` tanda B lo tomó, renumerar al siguiente libre y anotarlo.
+  - **Resultado (2026-10-11)**: `20261076000001` sigue libre. `gh pr list --state open` sólo muestra el #631 (`stock-movimientos-sucursal-origen`, `20261077000001`/`2`, que se ordena DESPUÉS de esta migración en la cadena y no comparte funciones con ella). `MAX` de producción `20261075000002` (dato del orquestador). `20261076000002` no se usa (OQ-1 = (a)).
+- [x] 0.5 Re-verificar sobre `main` actualizado el inventario de escritores:
   - funciones vivas con `INSERT`/`UPDATE` en `purchases` y `expenses` (las del alcance, `rpc_atomic_create_purchase` ×2, `rpc_create_purchase_operation_v2`, `rpc_import_expenses`, `rpc_safe_delete_product`);
   - grep de escrituras directas en `backend/`, `frontend/` y `supabase/functions/` (hoy sólo `services.createExpense`, sin llamadores).
 
   Anotar cualquier escritor nuevo que no esté en el design (D13).
-- [ ] 0.6 Grep en `supabase/tests/`, `backend/tests/` y `frontend/__tests__/` de lo que fija el contrato viejo:
+  - **Resultado**: las 11 funciones vivas de la base local con `INSERT`/`UPDATE` en `purchases` o `expenses` son exactamente las del design (`rpc_atomic_create_purchase` ×2, `rpc_atomic_update_purchase_operation`, `rpc_create_expense`, `rpc_create_purchase_operation`, `rpc_create_purchase_operation_v2`, `rpc_import_expenses`, `rpc_safe_delete_product` ×2, `rpc_update_expense`); ningún escritor nuevo. Escritura directa por PostgREST: sólo `services.createExpense` (`frontend/lib/supabase/services.ts:68`), sin llamadores salvo su test de identidad de sesión.
+- [x] 0.6 Grep en `supabase/tests/`, `backend/tests/` y `frontend/__tests__/` de lo que fija el contrato viejo:
   - «compra sin sucursal → `NULL`»;
   - «la edición con `NULL` desimputa la sucursal de una compra o un gasto»;
   - la creación perezosa de "Casa Central" por una compra;
@@ -68,12 +76,15 @@
   - «Sin sucursal (general)» / «Sin sucursal por defecto» en compra, gasto o importador.
 
   Hoy aparece `test_gastos_forma_pago.sql` (4.3b, L1438-1440). Listar los que cambian a propósito en 1.4 y 5.x.
-- [ ] 0.7 **SAFETY NET**. Correr y registrar el baseline:
+  - **Resultado**: cambia a propósito `test_gastos_forma_pago.sql` (4.3b, L1438-1440). Ningún gate fija el `md5` ni el texto de los `COMMENT` de las dos funciones de edición. «Sin sucursal (general)» / «Sin sucursal por defecto» sólo aparecen en los tres formularios del alcance (`purchase-form.tsx:780`, `expense-form-v2.tsx:234`, `expense-import-dialog.tsx:691`), en `QuoteForm.tsx:561` (queda), en el valor por defecto de `BranchSelect` y en los tests propios de `BranchSelect` (que siguen verdes: el default `true` no cambia). "Casa Central" aparece en gates ajenos que no la crean por una compra.
+- [x] 0.7 **SAFETY NET**. Correr y registrar el baseline:
   - **Backend**: `test_purchases.py`, `test_caja_compras_cobranzas.py`, `test_expenses.py`, `test_gastos_forma_pago.py`, `test_expense_import.py` y `test_asiento_contable_gastos.py`.
   - **Frontend**: `__tests__` de `purchase-form*`, `use-purchases*`, `expense-form*`, `expense-import-dialog*`, `use-expenses*`, `BranchSelect*`, `use-cash-optin*`, `a11y/gastos*` y `QuoteForm*`.
   - **Gates SQL**: todos los que nombran las tres funciones (design D12), más `test_ventas_sucursal_por_defecto.sql` (comparte `c26_default_branch` y `BranchSelect`).
 
   Una falla previa se reporta como preexistente y no se corrige acá.
+  - **Baseline (2026-10-11, antes de tocar nada)**: backend **180/180** en esos 6 archivos; frontend **28 archivos, 264/264**; gates SQL (los 27 de la lista de D12 + `test_ventas_sucursal_por_defecto`): **todos verdes salvo uno preexistente y ajeno** — `test_ventas_sucursal_por_defecto.sql` (parte A) falla en el caso 9b (la caracterización de OQ-8 de ventas) porque la base local compartida ya trae las migraciones `20261077000001`/`2` del apply en vuelo #631, cuyo cambio de reposición en la principal operativa invalida esa caracterización. No es de este change; lo actualiza el #631.
+  - Aclaración de método: los gates con `\i` relativo (`test_unidades_decisiones_8_9.sql`) se corren copiando `supabase/` al contenedor y usando `-w`, como en CI desde la raíz del repo.
 
 ## 1. RED — gate SQL (antes de tocar las funciones)
 

@@ -497,6 +497,14 @@ Quedan como excepción nombrada, y como candidato junto al `NOT NULL` de ventas:
 | OQ-2 | **Compra en una sucursal cerrada.** Hoy se puede registrar una compra eligiendo una sucursal **cerrada**, y la mercadería entra ahí. La venta y el gasto ya lo rechazan, y la regla escrita del sistema dice que la compra también. ¿La rechazamos? | (a) **Sí**: se rechaza con el mensaje de sucursal cerrada («reabrila o elegí otra»), igual que la venta y el gasto. (b) **No**: queda como hoy, y se corrige la regla escrita para que no prometa algo que no pasa. | **(a)**. Es lo que la regla ya dice. Además, una compra en una sucursal cerrada después no se puede editar sin cambiarla de sucursal. Mido en producción cuántas compras se registraron así (dato informativo). |
 | OQ-3 | **Gasto en una cuenta sin ninguna sucursal funcionando** (todas dadas de baja o cerradas). La venta y la compra se rechazan en ese caso («creá o reabrí una sucursal»). El gasto hoy se registra igual, en una sucursal dada de baja que no se ve. | (a) **Igual que hoy**: el gasto se registra y la edición usa la misma regla que el alta. No se toca el alta. (b) **Como la venta y la compra**: el gasto (alta, importación y edición) se rechaza hasta que haya una sucursal funcionando. Exige cambiar también el alta y el importador. | **(a)**. El gasto no mueve mercadería. Es un caso de borde (hay que dar de baja todas las sucursales), y frenar el registro de gastos por eso convierte un problema de configuración en uno de carga. |
 
+**Resueltas el 2026-10-11 por el PO: todas por la recomendación.** Respuesta textual: «vamos con todo lo recomendado».
+
+- **OQ-1 = (a)**: compras y gastos históricos **sin backfill**; toman la principal cuando alguien los edita. El grupo 3 de `tasks.md` no se ejecuta y `20261076000002` no se usa.
+- **OQ-2 = (a)**: una compra en una sucursal **cerrada** se rechaza con `P0422 branch_closed`.
+- **OQ-3 = (a)**: un gasto en una cuenta sin sucursal operativa se registra **como hoy**: sin guard en el alta ni en la edición del gasto, y `rpc_create_expense` no se reescribe.
+
+Texto original, conservado como contexto:
+
 OQ-1, OQ-2 y OQ-3 no bloquean el grupo de funciones: el apply aplica la recomendación salvo que el PO diga otra cosa antes del merge.
 
 - **Si OQ-1 = (b)**: se suma el grupo de la migración de datos, que no se escribe sin el OK textual del PO sobre las reglas de D8 y que mergea él.

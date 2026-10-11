@@ -21,11 +21,13 @@
  *
  * Reutilización (task 2.6): no existía ninguna utilidad de
  * luminance/hslToRgb/contrast en `frontend/lib/` ni en `frontend/__tests__/`
- * al escribir este test (`grep -i "luminance|hslToRgb|contrast"` sobre
- * ambos directorios no encontró nada relevante — el único hit fue un
- * comentario de un test de Three.js no relacionado). La aritmética nace acá
- * porque es la única consumidora hoy; si un segundo consumidor aparece,
- * se promueve a `frontend/lib/`.
+ * al escribir este test, así que la aritmética nació acá porque era la única
+ * consumidora. documentos-marca-empresa (task 9.1): apareció el segundo
+ * consumidor —el aviso de contraste en vivo de la pestaña "Documentos"— y la
+ * aritmética WCAG (linealización sRGB, luminancia, ratio) se PROMOVIÓ a
+ * `frontend/lib/color-contrast.ts`, que este test importa. Siguen acá la
+ * conversión HSL→RGB y la composición alpha, que son del parseo de los tokens
+ * CSS y no de los papeles.
  *
  * RED intencional (task 2.2): al momento de escribir este test,
  * `--success-text` / `--warning-text` / `--destructive-text` /
@@ -45,25 +47,20 @@
 import { describe, it, expect } from "vitest"
 import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
+import { contrastRatio, type Rgb } from "@/lib/color-contrast"
 
 const FRONTEND_ROOT = resolve(__dirname, "../..")
 const GLOBALS_CSS_PATH = resolve(FRONTEND_ROOT, "app/globals.css")
 const TAILWIND_CONFIG_PATH = resolve(FRONTEND_ROOT, "tailwind.config.ts")
 
 // ---------------------------------------------------------------------------
-// Aritmética WCAG 2.1 (HSL → RGB → luminancia relativa → ratio de contraste)
+// HSL → RGB y composición alpha (la luminancia y el ratio WCAG viven en lib/color-contrast)
 // ---------------------------------------------------------------------------
 
 interface Hsl {
   h: number
   s: number
   l: number
-}
-
-interface Rgb {
-  r: number
-  g: number
-  b: number
 }
 
 /** Parsea el formato de las CSS custom properties de shadcn/ui: "142 71% 45%". */
@@ -113,27 +110,6 @@ function compositeOver(fg: Rgb, bg: Rgb, alpha: number): Rgb {
     g: alpha * fg.g + (1 - alpha) * bg.g,
     b: alpha * fg.b + (1 - alpha) * bg.b,
   }
-}
-
-function srgbChannelToLinear(channel255: number): number {
-  const c = channel255 / 255
-  return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4)
-}
-
-function relativeLuminance(rgb: Rgb): number {
-  const r = srgbChannelToLinear(rgb.r)
-  const g = srgbChannelToLinear(rgb.g)
-  const b = srgbChannelToLinear(rgb.b)
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b
-}
-
-/** WCAG 2.1 fórmula de contraste: (L_claro + 0.05) / (L_oscuro + 0.05). */
-function contrastRatio(a: Rgb, b: Rgb): number {
-  const la = relativeLuminance(a)
-  const lb = relativeLuminance(b)
-  const lighter = Math.max(la, lb)
-  const darker = Math.min(la, lb)
-  return (lighter + 0.05) / (darker + 0.05)
 }
 
 // ---------------------------------------------------------------------------

@@ -1,0 +1,33 @@
+
+ RUN  v4.1.8 C:/Users/Usuario/Desktop/EIE/v0-saa-s-empresarial-completo/.claude/worktrees/sad-shamir-6c7415/frontend
+
+ ❯ __tests__/lib/document-branding.test.ts (0 test)
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  __tests__/lib/document-branding.test.ts [ __tests__/lib/document-branding.test.ts ]
+Error: Failed to resolve import "@/lib/document-branding" from "__tests__/lib/document-branding.test.ts". Does the file exist?
+  Plugin: vite:import-analysis
+  File: C:/Users/Usuario/Desktop/EIE/v0-saa-s-empresarial-completo/.claude/worktrees/sad-shamir-6c7415/frontend/__tests__/lib/document-branding.test.ts:32:7
+  15 |  import fs from "node:fs";
+  16 |  import path from "node:path";
+  17 |  ...eDocumentBranding, previewIssuer, toReceiptBranding } from "@/lib/document-branding";
+     |                                                                 ^
+  18 |  import { formatCuit } from "@/lib/cuit-utils";
+  19 |  const CASCADE = JSON.parse(fs.readFileSync(path.resolve(__dirname, "../../../backend/tests/fixtures/document_issuer_c...
+ ❯ TransformPluginContext._formatLog ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:30602:39
+ ❯ TransformPluginContext.error ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:30599:14
+ ❯ normalizeUrl ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:27842:18
+ ❯ ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:27905:30
+ ❯ TransformPluginContext.transform ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:27873:4
+ ❯ EnvironmentPluginContainer.transform ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:30387:14
+ ❯ loadAndTransform ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:24646:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  no tests
+   Start at  14:42:16
+   Duration  4.46s (transform 46ms, setup 396ms, import 0ms, tests 0ms, environment 3.48s)
+

@@ -1,0 +1,33 @@
+
+ RUN  v4.1.8 C:/Users/Usuario/Desktop/EIE/v0-saa-s-empresarial-completo/.claude/worktrees/sad-shamir-6c7415/frontend
+
+ ❯ __tests__/hooks/use-document-branding.test.tsx (0 test)
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  __tests__/hooks/use-document-branding.test.tsx [ __tests__/hooks/use-document-branding.test.tsx ]
+Error: Failed to resolve import "@/hooks/data/use-document-branding" from "__tests__/hooks/use-document-branding.test.tsx". Does the file exist?
+  Plugin: vite:import-analysis
+  File: C:/Users/Usuario/Desktop/EIE/v0-saa-s-empresarial-completo/.claude/worktrees/sad-shamir-6c7415/frontend/__tests__/hooks/use-document-branding.test.tsx:26:0
+  19 |  const __vi_import_3__ = await import("@/lib/api/python-client");
+  20 |  const __vi_import_4__ = await import("@/lib/api/document-logo");
+  21 |  const __vi_import_5__ = await import("@/hooks/data/use-document-branding");
+     |                                       ^
+  22 |  const __vi_import_6__ = await import("@/lib/query-keys");
+  23 |  const __vi_import_7__ = await import("@/lib/document-branding");
+ ❯ TransformPluginContext._formatLog ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:30602:39
+ ❯ TransformPluginContext.error ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:30599:14
+ ❯ normalizeUrl ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:27842:18
+ ❯ ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:27905:30
+ ❯ TransformPluginContext.transform ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:27873:4
+ ❯ EnvironmentPluginContainer.transform ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:30387:14
+ ❯ loadAndTransform ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:24646:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  no tests
+   Start at  14:48:25
+   Duration  4.52s (transform 45ms, setup 427ms, import 0ms, tests 0ms, environment 3.44s)
+

@@ -1433,11 +1433,18 @@ BEGIN
     RAISE EXCEPTION 'GATE GASTOS FAILED (4.3b): el nulo explícito no desimputó el centro de costo.';
   END IF;
 
+  -- compras-gastos-sucursal-por-defecto (D4/D5, cambio A PROPÓSITO): para la SUCURSAL el
+  -- nulo explícito YA NO desimputa. Se resuelve a la sucursal por defecto, la regla
+  -- literal del alta del gasto (RN-93: todo gasto lleva branch_id). Forma de pago y
+  -- centro de costo siguen desimputándose (arriba).
   PERFORM public.rpc_update_expense(
     p_expense_id => v_exp_plain,
     p_branch_id => NULL, p_branch_provided => TRUE);
-  IF (SELECT branch_id FROM public.expenses WHERE id = v_exp_plain) IS NOT NULL THEN
-    RAISE EXCEPTION 'GATE GASTOS FAILED (4.3b): el nulo explícito no desimputó la sucursal.';
+  IF (SELECT branch_id FROM public.expenses WHERE id = v_exp_plain) IS DISTINCT FROM public.c26_default_branch(v_account_a) THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (4.3b): el nulo explícito de sucursal debía registrar la sucursal por defecto % (compras-gastos-sucursal-por-defecto), quedó %.', public.c26_default_branch(v_account_a), (SELECT branch_id FROM public.expenses WHERE id = v_exp_plain);
+  END IF;
+  IF public.c26_default_branch(v_account_a) IS NOT DISTINCT FROM v_branch_a2 THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (4.3b-fixture): el gasto arrancó en A2 y la default también es A2: el caso no distingue "registra la default" de "conserva la sucursal".';
   END IF;
 
   -- (4.3c) UUID reimputa los tres
@@ -1445,14 +1452,16 @@ BEGIN
     p_expense_id => v_exp_plain,
     p_payment_method_id => v_pm_other_a, p_payment_method_provided => TRUE,
     p_cost_center_id => v_cc_a2, p_cost_center_provided => TRUE,
-    p_branch_id => v_branch_a1, p_branch_provided => TRUE);
+    p_branch_id => v_branch_a2, p_branch_provided => TRUE);
   SELECT * INTO v_row FROM public.expenses WHERE id = v_exp_plain;
+  -- compras-gastos-sucursal-por-defecto: tras (4.3b) el gasto está en la default (A1); se
+  -- reimputa a A2 para que el caso siga probando un CAMBIO real de sucursal.
   IF v_row.payment_method_id IS DISTINCT FROM v_pm_other_a
      OR v_row.cost_center_id IS DISTINCT FROM v_cc_a2
-     OR v_row.branch_id IS DISTINCT FROM v_branch_a1 THEN
+     OR v_row.branch_id IS DISTINCT FROM v_branch_a2 THEN
     RAISE EXCEPTION 'GATE GASTOS FAILED (4.3c): la reimputación no quedó (pm=%, cc=%, branch=%).', v_row.payment_method_id, v_row.cost_center_id, v_row.branch_id;
   END IF;
-  RAISE NOTICE 'PASS (4.3): tri-estado completo — ausente conserva, nulo desimputa, uuid reimputa, campo por campo.';
+  RAISE NOTICE 'PASS (4.3): tri-estado completo — ausente conserva, nulo desimputa forma de pago y centro de costo (y registra la default en la sucursal), uuid reimputa, campo por campo.';
 
   -- ═══ (4.4) reimputar a un valor AJENO/INACTIVO es rechazado sin tocar nada ═
   FOR v_caso, v_n IN
@@ -1484,7 +1493,7 @@ BEGIN
     SELECT * INTO v_row FROM public.expenses WHERE id = v_exp_plain;
     IF v_row.payment_method_id IS DISTINCT FROM v_pm_other_a
        OR v_row.cost_center_id IS DISTINCT FROM v_cc_a2
-       OR v_row.branch_id IS DISTINCT FROM v_branch_a1 THEN
+       OR v_row.branch_id IS DISTINCT FROM v_branch_a2 THEN
       RAISE EXCEPTION 'GATE GASTOS FAILED (4.4 %-efectos): el gasto NO conservó sus valores anteriores (pm=%, cc=%, branch=%).', v_caso, v_row.payment_method_id, v_row.cost_center_id, v_row.branch_id;
     END IF;
   END LOOP;
@@ -1497,8 +1506,11 @@ BEGIN
   IF v_row.category <> 'Historico editado' OR v_row.amount <> 4450 THEN
     RAISE EXCEPTION 'GATE GASTOS FAILED (4.4b): un gasto anterior a este change, sin forma de pago ni movimientos, no se pudo editar — el bloqueo alcanza SOLAMENTE a los gastos que movieron plata.';
   END IF;
-  IF v_row.payment_method_id IS NOT NULL OR v_row.branch_id IS NOT NULL THEN
-    RAISE EXCEPTION 'GATE GASTOS FAILED (4.4b): editar un gasto histórico le inventó imputaciones (pm=%, branch=%).', v_row.payment_method_id, v_row.branch_id;
+  -- compras-gastos-sucursal-por-defecto (D5, cambio A PROPÓSITO): la forma de pago no se
+  -- inventa, pero la SUCURSAL sí se completa: un gasto histórico sin sucursal toma la
+  -- principal en su primera edición (OQ-1 (a): sin backfill, la edición es la única vía).
+  IF v_row.payment_method_id IS NOT NULL OR v_row.branch_id IS DISTINCT FROM v_branch_a1 THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (4.4b): editar un gasto histórico debía dejar la forma de pago vacía y asignar la sucursal por defecto % (pm=%, branch=%).', v_branch_a1, v_row.payment_method_id, v_row.branch_id;
   END IF;
 
   -- ═══ (4.5) editar un gasto de OTRA CUENTA → P0404, sin distinguir ════════

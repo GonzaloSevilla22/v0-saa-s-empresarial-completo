@@ -1,0 +1,5 @@
+A logo con tope fijo de 10 rem -> KILLED ['⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯']
+B logo sin object-contain -> KILLED ['⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯']
+C logo sin alto maximo -> KILLED ['⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯']
+D titulo que se encoge -> KILLED ['⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯']
+E columna del emisor sin min-w-0 -> KILLED ['⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯']

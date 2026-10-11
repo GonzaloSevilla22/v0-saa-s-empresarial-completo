@@ -1,0 +1,53 @@
+
+ RUN  v4.1.8 C:/Users/Usuario/Desktop/EIE/v0-saa-s-empresarial-completo/.claude/worktrees/sad-shamir-6c7415/frontend
+
+ ❯ __tests__/components/settings/DocumentHeaderPreview.test.tsx (19 tests | 2 failed) 546ms
+       × el logo se acota al ancho de SU columna (nunca un ancho fijo), con alto máximo y sin deformarse 18ms
+       × el bloque del título no se encoge ni se deja pisar: ocupa su ancho a la derecha 12ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  __tests__/components/settings/DocumentHeaderPreview.test.tsx > DocumentHeaderPreview > logo ancho (360×120) en el encabezado: no se superpone con el bloque del título > el logo se acota al ancho de SU columna (nunca un ancho fijo), con alto máximo y sin deformarse
+AssertionError: expected 'mb-1.5 max-h-12 max-w-[10rem] object-…' to match /\bmax-w-full\b/
+
+- Expected:
+/\bmax-w-full\b/
+
++ Received:
+"mb-1.5 max-h-12 max-w-[10rem] object-contain"
+
+ ❯ __tests__/components/settings/DocumentHeaderPreview.test.tsx:134:23
+    132|       renderPreview()
+    133|       const classes = logo().className
+    134|       expect(classes).toMatch(/\bmax-w-full\b/)          // como mucho…
+       |                       ^
+    135|       expect(classes).toMatch(/\bmax-h-\d+\b/)           // y un alto …
+    136|       expect(classes).toMatch(/\bobject-contain\b/)       // proporció…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  __tests__/components/settings/DocumentHeaderPreview.test.tsx > DocumentHeaderPreview > logo ancho (360×120) en el encabezado: no se superpone con el bloque del título > el bloque del título no se encoge ni se deja pisar: ocupa su ancho a la derecha
+AssertionError: expected 'text-right' to match /\bshrink-0\b|\bflex-none\b|\bw-max\b/
+
+- Expected:
+/\bshrink-0\b|\bflex-none\b|\bw-max\b/
+
++ Received:
+"text-right"
+
+ ❯ __tests__/components/settings/DocumentHeaderPreview.test.tsx:149:38
+    147|     it("el bloque del título no se encoge ni se deja pisar: ocupa su a…
+    148|       renderPreview()
+    149|       expect(titleBlock().className).toMatch(/\bshrink-0\b|\bflex-none…
+       |                                      ^
+    150|       expect(titleBlock().className).toMatch(/\btext-right\b/)
+    151|     })
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 17 passed (19)
+   Start at  17:14:38
+   Duration  6.32s (transform 192ms, setup 403ms, import 1.03s, tests 546ms, environment 3.79s)
+

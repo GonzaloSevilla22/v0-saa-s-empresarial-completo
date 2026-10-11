@@ -209,6 +209,7 @@
 - Configurar formato de fecha
 - Cambiar idioma de la interfaz (español por defecto)
 - Configurar la lectura de etiquetas de balanza etiquetadora (pestaña "Balanza", 11ª pestaña): interruptor, formato de los 3 tipos de etiqueta (peso/unidad/varios), probador contra una etiqueta real y exportación del catálogo al formato que lee el importador de la balanza (`balanza-etiquetas-pos`, 2026-09-28; sólo owner/admin editan, el resto de los miembros ve la configuración de sólo lectura y puede usar el probador y exportar)
+- Configurar la marca de los papeles (pestaña "Documentos", 12ª pestaña, al lado de "AFIP"): logo, datos de la empresa para los papeles, email del negocio, leyenda al pie y paleta de colores con vista previa en vivo; sólo `owner`/`admin` editan, el resto ve. Se aplica al comprobante interno, presupuestos, remitos y Factura C (`documentos-marca-empresa`, 2026-10-11; RN-DM1)
 
 ---
 

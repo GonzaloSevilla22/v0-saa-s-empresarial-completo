@@ -144,7 +144,8 @@
 
 ## 8. PR y despliegue
 
-- [ ] 8.1 Un solo PR con cuerpo en español: decisión del PO, números del checkpoint, reglas, efectos y rollback. **Lo mergea el PO.**
+- [x] 8.1 Un solo PR con cuerpo en español: decisión del PO, números del checkpoint, reglas, efectos y rollback. **Lo mergea el PO.**
+  - **Hecho:** PR #631 (3 commits: reversa, datos + gate, CI/RN-21/artefactos). Pendiente: el merge del PO.
 - [ ] 8.2 Tras el merge: la corrida de `deploy.yml` aplicó `20261077000001` y `20261077000002` (`MAX(version)` de producción = `20261077000002`, lo lee el PO).
 
 ## 9. Verificación posterior en producción (sólo lectura, la autoriza el PO)

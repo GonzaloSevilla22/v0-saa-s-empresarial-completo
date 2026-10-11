@@ -66,7 +66,7 @@
 | Capa | Tecnología | Notas |
 |------|------------|-------|
 | **BaaS** | Supabase (Auth, DB, Edge Functions, Storage, Realtime) | Proyecto real: `gxdhpxvdjjkmxhdkkwyb` |
-| **DB** | PostgreSQL vía Supabase, con RLS org-based | 323 migraciones en prod, última `20261075000002_ventas_sucursal_por_defecto_backfill` (PR #627; verificada en prod 2026-10-10: `max(version)=20261075000002`, 323 filas — la anterior, `20261075000001_ventas_sucursal_por_defecto` (funciones, misma entrega), verificada junto con ella) |
+| **DB** | PostgreSQL vía Supabase, con RLS org-based | 325 migraciones en prod, última `20261077000002_stock_movimientos_sucursal_origen` (PR #631; verificada en prod 2026-10-11: `max(version)=20261077000002`, 325 filas — la anterior, `20261077000001_reversa_stock_sucursal_desactivada` (función, misma entrega), verificada junto con ella; antes, `20261075000002_ventas_sucursal_por_defecto_backfill` (PR #627, 323 filas)) |
 | **Extensiones PG** | `pg_cron` (grace period, relay outbox) · `pg_net` / DB webhooks (email, outbox, relay CAE) | — |
 | **Edge Functions** | Deno (Supabase) — 12 funciones | `ai-insights`, `ai-resumen`, `ai-precio`, `ai-rentabilidad`, `ai-comparativo`, `ai-prediccion`, `ai-simulador`, `ai-estadisticas`, `fair-advisor`, `invoice-ocr`, `generate-export`, `send-email` |
 | **IA** | OpenAI API | `gpt-4o-mini` en las 9 funciones de IA; **`gpt-4o`** (visión) en `invoice-ocr` |
@@ -177,6 +177,7 @@ Los compact rules de cada skill los resuelve el orquestador desde `.atl/skill-re
 29. ~~**`balanza-etiquetas-pos`**~~ ✅ **COMPLETADA Y ARCHIVADA 2026-09-29** (PR #599 `0cd2f77a`, migración `20261066000001_balanza_etiquetas_pos`; verificada en prod 2026-09-29; humo real del PO con la Cuora Neo pendiente; ver `CHANGES.md`).
 30. ~~**`presupuestos-modulo`**~~ ✅ **COMPLETADA Y ARCHIVADA 2026-10-02** (PRs #601 propose, #608 tanda A `95eb8dd7`, #610 tanda B `dad7852a`; migraciones `20261067000001_presupuestos_modulo` y `20261068000001_presupuestos_conversion_venta`; verificada en prod 2026-10-02; humo real del PO pendiente; ver `CHANGES.md`).
 31. ~~**`ventas-sucursal-por-defecto`**~~ ✅ **COMPLETADA Y ARCHIVADA 2026-10-10** (PR #627 `48985719`, migraciones `20261075000001_ventas_sucursal_por_defecto` y `20261075000002_ventas_sucursal_por_defecto_backfill`; verificada en prod 2026-10-10: 887 ventas asignadas, 0 sin sucursal; humo real del PO pendiente; ver `CHANGES.md`).
+32. ~~**`stock-movimientos-sucursal-origen`**~~ ✅ **COMPLETADA Y ARCHIVADA 2026-10-11** (PR #631 `bfa8c051`, migraciones `20261077000001_reversa_stock_sucursal_desactivada` y `20261077000002_stock_movimientos_sucursal_origen`; verificada en prod 2026-10-11: 433 movimientos de stock completados, 10 no fechables, 73 huérfanos intactos; humo real del PO pendiente; ver `CHANGES.md`).
 
 > **Pendientes externos del PO (no bloquean código)**: trámite ARCA homologación (C-27 5.2 / v22 9.1) y config de verificación de email en Supabase. **`v3-rbac-multirole` es CRÍTICO** — análisis solamente hasta sign-off explícito del PO (consume matriz de transiciones de `v3-document-status-history`).
 

@@ -28,7 +28,8 @@
   - movimientos con `stock_movements.account_id` nulo (la reversa no los encuentra: si hay, candidato);
   - los 73 sin venta viva, desglosados: con contramovimiento `sale_reversal`, con `sale_update`, huérfanos sin cierre.
   - Contrastar con la medición del 2026-10-10 (47 / 207 / 63 / 126 / 73). Una diferencia se explica antes de seguir.
-- [ ] 0.4 **[PO ejecuta o autoriza]** Movimientos `'sale'` y `'purchase'` de operaciones vivas cuya sucursal está hoy desactivada o cerrada (el alcance de D6, antes y después de la migración de datos).
+- [x] 0.4 **[PO ejecuta o autoriza]** Movimientos `'sale'` y `'purchase'` de operaciones vivas cuya sucursal está hoy desactivada o cerrada (el alcance de D6, antes y después de la migración de datos).
+  - **Cerrada con la medición real en producción (2026-10-11, sólo lectura, tras el despliegue):** 261 movimientos `'sale'` completados cuya sucursal de la venta difiere de la del movimiento, **los 261 con destino desactivado** (la sucursal original de la cuenta del incidente) — ése es el alcance de D6. La réplica local del apply había estimado 413 completados / 30 no fechables; en producción los reales son 433 completados y 10 no fechables (ver 9.2).
 - [x] 0.5 **[PO]** Sign-off con los números de 0.2-0.4. Registrar la respuesta textual en «Sign-off del PO» del `design.md`.
   - **OQ-A, OQ-B y OQ-D bloquean los grupos 1 a 4.** OQ-C no bloquea (sin respuesta, (a)).
   - Si OQ-D es (b) o (c): se retiran del change el grupo 1 y 2, el MODIFIED de la reversa del delta, la migración `20261077000001` y la reaplicación de 5.2; con (b), además, la migración de datos sólo escribe destinos hoy operativos (OQ-A (b)).
@@ -140,24 +141,30 @@
   - **Hecho.** `openspec validate "stock-movimientos-sucursal-origen" --strict` y `openspec validate --specs --strict` en verde.
 - [x] 7.3 Line endings: `git ls-files --eol` de los archivos tocados y ningún `\r` textual en el diff.
   - **Hecho.** `git ls-files --eol`: los archivos nuevos entran como `i/lf`, los CRLF existentes (`KPI_Validation.yml`, RN-21, `test_ventas_sucursal_por_defecto.sql`) conservan `w/crlf` y su `git diff --ignore-space-at-eol --stat` coincide con `git diff --stat`; ningún `\r` textual en el diff.
-- [ ] 7.4 **[orquestador]** Revisión adversarial del diff de las dos migraciones (un solo juez): el diff de la función contra el vivo, la regla de D3 contra los fixtures, y que ninguna escritura salga de `stock_movements.branch_id` y `audit_logs`.
+- [x] 7.4 **[orquestador]** Revisión adversarial del diff de las dos migraciones (un solo juez): el diff de la función contra el vivo, la regla de D3 contra los fixtures, y que ninguna escritura salga de `stock_movements.branch_id` y `audit_logs`.
+  - **Hecho (2026-10-11, orquestador como único juez):** diff de `rpc_reverse_stock_movement` contra el cuerpo vivo de producción: el único cambio es D6; lectura completa de la migración de datos: las claves de auditoría coinciden con las del trigger `trg_audit_branch_lifecycle`. CI verde en #631 (ver 8.1).
 
 ## 8. PR y despliegue
 
 - [x] 8.1 Un solo PR con cuerpo en español: decisión del PO, números del checkpoint, reglas, efectos y rollback. **Lo mergea el PO.**
-  - **Hecho:** PR #631 (3 commits: reversa, datos + gate, CI/RN-21/artefactos). Pendiente: el merge del PO.
-- [ ] 8.2 Tras el merge: la corrida de `deploy.yml` aplicó `20261077000001` y `20261077000002` (`MAX(version)` de producción = `20261077000002`, lo lee el PO).
+  - **Hecho:** PR #631 (3 commits: reversa, datos + gate, CI/RN-21/artefactos). **Mergeado squash `bfa8c051` el 2026-10-11T13:07Z**, a pedido del PO. CI verde: pytest, vitest, playwright, `validate-kpis` (con `db reset` y la reaplicación de `20261077000001`/`20261077000002`), Docs Sync y Vercel.
+- [x] 8.2 Tras el merge: la corrida de `deploy.yml` aplicó `20261077000001` y `20261077000002` (`MAX(version)` de producción = `20261077000002`, lo lee el PO).
+  - **Verificado (2026-10-11, sólo lectura):** deploy run `38141905418` success (Build Next.js + Deploy Supabase); Render `live` con `bfa8c051`; `max(version) = 20261077000002` sobre 325 migraciones.
 
 ## 9. Verificación posterior en producción (sólo lectura, la autoriza el PO)
 
-- [ ] 9.1 `md5` vivo de `rpc_reverse_stock_movement` = `v_rewritten`; ACL y `COMMENT` como en el archivo; una sola firma.
-- [ ] 9.2 Una fila `stock_movements_branch_backfill` por cuenta afectada; sus contadores coinciden con 0.3; los `'sale'` nulos restantes = sin venta viva + no fechables + contradicciones.
-- [ ] 9.3 Re-medir 0.4: los movimientos que quedaron en sucursales desactivadas son los esperados, y ningún contramovimiento posterior al despliegue entró en una sucursal desactivada.
-- [ ] 9.4 Informe al PO con los números finales.
+- [x] 9.1 `md5` vivo de `rpc_reverse_stock_movement` = `v_rewritten`; ACL y `COMMENT` como en el archivo; una sola firma.
+  - **Verificado en producción (2026-10-11):** `md5(replace(prosrc, E'\r', ''))` = `ae1ec5de1a6faedf3246013b6dc7f2fd`, igual al `v_rewritten` del preflight y de (A0).
+- [x] 9.2 Una fila `stock_movements_branch_backfill` por cuenta afectada; sus contadores coinciden con 0.3; los `'sale'` nulos restantes = sin venta viva + no fechables + contradicciones.
+  - **Verificado en producción (2026-10-11):** filas `audit_logs.action = 'stock_movements_branch_backfill'` (13:07:54Z) para las 7 cuentas afectadas. **433 movimientos completados** (110 `pre_sucursal`, 207 `unica`, 116 `reconstruida`), **10 no fechables** (todos de la cuenta del incidente, entre el alta de la sucursal nueva el 2026-08-22 y X = 2026-08-26), **0 contradicciones** con caja/banco. Quedan **83 movimientos `'sale'` con `branch_id` NULL = 73 huérfanos sin venta viva (intactos por OQ-C) + 10 no fechables**: cierra exacto. Por cuenta: la del incidente 366 (54 `pre_sucursal`, 207 `unica`, 105 `reconstruida`, 10 no fechables); cuenta A 20 (9 `pre_sucursal`, 11 `reconstruida`); cinco cuentas de sucursal única 4 / 9 / 2 / 27 / 5 (todas `pre_sucursal`). Medición previa (2026-10-10): 516 NULL = 443 con venta viva + 73 huérfanos.
+- [x] 9.3 Re-medir 0.4: los movimientos que quedaron en sucursales desactivadas son los esperados, y ningún contramovimiento posterior al despliegue entró en una sucursal desactivada.
+  - **Re-medido (2026-10-11):** los movimientos que la migración de datos dejó en una sucursal desactivada son los 261 de 0.4 (207 `unica` + 54 `pre_sucursal`), todos de la sucursal original de la cuenta del incidente: lo esperado (la migración sólo completa nulos, no mueve los ya asignados). **No quedó medido** que un contramovimiento posterior al despliegue entre en la principal operativa: eso lo ejerce el humo del PO en producción (abierto, ver 10.1).
+- [x] 9.4 Informe al PO con los números finales.
+  - Los números finales están registrados en 9.2 y en la entrada de `CHANGES.md`; el orquestador los informa al PO.
 
 ## 10. Cierre
 
-- [ ] 10.1 Al archivar: candidatos a `CHANGES.md` — «Facturar venta manual» sobre una venta cuya sucursal no opera (la otra mitad de OQ-8); movimientos con `account_id` nulo que la reversa no encuentra (si 0.3 los midió); contramovimientos nulos de movimientos nulos; y los nulos que quedaron por diseño.
+- [x] 10.1 Al archivar: candidatos a `CHANGES.md` — «Facturar venta manual» sobre una venta cuya sucursal no opera (la otra mitad de OQ-8); movimientos con `account_id` nulo que la reversa no encuentra (si 0.3 los midió); contramovimientos nulos de movimientos nulos; y los nulos que quedaron por diseño.
 
 ## Evidencia TDD
 

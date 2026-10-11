@@ -1120,9 +1120,22 @@ BEGIN
     IF v_result->>'business_name' IS DISTINCT FROM 'Negocio Gate Dueño A' OR v_result->>'phone' IS DISTINCT FROM '2615550101' THEN
       v_failures := v_failures || format('FAIL (n): el seller debía recibir el negocio y el teléfono del dueño, recibió %s', v_result);
     END IF;
+    -- documentos-marca-empresa (D4): allow-list EXACTA de 18 claves = las 6 legadas + las 12
+    -- nuevas (condición de IVA, 8 datos de la marca, paleta, color y huella del logo). Una
+    -- clave de más o de menos —y en particular cualquier email— rompe este gate.
     SELECT string_agg(k, ',' ORDER BY k) INTO v_text FROM jsonb_object_keys(v_result) AS k;
-    IF v_text IS DISTINCT FROM 'business_name,cuit,domicilio_comercial,nombre_fantasia,phone,razon_social' THEN
-      v_failures := v_failures || format('FAIL (n): rpc_commercial_issuer debe devolver sólo los 6 campos del emisor, devolvió %s', v_text);
+    IF v_text IS DISTINCT FROM
+       'accent_color,brand_address,brand_display_name,brand_email,brand_footer_note,brand_legal_name,brand_phone,brand_tax_id,brand_website,business_name,cuit,domicilio_comercial,iva_condition,logo_sha256,nombre_fantasia,palette_preset,phone,razon_social' THEN
+      v_failures := v_failures || format('FAIL (n): rpc_commercial_issuer debe devolver exactamente los 18 campos del emisor (design D4), devolvió %s', v_text);
+    END IF;
+    -- Ningún VALOR es el email de acceso del dueño (la RPC no lee auth.users). Control
+    -- positivo: el mismo predicado sobre el objeto con el email plantado SÍ lo encuentra.
+    SELECT email INTO v_text FROM auth.users WHERE id = v_owner_a;
+    IF EXISTS (SELECT 1 FROM jsonb_each(v_result) AS e WHERE (e.value #>> '{}') = v_text) THEN
+      v_failures := v_failures || 'FAIL (n): un valor de rpc_commercial_issuer es el email de acceso del dueño'::text;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM jsonb_each(v_result || jsonb_build_object('contacto', v_text)) AS e WHERE (e.value #>> '{}') = v_text) THEN
+      v_failures := v_failures || 'FAIL (n): el predicado "ningún valor es el email de acceso" no detecta un email plantado (gate vacuo)'::text;
     END IF;
   END IF;
   IF v_n <> 0 THEN
@@ -1139,7 +1152,7 @@ BEGIN
     END IF;
   END;
   IF COALESCE(array_length(v_failures, 1), 0) = v_fail_before THEN
-    RAISE NOTICE 'PASS (n): rpc_commercial_issuer devuelve al vendedor no dueño el negocio y el teléfono del dueño, sólo 6 campos, y P0404 a otra cuenta.';
+    RAISE NOTICE 'PASS (n): rpc_commercial_issuer devuelve al vendedor no dueño el negocio y el teléfono del dueño, exactamente 18 campos (sin ningún email de acceso), y P0404 a otra cuenta.';
   END IF;
 
   -- ═══════════════════════════════════════════════════════════════════════

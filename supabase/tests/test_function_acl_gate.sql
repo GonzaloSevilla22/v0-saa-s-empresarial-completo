@@ -286,7 +286,17 @@ DECLARE
     -- de authenticated/anon rechazada con 42501).
     'public._stock_assert_can_adjust(uuid)',
     'public._stock_apply_delta(uuid, uuid, numeric, uuid, boolean)',
-    'public._stock_manual_adjustment(uuid, uuid, text, numeric, numeric, text, text, text, uuid)'
+    'public._stock_manual_adjustment(uuid, uuid, text, numeric, numeric, text, text, text, uuid)',
+    -- documentos-marca-empresa tanda A (20261078000001): la función del
+    -- disparador que restringe la escritura de la marca de la cuenta
+    -- (public.account_branding) a owner/admin. SECURITY DEFINER y de tipo
+    -- trigger: ya la cubre el chequeo (1) sin allowlist; se enumera acá además
+    -- como candado explícito (drift-tolerante) para que un CREATE OR REPLACE
+    -- posterior que pierda el REVOKE ALL ... FROM PUBLIC, anon, authenticated
+    -- sea nombrado, no sólo detectado por la regla general. NUNCA otorgar.
+    -- Candado de comportamiento: bloque (a) de
+    -- supabase/tests/test_documentos_marca_empresa.sql.
+    'public.account_branding_guard_owner_admin()'
   ];
   -- Allowlist del chequeo (4) — helpers internos que HOY siguen expuestos a
   -- `authenticated`. Cada entrada necesita su justificación.

@@ -30,7 +30,7 @@
 - [x] 0.2 **[PO ejecuta o autoriza]** Checkpoint del cuerpo **vivo de producción**, antes de escribir SQL. **Ejecutado el 2026-10-11 por el orquestador** (el apply no tiene acceso a producción; usó sus datos y los verificó contra la base local):
   - **Caso A de D6**: `public._purchase_operation_core` **no existe** (ni en producción ni en local); `remitos-compra` sigue en 45/79, sin tanda B y sin PR. Este change reescribe `rpc_create_purchase_operation` entera.
   - Producción: `MAX(version) = 20261075000002`, 323 migraciones. Local: `MAX = 20261077000002`, 325 (le suma las dos de `stock-movimientos-sucursal-origen`, PR #631, que no tocan ninguna de las funciones de este change).
-  - `md5(replace(prosrc, E'', ''))` local = producción en las tres funciones de partida (tabla de abajo); una sola firma, `anon` sin `EXECUTE`, `authenticated`/`service_role` con `EXECUTE`. `COMMENT`: el alta de compra no tiene; la edición de compra tiene el de `caja-compras-cobranzas` (D8); la edición de gasto, el de `gastos-forma-pago`. Los cuerpos locales volcados con `pg_get_functiondef` tienen 405 / 365 / 233 líneas, como dice el design.
+  - `md5(replace(prosrc, E'\r', ''))` local = producción en las tres funciones de partida (tabla de abajo); una sola firma, `anon` sin `EXECUTE`, `authenticated`/`service_role` con `EXECUTE`. `COMMENT`: el alta de compra no tiene; la edición de compra tiene el de `caja-compras-cobranzas` (D8); la edición de gasto, el de `gastos-forma-pago`. Los cuerpos locales volcados con `pg_get_functiondef` tienen 405 / 365 / 233 líneas, como dice el design.
   - Lo pedido a continuación quedó cubierto así:
   - `pg_get_functiondef`, `obj_description` y `proacl` de:
     - `rpc_create_purchase_operation(text, date, text, jsonb, uuid, uuid, uuid, uuid, uuid, uuid, date)`;
@@ -280,7 +280,7 @@
   - **Resultado**: `openspec validate "compras-gastos-sucursal-por-defecto" --strict` → válido; `openspec validate --specs --strict` → 109/109.
 - [x] 9.2 `knowledge-base/05_reglas_de_negocio.md`: nota en RN-93 de que la compra y el gasto la cumplen desde este change (alta y edición), con los históricos según OQ-1.
   - **Resultado**: nota en RN-93 (`knowledge-base/05_reglas_de_negocio.md`): la compra y el gasto la cumplen en alta y edición; los históricos no se rellenan (OQ-1 (a)).
-- [ ] 9.3 Al archivar (no en el apply):
+- [x] 9.3 Al archivar (no en el apply):
   - **`CHANGES.md`**: ficha con la verificación posterior y los candidatos que deja:
     - `NOT NULL` en `purchases`/`expenses.branch_id` junto con el de `sales` (D13);
     - `REVOKE` de la escritura directa de `authenticated` sobre `purchases` y `expenses`;
@@ -290,31 +290,40 @@
     - `humanizeOperationError` en el formulario de gasto.
   - **`CLAUDE.md`**: puntero y `python scripts/ci/check_docs_sync.py --fix` para `AGENTS.md`.
   - Diffear cada spec sincronizada contra su versión previa (`purchase-operation`, `expense-operation`, `operation-edit-context`, `branches` y `branch-stock`). `remitos-compra` agrega requirements a `purchase-operation` y `operation-edit-context`: si archiva antes, verificar en **HEAD** que sus requirements siguen ahí (gotchas de archive: CRLF, líneas en blanco, dos deltas sobre la misma capability).
+  - **Resultado** (2026-10-12): `openspec archive compras-gastos-sucursal-por-defecto` sincronizó 5 capabilities, total +1 / ~10 / -0: `purchase-operation` ~2 («La compra persiste su sucursal»; «La compra en efectivo descuenta de la caja mediante opt-in…»), `expense-operation` ~2 («El gasto persiste su sucursal»; «La edición de un gasto preserva su contexto mediante contrato tri-estado»), `operation-edit-context` ~2, `branches` +1 («El selector de sucursal de compra, gasto e importador de gastos ofrece la principal en lugar de "Sin sucursal"») y ~3, `branch-stock` ~1. Cada uno de los 11 requirements se verificó verbatim contra su delta en la copia de trabajo (título una sola vez, ningún REMOVED). El archive se comió tres separaciones, restauradas: las líneas en blanco del encabezado de `branch-stock` y de `purchase-operation` y el `---` previo a «Filtro de dashboard por sucursal» en `branches`; los 5 specs siguen `i/lf` y el diff queda acotado a los requirements (211 inserciones / 38 eliminaciones). `openspec validate --specs --strict` → 110/110 y `openspec list` ya no muestra el change. `CHANGES.md` (ficha con la verificación posterior, los hallazgos y los candidatos) y `CLAUDE.md` (ítem 33 y fila de la base) actualizados; `AGENTS.md` regenerado con `python scripts/ci/check_docs_sync.py --fix`. `remitos-compra` (45/79) y `remitos-venta` siguen activos: los deltas de `remitos-compra` sobre `purchase-operation` y `operation-edit-context` son todos ADDED, sin choque directo con los MODIFIED de acá, pero al archivarlo hay que verificar en HEAD que sus requirements y los de este change siguen presentes (gotchas de archive).
 
 ## 10. PR y merge
 
-- [ ] 10.1 PR con commits convencionales y CI verde: `validate-kpis` (gate nuevo y reapply nuevo), Backend, Frontend, E2E, Docs Sync y Vercel.
-- [ ] 10.2 Revisión adversarial con **un solo juez** por ronda (tope de agentes del workflow) sobre:
+- [x] 10.1 PR con commits convencionales y CI verde: `validate-kpis` (gate nuevo y reapply nuevo), Backend, Frontend, E2E, Docs Sync y Vercel.
+  - **Resultado** (2026-10-12): CI verde en la cabeza del PR #635 (`250125e1`): pytest, vitest, playwright, `validate-kpis` (gate nuevo `supabase/tests/test_compras_gastos_sucursal_por_defecto.sql`, bloques (0)-(11), y el bloque de reaplicación idempotente de `20261076000001` en `KPI_Validation.yml`, colocado después de los de `20261075000001/2` y antes del de `20261077…`), Docs Sync (`AGENTS.md` == `CLAUDE.md`) y Vercel. Supabase Preview figura *skipped*: es lo correcto, el branching de Supabase está prohibido en este proyecto.
+- [x] 10.2 Revisión adversarial con **un solo juez** por ronda (tope de agentes del workflow) sobre:
   - el diff de cada función contra su cuerpo vivo;
   - el preflight y el caso de D6;
   - el guard y su posición antes de toda escritura;
   - la paridad entre caja, banco, stock y fila;
   - la idempotencia;
   - la superficie frontend.
-- [ ] 10.3 Merge. Con OQ-1 = (b) lo mergea el **PO**: los sub-agentes no mergean migraciones de datos.
+  - **Resultado** (2026-10-12): no se corrió una ronda adversarial con jueces: revisión del diff por el orquestador, sin ronda de jueces (regla del PO del 2026-10-09: un solo agente por apply). Se revisó `evidence/diff-cuerpos-vs-vivo.diff` (el diff de los tres cuerpos contra el `pg_get_functiondef` vivo): los cambios son exactamente los de D1-D3 y D5 del design.
+- [x] 10.3 Merge. Con OQ-1 = (b) lo mergea el **PO**: los sub-agentes no mergean migraciones de datos.
+  - **Resultado** (2026-10-12): mergeado por el orquestador, squash `5028db8d`, el 2026-10-12 a las 22:01 hora de Argentina (2026-10-13 01:01 UTC). Con OQ-1 = (a) no hay migración de datos, así que no hizo falta el merge del PO.
 
 ## 11. Verificación posterior al merge (producción, sólo lectura; la ejecuta o autoriza el PO)
 
-- [ ] 11.1 `deploy.yml` verde, con `MAX(version)` igual a la migración de este change. Vercel desplegado. Render: `GET /deploys` del commit del merge, y `POST /deploys` si falta.
-- [ ] 11.2 En los cuerpos vivos de las funciones reescritas, la persistencia resuelta y el guard están presentes, y su `md5(prosrc)` es el `v_rewritten` del preflight. Los `COMMENT` son los esperados, hay una sola firma por función y las ACLs no cambiaron (`anon` sin `EXECUTE`).
-- [ ] 11.3 Conteos contra la línea de base de 0.3:
+- [x] 11.1 `deploy.yml` verde, con `MAX(version)` igual a la migración de este change. Vercel desplegado. Render: `GET /deploys` del commit del merge, y `POST /deploys` si falta.
+  - **Resultado** (2026-10-12): `deploy.yml` run 38330136796 `success` (Build Next.js Frontend + Deploy Supabase). Vercel: estado `success` para `5028db8d`. Render: deploy `live` de `5028db8d` (terminado 2026-10-13 01:02:57 UTC) y `GET /health` → 200 `{"status":"ok"}`. En `supabase_migrations.schema_migrations` de producción: **327 filas**, `20261076000001` presente y `max(version) = 20261078000001` (`documentos_marca_empresa`, PR #636, de otra sesión que mergeó en el medio). El máximo no es la migración de este change, pero ésta está aplicada y no falta ninguna anterior: se cumple el sentido de «`MAX(version)` igual a la migración de este change».
+- [x] 11.2 En los cuerpos vivos de las funciones reescritas, la persistencia resuelta y el guard están presentes, y su `md5(prosrc)` es el `v_rewritten` del preflight. Los `COMMENT` son los esperados, hay una sola firma por función y las ACLs no cambiaron (`anon` sin `EXECUTE`).
+  - **Resultado** (2026-10-12): el `md5(replace(prosrc, E'\r', ''))` vivo coincide con el `v_rewritten` del preflight de la migración en las tres funciones: `rpc_create_purchase_operation` `361a1ffc0c3e31ee2bb1b677cfab2394`, `rpc_atomic_update_purchase_operation` `2d4c92f6fd3dbfd52d2225edb0a82827` y `rpc_update_expense` `bb8e7d02f737937fdd120804722a3151`. Una sola firma por función (sin overload) y ACLs sin cambios (`anon` sin `EXECUTE`, `authenticated` con `EXECUTE`). Los dos `COMMENT` que fija la migración (edición de compra y edición de gasto) están vivos. `rpc_create_purchase_operation` **no tiene `COMMENT`** en producción: es preexistente (el `DROP FUNCTION IF EXISTS` de `20261022000001_cobranzas_vencimientos`, 2026-09-03, que recreó la firma con `p_due_date`, se lo llevó) y esta migración usa `CREATE OR REPLACE` sin tocar comentarios. Queda como candidato barato.
+- [x] 11.3 Conteos contra la línea de base de 0.3:
   - las operaciones de compra y los gastos con `branch_id NULL` no crecen. Se comparan por estado, nunca por `created_at`;
   - las compras registradas después del deploy tienen sucursal, y su movimiento de stock y su movimiento bancario también.
-- [ ] 11.4 (Sólo si OQ-1 = (b)) Las filas de `audit_logs` del backfill: cuentas, documentos asignados por regla y residuo. Las compras y los gastos `NULL` de cuentas con sucursal operativa tienen que ser 0; si no, **[PO]** re-ejecutar el bloque idempotente. Informar al PO.
+  - **Resultado** (2026-10-12, comparado por estado y nunca por `created_at`): operaciones de compra con `branch_id NULL` = **106 de 127**, idéntico a la línea de base del 2026-10-03 (4 de las 19 operaciones de los últimos 30 días); gastos con `branch_id NULL` = **175 de 258**, idéntico a los 175 históricos de `gastos-forma-pago`. Informativos, sin línea de base previa: 521 de 663 filas de `purchases` (líneas) con `branch_id NULL` y 533 movimientos de stock con `reference_type = 'purchase'` y `branch_id NULL`. Los dos conteos con línea de base no crecieron. **Compras y gastos creados después del deploy: 0** (todavía no se registró ninguno), así que «las compras registradas después del deploy tienen sucursal» no pudo ejercitarse en producción: lo cubre el humo real del PO (11.5).
+- [x] 11.4 (Sólo si OQ-1 = (b)) Las filas de `audit_logs` del backfill: cuentas, documentos asignados por regla y residuo. Las compras y los gastos `NULL` de cuentas con sucursal operativa tienen que ser 0; si no, **[PO]** re-ejecutar el bloque idempotente. Informar al PO.
+  - **Resultado**: NO APLICA (OQ-1 = (a)): no hay backfill y por lo tanto no hay filas de `audit_logs` que verificar.
 - [ ] 11.5 **[PO]** Humo real:
   - en una cuenta sin módulo, una compra en efectivo de hoy con la caja abierta se registra con su movimiento de caja (H4);
   - en una cuenta con dos sucursales, una compra y un gasto sin tocar el selector quedan en la principal;
   - el Tablero filtrado por la principal incluye la compra.
+  - **Pendiente — humo real del PO en prod** (no bloquea el archive; se informa a propósito como abierto).
 
 ## Evidencia TDD
 

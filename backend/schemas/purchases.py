@@ -4,7 +4,7 @@ import datetime
 import uuid
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from backend.schemas.common import PageOut
 
@@ -29,7 +29,15 @@ class PurchaseOperationIn(BaseModel):
     # alta y el repository pasaba NULL literal a la RPC. Es el ancla de la
     # condición 2 del opt-in de caja de más abajo (sesión abierta en la
     # sucursal EFECTIVA de la compra).
-    branch_id: uuid.UUID | None = None
+    # compras-gastos-sucursal-por-defecto (D1/D10): sin sucursal elegida (None) la RPC
+    # resuelve la PRINCIPAL de la cuenta y guarda ESA —la misma con la que mueve el
+    # stock, valida la caja y registra el banco—, nunca NULL. Sin ninguna sucursal
+    # operativa rechaza con P0422 no_branch_found; una sucursal elegida cerrada, con
+    # P0422 branch_closed.
+    branch_id: uuid.UUID | None = Field(
+        default=None,
+        description="Sin sucursal, la compra se registra en la sucursal principal de la cuenta (la más antigua activa y operativa).",
+    )
     # cost-center-dimension: optional, shared by all lines of the operation
     cost_center_id: uuid.UUID | None = None
     # metodos-pago-operaciones: optional, shared by all lines of the operation
@@ -78,6 +86,14 @@ class PurchaseOperationUpdateIn(BaseModel):
     edicion-preserva-contexto (F1 §D3): `branch_id` usa el mismo contrato
     tri-estado — `model_fields_set`, nunca `is None`.
 
+    compras-gastos-sucursal-por-defecto (D5, BREAKING del contrato interno): para la
+    COMPRA, `branch_id` ya no puede quedar sin sucursal. Ni la intención "desimputar"
+    (clave presente con `null`) ni una compra vigente sin sucursal (histórica) se
+    preservan: la RPC las resuelve a la sucursal principal ANTES de revertir el stock.
+    Una sucursal explícita inválida (ajena, inactiva o cerrada) sigue dando P0422
+    branch_invalid. Forma de pago, proveedor y centro de costo conservan las tres
+    intenciones.
+
     compras-proveedor-cuenta-corriente (D7, OQ-5 opción A): `supplier_id` y
     `cost_center_id` entran al MISMO contrato tri-estado — cierra la OQ-1 de
     edicion-preserva-contexto, que los dejó "preservados pero no parámetro"
@@ -91,7 +107,10 @@ class PurchaseOperationUpdateIn(BaseModel):
     date: datetime.date
     description: str | None = None
     payment_method_id: uuid.UUID | None = None
-    branch_id: uuid.UUID | None = None
+    branch_id: uuid.UUID | None = Field(
+        default=None,
+        description="Sin sucursal (null informado, o una compra histórica sin sucursal), la compra se registra en la sucursal principal de la cuenta: null ya no desimputa.",
+    )
     supplier_id: uuid.UUID | None = None
     cost_center_id: uuid.UUID | None = None
 

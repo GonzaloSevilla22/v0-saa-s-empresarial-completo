@@ -11,7 +11,10 @@
  * cumplida por duplicación real, no anticipada.
  *
  * Las tres condiciones son las que valida el servidor, copiadas de
- * `rpc_create_sale_operation_v2` y reusadas por `rpc_create_expense`:
+ * `rpc_create_sale_operation_v2` y reusadas por `rpc_create_expense` y por
+ * `rpc_create_purchase_operation` (caja-compras-cobranzas; desde
+ * compras-gastos-sucursal-por-defecto la compra sin sucursal elegida compara contra
+ * la misma principal que resuelve este hook, así que el opt-in pre-marcado ya no se rechaza):
  *   1. el `kind` de la forma de pago elegida es `cash`;
  *   2. hay una sesión de caja ABIERTA en la sucursal efectiva de la
  *      operación (sucursal elegida, o la principal de la cuenta —

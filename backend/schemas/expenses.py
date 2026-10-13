@@ -46,7 +46,10 @@ class ExpenseCreate(BaseModel):
     #   hay y la organización TIENE bancos activos, la RPC exige elegir una
     #   (P0412 → 422 con field, D19).
     payment_method_id: uuid.UUID | None = None
-    branch_id: uuid.UUID | None = None
+    branch_id: uuid.UUID | None = Field(
+        default=None,
+        description="Sin sucursal, el gasto se registra en la sucursal principal de la cuenta (la más antigua activa y operativa).",
+    )
     cash_session_id: uuid.UUID | None = None
     bank_account_id: uuid.UUID | None = None
 
@@ -67,6 +70,13 @@ class ExpenseUpdate(BaseModel):
     filtraba los `None` y por eso borraba el centro de costo en cada edición,
     en silencio (bug pre-existente que este change cierra).
 
+    compras-gastos-sucursal-por-defecto (D4/D5, BREAKING del contrato interno):
+    para la SUCURSAL del gasto el nulo ya no desimputa. La clave presente con
+    `null`, y un gasto vigente sin sucursal (histórico), se resuelven a la
+    sucursal principal —la MISMA regla que el alta del gasto—, sin guard de
+    sucursal operativa. Forma de pago y centro de costo conservan las tres
+    intenciones.
+
     La firma NO acepta `cash_session_id` ni `bank_account_id`: la edición no
     postea movimientos (D11/D13). Un gasto que ya movió plata es inmutable
     (P0423); uno que no, sólo cambia de etiqueta.
@@ -82,7 +92,10 @@ class ExpenseUpdate(BaseModel):
     # cost-center-dimension: optional analytic dimension
     cost_center_id: uuid.UUID | None = None
     payment_method_id: uuid.UUID | None = None
-    branch_id: uuid.UUID | None = None
+    branch_id: uuid.UUID | None = Field(
+        default=None,
+        description="Sin sucursal (null informado, o un gasto histórico sin sucursal), el gasto se registra en la sucursal principal de la cuenta: null ya no desimputa la sucursal.",
+    )
 
 
 class ExpenseOut(BaseModel):

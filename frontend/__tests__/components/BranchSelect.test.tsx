@@ -34,6 +34,8 @@ vi.mock("@/components/ui/select", () => ({
     children: ReactNode
   }) => (
     <div data-testid="select" data-value={value} data-on-change={onValueChange ? "yes" : "no"}>
+      {/* Simula la emisión espuria de Radix (su <select> nativo dispara `change` con ""). */}
+      <span data-testid="emit-empty" onClick={() => onValueChange?.("")} />
       <SelectChangeContext.Provider value={onValueChange}>{children}</SelectChangeContext.Provider>
     </div>
   ),
@@ -164,6 +166,42 @@ describe("BranchSelect required — la sucursal es obligatoria (remito)", () => 
   it("sin valor el Select no usa el centinela '__none__' (no hay opción que lo respalde)", () => {
     render(<BranchSelect value={null} onChange={vi.fn()} required alwaysVisible />)
     expect(screen.getByTestId("select")).not.toHaveAttribute("data-value", "__none__")
+  })
+})
+
+// compras-gastos-sucursal-por-defecto — hallazgo del humo local (carga en frío): Radix Select sincroniza
+// su <select> nativo con un `change` cuando cambia el valor controlado; con las sucursales llegando,
+// el valor mostrado pasa de "" a la principal y, si la opción nativa aún no está registrada, emite
+// `onValueChange("")`. En el formulario eso guardaba "" y mandaba `branch_id: ""` (422 del backend,
+// «Input should be a valid UUID») pese a que el selector mostraba la principal. En los modos sin la
+// opción «Sin sucursal» no hay nada que vaciar: una emisión vacía nunca puede llegar al formulario.
+describe("BranchSelect — una emisión vacía de Radix nunca llega al formulario", () => {
+  it("allowUnassigned={false}: onChange no se llama con una cadena vacía", async () => {
+    const onChange = vi.fn()
+    render(<BranchSelect value={null} onChange={onChange} allowUnassigned={false} label="Sucursal" />)
+
+    await userEvent.click(screen.getByTestId("emit-empty"))
+
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
+  it("required (remito): onChange no se llama con una cadena vacía", async () => {
+    const onChange = vi.fn()
+    render(<BranchSelect value={null} onChange={onChange} required alwaysVisible />)
+
+    await userEvent.click(screen.getByTestId("emit-empty"))
+
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
+  it("una elección real sigue llegando (el guard sólo descarta la cadena vacía)", async () => {
+    const onChange = vi.fn()
+    render(<BranchSelect value={null} onChange={onChange} allowUnassigned={false} label="Sucursal" />)
+
+    await userEvent.click(screen.getByRole("option", { name: "Showroom" }))
+
+    expect(onChange).toHaveBeenCalledTimes(1)
+    expect(onChange).toHaveBeenCalledWith("b-show")
   })
 })
 

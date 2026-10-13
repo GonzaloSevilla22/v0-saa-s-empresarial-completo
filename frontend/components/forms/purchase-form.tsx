@@ -774,12 +774,30 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
           </div>
 
           {/* ── Sucursal (solo plan PRO) ───────────────────────────────── */}
-          <BranchSelect
-            value={branchId}
-            onChange={setBranchId}
-            placeholder="Sin sucursal (general)"
-            className="bg-background border-border text-foreground text-sm"
-          />
+          {/* compras-gastos-sucursal-por-defecto (D9): sin «Sin sucursal (general)»: se ve la
+              sucursal PRINCIPAL ya elegida, rotulada «Nombre (principal)», con el rótulo
+              «Sucursal» dentro del selector (desaparece junto con él en las cuentas sin el
+              módulo de sucursales). El estado sigue en `null` hasta que se elige otra: viaja
+              `null` y el SERVIDOR resuelve la principal con datos vivos (la RPC guarda la
+              sucursal que mueve el stock, la caja y el banco). Para el opt-in de caja
+              `useCashOptin` ya ofrece la sesión de esa misma principal.
+              COORDINACIÓN con remitos-compra tanda B (su tarea 7.3 extrae
+              `PurchaseCheckoutFields` de este archivo): el selector de sucursal no está en lo
+              que extrae, pero quien aplique segundo mantiene `allowUnassigned={false}` y el
+              `label` acá. */}
+          {/* En móvil (375 px) la mitad de la fila trunca «Casa Central (principal)» y la marca
+              «(principal)» —lo que el usuario necesita ver— se pierde: el selector ocupa la fila
+              entera (`col-span-2`) y vuelve a media columna desde `sm`. `empty:hidden` evita una
+              celda vacía en las cuentas sin el módulo (el selector no renderiza nada). */}
+          <div className="col-span-2 sm:col-span-1 empty:hidden">
+            <BranchSelect
+              value={branchId}
+              onChange={setBranchId}
+              allowUnassigned={false}
+              label="Sucursal"
+              className="bg-background border-border text-foreground text-sm"
+            />
+          </div>
 
           {/* ── Centro de costo (opcional, V2.5) ──────────────────────── */}
           <CostCenterSelect

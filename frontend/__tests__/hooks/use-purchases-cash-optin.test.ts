@@ -70,7 +70,9 @@ describe("usePurchases — passthrough de branch_id en el alta (D3)", () => {
     expect(body.branch_id).toBe(BRANCH_ID)
   })
 
-  it("sin branchId en el meta, el body manda NULL (compra sin sucursal, sin error — D3 scenario)", async () => {
+  // compras-gastos-sucursal-por-defecto: el cliente manda NULL y el SERVIDOR resuelve y guarda la
+  // sucursal principal (la RPC persiste la misma con la que mueve el stock, la caja y el banco).
+  it("sin branchId en el meta, el body manda NULL (compra sin sucursal elegida, sin error — D3 scenario)", async () => {
     const { result } = renderHook(() => usePurchases(), { wrapper: makeWrapper() })
     await waitFor(() => expect(pythonClient.get).toHaveBeenCalled())
 

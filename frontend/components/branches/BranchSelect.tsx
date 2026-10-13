@@ -35,8 +35,10 @@ interface BranchSelectProps {
    * (principal)». El estado del formulario NO cambia: sigue en `null` hasta que el
    * usuario elige otra sucursal; con `null` viaja `null` y el SERVIDOR resuelve la
    * principal con datos vivos. Elegir la principal que ya se muestra no emite
-   * `onChange` (Radix sólo emite cuando el valor cambia). Default `true`: compra,
-   * gasto e importador de gastos conservan su opción sin sucursal.
+   * `onChange` (Radix sólo emite cuando el valor cambia). Default `true`: sólo el
+   * presupuesto (`QuoteForm`, que no mueve stock ni es una compra) conserva su opción
+   * sin sucursal. Venta, compra, gasto e importador de gastos usan `false`
+   * (compras-gastos-sucursal-por-defecto D9): lo que se muestra es lo que el servidor guarda.
    */
   allowUnassigned?: boolean
   /**
@@ -94,9 +96,20 @@ export function BranchSelect({
 
   const effectivePlaceholder = placeholder ?? (required ? "Elegí la sucursal" : "Sin sucursal (general)")
 
+  // compras-gastos-sucursal-por-defecto (hallazgo del humo local): en los modos SIN la opción «Sin
+  // sucursal» (`required` y `allowUnassigned={false}`) no hay nada que vaciar, así que una emisión
+  // vacía NUNCA es una elección. Radix Select sincroniza su <select> nativo con un evento `change`
+  // cuando cambia el valor controlado: con las sucursales llegando, el valor mostrado pasa de "" a la
+  // principal y, si la opción nativa aún no está registrada, emite `onValueChange("")`. Sin esta
+  // guarda el formulario guardaba "" y mandaba `branch_id: ""` (422 «Input should be a valid UUID»)
+  // aunque el selector mostrara la principal: 2 de 6 cargas en frío.
+  const emitChoice = (v: string) => {
+    if (v) onChange(v)
+  }
+
   if (required) {
     return withLabel(
-      <Select value={value ?? ""} onValueChange={(v) => onChange(v)}>
+      <Select value={value ?? ""} onValueChange={emitChoice}>
         <SelectTrigger id={triggerId} className={className}>
           <SelectValue placeholder={effectivePlaceholder} />
         </SelectTrigger>
@@ -120,7 +133,7 @@ export function BranchSelect({
     // sin ninguna a la vista, el servidor rechazará con no_branch_found.
     const placeholderText = isLoading ? "Cargando sucursales…" : (placeholder ?? "Sin sucursal disponible")
     return withLabel(
-      <Select value={displayedId ?? ""} onValueChange={(v) => onChange(v)}>
+      <Select value={displayedId ?? ""} onValueChange={emitChoice}>
         <SelectTrigger id={triggerId} className={className}>
           <SelectValue placeholder={placeholderText} />
         </SelectTrigger>

@@ -1,0 +1,223 @@
+--- vivo/rpc_create_purchase_operation (md5 de partida)
++++ migración/rpc_create_purchase_operation (cuerpo nuevo)
+@@ -45,6 +45,13 @@
+   cobranzas-vencimientos (D3): agrega p_due_date opcional trailing — la
+   compra a crédito transporta la fecha de negocio (p_date) y el override al
+   helper compartido, que resuelve la cascada con el plazo del PROVEEDOR.
++
++  compras-gastos-sucursal-por-defecto (D1-D3): resuelve UNA vez
++  v_gate_branch := COALESCE(p_branch_id, c26_default_branch(cuenta)) y la usa en
++  los dos INSERT en purchases, el delta de stock, el movimiento de stock, la
++  condición de caja y el banco. Sin sucursal operativa a la cual resolver rechaza
++  con P0422 no_branch_found antes de escribir nada, y una sucursal elegida cerrada
++  con P0422 branch_closed.
+ */
+ DECLARE
+     v_uid             uuid;
+@@ -67,6 +74,9 @@
+     v_cash_movement_id    uuid;
+     v_cash_session_status text;
+     v_cash_session_branch uuid;
++    -- compras-gastos-sucursal-por-defecto (D1/D2/D3):
++    v_branch              RECORD;
++    v_gate_branch         uuid;
+ BEGIN
+     v_uid := (SELECT auth.uid());
+     IF v_uid IS NULL THEN
+@@ -104,14 +114,20 @@
+     END IF;
+ 
+     -- Verify branch_id belongs to this account (if provided)
++    -- compras-gastos-sucursal-por-defecto (D2/D3, OQ-2 (a)): una sucursal ELEGIDA no
++    -- puede estar cerrada — el bloque literal de rpc_create_expense. Hasta este change
++    -- sólo se miraba is_active y la mercadería entraba en una sucursal cerrada.
+     IF p_branch_id IS NOT NULL THEN
+-        IF NOT EXISTS (
+-            SELECT 1 FROM public.branches
+-            WHERE id = p_branch_id AND account_id = v_account_id AND is_active = TRUE
+-        ) THEN
++        SELECT id, status INTO v_branch
++        FROM   public.branches
++        WHERE  id = p_branch_id AND account_id = v_account_id AND is_active = TRUE;
++        IF NOT FOUND THEN
+             RAISE EXCEPTION 'branch_not_found or not active for this account'
+                 USING ERRCODE = 'P0404';
+         END IF;
++        IF v_branch.status = 'closed' THEN
++            RAISE EXCEPTION 'branch_closed: la sucursal está cerrada' USING ERRCODE = 'P0422';
++        END IF;
+     END IF;
+ 
+     -- cost-center-dimension: Verify cost_center_id belongs to this account (mirror of branch_id)
+@@ -159,6 +175,24 @@
+             USING ERRCODE = 'P0400';
+     END IF;
+ 
++    -- compras-gastos-sucursal-por-defecto (D1/D2/D3): la sucursal que se GUARDA es la
++    -- misma con la que entra el stock, se escribe el movimiento de stock, se valida la
++    -- sesión de caja y se registra el movimiento bancario. Sin sucursal elegida, si la
++    -- cuenta no tiene ninguna sucursal OPERATIVA a la cual resolver (ninguna sucursal,
++    -- o todas inactivas o cerradas: c26_default_branch devuelve entonces su fallback no
++    -- operativo), se rechaza ANTES de escribir nada. Mismo token y mismo código que la
++    -- venta. Una sucursal ELEGIDA ya se validó arriba (P0404 / P0422 branch_closed). Va
++    -- antes del INSERT en operation_idempotency: el rechazo no deja nada persistido.
++    v_gate_branch := COALESCE(p_branch_id, public.c26_default_branch(v_account_id));
++    IF p_branch_id IS NULL AND NOT EXISTS (
++        SELECT 1 FROM public.branches
++        WHERE id = v_gate_branch AND account_id = v_account_id
++          AND is_active = TRUE AND status = 'active'
++    ) THEN
++        RAISE EXCEPTION 'no_branch_found: la cuenta no tiene una sucursal operativa a la cual asignar la compra'
++            USING ERRCODE = 'P0422';
++    END IF;
++
+     v_new_op_id := gen_random_uuid();
+ 
+     -- ON CONFLICT: el índice único es (user_id, operation_kind, idempotency_key).
+@@ -239,6 +273,8 @@
+             -- fila y escribía 2 (kg) que se leían 2 u.
+             v_qty_norm := public._uom_normalize_quantity(v_item.product_id, v_item.unit_id, v_item.quantity);
+ 
++            -- compras-gastos-sucursal-por-defecto (D1/D2): se guarda v_gate_branch (la elegida o
++            -- la principal), la misma con la que entra el stock — no el p_branch_id crudo.
+             INSERT INTO public.purchases
+                 (user_id, account_id, product_id, amount, quantity, unit_id,
+                  total, description, date, operation_id, branch_id, cost_center_id, payment_method_id,
+@@ -248,7 +284,7 @@
+                 (v_uid, v_account_id, v_item.product_id,
+                  v_item.amount, v_item.quantity, v_item.unit_id,
+                  v_item.amount * v_item.quantity, p_description, p_date, v_new_op_id,
+-                 p_branch_id, p_cost_center_id, p_payment_method_id,
++                 v_gate_branch, p_cost_center_id, p_payment_method_id,
+                  p_supplier_id,
+                  v_product.name, v_product.sku, v_product.cost, NULL)
+             RETURNING id INTO v_new_purchase_id;
+@@ -273,8 +309,11 @@
+             v_qty_before := v_stock_sum;
+             v_qty_after  := v_stock_sum + v_qty_norm;
+ 
++            -- compras-gastos-sucursal-por-defecto (D1): v_gate_branch EXPLÍCITA. Con el NULL crudo
++            -- c21 resolvía la principal por dentro (otra lectura de c26_default_branch) y, sin
++            -- ninguna sucursal, creaba "Casa Central" al vuelo.
+             PERFORM public.c21_apply_branch_stock_delta(
+-                v_account_id, v_item.product_id, p_branch_id, v_qty_norm);
++                v_account_id, v_item.product_id, v_gate_branch, v_qty_norm);
+ 
+             INSERT INTO public.stock_movements (
+                 user_id, account_id, product_id, product_name, type,
+@@ -285,12 +324,16 @@
+                 v_uid, v_account_id, v_item.product_id, v_product.name, 'purchase',
+                 v_qty_norm, v_qty_before, v_qty_after,
+                 v_new_purchase_id, 'purchase', v_uid,
+-                v_new_op_id, p_branch_id, v_product.cost
++                -- compras-gastos-sucursal-por-defecto (D1): el movimiento lleva v_gate_branch, la
++                -- misma sucursal que el delta de stock y que la fila de la compra.
++                v_new_op_id, v_gate_branch, v_product.cost
+             );
+ 
+         ELSE
+             -- Línea sin producto: no mueve stock; la unidad se sigue validando (P0404).
+             PERFORM public._uom_normalize_quantity(NULL, v_item.unit_id, v_item.quantity);
++            -- compras-gastos-sucursal-por-defecto (D1/D2): también la línea de servicio guarda
++            -- v_gate_branch.
+             INSERT INTO public.purchases
+                 (user_id, account_id, product_id, amount, quantity, unit_id,
+                  total, description, date, operation_id, branch_id, cost_center_id, payment_method_id,
+@@ -299,7 +342,7 @@
+                 (v_uid, v_account_id, NULL,
+                  v_item.amount, v_item.quantity, v_item.unit_id,
+                  v_item.amount * v_item.quantity, p_description, p_date, v_new_op_id,
+-                 p_branch_id, p_cost_center_id, p_payment_method_id,
++                 v_gate_branch, p_cost_center_id, p_payment_method_id,
+                  p_supplier_id)
+             RETURNING id INTO v_new_purchase_id;
+         END IF;
+@@ -323,12 +366,12 @@
+     -- entre las 21:00 y las 23:59 de Mendoza se rechazaría con P0422 justo
+     -- cuando el usuario sabe que es hoy).
+     --
+-    -- "Sucursal efectiva de la compra" = p_branch_id tal cual (sin COALESCE a
+-    -- una default: a diferencia del gasto, la compra no resuelve una
+-    -- sucursal por defecto — D3 sólo exige que se PERSISTA la elegida). Una
+-    -- compra sin sucursal (p_branch_id NULL) no puede satisfacer esta
+-    -- condición para ninguna caja real: es el comportamiento correcto, no un
+-    -- caso sin cubrir.
++    -- compras-gastos-sucursal-por-defecto (D1): "Sucursal efectiva de la compra" =
++    -- v_gate_branch (la elegida o, sin elegir, la principal operativa), la misma que se
++    -- persiste y con la que entra el stock — como el gasto y la venta. Antes de este
++    -- change se comparaba contra el valor CRUDO: una compra sin sucursal no satisfacía la
++    -- condición para ninguna caja real, y el formulario ofrece la sesión de la principal
++    -- PRE-MARCADA, así que toda compra en efectivo sin sucursal elegida se rechazaba.
+     IF p_cash_session_id IS NOT NULL THEN
+         IF v_kind IS DISTINCT FROM 'cash' THEN
+             RAISE EXCEPTION 'cash_optin_requires_cash_kind: p_cash_session_id sólo aplica si el kind derivado es cash (recibido: %)', COALESCE(v_kind, 'NULL')
+@@ -340,7 +383,7 @@
+         JOIN public.cashboxes cb ON cb.id = cs.cashbox_id
+         WHERE cs.id = p_cash_session_id;
+ 
+-        IF v_cash_session_status IS DISTINCT FROM 'open' OR v_cash_session_branch IS DISTINCT FROM p_branch_id THEN
++        IF v_cash_session_status IS DISTINCT FROM 'open' OR v_cash_session_branch IS DISTINCT FROM v_gate_branch THEN
+             RAISE EXCEPTION 'cash_optin_requires_open_session: la sesión de caja debe estar abierta y pertenecer a la sucursal efectiva de la compra'
+                 USING ERRCODE = 'P0422';
+         END IF;
+@@ -358,10 +401,12 @@
+ 
+     -- pos-banco-movimientos (D5, task 5.2): movimiento bancario operativo de
+     -- EGRESO — v_kind CRUDO.
++    -- compras-gastos-sucursal-por-defecto (D1): lleva v_gate_branch (la sucursal EFECTIVA, la
++    -- misma que se persistió en la compra), como el gasto y la venta.
+     PERFORM public._pay_register_operation_bank_movement(
+         v_account_id, v_kind, p_payment_method_id, p_bank_account_id,
+         v_total_sum, 'out', 'purchase', v_new_op_id,
+-        p_date, p_branch_id, NULL
++        p_date, v_gate_branch, NULL
+     );
+ 
+     -- compras-proveedor-cuenta-corriente (D8): cargo en la cuenta corriente
+--- vivo/rpc_atomic_update_purchase_operation (md5 de partida)
++++ migración/rpc_atomic_update_purchase_operation (cuerpo nuevo)
+@@ -179,6 +179,27 @@
+     v_final_branch_id := v_old_branch_id;
+   END IF;
+ 
++  -- compras-gastos-sucursal-por-defecto (D2/D5): para la COMPRA, NULL significa "la
++  -- principal". Ni la intención de desimputar (p_branch_provided con NULL) ni una fila
++  -- vigente sin sucursal (compra histórica) se preservan: se resuelve a la principal
++  -- operativa ANTES del REVERSE, igual que la validación de arriba (gate 2.9 de
++  -- edicion-preserva-contexto: una edición inválida no revierte ni reaplica stock).
++  -- Una sucursal vigente no nula se preserva sin revalidar, como hoy; una explícita
++  -- inválida sigue dando P0422 branch_invalid. El REVERSE de una fila NULL ya caía en la
++  -- principal vigente (op_stock_movement) y el APPLY suma en esa misma sucursal: el neto
++  -- es cero. El gasto aplica la misma regla en rpc_update_expense.
++  IF v_final_branch_id IS NULL THEN
++    v_final_branch_id := public.c26_default_branch(v_account_id);
++    IF v_final_branch_id IS NULL OR NOT EXISTS (
++      SELECT 1 FROM public.branches
++      WHERE id = v_final_branch_id AND account_id = v_account_id
++        AND is_active = TRUE AND status = 'active'
++    ) THEN
++      RAISE EXCEPTION 'no_branch_found: la cuenta no tiene una sucursal operativa a la cual asignar la compra'
++        USING ERRCODE = 'P0422';
++    END IF;
++  END IF;
++
+   IF p_supplier_provided THEN
+     IF p_supplier_id IS NOT NULL THEN
+       IF NOT EXISTS (
+--- vivo/rpc_update_expense (md5 de partida)
++++ migración/rpc_update_expense (cuerpo nuevo)
+@@ -141,6 +141,14 @@
+     v_final_branch_id := v_old.branch_id;
+   END IF;
+ 
++  -- compras-gastos-sucursal-por-defecto (D4/D5): un nulo de sucursal, informado o vigente
++  -- (gasto histórico), se resuelve con la MISMA regla que el alta del gasto
++  -- (rpc_create_expense): COALESCE con la principal. Sin guard de sucursal operativa
++  -- (OQ-3 (a)): el gasto no mueve mercadería y el alta persiste el fallback. La
++  -- intención de desimputar la sucursal desaparece del contrato tri-estado; forma de
++  -- pago y centro de costo conservan las tres intenciones.
++  v_final_branch_id := COALESCE(v_final_branch_id, public.c26_default_branch(v_account_id));
++
+   IF p_cost_center_provided THEN
+     IF p_cost_center_id IS NOT NULL THEN
+       IF NOT EXISTS (

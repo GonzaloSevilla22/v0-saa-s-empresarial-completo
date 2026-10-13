@@ -108,6 +108,8 @@ async def create_purchase_operation(
     supplier_id = str(payload.supplier_id) if payload.supplier_id is not None else None
     # caja-compras-cobranzas (D3): passthrough de branch_id — antes se
     # descartaba acá (el 5.º argumento de la RPC llegaba NULL literal).
+    # compras-gastos-sucursal-por-defecto (D1/D10): None = sin sucursal elegida;
+    # la RPC resuelve y GUARDA la sucursal principal (no hay resolución acá).
     branch_id = str(payload.branch_id) if payload.branch_id is not None else None
     # caja-compras-cobranzas (D2): passthrough del opt-in de caja — la RPC
     # resuelve y valida las tres condiciones (P0422).

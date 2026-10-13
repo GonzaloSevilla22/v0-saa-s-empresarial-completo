@@ -1348,3 +1348,27 @@ async def test_list_purchases_row_exposes_cash_movement_query_predicate(
     assert "purchase_payment" in rows_query
     assert "has_cash_movement" in rows_query
     assert "is_delete_blocked" in rows_query
+
+
+# ── compras-gastos-sucursal-por-defecto (D10): el contrato queda documentado en OpenAPI ─────────
+
+
+def test_schema_branch_id_documents_that_no_branch_means_the_principal():
+    """Sin sucursal, la compra se registra en la sucursal principal de la cuenta (la RPC la
+    resuelve y la persiste junto con el stock, la caja y el banco): el campo lo dice en OpenAPI
+    en el alta y en la edición, así el contrato no depende de leer un comentario del servicio."""
+    from backend.schemas.purchases import PurchaseOperationIn, PurchaseOperationUpdateIn
+
+    for model in (PurchaseOperationIn, PurchaseOperationUpdateIn):
+        description = model.model_json_schema()["properties"]["branch_id"].get("description", "")
+        assert "sucursal principal" in description, model.__name__
+
+
+def test_update_schema_branch_id_documents_that_null_no_longer_unassigns():
+    """BREAKING declarado (design D5): en la edición, un branch_id null (informado, o una compra
+    histórica sin sucursal) deja de desimputar y se resuelve a la sucursal principal. El campo
+    de edición lo dice, para que nadie lea el tri-estado como 'null = desimputar'."""
+    from backend.schemas.purchases import PurchaseOperationUpdateIn
+
+    description = PurchaseOperationUpdateIn.model_json_schema()["properties"]["branch_id"].get("description", "")
+    assert "null" in description and "desimputa" in description, description

@@ -101,9 +101,13 @@ La superficie de alta de gasto SHALL NOT ofrecer las formas de pago de ese `kind
 
 ### Requirement: El gasto persiste su sucursal
 
-El sistema SHALL persistir `branch_id` en todo gasto nuevo, resolviéndolo como la sucursal informada o, en su ausencia, la sucursal por defecto de la cuenta — el mismo criterio de resolución que ya usa el alta de venta. La columna SHALL permanecer nullable para no invalidar los gastos históricos, que fueron creados por un camino que nunca la escribió.
+El sistema SHALL persistir `branch_id` en todo gasto nuevo **y en todo gasto editado**, resolviéndolo como la sucursal informada o, en su ausencia, la sucursal por defecto de la cuenta (`c26_default_branch`), el mismo criterio de resolución que ya usan el alta de venta y el alta de compra. La columna SHALL permanecer nullable para no invalidar los gastos históricos, que fueron creados por un camino que nunca la escribió.
 
-Este requisito cumple RN-93 para el documento de gasto, que hasta ahora era el único documento operativo que no lo cumplía.
+Este requisito cumple RN-93 para el documento de gasto.
+
+Los gastos históricos sin sucursal NO SHALL rellenarse en masa: toman sucursal sólo cuando un usuario los edita, por la regla del requirement «La edición de un gasto preserva su contexto mediante contrato tri-estado».
+
+La resolución del gasto, en el alta y en la edición, NO SHALL rechazar el registro cuando la cuenta no tiene ninguna sucursal operativa: persiste lo que resuelva `c26_default_branch`, como el alta desde `gastos-forma-pago`. La venta y la compra, en cambio, sí rechazan ese estado con `no_branch_found`.
 
 #### Scenario: Alta de gasto sin sucursal informada
 
@@ -121,13 +125,19 @@ Este requisito cumple RN-93 para el documento de gasto, que hasta ahora era el �
 - **WHEN** se agregan los gastos del período por sucursal
 - **THEN** el gasto queda atribuido a esa sucursal
 
-> El read-model del reporte por sucursal tiene un defecto **pre-existente y ajeno a este cambio** (una referencia ambigua a la columna de sucursal) que lo hace fallar para todo llamador, así que esa pantalla todavía no puede mostrar ningún gasto. Este requisito cubre la atribución del dato, que es lo que este cambio entrega; arreglar ese read-model queda como cambio propio.
+> El defecto del read-model del reporte por sucursal que este requirement señalaba al nacer (una referencia ambigua a la columna de sucursal) lo corrigió `qa-integral-modulos` (G4): el reporte ya muestra los gastos por sucursal.
 
 #### Scenario: Los gastos históricos siguen siendo válidos sin sucursal
 
-- **GIVEN** gastos anteriores a este cambio, sin sucursal
+- **GIVEN** gastos anteriores a `gastos-forma-pago`, sin sucursal
 - **WHEN** se listan y se leen
-- **THEN** siguen siendo legibles y editables, con la sucursal en nulo
+- **THEN** siguen siendo legibles y editables, con la sucursal en nulo mientras nadie los edite
+
+#### Scenario: Editar un gasto histórico le asigna la principal
+
+- **GIVEN** un gasto histórico sin sucursal ni dinero posteado, en una cuenta cuya sucursal principal es A
+- **WHEN** se lo edita, cambiando sólo su importe
+- **THEN** el gasto queda con la sucursal A y con el importe nuevo
 
 ### Requirement: El alta, la edición y el borrado de un gasto son operaciones atómicas de servidor
 
@@ -348,11 +358,12 @@ La existencia de un **asiento contable** SHALL NOT sumarse a los predicados de b
 - **WHEN** un usuario edita su importe
 - **THEN** la edición procede normalmente
 - **AND** se emite el evento que corrige el asiento, sin ningún rechazo por `P0423`
+
 ### Requirement: La edición de un gasto preserva su contexto mediante contrato tri-estado
 
 El sistema SHALL aplicar a la edición de un gasto el contrato tri-estado de edición de operaciones (capability `operation-edit-context`): la **ausencia** de una clave en la petición conserva el valor vigente, un **nulo explícito** desimputa, y un identificador **reimputa**. El contrato SHALL aplicarse a la forma de pago, la sucursal y el centro de costo.
 
-El gasto conserva las tres intenciones también para la sucursal. La única excepción de ese contrato es la sucursal de una **venta**, que desde `ventas-sucursal-por-defecto` no admite quedar vacía: un nulo, informado o vigente, se registra en la sucursal principal. No alcanza al gasto.
+**Excepción para la sucursal** (`compras-gastos-sucursal-por-defecto`): un gasto no puede quedar sin sucursal por una edición. La sucursal **presente con nulo** y la sucursal **ausente** cuyo valor vigente sea nulo SHALL resolverse a la sucursal por defecto de la cuenta, con la misma regla que el alta del gasto. La forma de pago y el centro de costo conservan las tres intenciones. La venta y la compra tienen la misma excepción para su sucursal (capability `operation-edit-context`).
 
 Ningún campo de contexto SHALL perderse por omisión, ni en el alta ni en la edición. Este requisito cierra dos pérdidas silenciosas preexistentes: la sucursal se descartaba al crear y el centro de costo se borraba en cada edición.
 
@@ -370,6 +381,18 @@ Reenviar el valor que el gasto **ya tiene** SHALL entenderse como preservación 
 
 - **WHEN** se edita un gasto enviando la forma de pago en nulo de forma explícita
 - **THEN** el gasto queda sin forma de pago imputada
+
+#### Scenario: Informar la sucursal en nulo la registra en la principal
+
+- **GIVEN** un gasto sin dinero posteado, imputado a la sucursal B, en una cuenta cuya sucursal principal es A
+- **WHEN** se edita enviando la sucursal en nulo de forma explícita
+- **THEN** el gasto queda imputado a A, y su forma de pago y su centro de costo no cambian
+
+#### Scenario: Omitir la sucursal de un gasto sin sucursal le asigna la principal
+
+- **GIVEN** un gasto sin sucursal y sin dinero posteado, en una cuenta cuya sucursal principal es A
+- **WHEN** se edita sin incluir la sucursal en la petición
+- **THEN** el gasto queda imputado a A
 
 #### Scenario: Reimputar el centro de costo
 

@@ -1,0 +1,137 @@
+--- vivo/rpc_delete_purchase_operation
++++ 20261081000001/rpc_delete_purchase_operation
+@@ -14,6 +14,12 @@
+   v_cash_amount          numeric(12,2);
+   v_open_session_id      uuid;
+   v_cash_reversal_id     uuid;
++  -- remitos-compra (D9): compra nacida de un remito.
++  v_origins              uuid[];
++  v_direct_rows          integer;
++  v_source_dn            uuid;
++  v_dn                   public.delivery_notes%ROWTYPE;
++  v_dn_label             text;
+ BEGIN
+   v_uid := (SELECT auth.uid());
+   IF v_uid IS NULL THEN
+@@ -58,6 +64,86 @@
+     RETURN false;
+   END IF;
+ 
++  -- ── remitos-compra (D9): compra nacida de un remito ─────────────────────────
++  -- ANTES de cualquier compensación: lock del remito de origen (leído con la cuenta del usuario y
++  -- el sentido compra). Es el mismo orden que la conversión (remito -> dinero), así que no hay
++  -- ciclo; tomarlo al final no serializaría dos borrados de la misma compra ni un borrado viejo
++  -- contra una reconversión, y a crédito invertiría el orden (cuenta corriente -> remito contra
++  -- remito -> cuenta corriente: interbloqueo). Un origen de otra cuenta o de venta NUNCA se reabre.
++  SELECT array_agg(DISTINCT p.source_delivery_note_id) FILTER (WHERE p.source_delivery_note_id IS NOT NULL),
++         count(*) FILTER (WHERE p.source_delivery_note_id IS NULL)
++    INTO v_origins, v_direct_rows
++  FROM public.purchases p
++  WHERE p.id = ANY(v_purchase_ids);
++
++  IF v_origins IS NOT NULL THEN
++    -- Los caminos legítimos nunca mezclan orígenes; el disparador del puente cierra los dos
++    -- caminos por PostgREST que sí podrían (partir y mezclar operation_id). Defensa en
++    -- profundidad frente a una escritura como postgres.
++    IF array_length(v_origins, 1) <> 1 OR v_direct_rows > 0 THEN
++      RAISE EXCEPTION 'delivery_note_purchase_mismatch: la operación mezcla filas con y sin remito de origen, o de orígenes distintos'
++        USING ERRCODE = 'P0409';
++    END IF;
++    v_source_dn := v_origins[1];
++
++    SELECT * INTO v_dn
++    FROM public.delivery_notes dn
++    WHERE dn.id = v_source_dn
++      AND dn.account_id = v_account_id
++      AND dn.direction = 'purchase'
++    FOR UPDATE;
++    IF NOT FOUND THEN
++      RAISE EXCEPTION 'delivery_note_purchase_mismatch: el origen % no es un remito de compra de esta cuenta', v_source_dn
++        USING ERRCODE = 'P0409';
++    END IF;
++
++    -- Bajo el lock del remito se vuelven a leer las filas de la operación: si otro borrado ganó,
++    -- ya no existen y éste termina sin efectos, con el mismo resultado que hoy para una
++    -- operación inexistente.
++    SELECT array_agg(s.id) INTO v_purchase_ids
++    FROM (
++      SELECT p.id
++      FROM public.purchases p
++      WHERE p.id = ANY(v_purchase_ids) AND p.account_id = v_account_id
++      ORDER BY p.id
++      FOR UPDATE
++    ) s;
++    IF v_purchase_ids IS NULL OR array_length(v_purchase_ids, 1) IS NULL THEN
++      RETURN false;
++    END IF;
++
++    IF v_dn.status <> 'converted' THEN
++      RAISE EXCEPTION 'delivery_note_purchase_mismatch: el remito % está % y no convertido: la compra no se puede reabrir', v_source_dn, v_dn.status
++        USING ERRCODE = 'P0409';
++    END IF;
++
++    v_dn_label := 'RC-' || lpad(v_dn.number::text, 8, '0');
++
++    -- Borrar la compra reabre el remito y lo deja anulable: tan sensible como anularlo, así que
++    -- exige el mismo rol (administrador o dueño). Literal propio para que la UI lo traduzca.
++    BEGIN
++      PERFORM public._delivery_note_assert_role_dir(v_account_id, 'void', 'purchase');
++    EXCEPTION WHEN SQLSTATE 'P0401' OR SQLSTATE 'P0403' THEN
++      RAISE EXCEPTION 'delivery_note_purchase_delete_forbidden: borrar esta compra reabre el remito % y lo deja anulable: requiere administrador o dueño', v_dn_label
++        USING ERRCODE = 'P0403';
++    END;
++
++    -- La sucursal del remito, activa y no cerrada (FOR SHARE: una desactivación concurrente espera
++    -- a este commit). El guard de baja no cuenta los remitos converted: sin esto, borrar la compra
++    -- reabriría el remito en una sucursal muerta.
++    PERFORM 1
++    FROM public.branches b
++    WHERE b.id = v_dn.branch_id
++      AND b.account_id = v_account_id
++      AND b.is_active = TRUE
++      AND b.status IS DISTINCT FROM 'closed'
++    FOR SHARE;
++    IF NOT FOUND THEN
++      RAISE EXCEPTION 'delivery_note_branch_inactive: la sucursal del remito % está desactivada o cerrada — reactivala antes de eliminar la compra', v_dn_label
++        USING ERRCODE = 'P0422';
++    END IF;
++  END IF;
++
+   -- ── Cuenta corriente de proveedor: reversión del cargo (debit_note, P0425 si negativo) ──
+   SELECT supplier_account_id, SUM(amount)
+   INTO v_supplier_account_id, v_charge_amount
+@@ -132,9 +218,14 @@
+   END LOOP;
+ 
+   -- ── Reversa de stock (rpc_reverse_stock_movement, sin cambios — #417) ─────
++  -- remitos-compra (D9): una compra nacida de un remito NO revierte stock: la mercadería quedó
++  -- recibida con el remito, que vuelve a pendiente más abajo (para sacarla del stock se anula el
++  -- remito). El salto es explícito: no depende de que esas filas no tengan movimientos propios.
++  IF v_source_dn IS NULL THEN
+   FOR v_row IN SELECT unnest(v_purchase_ids) AS id LOOP
+     PERFORM public.rpc_reverse_stock_movement(v_row.id, 'purchase', COALESCE(p_reason, 'Compra eliminada'));
+   END LOOP;
++  END IF;
+ 
+   -- ── Contable: emitir PurchaseDeleted (async, vía outbox) ──────────────────
+   INSERT INTO public.events
+@@ -154,5 +245,19 @@
+ 
+   DELETE FROM public.operation_idempotency WHERE operation_id = v_operation_key;
+ 
++  -- ── remitos-compra (D9, R5): el remito vuelve a pendiente ────────────────
++  -- Con el remito bloqueado desde el principio. Sin filas con ese origen, se puede volver a
++  -- convertir. La transición converted -> issued no tiene rol propio: este borrado ya exigió
++  -- administrador o dueño ANTES de cualquier efecto.
++  IF v_source_dn IS NOT NULL THEN
++    PERFORM public.record_status_transition(
++      v_account_id, 'delivery_note_purchase', v_source_dn, 'converted', 'issued',
++      v_uid, format('Compra eliminada (operación %s)', v_operation_key)
++    );
++    UPDATE public.delivery_notes
++    SET status = 'issued', updated_at = now(), updated_by = v_uid
++    WHERE id = v_source_dn;
++  END IF;
++
+   RETURN true;
+ END;

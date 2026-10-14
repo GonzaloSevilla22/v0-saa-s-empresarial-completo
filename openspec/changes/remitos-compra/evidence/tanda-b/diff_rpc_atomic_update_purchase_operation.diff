@@ -1,0 +1,36 @@
+--- vivo/rpc_atomic_update_purchase_operation
++++ 20261081000001/rpc_atomic_update_purchase_operation
+@@ -27,6 +27,7 @@
+   v_final_cost_center_id uuid;
+   v_old_kind             text;
+   v_final_kind           text;
++  v_dn_label             text;   -- remitos-compra (D9): remito de origen de la compra
+ BEGIN
+   v_uid := (SELECT auth.uid());
+   IF v_uid IS NULL THEN
+@@ -59,6 +60,25 @@
+     RAISE EXCEPTION 'One or more purchase IDs not found' USING ERRCODE = 'P0404';
+   END IF;
+ 
++  -- remitos-compra (D9): una compra nacida de un remito NO se edita. El editor siempre reemplaza
++  -- líneas (REVERSE + APPLY) y la REVERSE, sin movimiento propio de esas filas, cae a la
++  -- normalización de la línea y RESTARÍA stock que el remito sigue aportando (la APPLY lo sumaría
++  -- de nuevo; una reducción dejaría stock restado de más, y la anulación del remito lo restaría
++  -- otra vez). Va ANTES de los tres P0423 de dinero —es el motivo más específico: una compra de
++  -- remito a crédito recibiría si no el de cuenta corriente, que manda a "borrar y volver a
++  -- cargar" sin explicar el remito— y bloquea la operación ENTERA, también la cabecera.
++  SELECT COALESCE('RC-' || lpad(dn.number::text, 8, '0'), 'de origen') INTO v_dn_label
++  FROM   public.purchases p
++  JOIN   public.delivery_notes dn ON dn.id = p.source_delivery_note_id
++  WHERE  p.id = ANY(p_purchase_ids)
++    AND  p.account_id = v_account_id
++  LIMIT  1;
++
++  IF FOUND THEN
++    RAISE EXCEPTION 'delivery_note_purchase_locked: la compra nació del remito %: para corregirla, eliminá la compra, editá el remito y volvé a convertirlo', v_dn_label
++      USING ERRCODE = 'P0423';
++  END IF;
++
+   -- pagos-cableados-restantes (D6, task 9.3): inmutabilidad por cargo de
+   -- cuenta corriente posteado.
+   IF EXISTS (

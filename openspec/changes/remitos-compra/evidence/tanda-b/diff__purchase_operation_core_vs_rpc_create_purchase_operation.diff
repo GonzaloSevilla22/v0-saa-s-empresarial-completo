@@ -1,0 +1,293 @@
+--- vivo/_purchase_operation_core_vs_rpc_create_purchase_operation
++++ 20261081000001/_purchase_operation_core_vs_rpc_create_purchase_operation
+@@ -47,6 +47,17 @@
+   condición de caja y el banco. Sin sucursal operativa a la cual resolver rechaza
+   con P0422 no_branch_found antes de escribir nada, y una sucursal elegida cerrada
+   con P0422 branch_closed.
++
++  remitos-compra tanda B (D8): extraído como NÚCLEO INTERNO (sin EXECUTE para anon ni
++  authenticated) con p_account_id y p_source_delivery_note_id. Con origen (modo remito,
++  sólo desde rpc_convert_delivery_note_to_purchase) el núcleo revalida el remito bajo
++  bloqueo, LEE las líneas del propio remito (p_items tiene que venir nulo), NO toma el
++  lock del producto ni suma stock ni escribe movimientos (el remito ya sumó el stock),
++  toma los cuatro snapshots de la línea del remito, persiste el origen en cada fila y,
++  al final y en la misma transacción, pasa el remito a converted con su historial. La
++  decisión la toma el servidor desde el remito validado: ningún parámetro público la
++  pide. rpc_create_purchase_operation queda como wrapper de la misma firma que llama
++  al núcleo con origen nulo: la compra directa es idéntica.
+ */
+ DECLARE
+     v_uid             uuid;
+@@ -72,15 +83,20 @@
+     -- compras-gastos-sucursal-por-defecto (D1/D2/D3):
+     v_branch              RECORD;
+     v_gate_branch         uuid;
++    -- remitos-compra (D8): modo remito.
++    v_from_dn             boolean := (p_source_delivery_note_id IS NOT NULL);
++    v_dn                  public.delivery_notes%ROWTYPE;
++    v_snap_name           text;
++    v_snap_sku            text;
++    v_snap_cost           numeric;
++    v_snap_iva            numeric;
+ BEGIN
+     v_uid := (SELECT auth.uid());
+     IF v_uid IS NULL THEN
+         RAISE EXCEPTION 'Not authenticated' USING ERRCODE = 'insufficient_privilege';
+     END IF;
+ 
+-    SELECT cai INTO v_account_id
+-    FROM   current_account_ids() AS cai
+-    LIMIT  1;
++    v_account_id := p_account_id;
+ 
+     IF v_account_id IS NULL THEN
+         RAISE EXCEPTION 'Usuario sin cuenta activa — no se puede crear la operación'
+@@ -100,6 +116,47 @@
+         RAISE EXCEPTION 'idempotency_key is required' USING ERRCODE = 'P0400';
+     END IF;
+ 
++    -- remitos-compra (D8): MODO REMITO, autosuficiente aunque hoy sólo lo use la conversión
++    -- (un guard que delega no es guard). Las líneas salen del REMITO, nunca del request.
++    IF v_from_dn THEN
++        IF p_items IS NOT NULL THEN
++            RAISE EXCEPTION 'delivery_note_items_from_source: las líneas de una compra con origen de remito salen del remito, no del request'
++                USING ERRCODE = 'P0400';
++        END IF;
++
++        SELECT * INTO v_dn
++        FROM   public.delivery_notes
++        WHERE  id = p_source_delivery_note_id
++          AND  account_id = v_account_id
++          AND  direction = 'purchase'
++        FOR UPDATE;
++
++        IF NOT FOUND
++           OR v_dn.status <> 'issued'
++           OR p_supplier_id IS DISTINCT FROM v_dn.supplier_id
++           OR p_branch_id IS DISTINCT FROM v_dn.branch_id
++           OR EXISTS (SELECT 1 FROM public.purchases
++                      WHERE source_delivery_note_id = p_source_delivery_note_id) THEN
++            RAISE EXCEPTION 'delivery_note_purchase_mismatch: el origen % no es un remito de compra pendiente de esta cuenta, de este proveedor y de esta sucursal, sin otra compra', p_source_delivery_note_id
++                USING ERRCODE = 'P0409';
++        END IF;
++
++        SELECT jsonb_agg(jsonb_build_object(
++                   'product_id', i.product_id, 'amount', i.price, 'quantity', i.quantity, 'unit_id', i.unit_id,
++                   'name_snapshot', i.name_snapshot, 'sku_snapshot', i.sku_snapshot,
++                   'unit_cost_snapshot', i.unit_cost_snapshot, 'iva_rate_snapshot', i.iva_rate_snapshot)
++               ORDER BY i.product_id, i.line_no)
++        INTO   p_items
++        FROM   public.delivery_note_items i
++        WHERE  i.delivery_note_id = p_source_delivery_note_id
++          AND  i.account_id = v_account_id;
++
++        IF p_items IS NULL THEN
++            RAISE EXCEPTION 'delivery_note_purchase_mismatch: el remito % no tiene líneas', p_source_delivery_note_id
++                USING ERRCODE = 'P0409';
++        END IF;
++    END IF;
++
+     IF p_items IS NULL OR jsonb_typeof(p_items) <> 'array' OR jsonb_array_length(p_items) = 0 THEN
+         RAISE EXCEPTION 'p_items must be a non-empty array' USING ERRCODE = 'P0400';
+     END IF;
+@@ -225,7 +282,8 @@
+     FOR v_item IN
+         SELECT *
+         FROM   jsonb_to_recordset(p_items)
+-                   AS x(product_id uuid, amount numeric, quantity numeric, unit_id uuid)
++                   AS x(product_id uuid, amount numeric, quantity numeric, unit_id uuid,
++                        name_snapshot text, sku_snapshot text, unit_cost_snapshot numeric, iva_rate_snapshot numeric)
+         ORDER BY product_id
+     LOOP
+         IF v_item.quantity IS NULL OR v_item.quantity <= 0 THEN
+@@ -240,33 +298,51 @@
+         v_total_sum := v_total_sum + (v_item.amount * v_item.quantity);
+ 
+         IF v_item.product_id IS NOT NULL THEN
+-            SELECT id, user_id, is_variant, name, sku, cost INTO v_product
+-            FROM   public.products
+-            WHERE  id = v_item.product_id
+-            FOR UPDATE;
++            -- remitos-compra (D8): en modo remito se saltean el FOR UPDATE del producto, el chequeo por
++            -- usuario, el de padre con variantes, la normalización y el stock (sin stock que mover, el lock
++            -- del producto no protege nada y sólo sumaría superficie de interbloqueo con remitos y ventas).
++            -- La existencia del producto la garantiza la FK de delivery_note_items.product_id.
++            IF NOT v_from_dn THEN
++                SELECT id, user_id, is_variant, name, sku, cost INTO v_product
++                FROM   public.products
++                WHERE  id = v_item.product_id
++                FOR UPDATE;
+ 
+-            IF NOT FOUND THEN
+-                RAISE EXCEPTION 'Product not found: %', v_item.product_id USING ERRCODE = 'P0404';
+-            END IF;
++                IF NOT FOUND THEN
++                    RAISE EXCEPTION 'Product not found: %', v_item.product_id USING ERRCODE = 'P0404';
++                END IF;
+ 
+-            IF v_product.user_id <> v_uid THEN
+-                RAISE EXCEPTION 'Permission denied to product: %', v_item.product_id USING ERRCODE = 'P0403';
+-            END IF;
++                IF v_product.user_id <> v_uid THEN
++                    RAISE EXCEPTION 'Permission denied to product: %', v_item.product_id USING ERRCODE = 'P0403';
++                END IF;
+ 
+-            IF NOT v_product.is_variant THEN
+-                IF EXISTS (SELECT 1 FROM public.products WHERE parent_id = v_item.product_id LIMIT 1) THEN
+-                    RAISE EXCEPTION
+-                        'Este producto tiene variantes. Seleccioná una variante específica para registrar la compra.'
+-                        USING ERRCODE = 'P0422';
++                IF NOT v_product.is_variant THEN
++                    IF EXISTS (SELECT 1 FROM public.products WHERE parent_id = v_item.product_id LIMIT 1) THEN
++                        RAISE EXCEPTION
++                            'Este producto tiene variantes. Seleccioná una variante específica para registrar la compra.'
++                            USING ERRCODE = 'P0422';
++                    END IF;
+                 END IF;
+-            END IF;
+ 
+-            -- ventas-unidades-conversion (D1/D2): misma definición única que la venta.
+-            -- Tercera revisión (TOCTOU, reproducido con dos conexiones): DESPUÉS
+-            -- del FOR UPDATE. Normalizar antes leía la unidad base COMMITEADA
+-            -- mientras un cambio kg → u seguía abierto: la compra esperaba la
+-            -- fila y escribía 2 (kg) que se leían 2 u.
+-            v_qty_norm := public._uom_normalize_quantity(v_item.product_id, v_item.unit_id, v_item.quantity);
++                -- ventas-unidades-conversion (D1/D2): misma definición única que la venta.
++                -- Tercera revisión (TOCTOU, reproducido con dos conexiones): DESPUÉS
++                -- del FOR UPDATE. Normalizar antes leía la unidad base COMMITEADA
++                -- mientras un cambio kg → u seguía abierto: la compra esperaba la
++                -- fila y escribía 2 (kg) que se leían 2 u.
++                v_qty_norm := public._uom_normalize_quantity(v_item.product_id, v_item.unit_id, v_item.quantity);
++
++                v_snap_name := v_product.name;
++                v_snap_sku  := v_product.sku;
++                v_snap_cost := v_product.cost;
++                v_snap_iva  := NULL;
++            ELSE
++                -- Los cuatro snapshots de la LÍNEA DEL REMITO (un producto renombrado o dado de baja entre la
++                -- recepción y la compra conserva el nombre del remito).
++                v_snap_name := v_item.name_snapshot;
++                v_snap_sku  := v_item.sku_snapshot;
++                v_snap_cost := v_item.unit_cost_snapshot;
++                v_snap_iva  := v_item.iva_rate_snapshot;
++            END IF;
+ 
+             -- compras-gastos-sucursal-por-defecto (D1/D2): se guarda v_gate_branch (la elegida o
+             -- la principal), la misma con la que entra el stock — no el p_branch_id crudo.
+@@ -274,14 +350,16 @@
+                 (user_id, account_id, product_id, amount, quantity, unit_id,
+                  total, description, date, operation_id, branch_id, cost_center_id, payment_method_id,
+                  supplier_id,
+-                 name_snapshot, sku_snapshot, unit_cost_snapshot, iva_rate_snapshot)
++                 name_snapshot, sku_snapshot, unit_cost_snapshot, iva_rate_snapshot,
++                 source_delivery_note_id)
+             VALUES
+                 (v_uid, v_account_id, v_item.product_id,
+                  v_item.amount, v_item.quantity, v_item.unit_id,
+                  v_item.amount * v_item.quantity, p_description, p_date, v_new_op_id,
+                  v_gate_branch, p_cost_center_id, p_payment_method_id,
+                  p_supplier_id,
+-                 v_product.name, v_product.sku, v_product.cost, NULL)
++                 v_snap_name, v_snap_sku, v_snap_cost, v_snap_iva,
++                 p_source_delivery_note_id)
+             RETURNING id INTO v_new_purchase_id;
+ 
+             IF v_flag_on THEN
+@@ -292,39 +370,47 @@
+                     v_new_purchase_id, v_item.product_id, v_account_id, NULL,
+                     v_item.quantity, v_item.unit_id,
+                     v_item.amount, v_item.amount * v_item.quantity,
+-                    v_product.name, v_product.sku, v_product.cost, NULL
++                    v_snap_name, v_snap_sku, v_snap_cost, v_snap_iva
+                 );
+             END IF;
+ 
+-            -- stock sobre branch_stock (C-21). before/after = Σ branch_stock.
+-            SELECT COALESCE(SUM(quantity), 0) INTO v_stock_sum
+-            FROM   public.branch_stock
+-            WHERE  product_id = v_item.product_id;
+-
+-            v_qty_before := v_stock_sum;
+-            v_qty_after  := v_stock_sum + v_qty_norm;
+-
+-            -- compras-gastos-sucursal-por-defecto (D1): v_gate_branch EXPLÍCITA. Con el NULL crudo
+-            -- c21 resolvía la principal por dentro (otra lectura de c26_default_branch) y, sin
+-            -- ninguna sucursal, creaba "Casa Central" al vuelo.
+-            PERFORM public.c21_apply_branch_stock_delta(
+-                v_account_id, v_item.product_id, v_gate_branch, v_qty_norm);
+-
+-            INSERT INTO public.stock_movements (
+-                user_id, account_id, product_id, product_name, type,
+-                quantity_delta, quantity_before, quantity_after,
+-                reference_id, reference_type, performed_by,
+-                operation_group_id, branch_id, unit_cost_snapshot
+-            ) VALUES (
+-                v_uid, v_account_id, v_item.product_id, v_product.name, 'purchase',
+-                v_qty_norm, v_qty_before, v_qty_after,
+-                v_new_purchase_id, 'purchase', v_uid,
+-                -- compras-gastos-sucursal-por-defecto (D1): el movimiento lleva v_gate_branch, la
+-                -- misma sucursal que el delta de stock y que la fila de la compra.
+-                v_new_op_id, v_gate_branch, v_product.cost
+-            );
++            -- remitos-compra (D8): el stock ya lo sumó el remito al recibir; en modo remito la compra no
++            -- toca branch_stock ni escribe stock_movements.
++            IF NOT v_from_dn THEN
++                -- stock sobre branch_stock (C-21). before/after = Σ branch_stock.
++                SELECT COALESCE(SUM(quantity), 0) INTO v_stock_sum
++                FROM   public.branch_stock
++                WHERE  product_id = v_item.product_id;
++
++                v_qty_before := v_stock_sum;
++                v_qty_after  := v_stock_sum + v_qty_norm;
++
++                -- compras-gastos-sucursal-por-defecto (D1): v_gate_branch EXPLÍCITA. Con el NULL crudo
++                -- c21 resolvía la principal por dentro (otra lectura de c26_default_branch) y, sin
++                -- ninguna sucursal, creaba "Casa Central" al vuelo.
++                PERFORM public.c21_apply_branch_stock_delta(
++                    v_account_id, v_item.product_id, v_gate_branch, v_qty_norm);
++
++                INSERT INTO public.stock_movements (
++                    user_id, account_id, product_id, product_name, type,
++                    quantity_delta, quantity_before, quantity_after,
++                    reference_id, reference_type, performed_by,
++                    operation_group_id, branch_id, unit_cost_snapshot
++                ) VALUES (
++                    v_uid, v_account_id, v_item.product_id, v_product.name, 'purchase',
++                    v_qty_norm, v_qty_before, v_qty_after,
++                    v_new_purchase_id, 'purchase', v_uid,
++                    -- compras-gastos-sucursal-por-defecto (D1): el movimiento lleva v_gate_branch, la
++                    -- misma sucursal que el delta de stock y que la fila de la compra.
++                    v_new_op_id, v_gate_branch, v_product.cost
++                );
++            END IF;
+ 
+         ELSE
++            IF v_from_dn THEN
++                RAISE EXCEPTION 'delivery_note_purchase_mismatch: el remito % tiene una línea sin producto', p_source_delivery_note_id
++                    USING ERRCODE = 'P0409';
++            END IF;
+             -- Línea sin producto: no mueve stock; la unidad se sigue validando (P0404).
+             PERFORM public._uom_normalize_quantity(NULL, v_item.unit_id, v_item.quantity);
+             -- compras-gastos-sucursal-por-defecto (D1/D2): también la línea de servicio guarda
+@@ -435,6 +521,21 @@
+         now()
+     );
+ 
++    -- remitos-compra (D8, molde de la revisión adversarial RB-02 de remitos-venta): el remito de
++    -- origen queda `converted` EN EL NÚCLEO, en la misma transacción que crea la compra y bajo el
++    -- mismo lock del remito, y sólo por el camino que crea la compra (un replay de idempotencia
++    -- devolvió antes). Si quedara en el caller, uno futuro que lo omitiera dejaría una compra con
++    -- origen y el remito issued: editable y anulable, y la anulación restaría stock que esa compra da
++    -- por recibido. No sube la revisión (no cambia el contenido). El allowed_role de la fila
++    -- issued -> converted se evalúa contra el actor.
++    IF v_from_dn THEN
++        PERFORM public.record_status_transition(
++            v_account_id, 'delivery_note_purchase', p_source_delivery_note_id, 'issued', 'converted', v_uid, NULL);
++        UPDATE public.delivery_notes
++        SET    status = 'converted', updated_at = now(), updated_by = v_uid
++        WHERE  id = p_source_delivery_note_id;
++    END IF;
++
+     RETURN jsonb_build_object(
+         'operation_id', v_new_op_id,
+         'items',        v_result_items,

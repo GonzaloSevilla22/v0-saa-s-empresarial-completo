@@ -1,0 +1,32 @@
+# RED 6.4b (2026-10-14): los gates de introspección de cuerpo de rpc_create_purchase_operation, con la migración 20261081000001 ya aplicada (wrapper fino), FALLAN porque sus literales pasaron al núcleo.
+
+=== test_idempotency.sql
+ERROR:  FAIL: rpc_create_purchase_operation missing amount > 0 guard
+CONTEXT:  PL/pgSQL function inline_code_block line 143 at RAISE
+
+=== test_confirm_core_integrity.sql
+ERROR:  GATE CONFIRM-CORE-INTEGRITY FAILED (5): el cuerpo publicado de rpc_create_purchase_operation no llama a _pay_register_operation_bank_movement — la venta/compra por método bancario no escribiría bank_movements (pos-banco-movimientos design.md D5).
+CONTEXT:  PL/pgSQL function inline_code_block line 151 at RAISE
+
+=== test_ventas_unidades_conversion.sql
+ERROR:  GATE ventas-unidades-conversion FAILED (3 fallos):
+  E rpc_create_purchase_operation: no invoca _uom_normalize_quantity
+  E rpc_create_purchase_operation: normaliza la cantidad antes de tomar el producto FOR UPDATE (lock en 0, helper en 0)
+  E rpc_create_purchase_operation: el total se acumula redondeando línea a línea (numeric(15,2)) en vez de round(Σ, 2) una vez
+CONTEXT:  PL/pgSQL function inline_code_block line 1864 at RAISE
+
+=== test_branch_stock.sql
+ERROR:  [FAIL] 6.11 rpc_create_purchase_operation body does not reference branch_stock
+CONTEXT:  PL/pgSQL function inline_code_block line 149 at RAISE
+
+=== test_compras_gastos_sucursal_por_defecto.sql
+ERROR:  GATE COMPRAS-GASTOS-SUCURSAL-POR-DEFECTO FAILED:
+  FAIL (0 md5 alta): el cuerpo vivo de rpc_create_purchase_operation mide 98e045e69109fe903aedd7ca2d78e448 y el de la migración es 361a1ffc0c3e31ee2bb1b677cfab2394 (¿un reapply posterior de CI lo pisó, o persiste p_branch_id crudo?)
+  FAIL (0 alta INSERT): un INSERT en purchases todavía persiste p_branch_id CRUDO (tiene que ser v_gate_branch)
+  FAIL (0 alta c21): c21_apply_branch_stock_delta tiene que recibir v_gate_branch explícita (la misma lectura de la principal que usa la fila)
+  FAIL (0 alta guard): el alta no tiene el guard P0422 no_branch_found
+  FAIL (0 alta cerrada): el alta no rechaza una sucursal elegida cerrada (P0422 branch_closed, OQ-2 (a))
+  FAIL (0 COMMENT): el alta de compra no tenía COMMENT y la migración no debe agregarle uno
+  FAIL (0 md5 edición compra): el cuerpo vivo de rpc_atomic_update_purchase_operation mide 170fc4693bf217b77c20cc4fb4602271 y el de la migración es 2d4c92f6fd3dbfd52d2225edb0a82827
+  FAIL (11): existe rpc_convert_delivery_note_to_purchase y este gate no la ejecuta — completar el bloque (11): la compra convertida queda en la sucursal del remito (obligatoria) y no dispara no_branch_found ni branch_closed
+CONTEXT:  PL/pgSQL function inline_code_block line 798 at RAISE

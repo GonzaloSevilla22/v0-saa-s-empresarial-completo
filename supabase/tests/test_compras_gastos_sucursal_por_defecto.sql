@@ -246,10 +246,17 @@ DECLARE
   v_failures    text[] := '{}';
   v_fail_before integer;
 
-  -- Cuerpos que deja 20261076000001: md5(replace(prosrc, E'\r', '')), medidos en
-  -- el stack local después de aplicarla. Son el `v_rewritten` de su preflight.
-  v_md5_create        constant text := '361a1ffc0c3e31ee2bb1b677cfab2394';
-  v_md5_edit_purchase constant text := '2d4c92f6fd3dbfd52d2225edb0a82827';
+  -- Cuerpos vivos: md5(replace(prosrc, E'\r', '')), medidos en el stack local después de
+  -- aplicar las migraciones. remitos-compra tanda B (20261081000001) EXTRAJO la compra:
+  --   · rpc_create_purchase_operation es un wrapper fino y TODA la lógica de la sucursal
+  --     resuelta vive en _purchase_operation_core (el bloque (0) inspecciona el núcleo);
+  --   · rpc_atomic_update_purchase_operation suma el P0423 del remito (nuevo md5; conserva
+  --     la resolución de la principal de 20261076000001).
+  -- rpc_update_expense sigue siendo el de 20261076000001. Son los md5 que fija la
+  -- introspección de la migración de la tanda B (y el `v_rewritten` del preflight de aquélla).
+  v_md5_core          constant text := '7ad5c56ea845bcb188f69d8a2ce96ddb';
+  v_md5_wrapper       constant text := '98e045e69109fe903aedd7ca2d78e448';
+  v_md5_edit_purchase constant text := '170fc4693bf217b77c20cc4fb4602271';
   v_md5_edit_expense  constant text := 'bb8e7d02f737937fdd120804722a3151';
 
   -- Cuenta A (principal A0 + B): bloques (1), (6), (7), (8), (9), (10).
@@ -273,6 +280,7 @@ DECLARE
   v_uuid  uuid;
   v_uuid2 uuid;
   v_text  text;
+  v_pm_c  uuid;
   v_oid   oid;
   v_a_before numeric;
   v_b_before numeric;
@@ -383,10 +391,19 @@ BEGIN
     END IF;
   END LOOP;
 
+  -- El wrapper público: misma firma, delega en el núcleo y no lleva lógica propia.
   SELECT prosrc INTO v_src FROM pg_proc WHERE proname = 'rpc_create_purchase_operation' AND pronamespace = 'public'::regnamespace;
   v_md5 := md5(replace(v_src, E'\r', ''));
-  IF v_md5 IS DISTINCT FROM v_md5_create THEN
-    v_failures := array_append(v_failures, format('FAIL (0 md5 alta): el cuerpo vivo de rpc_create_purchase_operation mide %s y el de la migración es %s (¿un reapply posterior de CI lo pisó, o persiste p_branch_id crudo?)', v_md5, v_md5_create));
+  IF v_md5 IS DISTINCT FROM v_md5_wrapper OR position('_purchase_operation_core(' IN v_src) = 0
+     OR position('c21_apply_branch_stock_delta' IN v_src) > 0 THEN
+    v_failures := array_append(v_failures, format('FAIL (0 md5 wrapper): el cuerpo vivo de rpc_create_purchase_operation mide %s y el de la migración de remitos-compra es %s (¿un reapply posterior de CI lo pisó?), o no delega en el núcleo', v_md5, v_md5_wrapper));
+  END IF;
+
+  -- El NÚCLEO es el cuerpo que persiste la sucursal resuelta: acá viven los seis puntos.
+  SELECT prosrc INTO v_src FROM pg_proc WHERE proname = '_purchase_operation_core' AND pronamespace = 'public'::regnamespace;
+  v_md5 := md5(replace(v_src, E'\r', ''));
+  IF v_md5 IS DISTINCT FROM v_md5_core THEN
+    v_failures := array_append(v_failures, format('FAIL (0 md5 alta): el cuerpo vivo de _purchase_operation_core mide %s y el de la migración es %s (¿un reapply posterior de CI lo pisó, o persiste p_branch_id crudo?)', v_md5, v_md5_core));
   END IF;
   IF v_src ~ 'p_branch_id,\s*p_cost_center_id,\s*p_payment_method_id' THEN
     v_failures := array_append(v_failures, 'FAIL (0 alta INSERT): un INSERT en purchases todavía persiste p_branch_id CRUDO (tiene que ser v_gate_branch)');
@@ -409,8 +426,13 @@ BEGIN
   IF position('branch_closed' IN v_src) = 0 THEN
     v_failures := array_append(v_failures, 'FAIL (0 alta cerrada): el alta no rechaza una sucursal elegida cerrada (P0422 branch_closed, OQ-2 (a))');
   END IF;
-  IF obj_description('public.rpc_create_purchase_operation(text, date, text, jsonb, uuid, uuid, uuid, uuid, uuid, uuid, date)'::regprocedure, 'pg_proc') IS NOT NULL THEN
-    v_failures := array_append(v_failures, 'FAIL (0 COMMENT): el alta de compra no tenía COMMENT y la migración no debe agregarle uno');
+  -- remitos-compra tanda B: el wrapper y el núcleo llevan COMMENT (el alta no tenía ninguno:
+  -- lo había perdido un DROP FUNCTION de 20261022000001).
+  IF position('_purchase_operation_core' IN COALESCE(obj_description('public.rpc_create_purchase_operation(text, date, text, jsonb, uuid, uuid, uuid, uuid, uuid, uuid, date)'::regprocedure, 'pg_proc'), '')) = 0 THEN
+    v_failures := array_append(v_failures, 'FAIL (0 COMMENT): el wrapper rpc_create_purchase_operation tiene que llevar COMMENT (remitos-compra tanda B) que nombre el núcleo');
+  END IF;
+  IF obj_description('public._purchase_operation_core(uuid, text, date, text, jsonb, uuid, uuid, uuid, uuid, uuid, uuid, date, uuid)'::regprocedure, 'pg_proc') IS NULL THEN
+    v_failures := array_append(v_failures, 'FAIL (0 COMMENT): _purchase_operation_core tiene que llevar COMMENT');
   END IF;
 
   SELECT prosrc INTO v_src FROM pg_proc WHERE proname = 'rpc_atomic_update_purchase_operation' AND pronamespace = 'public'::regnamespace;
@@ -995,11 +1017,46 @@ BEGIN
   -- ═══════════════════════════════════════════════════════════════════════
   -- (11) Remito -> compra (remitos-compra tanda B)
   -- ═══════════════════════════════════════════════════════════════════════
+  v_fail_before := COALESCE(array_length(v_failures, 1), 0);
   IF EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'rpc_convert_delivery_note_to_purchase' AND pronamespace = 'public'::regnamespace) THEN
-    -- Existe la conversión remito -> compra: este gate TODAVÍA no la ejercita. Quien
-    -- la agregó (remitos-compra tanda B) tiene que completar este bloque: la compra
-    -- convertida queda en la sucursal del remito y no se dispara ningún guard nuevo.
-    v_failures := array_append(v_failures, 'FAIL (11): existe rpc_convert_delivery_note_to_purchase y este gate no la ejecuta — completar el bloque (11): la compra convertida queda en la sucursal del remito (obligatoria) y no dispara no_branch_found ni branch_closed');
+    -- remitos-compra tanda B: la compra convertida queda en la sucursal del REMITO (obligatoria,
+    -- elegida al recibir), no en la principal, y no dispara no_branch_found ni branch_closed: la
+    -- conversión pasa p_branch_id explícito, así que nunca resuelve la principal. Dos casos:
+    -- (A) un remito en B (NO principal) y otro en la principal A0; (C) la cuenta con la principal
+    -- CERRADA: un remito en su sucursal operativa C1 convierte igual.
+    PERFORM pg_temp.cgsd_as(v_user_a);
+    v_uuid  := (public.rpc_create_purchase_delivery_note('cgsd-11-b-' || gen_random_uuid()::text, v_supplier, v_b, NULL, NULL,
+                  jsonb_build_array(jsonb_build_object('product_id', v_p1, 'unit_id', NULL, 'quantity', 2, 'price', 10, 'subtotal', 20)))->>'id')::uuid;
+    v_uuid2 := (public.rpc_create_purchase_delivery_note('cgsd-11-a0-' || gen_random_uuid()::text, v_supplier, v_a0, NULL, NULL,
+                  jsonb_build_array(jsonb_build_object('product_id', v_p2, 'unit_id', NULL, 'quantity', 3, 'price', 10, 'subtotal', 30)))->>'id')::uuid;
+    v_a_before := (SELECT quantity FROM public.branch_stock WHERE product_id = v_p1 AND branch_id = v_b);
+    v_b_before := (SELECT quantity FROM public.branch_stock WHERE product_id = v_p2 AND branch_id = v_a0);
+    v_res := public.rpc_convert_delivery_note_to_purchase('cgsd-11-c1-' || gen_random_uuid()::text, v_uuid, 1, v_pm_other);
+    IF (SELECT count(*) FROM public.purchases WHERE operation_id = (v_res->>'operation_id')::uuid AND branch_id = v_b) <> 1 THEN
+      v_failures := array_append(v_failures, 'FAIL (11 A): la compra convertida de un remito en B (no principal) debía quedar en B');
+    END IF;
+    v_res := public.rpc_convert_delivery_note_to_purchase('cgsd-11-c2-' || gen_random_uuid()::text, v_uuid2, 1, v_pm_other);
+    IF (SELECT count(*) FROM public.purchases WHERE operation_id = (v_res->>'operation_id')::uuid AND branch_id = v_a0) <> 1 THEN
+      v_failures := array_append(v_failures, 'FAIL (11 A0): la compra convertida de un remito en la principal debía quedar en la principal');
+    END IF;
+    IF (SELECT quantity FROM public.branch_stock WHERE product_id = v_p1 AND branch_id = v_b) IS DISTINCT FROM v_a_before
+       OR (SELECT quantity FROM public.branch_stock WHERE product_id = v_p2 AND branch_id = v_a0) IS DISTINCT FROM v_b_before THEN
+      v_failures := array_append(v_failures, 'FAIL (11): convertir cambió el stock (lo sumó el remito, no la compra)');
+    END IF;
+    -- (C) cuenta con la principal cerrada: el remito vive en su sucursal operativa.
+    PERFORM pg_temp.cgsd_as(v_user_c);
+    INSERT INTO public.suppliers (account_id, name) VALUES (v_acc_c, '__gate_cgsd_supplier_c__') RETURNING id INTO v_uuid;
+    v_uuid2 := (public.rpc_create_purchase_delivery_note('cgsd-11-c-' || gen_random_uuid()::text, v_uuid, v_c1, NULL, NULL,
+                  jsonb_build_array(jsonb_build_object('product_id', v_pc, 'unit_id', NULL, 'quantity', 1, 'price', 10, 'subtotal', 10)))->>'id')::uuid;
+    SELECT id INTO v_pm_c FROM public.payment_methods WHERE account_id = v_acc_c AND kind = 'other' AND is_active AND deleted_at IS NULL LIMIT 1;
+    v_res := public.rpc_convert_delivery_note_to_purchase('cgsd-11-cc-' || gen_random_uuid()::text, v_uuid2, 1, v_pm_c);
+    IF (SELECT count(*) FROM public.purchases WHERE operation_id = (v_res->>'operation_id')::uuid AND branch_id = v_c1) <> 1 THEN
+      v_failures := array_append(v_failures, 'FAIL (11 C): con la principal cerrada, la compra convertida de un remito en C1 debía quedar en C1');
+    END IF;
+    PERFORM pg_temp.cgsd_as(v_user_a);
+    IF COALESCE(array_length(v_failures, 1), 0) = v_fail_before THEN
+      RAISE NOTICE 'PASS (11): la compra convertida queda en la sucursal del remito (B, la principal o la operativa con la principal cerrada), sin no_branch_found ni branch_closed y sin tocar el stock';
+    END IF;
   ELSE
     RAISE NOTICE 'SKIP (11): rpc_convert_delivery_note_to_purchase no existe (remitos-compra tanda B pendiente) — no aplica';
   END IF;

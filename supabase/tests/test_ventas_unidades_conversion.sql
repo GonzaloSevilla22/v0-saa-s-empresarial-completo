@@ -721,8 +721,10 @@ BEGIN
   -- ═══════════════════════════════════════════════════════════════════════
   v_fail_before := COALESCE(array_length(v_failures, 1), 0);
 
+  -- remitos-compra tanda B (D8): la compra directa vive en _purchase_operation_core
+  -- (rpc_create_purchase_operation es su wrapper): los literales se buscan en el núcleo.
   FOREACH v_fn IN ARRAY ARRAY[
-    '_c29_confirm_order_core', 'rpc_create_sale_operation_v2', 'rpc_create_purchase_operation',
+    '_c29_confirm_order_core', 'rpc_create_sale_operation_v2', '_purchase_operation_core',
     'rpc_atomic_update_sale_operation', 'rpc_atomic_update_purchase_operation',
     'rpc_create_sale_operation'
   ] LOOP
@@ -823,8 +825,10 @@ BEGIN
   --     commiteada mientras un cambio de unidad base seguía abierto, y la
   --     compra escribía 2 kg que se leían 2 u (reproducido con dos conexiones;
   --     el arnés de carrera lo fija de punta a punta).
+  -- remitos-compra tanda B (D8): la compra directa vive en _purchase_operation_core
+  -- (rpc_create_purchase_operation es su wrapper): los literales se buscan en el núcleo.
   FOREACH v_fn IN ARRAY ARRAY[
-    '_c29_confirm_order_core', 'rpc_create_sale_operation_v2', 'rpc_create_purchase_operation',
+    '_c29_confirm_order_core', 'rpc_create_sale_operation_v2', '_purchase_operation_core',
     'rpc_atomic_update_sale_operation', 'rpc_atomic_update_purchase_operation',
     'rpc_create_sale_operation'
   ] LOOP
@@ -892,7 +896,7 @@ BEGIN
   -- (g) el total de dinero se redondea una vez (sin acumulador numeric(15,2))
   --     en los cuatro cuerpos que lo acumulan línea a línea.
   FOREACH v_fn IN ARRAY ARRAY[
-    'rpc_create_sale_operation_v2', 'rpc_create_purchase_operation',
+    'rpc_create_sale_operation_v2', '_purchase_operation_core',
     'rpc_atomic_update_sale_operation', 'rpc_create_sale_operation'
   ] LOOP
     SELECT replace(p.prosrc, E'\r', '') INTO v_src FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace

@@ -158,17 +158,19 @@ BEGIN
   RAISE NOTICE '[PASS] 6.10 rpc_create_sale_operation references branch_stock';
 
   -- ── 6.11 rpc_create_purchase_operation body references branch_stock ───────────
+  -- remitos-compra tanda B (D8): el stock de la compra lo mueve _purchase_operation_core
+  -- (rpc_create_purchase_operation es su wrapper).
   SELECT prosrc INTO v_text
   FROM pg_proc p
   JOIN pg_namespace n ON n.oid = p.pronamespace
   WHERE n.nspname = 'public'
-    AND p.proname = 'rpc_create_purchase_operation'
+    AND p.proname = '_purchase_operation_core'
   LIMIT 1;
 
   IF v_text NOT LIKE '%branch_stock%' THEN
-    RAISE EXCEPTION '[FAIL] 6.11 rpc_create_purchase_operation body does not reference branch_stock';
+    RAISE EXCEPTION '[FAIL] 6.11 rpc_create_purchase_operation (núcleo _purchase_operation_core) body does not reference branch_stock';
   END IF;
-  RAISE NOTICE '[PASS] 6.11 rpc_create_purchase_operation references branch_stock';
+  RAISE NOTICE '[PASS] 6.11 rpc_create_purchase_operation (núcleo) references branch_stock';
 
   -- ── 6.12 Indexes exist on branch_stock ───────────────────────────────────────
   SELECT COUNT(*) INTO v_count

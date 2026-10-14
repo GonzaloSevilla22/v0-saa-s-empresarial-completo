@@ -497,23 +497,23 @@ BEGIN
   v_def := pg_get_functiondef(v_oid);
   IF position('c26_default_branch' in v_def) = 0 OR position('op_stock_movement' in v_def) = 0
      OR position('v_is_new' in v_def) = 0 THEN
-    v_bad := v_bad || 'el cuerpo no resuelve la sucursal con c26_default_branch / no abre con op_stock_movement / no distingue el alta';
+    v_bad := v_bad || 'el cuerpo no resuelve la sucursal con c26_default_branch / no abre con op_stock_movement / no distingue el alta'::text;
   END IF;
   IF position('EXCLUDED.quantity' in v_def) > 0 THEN
-    v_bad := v_bad || 'el cuerpo todavía pisa la cantidad con EXCLUDED.quantity';
+    v_bad := v_bad || 'el cuerpo todavía pisa la cantidad con EXCLUDED.quantity'::text;
   END IF;
   IF NOT (SELECT prosecdef FROM pg_proc WHERE oid = v_oid) THEN
-    v_bad := v_bad || 'dejó de ser SECURITY DEFINER';
+    v_bad := v_bad || 'dejó de ser SECURITY DEFINER'::text;
   END IF;
   IF (SELECT 'search_path=public' = ANY (proconfig) FROM pg_proc WHERE oid = v_oid) IS NOT TRUE THEN
-    v_bad := v_bad || 'perdió SET search_path = public';
+    v_bad := v_bad || 'perdió SET search_path = public'::text;
   END IF;
   IF has_function_privilege('authenticated', v_oid, 'EXECUTE') OR has_function_privilege('anon', v_oid, 'EXECUTE')
      OR NOT has_function_privilege('service_role', v_oid, 'EXECUTE') THEN
-    v_bad := v_bad || 'ACL: debía ser sin EXECUTE para authenticated/anon y con EXECUTE para service_role';
+    v_bad := v_bad || 'ACL: debía ser sin EXECUTE para authenticated/anon y con EXECUTE para service_role'::text;
   END IF;
   IF position('apertura' in COALESCE(obj_description(v_oid, 'pg_proc'), '')) = 0 THEN
-    v_bad := v_bad || 'el COMMENT no documenta la regla de apertura';
+    v_bad := v_bad || 'el COMMENT no documenta la regla de apertura'::text;
   END IF;
 
   IF array_length(v_bad, 1) > 0 THEN

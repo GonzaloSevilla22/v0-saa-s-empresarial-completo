@@ -81,7 +81,20 @@ async def _claim_subscription_webhook_idempotency(conn: asyncpg.Connection, key:
     """Reclama un slot de idempotencia para el procesamiento de una
     notificación de suscripción (D5, kind 'subscription_webhook'). Devuelve
     True si es la PRIMERA vez que se ve esta key (procesar), False si ya
-    estaba reclamada (no-op — redelivery)."""
+    estaba reclamada (no-op — redelivery).
+
+    La marca se escribe DENTRO de la transacción de los efectos, nunca
+    antes: `get_service_conn` entrega la conexión en autocommit, y una marca
+    comiteada antes de un fallo hace que cada reintento de MercadoPago
+    reciba `idempotent` (200) sin aplicar nada — la notificación se pierde
+    para siempre y MercadoPago la da por entregada. Caso real: cuota
+    7032577415 de $24.900 (2026-10-04), marca en la base y ningún efecto.
+    Por eso se niega a correr fuera de una transacción."""
+    if not conn.is_in_transaction():
+        raise RuntimeError(
+            "_claim_subscription_webhook_idempotency debe correr dentro de la transacción "
+            "que aplica los efectos de la notificación"
+        )
     status = await conn.execute(
         """
         INSERT INTO public.operation_idempotency (user_id, idempotency_key, operation_kind)
@@ -91,6 +104,70 @@ async def _claim_subscription_webhook_idempotency(conn: asyncpg.Connection, key:
         key,
     )
     return int(status.rsplit(" ", 1)[-1]) > 0
+
+
+# ── Fechas de MercadoPago → vencimiento del plan ──────────────────────────
+
+def _parse_mp_datetime(value: str | None) -> datetime.datetime | None:
+    """MercadoPago manda las fechas como texto ISO-8601 con offset y
+    milisegundos (`"2026-10-04T17:02:30.000-04:00"`). asyncpg NO convierte
+    texto a `timestamptz`: bindear el string tal cual revienta con
+    `DataError` — toda fecha de MP pasa por acá antes de tocar la base."""
+    if not value:
+        return None
+    return datetime.datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+
+
+def _plan_expiry_after(next_payment_date: datetime.datetime | None) -> datetime.datetime | None:
+    """ÚNICA definición del vencimiento del plan de una suscripción al día:
+    el SIGUIENTE ciclo de cobro (`next_payment_date` del preapproval) + la
+    gracia. La usan los tres caminos que aplican una cuota aprobada (webhook,
+    resolución de ambiguas, replay admin). Sin fecha de siguiente ciclo no
+    hay vencimiento que calcular: devuelve None y la cuenta conserva el que
+    tenía."""
+    return next_payment_date + GRACE_PERIOD if next_payment_date else None
+
+
+def _is_approved_charge(cuota: dict) -> bool:
+    return cuota.get("status") == "processed" and (cuota.get("payment") or {}).get("status") == "approved"
+
+
+async def _get_preapproval(client: httpx.AsyncClient, preapproval_id: str) -> httpx.Response:
+    return await client.get(
+        f"https://api.mercadopago.com/preapproval/{preapproval_id}",
+        headers={"Authorization": f"Bearer {settings.mercadopago_access_token}"},
+    )
+
+
+async def _fetch_next_cycle(
+    client: httpx.AsyncClient, preapproval_id: str, cuota: dict
+) -> datetime.datetime | None:
+    """Siguiente ciclo de cobro de la suscripción, leído del preapproval —
+    NO del `debit_date` de la cuota recién cobrada, que es la fecha de ESE
+    débito: derivar el vencimiento de ahí dejaba el plan venciendo diez días
+    después de cada cobro (cuota del 04-10 → plan hasta el 14-10) en vez de
+    cubrir el mes pagado.
+
+    Un error de MercadoPago corta con 502 ANTES de escribir nada: la
+    notificación no queda marcada como procesada y MercadoPago la reintenta."""
+    resp = await _get_preapproval(client, preapproval_id)
+    if resp.status_code != 200:
+        logger.error(
+            "[subscriptions] MP API error %s al consultar el preapproval %s de una cuota aprobada",
+            resp.status_code, preapproval_id,
+        )
+        raise HTTPException(status_code=502, detail="Error al consultar MercadoPago")
+
+    next_cycle = _parse_mp_datetime(resp.json().get("next_payment_date"))
+    charged_at = _parse_mp_datetime(cuota.get("debit_date"))
+    if next_cycle and charged_at and next_cycle <= charged_at:
+        logger.warning(
+            "[subscriptions] preapproval %s: next_payment_date %s no es posterior al débito de la "
+            "cuota recién cobrada (%s) — MercadoPago todavía no informa el siguiente ciclo. El "
+            "vencimiento del plan queda corto hasta correr el replay de cuotas.",
+            preapproval_id, next_cycle.isoformat(), charged_at.isoformat(),
+        )
+    return next_cycle
 
 
 # ── Alta (D2bis) ──────────────────────────────────────────────────────────
@@ -264,10 +341,22 @@ async def _apply_approved_charge(
     dinero).
 
     Idempotente: `billing_events` tiene un índice único parcial sobre
-    `mercadopago_payment_id` (WHERE NOT NULL) y `email_logs` sobre
-    `(user_id, event_type, metadata)` — ambos INSERT usan
-    `ON CONFLICT DO NOTHING`, así que aplicar la MISMA cuota dos veces
-    (p.ej. el endpoint de replay corriendo dos veces) no duplica nada.
+    `mercadopago_payment_id` (WHERE NOT NULL) y su INSERT usa
+    `ON CONFLICT DO NOTHING`; el correo se encola una sola vez POR CUOTA
+    (`NOT EXISTS` sobre `metadata->>'authorized_payment_id'`, el
+    discriminador de D10) — aplicar la MISMA cuota dos veces (p.ej. el
+    endpoint de replay corriendo dos veces) no duplica nada.
+
+    fix(billing) 2026-10-13: el correo NO se deduplica por el índice único
+    `(user_id, event_type, metadata)`, porque esa metadata incluye
+    `plan_expires_at`: reaplicar una cuota vieja con el vencimiento del
+    ciclo vigente (lo que hace el replay) generaba una fila "distinta" y un
+    segundo correo de renovación por el mismo cobro.
+
+    `plan_expires_at=None` (MercadoPago no informó el siguiente ciclo) NO
+    toca el vencimiento de la cuenta (`COALESCE`): escribir NULL lo
+    borraría, y para `get_effective_plan` un vencimiento nulo es "sin
+    vencimiento".
 
     H4 hotfix (2026-09-04): dos bugs de producción reales aislados con
     subscriptions.id fa624f9b-32e5-4b5c-ad0d-fc64e6dc16b1 / pago MP
@@ -302,7 +391,7 @@ async def _apply_approved_charge(
         await conn.execute(
             """
             UPDATE public.accounts
-            SET plan_expires_at = $2, billing_status = 'active'
+            SET plan_expires_at = COALESCE($2, plan_expires_at), billing_status = 'active'
             WHERE id = $1
             """,
             account_id,
@@ -337,6 +426,12 @@ async def _apply_approved_charge(
             FROM public.accounts a
             JOIN auth.users u ON u.id = a.owner_user_id
             WHERE a.id = $1
+              AND NOT EXISTS (
+                  SELECT 1 FROM public.email_logs sent
+                  WHERE sent.user_id = a.owner_user_id
+                    AND sent.event_type = 'subscription_payment_approved'
+                    AND sent.metadata ->> 'authorized_payment_id' = $3::text
+              )
             ON CONFLICT DO NOTHING
             """,
             account_id,
@@ -447,8 +542,7 @@ async def resolve_ambiguous_subscription(
     # replican AHORA los mismos efectos que el camino normal aplica cuando
     # account_id ya se conoce de entrada — vía la MISMA función compartida.
     if pending["pending_authorized_payment_id"]:
-        next_payment_date = pending["next_payment_date"]
-        plan_expires_at = (next_payment_date + GRACE_PERIOD) if next_payment_date else None
+        plan_expires_at = _plan_expiry_after(pending["next_payment_date"])
         await _apply_approved_charge(
             conn,
             account_id=account_id,
@@ -473,10 +567,7 @@ async def process_subscription_preapproval_notification(
 ) -> dict:
     """Topic `subscription_preapproval` (task 6.7/6.8)."""
     async with httpx.AsyncClient(timeout=10.0) as client:
-        resp = await client.get(
-            f"https://api.mercadopago.com/preapproval/{preapproval_id}",
-            headers={"Authorization": f"Bearer {settings.mercadopago_access_token}"},
-        )
+        resp = await _get_preapproval(client, preapproval_id)
     if resp.status_code == 404:
         logger.info("[subscriptions] preapproval %s no existe en MP (id de test o ya borrado)", preapproval_id)
         return {"ok": True, "skipped": True}
@@ -484,7 +575,19 @@ async def process_subscription_preapproval_notification(
         logger.error("[subscriptions] MP API error %s para preapproval %s", resp.status_code, preapproval_id)
         raise HTTPException(status_code=502, detail="Error al consultar MercadoPago")
 
-    data = resp.json()
+    async with conn.transaction():
+        return await _apply_preapproval_notification(preapproval_id, resp.json(), repo, conn)
+
+
+async def _apply_preapproval_notification(
+    preapproval_id: str,
+    data: dict,
+    repo: SubscriptionsRepository,
+    conn: asyncpg.Connection,
+) -> dict:
+    """Reclamo de idempotencia + efectos de una notificación de preapproval.
+    Corre SIEMPRE dentro de la transacción que abre el handler: o queda todo
+    escrito (marca incluida), o nada."""
     status = data.get("status")
     payer_email = (data.get("payer_email") or "").strip().lower()
     preapproval_plan_id = data.get("preapproval_plan_id") or ""
@@ -694,16 +797,38 @@ async def process_subscription_authorized_payment_notification(
             f"https://api.mercadopago.com/authorized_payments/{authorized_payment_id}",
             headers={"Authorization": f"Bearer {settings.mercadopago_access_token}"},
         )
-    if resp.status_code == 404:
-        return {"ok": True, "skipped": True}
-    if resp.status_code != 200:
-        logger.error(
-            "[subscriptions] MP API error %s para authorized_payment %s",
-            resp.status_code, authorized_payment_id,
-        )
-        raise HTTPException(status_code=502, detail="Error al consultar MercadoPago")
+        if resp.status_code == 404:
+            return {"ok": True, "skipped": True}
+        if resp.status_code != 200:
+            logger.error(
+                "[subscriptions] MP API error %s para authorized_payment %s",
+                resp.status_code, authorized_payment_id,
+            )
+            raise HTTPException(status_code=502, detail="Error al consultar MercadoPago")
 
-    data = resp.json()
+        data = resp.json()
+        next_cycle = None
+        if _is_approved_charge(data) and data.get("preapproval_id"):
+            next_cycle = await _fetch_next_cycle(client, data["preapproval_id"], data)
+
+    # Todo lo que se le pide a MercadoPago se pidió ARRIBA: la transacción
+    # no se sostiene abierta durante un round-trip de red.
+    async with conn.transaction():
+        return await _apply_authorized_payment_notification(
+            authorized_payment_id, data, next_cycle, repo, conn
+        )
+
+
+async def _apply_authorized_payment_notification(
+    authorized_payment_id: str,
+    data: dict,
+    next_cycle: datetime.datetime | None,
+    repo: SubscriptionsRepository,
+    conn: asyncpg.Connection,
+) -> dict:
+    """Reclamo de idempotencia + efectos de una notificación de cuota. Corre
+    SIEMPRE dentro de la transacción que abre el handler: o queda todo
+    escrito (marca incluida), o nada."""
     cuota_status = data.get("status")  # scheduled | processed | recycling | cancelled
     preapproval_id = data.get("preapproval_id")
     payment = data.get("payment") or {}
@@ -725,12 +850,8 @@ async def process_subscription_authorized_payment_notification(
         )
         return {"ok": True, "unknown_subscription": True}
 
-    if cuota_status == "processed" and payment_status == "approved":
-        next_payment_date = data.get("next_retry_date") or data.get("debit_date")
-        plan_expires_at = None
-        if next_payment_date:
-            parsed = datetime.datetime.fromisoformat(str(next_payment_date).replace("Z", "+00:00"))
-            plan_expires_at = parsed + GRACE_PERIOD
+    if _is_approved_charge(data):
+        plan_expires_at = _plan_expiry_after(next_cycle)
 
         mercadopago_payment_id = str(payment.get("id")) if payment.get("id") else None
         amount = data.get("transaction_amount")
@@ -765,7 +886,7 @@ async def process_subscription_authorized_payment_notification(
             await repo.update_subscription_status(
                 preapproval_id,
                 "authorized",
-                next_payment_date=next_payment_date,
+                next_payment_date=next_cycle,
                 retry_state="none",
                 last_payment_status="approved",
                 amount=amount,
@@ -787,7 +908,7 @@ async def process_subscription_authorized_payment_notification(
             await repo.update_subscription_status(
                 preapproval_id,
                 "ambiguous",
-                next_payment_date=next_payment_date,
+                next_payment_date=next_cycle,
                 retry_state="none",
                 last_payment_status="approved",
                 amount=amount,
@@ -854,12 +975,6 @@ async def process_subscription_authorized_payment_notification(
 
 # ── Reproceso admin de cobros históricos (H3 hotfix 2026-09-04) ───────────
 
-def _parse_mp_datetime(value: str | None) -> datetime.datetime | None:
-    if not value:
-        return None
-    return datetime.datetime.fromisoformat(str(value).replace("Z", "+00:00"))
-
-
 async def replay_subscription_charges(
     subscription_id: str,
     repo: SubscriptionsRepository,
@@ -912,10 +1027,7 @@ async def replay_subscription_charges(
     preapproval_id = subscription["preapproval_id"]
 
     async with httpx.AsyncClient(timeout=10.0) as client:
-        preapproval_resp = await client.get(
-            f"https://api.mercadopago.com/preapproval/{preapproval_id}",
-            headers={"Authorization": f"Bearer {settings.mercadopago_access_token}"},
-        )
+        preapproval_resp = await _get_preapproval(client, preapproval_id)
         if preapproval_resp.status_code != 200:
             logger.error(
                 "[subscriptions] replay-charges: MP API error %s al consultar preapproval %s",
@@ -947,24 +1059,33 @@ async def replay_subscription_charges(
     # decía este comentario antes — el try/except de abajo es la verdad
     # completa: si algún id no es numérico (p.ej. ids sintéticos de test),
     # la lista queda tal cual la devolvió MercadoPago, sin ordenar. Importa
-    # para `accounts.plan_expires_at` (queda con el valor de la ÚLTIMA cuota
-    # aplicada) y para `last_payment_status` (deriva de la ÚLTIMA cuota por
-    # este mismo criterio, ver más abajo) — aplicar/derivar fuera de orden
-    # dejaría un valor viejo pisando uno más nuevo.
+    # para `last_payment_status` (deriva de la ÚLTIMA cuota por este mismo
+    # criterio, ver más abajo) — derivar fuera de orden dejaría un valor
+    # viejo pisando uno más nuevo.
     try:
         cuotas = sorted(cuotas, key=lambda c: int(c.get("id")))
     except (TypeError, ValueError):
         pass
 
+    # Mismo criterio que el webhook de cuotas (`_plan_expiry_after`): el
+    # vencimiento es el siguiente ciclo VIGENTE del preapproval + gracia,
+    # igual para todas las cuotas — no el `debit_date` de cada una, que
+    # dejaba el plan venciendo diez días después del último cobro.
+    next_cycle = (
+        _parse_mp_datetime(preapproval_data.get("next_payment_date"))
+        if isinstance(preapproval_data, dict)
+        else None
+    )
+    plan_expires_at = _plan_expiry_after(next_cycle)
+
     applied: list[str] = []
     already_applied: list[str] = []
 
     for cuota in cuotas:
-        authorized_payment_id = cuota.get("id")
         payment = cuota.get("payment") or {}
-        if cuota.get("status") != "processed" or payment.get("status") != "approved":
+        if not _is_approved_charge(cuota):
             continue
-        authorized_payment_id = str(authorized_payment_id)
+        authorized_payment_id = str(cuota.get("id"))
 
         mercadopago_payment_id = str(payment["id"]) if payment.get("id") else None
         # H4 hotfix: la clasificación se decide ANTES de aplicar (el
@@ -975,9 +1096,6 @@ async def replay_subscription_charges(
         billing_event_existed = bool(
             mercadopago_payment_id and await repo.has_billing_event_for_payment(mercadopago_payment_id)
         )
-
-        next_payment_date = _parse_mp_datetime(cuota.get("next_retry_date") or cuota.get("debit_date"))
-        plan_expires_at = (next_payment_date + GRACE_PERIOD) if next_payment_date else None
 
         await _apply_approved_charge(
             conn,
@@ -1026,7 +1144,7 @@ async def replay_subscription_charges(
         await repo.update_subscription_status(
             preapproval_id,
             mp_status,
-            next_payment_date=_parse_mp_datetime(preapproval_data.get("next_payment_date")),
+            next_payment_date=next_cycle,
             last_payment_status=last_payment_status,
         )
 

@@ -91,7 +91,47 @@ def _mock_conn():
     conn.execute = AsyncMock(return_value="INSERT 0 1")
     conn.fetchrow = AsyncMock(return_value=None)
     conn.transaction = MagicMock(return_value=_NullAsyncTransaction())
+    # `is_in_transaction()` es SÍNCRONO en asyncpg — con el AsyncMock por
+    # defecto devolvería una coroutine (siempre truthy), y la guarda de
+    # `_claim_subscription_webhook_idempotency` quedaría sin probar.
+    conn.is_in_transaction = MagicMock(return_value=True)
     return conn
+
+
+class _RecordingTransaction:
+    """fix(billing) 2026-10-13: stub de `conn.transaction()` que deja traza
+    de cuándo se abre y cómo se cierra cada transacción — para fijar que el
+    reclamo de idempotencia de un webhook corre ADENTRO de la misma
+    transacción que sus efectos (y que un fallo la deshace entera)."""
+
+    def __init__(self, events: list[str]):
+        self._events = events
+
+    async def __aenter__(self):
+        self._events.append("begin")
+
+    async def __aexit__(self, exc_type, exc, tb):
+        self._events.append("rollback" if exc_type else "commit")
+        return False
+
+
+def _recording_conn(fail_on: str | None = None):
+    """Conexión mock que registra, en orden, las transacciones y las
+    escrituras hechas con `conn.execute` ("claim" = la marca de
+    idempotencia, "write" = cualquier otra). `fail_on`: fragmento de SQL
+    cuya escritura revienta."""
+    conn = _mock_conn()
+    events: list[str] = []
+
+    async def _execute(sql: str, *args: object) -> str:
+        if fail_on and fail_on in sql:
+            raise RuntimeError("simulated failure after the idempotency claim")
+        events.append("claim" if "operation_idempotency" in sql else "write")
+        return "INSERT 0 1"
+
+    conn.execute = AsyncMock(side_effect=_execute)
+    conn.transaction = MagicMock(side_effect=lambda: _RecordingTransaction(events))
+    return conn, events
 
 
 # ── HOTFIX subscription-webhook-idempotency-contract (2026-09-04) ───────────
@@ -138,6 +178,24 @@ class TestClaimSubscriptionWebhookIdempotency:
         claimed = await _claim_subscription_webhook_idempotency(conn, "some-key")
 
         assert claimed is False
+
+    @pytest.mark.asyncio
+    async def test_claim_outside_a_transaction_is_refused(self):
+        """fix(billing) 2026-10-13 — la lección del caso real, hecha
+        estructural: la marca de idempotencia jamás se escribe fuera de la
+        transacción de los efectos. `get_service_conn` entrega la conexión
+        en autocommit; reclamar ahí deja la marca comiteada aunque el
+        handler reviente después, y MercadoPago recibe `idempotent` en cada
+        reintento. Un caller que olvide abrir la transacción falla acá, en
+        el primer test que lo ejercite, en vez de perder una notificación
+        en producción."""
+        conn = _mock_conn()
+        conn.is_in_transaction = MagicMock(return_value=False)
+
+        with pytest.raises(RuntimeError, match="transacción"):
+            await _claim_subscription_webhook_idempotency(conn, "some-key")
+
+        conn.execute.assert_not_awaited()
 
 
 # ── H2 hotfix (2026-09-04) RED/GREEN/TRIANGULATE — _tier_for_plan_id ────────
@@ -621,6 +679,54 @@ class TestProcessSubscriptionPreapproval:
         sqls = [c.args[0] for c in conn.execute.call_args_list]
         assert any("billing_status = 'cancelling'" in s for s in sqls)
 
+    # ── fix(billing) 2026-10-13 — idempotencia a prueba de fallos ─────────
+    # Este topic comparte `_claim_subscription_webhook_idempotency` con el de
+    # cuotas y tenía el mismo defecto: la marca se comiteaba antes de los
+    # efectos, así que un fallo a mitad de una cancelación dejaba la cuenta
+    # en `cancelling` sin auditoría ni correo y el reintento de MercadoPago
+    # no completaba nada.
+
+    def _known_subscription_repo(self):
+        return _mock_repo(
+            find_by_preapproval_id=AsyncMock(
+                return_value={
+                    "account_id": ACCOUNT_ID, "status": "authorized",
+                    "next_payment_date": datetime.datetime(2026, 9, 1, tzinfo=datetime.timezone.utc),
+                }
+            )
+        )
+
+    @pytest.mark.asyncio
+    async def test_claim_and_effects_share_one_transaction(self):
+        conn, events = _recording_conn()
+
+        with patch(
+            "httpx.AsyncClient.get", new_callable=AsyncMock,
+            return_value=self._mp_get_response(status="cancelled"),
+        ):
+            await process_subscription_preapproval_notification(
+                PREAPPROVAL_ID, self._known_subscription_repo(), conn
+            )
+
+        # accounts + billing_events + email_logs, todas después del reclamo
+        # y dentro de la única transacción del handler.
+        assert events == ["begin", "claim", "write", "write", "write", "commit"]
+
+    @pytest.mark.asyncio
+    async def test_failure_after_the_claim_rolls_back_the_claim_too(self):
+        conn, events = _recording_conn(fail_on="INSERT INTO public.email_logs")
+
+        with patch(
+            "httpx.AsyncClient.get", new_callable=AsyncMock,
+            return_value=self._mp_get_response(status="cancelled"),
+        ):
+            with pytest.raises(RuntimeError, match="simulated failure"):
+                await process_subscription_preapproval_notification(
+                    PREAPPROVAL_ID, self._known_subscription_repo(), conn
+                )
+
+        assert events == ["begin", "claim", "write", "write", "rollback"]
+
     @pytest.mark.asyncio
     async def test_unknown_preapproval_from_mp_is_not_fatal(self):
         """TRIANGULATE (6.7): un preapproval que MP dice no encontrar (404)
@@ -757,19 +863,36 @@ class TestProcessAuthorizedPayment:
         resp.json.return_value = body
         return resp
 
+    def _mp_preapproval_response(self, next_payment_date="2026-10-01T00:00:00Z", status_code=200):
+        """`GET /preapproval/{id}` — segunda consulta a MercadoPago de una
+        cuota aprobada: de acá sale el siguiente ciclo."""
+        resp = MagicMock()
+        resp.status_code = status_code
+        resp.json.return_value = {"status": "authorized", "next_payment_date": next_payment_date}
+        return resp
+
     @pytest.mark.asyncio
     async def test_approved_payment_extends_plan_expires_at_with_grace(self):
         """RED (6.9): cobro aprobado extiende plan_expires_at a
         next_payment_date + 10 días de gracia (OQ2) y audita en
-        billing_events."""
+        billing_events.
+
+        fix(billing) 2026-10-13: ese `next_payment_date` es el del
+        PREAPPROVAL (siguiente ciclo), no el `debit_date` de la cuota recién
+        cobrada — con el débito, una cuota del 01-09 dejaba el plan
+        venciendo el 11-09 en vez de cubrir hasta el 01-10 + gracia."""
         repo = _mock_repo(
             find_by_preapproval_id=AsyncMock(
                 return_value={"account_id": ACCOUNT_ID, "plan": "avanzado", "status": "authorized"}
             )
         )
         conn = _mock_conn()
+        responses = [
+            self._mp_get_response(debit_date="2026-09-01T00:00:00Z"),
+            self._mp_preapproval_response(next_payment_date="2026-10-01T00:00:00Z"),
+        ]
 
-        with patch("httpx.AsyncClient.get", new_callable=AsyncMock, return_value=self._mp_get_response()):
+        with patch("httpx.AsyncClient.get", new_callable=AsyncMock, side_effect=responses):
             result = await process_subscription_authorized_payment_notification("ap-1", repo, conn)
 
         assert result == {"ok": True, "credited": True}
@@ -779,12 +902,200 @@ class TestProcessAuthorizedPayment:
         assert kwargs["last_payment_status"] == "approved"
 
         sqls = [c.args[0] for c in conn.execute.call_args_list]
-        assert any("plan_expires_at = $2" in s for s in sqls)
         assert any("subscription_payment_approved" in s for s in sqls)
 
-        expected_expiry = datetime.datetime(2026, 9, 1, tzinfo=datetime.timezone.utc) + GRACE_PERIOD
-        update_call = next(c for c in conn.execute.call_args_list if "plan_expires_at = $2" in c.args[0])
-        assert update_call.args[2] == expected_expiry
+        next_cycle = datetime.datetime(2026, 10, 1, tzinfo=datetime.timezone.utc)
+        update_call = next(c for c in conn.execute.call_args_list if "SET plan_expires_at" in c.args[0])
+        assert update_call.args[2] == next_cycle + GRACE_PERIOD
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "subscription",
+        [
+            {"account_id": ACCOUNT_ID, "plan": "inicial", "status": "authorized"},
+            {"account_id": None, "plan": "inicial", "status": "ambiguous"},
+        ],
+        ids=["con_cuenta", "ambigua"],
+    )
+    async def test_repo_receives_a_datetime_never_the_mercadopago_string(self, subscription):
+        """Bug real (cuota 7032577415, 2026-10-04): al repositorio le llegaba
+        el texto de MercadoPago tal cual y asyncpg lo rechazaba con
+        `DataError` al bindearlo a `timestamptz` — en las DOS ramas. Este
+        test usa las fechas con la forma real (offset `-04:00` y
+        milisegundos): la suite de mocks anterior asserteaba el string y por
+        eso no vio el bug."""
+        repo = _mock_repo(find_by_preapproval_id=AsyncMock(return_value=subscription))
+        conn = _mock_conn()
+        responses = [
+            self._mp_get_response(debit_date="2026-10-04T17:02:30.000-04:00", transaction_amount=24900),
+            self._mp_preapproval_response(next_payment_date="2026-11-04T16:54:19.000-04:00"),
+        ]
+
+        with patch("httpx.AsyncClient.get", new_callable=AsyncMock, side_effect=responses):
+            await process_subscription_authorized_payment_notification("7032577415", repo, conn)
+
+        next_payment_date = repo.update_subscription_status.call_args.kwargs["next_payment_date"]
+        assert isinstance(next_payment_date, datetime.datetime)
+        assert next_payment_date == datetime.datetime(2026, 11, 4, 20, 54, 19, tzinfo=datetime.timezone.utc)
+
+    @pytest.mark.asyncio
+    async def test_expiry_of_the_real_october_cuota_is_next_cycle_plus_grace(self):
+        """TRIANGULATE (defecto 2): cuota debitada el 04-10 con siguiente
+        ciclo el 04-11 → el plan vence el 14-11 (ciclo + gracia), no el
+        14-10 (débito + gracia)."""
+        repo = _mock_repo(
+            find_by_preapproval_id=AsyncMock(
+                return_value={"account_id": ACCOUNT_ID, "plan": "inicial", "status": "authorized"}
+            )
+        )
+        conn = _mock_conn()
+        responses = [
+            self._mp_get_response(debit_date="2026-10-04T17:02:30.000-04:00", transaction_amount=24900),
+            self._mp_preapproval_response(next_payment_date="2026-11-04T16:54:19.000-04:00"),
+        ]
+
+        with patch("httpx.AsyncClient.get", new_callable=AsyncMock, side_effect=responses):
+            await process_subscription_authorized_payment_notification("7032577415", repo, conn)
+
+        update_call = next(c for c in conn.execute.call_args_list if "SET plan_expires_at" in c.args[0])
+        assert update_call.args[2] == datetime.datetime(2026, 11, 14, 20, 54, 19, tzinfo=datetime.timezone.utc)
+
+    @pytest.mark.asyncio
+    async def test_preapproval_without_next_payment_date_does_not_derive_expiry_from_the_debit(self):
+        """Si MercadoPago no informa el siguiente ciclo, no se inventa uno a
+        partir del débito: el repositorio y `_apply_approved_charge` reciben
+        None (y ambos conservan la fecha que ya había, vía COALESCE)."""
+        repo = _mock_repo(
+            find_by_preapproval_id=AsyncMock(
+                return_value={"account_id": ACCOUNT_ID, "plan": "inicial", "status": "authorized"}
+            )
+        )
+        conn = _mock_conn()
+        responses = [
+            self._mp_get_response(debit_date="2026-10-04T17:02:30.000-04:00"),
+            self._mp_preapproval_response(next_payment_date=None),
+        ]
+
+        with patch("httpx.AsyncClient.get", new_callable=AsyncMock, side_effect=responses):
+            result = await process_subscription_authorized_payment_notification("ap-1", repo, conn)
+
+        assert result == {"ok": True, "credited": True}
+        assert repo.update_subscription_status.call_args.kwargs["next_payment_date"] is None
+        update_call = next(c for c in conn.execute.call_args_list if "SET plan_expires_at" in c.args[0])
+        assert update_call.args[2] is None
+        assert any("subscription_payment_approved" in c.args[0] for c in conn.execute.call_args_list)
+
+    @pytest.mark.asyncio
+    async def test_preapproval_lookup_failure_raises_502_without_claiming_anything(self):
+        """Un error de MercadoPago al consultar el preapproval corta con 502
+        ANTES de reclamar la idempotencia y de cualquier escritura: la
+        notificación queda intacta para el reintento de MercadoPago."""
+        repo = _mock_repo(
+            find_by_preapproval_id=AsyncMock(
+                return_value={"account_id": ACCOUNT_ID, "plan": "inicial", "status": "authorized"}
+            )
+        )
+        conn = _mock_conn()
+        responses = [self._mp_get_response(), self._mp_preapproval_response(status_code=500)]
+
+        with patch("httpx.AsyncClient.get", new_callable=AsyncMock, side_effect=responses):
+            with pytest.raises(HTTPException) as exc:
+                await process_subscription_authorized_payment_notification("ap-1", repo, conn)
+
+        assert exc.value.status_code == 502
+        conn.execute.assert_not_awaited()
+        conn.transaction.assert_not_called()
+        repo.update_subscription_status.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_claim_and_effects_share_one_transaction(self):
+        """El agravante estructural del bug real: la marca de idempotencia
+        se insertaba ANTES de los efectos, en autocommit, y quedaba
+        comiteada aunque el handler reventara. Ahora el reclamo es la
+        primera escritura de la MISMA transacción que los efectos."""
+        repo = _mock_repo(
+            find_by_preapproval_id=AsyncMock(
+                return_value={"account_id": ACCOUNT_ID, "plan": "inicial", "status": "authorized"}
+            )
+        )
+        conn, events = _recording_conn()
+        responses = [self._mp_get_response(), self._mp_preapproval_response()]
+
+        with patch("httpx.AsyncClient.get", new_callable=AsyncMock, side_effect=responses):
+            await process_subscription_authorized_payment_notification("ap-1", repo, conn)
+
+        assert events[:2] == ["begin", "claim"]
+        assert events[-1] == "commit"
+        assert events.count("begin") == events.count("commit")
+        assert "rollback" not in events
+        assert events.count("write") == 3  # accounts + billing_events + email_logs
+
+    @pytest.mark.asyncio
+    async def test_failure_after_the_claim_rolls_back_the_claim_too(self):
+        """TRIANGULATE: si una escritura posterior al reclamo falla, la
+        transacción que contiene la marca se cierra con rollback — nunca con
+        commit — y el error se propaga (500 → MercadoPago reintenta)."""
+        repo = _mock_repo(
+            find_by_preapproval_id=AsyncMock(
+                return_value={"account_id": ACCOUNT_ID, "plan": "inicial", "status": "authorized"}
+            )
+        )
+        conn, events = _recording_conn(fail_on="INSERT INTO public.email_logs")
+        responses = [self._mp_get_response(), self._mp_preapproval_response()]
+
+        with patch("httpx.AsyncClient.get", new_callable=AsyncMock, side_effect=responses):
+            with pytest.raises(RuntimeError, match="simulated failure"):
+                await process_subscription_authorized_payment_notification("ap-1", repo, conn)
+
+        assert events[:2] == ["begin", "claim"]
+        assert events[-1] == "rollback"
+        assert "commit" not in events
+
+    @pytest.mark.asyncio
+    async def test_next_cycle_not_after_the_debit_is_logged(self, caplog):
+        """Si el preapproval todavía informa un `next_payment_date` que no
+        es posterior al débito de la cuota recién cobrada, MercadoPago no
+        avanzó el ciclo: se aplica igual lo que informa, pero queda un
+        aviso — el vencimiento quedó corto y hay que correr el replay."""
+        repo = _mock_repo(
+            find_by_preapproval_id=AsyncMock(
+                return_value={"account_id": ACCOUNT_ID, "plan": "inicial", "status": "authorized"}
+            )
+        )
+        conn = _mock_conn()
+        responses = [
+            self._mp_get_response(debit_date="2026-10-04T17:02:30.000-04:00"),
+            self._mp_preapproval_response(next_payment_date="2026-10-04T16:54:19.000-04:00"),
+        ]
+
+        with caplog.at_level("WARNING", logger="backend.services.subscriptions"):
+            with patch("httpx.AsyncClient.get", new_callable=AsyncMock, side_effect=responses):
+                await process_subscription_authorized_payment_notification("ap-1", repo, conn)
+
+        stale = [r for r in caplog.records if "no es posterior al débito" in r.getMessage()]
+        assert len(stale) == 1
+        assert PREAPPROVAL_ID in stale[0].getMessage()
+
+    @pytest.mark.asyncio
+    async def test_advanced_next_cycle_is_not_logged_as_stale(self, caplog):
+        """TRIANGULATE: el caso normal (siguiente ciclo posterior al débito)
+        no deja ningún aviso."""
+        repo = _mock_repo(
+            find_by_preapproval_id=AsyncMock(
+                return_value={"account_id": ACCOUNT_ID, "plan": "inicial", "status": "authorized"}
+            )
+        )
+        conn = _mock_conn()
+        responses = [
+            self._mp_get_response(debit_date="2026-10-04T17:02:30.000-04:00"),
+            self._mp_preapproval_response(next_payment_date="2026-11-04T16:54:19.000-04:00"),
+        ]
+
+        with caplog.at_level("WARNING", logger="backend.services.subscriptions"):
+            with patch("httpx.AsyncClient.get", new_callable=AsyncMock, side_effect=responses):
+                await process_subscription_authorized_payment_notification("ap-1", repo, conn)
+
+        assert not [r for r in caplog.records if "no es posterior al débito" in r.getMessage()]
 
     @pytest.mark.asyncio
     async def test_redelivery_of_same_payment_is_idempotent_no_op(self):
@@ -813,14 +1124,17 @@ class TestProcessAuthorizedPayment:
         with patch(
             "httpx.AsyncClient.get", new_callable=AsyncMock,
             return_value=self._mp_get_response(payment_status="rejected"),
-        ):
+        ) as mp_get:
             result = await process_subscription_authorized_payment_notification("ap-1", repo, conn)
 
         assert result == {"ok": True, "payment_failed": True}
         sqls = [c.args[0] for c in conn.execute.call_args_list]
-        assert not any("plan_expires_at = $2" in s for s in sqls)
+        assert not any("plan_expires_at" in s for s in sqls)
         assert not any("billing_plan" in s for s in sqls)
         assert any("SubscriptionPaymentFailed" in s for s in sqls)
+        # un cobro rechazado no extiende nada: no hace falta el siguiente
+        # ciclo, así que no se consulta el preapproval.
+        assert mp_get.await_count == 1
 
     @pytest.mark.asyncio
     async def test_rejected_payment_email_has_discriminator_in_metadata(self):
@@ -1087,12 +1401,18 @@ class TestApplyApprovedChargeParity:
         mp_response.json.return_value = {
             "status": "processed", "preapproval_id": PREAPPROVAL_ID,
             "payment": {"id": "mp-payment-1", "status": "approved"},
-            "retry_attempt": 0, "debit_date": "2026-09-01T00:00:00Z",
+            "retry_attempt": 0, "debit_date": "2026-08-01T00:00:00Z",
             "transaction_amount": 34900,
         }
+        # fix(billing) 2026-10-13: el vencimiento del camino normal sale del
+        # siguiente ciclo del preapproval — el mismo dato que el camino de
+        # resolución lee de `subscriptions.next_payment_date`.
+        mp_preapproval = MagicMock()
+        mp_preapproval.status_code = 200
+        mp_preapproval.json.return_value = {"status": "authorized", "next_payment_date": "2026-09-01T00:00:00Z"}
         with (
             patch.object(subs_module, "_apply_approved_charge", new_callable=AsyncMock) as mock_apply,
-            patch("httpx.AsyncClient.get", new_callable=AsyncMock, return_value=mp_response),
+            patch("httpx.AsyncClient.get", new_callable=AsyncMock, side_effect=[mp_response, mp_preapproval]),
         ):
             await process_subscription_authorized_payment_notification("ap-1", repo1, conn1)
         mock_apply.assert_awaited_once()
@@ -1133,6 +1453,9 @@ class TestApplyApprovedChargeParity:
         assert normal_kwargs["mercadopago_payment_id"] == resolve_kwargs["mercadopago_payment_id"] == "mp-payment-1"
         assert normal_kwargs["amount"] == resolve_kwargs["amount"] == 34900
         assert normal_kwargs["plan_expires_at"] == resolve_kwargs["plan_expires_at"]
+        assert normal_kwargs["plan_expires_at"] == (
+            datetime.datetime(2026, 9, 1, tzinfo=datetime.timezone.utc) + GRACE_PERIOD
+        )
 
         # limpia el marcador de pendiente una vez replicado
         repo2.clear_pending_charge.assert_awaited_once_with(PREAPPROVAL_ID)
@@ -1257,6 +1580,55 @@ class TestApplyApprovedChargeAtomicityAndAmountNormalization:
             c for c in conn.execute.call_args_list if "subscription_payment_approved" in c.args[0]
         )
         assert billing_event_call.args[-1] is original
+
+
+# ── fix(billing) 2026-10-13 — contrato de las sentencias de una cuota ──────
+# Candados de texto sobre el SQL (los mocks no ejecutan Postgres): el
+# comportamiento real lo prueba
+# test_subscriptions_webhook_handlers_integration.py, que no corre en CI.
+# Estos fijan, en la suite que SÍ corre, las dos cláusulas de las que
+# depende.
+
+class TestApplyApprovedChargeStatements:
+    async def _statements(self, plan_expires_at=None) -> dict[str, str]:
+        conn = _mock_conn()
+        await _apply_approved_charge(
+            conn,
+            account_id=ACCOUNT_ID,
+            plan="inicial",
+            preapproval_id=PREAPPROVAL_ID,
+            authorized_payment_id="7032577415",
+            mercadopago_payment_id="182393490148",
+            amount=24900,
+            plan_expires_at=plan_expires_at,
+        )
+        sqls = [c.args[0] for c in conn.execute.call_args_list]
+        return {
+            "accounts": next(s for s in sqls if "UPDATE public.accounts" in s),
+            "email": next(s for s in sqls if "INSERT INTO public.email_logs" in s),
+        }
+
+    @pytest.mark.asyncio
+    async def test_missing_expiry_never_erases_the_account_expiry(self):
+        """Sin siguiente ciclo, `plan_expires_at` llega None. Escribirlo tal
+        cual lo dejaría NULL — "sin vencimiento" para `get_effective_plan`:
+        una cuenta paga para siempre. La sentencia conserva el valor
+        previo."""
+        statements = await self._statements(plan_expires_at=None)
+        assert "plan_expires_at = COALESCE($2, plan_expires_at)" in statements["accounts"]
+
+    @pytest.mark.asyncio
+    async def test_renewal_email_is_deduplicated_per_cuota(self):
+        """El correo se encola una vez por cuota (`authorized_payment_id`),
+        no una vez por metadata: la metadata incluye `plan_expires_at`, y el
+        replay reaplica cuotas viejas con el vencimiento del ciclo vigente —
+        deduplicar por la metadata completa mandaba un segundo correo de
+        renovación por el mismo cobro."""
+        statements = await self._statements()
+        email_sql = " ".join(statements["email"].split())
+        assert "AND NOT EXISTS ( SELECT 1 FROM public.email_logs sent" in email_sql
+        assert "sent.event_type = 'subscription_payment_approved'" in email_sql
+        assert "sent.metadata ->> 'authorized_payment_id' = $3::text" in email_sql
 
 
 # ── 6.8bis — resolve_ambiguous_subscription (cola de conciliación manual) ──
@@ -1474,11 +1846,10 @@ class TestResolveAmbiguousSubscription:
 
         assert result == {"ok": True}
         sqls = [c.args[0] for c in conn.execute.call_args_list]
-        assert any("plan_expires_at = $2" in s for s in sqls)
         assert any("subscription_payment_approved" in s for s in sqls)
         assert any("subscription_ambiguous_resolved" in s for s in sqls)
 
-        expiry_call = next(c for c in conn.execute.call_args_list if "plan_expires_at = $2" in c.args[0])
+        expiry_call = next(c for c in conn.execute.call_args_list if "SET plan_expires_at" in c.args[0])
         assert expiry_call.args[2] == next_payment_date + GRACE_PERIOD
 
         billing_event_call = next(
@@ -1720,11 +2091,12 @@ class TestReplaySubscriptionCharges:
         conn.execute.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_applies_cuota_without_next_payment_date_leaves_expiry_none(self):
-        """TRIANGULATE: una cuota approved sin next_retry_date ni
-        debit_date (MP no siempre los manda) igual se aplica — el
-        vencimiento simplemente queda sin extender, mismo comportamiento
-        que el camino normal cuando next_payment_date falta."""
+    async def test_expiry_comes_from_the_preapproval_next_cycle_not_from_each_cuota(self):
+        """fix(billing) 2026-10-13 (defecto 2): el replay calculaba el
+        vencimiento por cuota (`debit_date` + gracia), así que reproducir la
+        cuota del 01-09 dejaba el plan venciendo el 11-09. Mismo criterio
+        que el webhook: siguiente ciclo del preapproval + gracia, para
+        todas las cuotas."""
         repo = _mock_repo(
             find_subscription_by_id=AsyncMock(
                 return_value={
@@ -1734,20 +2106,48 @@ class TestReplaySubscriptionCharges:
             )
         )
         conn = _mock_conn()
-        cuota_sin_fecha = {
-            "id": "7031580844", "status": "processed",
-            "payment": {"id": "176341057469", "status": "approved"},
-            "transaction_amount": 24900,
-        }
+        responses = [
+            self._mp_preapproval_response(next_payment_date="2026-11-04T16:54:19.000-04:00"),
+            self._mp_search_response([
+                self._cuota("7031580844", "176341057469", debit_date="2026-09-04T16:54:19.000-04:00"),
+                self._cuota("7032577415", "182393490148", debit_date="2026-10-04T17:02:30.000-04:00"),
+            ]),
+        ]
+        with patch("httpx.AsyncClient.get", new_callable=AsyncMock, side_effect=responses):
+            result = await replay_subscription_charges(SUBSCRIPTION_ID, repo, conn)
+
+        assert result["applied"] == ["7031580844", "7032577415"]
+        next_cycle = datetime.datetime(2026, 11, 4, 20, 54, 19, tzinfo=datetime.timezone.utc)
+        expiry_calls = [c for c in conn.execute.call_args_list if "SET plan_expires_at" in c.args[0]]
+        assert [c.args[2] for c in expiry_calls] == [next_cycle + GRACE_PERIOD] * 2
+        assert repo.update_subscription_status.call_args.kwargs["next_payment_date"] == next_cycle
+
+    @pytest.mark.asyncio
+    async def test_applies_cuota_without_next_payment_date_leaves_expiry_untouched(self):
+        """TRIANGULATE: si el preapproval no informa siguiente ciclo, la
+        cuota approved igual se aplica — el vencimiento queda sin extender
+        (None → COALESCE conserva el que la cuenta tenía), mismo
+        comportamiento que el camino normal cuando next_payment_date
+        falta. Tampoco se deriva del `debit_date` de la cuota."""
+        repo = _mock_repo(
+            find_subscription_by_id=AsyncMock(
+                return_value={
+                    "id": SUBSCRIPTION_ID, "account_id": ACCOUNT_ID, "preapproval_id": PREAPPROVAL_ID,
+                    "plan": "inicial",
+                }
+            )
+        )
+        conn = _mock_conn()
         responses = [
             self._mp_preapproval_response(next_payment_date=None),
-            self._mp_search_response([cuota_sin_fecha]),
+            self._mp_search_response([self._cuota("7031580844", "176341057469")]),
         ]
         with patch("httpx.AsyncClient.get", new_callable=AsyncMock, side_effect=responses):
             result = await replay_subscription_charges(SUBSCRIPTION_ID, repo, conn)
 
         assert result["applied"] == ["7031580844"]
-        expiry_call = next(c for c in conn.execute.call_args_list if "plan_expires_at = $2" in c.args[0])
+        expiry_call = next(c for c in conn.execute.call_args_list if "SET plan_expires_at" in c.args[0])
+        assert "plan_expires_at = COALESCE($2, plan_expires_at)" in expiry_call.args[0]
         assert expiry_call.args[2] is None
 
     # ── item B (3), residuo (d) de mp-real-subscriptions ───────────────────

@@ -1427,6 +1427,42 @@ jobs:
           fi
           echo "20261077000001 y 20261077000002 idempotentes: NOTICE de reaplicación, introspección OK, 0 movimientos completados por el backfill y schema IDÉNTICO al previo a este paso."
 
+          # importador-productos-stock-apertura (2026-10-14, governance MEDIA con
+          # tramo ALTO): reaplicación de 20261079000001 (rpc_bulk_upsert_products: el
+          # stock del archivo es de apertura, sólo del producto que el lote crea) AL
+          # FINAL de la cadena, DESPUÉS de 20261077. Ninguna migración reaplicada
+          # después de la reconvergencia (`supabase db reset`) redefine
+          # rpc_bulk_upsert_products (el reapply de 20261066000001, que sí la define,
+          # es anterior a ese reset), así que ya después del reset el cuerpo vivo ES el
+          # de esta migración: las DOS pasadas imprimen el NOTICE «ya es el cuerpo de
+          # esta migración» (reaplicación pura). SIN tolerancia, y el schema
+          # (constraints + firmas + ACLs) tiene que quedar IDÉNTICO tras cada pasada.
+          # NO hay migración de datos.
+          #
+          # REGLA PARA EL PR SIGUIENTE: una migración posterior que redefina
+          # rpc_bulk_upsert_products tiene que RETIRAR este bloque en el mismo PR (su
+          # preflight abortaría, igual que el de 20261076000001).
+          IAP_OUT1=$(psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261079000001_importador_productos_stock_apertura.sql 2>&1) || { echo "$IAP_OUT1"; echo "ERROR: el reapply de 20261079000001 falló (sin tolerancia)."; exit 1; }
+          echo "$IAP_OUT1"
+          IAP_OUT2=$(psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261079000001_importador_productos_stock_apertura.sql 2>&1) || { echo "$IAP_OUT2"; echo "ERROR: la segunda pasada de 20261079000001 falló (sin tolerancia)."; exit 1; }
+          echo "$IAP_OUT2"
+          IAP_REAPPLIED=$(echo "$IAP_OUT2" | grep -cF 'ya es el cuerpo de esta migración' || true)
+          if [ "$IAP_REAPPLIED" != "1" ]; then
+            echo "ERROR: la segunda pasada de 20261079000001 imprimió $IAP_REAPPLIED de 1 NOTICE de reaplicación (ya es el cuerpo de esta migración)."
+            exit 1
+          fi
+          if ! echo "$IAP_OUT2" | grep -qF 'importador-productos-stock-apertura (introspecci'; then
+            echo "ERROR: el reapply de 20261079000001 no imprimió el OK de su bloque de introspección."
+            exit 1
+          fi
+          schema_snapshot > /tmp/schema_after_iap_reapply.txt
+          if ! diff -u /tmp/schema_before_reapply.txt /tmp/schema_after_iap_reapply.txt > /tmp/schema_diff_iap.txt; then
+            echo "NOT IDEMPOTENT: reaplicar 20261079000001 cambió el schema (constraints + firmas de función + ACLs):"
+            cat /tmp/schema_diff_iap.txt
+            exit 1
+          fi
+          echo "20261079000001 idempotente: NOTICE de reaplicación, introspección OK y schema IDÉNTICO al previo a este paso."
+
       # -v ON_ERROR_STOP=1 is required: without it psql prints RAISE EXCEPTION
       # errors but still exits 0, so failing assertions show green in CI.
       - name: Run deterministic KPI tests
@@ -3231,3 +3267,22 @@ jobs:
       # test_is_account_writer_pivot.sql (43/17 -> 45/18).
       - name: Run documentos marca empresa gate
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_documentos_marca_empresa.sql
+      # importador-productos-stock-apertura (fix ad-hoc 2026-10-14, governance MEDIA
+      # con tramo ALTO): el stock del archivo de importación de productos es de
+      # APERTURA. `supabase start` ya aplicó 20261079000001; este paso EJECUTA
+      # rpc_import_products como `authenticated` (claims reales) y verifica: el stock
+      # inicial cae en la sucursal principal operativa (c26_default_branch) y NO en la
+      # más antigua desactivada, con UN movimiento `adjustment` «Stock inicial
+      # (importación)» sellado (cuenta, sucursal, autor, antes/después) y visible por
+      # RLS; el libro reconcilia; reimportar un SKU existente (otro archivo, stock 20
+      # tras vender 5) NO pisa el saldo (15) ni deja movimientos, pero sí actualiza el
+      # resto de los campos; las celdas vacías de precio, costo, stock y mínimo
+      # CONSERVAN al editar y quedan en 0 / sin stock al crear; stock negativo = error
+      # de fila con el lote revertido y sin movimientos huérfanos; simulación sin
+      # escrituras; SKU repetido en el mismo archivo; jerarquía (el padre sin saldo ni
+      # movimiento); cuenta sin sucursales (la principal nace perezosa y activa); y la
+      # ACL/firma/COMMENT de rpc_bulk_upsert_products intactos. Corre dentro de
+      # BEGIN..ROLLBACK: residuo cero. Actualiza además test_bulk_upsert_products_
+      # categories.sql (4b: el stock vivo se conserva al reimportar).
+      - name: Run importador stock apertura gate
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_importador_stock_apertura.sql

@@ -89,14 +89,18 @@ function toApiRow(row: ResolvedImportRow): ProductImportRow {
     name:     row.name,
     // "" → ausencia (el servidor imputa la categoría por defecto de la cuenta).
     category: row.category || null,
-    // Un Padre (variant_only) no tiene precio/stock propio — mismo criterio
-    // que el importador tenía antes de este change.
-    price:    isPadre ? 0 : row.price,
+    // Un Padre (variant_only) no tiene precio/stock propio: sus celdas no se
+    // leen y viajan como null (importador-productos-stock-apertura: antes 0,
+    // que en una edición por SKU pisaba el precio vigente). Una celda vacía de
+    // una fila normal también es null → alta: 0 / edición: conserva.
+    price:    isPadre ? null : row.price,
     // productos-costo-nullable (D10) + D12 de este change (null-preserving):
     // `null` = sin costo (alta) o "conservar" (edición) — nunca 0 por
     // default. Un Padre tampoco tiene costo propio: null, no 0.
     cost:     isPadre ? null : row.cost,
-    stock:    isPadre ? 0 : row.stock,
+    // El stock del archivo es de APERTURA: el servidor lo aplica sólo al
+    // producto que el lote crea (ver rpc_bulk_upsert_products).
+    stock:    isPadre ? null : row.stock,
     minStock: row.minStock,
     barcode:  row.barcode,
     // balanza-etiquetas-pos (D2/D14): un Padre (variant_only) no admite PLU

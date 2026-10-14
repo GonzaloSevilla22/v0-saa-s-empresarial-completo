@@ -85,8 +85,8 @@ El sistema SHALL leer el stock desde `branch_stock` (suma por `account_id`/`prod
 - **THEN** el campo `stock` de cada producto proviene de `v_products_with_stock` (`SUM(branch_stock)`), no de la columna `products.stock`
 
 #### Scenario: el importador de CSV escribe en branch_stock
-- **WHEN** se importa un producto con stock inicial 25 vía CSV
-- **THEN** se crea/actualiza una fila en `branch_stock` para `(producto, branch por defecto)` con `quantity = 25`
+- **WHEN** se importa un producto NUEVO con stock inicial 25 vía CSV
+- **THEN** se crea una fila en `branch_stock` para `(producto, sucursal principal operativa)` con `quantity = 25` y un movimiento de stock «Stock inicial (importación)» que la explica; un producto que ya existía conserva su saldo (ver el requirement «El stock del archivo de importación es de apertura» de `product-import`)
 
 ### Requirement: Verificación y descarte del sistema de inventario legacy
 El sistema SHALL eliminar las tablas `inventory_stock`, `inventory_movements` y `warehouses` (Sistema B legacy) únicamente tras verificar, con una consulta reproducible, que (a) sus filas de stock ya están representadas en `branch_stock` o cubiertas por la reconciliación, y (b) ninguna función o vista del schema las referencia. Estas tablas MUST NOT migrarse mediante INSERT a `branch_stock` (sus filas ya existen y pueden estar desactualizadas). El DROP es **BREAKING** y MUST ejecutarse en una migración separada sujeta a aprobación explícita.

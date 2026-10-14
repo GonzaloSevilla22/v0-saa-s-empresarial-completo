@@ -41,7 +41,7 @@ import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   Upload, FileText, AlertTriangle, CheckCircle2, XCircle,
-  ChevronRight, Loader2, Download, RotateCcw, Crown,
+  ChevronRight, Loader2, Download, RotateCcw, Crown, Info,
 } from "lucide-react"
 import { useImportProducts } from "@/hooks/data/use-products"
 import { useProductCategories } from "@/hooks/data/use-product-categories"
@@ -353,6 +353,14 @@ export function ProductImportDialog({
 
   const categoryLimitExceeded = prepared?.newCategoryLimitExceeded ?? false
 
+  // importador-productos-stock-apertura: el stock del archivo es de APERTURA — el
+  // servidor lo aplica sólo a los productos que el lote CREA. Si la simulación dice
+  // que hay productos que ya existen (`updated`) y el archivo trae stock, se avisa
+  // que esos conservan el suyo y cómo corregirlo (Importar ajuste en /stock).
+  const existingKeepStock = serverResult?.updated ?? 0
+  const showExistingStockNotice = existingKeepStock > 0
+    && (prepared?.apiRows.some((r) => r.stock != null) ?? false)
+
   // Errores del servidor SIN fila asociada (`row: null`) — hoy sólo un
   // caller viejo podría omitir `row_no`, pero el contrato de la spec no lo
   // descarta. Antes se perdían en silencio: no entraban a `serverVerdicts`
@@ -485,11 +493,11 @@ export function ProductImportDialog({
                 </p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1.5 text-xs">
                   <div><span className="font-medium text-foreground">Nombre</span> <span className="text-muted-foreground">(obligatorio)</span></div>
-                  <div><span className="font-medium text-foreground">Precio</span> <span className="text-muted-foreground">(opcional)</span></div>
+                  <div><span className="font-medium text-foreground">Precio</span> <span className="text-muted-foreground">(opcional — vacío en un alta = 0, vacío en un producto existente = conserva el precio actual)</span></div>
                   <div><span className="font-medium text-foreground">Costo</span> <span className="text-muted-foreground">(opcional — vacía en un alta = sin costo, "0" = costo cero, vacía en un producto existente = conserva el costo que ya tenía)</span></div>
                   <div><span className="font-medium text-foreground">Categoría</span> <span className="text-muted-foreground">(opcional — se crea si no existe en tu cuenta)</span></div>
-                  <div><span className="font-medium text-foreground">Stock</span> <span className="text-muted-foreground">(opcional — admite decimales, p.ej. 2,5)</span></div>
-                  <div><span className="font-medium text-foreground">Stock mínimo</span> <span className="text-muted-foreground">(opcional — número entero)</span></div>
+                  <div><span className="font-medium text-foreground">Stock</span> <span className="text-muted-foreground">(opcional — admite decimales, p.ej. 2,5. Solo se carga en productos nuevos: el stock de un producto que ya existe no se modifica)</span></div>
+                  <div><span className="font-medium text-foreground">Stock mínimo</span> <span className="text-muted-foreground">(opcional — número entero; vacío en un producto existente = conserva el mínimo)</span></div>
                   <div><span className="font-medium text-foreground">Código</span> <span className="text-muted-foreground">(código de barras)</span></div>
                   <div><span className="font-medium text-foreground">SKU</span> <span className="text-muted-foreground">(opcional — si coincide con uno existente, actualiza ese producto)</span></div>
                   <div><span className="font-medium text-foreground">Código balanza</span> <span className="text-muted-foreground">(opcional — PLU de la balanza, alias "PLU"; entero de 1 a 999.999)</span></div>
@@ -688,6 +696,28 @@ export function ProductImportDialog({
                       </li>
                     ))}
                   </ul>
+                </section>
+              )}
+
+              {/* importador-productos-stock-apertura: el stock del archivo sólo se
+                  carga en los productos NUEVOS. Informativo, no bloquea. Tokens
+                  semánticos (claro/oscuro) y texto que envuelve en móvil. */}
+              {showExistingStockNotice && (
+                <section
+                  role="region"
+                  aria-label="Stock de los productos que ya existen"
+                  className="px-6 py-2.5 border-b border-border bg-muted/20 shrink-0"
+                >
+                  <p className="text-xs text-foreground flex items-start gap-1.5">
+                    <Info className="h-3.5 w-3.5 shrink-0 mt-0.5 text-muted-foreground" aria-hidden="true" />
+                    <span className="min-w-0">
+                      <span className="font-medium">El stock del archivo solo se carga en los productos nuevos.</span>{" "}
+                      {existingKeepStock === 1
+                        ? "1 producto ya existe en tu cuenta: se actualizan sus datos, pero conserva el stock que tiene."
+                        : `${existingKeepStock} productos ya existen en tu cuenta: se actualizan sus datos, pero conservan el stock que tienen.`}{" "}
+                      Para corregir el stock de un producto existente usá «Importar ajuste» en Stock.
+                    </span>
+                  </p>
                 </section>
               )}
 

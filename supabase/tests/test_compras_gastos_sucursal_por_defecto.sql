@@ -249,7 +249,11 @@ DECLARE
   -- Cuerpos que deja 20261076000001: md5(replace(prosrc, E'\r', '')), medidos en
   -- el stack local después de aplicarla. Son el `v_rewritten` de su preflight.
   v_md5_create        constant text := '361a1ffc0c3e31ee2bb1b677cfab2394';
-  v_md5_edit_purchase constant text := '2d4c92f6fd3dbfd52d2225edb0a82827';
+  -- stock-edicion-sucursal-piso (20261080000001) redefine la EDICIÓN de compra (chequeo previo de la
+  -- reversa): su md5 pasa a ser el `v_rewritten` de ESA migración (antes
+  -- 2d4c92f6fd3dbfd52d2225edb0a82827, el de 20261076000001). La resolución de la principal de este
+  -- change sigue en el cuerpo (las aserciones de contenido de abajo lo verifican).
+  v_md5_edit_purchase constant text := 'eaa00301336564d1f8e12eb6cdb673f7';
   v_md5_edit_expense  constant text := 'bb8e7d02f737937fdd120804722a3151';
 
   -- Cuenta A (principal A0 + B): bloques (1), (6), (7), (8), (9), (10).

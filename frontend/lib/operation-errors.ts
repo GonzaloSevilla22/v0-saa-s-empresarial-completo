@@ -209,6 +209,15 @@ const DELIVERY_NOTE_SUPPLIER_REFERENCE_TOO_LONG_ERROR = /delivery_note_supplier_
 const DELIVERY_NOTE_STOCK_CONSUMED_ERROR =
   /delivery_note_stock_consumed:\s*de\s+(.+?)\s+en la sucursal quedan\s+(-?[\d.]+),\s*el remito necesita restar\s+(-?[\d.]+)/is
 const DELIVERY_NOTE_STOCK_CONSUMED_BARE_ERROR = /delivery_note_stock_consumed/
+// stock-edicion-sucursal-piso (D2): editar una COMPRA cuya mercadería ya se vendió. La pata REVERSE de
+// la edición resta del stock lo que la compra había sumado; si la sucursal no alcanza, el chequeo previo
+// de `rpc_atomic_update_purchase_operation` rechaza con `purchase_edit_stock_consumed: de <producto> en
+// la sucursal quedan X y la edición necesita restar Y` (P0409) en vez del 23514 que el backend devolvía
+// como un 422 genérico. El producto puede venir como uuid si no tiene nombre. (La edición de una VENTA
+// con la sucursal sin stock usa los literales del alta — `STOCK_ERROR` — y no necesita mapa propio.)
+const PURCHASE_EDIT_STOCK_CONSUMED_ERROR =
+  /purchase_edit_stock_consumed:\s*de\s+(.+?)\s+en la sucursal quedan\s+(-?[\d.]+)\s+y la edición necesita restar\s+(-?[\d.]+)/is
+const PURCHASE_EDIT_STOCK_CONSUMED_BARE_ERROR = /purchase_edit_stock_consumed/
 const DELIVERY_NOTE_PRICE_REQUIRED_ERROR = /delivery_note_price_required/
 const DELIVERY_NOTE_PURCHASE_LOCKED_ERROR = /delivery_note_purchase_locked/
 const DELIVERY_NOTE_PURCHASE_MISMATCH_ERROR = /delivery_note_purchase_mismatch/
@@ -601,6 +610,31 @@ export function humanizeOperationError(
       message:
         "La mercadería de este remito ya no está toda en el stock de la sucursal. " +
         "Editá el remito y reducí lo que sigue en el depósito, o ajustá el stock antes de volver a intentar. No se guardó ningún cambio.",
+      action: { label: "Ajustar stock", href: "/stock" },
+    }
+  }
+
+  // stock-edicion-sucursal-piso (D2): la edición de una compra ya vendida. Dice cuánto queda, cuánto habría
+  // que restar y las dos salidas (borrar la compra —que sí baja el stock hasta donde alcanza— y volver a
+  // cargarla, o ajustar el stock antes de editar).
+  const purchaseEditMatch = message.match(PURCHASE_EDIT_STOCK_CONSUMED_ERROR)
+  if (purchaseEditMatch) {
+    const [, rawName, rawLeft, rawNeeded] = purchaseEditMatch
+    const productId = UUID_ONLY.test(rawName.trim()) ? rawName.trim() : null
+    const resolvedName = productId ? lookupProductName?.(productId) : rawName.trim()
+    const producto = resolvedName ? `«${resolvedName}»` : "uno de los productos"
+    return {
+      message:
+        `No se puede editar esta compra: parte de la mercadería ya se vendió. De ${producto} en la sucursal quedan ${fmtQty(rawLeft)} y la edición necesita restar ${fmtQty(rawNeeded)}. ` +
+        "Borrá la compra (el stock baja hasta donde alcance) y volvé a cargarla, o ajustá el stock antes de editar. No se guardó ningún cambio.",
+      action: { label: "Ajustar stock", href: "/stock" },
+    }
+  }
+  if (PURCHASE_EDIT_STOCK_CONSUMED_BARE_ERROR.test(message)) {
+    return {
+      message:
+        "No se puede editar esta compra: parte de la mercadería ya se vendió y no alcanza el stock de la sucursal para restarla. " +
+        "Borrá la compra (el stock baja hasta donde alcance) y volvé a cargarla, o ajustá el stock antes de editar. No se guardó ningún cambio.",
       action: { label: "Ajustar stock", href: "/stock" },
     }
   }

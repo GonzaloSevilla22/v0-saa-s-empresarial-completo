@@ -517,3 +517,50 @@ El listado de ventas SHALL exponer el estado del comprobante —incluido el anul
 - **WHEN** se borra la venta
 - **THEN** el borrado espera, ve la orden y la cancela en la misma transacción
 
+### Requirement: La edición valida el stock por sucursal y no usa una sucursal desactivada
+
+La edición de una venta SHALL validar el stock POR SUCURSAL, sobre la misma sucursal en la que descuenta (la efectiva de la venta), y NOT SHALL aceptar que la suma de todas las sucursales alcance cuando la sucursal de descuento no alcanza. Cuando no alcanza, SHALL rechazar con el mismo `P0409` de stock insuficiente que el alta (`insufficient_branch_stock for product <id>` cuando la sucursal se informó, `Insufficient stock for product <id>` cuando se preservó o se resolvió a la principal), antes de escribir la línea nueva y con la transacción entera revertida (la pata de reversa incluida). La edición NOT SHALL terminar en el error de restricción `branch_stock_quantity_non_negative` (`23514`) por una falta de stock.
+
+La edición de una compra SHALL comprobar, antes de revertir cada línea, que la sucursal de la fila (la principal si la fila no tenía) tiene stock suficiente para restar lo que la compra había sumado. Si la mercadería ya se vendió y no alcanza, SHALL rechazar con `P0409` `purchase_edit_stock_consumed: de <producto> en la sucursal quedan X y la edición necesita restar Y`, sin cambiar qué ediciones prosperan (las que antes terminaban en `23514` terminan en este rechazo legible) y con la transacción entera revertida. La salida para el usuario es borrar la compra, que sí aplica el piso en cero, y volver a cargarla.
+
+Una sucursal desactivada (`is_active = false`) NOT SHALL recibir stock por una edición de venta: si la sucursal vigente de la venta fue desactivada, la edición SHALL tratarla como una venta sin sucursal y resolverla a la principal operativa, y la pata de reversa de una fila cuya sucursal está desactivada SHALL devolver el stock a la principal operativa, dejando en la `metadata` del movimiento `fallback_from_branch_id` y `fallback_reason = 'branch_inactive'` (mismas claves y criterio que la reversa del borrado). Una sucursal cerrada y activa SHALL conservarse como hasta ahora.
+
+#### Scenario: Editar una venta con la sucursal sin stock aunque el total alcance
+
+- **GIVEN** una venta de 2 unidades en la sucursal B (B queda en 0) y la principal con 10 del mismo producto
+- **WHEN** se edita la venta a 5 unidades sin cambiar la sucursal
+- **THEN** la edición se rechaza con `P0409` `Insufficient stock for product <id>`, B sigue en 0, la principal en 10, y la venta original y su único movimiento no cambian
+
+#### Scenario: Editar una venta con sucursal explícita sin stock
+
+- **WHEN** se edita la misma venta informando la sucursal B y 5 unidades
+- **THEN** la edición se rechaza con `P0409` `insufficient_branch_stock for product <id>`
+
+#### Scenario: Reimputar una venta a una sucursal con stock prospera
+
+- **GIVEN** la venta anterior, con B en 1 tras bajarla a 1 unidad
+- **WHEN** se edita a 4 unidades informando la principal (con 10)
+- **THEN** B recupera la unidad devuelta y la principal descuenta 4
+
+#### Scenario: Editar una compra cuya mercadería ya se vendió
+
+- **GIVEN** una compra de 4 unidades y una venta de 12 que dejó 2 en la sucursal
+- **WHEN** se edita la compra a 1 unidad (o sólo su precio)
+- **THEN** la edición se rechaza con `P0409` `purchase_edit_stock_consumed: de <producto> en la sucursal quedan 2 y la edición necesita restar 4`, y el saldo, el libro y la compra original no cambian
+
+#### Scenario: Editar una compra con la mercadería todavía en stock
+
+- **GIVEN** una compra de 4 unidades y una venta de 1 (quedan 13)
+- **WHEN** se edita la compra a 6 y después a 3 unidades
+- **THEN** el stock pasa a 15 y después a 12, sin error
+
+#### Scenario: Editar una venta de una sucursal desactivada
+
+- **GIVEN** una venta de 2 unidades en la sucursal C, C vaciada y desactivada, y una principal operativa con 8
+- **WHEN** se edita la venta a 1 unidad sin informar sucursal
+- **THEN** C sigue en 0, la principal pasa a 9, la venta queda en la principal, y el movimiento de reversa de la edición registra la principal con `fallback_from_branch_id = C` y `fallback_reason = 'branch_inactive'`
+
+#### Scenario: Editar una venta de una sucursal activa no marca respaldo
+
+- **WHEN** se edita una venta de una sucursal activa
+- **THEN** conserva su sucursal y el movimiento de reversa no lleva `fallback_reason`

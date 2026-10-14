@@ -764,6 +764,79 @@ async def test_update_sale_operation_propagates_new_fiscal_tokens_as_409(
     assert fragmento in body["detail"]
 
 
+# ── stock-edicion-sucursal-piso (R2): la edición con la sucursal sin stock es un 409 legible ─────
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "Insufficient stock for product 0dd2e5bb-2b93-4470-b4b6-52f008046112",
+        "insufficient_branch_stock for product 0dd2e5bb-2b93-4470-b4b6-52f008046112",
+    ],
+)
+async def test_update_sale_operation_branch_stock_shortage_is_409_not_a_generic_422(
+    async_client, mock_pool, message
+):
+    """rpc_atomic_update_sale_operation validaba el stock con Σ de TODAS las sucursales y
+    descontaba de UNA: con el total alcanzando y la sucursal no, explotaba con 23514
+    (branch_stock_quantity_non_negative) y el handler global lo devolvía como un 422 genérico
+    sin decir nada. Ahora el gate es por sucursal y rechaza con el P0409 del alta: 409
+    problem+json con el literal en `detail`, el que lib/operation-errors.ts ya traduce."""
+    import asyncpg
+
+    pool, conn = mock_pool
+    owner_token = make_token({"role": "user"})
+
+    class _FakePgError(asyncpg.PostgresError):
+        def __init__(self, message, sqlstate):
+            super().__init__(message)
+            self.sqlstate = sqlstate
+
+    conn.fetchval = AsyncMock(side_effect=_FakePgError(message, "P0409"))
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.put(
+            "/sales/operation",
+            json=UPDATE_PAYLOAD,
+            headers={"Authorization": f"Bearer {owner_token}"},
+        )
+    assert resp.status_code == 409
+    assert resp.headers["content-type"].startswith("application/problem+json")
+    body = resp.json()
+    assert body["code"] == "P0409"
+    assert message in body["detail"]
+
+
+async def test_update_sale_operation_raw_check_violation_stays_a_generic_422(async_client, mock_pool):
+    """Contraste del caso anterior: el 23514 crudo (lo que la edición levantaba ANTES del fix)
+    es un 422 genérico sin el literal — por eso el gate por sucursal importa."""
+    import asyncpg
+
+    pool, conn = mock_pool
+    owner_token = make_token({"role": "user"})
+
+    class _FakePgError(asyncpg.PostgresError):
+        def __init__(self, message, sqlstate):
+            super().__init__(message)
+            self.sqlstate = sqlstate
+
+    conn.fetchval = AsyncMock(
+        side_effect=_FakePgError(
+            'new row for relation "branch_stock" violates check constraint "branch_stock_quantity_non_negative"',
+            "23514",
+        )
+    )
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.put(
+            "/sales/operation",
+            json=UPDATE_PAYLOAD,
+            headers={"Authorization": f"Bearer {owner_token}"},
+        )
+    assert resp.status_code == 422
+    body = resp.json()
+    assert body["code"] == "23514"
+    assert "branch_stock_quantity_non_negative" not in body["detail"]
+
+
 async def test_list_sales_ok(async_client, valid_token, mock_pool):
     pool, conn = mock_pool
     conn.fetch = AsyncMock(return_value=[])

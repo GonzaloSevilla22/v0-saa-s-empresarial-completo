@@ -231,7 +231,11 @@ DECLARE
 
   -- Cuerpo que deja 20261077000001: md5(replace(prosrc, E'\r', '')), medido en el
   -- stack local después de aplicarla. Es el `v_rewritten` de su preflight.
-  v_md5_reverse constant text := 'ae1ec5de1a6faedf3246013b6dc7f2fd';
+  -- stock-edicion-sucursal-piso (20261080000001) redefine la reversa (el contramovimiento lleva la
+  -- traza del piso): su md5 pasa a ser el `v_rewritten` de ESA migración (antes
+  -- ae1ec5de1a6faedf3246013b6dc7f2fd, el de 20261077000001). El respaldo a la principal de este
+  -- change sigue en el cuerpo (los bloques (A1)-(A3b) lo ejecutan).
+  v_md5_reverse constant text := '987fe085021d2207b5351f535d5dfada';
 
   r jsonb;
   -- X1 (A1): venta, sucursal desactivada.
@@ -406,18 +410,24 @@ BEGIN
       v_failures := array_append(v_failures, format('FAIL (A2): borrar una compra con el movimiento en una sucursal desactivada debía pasar, levantó %s / %s', v_res->>'state', v_res->>'msg'));
     ELSIF pg_temp.sso_qty(v_a2b0, v_p2) IS DISTINCT FROM 0 OR pg_temp.sso_qty(v_a2b1, v_p2) IS DISTINCT FROM 0 THEN
       v_failures := array_append(v_failures, format('FAIL (A2): el descuento debía salir de la principal operativa (3 -> 0, piso) y la desactivada debía seguir en 0; quedó desactivada = %s, principal = %s', pg_temp.sso_qty(v_a2b0, v_p2), pg_temp.sso_qty(v_a2b1, v_p2)));
-    ELSIF v_mv2.id IS NULL OR v_mv2.branch_id IS DISTINCT FROM v_a2b1 OR v_mv2.quantity_delta IS DISTINCT FROM -3
-          OR v_mv2.quantity_before IS DISTINCT FROM 3 OR v_mv2.quantity_after IS DISTINCT FROM 0 THEN
-      v_failures := array_append(v_failures, format('FAIL (A2): el ajuste de piso floor_on_purchase_delete debía caer en la principal (-3, 3 -> 0); es branch=%s delta=%s before=%s after=%s', v_mv2.branch_id, v_mv2.quantity_delta, v_mv2.quantity_before, v_mv2.quantity_after));
+    -- stock-edicion-sucursal-piso (D3): el piso en cero YA NO escribe un ajuste aparte (duplicaba el
+    -- cambio de saldo del contramovimiento: Σ deltas = el doble de lo que el saldo se movió). ANTES este
+    -- bloque exigía un ajuste floor_on_purchase_delete de -3 (3 -> 0) ADEMÁS del contramovimiento; ahora
+    -- el contramovimiento es el ÚNICO movimiento y lleva la traza del piso en su metadata.
+    ELSIF v_mv2.id IS NOT NULL THEN
+      v_failures := array_append(v_failures, format('FAIL (A2): el piso en cero no debía dejar un ajuste floor_on_purchase_delete aparte (duplica el cambio de saldo); quedó branch=%s delta=%s', v_mv2.branch_id, v_mv2.quantity_delta));
     ELSIF v_mv.id IS NULL OR v_mv.branch_id IS DISTINCT FROM v_a2b1 OR v_mv.quantity_delta IS DISTINCT FROM -3
+          OR v_mv.quantity_before IS DISTINCT FROM 3 OR v_mv.quantity_after IS DISTINCT FROM 0
           OR (v_mv.metadata->>'reverses_movement_id')::uuid IS DISTINCT FROM v_mov
           OR (v_mv.metadata->>'fallback_from_branch_id')::uuid IS DISTINCT FROM v_a2b0
-          OR (v_mv.metadata->>'fallback_reason') IS DISTINCT FROM 'branch_inactive' THEN
-      v_failures := array_append(v_failures, format('FAIL (A2): el contramovimiento purchase_return debía registrar la principal (-3) con la sucursal original y el motivo en metadata; es branch=%s delta=%s metadata=%s', v_mv.branch_id, v_mv.quantity_delta, v_mv.metadata));
+          OR (v_mv.metadata->>'fallback_reason') IS DISTINCT FROM 'branch_inactive'
+          OR (v_mv.metadata->>'floored')::boolean IS NOT TRUE
+          OR (v_mv.metadata->>'requested_quantity_delta')::numeric IS DISTINCT FROM -5 THEN
+      v_failures := array_append(v_failures, format('FAIL (A2): el contramovimiento purchase_return debía registrar la principal (-3, 3 -> 0) con la sucursal original, el motivo y la traza del piso (floored, solicitado -5) en metadata; es branch=%s delta=%s before=%s after=%s metadata=%s', v_mv.branch_id, v_mv.quantity_delta, v_mv.quantity_before, v_mv.quantity_after, v_mv.metadata));
     END IF;
   END IF;
   IF COALESCE(array_length(v_failures, 1), 0) = v_fail_before THEN
-    RAISE NOTICE 'PASS (A2): el borrado de una compra con el movimiento en una sucursal desactivada descuenta de la principal operativa, con piso trazable';
+    RAISE NOTICE 'PASS (A2): el borrado de una compra con el movimiento en una sucursal desactivada descuenta de la principal operativa, con piso trazable en UN solo movimiento';
   END IF;
 
   -- ═══════════════════════════════════════════════════════════════════════

@@ -47,7 +47,7 @@ El sistema SHALL mantener el inventario por combinación `(product_id, branch_id
 #### Scenario: Reversa de compra borrada con stock ya vendido hace floor a 0
 - **GIVEN** una compra de 5 unidades cuyo stock ya fue vendido (la sucursal quedó en 0)
 - **WHEN** se borra la compra y la reversa de −5 dejaría la sucursal en negativo
-- **THEN** la cantidad queda en 0 y se registra un `stock_movement` de ajuste con reason `floor_on_purchase_delete` por la diferencia (trazabilidad en lugar de negativo)
+- **THEN** la cantidad queda en 0 y el contramovimiento `purchase_return` —el ÚNICO movimiento del cambio de saldo— registra lo efectivamente aplicado y lleva la traza del piso (`metadata.floored`, `metadata.requested_quantity_delta`, y lo solicitado y lo aplicado en su nota); NO se registra un ajuste `floor_on_purchase_delete` aparte, porque duplicaría el cambio de saldo y el libro dejaría de reconciliar con `branch_stock` (`stock-edicion-sucursal-piso`)
 
 ### Requirement: El alta de una venta desde el formulario opera sobre la sucursal elegida
 El sistema SHALL entregar a la operación de alta de venta la sucursal que el usuario eligió en el formulario, de punta a punta (cliente, API y RPC), de modo que la venta y su movimiento de stock queden registrados en ESA sucursal y que el stock, la caja y el movimiento bancario se resuelvan contra ella.

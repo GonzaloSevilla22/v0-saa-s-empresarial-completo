@@ -1338,81 +1338,64 @@ jobs:
           fi
           echo "20261075000001 y 20261075000002 idempotentes: 3 NOTICE de reaplicación, introspección OK, 0 ventas asignadas por el backfill y schema IDÉNTICO al previo a este paso."
 
-          # compras-gastos-sucursal-por-defecto (2026-10-11, governance MEDIA con
-          # tramo ALTO): reaplicación de 20261076000001 (las tres funciones: el alta
-          # y la edición de compra, y la edición de gasto) AL FINAL de la cadena,
-          # DESPUÉS de 20261075000001/2 (que no tocan ninguna de ellas). Ninguna
-          # migración reaplicada antes de este punto redefine estas funciones (el
-          # bloque de 20261062000001 se retiró, y las de 20261070000001 y
-          # 20261071000001 sólo tocan venta y remitos), así que ya después del reset
-          # el cuerpo vivo ES el de esta migración: las DOS pasadas imprimen los
-          # TRES NOTICE «ya es el cuerpo de esta migración» (reaplicación pura). SIN
-          # tolerancia, y el schema (constraints + firmas + ACLs) tiene que quedar
-          # IDÉNTICO tras cada pasada. NO hay migración de datos (OQ-1 (a): los
-          # históricos no se rellenan).
+          # stock-edicion-sucursal-piso (2026-10-14, governance MEDIA con tramo ALTO):
+          # reaplicación de 20261080000001 (cuatro funciones: la edición de ventas y la de
+          # compras, la reversa del borrado y su aritmética de saldo) en el LUGAR del bloque de
+          # 20261076000001 (compras-gastos-sucursal-por-defecto), que este PR RETIRA, igual que
+          # la parte de función del bloque de 20261077000001 (la reversa): sus cabeceras lo
+          # exigían («una migración posterior que redefina cualquiera de estas funciones tiene
+          # que retirar este bloque en el mismo PR»), porque tras el `supabase db reset` de
+          # reconvergencia el cuerpo vivo de rpc_atomic_update_purchase_operation y de
+          # rpc_reverse_stock_movement YA es el de 20261080000001 y sus preflight (partida o
+          # reescrito de ellas) abortarían. Los bloques de DATOS (20261075000002 y 20261077000002)
+          # se conservan. El bloque de 20261075000001 (las tres funciones de venta) se CONSERVA a
+          # propósito: el reapply de 20261070000001 de más arriba re-instala el cuerpo de remitos-
+          # venta en rpc_atomic_update_sale_operation y ese bloque lo devuelve al cuerpo de
+          # 20261075000001, que es justo la PARTIDA de esta migración (si una migración posterior
+          # volviera innecesaria esa restauración, retirarlo en el mismo PR). Por eso la PRIMERA
+          # pasada encuentra tres funciones que ya son el cuerpo de esta migración
+          # (_stock_apply_delta, rpc_reverse_stock_movement, rpc_atomic_update_purchase_operation)
+          # y reescribe la edición de venta desde su partida; la SEGUNDA exige los CUATRO NOTICE
+          # «ya es el cuerpo de esta migración» (reaplicación pura). SIN tolerancia, y el schema
+          # (constraints + firmas + ACLs) tiene que quedar IDÉNTICO tras cada pasada. NO hay
+          # migración de datos.
           #
-          # REGLA PARA EL PR SIGUIENTE (design D6/D12): una migración posterior que
-          # redefina cualquiera de las tres funciones (p. ej. remitos-compra tanda
-          # B, que extrae _purchase_operation_core desde rpc_create_purchase_
-          # operation) tiene que RETIRAR este bloque en el mismo PR (su preflight
-          # abortaría, igual que el de 20261062000001 y el de 20261075000001) y
-          # apuntar el bloque (0) de test_compras_gastos_sucursal_por_defecto.sql al
-          # cuerpo que contenga la lógica (el núcleo), actualizando los md5.
-          CGSD_OUT1=$(psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261076000001_compras_gastos_sucursal_por_defecto.sql 2>&1) || { echo "$CGSD_OUT1"; echo "ERROR: el reapply de 20261076000001 falló (sin tolerancia)."; exit 1; }
-          echo "$CGSD_OUT1"
-          CGSD_OUT2=$(psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261076000001_compras_gastos_sucursal_por_defecto.sql 2>&1) || { echo "$CGSD_OUT2"; echo "ERROR: la segunda pasada de 20261076000001 falló (sin tolerancia)."; exit 1; }
-          echo "$CGSD_OUT2"
-          CGSD_REAPPLIED=$(echo "$CGSD_OUT2" | grep -cF 'ya es el cuerpo de esta migración' || true)
-          if [ "$CGSD_REAPPLIED" != "3" ]; then
-            echo "ERROR: la segunda pasada de 20261076000001 imprimió $CGSD_REAPPLIED de 3 NOTICE de reaplicación (ya es el cuerpo de esta migración)."
+          # REGLA PARA EL PR SIGUIENTE: una migración posterior que redefina cualquiera de estas
+          # cuatro funciones (p. ej. edicion-operaciones-con-dinero) tiene que RETIRAR este bloque
+          # en el mismo PR (su preflight abortaría) y apuntar los md5 de los bloques (0) de
+          # test_ventas_sucursal_por_defecto.sql, test_compras_gastos_sucursal_por_defecto.sql y
+          # test_stock_movimientos_sucursal_origen.sql al cuerpo que contenga la lógica.
+          SESP_OUT1=$(psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261080000001_stock_edicion_sucursal_y_piso.sql 2>&1) || { echo "$SESP_OUT1"; echo "ERROR: el reapply de 20261080000001 falló (sin tolerancia)."; exit 1; }
+          echo "$SESP_OUT1"
+          SESP_OUT2=$(psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261080000001_stock_edicion_sucursal_y_piso.sql 2>&1) || { echo "$SESP_OUT2"; echo "ERROR: la segunda pasada de 20261080000001 falló (sin tolerancia)."; exit 1; }
+          echo "$SESP_OUT2"
+          SESP_REAPPLIED=$(echo "$SESP_OUT2" | grep -cF 'ya es el cuerpo de esta migración' || true)
+          if [ "$SESP_REAPPLIED" != "4" ]; then
+            echo "ERROR: la segunda pasada de 20261080000001 imprimió $SESP_REAPPLIED de 4 NOTICE de reaplicación (ya es el cuerpo de esta migración)."
             exit 1
           fi
-          if ! echo "$CGSD_OUT2" | grep -qF 'compras-gastos-sucursal-por-defecto (introspecci'; then
-            echo "ERROR: el reapply de 20261076000001 no imprimió el OK de su bloque de introspección."
+          if ! echo "$SESP_OUT2" | grep -qF 'stock-edicion-sucursal-piso (introspecci'; then
+            echo "ERROR: el reapply de 20261080000001 no imprimió el OK de su bloque de introspección."
             exit 1
           fi
-          schema_snapshot > /tmp/schema_after_cgsd_reapply.txt
-          if ! diff -u /tmp/schema_before_reapply.txt /tmp/schema_after_cgsd_reapply.txt > /tmp/schema_diff_cgsd.txt; then
-            echo "NOT IDEMPOTENT: reaplicar 20261076000001 cambió el schema (constraints + firmas de función + ACLs):"
-            cat /tmp/schema_diff_cgsd.txt
+          schema_snapshot > /tmp/schema_after_sesp_reapply.txt
+          if ! diff -u /tmp/schema_before_reapply.txt /tmp/schema_after_sesp_reapply.txt > /tmp/schema_diff_sesp.txt; then
+            echo "NOT IDEMPOTENT: reaplicar 20261080000001 cambió el schema (constraints + firmas de función + ACLs):"
+            cat /tmp/schema_diff_sesp.txt
             exit 1
           fi
-          echo "20261076000001 idempotente: 3 NOTICE de reaplicación, introspección OK y schema IDÉNTICO al previo a este paso."
+          echo "20261080000001 idempotente: 4 NOTICE de reaplicación, introspección OK y schema IDÉNTICO al previo a este paso."
 
-          # stock-movimientos-sucursal-origen (2026-10-11, governance ALTA):
-          # reaplicación de 20261077000001 (rpc_reverse_stock_movement con el
-          # respaldo a la principal operativa cuando la sucursal del movimiento
-          # está desactivada) y de 20261077000002 (la migración de datos que
-          # completa la sucursal de origen de los movimientos 'sale') AL FINAL de
-          # la cadena, DESPUÉS de 20261075000002. Ninguna migración reaplicada
-          # antes de este punto redefine rpc_reverse_stock_movement, así que la
-          # función ya es el cuerpo de esta migración desde `supabase start` y las
-          # DOS pasadas toman la rama «ya es el cuerpo de esta migración»; la
-          # SEGUNDA lo exige. Una migración posterior que redefina
-          # rpc_reverse_stock_movement tiene que retirar este bloque en el mismo PR
-          # (su preflight abortaría, igual que el de 20261075000001). SIN
-          # tolerancia, y el schema (constraints + firmas + ACLs) tiene que quedar
-          # IDÉNTICO tras cada paso. El archivo de datos corre sobre una base sin
-          # movimientos 'sale' nulos de ventas vivas (recién reconvergida): su
-          # NOTICE final tiene que decir 0 movimientos completados.
-          SSO_OUT1=$(psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261077000001_reversa_stock_sucursal_desactivada.sql 2>&1) || { echo "$SSO_OUT1"; echo "ERROR: el reapply de 20261077000001 falló (sin tolerancia)."; exit 1; }
-          echo "$SSO_OUT1"
-          SSO_OUT2=$(psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261077000001_reversa_stock_sucursal_desactivada.sql 2>&1) || { echo "$SSO_OUT2"; echo "ERROR: la segunda pasada de 20261077000001 falló (sin tolerancia)."; exit 1; }
-          echo "$SSO_OUT2"
-          if ! echo "$SSO_OUT2" | grep -qF 'ya es el cuerpo de esta migración'; then
-            echo "ERROR: la segunda pasada de 20261077000001 no imprimió el NOTICE de reaplicación (ya es el cuerpo de esta migración)."
-            exit 1
-          fi
-          if ! echo "$SSO_OUT2" | grep -qF 'stock-movimientos-sucursal-origen (introspecci'; then
-            echo "ERROR: el reapply de 20261077000001 no imprimió el OK de su bloque de introspección."
-            exit 1
-          fi
-          schema_snapshot > /tmp/schema_after_sso_reapply.txt
-          if ! diff -u /tmp/schema_before_reapply.txt /tmp/schema_after_sso_reapply.txt > /tmp/schema_diff_sso.txt; then
-            echo "NOT IDEMPOTENT: reaplicar 20261077000001 cambió el schema (constraints + firmas de función + ACLs):"
-            cat /tmp/schema_diff_sso.txt
-            exit 1
-          fi
+          # stock-movimientos-sucursal-origen (2026-10-11, governance ALTA): reaplicación
+          # de 20261077000002 (la migración de datos que completa la sucursal de origen de
+          # los movimientos 'sale') AL FINAL de la cadena, DESPUÉS de 20261075000002. La
+          # reaplicación de 20261077000001 (rpc_reverse_stock_movement con el respaldo a la
+          # principal operativa) se RETIRÓ en stock-edicion-sucursal-piso (20261080000001, arriba,
+          # que redefine esa función y se reaplica en el lugar del bloque de 20261076000001): su
+          # preflight abortaría contra el cuerpo de esa migración. SIN tolerancia, y el schema
+          # (constraints + firmas + ACLs) tiene que quedar IDÉNTICO tras el paso. El archivo de
+          # datos corre sobre una base sin movimientos 'sale' nulos de ventas vivas (recién
+          # reconvergida): su NOTICE final tiene que decir 0 movimientos completados.
           SSO_DATA_OUT=$(psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261077000002_stock_movimientos_sucursal_origen.sql 2>&1) || { echo "$SSO_DATA_OUT"; echo "ERROR: el reapply de 20261077000002 falló (sin tolerancia)."; exit 1; }
           echo "$SSO_DATA_OUT"
           if ! echo "$SSO_DATA_OUT" | grep -qF ' 0 movimientos completados en 0 cuentas'; then
@@ -1425,7 +1408,7 @@ jobs:
             cat /tmp/schema_diff_sso_data.txt
             exit 1
           fi
-          echo "20261077000001 y 20261077000002 idempotentes: NOTICE de reaplicación, introspección OK, 0 movimientos completados por el backfill y schema IDÉNTICO al previo a este paso."
+          echo "20261077000002 idempotente: 0 movimientos completados por el backfill y schema IDÉNTICO al previo a este paso."
 
       # -v ON_ERROR_STOP=1 is required: without it psql prints RAISE EXCEPTION
       # errors but still exits 0, so failing assertions show green in CI.
@@ -3208,6 +3191,30 @@ jobs:
       # la base con la huella de funciones/ACL/constraint identica.
       - name: Run stock ledger solo RPC gate
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_stock_ledger_solo_rpc.sql
+      # stock-edicion-sucursal-piso (fix ad-hoc 2026-10-14, governance MEDIA con tramo
+      # ALTO): la edición de ventas y de compras y el borrado con piso. `supabase start`
+      # ya aplicó 20261080000001; este paso EJECUTA, como `authenticated` (claims reales),
+      # rpc_create_sale_operation, rpc_atomic_update_sale_operation, rpc_create_purchase_
+      # operation, rpc_atomic_update_purchase_operation y rpc_delete_purchase_operation /
+      # _sale_operation, con una cuenta de tres sucursales, y verifica: (R2) editar una venta
+      # con la sucursal sin stock suficiente (aunque el total alcance) es un P0409 de stock
+      # insuficiente por sucursal —no un 23514— con el literal del alta, sin tocar saldo ni
+      # libro; editar una compra cuya mercadería ya se vendió es un P0409 legible
+      # (purchase_edit_stock_consumed) con cuánto queda y cuánto habría que restar; y las
+      # ediciones válidas siguen prosperando; (R4) borrar una compra ya vendida deja UN
+      # movimiento (el contramovimiento, con floored y lo solicitado en la metadata y la nota),
+      # ningún ajuste floor_on_purchase_delete aparte, y el libro reconcilia con branch_stock
+      # (sembrado + Σ deltas = saldo) antes y después de borrar también la venta; el borde de
+      # «todo vendido» deja un movimiento de delta 0; (R5) editar una venta de una sucursal
+      # DESACTIVADA devuelve el stock a la principal operativa (con la sucursal original en la
+      # metadata), la deja ahí y no toca la desactivada; y la introspección (una firma por
+      # función, ACL, COMMENT). Corre dentro de BEGIN..ROLLBACK: residuo cero. Actualiza además
+      # los bloques que fijaban el par ajuste + contramovimiento (test_stock_ledger_solo_rpc
+      # e4/l3, test_stock_movimientos_sucursal_origen A2) y los md5 de test_ventas_sucursal_
+      # por_defecto, test_compras_gastos_sucursal_por_defecto y test_stock_movimientos_
+      # sucursal_origen.
+      - name: Run stock edicion sucursal piso gate
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_stock_edicion_sucursal_piso.sql
       # documentos-marca-empresa TANDA A (20261078000001, governance MEDIA): la
       # marca de la cuenta para sus papeles (logo, datos de la empresa y paleta).
       # Este paso EJECUTA la tabla nueva public.account_branding, su RLS, el

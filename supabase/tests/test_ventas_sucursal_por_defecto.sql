@@ -216,7 +216,11 @@ DECLARE
   -- el stack local después de aplicarla. Son el `v_rewritten` de su preflight.
   v_md5_v2      constant text := '9fde6d956bc37838e8d81402e22de8fa';
   v_md5_wrapper constant text := 'e5185557021d2f481b9e3f6679c50493';
-  v_md5_edit    constant text := '52acb873d8c446c24abb19b79eb43c75';
+  -- stock-edicion-sucursal-piso (20261080000001) redefine la EDICIÓN (gate de stock por sucursal y
+  -- respaldo de la sucursal desactivada): su md5 pasa a ser el `v_rewritten` de ESA migración
+  -- (antes 52acb873d8c446c24abb19b79eb43c75, el de 20261075000001). La lógica de la sucursal por
+  -- defecto de este change sigue en el cuerpo (las aserciones de contenido de abajo lo verifican).
+  v_md5_edit    constant text := '40c02ca228e5efd81e5d514f8e1a030c';
 
   -- Cuenta A (principal + B): bloques (1), (2), (5), (6).
   r_a jsonb; v_user_a uuid; v_acc_a uuid; v_a0 uuid; v_b uuid;

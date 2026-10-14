@@ -245,7 +245,8 @@ El ledger es append-only: la fila reversada NO SHALL eliminarse ni modificarse. 
 
 - **GIVEN** una compra de 5 unidades de las que ya se vendieron 3 (quedan 2 en la sucursal)
 - **WHEN** un usuario con permiso elimina la compra
-- **THEN** el saldo queda en 0, se registra el ajuste trazable con motivo `floor_on_purchase_delete` y el contramovimiento `purchase_return` por lo efectivamente aplicado, sin error
+- **THEN** el saldo queda en 0 y se registra UN solo movimiento: el contramovimiento `purchase_return` por lo efectivamente aplicado (−2), con la traza del piso en su `metadata` (`floored = true`, `requested_quantity_delta = −5`) y lo solicitado y lo aplicado en su nota, sin error y sin un ajuste `floor_on_purchase_delete` aparte (`stock-edicion-sucursal-piso`)
+- **AND** el libro reconcilia: el saldo sembrado más la suma de los `quantity_delta` de la sucursal es igual al saldo vivo
 
 #### Scenario: la reversa no es invocable por PostgREST
 
@@ -262,7 +263,7 @@ El ledger es append-only: la fila reversada NO SHALL eliminarse ni modificarse. 
 
 - **GIVEN** una compra de 5 unidades cuyo movimiento registra la sucursal A, A fue vaciada y desactivada, y la principal operativa B tiene 3 unidades del producto
 - **WHEN** se elimina la compra
-- **THEN** B queda en 0 con el ajuste trazable `floor_on_purchase_delete`, A no cambia, y el contramovimiento `purchase_return` registra `branch_id = B` con la sucursal original en `metadata`
+- **THEN** B queda en 0, A no cambia, y el contramovimiento `purchase_return` —el único movimiento, sin ajuste de piso aparte— registra `branch_id = B`, la sucursal original en `metadata` y la traza del piso (`floored`, `requested_quantity_delta`)
 
 #### Scenario: una sucursal cerrada sigue pidiendo reabrirse
 

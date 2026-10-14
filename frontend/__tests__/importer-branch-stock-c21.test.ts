@@ -108,7 +108,10 @@ describe("prepareProductImport — stock reaches apiRows", () => {
     expect(prepared.apiRows[0]).not.toHaveProperty("account_id")
   })
 
-  it("6.2 — a Padre row always carries stock=0 (parent products have no direct stock)", async () => {
+  // importador-productos-stock-apertura: antes `stock=0`; ahora `null` — el Padre
+  // (variant_only) no tiene stock propio, así que no manda ninguno (el servidor no
+  // le crea fila de saldo ni movimiento de apertura).
+  it("6.2 — a Padre row never carries stock (null: parent products have no direct stock)", async () => {
     const { parseImportFile } = await import("@/lib/import/parser")
     vi.mocked(parseImportFile).mockResolvedValueOnce({
       ok: true,
@@ -136,7 +139,7 @@ describe("prepareProductImport — stock reaches apiRows", () => {
     const mockFile = new File(["fake-csv"], "products.csv", { type: "text/csv" })
     const prepared = await prepareProductImport(mockFile)
 
-    expect(prepared.apiRows[0].stock).toBe(0)
+    expect(prepared.apiRows[0].stock).toBeNull()
   })
 })
 

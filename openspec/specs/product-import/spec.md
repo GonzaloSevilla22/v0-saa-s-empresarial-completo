@@ -350,3 +350,44 @@ El importador de productos SHALL aceptar una columna opcional "Código balanza" 
 - **WHEN** una fila trae el código de balanza `12a` o `0`
 - **THEN** la vista previa marca error en esa fila
 
+### Requirement: El stock del archivo de importación es de apertura
+
+El stock informado en el archivo de importación de productos SHALL aplicarse únicamente a los productos que el lote CREA, en la sucursal principal operativa de la cuenta (`c26_default_branch`, la misma que usan la venta, la compra y el gasto cuando no se elige sucursal), y SHALL dejar un movimiento de stock de tipo `adjustment` con motivo «Stock inicial (importación)», sellado con cuenta, sucursal y autor, escrito por el helper canónico de operaciones de stock. Un producto que el lote ACTUALIZA (coincidencia por SKU) SHALL conservar su saldo vivo: reimportar un archivo con un SKU existente NOT SHALL modificar su stock ni dejar un movimiento, y el resto de sus campos SHALL seguir actualizándose. Corregir el stock de un producto existente SHALL hacerse con el ajuste de stock o el conteo físico de la pantalla de stock.
+
+Las celdas vacías de Precio, Stock y Stock mínimo SHALL viajar como ausencia (`null`), nunca como `0`: al crear, el precio queda en 0 y el producto queda sin stock ni movimiento; al actualizar, el precio y el umbral de alerta vigentes se conservan. Un `0` escrito en la celda SHALL tratarse como un valor declarado. Una fila "Padre" no lee sus celdas de precio y stock.
+
+El paso de revisión SHALL avisar, cuando la simulación indica que hay productos del archivo que ya existen y el archivo trae stock, que el stock de esos productos no se modifica y cómo corregirlo, sin bloquear la confirmación.
+
+#### Scenario: El stock inicial deja su movimiento de apertura
+
+- **GIVEN** una cuenta cuya sucursal más antigua está desactivada y cuya sucursal principal operativa es otra
+- **WHEN** se importa un producto nuevo con stock 20
+- **THEN** el saldo de la sucursal principal operativa queda en 20, la sucursal desactivada no recibe nada, y existe exactamente un movimiento `adjustment` de +20 con motivo «Stock inicial (importación)», con la cuenta, la sucursal y el autor
+
+#### Scenario: Reimportar un SKU existente no pisa el saldo
+
+- **GIVEN** un producto importado con stock 20 del que se vendieron 5 (saldo 15)
+- **WHEN** se importa otro archivo con el mismo SKU y stock 20
+- **THEN** el saldo sigue en 15, no se agrega ningún movimiento, y los demás campos del producto (por ejemplo el precio) se actualizan
+
+#### Scenario: Celda vacía al actualizar conserva
+
+- **GIVEN** un producto con precio 120 y stock mínimo 3
+- **WHEN** se importa una fila con ese SKU y las celdas de Precio, Stock y Stock mínimo vacías
+- **THEN** el precio sigue en 120, el stock mínimo sigue en 3 (en el producto y en la sucursal principal) y el saldo no cambia
+
+#### Scenario: Celda vacía al crear
+
+- **WHEN** se importa un producto nuevo con las celdas de Precio y Stock vacías
+- **THEN** el producto queda con precio 0, sin movimiento de stock y sin fila de saldo
+
+#### Scenario: SKU repetido dentro del mismo archivo
+
+- **WHEN** un archivo trae dos filas con el mismo SKU, la primera con stock 10 y la segunda con stock 99
+- **THEN** el producto se crea con stock 10 y un solo movimiento de apertura; la segunda fila actualiza los demás campos sin pisar el stock
+
+#### Scenario: Aviso en la revisión
+
+- **GIVEN** un archivo con stock cuya simulación indica 2 productos que ya existen
+- **WHEN** el usuario llega al paso de revisión
+- **THEN** ve un aviso que dice que el stock del archivo sólo se carga en los productos nuevos, que esos 2 productos conservan el que tienen y que para corregirlo use «Importar ajuste» en Stock; la confirmación sigue habilitada

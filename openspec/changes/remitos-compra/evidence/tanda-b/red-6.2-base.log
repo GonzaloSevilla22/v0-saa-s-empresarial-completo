@@ -1,0 +1,5 @@
+# RED 6.2 — base limpia de main (sin la migración de la tanda B): el golden de la compra directa PASA contra el cuerpo vivo y el gate aborta porque aún no existen ni el núcleo ni la conversión.
+NOTICE:  PASS (g0): compra directa idéntica al golden — cash con caja, credit con cargo y vencimiento a 30 días, transfer con banco, línea sin producto, 450 g -> 0,45 kg, replay sin efectos, 42501 sin sesión y el P0423 de dinero intacto.
+NOTICE:  CONTROL (z): FAIL (z): el núcleo rechazó un origen de remito VÁLIDO: ERR|42883|function public._purchase_operation_core(uuid, text, date, unknown, jsonb, uuid, unknown, uuid, unknown, uuid, unknown, unknown, uuid) does not exist
+ERROR:  GATE REMITO-A-COMPRA FAILED (abortó): 42703 / column "source_delivery_note_id" of relation "purchases" does not exist
+CONTEXT:  PL/pgSQL function inline_code_block line 1166 at RAISE

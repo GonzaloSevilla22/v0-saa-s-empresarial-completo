@@ -9,6 +9,7 @@ import { InvoiceAIButton } from "@/components/invoice/InvoiceAIButton"
 import { useAuth } from "@/contexts/auth-context"
 import { useUnitsOfMeasure } from "@/hooks/use-units-of-measure"
 import { useOrgRole } from "@/hooks/useOrgRole"
+import { CAN_VOID_DELIVERY_NOTE, hasCapability } from "@/lib/rbac-capabilities"
 import { NoWriteAccessBanner } from "@/components/shared/NoWriteAccessBanner"
 import { ModuleMetricsWrapper } from "@/components/admin/ModuleMetricsWrapper"
 import { ExportButton } from "@/components/export/ExportButton"
@@ -28,7 +29,10 @@ export default function ComprasPage() {
   // ventas-unidades-conversion (cuarta revisión, D-F′): el listado muestra la
   // cantidad con el símbolo de su línea ("450 g") y lo exporta en el CSV.
   const { unitsById } = useUnitsOfMeasure()
-  const { isWriter } = useOrgRole()
+  const { isWriter, roles, rolesResolved } = useOrgRole()
+  // remitos-compra (D9): borrar la compra de un remito lo reabre y lo deja anulable, así que exige
+  // el mismo rol que anularlo; el listado deshabilita «Eliminar» con su motivo si falta.
+  const canVoidDeliveryNote = hasCapability(roles, CAN_VOID_DELIVERY_NOTE, rolesResolved)
 
   const [dialogOpen,       setDialogOpen]       = useState(false)
   const [editingOperation, setEditingOperation] = useState<PurchaseOperation | null>(null)
@@ -96,6 +100,7 @@ export default function ComprasPage() {
         onDeleteOperation={handleDeleteOperation}
         onEditOperation={handleEdit}
         onRefetch={refetch}
+        canVoidDeliveryNote={canVoidDeliveryNote}
         unitsById={unitsById}
       />
 

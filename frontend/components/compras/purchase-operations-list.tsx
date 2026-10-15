@@ -17,6 +17,8 @@ import { PaginationBar } from "@/components/ui/pagination-bar"
 import { groupPurchasesByOperation, type PurchaseOperation } from "@/lib/group-operations"
 import { getDeleteCompensation } from "@/lib/delete-compensation"
 import { DeleteOperationDialog } from "@/components/shared/delete-operation-dialog"
+import { SourceDocumentBadge } from "@/components/ventas/SourceDocumentBadge"
+import { formatDeliveryNoteNumber } from "@/lib/internal-document-number"
 import { exportToCSV } from "@/lib/excel"
 import { formatMoney, formatUnitPrice, formatDate } from "@/lib/format"
 import { formatQuantity } from "@/lib/format-unit"
@@ -50,6 +52,42 @@ import { PaymentMethodSelect } from "@/components/payment-methods/PaymentMethodS
 const PAYMENT_LOCKED_REASON =
   "No editable: esta operación ya tiene un cargo de cuenta corriente del proveedor, un movimiento bancario o un movimiento de caja registrado. Para corregirla, borrá esta compra (revierte el cargo, la caja y el banco, y repone el stock) y volvé a cargarla."
 
+// remitos-compra (tanda B, D9): una compra nacida de un remito no se edita — el stock ya
+// entró con el remito y el editor, que siempre reemplaza líneas (REVERSE+APPLY), lo restaría
+// y lo sumaría de nuevo. El servidor lo rechaza con P0423 `delivery_note_purchase_locked`
+// ANTES de los tres P0423 de dinero, así que el motivo va primero (espejo del lado venta). El
+// token viene del servidor (`edit_locked_reason`); uno que no conocemos también bloquea
+// (fail-closed): la UI no adivina «se puede».
+const DELIVERY_NOTE_PURCHASE_LOCKED = "delivery_note_purchase_locked"
+const UNKNOWN_EDIT_LOCK_REASON = "No editable: el servidor no permite editar esta operación."
+
+function editLockedReasonText(token: string | null | undefined, remitoLabel: string | null): string | null {
+  if (!token) return null
+  if (token !== DELIVERY_NOTE_PURCHASE_LOCKED) return UNKNOWN_EDIT_LOCK_REASON
+  const origen = remitoLabel ? `del remito ${remitoLabel}` : "de un remito"
+  return `No editable: la compra nació ${origen}. Para corregirla, eliminá la compra, editá el remito y volvé a convertirlo.`
+}
+
+// remitos-compra (D9): borrar la compra de un remito reabre el remito y lo deja anulable, así que
+// exige el mismo rol que anularlo (administrador o dueño) y una sucursal de remito viva. El
+// servidor lo decide (P0403 delivery_note_purchase_delete_forbidden / P0422 delivery_note_branch_
+// inactive); el listado lo anticipa para no llegar al error. Rol primero, igual que la RPC.
+function sourceNoteDeleteBlockedReason(
+  op: { sourceDeliveryNoteId?: string | null; sourceDeliveryNoteBranchActive?: boolean | null },
+  remitoLabel: string | null,
+  canVoidDeliveryNote: boolean,
+): string | null {
+  if (!op.sourceDeliveryNoteId) return null
+  const remito = remitoLabel ? `el remito ${remitoLabel}` : "el remito"
+  if (!canVoidDeliveryNote) {
+    return `Borrar esta compra reabre ${remito}: requiere administrador o dueño.`
+  }
+  if (op.sourceDeliveryNoteBranchActive === false) {
+    return "La sucursal del remito está desactivada o cerrada — reactivala antes de eliminar la compra."
+  }
+  return null
+}
+
 interface PurchaseOperationsListProps {
   purchases:       Purchase[]
   meta:            PaginationMeta
@@ -73,6 +111,13 @@ interface PurchaseOperationsListProps {
   onEditOperation?: (op: PurchaseOperation) => void
   onRefetch:       () => void
   /**
+   * remitos-compra (D9): el usuario puede anular un remito de compra (`CAN_VOID_DELIVERY_NOTE`).
+   * Borrar la compra de un remito lo reabre y lo deja anulable, así que sin este rol el borrado de
+   * esas compras queda deshabilitado con su motivo. Default `true`: sin la prop el listado no bloquea
+   * por rol —el servidor sigue siendo la autoridad— y las compras directas no dependen de ella.
+   */
+  canVoidDeliveryNote?: boolean
+  /**
    * ventas-unidades-conversion (cuarta revisión, D-F′): unidades de medida por
    * id, para mostrar la cantidad con el símbolo de SU línea ("450 g") y
    * exportarlo en el CSV. La página lo pasa desde useUnitsOfMeasure (el
@@ -89,6 +134,7 @@ export function PurchaseOperationsList({
   paymentMethodId, setPaymentMethodId, clearFilters,
   onPageChange, onPageSizeChange,
   onAdd, onDeleteOperation, onEditOperation, onRefetch,
+  canVoidDeliveryNote = true,
   unitsById,
 }: PurchaseOperationsListProps) {
   const unitSymbolFor = useCallback(
@@ -317,6 +363,33 @@ export function PurchaseOperationsList({
 
         {filtered.map((op) => {
           const isExpanded = expandedKey === op.key
+          // remitos-compra (D9/D11): el remito de origen, el motivo de no edición (primero: es el
+          // primer guard de la RPC de edición) y lo que bloquea el borrado.
+          const remitoLabel =
+            op.sourceDeliveryNoteNumber === null || op.sourceDeliveryNoteNumber === undefined
+              ? null
+              : formatDeliveryNoteNumber("purchase", op.sourceDeliveryNoteNumber)
+          const editBlockedReason =
+            editLockedReasonText(op.editLockedReason, remitoLabel) ??
+            (op.isPaymentLocked ? PAYMENT_LOCKED_REASON : null)
+          const deleteInfo = getDeleteCompensation(
+            {
+              ...op,
+              // La compra nacida de un remito no devuelve stock al borrarse (D9): la nota lo dice.
+              reversesStock: !op.sourceDeliveryNoteId,
+              sourceDeliveryNoteLabel: remitoLabel,
+              sourceDeliveryNoteDeleteBlockedReason: sourceNoteDeleteBlockedReason(op, remitoLabel, canVoidDeliveryNote),
+            },
+            "proveedor",
+            "compra",
+          )
+          const sourceBadge = op.sourceDeliveryNoteId ? (
+            <SourceDocumentBadge
+              kind="purchase_delivery_note"
+              documentId={op.sourceDeliveryNoteId}
+              documentNumber={op.sourceDeliveryNoteNumber ?? null}
+            />
+          ) : null
           return (
             <div key={op.key} className="border-t border-border/50 first:border-t-0">
               <div
@@ -337,9 +410,9 @@ export function PurchaseOperationsList({
                         </Badge>
                       )}
                       {onEditOperation && (
-                        op.isPaymentLocked ? (
+                        editBlockedReason ? (
                           <Button type="button" variant="ghost" size="icon" disabled
-                            title={PAYMENT_LOCKED_REASON} aria-label={PAYMENT_LOCKED_REASON}
+                            title={editBlockedReason} aria-label={editBlockedReason}
                             className="h-8 w-8 text-muted-foreground/50">
                             <Lock className="h-3.5 w-3.5" />
                           </Button>
@@ -353,7 +426,7 @@ export function PurchaseOperationsList({
                       )}
                       <DeleteOperationDialog
                         label={op.isGrouped ? `esta operación (${op.items.length} ítems)` : "esta compra"}
-                        info={getDeleteCompensation({ ...op, reversesStock: true }, "proveedor", "compra")}
+                        info={deleteInfo}
                         onConfirm={() => handleDelete(op)}
                         isDeleting={deletingKey === op.key}
                         onTriggerClick={(e) => e.stopPropagation()}
@@ -390,6 +463,7 @@ export function PurchaseOperationsList({
                       {op.supplierName ?? "Sin proveedor"}
                     </Badge>
                   </div>
+                  {sourceBadge}
                 </div>
 
                 {/* Desktop */}
@@ -428,9 +502,9 @@ export function PurchaseOperationsList({
                   </div>
                   <span className="text-right text-sm font-bold text-cyan-400 tabular-nums">{formatMoney(op.total)}</span>
                   {onEditOperation
-                    ? op.isPaymentLocked
+                    ? editBlockedReason
                       ? <Button type="button" variant="ghost" size="icon" disabled
-                          title={PAYMENT_LOCKED_REASON} aria-label={PAYMENT_LOCKED_REASON}
+                          title={editBlockedReason} aria-label={editBlockedReason}
                           className="h-8 w-8 text-muted-foreground/50">
                           <Lock className="h-3.5 w-3.5" />
                         </Button>
@@ -443,11 +517,12 @@ export function PurchaseOperationsList({
                   }
                   <DeleteOperationDialog
                     label={op.isGrouped ? `esta operación (${op.items.length} ítems)` : "esta compra"}
-                    info={getDeleteCompensation({ ...op, reversesStock: true }, "proveedor", "compra")}
+                    info={deleteInfo}
                     onConfirm={() => handleDelete(op)}
                     isDeleting={deletingKey === op.key}
                     onTriggerClick={(e) => e.stopPropagation()}
                   />
+                  {sourceBadge && <div className="col-span-6 pl-[132px]">{sourceBadge}</div>}
                 </div>
               </div>
 

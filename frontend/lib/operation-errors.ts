@@ -214,6 +214,12 @@ const DELIVERY_NOTE_PURCHASE_LOCKED_ERROR = /delivery_note_purchase_locked/
 const DELIVERY_NOTE_PURCHASE_MISMATCH_ERROR = /delivery_note_purchase_mismatch/
 const DELIVERY_NOTE_PURCHASE_DATE_BEFORE_RECEIPT_ERROR = /delivery_note_purchase_date_before_receipt/
 const DELIVERY_NOTE_ITEMS_FROM_SOURCE_ERROR = /delivery_note_items_from_source/
+// remitos-compra (tanda B, 7.7): lo que emite el borrado de la compra nacida de un
+// remito (`delivery_note_purchase_delete_forbidden`, P0403) y la protección del
+// puente `purchases.source_delivery_note_id` (`delivery_note_source_protected`,
+// P0403). Llegan por los endpoints de /compras, sin contexto de remito.
+const DELIVERY_NOTE_PURCHASE_DELETE_FORBIDDEN_ERROR = /delivery_note_purchase_delete_forbidden/
+const DELIVERY_NOTE_SOURCE_PROTECTED_ERROR = /delivery_note_source_protected/
 const UUID_ONLY = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 // stock-ledger-solo-rpc (tanda B, task 11.2): literales del núcleo único de ajuste
@@ -634,6 +640,22 @@ export function humanizeOperationError(
       message:
         "Las líneas de esta compra salen del remito y no se pueden enviar aparte: no se guardó nada. " +
         "Actualizá la pantalla y volvé a convertir el remito.",
+    }
+  }
+
+  if (DELIVERY_NOTE_PURCHASE_DELETE_FORBIDDEN_ERROR.test(message)) {
+    return {
+      message:
+        "Borrar una compra que nació de un remito reabre el remito y lo deja anulable: requiere administrador o dueño. " +
+        "No se eliminó nada.",
+    }
+  }
+
+  if (DELIVERY_NOTE_SOURCE_PROTECTED_ERROR.test(message)) {
+    return {
+      message:
+        "Esta compra está vinculada a un remito y no se modifica a mano: el vínculo lo escribe sólo la conversión del remito. " +
+        "Para corregirla, eliminá la compra, corregí el remito y volvé a convertir el remito. No se guardó nada.",
     }
   }
 

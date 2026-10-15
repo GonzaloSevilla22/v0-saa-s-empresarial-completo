@@ -655,7 +655,13 @@ BEGIN
   FOR v_rec IN
     SELECT * FROM (VALUES
       ('remito de otra cuenta', v_x, v_s1, v_dn_b),
+      -- Con SU proveedor y SU sucursal: ya no lo frena la comparación de proveedor y sucursal, sólo el
+      -- filtro de cuenta del núcleo (un mutante sin ese filtro sobrevivía a la fila de arriba).
+      ('remito de otra cuenta con su proveedor y su sucursal', v_branch_b, v_sup_b, v_dn_b),
       ('remito de venta',       v_x, v_s1, v_dn_sale),
+      -- El remito de venta no tiene proveedor y está en la sucursal v_x: con proveedor NULL sólo lo frena
+      -- el filtro de sentido (sin él, el núcleo armaría una COMPRA con las líneas de un remito de venta).
+      ('remito de venta sin proveedor', v_x, NULL::uuid, v_dn_sale),
       ('remito anulado',        v_x, v_s1, v_dn_canc),
       ('remito convertido',     v_x, v_s1, v_dn_fake),
       ('otro proveedor',        v_x, v_s2, v_dn_mm),
@@ -693,7 +699,7 @@ BEGIN
   DELETE FROM public.purchases WHERE source_delivery_note_id = v_dn_mm;
   SET session_replication_role = DEFAULT;
   IF COALESCE(array_length(v_failures, 1), 0) = v_fail_before THEN
-    RAISE NOTICE 'PASS (n): los 8 orígenes inválidos (otra cuenta, venta, anulado, convertido, otro proveedor, otra sucursal, p_items del request, compra ya existente) rebotan sin compra, stock, evento ni idempotencia.';
+    RAISE NOTICE 'PASS (n): los orígenes inválidos (otra cuenta, venta —también sin proveedor—, anulado, convertido, otro proveedor, otra sucursal, p_items del request, compra ya existente) rebotan sin compra, stock, evento ni idempotencia.';
   ELSE
     RAISE NOTICE 'CONTROL (n): %', array_to_string(v_failures[v_fail_before + 1:], ' | ');
   END IF;
@@ -846,6 +852,13 @@ BEGIN
     v_r := pg_temp.rcb_convert(v_tag || 'rol-' || v_uuid::text, v_dn_stk, 1, v_pm_credit);
     IF v_r NOT LIKE 'ERR|P0403|insufficient_role%' THEN
       v_failures := v_failures || format('FAIL (k): el rol de %s debía dar P0403, vino %s', v_uuid, v_r);
+    END IF;
+    -- El rol se evalúa ANTES que la versión: con una versión vieja un rol sin permiso recibe el rechazo
+    -- de rol, no el del contenido del remito (el núcleo evalúa el rol de la transición al final, así
+    -- que sin el chequeo explícito de la RPC este caso daría delivery_note_changed).
+    v_r := pg_temp.rcb_convert(v_tag || 'rol-viejo-' || v_uuid::text, v_dn_other, 1, v_pm_credit);
+    IF v_r NOT LIKE 'ERR|P0403|insufficient_role%' THEN
+      v_failures := v_failures || format('FAIL (k): el rol de %s con una versión vieja debía dar P0403 antes que la versión, vino %s', v_uuid, v_r);
     END IF;
   END LOOP;
   PERFORM pg_temp.rcb_as(v_owner_a);
@@ -1139,11 +1152,24 @@ BEGIN
     END IF;
 
     -- Borrar la compra a crédito compensa la cuenta corriente y reabre su remito.
+    -- La reversa de stock se saltea de forma EXPLÍCITA, no por la casualidad de que las filas de
+    -- la compra no tengan movimientos propios: se arma (como postgres) un movimiento forjado que
+    -- apunta a una fila de la compra; si el borrado revirtiera stock, lo contra-asentaría y
+    -- bajaría el saldo.
+    SELECT pu.id INTO v_uuid FROM public.purchases pu WHERE pu.operation_id = v_op_credit LIMIT 1;
+    PERFORM public.c21_apply_branch_stock_delta(v_account_a, v_p2, v_x, 1);
+    INSERT INTO public.stock_movements (user_id, account_id, product_id, product_name, type, quantity_delta,
+                                        quantity_before, quantity_after, reference_id, reference_type,
+                                        performed_by, operation_group_id, branch_id, unit_cost_snapshot)
+    VALUES (v_owner_a, v_account_a, v_p2, 'forjado', 'purchase', 1, 0, 1, v_uuid, 'purchase',
+            v_owner_a, gen_random_uuid(), v_x, 1);
     v_a2 := pg_temp.rcb_stock(v_p2, v_x);
+    SELECT count(*) INTO v_sm FROM public.stock_movements WHERE account_id = v_account_a;
     SELECT COALESCE(sum(sa.balance), 0) INTO v_val FROM public.supplier_accounts sa WHERE sa.supplier_id = v_s1;
     v_txt := pg_temp.rcb_err(format('SELECT public.rpc_delete_purchase_operation(NULL, %L::uuid, NULL)', v_op_credit));
-    IF v_txt <> 'OK' OR pg_temp.rcb_status(v_dn_credit) <> 'issued' OR pg_temp.rcb_stock(v_p2, v_x) <> v_a2 THEN
-      v_failures := v_failures || format('FAIL (o): borrar la compra a crédito (compensación, remito issued, stock): %s', v_txt);
+    IF v_txt <> 'OK' OR pg_temp.rcb_status(v_dn_credit) <> 'issued' OR pg_temp.rcb_stock(v_p2, v_x) <> v_a2
+       OR (SELECT count(*) FROM public.stock_movements WHERE account_id = v_account_a) <> v_sm THEN
+      v_failures := v_failures || format('FAIL (o): borrar la compra a crédito (compensación, remito issued, stock sin tocar aunque exista un movimiento forjado que apunta a la compra): %s', v_txt);
     END IF;
     IF (SELECT COALESCE(sum(sa.balance), 0) FROM public.supplier_accounts sa WHERE sa.supplier_id = v_s1) >= v_val THEN
       v_failures := v_failures || format('FAIL (o): borrar la compra a crédito no redujo el saldo del proveedor (%s)', v_val);
@@ -1161,17 +1187,24 @@ BEGIN
   v_j := public.rpc_create_purchase_operation(v_tag || 'forj-1', v_today, 'compra directa 1',
            jsonb_build_array(pg_temp.rcb_pline(v_p1, 1, 100)), v_x, NULL, v_pm_other, NULL, v_s1, NULL, NULL);
   v_op_d6 := (v_j->>'operation_id')::uuid;
+  -- El remito ajeno y el de venta se arman ADEMÁS en estado converted: si quedaran issued, el
+  -- chequeo de estado del borrado los frenaría solo y taparía a los filtros de cuenta y de sentido
+  -- (mutantes sin cada filtro sobrevivían). Convertidos, lo único que los frena es esa lectura.
   FOREACH v_uuid IN ARRAY ARRAY[v_dn_b, v_dn_sale] LOOP
     SET session_replication_role = replica;
     UPDATE public.purchases SET source_delivery_note_id = v_uuid WHERE operation_id = v_op_d6;
+    UPDATE public.delivery_notes SET status = 'converted' WHERE id = v_uuid;
     SET session_replication_role = DEFAULT;
     v_a1 := pg_temp.rcb_stock(v_p1, v_x);
     v_before := pg_temp.rcb_effects(v_account_a);
     v_txt := pg_temp.rcb_err(format('SELECT public.rpc_delete_purchase_operation(NULL, %L::uuid, NULL)', v_op_d6));
     IF v_txt NOT LIKE 'P0409 delivery_note_purchase_mismatch%' OR pg_temp.rcb_effects(v_account_a) IS DISTINCT FROM v_before
-       OR pg_temp.rcb_status(v_dn_b) <> 'issued' OR pg_temp.rcb_status(v_dn_sale) <> 'issued' THEN
-      v_failures := v_failures || format('FAIL (o): un origen de otra cuenta o de venta no se reabre: se esperaba P0409 delivery_note_purchase_mismatch sin efectos, vino %s', v_txt);
+       OR pg_temp.rcb_status(v_uuid) <> 'converted' THEN
+      v_failures := v_failures || format('FAIL (o): un origen de otra cuenta o de venta (converted) no se reabre: se esperaba P0409 delivery_note_purchase_mismatch sin efectos, vino %s', v_txt);
     END IF;
+    SET session_replication_role = replica;
+    UPDATE public.delivery_notes SET status = 'issued' WHERE id = v_uuid;
+    SET session_replication_role = DEFAULT;
   END LOOP;
   -- Orígenes mezclados dentro de la misma operación (una fila con origen y otra sin).
   SET session_replication_role = replica;

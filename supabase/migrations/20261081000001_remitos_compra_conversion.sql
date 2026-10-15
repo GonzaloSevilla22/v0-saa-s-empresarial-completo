@@ -113,11 +113,6 @@ BEGIN
   END LOOP;
   RAISE NOTICE 'remitos-compra tanda B (preflight): % cuerpos de partida verificados por md5, % ya reaplicados', v_ok, v_re;
 END $$;
--- =============================================================================
--- 20261081000001_remitos_compra_conversion.sql — remitos-compra, TANDA B
--- (governance MEDIA con tramo ALTO: extrae el núcleo del camino del dinero de
--- las compras y reescribe tres funciones desde sus cuerpos VIVOS).
---
 
 -- =============================================================================
 -- 1. Puente remito -> compra (D1) y catálogo de la tanda B (D3)

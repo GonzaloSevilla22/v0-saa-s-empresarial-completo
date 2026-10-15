@@ -1466,3 +1466,156 @@ EXCEPTION
     END;
     RAISE EXCEPTION 'GATE REMITO-A-COMPRA FAILED (abortó): % / %', v_state, v_msg;
 END $$;
+
+-- =============================================================================
+-- (u) Introspección PERMANENTE de la tanda B (sin fixtures, sin md5): la migración
+-- 20261081000001 ya la corre al aplicarse, pero un gate de CI tiene que seguir
+-- diciendo la verdad cuando otro change reescriba estas funciones. Por eso mira
+-- la ESTRUCTURA (qué hay y en qué orden), no el hash del cuerpo.
+-- =============================================================================
+DO $$
+DECLARE
+  v_bad  text[] := '{}';
+  v_fn   text;
+  v_n    integer;
+  v_oid  oid;
+  v_src  text;
+  v_core constant text := 'public._purchase_operation_core(uuid, text, date, text, jsonb, uuid, uuid, uuid, uuid, uuid, uuid, date, uuid)';
+  v_pos_dn integer;
+  v_pos_delta integer;
+BEGIN
+  -- Una sola definición por función (sin overloads).
+  FOREACH v_fn IN ARRAY ARRAY['_purchase_operation_core', 'rpc_create_purchase_operation',
+                              'rpc_convert_delivery_note_to_purchase', 'rpc_delete_purchase_operation',
+                              'rpc_atomic_update_purchase_operation', '_delivery_note_payload',
+                              'trg_purchases_guard_delivery_note_source'] LOOP
+    SELECT count(*) INTO v_n FROM pg_proc WHERE pronamespace = 'public'::regnamespace AND proname = v_fn;
+    IF v_n <> 1 THEN v_bad := v_bad || format('(u) %s tiene %s definiciones (se esperaba 1)', v_fn, v_n); END IF;
+  END LOOP;
+
+  -- ACLs: núcleo, payload y función del disparador sin EXECUTE para la aplicación; el wrapper y las tres RPC
+  -- públicas con authenticated y sin anon/PUBLIC; todo SECURITY DEFINER salvo el disparador (INVOKER, a propósito).
+  FOREACH v_fn IN ARRAY ARRAY[v_core, 'public._delivery_note_payload(uuid)', 'public.trg_purchases_guard_delivery_note_source()'] LOOP
+    v_oid := to_regprocedure(v_fn);
+    IF v_oid IS NULL THEN v_bad := v_bad || format('(u) %s no existe', v_fn);
+    ELSIF has_function_privilege('authenticated', v_oid, 'EXECUTE') OR has_function_privilege('anon', v_oid, 'EXECUTE')
+          OR EXISTS (SELECT 1 FROM pg_proc p, aclexplode(COALESCE(p.proacl, acldefault('f', p.proowner))) a
+                     WHERE p.oid = v_oid AND a.grantee = 0 AND a.privilege_type = 'EXECUTE') THEN
+      v_bad := v_bad || format('(u) %s es ejecutable por authenticated, anon o PUBLIC', v_fn);
+    END IF;
+  END LOOP;
+  FOREACH v_fn IN ARRAY ARRAY['public.rpc_create_purchase_operation(text, date, text, jsonb, uuid, uuid, uuid, uuid, uuid, uuid, date)',
+                              'public.rpc_convert_delivery_note_to_purchase(text, uuid, integer, uuid, date, uuid, uuid, uuid, date, text)',
+                              'public.rpc_delete_purchase_operation(uuid, uuid, text)',
+                              'public.rpc_atomic_update_purchase_operation(uuid[], date, text, jsonb, uuid, boolean, uuid, boolean, uuid, boolean, uuid, boolean)'] LOOP
+    v_oid := to_regprocedure(v_fn);
+    IF v_oid IS NULL THEN v_bad := v_bad || format('(u) %s no existe', v_fn);
+    ELSIF NOT has_function_privilege('authenticated', v_oid, 'EXECUTE') THEN
+      v_bad := v_bad || format('(u) %s NO es ejecutable por authenticated', v_fn);
+    ELSIF has_function_privilege('anon', v_oid, 'EXECUTE')
+          OR EXISTS (SELECT 1 FROM pg_proc p, aclexplode(COALESCE(p.proacl, acldefault('f', p.proowner))) a
+                     WHERE p.oid = v_oid AND a.grantee = 0 AND a.privilege_type = 'EXECUTE') THEN
+      v_bad := v_bad || format('(u) %s es ejecutable por anon o PUBLIC', v_fn);
+    ELSIF NOT (SELECT prosecdef FROM pg_proc WHERE oid = v_oid) THEN
+      v_bad := v_bad || format('(u) %s no es SECURITY DEFINER', v_fn);
+    ELSIF obj_description(v_oid, 'pg_proc') IS NULL THEN
+      v_bad := v_bad || format('(u) %s sin COMMENT', v_fn);
+    END IF;
+  END LOOP;
+  IF NOT COALESCE((SELECT prosecdef FROM pg_proc WHERE oid = to_regprocedure(v_core)), false) THEN
+    v_bad := v_bad || '(u) el núcleo no es SECURITY DEFINER'::text;
+  END IF;
+  IF COALESCE((SELECT prosecdef FROM pg_proc WHERE oid = to_regprocedure('public.trg_purchases_guard_delivery_note_source()')), true) THEN
+    v_bad := v_bad || '(u) la función del disparador del puente debe ser SECURITY INVOKER (current_user tiene que ser el que escribe)'::text;
+  END IF;
+
+  -- Disparador del puente: por fila, BEFORE INSERT OR UPDATE OR DELETE, habilitado.
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger t
+                 WHERE t.tgrelid = 'public.purchases'::regclass AND t.tgname = 'trg_purchases_guard_delivery_note_source'
+                   AND NOT t.tgisinternal AND t.tgenabled = 'O' AND t.tgtype = 31) THEN
+    v_bad := v_bad || '(u) falta el disparador del puente (BEFORE INSERT OR UPDATE OR DELETE, por fila, habilitado)'::text;
+  END IF;
+
+  -- Catálogo de la tanda B, por PRESENCIA y atributos (nunca por conteo).
+  IF NOT EXISTS (SELECT 1 FROM public.document_status_transitions
+                 WHERE document_type = 'delivery_note_purchase' AND from_status = 'issued' AND to_status = 'converted'
+                   AND cardinality(allowed_role) = 4 AND allowed_role @> ARRAY['purchases', 'stock', 'admin', 'owner']
+                   AND NOT requires_reason AND NOT is_terminal_to) THEN
+    v_bad := v_bad || '(u) falta issued -> converted de delivery_note_purchase con {purchases,stock,admin,owner}'::text;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.document_status_transitions
+                 WHERE document_type = 'delivery_note_purchase' AND from_status = 'converted' AND to_status = 'issued'
+                   AND allowed_role IS NULL AND NOT requires_reason AND NOT is_terminal_to) THEN
+    v_bad := v_bad || '(u) falta converted -> issued de delivery_note_purchase (sin rol)'::text;
+  END IF;
+
+  -- Núcleo: la rama de origen, el salto del stock y la transición a converted dentro del propio núcleo.
+  SELECT prosrc INTO v_src FROM pg_proc WHERE oid = to_regprocedure(v_core);
+  IF position('delivery_note_items_from_source' IN v_src) = 0 OR position('delivery_note_purchase_mismatch' IN v_src) = 0
+     OR position('IF NOT v_from_dn THEN' IN v_src) = 0 OR position('c21_apply_branch_stock_delta' IN v_src) = 0
+     OR position('''delivery_note_purchase'', p_source_delivery_note_id, ''issued'', ''converted''' IN v_src) = 0 THEN
+    v_bad := v_bad || '(u) el núcleo no tiene la rama de origen (p_items nulo, revalidación, salto del stock, transición a converted)'::text;
+  ELSE
+    -- El salto del stock envuelve al delta de stock: el último IF NOT v_from_dn que lo precede está a menos de
+    -- 700 caracteres.
+    v_pos_delta := position('c21_apply_branch_stock_delta' IN v_src);
+    IF position('IF NOT v_from_dn THEN' IN substr(v_src, GREATEST(v_pos_delta - 700, 1), 700)) = 0 THEN
+      v_bad := v_bad || '(u) el delta de stock del núcleo no está dentro del salto IF NOT v_from_dn'::text;
+    END IF;
+  END IF;
+
+  -- Wrapper: sin lógica propia ni parámetro de origen.
+  SELECT prosrc INTO v_src FROM pg_proc WHERE oid = to_regprocedure('public.rpc_create_purchase_operation(text, date, text, jsonb, uuid, uuid, uuid, uuid, uuid, uuid, date)');
+  IF position('_purchase_operation_core(' IN v_src) = 0 OR position('c21_apply_branch_stock_delta' IN v_src) > 0
+     OR position('source_delivery_note' IN v_src) > 0 THEN
+    v_bad := v_bad || '(u) rpc_create_purchase_operation debe ser un wrapper del núcleo, sin lógica propia ni parámetro de origen'::text;
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_proc p, unnest(p.proargnames) a(n)
+             WHERE p.oid = to_regprocedure('public.rpc_create_purchase_operation(text, date, text, jsonb, uuid, uuid, uuid, uuid, uuid, uuid, date)')
+               AND a.n ILIKE '%source%') THEN
+    v_bad := v_bad || '(u) la firma pública de la compra no puede aceptar un parámetro de origen'::text;
+  END IF;
+
+  -- Borrado: el lock del remito ANTES de TODA compensación (cuenta corriente, caja, banco, stock), el rol
+  -- de anular, la sucursal viva con FOR SHARE y el salto explícito de la reversa de stock.
+  SELECT prosrc INTO v_src FROM pg_proc WHERE oid = to_regprocedure('public.rpc_delete_purchase_operation(uuid, uuid, text)');
+  v_pos_dn := position('FROM public.delivery_notes dn' IN v_src);
+  IF v_pos_dn = 0 OR position('FOR SHARE' IN v_src) = 0 OR position('delivery_note_purchase_delete_forbidden' IN v_src) = 0
+     OR position('IF v_source_dn IS NULL THEN' IN v_src) = 0 OR position('delivery_note_branch_inactive' IN v_src) = 0 THEN
+    v_bad := v_bad || '(u) el borrado no tiene el lock del remito, el rol de anular, la sucursal viva o el salto de la reversa de stock'::text;
+  ELSIF v_pos_dn > position('_pay_reverse_party_charge(' IN v_src)
+        OR v_pos_dn > position('c28_register_cash_movement(' IN v_src)
+        OR v_pos_dn > position('FROM public.bank_movements' IN v_src)
+        OR v_pos_dn > position('rpc_reverse_stock_movement(' IN v_src) THEN
+    v_bad := v_bad || '(u) el borrado toma el lock del remito DESPUÉS de una compensación (orden remito -> dinero)'::text;
+  END IF;
+
+  -- Edición: el P0423 del remito ANTES de los P0423 de dinero.
+  SELECT prosrc INTO v_src FROM pg_proc WHERE oid = to_regprocedure('public.rpc_atomic_update_purchase_operation(uuid[], date, text, jsonb, uuid, boolean, uuid, boolean, uuid, boolean, uuid, boolean)');
+  IF position('delivery_note_purchase_locked' IN v_src) = 0
+     OR position('delivery_note_purchase_locked' IN v_src) > position('operation_has_account_charge_immutable' IN v_src) THEN
+    v_bad := v_bad || '(u) la edición no rechaza la compra de un remito (P0423) ANTES de los P0423 de dinero'::text;
+  END IF;
+
+  -- Conversión: lock, rol del remito, precios y proveedor vivo antes de llamar al núcleo, que es el único camino a la compra.
+  SELECT prosrc INTO v_src FROM pg_proc WHERE oid = to_regprocedure('public.rpc_convert_delivery_note_to_purchase(text, uuid, integer, uuid, date, uuid, uuid, uuid, date, text)');
+  IF position('_delivery_note_assert_role_dir(' IN v_src) = 0 OR position('_purchase_operation_core(' IN v_src) = 0
+     OR position('_delivery_note_assert_role_dir(' IN v_src) > position('_purchase_operation_core(' IN v_src)
+     OR position('FOR UPDATE' IN v_src) = 0 OR position('FOR UPDATE' IN v_src) > position('_delivery_note_assert_role_dir(' IN v_src)
+     OR position('delivery_note_price_required' IN v_src) = 0 OR position('delivery_note_price_required' IN v_src) > position('_purchase_operation_core(' IN v_src)
+     OR position('delivery_note_supplier_unavailable' IN v_src) = 0 OR position('delivery_note_supplier_unavailable' IN v_src) > position('_purchase_operation_core(' IN v_src) THEN
+    v_bad := v_bad || '(u) la conversión no toma el lock, no exige el rol, los precios y el proveedor vivo antes de llamar al núcleo'::text;
+  END IF;
+
+  -- Payload: la compra generada en el campo genérico existente, sin un campo paralelo.
+  SELECT prosrc INTO v_src FROM pg_proc WHERE oid = to_regprocedure('public._delivery_note_payload(uuid)');
+  IF position('public.purchases pu' IN v_src) = 0 OR position('pu.source_delivery_note_id = dn.id' IN v_src) = 0
+     OR position('pu.account_id = dn.account_id' IN v_src) = 0 OR position('converted_purchase' IN v_src) > 0 THEN
+    v_bad := v_bad || '(u) el payload no deriva converted_operation_id de purchases.source_delivery_note_id con account_id (o suma un campo paralelo)'::text;
+  END IF;
+
+  IF array_length(v_bad, 1) > 0 THEN
+    RAISE EXCEPTION E'GATE REMITO-A-COMPRA (u) FAILED:\n  %', array_to_string(v_bad, E'\n  ');
+  END IF;
+  RAISE NOTICE 'PASS (u): introspección permanente de la tanda B -- una definición por función, ACLs, núcleo interno, wrapper sin parámetro de origen, disparador del puente, catálogo, lock del remito antes de toda compensación, salto de la reversa, P0423 antes del dinero.';
+END $$;

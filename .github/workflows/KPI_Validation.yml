@@ -1198,7 +1198,7 @@ jobs:
           # reaplica si amplía un CHECK con una lista fija; la que sume un valor
           # a un CHECK compartido lo hace POR AGREGADO al vivo (molde de la
           # sección 1 de 20261071000001), y su paso va DESPUÉS del último
-          # eslabón de remitos (hoy, el de 20261071000001).
+          # eslabón de remitos (hoy, el de 20261081000001, al final de la cadena).
           echo "Reconvergiendo (remitos-compra): supabase db reset después de los reapply de 20261063000001..20261068000001..."
           supabase db reset
           schema_snapshot > /tmp/schema_after_rc_reconverge.txt
@@ -1338,46 +1338,21 @@ jobs:
           fi
           echo "20261075000001 y 20261075000002 idempotentes: 3 NOTICE de reaplicación, introspección OK, 0 ventas asignadas por el backfill y schema IDÉNTICO al previo a este paso."
 
-          # compras-gastos-sucursal-por-defecto (2026-10-11, governance MEDIA con
-          # tramo ALTO): reaplicación de 20261076000001 (las tres funciones: el alta
-          # y la edición de compra, y la edición de gasto) AL FINAL de la cadena,
-          # DESPUÉS de 20261075000001/2 (que no tocan ninguna de ellas). Ninguna
-          # migración reaplicada antes de este punto redefine estas funciones (el
-          # bloque de 20261062000001 se retiró, y las de 20261070000001 y
-          # 20261071000001 sólo tocan venta y remitos), así que ya después del reset
-          # el cuerpo vivo ES el de esta migración: las DOS pasadas imprimen los
-          # TRES NOTICE «ya es el cuerpo de esta migración» (reaplicación pura). SIN
-          # tolerancia, y el schema (constraints + firmas + ACLs) tiene que quedar
-          # IDÉNTICO tras cada pasada. NO hay migración de datos (OQ-1 (a): los
-          # históricos no se rellenan).
-          #
-          # REGLA PARA EL PR SIGUIENTE (design D6/D12): una migración posterior que
-          # redefina cualquiera de las tres funciones (p. ej. remitos-compra tanda
-          # B, que extrae _purchase_operation_core desde rpc_create_purchase_
-          # operation) tiene que RETIRAR este bloque en el mismo PR (su preflight
-          # abortaría, igual que el de 20261062000001 y el de 20261075000001) y
-          # apuntar el bloque (0) de test_compras_gastos_sucursal_por_defecto.sql al
-          # cuerpo que contenga la lógica (el núcleo), actualizando los md5.
-          CGSD_OUT1=$(psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261076000001_compras_gastos_sucursal_por_defecto.sql 2>&1) || { echo "$CGSD_OUT1"; echo "ERROR: el reapply de 20261076000001 falló (sin tolerancia)."; exit 1; }
-          echo "$CGSD_OUT1"
-          CGSD_OUT2=$(psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261076000001_compras_gastos_sucursal_por_defecto.sql 2>&1) || { echo "$CGSD_OUT2"; echo "ERROR: la segunda pasada de 20261076000001 falló (sin tolerancia)."; exit 1; }
-          echo "$CGSD_OUT2"
-          CGSD_REAPPLIED=$(echo "$CGSD_OUT2" | grep -cF 'ya es el cuerpo de esta migración' || true)
-          if [ "$CGSD_REAPPLIED" != "3" ]; then
-            echo "ERROR: la segunda pasada de 20261076000001 imprimió $CGSD_REAPPLIED de 3 NOTICE de reaplicación (ya es el cuerpo de esta migración)."
-            exit 1
-          fi
-          if ! echo "$CGSD_OUT2" | grep -qF 'compras-gastos-sucursal-por-defecto (introspecci'; then
-            echo "ERROR: el reapply de 20261076000001 no imprimió el OK de su bloque de introspección."
-            exit 1
-          fi
-          schema_snapshot > /tmp/schema_after_cgsd_reapply.txt
-          if ! diff -u /tmp/schema_before_reapply.txt /tmp/schema_after_cgsd_reapply.txt > /tmp/schema_diff_cgsd.txt; then
-            echo "NOT IDEMPOTENT: reaplicar 20261076000001 cambió el schema (constraints + firmas de función + ACLs):"
-            cat /tmp/schema_diff_cgsd.txt
-            exit 1
-          fi
-          echo "20261076000001 idempotente: 3 NOTICE de reaplicación, introspección OK y schema IDÉNTICO al previo a este paso."
+          # compras-gastos-sucursal-por-defecto (2026-10-11): el bloque de
+          # reaplicación de 20261076000001 (las tres funciones: el alta y la edición
+          # de compra, y la edición de gasto) que vivía acá se RETIRÓ en
+          # remitos-compra tanda B (2026-10-15, 20261081000001), cumpliendo su propia
+          # "REGLA PARA EL PR SIGUIENTE": esa tanda extrae _purchase_operation_core
+          # desde rpc_create_purchase_operation y reescribe rpc_atomic_update_
+          # purchase_operation, así que el preflight de 20261076000001 (md5 de las
+          # tres funciones) abortaría sobre cuerpos que ya no son los suyos y
+          # validate-kpis quedaría en ROJO. Su control NO se pierde: pasa al golden
+          # de la compra directa y a la introspección (u) de supabase/tests/
+          # test_remito_a_compra.sql, y el bloque (0) de supabase/tests/
+          # test_compras_gastos_sucursal_por_defecto.sql (que sigue cableado más
+          # abajo) apunta ahora a _purchase_operation_core, donde vive la lógica de
+          # sucursal de la compra. La reaplicación de 20261081000001, al final de la
+          # cadena, deja los mismos cuerpos.
 
           # stock-movimientos-sucursal-origen (2026-10-11, governance ALTA):
           # reaplicación de 20261077000001 (rpc_reverse_stock_movement con el
@@ -1426,6 +1401,70 @@ jobs:
             exit 1
           fi
           echo "20261077000001 y 20261077000002 idempotentes: NOTICE de reaplicación, introspección OK, 0 movimientos completados por el backfill y schema IDÉNTICO al previo a este paso."
+
+          # remitos-compra tanda B (2026-10-15, governance MEDIA con tramo ALTO):
+          # reaplicación de 20261081000001 AL FINAL de la cadena, DESPUÉS del último
+          # eslabón de remitos (20261071000001) y de los demás. Redefine
+          # _delivery_note_payload —que las reaplicaciones de 20261070000001 y
+          # 20261071000001 dejaron con SUS cuerpos— y reescribe rpc_create_purchase_
+          # operation (wrapper), rpc_delete_purchase_operation y rpc_atomic_update_
+          # purchase_operation, que ninguna reaplicación anterior toca desde que se
+          # RETIRÓ el bloque de 20261076000001 (ver arriba). El preflight de la
+          # migración exige que cada cuerpo sea el de partida o el suyo: la PRIMERA
+          # pasada ve 1 de partida (el payload, que dejó la reaplicación de la tanda
+          # A) y 3 ya reaplicados; la SEGUNDA, los 4 ya reaplicados. SIN tolerancia.
+          # No amplía ningún CHECK (las dos filas del catálogo van con ON CONFLICT DO
+          # NOTHING), y el schema (constraints + firmas + ACLs) tiene que quedar
+          # IDÉNTICO tras cada pasada. schema_snapshot() no compara cuerpos: por eso
+          # se re-consultan.
+          #
+          # REGLA PARA EL PR SIGUIENTE: una migración posterior que redefina
+          # cualquiera de estas cinco funciones tiene que partir del cuerpo VIVO
+          # (preflight por md5) y retirar o rebasar este paso en el mismo PR.
+          RCB_OUT1=$(psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261081000001_remitos_compra_conversion.sql 2>&1) || { echo "$RCB_OUT1"; echo "ERROR: el reapply de 20261081000001 falló (sin tolerancia)."; exit 1; }
+          echo "$RCB_OUT1"
+          if ! echo "$RCB_OUT1" | grep -qF '1 cuerpos de partida verificados por md5, 3 ya reaplicados'; then
+            echo "ERROR: la primera pasada de 20261081000001 debía ver 1 cuerpo de partida (el payload de la tanda A) y 3 ya reaplicados: ¿una reaplicación anterior pisó la compra?"
+            exit 1
+          fi
+          RCB_OUT2=$(psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261081000001_remitos_compra_conversion.sql 2>&1) || { echo "$RCB_OUT2"; echo "ERROR: la segunda pasada de 20261081000001 falló (sin tolerancia)."; exit 1; }
+          echo "$RCB_OUT2"
+          if ! echo "$RCB_OUT2" | grep -qF '0 cuerpos de partida verificados por md5, 4 ya reaplicados'; then
+            echo "ERROR: la segunda pasada de 20261081000001 debía ver los 4 cuerpos ya reaplicados."
+            exit 1
+          fi
+          if ! echo "$RCB_OUT2" | grep -qF 'remitos-compra tanda B (introspecci'; then
+            echo "ERROR: el reapply de 20261081000001 no imprimió el OK de su bloque de introspección."
+            exit 1
+          fi
+          RCB_BODIES=$(psql -tA "$DSN" -c "SELECT
+              (SELECT prosrc FROM pg_proc WHERE oid = 'public._delivery_note_payload(uuid)'::regprocedure) LIKE '%''supplier_name''%'
+              AND (SELECT prosrc FROM pg_proc WHERE oid = 'public._delivery_note_payload(uuid)'::regprocedure) LIKE '%''missing_price_count''%'
+              AND (SELECT prosrc FROM pg_proc WHERE oid = 'public._delivery_note_payload(uuid)'::regprocedure) LIKE '%so.source_delivery_note_id = dn.id%'
+              AND (SELECT prosrc FROM pg_proc WHERE oid = 'public._delivery_note_payload(uuid)'::regprocedure) LIKE '%pu.source_delivery_note_id = dn.id%'
+              AND (SELECT prosrc FROM pg_proc WHERE oid = 'public.rpc_create_purchase_operation(text, date, text, jsonb, uuid, uuid, uuid, uuid, uuid, uuid, date)'::regprocedure) LIKE '%_purchase_operation_core(%'
+              AND (SELECT prosrc FROM pg_proc WHERE oid = 'public._purchase_operation_core(uuid, text, date, text, jsonb, uuid, uuid, uuid, uuid, uuid, uuid, date, uuid)'::regprocedure) LIKE '%p_source_delivery_note_id%'
+              AND (SELECT prosrc FROM pg_proc WHERE oid = 'public.rpc_delete_purchase_operation(uuid, uuid, text)'::regprocedure) LIKE '%delivery_note_purchase_delete_forbidden%'
+              AND (SELECT prosrc FROM pg_proc WHERE oid = 'public.rpc_atomic_update_purchase_operation(uuid[], date, text, jsonb, uuid, boolean, uuid, boolean, uuid, boolean, uuid, boolean)'::regprocedure) LIKE '%delivery_note_purchase_locked%'")
+          if [ "$RCB_BODIES" != "t" ]; then
+            echo "ERROR: después de reaplicar 20261081000001, los cuerpos de remitos-compra tanda B no quedaron (payload con proveedor, precio faltante y compra generada; wrapper y núcleo de compra; borrado y edición con la rama de remito)."
+            exit 1
+          fi
+          RV_BODIES2=$(psql -tA "$DSN" -c "SELECT
+              (SELECT prosrc FROM pg_proc WHERE oid = 'public._branch_assert_empty(uuid)'::regprocedure) LIKE '%branch_has_pending_delivery_notes%'
+              AND (SELECT prosrc FROM pg_proc WHERE oid = 'public._delivery_note_apply_stock(uuid, uuid, uuid, jsonb)'::regprocedure) LIKE '%SELECT dn.direction INTO v_dir%'
+              AND (SELECT prosrc FROM pg_proc WHERE oid = 'public.rpc_cancel_delivery_note(uuid, integer, text)'::regprocedure) NOT LIKE '%direction = ''sale''%'")
+          if [ "$RV_BODIES2" != "t" ]; then
+            echo "ERROR: después de reaplicar 20261081000001, los cuerpos de los remitos de la tanda A dejaron de ser los suyos."
+            exit 1
+          fi
+          schema_snapshot > /tmp/schema_after_rcb_reapply.txt
+          if ! diff -u /tmp/schema_before_reapply.txt /tmp/schema_after_rcb_reapply.txt > /tmp/schema_diff_rcb.txt; then
+            echo "NOT IDEMPOTENT: reaplicar 20261081000001 cambió el schema (constraints + firmas de función + ACLs):"
+            cat /tmp/schema_diff_rcb.txt
+            exit 1
+          fi
+          echo "20261081000001 idempotente: preflight 1+3 y 0+4, introspección OK, cuerpos de la compra y del payload presentes y schema IDÉNTICO al previo a este paso."
 
       # -v ON_ERROR_STOP=1 is required: without it psql prints RAISE EXCEPTION
       # errors but still exits 0, so failing assertions show green in CI.
@@ -2948,9 +2987,9 @@ jobs:
       # contra Postgres real, con cuatro cuentas sintéticas. (0) introspección de
       # los cuerpos VIVOS (sucursal resuelta en los seis puntos de la compra,
       # guards no_branch_found y branch_closed, md5 = el del preflight, COMMENT, una
-      # firma, ACLs; falla explícito si una reaplicación de CI pisó un cuerpo, y es
-      # el bloque que hay que apuntar al núcleo cuando remitos-compra tanda B
-      # extraiga _purchase_operation_core); (1) alta sin sucursal: purchases,
+      # firma, ACLs; falla explícito si una reaplicación de CI pisó un cuerpo; desde
+      # remitos-compra tanda B apunta a _purchase_operation_core, donde vive la
+      # lógica de sucursal de la compra, y el wrapper se mide aparte); (1) alta sin sucursal: purchases,
       # stock_movements y branch_stock en la principal, el ledger reconstruye por
       # (producto, sucursal) y el replay no duplica; (2) principal cerrada -> la
       # siguiente operativa; (3) ninguna sucursal operativa -> P0422
@@ -3139,10 +3178,34 @@ jobs:
       - name: Run remitos compra gate
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_remitos_compra.sql
 
-      # remitos-compra tanda A: 9 carreras con DOS conexiones reales y bloqueo
-      # verificado en pg_stat_activity (recepciones concurrentes, doble clic,
-      # anulación contra venta del POS en los dos órdenes, edición contra
-      # anulación, recepción y edición contra la baja de una sucursal vacía).
+      # remitos-compra tanda B (2026-10-15, governance MEDIA con tramo ALTO:
+      # extrae el núcleo del camino del dinero de las compras y reescribe tres
+      # funciones desde su cuerpo vivo). `supabase start` ya aplicó
+      # 20261081000001; este paso EJECUTA el núcleo, la conversión, el borrado y la
+      # edición con usuarios reales: (g0) golden de la compra directa (cash, credit
+      # con cargo y vencimiento, transfer, línea sin producto, 450 g -> 0,45 kg,
+      # replay, 42501 sin sesión y el P0423 de dinero intacto); (z) el núcleo llamado
+      # como postgres con un origen válido no suma stock y deja el remito converted;
+      # (n) los orígenes inválidos rebotan sin efectos; (a)-(l) la conversión en
+      # efectivo, crédito y transferencia, con rechazos, idempotencia, roles y caja;
+      # (p0)/(dt)/(e)/(f) precio 0, fecha, proveedor y sucursal; (o)/(p) el borrado
+      # que reabre el remito sin tocar stock (rol, sucursal viva, origen ajeno o de
+      # venta); (q)/(r) la edición y la anulación del convertido; (pg) la integridad
+      # del puente por PostgREST con un seller real (forjar, limpiar, cambiar, partir,
+      # mezclar, insertar y borrar); (s) el invariante del ledger; (u) introspección
+      # permanente. Residuo cero.
+      - name: Run remito a compra gate
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_remito_a_compra.sql
+
+      # remitos-compra tandas A y B: 12 + 11 carreras con DOS conexiones reales (tres
+      # en el borrado viejo contra la reconversión) y bloqueo verificado en
+      # pg_stat_activity. Tanda A: recepciones concurrentes, doble clic, anulación
+      # contra venta del POS en los dos órdenes, edición contra anulación, recepción
+      # y edición contra la baja de una sucursal vacía y contra el borrado del
+      # proveedor. Tanda B: dos conversiones, la misma clave en dos remitos, doble
+      # clic, conversión contra anulación y contra edición en los dos órdenes, dos
+      # borrados de la misma compra, borrado viejo contra reconversión a crédito sin
+      # 40P01 y borrado contra anulación del remito convertido.
       - name: Run remitos compra race gate (dos conexiones)
         run: DB_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres bash supabase/tests/test_remitos_compra_race.sh
 

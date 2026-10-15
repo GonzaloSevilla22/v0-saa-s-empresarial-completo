@@ -1,0 +1,12 @@
+     32 E        +  where 404 = <Response [404 Not Found]>.status_code
+     28 E           AttributeError: module 'backend.services.delivery_notes' has no attribute 'convert_delivery_note_to_purchase'
+     15 E       assert 404 == 422
+      9 E       AttributeError: module 'backend.services.delivery_notes' has no attribute 'convert_delivery_note_to_purchase'
+      8 E       ImportError: cannot import name 'PurchaseDeliveryNoteConvertIn' from 'backend.schemas.delivery_notes' (C:\Users\Usuario\Desktop\EIE\wt-remitos-compra-b\backend\schemas\delivery_notes.p
+      6 E       assert 404 == 200
+      4 E       assert 404 == 409
+      4 E       assert 404 == 403
+      4 E       AssertionError: assert False
+      3 E       AttributeError: 'DeliveryNoteRepository' object has no attribute 'convert_to_purchase'. Did you mean: 'convert_to_sale'?
+      3 E        +    where <function search at C3EFEB920> = re.search
+      2 E       assert 404 == 400

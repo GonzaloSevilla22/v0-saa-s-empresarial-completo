@@ -261,6 +261,49 @@ class DeliveryNoteConvertOut(BaseModel):
     replayed:                   bool = False
 
 
+class PurchaseDeliveryNoteConvertIn(BaseModel):
+    """Conversión del remito de compra en compra (`rpc_convert_delivery_note_to_purchase`,
+    remitos-compra tanda B, D8/D13).
+
+    `expected_revision` es la versión del remito que el usuario VIO al confirmar:
+    si otro lo editó mientras tanto (por ejemplo, cargó los precios), la RPC
+    responde `delivery_note_changed` (409) y no convierte precios que nadie
+    confirmó. La forma de pago es del catálogo y es OBLIGATORIA (OQ-RC4: la compra
+    nacida del remito es el momento de decir cómo se paga, aunque la compra
+    directa la admita vacía). Caja, cuenta bancaria, centro de costo, fecha y
+    vencimiento son opcionales y sus guards viven en la RPC (las tres condiciones
+    de la caja, la tenencia de cada id, la fecha no anterior a la recepción).
+
+    NO hay `supplier_id` ni `branch_id`: la compra se imputa al proveedor y a la
+    sucursal del remito (la mercadería entró ahí y la deuda es con ese proveedor).
+    Tampoco `idempotency_key` (viaja SIEMPRE por el header `Idempotency-Key`, sin
+    el fallback deprecado del body) ni un origen de remito ni líneas: el servidor
+    las lee del remito que la RPC bloquea, nunca del request.
+    """
+    expected_revision: int = Field(ge=1)
+    payment_method_id: uuid.UUID
+    date:              Optional[datetime.date] = None
+    cash_session_id:   Optional[uuid.UUID] = None
+    bank_account_id:   Optional[uuid.UUID] = None
+    cost_center_id:    Optional[uuid.UUID] = None
+    due_date:          Optional[datetime.date] = None
+    description:       Optional[str] = Field(default=None, max_length=500)
+
+
+class PurchaseDeliveryNoteConvertOut(BaseModel):
+    """Resultado de la conversión en compra: el remito y la operación de compra.
+    `replayed = true` cuando la misma clave ya había convertido ESTE remito (el
+    reintento no escribe nada)."""
+    model_config = ConfigDict(from_attributes=True)
+
+    delivery_note_id:           uuid.UUID
+    delivery_note_number:       Optional[int] = None
+    delivery_note_number_label: Optional[str] = None
+    operation_id:               uuid.UUID
+    total:                      Decimal
+    replayed:                   bool = False
+
+
 class DeliveryNoteOut(BaseModel):
     """Remito con sus líneas y su historial."""
     model_config = ConfigDict(from_attributes=True)

@@ -25,6 +25,7 @@ Arquitectura 3 capas: sólo acceso a datos, sin lógica de negocio.
 """
 from __future__ import annotations
 
+import datetime
 import json
 from decimal import Decimal
 
@@ -265,6 +266,45 @@ class DeliveryNoteRepository(CommercialIssuerMixin, BaseRepository):
         )
         return jsonb_value(raw)
 
+    async def convert_to_purchase(
+        self,
+        delivery_note_id: str,
+        *,
+        idempotency_key: str,
+        expected_revision: int,
+        payment_method_id: str,
+        date: datetime.date | None,
+        cash_session_id: str | None,
+        bank_account_id: str | None,
+        cost_center_id: str | None,
+        due_date: datetime.date | None,
+        description: str | None,
+    ) -> dict:
+        """`rpc_convert_delivery_note_to_purchase`: convierte el remito de compra
+        `issued` en una compra (caja, banco, cuenta corriente del proveedor,
+        historial, evento) SIN volver a sumar el stock: lo decide la base por el
+        origen que ella misma valida y persiste en `purchases.source_delivery_note_id`,
+        nunca un parámetro de acá. Bloquea primero el remito, valida estado y versión
+        y revierte todo ante cualquier fallo. El proveedor y la sucursal son los del
+        remito (no se eligen). La tenencia de la forma de pago, la cuenta bancaria,
+        el centro de costo y la caja las resuelve la RPC; acá sólo se transportan los
+        ids."""
+        raw = await self._conn.fetchval(
+            "SELECT public.rpc_convert_delivery_note_to_purchase("
+            "$1::text, $2::uuid, $3::integer, $4::uuid, $5::date, $6::uuid, $7::uuid, $8::uuid, $9::date, $10::text)",
+            idempotency_key,
+            delivery_note_id,
+            expected_revision,
+            payment_method_id,
+            date,
+            cash_session_id,
+            bank_account_id,
+            cost_center_id,
+            due_date,
+            description,
+        )
+        return jsonb_value(raw)
+
     # ── Lecturas (SELECT con account_id explícito) ────────────────────────────
 
     async def get_delivery_note(self, delivery_note_id: str, account_id: str) -> dict | None:
@@ -295,11 +335,22 @@ class DeliveryNoteRepository(CommercialIssuerMixin, BaseRepository):
                      WHERE so.source_delivery_note_id = dn.id
                        AND so.account_id = dn.account_id
                        AND so.status <> 'canceled') AS converted_sales_order_id,
-                   (SELECT so.sale_operation_id
-                      FROM public.sales_orders so
-                     WHERE so.source_delivery_note_id = dn.id
-                       AND so.account_id = dn.account_id
-                       AND so.status <> 'canceled') AS converted_operation_id
+                   -- remitos-compra tanda B (D7): `converted_operation_id` es UN campo
+                   -- genérico. En venta sale de la orden VIVA; en compra, de la
+                   -- operación de `purchases.source_delivery_note_id` (todas las
+                   -- filas comparten operation_id), con la cuenta en el cruce. Sin
+                   -- campo paralelo; el mismo criterio que `_delivery_note_payload`.
+                   COALESCE(
+                     (SELECT so.sale_operation_id
+                        FROM public.sales_orders so
+                       WHERE so.source_delivery_note_id = dn.id
+                         AND so.account_id = dn.account_id
+                         AND so.status <> 'canceled'),
+                     (SELECT pu.operation_id
+                        FROM public.purchases pu
+                       WHERE pu.source_delivery_note_id = dn.id
+                         AND pu.account_id = dn.account_id
+                       LIMIT 1)) AS converted_operation_id
             {_DN_FROM}
             WHERE dn.id = $1::uuid AND dn.account_id = $2::uuid
             """,

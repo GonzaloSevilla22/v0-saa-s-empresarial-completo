@@ -67,6 +67,16 @@ interface PaymentMethodSelectProps {
    * disclaimer is about what CHOOSING a method does, not about filtering.
    */
   showSupportText?: boolean
+  /**
+   * remitos-compra (tanda B, OQ-RC4): la forma de pago es OBLIGATORIA — la usa la
+   * conversión de un remito de compra en compra, el momento de decir cómo se paga
+   * (la compra directa la admite vacía). Aditivo: oculta «Sin especificar», pide
+   * la elección en el placeholder («Elegí la forma de pago» salvo que se pase otro),
+   * quita el «(opcional)» del rótulo y lo declara con `aria-required`. Sin valor, el
+   * trigger muestra el placeholder; el servidor sigue siendo quien exige la forma de
+   * pago (`payment_method_required`).
+   */
+  required?: boolean
 }
 
 /**
@@ -80,16 +90,18 @@ interface PaymentMethodSelectProps {
 export function PaymentMethodSelect({
   value,
   onChange,
-  placeholder = "Sin especificar",
+  placeholder,
   className,
   showLabel = true,
   label,
   includeInactive = false,
   context = "sale",
   showSupportText = true,
+  required = false,
 }: PaymentMethodSelectProps) {
   const { paymentMethods, isLoading } = usePaymentMethods(includeInactive)
   const options = paymentMethodOptionsFor(paymentMethods, context)
+  const placeholderText = placeholder ?? (required ? "Elegí la forma de pago" : "Sin especificar")
   const selectedKind = paymentMethods.find((pm) => pm.id === value)?.kind ?? null
 
   // a11y (task 10.7): sin `htmlFor`/`id` el campo no era alcanzable por su
@@ -105,27 +117,31 @@ export function PaymentMethodSelect({
     <div className="flex flex-col gap-2">
       {showLabel && (
         <Label htmlFor={selectId} className="text-foreground text-sm">
-          {label ?? (
+          {label ?? (required ? (
+            "Forma de pago"
+          ) : (
             <>
               Forma de pago <span className="text-muted-foreground font-normal">(opcional)</span>
             </>
-          )}
+          ))}
         </Label>
       )}
       <Select
-        value={value ?? "__none__"}
-        onValueChange={(v) => onChange(v === "__none__" ? null : v)}
+        value={value ?? (required ? "" : "__none__")}
+        onValueChange={(v) => onChange(v === "__none__" || v === "" ? null : v)}
         disabled={isLoading}
+        required={required}
       >
         <SelectTrigger
           id={selectId}
           aria-describedby={hasSupportText ? supportId : undefined}
+          aria-required={required ? true : undefined}
           className={className ?? "bg-background border-border text-foreground"}
         >
-          <SelectValue placeholder={placeholder} />
+          <SelectValue placeholder={placeholderText} />
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value="__none__">{placeholder}</SelectItem>
+          {!required && <SelectItem value="__none__">{placeholderText}</SelectItem>}
           {options.map((pm) => (
             <SelectItem key={pm.id} value={pm.id}>
               {pm.name}

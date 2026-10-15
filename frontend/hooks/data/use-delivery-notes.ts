@@ -25,6 +25,11 @@
  *     y el diálogo tiene que poder renovarla ante `idempotency_key_conflict`
  *     (molde de `useConvertQuote`). Invalida los remitos y todo lo que toca una
  *     venta (`invalidateAfterSale`); el remito NO vuelve a mover stock.
+ *   - Convertir en COMPRA (`useConvertPurchaseDeliveryNote`, tanda B de
+ *     remitos-compra) es el espejo: clave por header puesta por quien llama (una
+ *     por remito), invalida los remitos y todo lo que toca una compra
+ *     (`invalidateAfterPurchaseCreate`, `payables` incluido); el remito NO vuelve a
+ *     SUMAR stock.
  */
 
 import { keepPreviousData, useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query"
@@ -32,7 +37,7 @@ import { pythonClient } from "@/lib/api/python-client"
 import { fetchDocumentPdf, type PdfDisposition } from "@/lib/api/document-pdf"
 import { useIdempotencyKey } from "@/hooks/use-idempotency-key"
 import { queryKeys } from "@/lib/query-keys"
-import { invalidateAfterSale } from "@/lib/query-invalidation"
+import { invalidateAfterPurchaseCreate, invalidateAfterSale } from "@/lib/query-invalidation"
 import type {
   DeliveryNoteApiRow,
   DeliveryNoteCancelInput,
@@ -43,6 +48,8 @@ import type {
   DeliveryNoteListFilters,
   DeliveryNotePage,
   DeliveryNoteUpdatePayload,
+  PurchaseDeliveryNoteConvertInput,
+  PurchaseDeliveryNoteConvertResult,
 } from "@/lib/delivery-note-types"
 
 // ── Invalidación ───────────────────────────────────────────────────────────────
@@ -220,6 +227,41 @@ export function useConvertDeliveryNote() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.deliveryNotes.all() })
       invalidateAfterSale(queryClient)
+    },
+  })
+}
+
+/**
+ * Convierte un remito de compra pendiente en compra, de forma atómica (D8). El
+ * stock NO se vuelve a sumar: ya entró al recibir el remito.
+ * POST /delivery-notes/{id}/convert-to-purchase.
+ *
+ * La clave de idempotencia viaja por header y la elige quien llama (una por
+ * remito). `replayed: true` es un éxito más: la compra ya existe. Invalida
+ * `deliveryNotes.*` más todo lo que toca una compra (`invalidateAfterPurchaseCreate`:
+ * compras, productos, cuentas de proveedores, `payables`, caja y banco), también en
+ * el replay.
+ */
+export function useConvertPurchaseDeliveryNote() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({
+      deliveryNoteId,
+      payload,
+      idempotencyKey,
+    }: {
+      deliveryNoteId: string
+      payload: PurchaseDeliveryNoteConvertInput
+      idempotencyKey: string
+    }): Promise<PurchaseDeliveryNoteConvertResult> =>
+      pythonClient.post<PurchaseDeliveryNoteConvertResult>(
+        `/delivery-notes/${deliveryNoteId}/convert-to-purchase`,
+        payload,
+        { "Idempotency-Key": idempotencyKey },
+      ),
+    onSuccess: () => {
+      invalidateAfterPurchaseCreate(queryClient)
     },
   })
 }

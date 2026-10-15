@@ -576,6 +576,15 @@ export interface Purchase {
   /** compras-proveedor-cuenta-corriente (task 9.2): nombre resuelto por el
    * listado (LEFT JOIN suppliers), para el badge. */
   supplierName?: string | null
+  /** remitos-compra (tanda B, D11): el remito de compra del que nació la compra
+   * (derivado de lectura). null = compra directa. */
+  sourceDeliveryNoteId?: string | null
+  sourceDeliveryNoteNumber?: number | null
+  /** La sucursal del remito está activa y no cerrada (mismo predicado que el
+   * borrado). null en una compra directa; false → "Eliminar" se deshabilita. */
+  sourceDeliveryNoteBranchActive?: boolean | null
+  /** Motivo por el que la operación no se edita (`delivery_note_purchase_locked`). */
+  editLockedReason?: string | null
 }
 
 export interface UnitOfMeasure {

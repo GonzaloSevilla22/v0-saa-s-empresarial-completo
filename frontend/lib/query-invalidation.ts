@@ -47,6 +47,60 @@ export function invalidateAfterSale(queryClient: QueryClient): void {
   queryClient.invalidateQueries({ queryKey: queryKeys.bankAccounts.all() })
 }
 
+/** Las raíces que invalida el alta de una compra y la conversión de un remito (una definición, un test). */
+export const PURCHASE_INVALIDATED_ROOTS = [
+  "purchases",
+  "products",
+  "supplierAccounts",
+  "payables",
+  "cashSessions",
+  "cashMovements",
+  "bankAccounts",
+] as const
+
+/**
+ * remitos-compra (tanda B, D11, task 7.5): lo que invalida una compra creada, sea
+ * por el formulario (o Factura IA) o por la conversión de un remito.
+ * - `purchases` / `products`: el listado de /compras y el costo/stock del catálogo.
+ * - `supplierAccounts` / `payables`: una compra a crédito carga la cuenta corriente
+ *   del proveedor; la pestaña "Por pagar" de /cobranzas deriva del mismo saldo y
+ *   quedaría vieja si la conversión a crédito no la invalidara.
+ * - `cashSessions` / `cashMovements`: la compra en efectivo con caja la descuenta.
+ * - `bankAccounts`: una transferencia o billetera escribe en el banco.
+ * - `deliveryNotes`: la conversión deja el remito `converted` (y "Ver compra"
+ *   apuntaría a una compra que la lista todavía no conoce).
+ * Una definición para `addPurchaseOperation` y `useConvertPurchaseDeliveryNote`.
+ */
+export function invalidateAfterPurchaseCreate(queryClient: QueryClient): void {
+  queryClient.invalidateQueries({ queryKey: queryKeys.purchases.all() })
+  queryClient.invalidateQueries({ queryKey: queryKeys.products.all() })
+  queryClient.invalidateQueries({ queryKey: queryKeys.supplierAccounts.all() })
+  queryClient.invalidateQueries({ queryKey: queryKeys.payables.all() })
+  queryClient.invalidateQueries({ queryKey: queryKeys.cashSessions.all() })
+  queryClient.invalidateQueries({ queryKey: queryKeys.cashMovements.all() })
+  queryClient.invalidateQueries({ queryKey: queryKeys.bankAccounts.all() })
+  queryClient.invalidateQueries({ queryKey: queryKeys.deliveryNotes.all() })
+}
+
+/** Las raíces del conjunto vigente del borrado de una compra (sin los remitos, que suma la función). */
+export const PURCHASE_DELETE_INVALIDATED_ROOTS = ["purchases", "supplierAccounts", "payables"] as const
+
+/**
+ * remitos-compra (tanda B, D9/D11, task 7.8): lo que invalida el BORRADO de una
+ * compra: el conjunto que ya invalidaba (compras, cuentas corrientes de proveedores
+ * y `payables`: el cargo revertido) más `deliveryNotes`. Borrar una compra nacida de
+ * un remito lo devuelve a `issued` en la misma transacción (R5); sin invalidar los
+ * remitos, `/remitos` mostraría "Convertido" con "Ver compra" apuntando a una compra
+ * borrada hasta recargar. Una definición para `deletePurchaseMutation` y
+ * `deletePurchasesByOperationMutation`.
+ */
+export function invalidateAfterPurchaseDelete(queryClient: QueryClient): void {
+  queryClient.invalidateQueries({ queryKey: queryKeys.purchases.all() })
+  queryClient.invalidateQueries({ queryKey: queryKeys.supplierAccounts.all() })
+  queryClient.invalidateQueries({ queryKey: queryKeys.payables.all() })
+  queryClient.invalidateQueries({ queryKey: queryKeys.deliveryNotes.all() })
+}
+
 /**
  * remitos-venta (D9/D11, task 7.7): lo que invalida el BORRADO de una venta.
  *

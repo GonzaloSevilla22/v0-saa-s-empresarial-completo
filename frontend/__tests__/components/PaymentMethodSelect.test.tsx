@@ -315,3 +315,65 @@ describe("PaymentMethodSelect — contexto de cobranza (D2/D6)", () => {
     expect(cobroOptions).toEqual(pagoOptions)
   })
 })
+
+// remitos-compra (tanda B, 7.3, OQ-RC4): la conversión de un remito en compra EXIGE
+// forma de pago (la compra directa la admite vacía). `required` oculta «Sin
+// especificar», pide una elección en el placeholder y lo declara para accesibilidad;
+// el comportamiento por defecto no cambia.
+describe("PaymentMethodSelect — required", () => {
+  it("por defecto sigue ofreciendo «Sin especificar» y marcando el campo como opcional", async () => {
+    usePaymentMethodsMock.mockReturnValue({ paymentMethods: METHODS, isLoading: false })
+    const user = userEvent.setup()
+
+    render(<PaymentMethodSelect value={null} onChange={vi.fn()} context="purchase" />)
+
+    expect(screen.getByText("(opcional)")).toBeInTheDocument()
+    expect(screen.getByRole("combobox")).not.toHaveAttribute("aria-required", "true")
+    await user.click(screen.getByRole("combobox"))
+    expect(screen.getAllByRole("option").map((o) => o.textContent)).toContain("Sin especificar")
+  })
+
+  it("required: sin «Sin especificar», con la forma de pago pedida en el placeholder y aria-required", async () => {
+    usePaymentMethodsMock.mockReturnValue({ paymentMethods: METHODS, isLoading: false })
+    const user = userEvent.setup()
+
+    render(<PaymentMethodSelect value={null} onChange={vi.fn()} context="purchase" required />)
+
+    expect(screen.queryByText("(opcional)")).not.toBeInTheDocument()
+    expect(screen.getByText("Forma de pago")).toBeInTheDocument()
+    const trigger = screen.getByRole("combobox")
+    expect(trigger).toHaveAttribute("aria-required", "true")
+    expect(trigger).toHaveTextContent("Elegí la forma de pago")
+    expect(screen.queryByText("Sin especificar")).not.toBeInTheDocument()
+
+    await user.click(trigger)
+    const options = screen.getAllByRole("option").map((o) => o.textContent)
+    expect(options).not.toContain("Sin especificar")
+    expect(options).toEqual(["Efectivo", "Cuenta corriente", "Transferencia bancaria"])
+  })
+
+  it("required: elegir una forma de pago la reporta y muestra su nombre", async () => {
+    usePaymentMethodsMock.mockReturnValue({ paymentMethods: METHODS, isLoading: false })
+    const onChange = vi.fn()
+    const user = userEvent.setup()
+
+    const { rerender } = render(<PaymentMethodSelect value={null} onChange={onChange} context="purchase" required />)
+    await user.click(screen.getByRole("combobox"))
+    await user.click(screen.getByRole("option", { name: "Transferencia bancaria" }))
+    expect(onChange).toHaveBeenCalledWith("pm-transfer")
+
+    rerender(<PaymentMethodSelect value="pm-transfer" onChange={onChange} context="purchase" required />)
+    expect(screen.getByRole("combobox")).toHaveTextContent("Transferencia bancaria")
+  })
+
+  it("required respeta un label y un placeholder propios", () => {
+    usePaymentMethodsMock.mockReturnValue({ paymentMethods: METHODS, isLoading: false })
+
+    render(
+      <PaymentMethodSelect value={null} onChange={vi.fn()} required label="Cómo se paga" placeholder="Elegí cómo pagás" />,
+    )
+
+    expect(screen.getByText("Cómo se paga")).toBeInTheDocument()
+    expect(screen.getByRole("combobox")).toHaveTextContent("Elegí cómo pagás")
+  })
+})

@@ -63,15 +63,22 @@
 -- Corre en CI: KPI_Validation.yml ("Run presupuestos modulo gate").
 -- =============================================================================
 
-CREATE OR REPLACE FUNCTION pg_temp.pm_as(p_uid uuid) RETURNS void
+CREATE OR REPLACE FUNCTION pg_temp.pm_as(p_uid uuid, p_account uuid DEFAULT NULL) RETURNS void
 LANGUAGE plpgsql AS $f$
 BEGIN
   IF p_uid IS NULL THEN
     PERFORM set_config('request.jwt.claims', '', true);
     PERFORM set_config('request.jwt.claim.sub', '', true);
-  ELSE
+  ELSIF p_account IS NULL THEN
     PERFORM set_config('request.jwt.claims',
       json_build_object('sub', p_uid::text, 'role', 'authenticated')::text, true);
+    PERFORM set_config('request.jwt.claim.sub', p_uid::text, true);
+  ELSE
+    -- multiusuario-operativo (tanda A, D1): el token DECLARA la cuenta activa (claim
+    -- app_metadata.account_id, lo que emite el hook).
+    PERFORM set_config('request.jwt.claims',
+      json_build_object('sub', p_uid::text, 'role', 'authenticated',
+                        'app_metadata', json_build_object('account_id', p_account::text))::text, true);
     PERFORM set_config('request.jwt.claim.sub', p_uid::text, true);
   END IF;
 END;
@@ -510,7 +517,7 @@ BEGIN
   -- El maestro cambia después de cotizar: la edición re-congela.
   UPDATE public.products SET name = 'Gate PM Producto 1 (renombrado)', cost = 600 WHERE id = v_p1;
 
-  PERFORM pg_temp.pm_as(v_seller);
+  PERFORM pg_temp.pm_as(v_seller, v_account_a);
   v_result := public.rpc_update_quote(
     p_quote_id => v_q, p_expected_revision => 1, p_client_id => v_client_a2, p_branch_id => NULL,
     p_valid_until => v_today + 20, p_notes => NULL,
@@ -766,7 +773,7 @@ BEGIN
   -- ═══════════════════════════════════════════════════════════════════════
   v_fail_before := COALESCE(array_length(v_failures, 1), 0);
   SELECT COUNT(*) INTO v_n2 FROM public.quotes WHERE account_id = v_account_a;
-  PERFORM pg_temp.pm_as(v_cashier);
+  PERFORM pg_temp.pm_as(v_cashier, v_account_a);
   BEGIN
     PERFORM public.rpc_create_quote(v_client_a, NULL, NULL, NULL, jsonb_build_array(pg_temp.pm_line(v_p2, 1, 100, 100)));
     v_failures := v_failures || 'FAIL (g): el cashier no debía crear'::text;
@@ -804,7 +811,7 @@ BEGIN
       v_failures := v_failures || format('FAIL (g): cashier envía -> P0403, salió %s', v_state);
     END IF;
   END;
-  PERFORM pg_temp.pm_as(v_viewer);
+  PERFORM pg_temp.pm_as(v_viewer, v_account_a);
   BEGIN
     PERFORM public.rpc_create_quote(v_client_a, NULL, NULL, NULL, jsonb_build_array(pg_temp.pm_line(v_p2, 1, 100, 100)));
     v_failures := v_failures || 'FAIL (g): el viewer no debía crear'::text;
@@ -839,7 +846,7 @@ BEGIN
     v_failures := v_failures || 'FAIL (g): un rechazo por rol/tenencia dejó escrito un presupuesto'::text;
   END IF;
   -- El seller sí crea.
-  PERFORM pg_temp.pm_as(v_seller);
+  PERFORM pg_temp.pm_as(v_seller, v_account_a);
   v_result := public.rpc_create_quote(v_client_a, NULL, NULL, NULL, jsonb_build_array(pg_temp.pm_line(v_p2, 1, 100, 100)));
   IF v_result->>'id' IS NULL THEN
     v_failures := v_failures || 'FAIL (g): el seller debía poder crear'::text;
@@ -1017,7 +1024,7 @@ BEGIN
     GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE;
     IF v_state <> 'P0400' THEN v_failures := v_failures || format('FAIL (j): 366 días -> P0400, salió %s', v_state); END IF;
   END;
-  PERFORM pg_temp.pm_as(v_seller);
+  PERFORM pg_temp.pm_as(v_seller, v_account_a);
   BEGIN
     PERFORM public.rpc_set_default_quote_validity(v_account_a, 30);
     v_failures := v_failures || 'FAIL (j): el seller no debía cambiar la validez por defecto'::text;
@@ -1046,7 +1053,7 @@ BEGIN
   -- rechaza con P0403 sin tocar B; una cuenta que no es suya es P0404.
   INSERT INTO public.account_members (account_id, user_id, role) VALUES (v_account_b, v_owner_a, 'member') RETURNING id INTO v_member;
   INSERT INTO public.account_member_roles (account_id, member_id, role) VALUES (v_account_b, v_member, 'seller');
-  PERFORM pg_temp.pm_as(v_owner_a);
+  PERFORM pg_temp.pm_as(v_owner_a, v_account_a);
   PERFORM public.rpc_set_default_quote_validity(v_account_a, 40);
   IF (SELECT default_quote_validity_days FROM public.accounts WHERE id = v_account_a) <> 40 THEN
     v_failures := v_failures || 'FAIL (j): con dos membresías, el owner debía poder fijar la validez de SU cuenta A'::text;
@@ -1054,6 +1061,18 @@ BEGIN
   IF (SELECT default_quote_validity_days FROM public.accounts WHERE id = v_account_b) <> 15 THEN
     v_failures := v_failures || 'FAIL (j): con dos membresías, fijar la validez de A tocó la cuenta B'::text;
   END IF;
+  -- AJUSTE A PROPÓSITO (multiusuario-operativo, tanda A, D1): con A activa, B NO es la cuenta
+  -- activa y la RPC lo rechaza como una cuenta inexistente (P0404, indistinguible) — antes el
+  -- chequeo era "es una de mis membresías" y llegaba a P0403 por el rol. Para ejercitar el guard
+  -- DE ROL, el dueño de A trabaja en B (su token declara B): vendedor de B -> P0403, sin tocar B.
+  BEGIN
+    PERFORM public.rpc_set_default_quote_validity(v_account_b, 99);
+    v_failures := v_failures || 'FAIL (j): con A activa, apuntar a B (no activa) debía rechazarse'::text;
+  EXCEPTION WHEN OTHERS THEN
+    GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE;
+    IF v_state <> 'P0404' THEN v_failures := v_failures || format('FAIL (j): con A activa, B -> P0404, salió %s', v_state); END IF;
+  END;
+  PERFORM pg_temp.pm_as(v_owner_a, v_account_b);
   BEGIN
     PERFORM public.rpc_set_default_quote_validity(v_account_b, 99);
     v_failures := v_failures || 'FAIL (j): un vendedor de B no debía cambiar la validez de B'::text;
@@ -1061,6 +1080,7 @@ BEGIN
     GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE;
     IF v_state <> 'P0403' THEN v_failures := v_failures || format('FAIL (j): vendedor de B -> P0403, salió %s', v_state); END IF;
   END;
+  PERFORM pg_temp.pm_as(v_owner_a, v_account_a);
   BEGIN
     PERFORM public.rpc_set_default_quote_validity(gen_random_uuid(), 20);
     v_failures := v_failures || 'FAIL (j): una cuenta que no existe/no es suya debía fallar'::text;
@@ -1103,7 +1123,7 @@ BEGIN
   -- (n) Emisor comercial para un vendedor que no es el dueño
   -- ═══════════════════════════════════════════════════════════════════════
   v_fail_before := COALESCE(array_length(v_failures, 1), 0);
-  PERFORM pg_temp.pm_as(v_seller);
+  PERFORM pg_temp.pm_as(v_seller, v_account_a);
   BEGIN
     EXECUTE 'SET LOCAL ROLE authenticated';
     -- Con la lectura directa el perfil del dueño no es visible para el vendedor.

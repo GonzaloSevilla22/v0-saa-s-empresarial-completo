@@ -833,22 +833,30 @@ BEGIN
 END $$;
 
 
--- ═══════════════ (13) CUENTA AMBIGUA — usuario de DOS cuentas (F1, ronda 3) ═
--- Corrección de revisión: `ORDER BY cai` sumado SÓLO al guard (y no también
--- a la resolución de rpc_bulk_upsert_products) hacía que las dos
--- resoluciones DIVERGIERAN para un usuario multi-cuenta — regresión real
--- (P0401 sobre un owner legítimo), no el candidato documentado que se creyó.
--- Fix: la resolución vuelve a ser la MISMA consulta sin ORDER BY, MÁS un
--- rechazo explícito de la ambigüedad (P0403) cuando el usuario pertenece a
--- más de una cuenta — la importación en lote no tiene selector de cuenta.
+-- ═══════════════ (13) USUARIO DE DOS CUENTAS — importa SOBRE LA ACTIVA ═══════
+-- AJUSTE A PROPÓSITO (multiusuario-operativo, tanda A, D1): este bloque nació en la ronda 3
+-- (F1) para el defecto de entonces: `ORDER BY cai` sumado SÓLO al guard hacía divergir las dos
+-- resoluciones de cuenta, así que `rpc_import_products` RECHAZABA con P0403 `cuenta_ambigua` a
+-- quien pertenecía a más de una cuenta ("la importación en lote no tiene selector de cuenta").
+-- Ahora SÍ hay selector: `current_account_ids()` devuelve la cuenta ACTIVA (0 o 1 fila) —el
+-- claim del token o la preferencia/la más antigua—, el guard `cuenta_ambigua` queda inerte y el
+-- usuario de dos cuentas importa sobre la que tiene activa. Lo que este bloque protege sigue
+-- siendo lo mismo, en versión estricta: la importación escribe SOLO en la cuenta activa y en
+-- NINGUNA otra, y sin cuenta activa no escribe nada.
+--   (13)   claim = cuenta PROPIA  -> committed; +1 producto en la propia, la A intacta.
+--   (13-b) claim = cuenta A       -> committed; +1 en A, la propia intacta (el claim decide el destino).
+--   (13-c) claim = cuenta B (ajena, no es miembro) -> P0403 `sin_cuenta_activa`, cero escrituras en las tres.
 DO $$
 DECLARE
   v_user_multi     uuid;
   v_account_a      uuid;
+  v_account_b      uuid;
   v_account_own    uuid;
+  v_member_a       uuid;
   v_result         jsonb; v_rows jsonb;
   v_before_a       integer; v_after_a       integer;
   v_before_own     integer; v_after_own     integer;
+  v_before_b       integer; v_after_b       integer;
   v_raised         boolean := false;
 BEGIN
   SELECT id INTO v_user_multi FROM auth.users WHERE email = 'product-import-batch-multi@test.local';
@@ -863,46 +871,99 @@ BEGIN
   ORDER BY am_a.created_at
   LIMIT 1;
 
+  SELECT am_b.account_id INTO v_account_b
+  FROM auth.users u_b
+  JOIN public.account_members am_b ON am_b.user_id = u_b.id
+  WHERE u_b.email = 'product-import-batch-b@test.local'
+  ORDER BY am_b.created_at
+  LIMIT 1;
+
   SELECT account_id INTO v_account_own FROM public.account_members
    WHERE user_id = v_user_multi AND account_id IS DISTINCT FROM v_account_a
    LIMIT 1;
 
-  IF v_account_a IS NULL OR v_account_own IS NULL THEN
-    RAISE NOTICE 'GATE PRODUCT-IMPORT (13): setup incompleto (usuario no tiene dos membresías) — degradando.'; RETURN;
+  IF v_account_a IS NULL OR v_account_own IS NULL OR v_account_b IS NULL THEN
+    RAISE NOTICE 'GATE PRODUCT-IMPORT (13): setup incompleto (usuario no tiene dos membresías, o falta la cuenta B) — degradando.'; RETURN;
   END IF;
+
+  -- El setup sólo insertó la fila de account_members en A: para que sea ESCRITOR hace falta el rol
+  -- en el pivot (is_account_writer lee el pivot, v3-rbac-multirole).
+  SELECT id INTO v_member_a FROM public.account_members WHERE user_id = v_user_multi AND account_id = v_account_a;
+  INSERT INTO public.account_member_roles (account_id, member_id, role)
+  VALUES (v_account_a, v_member_a, 'owner')
+  ON CONFLICT (member_id, role) DO NOTHING;
 
   PERFORM set_config('request.jwt.claims', json_build_object('sub', v_user_multi::text, 'role', 'authenticated')::text, true);
   IF auth.uid() IS DISTINCT FROM v_user_multi THEN RAISE NOTICE 'GATE PRODUCT-IMPORT (13): auth.uid() no resuelve — degradando.'; RETURN; END IF;
 
+  -- ── (13) claim = cuenta PROPIA ───────────────────────────────────────────
+  PERFORM set_config('request.jwt.claims',
+    json_build_object('sub', v_user_multi::text, 'role', 'authenticated',
+                      'app_metadata', json_build_object('account_id', v_account_own::text))::text, true);
   SELECT COUNT(*) INTO v_before_a   FROM public.products WHERE account_id = v_account_a;
   SELECT COUNT(*) INTO v_before_own FROM public.products WHERE account_id = v_account_own;
+  SELECT COUNT(*) INTO v_before_b   FROM public.products WHERE account_id = v_account_b;
 
-  v_rows := jsonb_build_array(jsonb_build_object('row_no', 1, 'name', '__gate_pib_multi_intento__', 'price', 10));
+  v_rows := jsonb_build_array(jsonb_build_object('row_no', 1, 'name', '__gate_pib_multi_propia__', 'price', 10));
+  v_result := public.rpc_import_products(
+    'gate-pib-13-' || gen_random_uuid()::text, v_rows,
+    'gate-pib-13.csv', 'gate-pib-13-hash-' || gen_random_uuid()::text
+  );
+  IF (v_result->>'committed')::boolean IS DISTINCT FROM true THEN
+    RAISE EXCEPTION 'GATE PRODUCT-IMPORT FAILED (13): un usuario de DOS cuentas con la propia activa debía poder importar (ya no hay cuenta ambigua). Resultado: %', v_result;
+  END IF;
+  SELECT COUNT(*) INTO v_after_a   FROM public.products WHERE account_id = v_account_a;
+  SELECT COUNT(*) INTO v_after_own FROM public.products WHERE account_id = v_account_own;
+  SELECT COUNT(*) INTO v_after_b   FROM public.products WHERE account_id = v_account_b;
+  IF v_after_own <> v_before_own + 1 OR v_after_a <> v_before_a OR v_after_b <> v_before_b THEN
+    RAISE EXCEPTION 'GATE PRODUCT-IMPORT FAILED (13): con la cuenta propia activa debía escribir SOLO ahí (+1): propia % -> %, A % -> %, B % -> %.', v_before_own, v_after_own, v_before_a, v_after_a, v_before_b, v_after_b;
+  END IF;
 
+  -- ── (13-b) claim = cuenta A: el claim decide el destino ──────────────────
+  PERFORM set_config('request.jwt.claims',
+    json_build_object('sub', v_user_multi::text, 'role', 'authenticated',
+                      'app_metadata', json_build_object('account_id', v_account_a::text))::text, true);
+  v_before_a := v_after_a; v_before_own := v_after_own;
+  v_rows := jsonb_build_array(jsonb_build_object('row_no', 1, 'name', '__gate_pib_multi_negocio__', 'price', 10));
+  v_result := public.rpc_import_products(
+    'gate-pib-13b2-' || gen_random_uuid()::text, v_rows,
+    'gate-pib-13b2.csv', 'gate-pib-13b2-hash-' || gen_random_uuid()::text
+  );
+  IF (v_result->>'committed')::boolean IS DISTINCT FROM true THEN
+    RAISE EXCEPTION 'GATE PRODUCT-IMPORT FAILED (13-b): con la cuenta A activa debía poder importar. Resultado: %', v_result;
+  END IF;
+  SELECT COUNT(*) INTO v_after_a   FROM public.products WHERE account_id = v_account_a;
+  SELECT COUNT(*) INTO v_after_own FROM public.products WHERE account_id = v_account_own;
+  IF v_after_a <> v_before_a + 1 OR v_after_own <> v_before_own THEN
+    RAISE EXCEPTION 'GATE PRODUCT-IMPORT FAILED (13-b): con A activa debía escribir SOLO en A (+1): A % -> %, propia % -> %.', v_before_a, v_after_a, v_before_own, v_after_own;
+  END IF;
+
+  -- ── (13-c) claim = cuenta B (ajena): sin cuenta activa, cero escrituras ──
+  PERFORM set_config('request.jwt.claims',
+    json_build_object('sub', v_user_multi::text, 'role', 'authenticated',
+                      'app_metadata', json_build_object('account_id', v_account_b::text))::text, true);
+  v_before_a := v_after_a; v_before_own := v_after_own;
+  SELECT COUNT(*) INTO v_before_b FROM public.products WHERE account_id = v_account_b;
+  v_rows := jsonb_build_array(jsonb_build_object('row_no', 1, 'name', '__gate_pib_multi_ajena__', 'price', 10));
   BEGIN
     v_result := public.rpc_import_products(
-      'gate-pib-13-' || gen_random_uuid()::text, v_rows,
-      'gate-pib-13.csv', 'gate-pib-13-hash-' || gen_random_uuid()::text
+      'gate-pib-13b3-' || gen_random_uuid()::text, v_rows,
+      'gate-pib-13b3.csv', 'gate-pib-13b3-hash-' || gen_random_uuid()::text
     );
   EXCEPTION WHEN SQLSTATE 'P0403' THEN
     v_raised := true;
   END;
-
   IF NOT v_raised THEN
-    RAISE EXCEPTION 'GATE PRODUCT-IMPORT FAILED (13): un usuario miembro de DOS cuentas pudo invocar rpc_import_products sin P0403 (cuenta ambigua).';
+    RAISE EXCEPTION 'GATE PRODUCT-IMPORT FAILED (13-c): un claim de una cuenta de la que NO es miembro debía dar P0403 (sin cuenta activa) y no cayó en ese rechazo.';
   END IF;
-
   SELECT COUNT(*) INTO v_after_a   FROM public.products WHERE account_id = v_account_a;
   SELECT COUNT(*) INTO v_after_own FROM public.products WHERE account_id = v_account_own;
-
-  IF v_after_a <> v_before_a THEN
-    RAISE EXCEPTION 'GATE PRODUCT-IMPORT FAILED (13): products de la cuenta A pasó de % a % — el guard de ambigüedad tiene que cortar ANTES de escribir en NINGUNA cuenta.', v_before_a, v_after_a;
-  END IF;
-  IF v_after_own <> v_before_own THEN
-    RAISE EXCEPTION 'GATE PRODUCT-IMPORT FAILED (13): products de la cuenta propia pasó de % a % — mismo motivo.', v_before_own, v_after_own;
+  SELECT COUNT(*) INTO v_after_b   FROM public.products WHERE account_id = v_account_b;
+  IF v_after_a <> v_before_a OR v_after_own <> v_before_own OR v_after_b <> v_before_b THEN
+    RAISE EXCEPTION 'GATE PRODUCT-IMPORT FAILED (13-c): el rechazo tiene que cortar ANTES de escribir en NINGUNA cuenta: A % -> %, propia % -> %, B % -> %.', v_before_a, v_after_a, v_before_own, v_after_own, v_before_b, v_after_b;
   END IF;
 
-  RAISE NOTICE 'PASS (13): un usuario de DOS cuentas no puede importar (P0403, cuenta ambigua), cero escrituras en ninguna de las dos.';
+  RAISE NOTICE 'PASS (13): un usuario de DOS cuentas importa SOLO sobre la activa (propia o A según el claim), y con un claim ajeno corta en P0403 sin escribir en ninguna.';
 END $$;
 
 

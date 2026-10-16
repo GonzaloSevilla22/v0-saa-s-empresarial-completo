@@ -235,3 +235,63 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS (6): supabase_auth_admin conserva EXECUTE sobre el hook (mitad positiva) y anon/authenticated siguen sin poder ejecutarlo.';
 END $$;
+
+
+-- ── (7) multiusuario-operativo tanda A (D3/D4): el hook DECLARA la cuenta ───────
+-- AJUSTE A PROPÓSITO de este gate: el hook ya no tiene su propio `ORDER BY created_at, id
+-- LIMIT 1`; resuelve la cuenta con resolve_active_account (la preferencia del usuario si sigue
+-- siendo una membresía; si no, la más antigua) y emite `app_metadata.account_id` junto con
+-- `account_role`, `account_roles` y `plan` DE ESA MISMA cuenta. Un usuario de DOS cuentas es el
+-- caso que importa: los roles y el plan tienen que ser los de la cuenta del claim, no los de
+-- "la primera". El detalle completo (RLS, RPCs, agregados) vive en
+-- test_multiusuario_cuenta_activa.sql; acá se fija el contrato del hook dentro del gate propio.
+DO $$
+DECLARE
+  v_user       uuid := gen_random_uuid();
+  v_owner      uuid := gen_random_uuid();
+  v_personal   uuid;
+  v_business   uuid;
+  v_member_biz uuid;
+  v_out        jsonb;
+BEGIN
+  INSERT INTO auth.users (id, aud, role, email, created_at, updated_at, raw_user_meta_data) VALUES
+    (v_user,  'authenticated', 'authenticated', 'v3-rbac-hook-gate-7a@test.local', now(), now(), '{"name":"Hook7 U"}'::jsonb),
+    (v_owner, 'authenticated', 'authenticated', 'v3-rbac-hook-gate-7b@test.local', now(), now(), '{"name":"Hook7 O"}'::jsonb);
+  SELECT account_id INTO v_personal FROM public.account_members WHERE user_id = v_user;
+  SELECT account_id INTO v_business FROM public.account_members WHERE user_id = v_owner;
+
+  -- La personal es la más antigua; el negocio, posterior, con un rol funcional distinto.
+  UPDATE public.account_members SET created_at = now() - interval '2 days' WHERE user_id = v_user;
+  INSERT INTO public.account_members (account_id, user_id, role, created_at)
+  VALUES (v_business, v_user, 'member', now() - interval '1 day') RETURNING id INTO v_member_biz;
+  INSERT INTO public.account_member_roles (account_id, member_id, role) VALUES (v_business, v_member_biz, 'cashier');
+
+  -- Sin preferencia: la más antigua (la personal), con SUS roles.
+  v_out := public.custom_access_token_hook(jsonb_build_object('user_id', v_user, 'claims', '{}'::jsonb));
+  IF (v_out #>> '{claims,app_metadata,account_id}') IS DISTINCT FROM v_personal::text
+     OR v_out #> '{claims,app_metadata,account_roles}' <> '["owner"]'::jsonb THEN
+    RAISE EXCEPTION 'GATE CUSTOM-ACCESS-TOKEN-HOOK-ACCOUNT-ROLES FAILED (7a): sin preferencia el hook debía emitir la cuenta más antigua (%) con ["owner"], emitió %', v_personal, v_out;
+  END IF;
+
+  -- Con la preferencia en el negocio: account_id, roles y plan son los del NEGOCIO.
+  UPDATE public.profiles SET active_account_id = v_business WHERE id = v_user;
+  v_out := public.custom_access_token_hook(jsonb_build_object('user_id', v_user, 'claims', '{}'::jsonb));
+  IF (v_out #>> '{claims,app_metadata,account_id}') IS DISTINCT FROM v_business::text
+     OR v_out #> '{claims,app_metadata,account_roles}' <> '["cashier"]'::jsonb THEN
+    RAISE EXCEPTION 'GATE CUSTOM-ACCESS-TOKEN-HOOK-ACCOUNT-ROLES FAILED (7b): con la preferencia en el negocio el hook debía emitir su cuenta (%) con ["cashier"], emitió %', v_business, v_out;
+  END IF;
+  IF (v_out #>> '{claims,app_metadata,plan}') IS DISTINCT FROM public.get_effective_plan(v_business) THEN
+    RAISE EXCEPTION 'GATE CUSTOM-ACCESS-TOKEN-HOOK-ACCOUNT-ROLES FAILED (7c): el plan emitido debía ser el de la cuenta del claim (%), fue %', public.get_effective_plan(v_business), v_out #>> '{claims,app_metadata,plan}';
+  END IF;
+
+  -- Limpieza.
+  DELETE FROM public.account_member_roles WHERE member_id = v_member_biz;
+  DELETE FROM public.account_members WHERE user_id IN (v_user, v_owner);
+  SET session_replication_role = replica;
+  DELETE FROM public.accounts WHERE id IN (v_personal, v_business);
+  SET session_replication_role = DEFAULT;
+  DELETE FROM public.profiles WHERE id IN (v_user, v_owner);
+  DELETE FROM public.email_logs WHERE user_id IN (v_user, v_owner);
+  DELETE FROM auth.users WHERE id IN (v_user, v_owner);
+  RAISE NOTICE 'PASS (7): el hook emite account_id (la cuenta activa) junto con los roles y el plan de ESA cuenta, sin y con preferencia.';
+END $$;

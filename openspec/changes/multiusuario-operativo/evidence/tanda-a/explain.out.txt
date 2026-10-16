@@ -1,0 +1,124 @@
+Pager usage is off.
+BEGIN
+CREATE TABLE
+psql:<stdin>:28: NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=87d16774-9bce-4453-adbe-ac689c3cc17c
+psql:<stdin>:28: NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=ac8f5f8c-f75b-4501-99c4-4f5288c2d2c6
+DO
+ANALYZE
+ANALYZE
+ANALYZE
+ANALYZE
+ANALYZE
+CREATE TABLE
+CREATE FUNCTION
+ xp_run 
+--------
+ 
+(1 row)
+
+ xp_run 
+--------
+ 
+(1 row)
+
+                                                                      set_config                                                                      
+------------------------------------------------------------------------------------------------------------------------------------------------------
+ {"sub" : "582c2b3d-48d1-4613-b376-15b62d9802e3", "role" : "authenticated", "app_metadata" : {"account_id" : "b1ee335b-8a3c-403f-8b4a-1d75f23068bf"}}
+(1 row)
+
+=== EXPLAIN ANALYZE DESPUES: ventas_lista_50 (con claim) ===
+SET
+                                 QUERY PLAN                                  
+-----------------------------------------------------------------------------
+ Limit (actual time=8.353..8.360 rows=50 loops=1)
+   Buffers: shared hit=366
+   ->  Sort (actual time=8.351..8.354 rows=50 loops=1)
+         Sort Key: sales.date DESC
+         Sort Method: top-N heapsort  Memory: 28kB
+         Buffers: shared hit=366
+         ->  Seq Scan on sales (actual time=0.120..5.847 rows=20000 loops=1)
+               Filter: (ANY (account_id = (hashed SubPlan 1).col1))
+               Rows Removed by Filter: 25
+               Buffers: shared hit=366
+               SubPlan 1
+                 ->  ProjectSet (actual time=0.100..0.101 rows=1 loops=1)
+                       Buffers: shared hit=1
+                       ->  Result (actual time=0.000..0.001 rows=1 loops=1)
+ Planning Time: 0.106 ms
+ Execution Time: 8.406 ms
+(16 rows)
+
+RESET
+=== EXPLAIN ANALYZE DESPUES: dashboard_financials_30d (con claim) ===
+SET
+                                      QUERY PLAN                                       
+---------------------------------------------------------------------------------------
+ Function Scan on get_dashboard_financials (actual time=23.466..23.467 rows=1 loops=1)
+   Buffers: shared hit=35066
+ Planning Time: 0.026 ms
+ Execution Time: 23.538 ms
+(4 rows)
+
+RESET
+CREATE FUNCTION
+ xp_run 
+--------
+ 
+(1 row)
+
+       fase        |         consulta         | ms_mediana | ms_p95 
+-------------------+--------------------------+------------+--------
+ antes             | current_account_ids_sola |      0.130 |  0.298
+ despues_con_claim | current_account_ids_sola |      0.070 |  0.087
+ despues_sin_claim | current_account_ids_sola |      0.601 |  1.064
+ antes             | dashboard_financials_30d |     24.956 | 27.887
+ despues_con_claim | dashboard_financials_30d |     25.051 | 30.290
+ despues_sin_claim | dashboard_financials_30d |     29.992 | 39.363
+ antes             | ventas_conteo            |      5.582 |  7.176
+ despues_con_claim | ventas_conteo            |      5.420 |  7.152
+ despues_sin_claim | ventas_conteo            |      7.667 | 13.110
+ antes             | ventas_lista_50          |      7.354 |  9.741
+ despues_con_claim | ventas_lista_50          |      7.836 |  9.080
+ despues_sin_claim | ventas_lista_50          |      9.783 | 14.657
+(12 rows)
+
+=== EXPLAIN ANALYZE ANTES: ventas_lista_50 (current_account_ids anterior) ===
+                                 set_config                                 
+----------------------------------------------------------------------------
+ {"sub" : "582c2b3d-48d1-4613-b376-15b62d9802e3", "role" : "authenticated"}
+(1 row)
+
+SET
+                                 QUERY PLAN                                  
+-----------------------------------------------------------------------------
+ Limit (actual time=8.521..8.531 rows=50 loops=1)
+   Buffers: shared hit=366
+   ->  Sort (actual time=8.519..8.524 rows=50 loops=1)
+         Sort Key: sales.date DESC
+         Sort Method: top-N heapsort  Memory: 28kB
+         Buffers: shared hit=366
+         ->  Seq Scan on sales (actual time=0.195..6.041 rows=20000 loops=1)
+               Filter: (ANY (account_id = (hashed SubPlan 1).col1))
+               Rows Removed by Filter: 25
+               Buffers: shared hit=366
+               SubPlan 1
+                 ->  ProjectSet (actual time=0.170..0.177 rows=1 loops=1)
+                       Buffers: shared hit=1
+                       ->  Result (actual time=0.000..0.001 rows=1 loops=1)
+ Planning Time: 0.096 ms
+ Execution Time: 8.580 ms
+(16 rows)
+
+RESET
+=== EXPLAIN ANALYZE ANTES: dashboard_financials_30d ===
+SET
+                                      QUERY PLAN                                       
+---------------------------------------------------------------------------------------
+ Function Scan on get_dashboard_financials (actual time=23.723..23.724 rows=1 loops=1)
+   Buffers: shared hit=35066
+ Planning Time: 0.029 ms
+ Execution Time: 23.746 ms
+(4 rows)
+
+RESET
+ROLLBACK

@@ -1466,6 +1466,62 @@ jobs:
           fi
           echo "20261081000001 idempotente: preflight 1+3 y 0+4, introspección OK, cuerpos de la compra y del payload presentes y schema IDÉNTICO al previo a este paso."
 
+          # multiusuario-operativo TANDA A (2026-10-16, governance CRÍTICO): reaplicación de
+          # 20261082000001 AL FINAL de la cadena. Redefine `current_account_ids()` —la cuenta
+          # ACTIVA, 0 o 1 fila: el claim `app_metadata.account_id` validado contra la membresía o
+          # el resolver canónico— y reescribe `custom_access_token_hook`,
+          # `rpc_my_active_account_roles`, `rpc_my_effective_plan`, `rpc_atomic_log_ai_insight` y
+          # `set_insight_account_id`; suma `resolve_active_account`, `rpc_set_active_account`,
+          # `rpc_my_accounts` y la columna `profiles.active_account_id`. Idempotente: ADD COLUMN
+          # IF NOT EXISTS, CREATE INDEX IF NOT EXISTS, CREATE OR REPLACE con firmas fijas (sin
+          # overload, sin 42725), REVOKE/GRANT/COMMENT re-emitidos. No amplía ningún CHECK.
+          #
+          # El preflight de la migración exige que cada cuerpo sea el de partida (md5 de producción)
+          # o el suyo. Para este punto de la cadena el reset de reconvergencia ya reconstruyó la base
+          # con la historia completa, que incluye esta migración en su orden: la PRIMERA pasada ve
+          # los 6 cuerpos ya reaplicados, y la SEGUNDA, igual. SIN tolerancia. schema_snapshot() no
+          # compara cuerpos: por eso se re-consultan.
+          #
+          # REGLA PARA EL PR SIGUIENTE: una migración posterior que redefina cualquiera de estas
+          # seis funciones tiene que partir del cuerpo VIVO (preflight por md5) y retirar o
+          # rebasar este paso en el mismo PR. Los changes que reescriben cuerpos de operaciones
+          # (tanda B de multiusuario-operativo, edicion-operaciones-con-dinero) NO tocan estas seis.
+          MCA_OUT1=$(psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261082000001_multiusuario_cuenta_activa.sql 2>&1) || { echo "$MCA_OUT1"; echo "ERROR: el reapply de 20261082000001 falló (sin tolerancia)."; exit 1; }
+          echo "$MCA_OUT1"
+          if ! echo "$MCA_OUT1" | grep -qF '0 cuerpos de partida verificados por md5, 6 ya reaplicados'; then
+            echo "ERROR: la primera pasada de 20261082000001 debía ver los 6 cuerpos ya reaplicados (el reset de reconvergencia incluye la migración)."
+            exit 1
+          fi
+          MCA_OUT2=$(psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261082000001_multiusuario_cuenta_activa.sql 2>&1) || { echo "$MCA_OUT2"; echo "ERROR: la segunda pasada de 20261082000001 falló (sin tolerancia)."; exit 1; }
+          echo "$MCA_OUT2"
+          if ! echo "$MCA_OUT2" | grep -qF '0 cuerpos de partida verificados por md5, 6 ya reaplicados'; then
+            echo "ERROR: la segunda pasada de 20261082000001 debía ver los 6 cuerpos ya reaplicados."
+            exit 1
+          fi
+          if ! echo "$MCA_OUT2" | grep -qF 'multiusuario-operativo tanda A (introspecci'; then
+            echo "ERROR: el reapply de 20261082000001 no imprimió el OK de su bloque de introspección."
+            exit 1
+          fi
+          MCA_BODIES=$(psql -tA "$DSN" -c "SELECT
+              (SELECT prosrc FROM pg_proc WHERE oid = 'public.custom_access_token_hook(jsonb)'::regprocedure) LIKE '%resolve_active_account(v_user_id)%'
+              AND (SELECT prosrc FROM pg_proc WHERE oid = 'public.custom_access_token_hook(jsonb)'::regprocedure) LIKE '%custom_access_token_hook degradado%'
+              AND (SELECT prosrc FROM pg_proc WHERE oid = 'public.current_account_ids()'::regprocedure) LIKE '%app_metadata%'
+              AND (SELECT prosrc FROM pg_proc WHERE oid = 'public.current_account_ids()'::regprocedure) LIKE '%resolve_active_account(v_uid)%'
+              AND (SELECT prosrc FROM pg_proc WHERE oid = 'public.rpc_my_effective_plan()'::regprocedure) LIKE '%current_account_ids()%'
+              AND (SELECT prosrc FROM pg_proc WHERE oid = 'public.rpc_my_active_account_roles()'::regprocedure) LIKE '%current_account_ids()%'
+              AND (SELECT prosrc FROM pg_proc WHERE oid = 'public.set_insight_account_id()'::regprocedure) LIKE '%resolve_active_account(NEW.user_id)%'")
+          if [ "$MCA_BODIES" != "t" ]; then
+            echo "ERROR: después de reaplicar 20261082000001, los cuerpos de multiusuario-operativo tanda A no quedaron (hook con resolver canónico y degradación; current_account_ids con claim + resolver; los tres criterios alineados)."
+            exit 1
+          fi
+          schema_snapshot > /tmp/schema_after_mca_reapply.txt
+          if ! diff -u /tmp/schema_before_reapply.txt /tmp/schema_after_mca_reapply.txt > /tmp/schema_diff_mca.txt; then
+            echo "NOT IDEMPOTENT: reaplicar 20261082000001 cambió el schema (constraints + firmas de función + ACLs):"
+            cat /tmp/schema_diff_mca.txt
+            exit 1
+          fi
+          echo "20261082000001 idempotente: 0+6 en las dos pasadas, introspección OK, cuerpos presentes y schema IDÉNTICO al previo a este paso."
+
       # -v ON_ERROR_STOP=1 is required: without it psql prints RAISE EXCEPTION
       # errors but still exits 0, so failing assertions show green in CI.
       - name: Run deterministic KPI tests
@@ -3294,3 +3350,24 @@ jobs:
       # test_is_account_writer_pivot.sql (43/17 -> 45/18).
       - name: Run documentos marca empresa gate
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_documentos_marca_empresa.sql
+      # multiusuario-operativo TANDA A (20261082000001, governance CRÍTICO): una sola cuenta
+      # activa por usuario, la misma en la base, el token y las RPCs. Este paso EJECUTA, como
+      # `authenticated` con `request.jwt.claims` armado a mano (el mecanismo de PostgREST y de
+      # `get_db_conn`), un usuario de UNA cuenta (no regresión de los 41 de hoy) y uno de DOS
+      # (su personal, la más antigua, y la del negocio donde es vendedor): (a) con y sin claim ve
+      # exactamente su cuenta, (b) la preferencia `profiles.active_account_id` gana sobre la más
+      # antigua y una preferencia inválida se ignora, (c) `rpc_set_active_account` cambia la cuenta
+      # y una ajena da P0404 indistinguible de una inexistente, (d) el claim del token gana sobre la
+      # preferencia, (e) un claim de una cuenta ajena o revocada devuelve CERO filas y nunca cae a
+      # otra, (f) el hook emite `account_id`, roles y plan de la cuenta activa y conserva su
+      # degradación, (g) la RLS bajo SET LOCAL ROLE muestra sólo la activa, (h) el Tablero y la
+      # comparación de períodos no suman la otra cuenta, (i) R3j/R3l: el POS y la venta de servicio
+      # quedan en la activa, (j) el gasto, (k) el import ya no dice `cuenta_ambigua`, (l)-(o) roles,
+      # plan, insights y selector, (p) `get_account_ids_for_user` no cambia y (s) la ACL del
+      # resolver (sólo supabase_auth_admin), la columna de privilegio y el barrido por convención
+      # (ninguna función de public mantiene un criterio propio de cuenta activa). Corre dentro de
+      # BEGIN..ROLLBACK: residuo cero. Ajusta a propósito, además: el hook (claim account_id),
+      # test_accounts_privilege_columns.sql (la columna nueva) y test_kpis_edge_cases.sql (4.5a: el
+      # miembro declara la cuenta A; el agregado ya no mezcla cuentas).
+      - name: Run multiusuario cuenta activa gate
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_multiusuario_cuenta_activa.sql

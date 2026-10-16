@@ -182,7 +182,10 @@ interface PaymentMethodSupportTextProps {
  * PR #452) TAMBIÉN postea el cargo en la cuenta corriente del proveedor —
  * exige proveedor (qa-integral-modulos G10/H8: el texto viejo decía que la
  * etiqueta era inocua mientras el saldo del proveedor subía de verdad).
- * Compra — 'cash': sigue sin mover caja (sin opt-in del lado compra).
+ * Compra — 'cash': desde caja-compras-cobranzas (#485) SÍ mueve la caja bajo
+ * opt-in PRE-MARCADO, con las mismas tres condiciones que venta y gasto
+ * (remitos-compra tanda B, humo 8.3: el texto viejo decía "No genera ningún
+ * movimiento de caja" justo arriba del checkbox "Registrar en caja" tildado).
  */
 export function PaymentMethodSupportText({ kind, context, id }: PaymentMethodSupportTextProps) {
   // pos-banco-movimientos: la etiqueta bancaria dice lo que hace — el texto
@@ -246,21 +249,25 @@ export function PaymentMethodSupportText({ kind, context, id }: PaymentMethodSup
         </p>
       )
     }
+    // remitos-compra tanda B (humo 8.3): la compra en efectivo también arranca PRE-MARCADA
+    // (caja-compras-cobranzas D4) — misma fórmula "salvo que destildes…" que gasto y cobro.
+    if (context === "purchase") {
+      return (
+        <p id={id} className="text-xs text-muted-foreground">
+          Al crear la compra, el egreso se registra en la caja abierta, salvo que destildes "Registrar
+          en caja". Sólo si hay una sesión abierta hoy en la sucursal.
+        </p>
+      )
+    }
     return (
       <p id={id} className="text-xs text-muted-foreground">
-        {context === "sale" ? (
-          <>
-            El{" "}
-            <Link href="/ventas/pos" className="underline underline-offset-2 hover:opacity-80">
-              POS
-            </Link>{" "}
-            registra el movimiento de caja automáticamente. Desde este formulario podés optar por
-            registrarlo también, tildando "Registrar en caja" — sólo si hay una sesión abierta hoy
-            en la sucursal.
-          </>
-        ) : (
-          "Esta etiqueta registra cómo se pagó. No genera ningún movimiento de caja."
-        )}
+        El{" "}
+        <Link href="/ventas/pos" className="underline underline-offset-2 hover:opacity-80">
+          POS
+        </Link>{" "}
+        registra el movimiento de caja automáticamente. Desde este formulario podés optar por
+        registrarlo también, tildando "Registrar en caja" — sólo si hay una sesión abierta hoy
+        en la sucursal.
       </p>
     )
   }

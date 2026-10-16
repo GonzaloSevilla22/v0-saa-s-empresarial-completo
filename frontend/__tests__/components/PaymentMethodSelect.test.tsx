@@ -104,12 +104,28 @@ describe("PaymentMethodSelect", () => {
     expect(link).toHaveAttribute("href", "/ventas/pos")
   })
 
-  it("pagos-cableados-restantes (OQ-E): el texto de apoyo de 'cash' en compra aclara que NO mueve caja (alcance recortado)", () => {
+  it("remitos-compra tanda B (humo 8.3): el texto de apoyo de 'cash' en compra dice que SÍ se registra en caja, con su opt-in y su condición", () => {
+    // Desde caja-compras-cobranzas (#485) la compra en efectivo mueve la caja bajo opt-in
+    // PRE-MARCADO: el texto viejo ("No genera ningún movimiento de caja") quedó mintiendo justo
+    // arriba del checkbox "Registrar en caja" tildado, en el formulario de compra y en el
+    // diálogo que pasa un remito a compra.
     usePaymentMethodsMock.mockReturnValue({ paymentMethods: METHODS, isLoading: false })
 
     render(<PaymentMethodSelect value="pm-cash" onChange={vi.fn()} context="purchase" />)
 
-    expect(screen.getByText(/No genera ningún movimiento de caja/i)).toBeInTheDocument()
+    expect(screen.queryByText(/No genera ningún movimiento de caja/i)).not.toBeInTheDocument()
+    expect(screen.getByText(/se registra en la caja abierta/i)).toBeInTheDocument()
+    expect(screen.getByText(/salvo que destildes "Registrar en caja"/i)).toBeInTheDocument()
+    expect(screen.getByText(/sesión abierta hoy en la sucursal/i)).toBeInTheDocument()
+  })
+
+  it("el texto de apoyo de 'cash' en compra es distinto del de venta (no habla del POS) y del de gasto (no habla de otro bolsillo)", () => {
+    usePaymentMethodsMock.mockReturnValue({ paymentMethods: METHODS, isLoading: false })
+
+    render(<PaymentMethodSelect value="pm-cash" onChange={vi.fn()} context="purchase" />)
+
+    expect(screen.queryByRole("link", { name: "POS" })).not.toBeInTheDocument()
+    expect(screen.queryByText(/otro bolsillo/i)).not.toBeInTheDocument()
   })
 
   it("no muestra texto de apoyo para 'transfer' (sin efecto declarado que aclarar)", () => {

@@ -26,6 +26,8 @@ const updateExpenseMock = vi.fn().mockResolvedValue(undefined)
 let paymentMethodsMock: Array<{ id: string; name: string; kind: string; isActive: boolean }> = []
 let currentSessionMock: { id: string } | null = null
 let bankAccountsMock: Array<{ id: string; name: string; isActive: boolean; accountKind: string }> = []
+// caja-optin-carga: mientras es true las consultas de caja/sesión están sin resolver.
+let cashLoadingMock = false
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
 vi.mock("@/hooks/data/use-expenses-query", () => ({
@@ -43,7 +45,9 @@ vi.mock("@/hooks/data/use-bank-accounts", () => ({
 vi.mock("@/hooks/data/use-branches", () => ({
   useBranches: () => ({ branches: [{ id: "branch-1", name: "Sucursal 1" }] }),
 }))
-vi.mock("@/hooks/data/use-cashboxes", () => ({ useCashboxes: () => ({ data: [{ id: "cashbox-1" }] }) }))
+vi.mock("@/hooks/data/use-cashboxes", () => ({
+  useCashboxes: () => ({ data: cashLoadingMock ? undefined : [{ id: "cashbox-1" }], isLoading: cashLoadingMock }),
+}))
 vi.mock("@/hooks/data/use-cash-session", () => ({
   useCurrentSession: () => ({ data: currentSessionMock, isLoading: false }),
 }))
@@ -111,6 +115,7 @@ afterEach(() => {
   paymentMethodsMock = []
   currentSessionMock = null
   bankAccountsMock = []
+  cashLoadingMock = false
 })
 
 describe("ExpenseForm — selector de forma de pago (10.1/10.2)", () => {
@@ -368,5 +373,101 @@ describe("ExpenseForm — edición (D11/D13)", () => {
     expect(payload).toMatchObject({ id: "exp-1", paymentMethodId: "pm-transfer" })
     expect("cashSessionId" in payload).toBe(false)
     expect("bankAccountId" in payload).toBe(false)
+  })
+})
+
+// ── caja-optin-carga ─────────────────────────────────────────────────────────
+// Caso real (humo de remitos-compra tanda B, 2026-10-16): confirmar un gasto en
+// efectivo ANTES de que carguen las cajas y la sesión mandaba cashSessionId=null
+// y el gasto se registraba SIN movimiento de caja, en silencio (el opt-in nace
+// PRE-MARCADO: el usuario no tilda nada, asume que va a caja).
+describe("ExpenseForm — caja cargando (caja-optin-carga)", () => {
+  it("efectivo con la caja cargando: avisa «Verificando la caja…» y NO deja confirmar", () => {
+    paymentMethodsMock = [PM_CASH]
+    cashLoadingMock = true
+    render(<ExpenseForm onSuccess={vi.fn()} />)
+    fireEvent.click(screen.getByTestId("pm-option-pm-cash"))
+
+    expect(screen.getByRole("status")).toHaveTextContent("Verificando la caja…")
+    expect(screen.getByRole("button", { name: /registrar gasto/i })).toBeDisabled()
+    expect(screen.queryByText(/no hay caja abierta/i)).not.toBeInTheDocument()
+  })
+
+  it("aunque el submit llegue igual (Enter), NO se registra el gasto sin caja mientras carga", async () => {
+    paymentMethodsMock = [PM_CASH]
+    cashLoadingMock = true
+    const { container } = render(<ExpenseForm onSuccess={vi.fn()} />)
+    await fillRequired()
+    fireEvent.click(screen.getByTestId("pm-option-pm-cash"))
+
+    fireEvent.submit(container.querySelector("form") as HTMLFormElement)
+
+    await new Promise((r) => setTimeout(r, 50))
+    expect(addExpenseMock).not.toHaveBeenCalled()
+  })
+
+  it("al resolver CON sesión: se habilita y el gasto sale con la sesión pre-marcada", async () => {
+    paymentMethodsMock = [PM_CASH]
+    cashLoadingMock = true
+    const { rerender } = render(<ExpenseForm onSuccess={vi.fn()} />)
+    await fillRequired()
+    fireEvent.click(screen.getByTestId("pm-option-pm-cash"))
+    expect(screen.getByRole("button", { name: /registrar gasto/i })).toBeDisabled()
+
+    cashLoadingMock = false
+    currentSessionMock = { id: "session-resuelta-1" }
+    rerender(<ExpenseForm onSuccess={vi.fn()} />)
+
+    expect(screen.queryByRole("status")).not.toBeInTheDocument()
+    expect(screen.getByRole("checkbox")).toHaveAttribute("data-state", "checked")
+    fireEvent.click(screen.getByRole("button", { name: /registrar gasto/i }))
+    await waitFor(() => expect(addExpenseMock).toHaveBeenCalled())
+    expect(addExpenseMock.mock.calls[0][0]).toMatchObject({ cashSessionId: "session-resuelta-1" })
+  })
+
+  it("al resolver SIN sesión: se habilita (no bloquea para siempre) y el gasto sale sin caja", async () => {
+    paymentMethodsMock = [PM_CASH]
+    cashLoadingMock = true
+    const { rerender } = render(<ExpenseForm onSuccess={vi.fn()} />)
+    await fillRequired()
+    fireEvent.click(screen.getByTestId("pm-option-pm-cash"))
+    expect(screen.getByRole("button", { name: /registrar gasto/i })).toBeDisabled()
+
+    cashLoadingMock = false
+    currentSessionMock = null
+    rerender(<ExpenseForm onSuccess={vi.fn()} />)
+
+    expect(screen.getByText(/no hay caja abierta/i)).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /registrar gasto/i })).toBeEnabled()
+    fireEvent.click(screen.getByRole("button", { name: /registrar gasto/i }))
+    await waitFor(() => expect(addExpenseMock).toHaveBeenCalled())
+    expect(addExpenseMock.mock.calls[0][0].cashSessionId).toBeNull()
+  })
+
+  it("forma de pago que no es efectivo: no hay espera de caja", () => {
+    paymentMethodsMock = [PM_OTHER]
+    cashLoadingMock = true
+    render(<ExpenseForm onSuccess={vi.fn()} />)
+    fireEvent.click(screen.getByTestId("pm-option-pm-other"))
+
+    expect(screen.queryByRole("status")).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /registrar gasto/i })).toBeEnabled()
+  })
+
+  it("edición: no hay caja que esperar (no se ofrece) — el botón de guardar no queda bloqueado", () => {
+    paymentMethodsMock = [PM_CASH]
+    cashLoadingMock = true
+    render(
+      <ExpenseForm
+        onSuccess={vi.fn()}
+        initialData={{
+          id: "exp-1", date: argentinaToday(), category: "Servicios", description: "Luz",
+          amount: 100, paymentMethodId: "pm-cash", branchId: null, costCenterId: null,
+        } as never}
+      />,
+    )
+
+    expect(screen.queryByRole("status")).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /guardar cambios/i })).toBeEnabled()
   })
 })

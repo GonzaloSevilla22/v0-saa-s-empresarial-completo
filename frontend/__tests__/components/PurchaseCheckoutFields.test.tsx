@@ -44,9 +44,11 @@ function checkoutState(over: Partial<PurchaseCheckoutState> = {}): PurchaseCheck
       cashboxId: null,
       session: null,
       eligible: false,
+      isLoading: false,
       reason: "Sólo un pago en efectivo puede registrarse en la caja.",
     },
     showCashBlock: false,
+    cashPending: false,
     registerInCash: true,
     setRegisterInCash: vi.fn(),
     cashSessionId: null,
@@ -138,7 +140,7 @@ describe("PurchaseCheckoutFields — opt-in de caja", () => {
     showCashBlock: true,
     cash: {
       isCashSelected: true, isDateToday: true, effectiveBranchId: "branch-1", cashboxId: "cb-1",
-      session: { id: "abcdef12-0000-0000-0000-000000000000" } as never, eligible: true, reason: "",
+      session: { id: "abcdef12-0000-0000-0000-000000000000" } as never, eligible: true, isLoading: false, reason: "",
     },
   })
 
@@ -163,7 +165,7 @@ describe("PurchaseCheckoutFields — opt-in de caja", () => {
         showCashBlock: true,
         cash: {
           isCashSelected: true, isDateToday: true, effectiveBranchId: "branch-1", cashboxId: null,
-          session: null, eligible: false, reason: "No hay caja abierta en esta sucursal — el efectivo no se registrará en el arqueo.",
+          session: null, eligible: false, isLoading: false, reason: "No hay caja abierta en esta sucursal — el efectivo no se registrará en el arqueo.",
         },
       }),
     })
@@ -297,5 +299,55 @@ describe("PurchaseCheckoutFields — slots del formulario", () => {
     const slot = screen.getByTestId("slot-before-credit")
     const saldo = within(container).getByText(/Saldo actual:/)
     expect(slot.compareDocumentPosition(saldo) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+})
+
+// caja-optin-carga — el bloque de caja de la compra avisa la espera.
+describe("PurchaseCheckoutFields — caja cargando (caja-optin-carga)", () => {
+  it("con el bloque de caja visible y la sesión cargando: «Verificando la caja…» como estado, sin checkbox ni «no hay caja»", () => {
+    renderFields({
+      checkout: checkoutState({
+        kind: "cash",
+        showCashBlock: true,
+        cashPending: true,
+        cash: {
+          isCashSelected: true,
+          isDateToday: true,
+          effectiveBranchId: "branch-1",
+          cashboxId: null,
+          session: null,
+          eligible: false,
+          isLoading: true,
+          reason: "No hay caja abierta en esta sucursal — el efectivo no se registrará en el arqueo.",
+        },
+      }),
+    })
+
+    expect(screen.getByRole("status")).toHaveTextContent("Verificando la caja…")
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument()
+    expect(screen.queryByText(/no hay caja abierta/i)).not.toBeInTheDocument()
+  })
+
+  it("resuelta con sesión: el checkbox reemplaza al aviso y respeta el valor pre-marcado", () => {
+    renderFields({
+      checkout: checkoutState({
+        kind: "cash",
+        showCashBlock: true,
+        registerInCash: true,
+        cash: {
+          isCashSelected: true,
+          isDateToday: true,
+          effectiveBranchId: "branch-1",
+          cashboxId: "cashbox-1",
+          session: { id: "session-abcdef123456" } as never,
+          eligible: true,
+          isLoading: false,
+          reason: "",
+        },
+      }),
+    })
+
+    expect(screen.queryByRole("status")).not.toBeInTheDocument()
+    expect(screen.getByRole("checkbox")).toHaveAttribute("data-state", "checked")
   })
 })

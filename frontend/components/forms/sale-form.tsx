@@ -40,7 +40,6 @@ import { Plus, UserPlus, ShoppingCart, CalendarIcon, AlertCircle } from "lucide-
 import { toast } from "sonner"
 import { BranchSelect } from "@/components/branches/BranchSelect"
 import { PaymentMethodSelect, BankAccountDestinationSelect } from "@/components/payment-methods/PaymentMethodSelect"
-import { Checkbox } from "@/components/ui/checkbox"
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -51,6 +50,7 @@ import { humanizeOperationError } from "@/lib/operation-errors"
 import { useRouter } from "next/navigation"
 import { useCustomerAccount } from "@/hooks/data/use-customer-account"
 import { useBranches } from "@/hooks/data/use-branches"
+import { CashOptinBlock } from "@/components/cash/CashOptinBlock"
 import { useCashOptin } from "@/hooks/use-cash-optin"
 
 interface SaleFormProps {
@@ -256,7 +256,9 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
   // silencio).
   const currentSession = cashOptin.session
   const cashOptinEligible = cashOptin.eligible
-  const cashOptinReason = cashOptin.reason
+  // caja-optin-carga: en el alta en efectivo, no se confirma mientras se averigua
+  // la sesión. En la edición no se ofrece caja, así que no se espera.
+  const cashPending = !isEdit && isCashSelected && cashOptin.isLoading
 
   const cartTotal = useMemo(() => calcCartTotal(cartItems), [cartItems])
 
@@ -397,6 +399,10 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
   /** El submit real, sin el paso de confirmación (lo comparten el submit
    * directo y el botón "Guardar y anular" del AlertDialog). */
   async function submitOperation() {
+    // caja-optin-carga: defensa en profundidad — el botón ya está deshabilitado
+    // mientras se averigua la sesión, pero un submit por otra vía (Enter) no
+    // puede registrar la venta en efectivo a ciegas.
+    if (cashPending) return
     if (cartItems.length === 0) {
       toast.error("Agregá al menos un producto al carrito")
       return
@@ -610,7 +616,7 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
               type="submit"
               ref={submitButtonRef}
               className="w-full"
-              disabled={submitting || cartItems.length === 0 || isFiscallyLocked}
+              disabled={submitting || cartItems.length === 0 || isFiscallyLocked || cashPending}
               aria-disabled={isFiscallyLocked}
               aria-describedby={
                 isFiscallyLocked
@@ -843,26 +849,14 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
               El checkbox SÓLO aparece cuando las tres condiciones de
               servidor se cumplen (kind=cash + sesión abierta en la sucursal
               efectiva + fecha=hoy) — si no, se explica el motivo (D4: nunca
-              se oculta en silencio, y nunca se marca solo). */}
+              se oculta en silencio, y nunca se marca solo). Mientras se averigua
+              la sesión (caja-optin-carga) se avisa y «Confirmar» espera. */}
           {!isEdit && isCashSelected && (
-            <div className="flex flex-col gap-1.5 rounded-md border border-border bg-accent/20 px-3 py-2 text-xs">
-              {cashOptinEligible ? (
-                <label className="flex items-center gap-2 cursor-pointer text-foreground">
-                  <Checkbox
-                    checked={registerInCash}
-                    onCheckedChange={(v) => setRegisterInCash(v === true)}
-                  />
-                  <span>
-                    Registrar en caja — sesión {currentSession?.id.slice(0, 8)}…
-                  </span>
-                </label>
-              ) : (
-                <div className="flex items-center gap-2 text-muted-foreground">
-                  <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-                  <span>{cashOptinReason}</span>
-                </div>
-              )}
-            </div>
+            <CashOptinBlock
+              cash={cashOptin}
+              registerInCash={registerInCash}
+              onRegisterInCashChange={setRegisterInCash}
+            />
           )}
         </div>
 

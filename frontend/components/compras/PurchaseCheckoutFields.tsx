@@ -35,7 +35,7 @@
 import type { ReactNode } from "react"
 import { useId } from "react"
 import { AlertCircle, CalendarIcon } from "lucide-react"
-import { Checkbox } from "@/components/ui/checkbox"
+import { CashOptinBlock } from "@/components/cash/CashOptinBlock"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { CostCenterSelect } from "@/components/cost-centers/CostCenterSelect"
@@ -155,24 +155,14 @@ export function PurchaseCheckoutFields({
           Las tres condiciones las verifica el servidor; acá se muestran para que el
           usuario no descubra el bloqueo con un error. Cuando no aplican, el motivo
           se muestra: nunca se oculta en silencio. Sólo en el alta (D8: la compra con
-          caja posteada es inmutable). */}
+          caja posteada es inmutable). Mientras se averigua la sesión
+          (caja-optin-carga) se avisa y quien confirma espera: `checkout.cashPending`. */}
       {checkout.showCashBlock && (
-        <div className="flex flex-col gap-1.5 rounded-md border border-border bg-accent/20 px-3 py-2 text-xs">
-          {checkout.cash.eligible ? (
-            <label className="flex items-center gap-2 cursor-pointer text-foreground">
-              <Checkbox
-                checked={checkout.registerInCash}
-                onCheckedChange={(v) => checkout.setRegisterInCash(v === true)}
-              />
-              <span>Registrar en caja — sesión {checkout.cash.session?.id.slice(0, 8)}…</span>
-            </label>
-          ) : (
-            <div role="note" className="flex items-center gap-2 text-muted-foreground">
-              <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-              <span>{checkout.cash.reason}</span>
-            </div>
-          )}
-        </div>
+        <CashOptinBlock
+          cash={checkout.cash}
+          registerInCash={checkout.registerInCash}
+          onRegisterInCashChange={checkout.setRegisterInCash}
+        />
       )}
 
       {beforeCredit}

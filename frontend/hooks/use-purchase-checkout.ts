@@ -52,6 +52,13 @@ export interface PurchaseCheckoutState {
   cash: CashOptinState
   /** Se muestra el bloque «Registrar en caja»: forma de pago en efectivo y no es una edición. */
   showCashBlock: boolean
+  /**
+   * `caja-optin-carga`: se ofrece la caja (alta en efectivo) pero todavía se está
+   * averiguando si hay sesión abierta. Mientras sea `true` NO se puede confirmar:
+   * la sesión viajaría `null` y la compra en efectivo se registraría sin
+   * movimiento de caja, en silencio. En la edición nunca es `true` (no hay caja).
+   */
+  cashPending: boolean
   /** Intención del usuario: arranca PRE-MARCADA (caja-compras-cobranzas D4). */
   registerInCash: boolean
   setRegisterInCash: (value: boolean) => void
@@ -84,6 +91,7 @@ export function usePurchaseCheckout({
   const cash = useCashOptin({ kind, branchId, date, document: "compra" })
   const [registerInCash, setRegisterInCash] = useState(true)
   const showCashBlock = !isEdit && cash.isCashSelected
+  const cashPending = showCashBlock && cash.isLoading
   const cashSessionId = !isEdit && cash.eligible && registerInCash ? (cash.session?.id ?? null) : null
 
   const { data: supplierAccount } = useSupplierAccount(isCredit ? (supplierId || null) : null)
@@ -94,6 +102,7 @@ export function usePurchaseCheckout({
     isCredit,
     cash,
     showCashBlock,
+    cashPending,
     registerInCash,
     setRegisterInCash,
     cashSessionId,

@@ -131,3 +131,50 @@ describe("SaleCheckoutFields — sucursal", () => {
     expect(screen.getByTestId("bank-select")).toBeInTheDocument()
   })
 })
+
+// caja-optin-carga — el motivo de bloqueo mientras se averigua la sesión es un aviso de
+// ESPERA (spinner, sin enlace a /caja), no la advertencia de «abrí la caja».
+describe("SaleCheckoutFields — caja cargando (caja-optin-carga)", () => {
+  const loadingCheckout = {
+    ...checkout,
+    block: "cash_loading",
+    blockedReason: "Verificando la caja…",
+  } as unknown as SaleCheckoutState
+
+  it("muestra «Verificando la caja…» como estado, con un spinner y SIN el enlace «Ir a Caja»", () => {
+    const { container } = render(
+      <SaleCheckoutFields
+        branchId="b-1"
+        onBranchChange={vi.fn()}
+        paymentMethodId="pm-cash"
+        onPaymentMethodChange={vi.fn()}
+        bankAccountId={null}
+        onBankAccountChange={vi.fn()}
+        clientId="c-1"
+        checkout={loadingCheckout}
+      />,
+    )
+
+    expect(screen.getByRole("status")).toHaveTextContent("Verificando la caja…")
+    expect(screen.queryByRole("link", { name: /ir a caja/i })).not.toBeInTheDocument()
+    expect(container.querySelector("svg.animate-spin")).not.toBeNull()
+  })
+
+  it("el bloqueo «abrí la caja» (ya resuelto, sin sesión) conserva el enlace a /caja y la advertencia", () => {
+    const { container } = render(
+      <SaleCheckoutFields
+        branchId="b-1"
+        onBranchChange={vi.fn()}
+        paymentMethodId="pm-cash"
+        onPaymentMethodChange={vi.fn()}
+        bankAccountId={null}
+        onBankAccountChange={vi.fn()}
+        clientId="c-1"
+        checkout={{ ...checkout, block: "cash_session", blockedReason: "Abrí la caja de esta sucursal." } as unknown as SaleCheckoutState}
+      />,
+    )
+
+    expect(screen.getByRole("link", { name: /ir a caja/i })).toHaveAttribute("href", "/caja")
+    expect(container.querySelector("svg.animate-spin")).toBeNull()
+  })
+})

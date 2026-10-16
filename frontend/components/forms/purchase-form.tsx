@@ -563,6 +563,10 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+    // caja-optin-carga: defensa en profundidad — el botón ya está deshabilitado
+    // mientras se averigua la sesión, pero un submit por otra vía (Enter) no
+    // puede registrar la compra en efectivo sin caja a ciegas.
+    if (checkout.cashPending) return
     if (cartItems.length === 0) {
       toast.error("Agregá al menos un producto al carrito")
       return
@@ -716,7 +720,7 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
             <Button
               type="submit"
               className="w-full"
-              disabled={submitting || cartItems.length === 0 || submitBlockedNoSupplier}
+              disabled={submitting || cartItems.length === 0 || submitBlockedNoSupplier || checkout.cashPending}
             >
               {submitting
                 ? isEdit ? "Guardando..." : "Registrando..."

@@ -32,7 +32,7 @@
  */
 
 import Link from "next/link"
-import { AlertCircle } from "lucide-react"
+import { AlertCircle, Loader2 } from "lucide-react"
 import { Label } from "@/components/ui/label"
 import { BranchSelect } from "@/components/branches/BranchSelect"
 import { BankAccountDestinationSelect, PaymentMethodSelect } from "@/components/payment-methods/PaymentMethodSelect"
@@ -122,7 +122,13 @@ export function SaleCheckoutFields({
           role="status"
           className="flex items-start gap-3 rounded-lg border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-foreground"
         >
-          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-warning" aria-hidden="true" />
+          {checkout.block === "cash_loading" ? (
+            // caja-optin-carga: es una ESPERA (se está averiguando la sesión), no
+            // una advertencia: spinner y sin enlace a /caja.
+            <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-muted-foreground" aria-hidden="true" />
+          ) : (
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-warning" aria-hidden="true" />
+          )}
           <div className="flex min-w-0 flex-col gap-1">
             <p id={SALE_CHECKOUT_REASON_ID}>{checkout.blockedReason}</p>
             {checkout.block === "cash_session" && (

@@ -250,6 +250,55 @@ describe("remito de compra — los literales compartidos hablan de compra y de e
     expect(message).not.toMatch(/vendedor/i)
   })
 
+  // remitos-compra (tanda B, 7.7, D11): el borrado de la compra nacida de un remito y el puente.
+  it("delivery_note_purchase_delete_forbidden: borrar la compra reabre el remito y exige administrador o dueño", () => {
+    const { message } = humanizeOperationError(
+      "delivery_note_purchase_delete_forbidden: borrar esta compra reabre el remito RC-00000012 y lo deja anulable: requiere administrador o dueño",
+      undefined,
+      null,
+      PURCHASE,
+    )
+    expect(message).toMatch(/administrador o dueño/i)
+    expect(message).toMatch(/reabre el remito/i)
+    expect(message).toMatch(/no se (eliminó|borró) nada/i)
+    expect(message).not.toMatch(/delivery_note_purchase_delete_forbidden/)
+  })
+
+  it("delivery_note_purchase_delete_forbidden se traduce también sin contexto (el borrado no pasa por un remito)", () => {
+    const { message } = humanizeOperationError("delivery_note_purchase_delete_forbidden: borrar esta compra reabre el remito")
+    expect(message).toMatch(/administrador o dueño/i)
+  })
+
+  it("delivery_note_branch_inactive al borrar la compra: reactivar la sucursal ANTES de eliminarla", () => {
+    const { message } = humanizeOperationError(
+      "delivery_note_branch_inactive: la sucursal del remito RC-00000012 está desactivada o cerrada — reactivala antes de eliminar la compra",
+      undefined,
+      null,
+      PURCHASE,
+    )
+    expect(message).toMatch(/sucursal del remito/i)
+    expect(message).toMatch(/reactivala/i)
+    expect(message).toMatch(/eliminar su compra/i)
+  })
+
+  it("delivery_note_source_protected: el origen de remito de una compra no se escribe a mano", () => {
+    const { message } = humanizeOperationError(
+      "delivery_note_source_protected: el origen de remito de una compra lo escribe sólo la conversión del remito",
+      undefined,
+      null,
+      PURCHASE,
+    )
+    expect(message).toMatch(/convertir el remito/i)
+    expect(message).toMatch(/no se guardó nada/i)
+    expect(message).not.toMatch(/delivery_note_source_protected/)
+  })
+
+  it("delivery_note_source_protected se traduce también sin contexto (llega desde /compras)", () => {
+    const { message } = humanizeOperationError("delivery_note_source_protected: una compra nacida de un remito no se modifica")
+    expect(message).toMatch(/remito/i)
+    expect(message).not.toMatch(/delivery_note_source_protected/)
+  })
+
   it("branch_closed: no se guardó nada (no se registró 'la venta')", () => {
     const { message } = humanizeOperationError("branch_closed", undefined, null, PURCHASE)
     expect(message).toMatch(/sucursal del remito/i)

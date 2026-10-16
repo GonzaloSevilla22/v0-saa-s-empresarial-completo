@@ -88,7 +88,12 @@
 - Recibir **suma stock**; editar ajusta sólo lo que cambia (bloquea bajar lo ya vendido); anular (admin/owner, con motivo) lo resta y se bloquea si la mercadería ya se consumió.
 - `/remitos/[id]`: PDF "Remito de compra" sin precios por defecto con "Mostrar precios", descarga y WhatsApp al teléfono del proveedor.
 - Desde `/proveedores` y la cuenta corriente del proveedor: "Nuevo remito de compra" y "Ver remitos". Los movimientos se rotulan "Remito RC-…" en `/stock` y su CSV; la baja de proveedor o de sucursal con remitos pendientes se bloquea.
-- Botón "Compra" (conversión a compra) y badge en `/compras`: tanda B, pendiente.
+
+### Remitos de compra a compra (`remitos-compra`, tanda B)
+
+- `/remitos/[id]`: botón **Compra** (stock, purchases, admin y owner; sólo con el remito pendiente) abre "Pasar a compra": proveedor y sucursal fijos, forma de pago obligatoria, cuenta bancaria destino, "Registrar en caja" pre-marcado con efectivo y caja abierta, y a crédito el saldo del proveedor y el vencimiento (plazo del proveedor, editable). **El stock no vuelve a subir** (la línea fija lo dice). Deshabilitado, con el motivo a la vista, si falta algún precio o el proveedor fue dado de baja. Convertido: "Ver compra".
+- `/compras`: badge "Desde remito RC-…" con enlace, "Editar" bloqueado con el motivo del remito y, al borrar, la aclaración de que el remito se reabre y el stock no se toca; "Eliminar" deshabilitado con su motivo para quien no puede anular remitos o si la sucursal del remito está inactiva.
+- Aviso contra la doble suma en "Nueva compra" (con un proveedor con remitos pendientes) y en la revisión de la Factura IA, con el enlace a los remitos pendientes.
 
 ---
 

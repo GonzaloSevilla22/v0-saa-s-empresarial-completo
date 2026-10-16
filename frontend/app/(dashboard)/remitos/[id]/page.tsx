@@ -9,8 +9,7 @@
  * de" / "Ingresa a"), los avisos de estado, el destinatario de WhatsApp (el
  * teléfono del proveedor) y los permisos de cada acción (`CAN_RECEIVE_PURCHASE`
  * edita, `CAN_VOID_DELIVERY_NOTE` anula). Todos los textos que dependen del sentido
- * salen de `DELIVERY_NOTE_TEXTS`. En la tanda A "Compra" (la conversión) no se
- * muestra: la agrega la tanda B con `conversionEnabled`.
+ * salen de `DELIVERY_NOTE_TEXTS`.
  *
  * Las acciones por estado y rol salen de `deliveryNoteActions` (la matriz de
  * D11), con el rol decidido por `hasCapability` sobre el CONJUNTO de roles:
@@ -18,7 +17,11 @@
  *  - `issued`: compartir, editar (`CAN_DELIVER_SALE`), "Venta" (`CAN_SELL`:
  *    abre `ConvertDeliveryNoteDialog`, la conversión atómica en venta; el stock NO
  *    se vuelve a descontar) y anular (`CAN_VOID_DELIVERY_NOTE`). Con el cliente
- *    dado de baja "Venta" queda deshabilitada y el motivo se ve debajo.
+ *    dado de baja "Venta" queda deshabilitada y el motivo se ve debajo. En un remito
+ *    de COMPRA el botón es "Compra" (`CAN_CONVERT_PURCHASE_DELIVERY_NOTE`: abre
+ *    `ConvertPurchaseDeliveryNoteDialog`; el stock NO se vuelve a sumar) y queda
+ *    deshabilitado, con el motivo debajo, si falta un precio o el proveedor fue
+ *    dado de baja.
  *  - `converted`: compartir y ver la venta, con la leyenda "para corregirlo,
  *    eliminá la venta: el remito vuelve a quedar pendiente"; si la venta ya
  *    tiene comprobante autorizado, la de la nota de crédito (D9).
@@ -35,13 +38,14 @@
 import { useCallback, useRef, useState } from "react"
 import Link from "next/link"
 import { useParams } from "next/navigation"
-import { ArrowLeft, Ban, Pencil, ShoppingCart } from "lucide-react"
+import { ArrowLeft, Ban, Pencil, ShoppingBag, ShoppingCart } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { CancelDeliveryNoteDialog } from "@/components/delivery-notes/CancelDeliveryNoteDialog"
 import { ConvertDeliveryNoteDialog } from "@/components/delivery-notes/ConvertDeliveryNoteDialog"
+import { ConvertPurchaseDeliveryNoteDialog } from "@/components/delivery-notes/ConvertPurchaseDeliveryNoteDialog"
 import { DELIVERY_NOTE_PAGE_TEXTS } from "@/components/delivery-notes/delivery-note-page-texts"
 import { DeliveryNoteStatusBadge } from "@/components/delivery-notes/DeliveryNoteStatusBadge"
 import { FiscalInvoiceSummary } from "@/components/fiscal/FiscalInvoiceSummary"
@@ -72,7 +76,7 @@ import {
   hasCapability,
 } from "@/lib/rbac-capabilities"
 
-const SALE_LEGEND_ID = "delivery-note-sale-legend"
+const CONVERT_REASON_ID = "delivery-note-convert-reason"
 
 function formatDateTime(iso: string): string {
   return new Date(iso).toLocaleString("es-AR", {
@@ -100,8 +104,8 @@ export default function DeliveryNoteDetailPage() {
   const cancelButtonRef = useRef<HTMLButtonElement>(null)
   useRestoreFocus(cancelOpen, cancelButtonRef)
   const [convertOpen, setConvertOpen] = useState(false)
-  const saleButtonRef = useRef<HTMLButtonElement>(null)
-  useRestoreFocus(convertOpen, saleButtonRef)
+  const convertButtonRef = useRef<HTMLButtonElement>(null)
+  useRestoreFocus(convertOpen, convertButtonRef)
 
   const fetchPdf = useCallback(
     (disposition: PdfDisposition) => fetchDeliveryNotePdf(deliveryNoteId, disposition, showPrices),
@@ -123,8 +127,7 @@ export default function DeliveryNoteDetailPage() {
     clientDeleted: note.client_deleted,
     supplierDeleted: note.supplier_deleted,
     missingPriceCount: note.missing_price_count,
-    // La conversión en compra llega con la tanda B; la de venta ya existe.
-    conversionEnabled: !isPurchase,
+    conversionEnabled: true,
     saleInvoiced: generatedFiscal?.status === "authorized",
   })
 
@@ -299,18 +302,22 @@ export default function DeliveryNoteDetailPage() {
                 </Link>
               </Button>
             )}
-            {actions.convert.visible && !isPurchase && (
+            {actions.convert.visible && (
               <Button
-                ref={saleButtonRef}
+                ref={convertButtonRef}
                 type="button"
                 size="sm"
                 className="gap-1.5"
                 disabled={actions.convert.disabledReason !== null}
-                aria-describedby={actions.convert.disabledReason ? SALE_LEGEND_ID : undefined}
+                aria-describedby={actions.convert.disabledReason ? CONVERT_REASON_ID : undefined}
                 onClick={() => setConvertOpen(true)}
               >
-                <ShoppingCart className="h-4 w-4" aria-hidden="true" />
-                Venta
+                {isPurchase ? (
+                  <ShoppingBag className="h-4 w-4" aria-hidden="true" />
+                ) : (
+                  <ShoppingCart className="h-4 w-4" aria-hidden="true" />
+                )}
+                {isPurchase ? "Compra" : "Venta"}
               </Button>
             )}
             {actions.viewSale && note.converted_sales_order_id && (
@@ -339,7 +346,7 @@ export default function DeliveryNoteDetailPage() {
           </div>
         </div>
         {actions.convert.disabledReason && (
-          <p id={SALE_LEGEND_ID} className="text-xs text-muted-foreground">
+          <p id={CONVERT_REASON_ID} className="text-xs text-muted-foreground">
             {actions.convert.disabledReason}
           </p>
         )}
@@ -422,13 +429,18 @@ export default function DeliveryNoteDetailPage() {
         </ul>
       </section>
 
-      {/* ── Pasar a venta ──
+      {/* ── Pasar a venta / a compra ──
           Se mantiene montado mientras esté abierto: al convertir, el remito pasa a
-          `converted` (y deja de ofrecer "Venta"), pero el diálogo tiene que seguir
-          ahí para mostrar "Venta registrada" hasta que el usuario lo cierre. Sólo
-          se monta al abrirlo: no pide formas de pago ni cajas en cada carga del
-          detalle. */}
-      {convertOpen && !isPurchase && <ConvertDeliveryNoteDialog deliveryNote={note} open={convertOpen} onOpenChange={setConvertOpen} />}
+          `converted` (y deja de ofrecer "Venta" / "Compra"), pero el diálogo tiene que
+          seguir ahí para mostrar "Venta registrada" / "Compra registrada" hasta que el
+          usuario lo cierre. Sólo se monta al abrirlo: no pide formas de pago ni cajas
+          en cada carga del detalle. */}
+      {convertOpen &&
+        (isPurchase ? (
+          <ConvertPurchaseDeliveryNoteDialog deliveryNote={note} open={convertOpen} onOpenChange={setConvertOpen} />
+        ) : (
+          <ConvertDeliveryNoteDialog deliveryNote={note} open={convertOpen} onOpenChange={setConvertOpen} />
+        ))}
 
       {/* ── Anular ── */}
       {actions.cancel && <CancelDeliveryNoteDialog deliveryNote={note} open={cancelOpen} onOpenChange={setCancelOpen} />}

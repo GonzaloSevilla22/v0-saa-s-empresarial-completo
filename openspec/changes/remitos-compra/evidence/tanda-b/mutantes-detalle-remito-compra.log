@@ -1,0 +1,10 @@
+baseline: exit 0
+D1 la conversión sigue deshabilitada para compra: MUERTO
+D2 el botón de compra abre el diálogo de VENTA: MUERTO
+D3 el botón se llama siempre 'Venta': MUERTO
+D4 el motivo deshabilitado no se asocia al botón: MUERTO
+D5 el diálogo se monta sin que se haya abierto: MUERTO
+D6 el diálogo se desmonta al pasar a convertido: MUERTO
+D7 la capacidad de compra es la de venta: MUERTO
+sobrevivientes: ninguno
+exit 0

@@ -41,6 +41,22 @@ describe("SourceDocumentBadge", () => {
     expect(screen.getByRole("link", { name: "Desde remito" })).toHaveAttribute("href", "/remitos/dn-old")
   })
 
+  // remitos-compra (tanda B, 7.7): el remito de COMPRA se rotula con RC, nunca con la R de venta, y
+  // comparte el mismo componente (sin un badge gemelo).
+  it("remito de compra: 'Desde remito RC-00000007' con enlace a /remitos/<id> y el mismo ícono de Remitos", () => {
+    const { container } = render(<SourceDocumentBadge kind="purchase_delivery_note" documentId="dn-5" documentNumber={7} />)
+    const link = screen.getByRole("link", { name: "Desde remito RC-00000007" })
+    expect(link).toHaveAttribute("href", "/remitos/dn-5")
+    expect(link).toHaveAttribute("title", "Desde remito RC-00000007")
+    expect(container.querySelector("svg.lucide-package-check")).not.toBeNull()
+    expect(screen.queryByRole("link", { name: /R-00000007$/ })).not.toBeInTheDocument()
+  })
+
+  it("remito de compra sin número: enlaza igual y no inventa uno", () => {
+    render(<SourceDocumentBadge kind="purchase_delivery_note" documentId="dn-old" documentNumber={null} />)
+    expect(screen.getByRole("link", { name: "Desde remito" })).toHaveAttribute("href", "/remitos/dn-old")
+  })
+
   it("seguir el enlace no propaga el click ni la tecla a la fila clickeable que lo contiene", () => {
     const onRowClick = vi.fn()
     const onRowKey = vi.fn()

@@ -1,0 +1,10 @@
+OPTIONS ["Elegí la forma de pago","Efectivo","Transferencia bancaria","Tarjeta","Billetera virtual","Cuenta corriente","Otro","Cheque"]
+DLG Pasar a venta |  | R-00000001 · Cliente Demo QA |  | Alfajor artesanal× 2 | $ 1.000 | Total a cobrar | $ 1.000 |  | El stock ya se descontó al emitir el remito R-00000001: esta venta no lo vuelve a descontar. |  | Sucursal |  | Casa Central |  | Forma de pago | Otro | Cancelar | Registrar venta | Close
+PASS  (venta-b) convertir en venta por la UI: remito convertido  -> converted
+PASS  (venta-b) la conversión NO vuelve a descontar stock  -> 171->171
+PASS  (venta-b) existe la venta con origen en el remito  -> 5fa1c16e-f741-4c45-aa55-ead256b30bc7
+PASS  (venta-b) borrar la venta nacida del remito: 204  -> 204 null
+PASS  (venta-b) el remito vuelve a pendiente y el stock sigue descontado (sin reposición)  -> issued stock 171->171
+PASS  (venta-b) presupuesto: se crea (201)  -> 201
+PASS  (venta-b) presupuesto: se comparte (descarga del PDF)  -> presupuesto-P-00000001.pdf
+RESUMEN venta-b: 7/7 PASS

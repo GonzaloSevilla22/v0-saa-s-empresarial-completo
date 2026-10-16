@@ -6,6 +6,7 @@ import { pythonClient } from "@/lib/api/python-client"
 import { queryKeys } from "@/lib/query-keys"
 import type { Purchase } from "@/lib/types"
 import type { PurchaseCartItem } from "@/lib/cart-utils"
+import { invalidateAfterPurchaseCreate, invalidateAfterPurchaseDelete } from "@/lib/query-invalidation"
 import {
   buildPaginationMeta,
   type PaginationMeta,
@@ -49,6 +50,12 @@ interface PurchaseApiRow {
   // resueltos en el mismo query del backend (LEFT JOIN suppliers).
   supplier_id?: string | null
   supplier_name?: string | null
+  // remitos-compra (tanda B, D11/D13): el remito de compra que originó la compra,
+  // la sucursal viva del remito (predicado del borrado) y el motivo de no edición.
+  source_delivery_note_id?: string | null
+  source_delivery_note_number?: number | null
+  source_delivery_note_branch_active?: boolean | null
+  edit_locked_reason?: string | null
 }
 
 interface PurchasesPageResponse {
@@ -92,6 +99,10 @@ function mapPurchase(p: PurchaseApiRow): Purchase {
     isDeleteBlocked:  p.is_delete_blocked  ?? false,
     supplierId:   p.supplier_id   ?? null,
     supplierName: p.supplier_name ?? null,
+    sourceDeliveryNoteId:           p.source_delivery_note_id ?? null,
+    sourceDeliveryNoteNumber:       p.source_delivery_note_number ?? null,
+    sourceDeliveryNoteBranchActive: p.source_delivery_note_branch_active ?? null,
+    editLockedReason:               p.edit_locked_reason ?? null,
   }
 }
 
@@ -239,21 +250,17 @@ export function usePurchases() {
       })
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.purchases.all() })
-      queryClient.invalidateQueries({ queryKey: queryKeys.products.all() })
-      // fix-supplier-account-ui-post-delete (bug 1): una compra a crédito
-      // postea un cargo en supplierAccounts — sin esto la cuenta corriente
-      // del proveedor queda stale (staleTime 30s en useSupplierAccount).
-      queryClient.invalidateQueries({ queryKey: queryKeys.supplierAccounts.all() })
-      // cobranzas-vencimientos (task 8.7): la compra a crédito crea deuda.
-      queryClient.invalidateQueries({ queryKey: queryKeys.payables.all() })
-      // caja-compras-cobranzas (task 10.5): la compra en efectivo puede
-      // haber descontado de la caja — sin esto el arqueo y el historial de
-      // /caja quedan stale. NO se bumpea el refreshToken de
-      // LedgerMovementsPanel (estado local de /caja y /banco, que no están
-      // montados desde /compras).
-      queryClient.invalidateQueries({ queryKey: queryKeys.cashSessions.all() })
-      queryClient.invalidateQueries({ queryKey: queryKeys.cashMovements.all() })
+      // remitos-compra (tanda B, task 7.5): UNA definición compartida con la
+      // conversión de un remito en compra (`lib/query-invalidation.ts`). Conserva
+      // todo lo que este alta ya invalidaba y le suma banco y remitos:
+      // - supplierAccounts / payables (fix-supplier-account-ui-post-delete bug 1,
+      //   cobranzas-vencimientos task 8.7): una compra a crédito postea un cargo
+      //   en la cuenta del proveedor y crea deuda;
+      // - cashSessions / cashMovements (caja-compras-cobranzas task 10.5): la
+      //   compra en efectivo puede haber descontado de la caja. NO se bumpea el
+      //   refreshToken de LedgerMovementsPanel (estado local de /caja y /banco,
+      //   que no están montados desde /compras).
+      invalidateAfterPurchaseCreate(queryClient)
     },
   })
 
@@ -279,13 +286,12 @@ export function usePurchases() {
       return pythonClient.delete<void>(`/purchases/${id}`)
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.purchases.all() })
-      // fix-supplier-account-ui-post-delete (bug 1): borrar una compra a
-      // crédito revierte el cargo (SupplierAccountChargeReversed) — sin
-      // esto la UI seguía mostrando el saldo/movimiento ya reversado en DB.
-      queryClient.invalidateQueries({ queryKey: queryKeys.supplierAccounts.all() })
-      // cobranzas-vencimientos (task 8.7): la compra a crédito crea deuda.
-      queryClient.invalidateQueries({ queryKey: queryKeys.payables.all() })
+      // remitos-compra (tanda B, task 7.8): UNA definición del borrado
+      // (`lib/query-invalidation.ts`): compras, cuentas de proveedores y payables
+      // (fix-supplier-account-ui-post-delete bug 1: borrar una compra a crédito
+      // revierte el cargo; cobranzas-vencimientos task 8.7) MÁS los remitos —
+      // borrar la compra nacida de un remito lo devuelve a `issued` (R5).
+      invalidateAfterPurchaseDelete(queryClient)
     },
   })
 
@@ -294,11 +300,8 @@ export function usePurchases() {
       return pythonClient.delete<void>(`/purchases?operation_id=${operationId}`)
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.purchases.all() })
-      // fix-supplier-account-ui-post-delete (bug 1): ver comentario arriba.
-      queryClient.invalidateQueries({ queryKey: queryKeys.supplierAccounts.all() })
-      // cobranzas-vencimientos (task 8.7): la compra a crédito crea deuda.
-      queryClient.invalidateQueries({ queryKey: queryKeys.payables.all() })
+      // remitos-compra (tanda B, task 7.8): ver el comentario de arriba.
+      invalidateAfterPurchaseDelete(queryClient)
     },
   })
 

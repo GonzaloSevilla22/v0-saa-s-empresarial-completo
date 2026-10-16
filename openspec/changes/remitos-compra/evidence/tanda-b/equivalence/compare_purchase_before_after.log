@@ -1,0 +1,35 @@
+BEGIN
+SET
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+caso 1 (cash con caja abierta de la sucursal, hoy): IDENTICO [OK|replayed=false|items=1]
+caso 2 (cash SIN caja (sólo stock)): IDENTICO [OK|replayed=false|items=1]
+caso 3 (credit con proveedor: cargo y vencimiento por cascada (30 días)): IDENTICO [OK|replayed=false|items=1]
+caso 4 (credit con vencimiento explícito): IDENTICO [OK|replayed=false|items=1]
+caso 5 (transfer con cuenta bancaria): IDENTICO [OK|replayed=false|items=1]
+caso 6 (línea sin producto + línea con producto): IDENTICO [OK|replayed=false|items=2]
+caso 7 (450 g de un producto en kg (unidad no base)): IDENTICO [OK|replayed=false|items=1]
+caso 8 (dos líneas del mismo producto + otro producto): IDENTICO [OK|replayed=false|items=3]
+caso 9 (sin sucursal elegida (sucursal por defecto)): IDENTICO [OK|replayed=false|items=1]
+caso 10 (sucursal Y elegida): IDENTICO [OK|replayed=false|items=1]
+caso 11 (sin forma de pago): IDENTICO [OK|replayed=false|items=1]
+caso 12 (replay con la misma clave): IDENTICO [OK|replayed=false|items=1]
+caso 13 (rechazo: monto 0): IDENTICO [ERR|P0400|Amount must be greater than zero]
+caso 14 (rechazo: cantidad 0): IDENTICO [ERR|P0400|Quantity must be greater than zero]
+caso 15 (rechazo: crédito sin proveedor): IDENTICO [ERR|P0400|credit_requires_supplier: una compra a crédito necesita un proveedor identificado para cargar su cuenta corriente]
+caso 16 (rechazo: caja con forma de pago que no es efectivo): IDENTICO [ERR|P0422|cash_optin_requires_cash_kind: p_cash_session_id sólo aplica si el kind derivado es cash (recibido: transfer)]
+caso 17 (rechazo: caja con otra fecha): IDENTICO [ERR|P0422|cash_optin_requires_today: sólo se puede registrar en caja una compra fechada hoy (2026-10-15)]
+caso 18 (rechazo: sin items): IDENTICO [ERR|P0400|p_items must be a non-empty array]
+caso 19 (rechazo: clave vacía): IDENTICO [ERR|P0400|idempotency_key is required]
+caso 20 (rechazo: proveedor inexistente): IDENTICO [ERR|P0404|supplier_not_found or not active for this account]
+caso 21 (rechazo: sucursal inexistente): IDENTICO [ERR|P0404|branch_not_found or not active for this account]
+caso 22 (rechazo: producto inexistente): IDENTICO [ERR|P0404|Product not found: <uuid>]
+caso 23 (rechazo: sesión de caja de otra sucursal): IDENTICO [ERR|P0422|cash_optin_requires_open_session: la sesión de caja debe estar abierta y pertenecer a la sucursal efectiva de la compra]
+EQUIVALENCIA OK: 23 casos identicos fila a fila entre el cuerpo previo y wrapper + nucleo (purchases, purchase_items, stock_movements, branch_stock, caja, banco, cuenta corriente, evento, idempotencia, rechazos).
+DO
+ROLLBACK

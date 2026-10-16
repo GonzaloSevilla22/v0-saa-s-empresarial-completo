@@ -162,6 +162,14 @@ export interface PurchaseOperation {
    * (editable, tri-estado — DB/backend ya lo aceptan desde OQ-5; esto es lo
    * que le faltaba al form de edición para prefillear el CostCenterSelect). */
   costCenterId: string | null
+  /** remitos-compra (tanda B, D11): el remito de compra del que nació la compra.
+   * Todas las líneas de la operación comparten el origen. */
+  sourceDeliveryNoteId?: string | null
+  sourceDeliveryNoteNumber?: number | null
+  /** La sucursal del remito está activa y no cerrada (predicado del borrado); null sin origen. */
+  sourceDeliveryNoteBranchActive?: boolean | null
+  /** Motivo por el que la operación no se edita (`delivery_note_purchase_locked`). */
+  editLockedReason?: string | null
 }
 
 export function groupPurchasesByOperation(purchases: Purchase[]): PurchaseOperation[] {
@@ -180,6 +188,10 @@ export function groupPurchasesByOperation(purchases: Purchase[]): PurchaseOperat
       op.hasBankMovement = op.hasBankMovement || !!purchase.hasBankMovement
       op.hasCashMovement = op.hasCashMovement || !!purchase.hasCashMovement
       op.isDeleteBlocked = op.isDeleteBlocked || !!purchase.isDeleteBlocked
+      op.sourceDeliveryNoteId = op.sourceDeliveryNoteId ?? purchase.sourceDeliveryNoteId ?? null
+      op.sourceDeliveryNoteNumber = op.sourceDeliveryNoteNumber ?? purchase.sourceDeliveryNoteNumber ?? null
+      op.sourceDeliveryNoteBranchActive = op.sourceDeliveryNoteBranchActive ?? purchase.sourceDeliveryNoteBranchActive ?? null
+      op.editLockedReason = op.editLockedReason ?? purchase.editLockedReason ?? null
     } else {
       map.set(key, {
         key,
@@ -200,6 +212,10 @@ export function groupPurchasesByOperation(purchases: Purchase[]): PurchaseOperat
         supplierId: purchase.supplierId ?? null,
         supplierName: purchase.supplierName ?? null,
         costCenterId: purchase.costCenterId ?? null,
+        sourceDeliveryNoteId: purchase.sourceDeliveryNoteId ?? null,
+        sourceDeliveryNoteNumber: purchase.sourceDeliveryNoteNumber ?? null,
+        sourceDeliveryNoteBranchActive: purchase.sourceDeliveryNoteBranchActive ?? null,
+        editLockedReason: purchase.editLockedReason ?? null,
       })
     }
   }

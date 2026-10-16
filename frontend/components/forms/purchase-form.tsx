@@ -6,14 +6,13 @@ import { Input } from "@/components/ui/input"
 import { NumericInput } from "@/components/ui/numeric-input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Checkbox } from "@/components/ui/checkbox"
 import { SupplierSelect } from "@/components/suppliers/SupplierSelect"
+import { PendingPurchaseNotesNotice } from "@/components/delivery-notes/PendingPurchaseNotesNotice"
 import { CartItemList } from "@/components/shared/cart-item-list"
 import { BarcodeScannerInput } from "@/components/shared/barcode-scanner-input"
 import { useProducts } from "@/hooks/data/use-products"
 import { usePurchases } from "@/hooks/data/use-purchases"
 import { useSuppliers } from "@/hooks/data/use-suppliers"
-import { useSupplierAccount } from "@/hooks/data/use-supplier-account"
 import { useQueryClient } from "@tanstack/react-query"
 import { useAuth } from "@/contexts/auth-context"
 import { useUnitsOfMeasure } from "@/hooks/use-units-of-measure"
@@ -41,13 +40,14 @@ import { ScrollableCartShell } from "@/components/shared/scrollable-cart-shell"
 import { getCanonicalLabel } from "@/lib/product-labels"
 import { humanizeOperationError } from "@/lib/operation-errors"
 import { ProductPicker } from "@/components/shared/product-picker"
-import { Plus, PackagePlus, ShoppingCart, CalendarIcon, Ruler, AlertCircle } from "lucide-react"
+import { Plus, PackagePlus, ShoppingCart, Ruler } from "lucide-react"
 import { toast } from "sonner"
 import { BranchSelect } from "@/components/branches/BranchSelect"
-import { CostCenterSelect } from "@/components/cost-centers/CostCenterSelect"
-import { PaymentMethodSelect, BankAccountDestinationSelect } from "@/components/payment-methods/PaymentMethodSelect"
-import { usePaymentMethods } from "@/hooks/data/use-payment-methods"
-import { useCashOptin } from "@/hooks/use-cash-optin"
+// remitos-compra (tanda B, 7.3): los campos de cierre y lo que se deriva de ellos salieron de este
+// archivo a `PurchaseCheckoutFields` y `usePurchaseCheckout`, que comparte con el diálogo que
+// convierte un remito de compra.
+import { PurchaseCheckoutFields } from "@/components/compras/PurchaseCheckoutFields"
+import { usePurchaseCheckout } from "@/hooks/use-purchase-checkout"
 
 interface PurchaseFormProps {
   onSuccess: () => void
@@ -60,15 +60,6 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
 
   const { products, addProduct }                           = useProducts()
   const { addPurchaseOperation, updatePurchaseOperation } = usePurchases()
-  // review C (F2): en EDICIÓN se pide el catálogo COMPLETO (incluidas las
-  // formas de pago dadas de baja). La operación que se está editando puede
-  // estar imputada a una que ya se desactivó, y esta lista es la que resuelve
-  // su `kind` — sin ella el form no puede distinguir "ya era crédito" de
-  // "está pasando a crédito". En ALTA sigue pidiendo solo las activas, que es
-  // exactamente la misma queryKey que usa PaymentMethodSelect: el camino
-  // caliente no paga ningún request extra. La edición paga uno (catálogo
-  // completo, cacheado 5 min) a cambio de no mentir sobre el kind original.
-  const { paymentMethods } = usePaymentMethods(isEdit)
   // compras-proveedor-cuenta-corriente (D10): mismo patrón que useClients en
   // SaleForm — combobox buscable + alta inline.
   // review C (F1): isLoading/isError entran al cálculo del hint de "proveedor
@@ -163,15 +154,6 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
   // del egreso — sólo en alta (espejo de SaleForm; la edición no tiene
   // parámetro de banco en la RPC, D8).
   const [bankAccountId, setBankAccountId] = useState<string | null>(null)
-  /**
-   * caja-compras-cobranzas (D4): el opt-in de caja arranca PRE-MARCADO,
-   * alineado con el gasto y no con la venta — la venta arranca desmarcada
-   * por 223 operaciones históricas de carga retroactiva; la compra no tiene
-   * esa deuda y el pedido del PO es literalmente que la compra en efectivo
-   * concilie caja. Sólo en el alta (D8: una compra con caja posteada pasa a
-   * ser inmutable, así que la edición no ofrece esta afirmación).
-   */
-  const [registerInCash, setRegisterInCash] = useState(true)
   // compras-proveedor-cuenta-corriente (D4/D7): proveedor imputado a la
   // operación. Precargado al editar desde editingOperation.supplierId.
   const [supplierId, setSupplierId] = useState<string | null>(
@@ -197,17 +179,26 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
     [products, productId],
   )
 
-  // pos-banco-movimientos: kind resuelto de la forma de pago elegida — sólo
-  // condiciona el render del selector de cuenta bancaria.
-  const resolvedKind = useMemo(
-    () => paymentMethods.find((pm) => pm.id === paymentMethodId)?.kind ?? null,
-    [paymentMethods, paymentMethodId],
-  )
+  const cartTotal = useMemo(() => calcCartTotal(cartItems), [cartItems])
 
-  // caja-compras-cobranzas (D2): mismo hook que venta y gasto — las tres
-  // condiciones no se reescriben, se reusan (tercer consumidor).
-  const cashOptin = useCashOptin({ kind: resolvedKind, branchId, date, document: "compra" })
-  const showCashBlock = !isEdit && cashOptin.isCashSelected
+  // remitos-compra (tanda B, 7.3): lo que se deriva de los campos de cierre —
+  // kind de la forma de pago (sólo condiciona el render del selector de cuenta
+  // bancaria), las tres condiciones del opt-in de caja (caja-compras-cobranzas D2,
+  // PRE-MARCADO, D4), el saldo del proveedor a crédito— vive en `usePurchaseCheckout`,
+  // compartido con el diálogo que convierte un remito de compra. En EDICIÓN se pide
+  // el catálogo COMPLETO de formas de pago (incluidas las dadas de baja: la operación
+  // puede estar imputada a una desactivada y esa lista resuelve su `kind`) y no se
+  // ofrece la caja (D8).
+  const checkout = usePurchaseCheckout({
+    paymentMethodId,
+    branchId,
+    date,
+    supplierId,
+    total: cartTotal,
+    isEdit,
+  })
+  const resolvedKind = checkout.kind
+  const paymentMethods = checkout.paymentMethods
 
   // operacion-party-guard (fix ad-hoc 2026-09-10, hallazgo de revisión
   // adversarial ronda 1): rpc_create_purchase_operation y rpc_atomic_update_
@@ -235,13 +226,12 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
 
   // compras-proveedor-cuenta-corriente (D6/OQ-D): kind=credit exige proveedor
   // y postea el cargo en su cuenta corriente — mismo patrón que SaleForm.
-  const isCreditSelected = resolvedKind === "credit"
-  const { data: supplierAccount } = useSupplierAccount(isCreditSelected ? (supplierId || null) : null)
+  const isCreditSelected = checkout.isCredit
   // review B (F3): el guard "elegí un proveedor" aplica en AMBOS modos — el
   // servidor rechaza kind=credit sin proveedor tanto en el alta como en la
   // edición (mismo P0400 credit_requires_supplier, batch A). Antes el botón
   // solo se deshabilitaba en alta (`!isEdit && creditBlockedNoSupplier`).
-  const creditBlockedNoSupplier = isCreditSelected && !supplierId
+  const creditBlockedNoSupplier = checkout.creditBlockedNoSupplier
   // review C (F3): en EDICIÓN el servidor aplica credit_requires_supplier sólo
   // cuando la edición informa la forma de pago o el proveedor (migración
   // 20261009000001, review C/S1) — una compra legacy que YA estaba a crédito y
@@ -316,16 +306,10 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
   const stagedStep = useMemo(() => unitInputStep(selectedUnit), [selectedUnit])
   const stagedMin  = useMemo(() => unitInputMin(selectedUnit),  [selectedUnit])
 
-  const cartTotal = useMemo(() => calcCartTotal(cartItems), [cartItems])
   const stagedSubtotal = useMemo(
     () => calcPurchaseSubtotal(unitCost, quantity),
     [unitCost, quantity],
   )
-
-  // compras-proveedor-cuenta-corriente (D6/OQ-D): saldo proyectado tras esta
-  // compra — mismo patrón visual que SaleForm (0 si aún no resolvió la
-  // SupplierAccount).
-  const projectedBalance = (supplierAccount?.balance ?? 0) + cartTotal
 
   // ── Option list ─────────────────────────────────────────────────────────────
 
@@ -662,7 +646,7 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
           // caja-compras-cobranzas (D2): sólo cuando las tres condiciones se
           // cumplen Y el usuario lo dejó tildado. En cualquier otro caso
           // viaja null y la RPC no toca caja.
-          cashSessionId: cashOptin.eligible && registerInCash ? (cashOptin.session?.id ?? null) : null,
+          cashSessionId: checkout.cashSessionId,
         },
       })
       resetIdempotencyKey()
@@ -745,168 +729,86 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
           </>
         }
       >
-        {/* ── HEADER: Fecha + Notas ────────────────────────────────────── */}
-        {/* Moved to top so meta-info is set before adding items (UX parity with SaleForm) */}
-        <div className="grid grid-cols-2 gap-3">
-          <div className="flex flex-col gap-2">
-            <Label className="text-foreground flex items-center gap-1.5">
-              <CalendarIcon className="h-3.5 w-3.5 text-muted-foreground" />
-              Fecha
-            </Label>
-            <input
-              type="date"
-              value={date}
-              max={argentinaToday()}
-              onChange={(e) => setDate(e.target.value)}
-              className="flex h-10 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-            />
-          </div>
-
-          <div className="flex flex-col gap-2">
-            <Label className="text-foreground">Notas (opcional)</Label>
-            <Input
-              selectOnFocus
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="Ej: Lote Dic 2026"
-              className="bg-background border-border text-foreground"
-            />
-          </div>
-
-          {/* ── Sucursal (solo plan PRO) ───────────────────────────────── */}
-          {/* compras-gastos-sucursal-por-defecto (D9): sin «Sin sucursal (general)»: se ve la
-              sucursal PRINCIPAL ya elegida, rotulada «Nombre (principal)», con el rótulo
-              «Sucursal» dentro del selector (desaparece junto con él en las cuentas sin el
-              módulo de sucursales). El estado sigue en `null` hasta que se elige otra: viaja
-              `null` y el SERVIDOR resuelve la principal con datos vivos (la RPC guarda la
-              sucursal que mueve el stock, la caja y el banco). Para el opt-in de caja
-              `useCashOptin` ya ofrece la sesión de esa misma principal.
-              COORDINACIÓN con remitos-compra tanda B (su tarea 7.3 extrae
-              `PurchaseCheckoutFields` de este archivo): el selector de sucursal no está en lo
-              que extrae, pero quien aplique segundo mantiene `allowUnassigned={false}` y el
-              `label` acá. */}
-          {/* En móvil (375 px) la mitad de la fila trunca «Casa Central (principal)» y la marca
-              «(principal)» —lo que el usuario necesita ver— se pierde: el selector ocupa la fila
-              entera (`col-span-2`) y vuelve a media columna desde `sm`. `empty:hidden` evita una
-              celda vacía en las cuentas sin el módulo (el selector no renderiza nada). */}
-          <div className="col-span-2 sm:col-span-1 empty:hidden">
-            <BranchSelect
-              value={branchId}
-              onChange={setBranchId}
-              allowUnassigned={false}
-              label="Sucursal"
-              className="bg-background border-border text-foreground text-sm"
-            />
-          </div>
-
-          {/* ── Centro de costo (opcional, V2.5) ──────────────────────── */}
-          <CostCenterSelect
-            value={costCenterId}
-            onChange={handleCostCenterChange}
-            className="bg-background border-border text-foreground text-sm"
-          />
-
-          {/* ── Forma de pago (metodos-pago-operaciones) ───────────────── */}
-          <PaymentMethodSelect
-            value={paymentMethodId}
-            onChange={handlePaymentMethodChange}
-            context="purchase"
-            className="bg-background border-border text-foreground text-sm"
-          />
-
-          {/* ── Cuenta bancaria destino del egreso (pos-banco-movimientos D9)
-              Contiguo al selector de forma de pago; cero render si el kind
-              no es bancario o la cuenta no tiene bancos cargados. Sin
-              equivalente en edición (D8). */}
-          {!isEdit && (
-            <BankAccountDestinationSelect
-              paymentMethodKind={resolvedKind}
-              value={bankAccountId}
-              onChange={setBankAccountId}
-              className="bg-background border-border text-foreground text-sm"
-            />
-          )}
-        </div>
-
-        {/* ── Opt-in de caja (caja-compras-cobranzas D4, pre-marcado) ────────
-            Las tres condiciones las verifica el servidor; acá se muestran
-            para que el usuario no descubra el bloqueo con un error. Cuando
-            no aplican, el motivo se muestra: nunca se oculta en silencio.
-            Sólo en el alta (D8: la compra con caja posteada es inmutable). */}
-        {showCashBlock && (
-          <div className="flex flex-col gap-1.5 rounded-md border border-border bg-accent/20 px-3 py-2 text-xs">
-            {cashOptin.eligible ? (
-              <label className="flex items-center gap-2 cursor-pointer text-foreground">
-                <Checkbox
-                  checked={registerInCash}
-                  onCheckedChange={(v) => setRegisterInCash(v === true)}
+        {/* ── HEADER: Fecha + Notas + campos de cierre ───────────────────── */}
+        {/* Moved to top so meta-info is set before adding items (UX parity with SaleForm).
+            remitos-compra (tanda B, 7.3): fecha, centro de costo, forma de pago, cuenta
+            bancaria, opt-in de caja y bloque de cuenta corriente son `PurchaseCheckoutFields`
+            (compartido con la conversión de un remito); las notas y la sucursal no forman
+            parte de los campos de cierre y entran como celdas de la misma grilla
+            (`afterDate`), y el selector de proveedor va entre la caja y la cuenta corriente
+            (`beforeCredit`). */}
+        <PurchaseCheckoutFields
+          checkout={checkout}
+          mode={isEdit ? "edit" : "create"}
+          date={date}
+          onDateChange={setDate}
+          costCenterId={costCenterId}
+          onCostCenterChange={handleCostCenterChange}
+          paymentMethodId={paymentMethodId}
+          onPaymentMethodChange={handlePaymentMethodChange}
+          bankAccountId={bankAccountId}
+          onBankAccountChange={setBankAccountId}
+          isTransitioningToCredit={isTransitioningToCredit}
+          afterDate={
+            <>
+              <div className="flex flex-col gap-2">
+                <Label className="text-foreground">Notas (opcional)</Label>
+                <Input
+                  selectOnFocus
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder="Ej: Lote Dic 2026"
+                  className="bg-background border-border text-foreground"
                 />
-                <span>
-                  Registrar en caja — sesión {cashOptin.session?.id.slice(0, 8)}…
-                </span>
-              </label>
-            ) : (
-              <div role="note" className="flex items-center gap-2 text-muted-foreground">
-                <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-                <span>{cashOptin.reason}</span>
               </div>
-            )}
-          </div>
-        )}
 
-        {/* ── Proveedor (compras-proveedor-cuenta-corriente D10) ────────────
-            Combobox buscable + alta inline: `SupplierSelect` (compartido con el
-            remito de compra). El aviso explica por qué el selector cae al
-            placeholder cuando supplierId no resuelve en la lista (proveedor
-            dado de baja). */}
-        <SupplierSelect
-          value={supplierId}
-          onChange={handleSupplierChange}
-          labelId="purchase-supplier-label"
-          unresolvedHint={supplierUnresolved ? "Proveedor actual no disponible (dado de baja)" : null}
+              {/* ── Sucursal (solo plan PRO) ───────────────────────────────── */}
+              {/* compras-gastos-sucursal-por-defecto (D9): sin «Sin sucursal (general)»: se ve la
+                  sucursal PRINCIPAL ya elegida, rotulada «Nombre (principal)», con el rótulo
+                  «Sucursal» dentro del selector (desaparece junto con él en las cuentas sin el
+                  módulo de sucursales). El estado sigue en `null` hasta que se elige otra: viaja
+                  `null` y el SERVIDOR resuelve la principal con datos vivos (la RPC guarda la
+                  sucursal que mueve el stock, la caja y el banco). Para el opt-in de caja
+                  `useCashOptin` ya ofrece la sesión de esa misma principal. El selector de
+                  sucursal no forma parte de `PurchaseCheckoutFields`: se mantiene acá con
+                  `allowUnassigned={false}` y el `label`. */}
+              {/* En móvil (375 px) la mitad de la fila trunca «Casa Central (principal)» y la marca
+                  «(principal)» —lo que el usuario necesita ver— se pierde: el selector ocupa la fila
+                  entera (`col-span-2`) y vuelve a media columna desde `sm`. `empty:hidden` evita una
+                  celda vacía en las cuentas sin el módulo (el selector no renderiza nada). */}
+              <div className="col-span-2 sm:col-span-1 empty:hidden">
+                <BranchSelect
+                  value={branchId}
+                  onChange={setBranchId}
+                  allowUnassigned={false}
+                  label="Sucursal"
+                  className="bg-background border-border text-foreground text-sm"
+                />
+              </div>
+            </>
+          }
+          beforeCredit={
+            <>
+              {/* ── Proveedor (compras-proveedor-cuenta-corriente D10) ────────────
+                  Combobox buscable + alta inline: `SupplierSelect` (compartido con el
+                  remito de compra). El aviso explica por qué el selector cae al
+                  placeholder cuando supplierId no resuelve en la lista (proveedor
+                  dado de baja). */}
+              <SupplierSelect
+                value={supplierId}
+                onChange={handleSupplierChange}
+                labelId="purchase-supplier-label"
+                unresolvedHint={supplierUnresolved ? "Proveedor actual no disponible (dado de baja)" : null}
+              />
+              {/* remitos-compra (tanda B, D11, 7.9): aviso contra la doble suma. Una compra
+                  directa vuelve a SUMAR el stock: si el proveedor tiene remitos de compra
+                  pendientes, la factura puede ser de uno de ellos y conviene convertirlo desde
+                  el remito. Sólo en el alta (la edición no suma stock de nuevo) y sin proveedor
+                  elegido no consulta nada. Es un aviso: no bloquea el guardado. */}
+              {!isEdit && <PendingPurchaseNotesNotice supplierId={supplierId} />}
+            </>
+          }
         />
-
-        {/* ── Bloque de cuenta corriente (D6/OQ-D) ───────────────────────────
-            Mismo patrón visual que SaleForm: cliente→proveedor obligatorio +
-            saldo actual/proyectado, sólo con 'credit'. Se muestra tanto en
-            alta como en edición para explicar el efecto.
-            review B (F3): la edición NUNCA postea ni revierte cargos (D7) —
-            a diferencia del alta, no tiene sentido mostrar "Después de esta
-            compra" ahí (prometería un efecto que no ocurre). Si además el
-            usuario está TRANSICIONANDO a crédito desde otro kind (batch A:
-            el servidor rechaza con credit_transition_not_allowed), se avisa
-            aparte — sin bloquear el submit client-side, igual que el resto
-            de esta saga deja la decisión final al servidor. */}
-        {isCreditSelected && (
-          <div className="flex flex-col gap-1.5 rounded-md border border-border bg-accent/20 px-3 py-2 text-xs">
-            {creditBlockedNoSupplier ? (
-              <div className="flex items-center gap-2 text-warning">
-                <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-                <span>
-                  Elegí un proveedor: una compra a cuenta corriente se le carga a alguien.
-                </span>
-              </div>
-            ) : isEdit && isTransitioningToCredit ? (
-              <div className="flex items-center gap-2 text-warning">
-                <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-                <span>
-                  La edición no postea cargos: para pasar esta compra a crédito, borrala y volvé a cargarla.
-                </span>
-              </div>
-            ) : isEdit ? (
-              <div className="text-muted-foreground">
-                Saldo actual: {formatMoney(supplierAccount?.balance ?? 0)}
-              </div>
-            ) : (
-              <div className="flex items-center justify-between gap-2 text-muted-foreground">
-                <span>Saldo actual: {formatMoney(supplierAccount?.balance ?? 0)}</span>
-                <span className="font-medium text-foreground">
-                  Después de esta compra: {formatMoney(projectedBalance)}
-                </span>
-              </div>
-            )}
-          </div>
-        )}
 
         <div className="border-t border-border" />
 

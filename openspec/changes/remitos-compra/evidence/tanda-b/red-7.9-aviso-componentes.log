@@ -1,0 +1,2036 @@
+
+ RUN  v4.1.8 C:/Users/Usuario/Desktop/EIE/wt-remitos-compra-b/frontend
+
+ ❯ __tests__/components/PendingPurchaseNotesNotice.test.tsx (13 tests | 7 failed) 273ms
+     × consulta los pendientes de COMPRA de ese proveedor, de a una fila 25ms
+     × con pendientes avisa cuántos hay y manda a convertirlos desde el remito 186ms
+     × el enlace lleva a la pestaña De compra, pendientes, de ese proveedor 15ms
+     × un solo pendiente habla en singular 11ms
+     × al elegir un proveedor aparece el aviso de ese proveedor 9ms
+     × consulta los pendientes de compra de TODA la cuenta, sin filtrar proveedor 2ms
+     × avisa de los pendientes de la cuenta y enlaza a la pestaña De compra filtrada por pendientes 5ms
+stderr | __tests__/components/invoice-ai-pending-delivery-notes.test.tsx > InvoiceAIButton — aviso contra la doble suma (remitos de compra pendientes) > con remitos de compra pendientes en la cuenta, la revisión avisa y enlaza a los pendientes
+Warning: Missing `Description` or `aria-describedby={undefined}` for {DialogContent}.
+
+stderr | __tests__/components/invoice-ai-pending-delivery-notes.test.tsx > InvoiceAIButton — aviso contra la doble suma (remitos de compra pendientes) > con remitos de compra pendientes en la cuenta, la revisión avisa y enlaza a los pendientes
+Warning: Missing `Description` or `aria-describedby={undefined}` for {DialogContent}.
+
+stderr | __tests__/components/invoice-ai-pending-delivery-notes.test.tsx > InvoiceAIButton — aviso contra la doble suma (remitos de compra pendientes) > el aviso está ANTES del botón de confirmar
+Warning: Missing `Description` or `aria-describedby={undefined}` for {DialogContent}.
+
+stderr | __tests__/components/invoice-ai-pending-delivery-notes.test.tsx > InvoiceAIButton — aviso contra la doble suma (remitos de compra pendientes) > el aviso está ANTES del botón de confirmar
+Warning: Missing `Description` or `aria-describedby={undefined}` for {DialogContent}.
+
+stderr | __tests__/components/invoice-ai-pending-delivery-notes.test.tsx > InvoiceAIButton — aviso contra la doble suma (remitos de compra pendientes) > el aviso NO bloquea: 'Confirmar compra' sigue habilitado y registra la compra
+Warning: Missing `Description` or `aria-describedby={undefined}` for {DialogContent}.
+
+stderr | __tests__/components/invoice-ai-pending-delivery-notes.test.tsx > InvoiceAIButton — aviso contra la doble suma (remitos de compra pendientes) > el aviso NO bloquea: 'Confirmar compra' sigue habilitado y registra la compra
+Warning: Missing `Description` or `aria-describedby={undefined}` for {DialogContent}.
+
+ ❯ __tests__/components/invoice-ai-pending-delivery-notes.test.tsx (5 tests | 3 failed) 1365ms
+     × con remitos de compra pendientes en la cuenta, la revisión avisa y enlaza a los pendientes 650ms
+     × el aviso está ANTES del botón de confirmar 262ms
+     × el aviso NO bloquea: 'Confirmar compra' sigue habilitado y registra la compra 244ms
+ ❯ __tests__/components/purchase-form-pending-delivery-notes.test.tsx (6 tests | 3 failed) 814ms
+     × al elegir un proveedor con remitos pendientes avisa y enlaza a la pestaña De compra de ese proveedor 433ms
+     × cambiar de proveedor cambia el aviso, y limpiar el proveedor lo quita 105ms
+     × el aviso NO bloquea el guardado: confirmar la compra sigue llamando al alta 96ms
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 13 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  __tests__/components/invoice-ai-pending-delivery-notes.test.tsx > InvoiceAIButton — aviso contra la doble suma (remitos de compra pendientes) > con remitos de compra pendientes en la cuenta, la revisión avisa y enlaza a los pendientes
+TestingLibraryElementError: Unable to find an accessible element with the role "note"
+
+Here are the accessible roles:
+
+  dialog:
+
+  Name "Revisar Compra":
+  [36m<div[39m
+    [33maria-describedby[39m=[32m"radix-_r_5_"[39m
+    [33maria-labelledby[39m=[32m"radix-_r_4_"[39m
+    [33mclass[39m=[32m"fixed left-[50%] top-[50%] z-50 w-[calc(100vw-2rem)] sm:w-full translate-x-[-50%] translate-y-[-50%] gap-4 border shadow-elevation-4 duration-base overflow-y-auto data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%] sm:rounded-lg bg-card border-border max-w-2xl max-h-[90vh] flex flex-col p-0"[39m
+    [33mdata-scanner-modal[39m=[32m""[39m
+    [33mdata-state[39m=[32m"open"[39m
+    [33mid[39m=[32m"radix-_r_3_"[39m
+    [33mrole[39m=[32m"dialog"[39m
+    [33mstyle[39m=[32m"pointer-events: auto;"[39m
+    [33mtabindex[39m=[32m"-1"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  heading:
+
+  Name "Revisar Compra":
+  [36m<h2[39m
+    [33mclass[39m=[32m"tracking-tight text-lg font-bold text-card-foreground flex items-center gap-2"[39m
+    [33mid[39m=[32m"radix-_r_4_"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  paragraph:
+
+  Name "":
+  [36m<p[39m
+    [33mclass[39m=[32m"text-muted-foreground"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<p[39m
+    [33mclass[39m=[32m"font-medium text-foreground truncate max-w-[140px]"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<p[39m
+    [33mclass[39m=[32m"text-muted-foreground"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<p[39m
+    [33mclass[39m=[32m"font-medium text-foreground"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<p[39m
+    [33mclass[39m=[32m"text-muted-foreground"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<p[39m
+    [33mclass[39m=[32m"font-medium text-foreground"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<p[39m
+    [33mclass[39m=[32m"text-[11px] font-semibold uppercase tracking-wider text-muted-foreground"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  button:
+
+  Name "Cancelar":
+  [36m<button[39m
+    [33mclass[39m=[32m"inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors duration-base ease-standard focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 border border-input bg-background hover:bg-accent hover:text-accent-foreground h-11 px-4 py-2 md:h-10 flex-1"[39m
+  [36m/>[39m
+
+  Name "Confirmar compra (1)":
+  [36m<button[39m
+    [33mclass[39m=[32m"inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors duration-base ease-standard focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 bg-primary text-primary-foreground hover:bg-primary/90 h-11 px-4 py-2 md:h-10 flex-1 gap-2"[39m
+  [36m/>[39m
+
+  Name "Close":
+  [36m<button[39m
+    [33mclass[39m=[32m"absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+
+Ignored nodes: comments, script, style
+[36m<body[39m
+  [33mdata-scroll-locked[39m=[32m"1"[39m
+  [33mstyle[39m=[32m"pointer-events: none;"[39m
+[36m>[39m
+  [36m<span[39m
+    [33maria-hidden[39m=[32m"true"[39m
+    [33mdata-aria-hidden[39m=[32m"true"[39m
+    [33mdata-radix-focus-guard[39m=[32m""[39m
+    [33mstyle[39m=[32m"outline: none; opacity: 0; position: fixed; pointer-events: none;"[39m
+    [33mtabindex[39m=[32m"0"[39m
+  [36m/>[39m
+  [36m<div[39m
+    [33maria-hidden[39m=[32m"true"[39m
+    [33mdata-aria-hidden[39m=[32m"true"[39m
+  [36m>[39m
+    [36m<button[39m
+      [33mclass[39m=[32m"inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors duration-base ease-standard focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 border bg-background hover:text-accent-foreground h-11 px-4 py-2 md:h-10 gap-2 border-primary/30 text-primary hover:bg-primary/10 hover:border-primary"[39m
+    [36m>[39m
+      [36m<svg[39m
+        [33maria-hidden[39m=[32m"true"[39m
+        [33mclass[39m=[32m"lucide lucide-scan-text h-4 w-4"[39m
+        [33mfill[39m=[32m"none"[39m
+        [33mheight[39m=[32m"24"[39m
+        [33mstroke[39m=[32m"currentColor"[39m
+        [33mstroke-linecap[39m=[32m"round"[39m
+        [33mstroke-linejoin[39m=[32m"round"[39m
+        [33mstroke-width[39m=[32m"2"[39m
+        [33mviewBox[39m=[32m"0 0 24 24"[39m
+        [33mwidth[39m=[32m"24"[39m
+        [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+      [36m>[39m
+        [36m<path[39m
+          [33md[39m=[32m"M3 7V5a2 2 0 0 1 2-2h2"[39m
+        [36m/>[39m
+        [36m<path[39m
+          [33md[39m=[32m"M17 3h2a2 2 0 0 1 2 2v2"[39m
+        [36m/>[39m
+        [36m<path[39m
+          [33md[39m=[32m"M21 17v2a2 2 0 0 1-2 2h-2"[39m
+        [36m/>[39m
+        [36m<path[39m
+          [33md[39m=[32m"M7 21H5a2 2 0 0 1-2-2v-2"[39m
+        [36m/>[39m
+        [36m<path[39m
+          [33md[39m=[32m"M7 8h8"[39m
+        [36m/>[39m
+        [36m<path[39m
+          [33md[39m=[32m"M7 12h10"[39m
+        [36m/>[39m
+        [36m<path[39m
+          [33md[39m=[32m"M7 16h6"[39m
+        [36m/>[39m
+      [36m</svg>[39m
+      [36m<span[39m
+        [33mclass[39m=[32m"hidden sm:inline"[39m
+      [36m>[39m
+        [0mSubir factura IA[0m
+      [36m</span>[39m
+      [36m<svg[39m
+        [33maria-hidden[39m=[32m"true"[39m
+        [33mclass[39m=[32m"lucide lucide-sparkles h-3 w-3 opacity-60"[39m
+        [33mfill[39m=[32m"none"[39m
+        [33mheight[39m=[32m"24"[39m
+        [33mstroke[39m=[32m"currentColor"[39m
+        [33mstroke-linecap[39m=[32m"round"[39m
+        [33mstroke-linejoin[39m=[32m"round"[39m
+        [33mstroke-width[39m=[32m"2"[39m
+        [33mviewBox[39m=[32m"0 0 24 24"[39m
+        [33mwidth[39m=[32m"24"[39m
+        [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+      [36m>[39m
+        [36m<path[39m
+          [33md[39m=[32m"M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z"[39m
+        [36m/>[39m
+        [36m<path[39m
+          [33md[39m=[32m"M20 2v4"[39m
+        [36m/>[39m
+        [36m<path[39m
+          [33md[39m=[32m"M22 4h-4"[39m
+        [36m/>[39m
+        [36m<circle[39m
+          [33mcx[39m=[32m"4"[39m
+          [33mcy[39m=[32m"20"[39m
+          [33mr[39m=[32m"2"[39m
+        [36m/>[39m
+      [36m</svg>[39m
+    [36m</button>[39m
+  [36m</div>[39m
+  [36m<div[39m
+    [33maria-hidden[39m=[32m"true"[39m
+    [33mclass[39m=[32m"fixed inset-0 z-50 bg-black/80 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0"[39m
+    [33mdata-aria-hidden[39m=[32m"true"[39m
+    [33mdata-state[39m=[32m"open"[39m
+    [33mstyle[39m=[32m"pointer-events: auto;"[39m
+  [36m/>[39m
+  [36m<div[39m
+    [33maria-describedby[39m=[32m"radix-_r_5_"[39m
+    [33maria-labelledby[39m=[32m"radix-_r_4_"[39m
+    [33mclass[39m=[32m"fixed left-[50%] top-[50%] z-50 w-[calc(100vw-2rem)] sm:w-full translate-x-[-50%] translate-y-[-50%] gap-4 border shadow-elevation-4 duration-base overflow-y-auto data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%] sm:rounded-lg bg-card border-border max-w-2xl max-h-[90vh] flex flex-col p-0"[39m
+    [33mdata-scanner-modal[39m=[32m""[39m
+    [33mdata-state[39m=[32m"open"[39m
+    [33mid[39m=[32m"radix-_r_3_"[39m
+    [33mrole[39m=[32m"dialog"[39m
+    [33mstyle[39m=[32m"pointer-events: auto;"[39m
+    [33mtabindex[39m=[32m"-1"[39m
+  [36m>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"flex flex-col space-y-1.5 text-center sm:text-left px-6 pt-6 pb-4 border-b border-border shrink-0"[39m
+    [36m>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"flex items-center justify-between"[39m
+      [36m>[39m
+        [36m<h2[39m
+          [33mclass[39m=[32m"tracking-tight text-lg font-bold text-card-foreground flex items-center gap-2"[39m
+          [33mid[39m=[32m"radix-_r_4_"[39m
+        [36m>[39m
+          [36m<svg[39m
+            [33maria-hidden[39m=[32m"true"[39m
+            [33mclass[39m=[32m"lucide lucide-shopping-bag h-5 w-5 text-primary"[39m
+            [33mfill[39m=[32m"none"[39m
+            [33mheight[39m=[32m"24"[39m
+            [33mstroke[39m=[32m"currentColor"[39m
+            [33mstroke-linecap[39m=[32m"round"[39m
+            [33mstroke-linejoin[39m=[32m"round"[39m
+            [33mstroke-width[39m=[32m"2"[39m
+            [33mviewBox[39m=[32m"0 0 24 24"[39m
+            [33mwidth[39m=[32m"24"[39m
+            [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+          [36m>[39m
+            [36m<path[39m
+              [33md[39m=[32m"M16 10a4 4 0 0 1-8 0"[39m
+            [36m/>[39m
+            [36m<path[39m
+              [33md[39m=[32m"M3.103 6.034h17.794"[39m
+            [36m/>[39m
+            [36m<path[39m
+              [33md[39m=[32m"M3.4 5.467a2 2 0 0 0-.4 1.2V20a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6.667a2 2 0 0 0-.4-1.2l-2-2.667A2 2 0 0 0 17 2H7a2 2 0 0 0-1.6.8z"[39m
+            [36m/>[39m
+          [36m</svg>[39m
+          [0mRevisar Compra[0m
+        [36m</h2>[39m
+        [36...
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ __tests__/components/invoice-ai-pending-delivery-notes.test.tsx:118:25
+    116|     await reachReview()
+    117|
+    118|     const note = screen.getByRole("note")
+       |                         ^
+    119|     expect(note).toHaveTextContent(/tenés 3 remitos de compra pendient…
+    120|     expect(note).toHaveTextContent(/convertilo desde el remito para no…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/13]⎯
+
+ FAIL  __tests__/components/invoice-ai-pending-delivery-notes.test.tsx > InvoiceAIButton — aviso contra la doble suma (remitos de compra pendientes) > el aviso está ANTES del botón de confirmar
+TestingLibraryElementError: Unable to find an accessible element with the role "note"
+
+Here are the accessible roles:
+
+  dialog:
+
+  Name "Revisar Compra":
+  [36m<div[39m
+    [33maria-describedby[39m=[32m"radix-_r_b_"[39m
+    [33maria-labelledby[39m=[32m"radix-_r_a_"[39m
+    [33mclass[39m=[32m"fixed left-[50%] top-[50%] z-50 w-[calc(100vw-2rem)] sm:w-full translate-x-[-50%] translate-y-[-50%] gap-4 border shadow-elevation-4 duration-base overflow-y-auto data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%] sm:rounded-lg bg-card border-border max-w-2xl max-h-[90vh] flex flex-col p-0"[39m
+    [33mdata-scanner-modal[39m=[32m""[39m
+    [33mdata-state[39m=[32m"open"[39m
+    [33mid[39m=[32m"radix-_r_9_"[39m
+    [33mrole[39m=[32m"dialog"[39m
+    [33mstyle[39m=[32m"pointer-events: auto;"[39m
+    [33mtabindex[39m=[32m"-1"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  heading:
+
+  Name "Revisar Compra":
+  [36m<h2[39m
+    [33mclass[39m=[32m"tracking-tight text-lg font-bold text-card-foreground flex items-center gap-2"[39m
+    [33mid[39m=[32m"radix-_r_a_"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  paragraph:
+
+  Name "":
+  [36m<p[39m
+    [33mclass[39m=[32m"text-muted-foreground"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<p[39m
+    [33mclass[39m=[32m"font-medium text-foreground truncate max-w-[140px]"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<p[39m
+    [33mclass[39m=[32m"text-muted-foreground"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<p[39m
+    [33mclass[39m=[32m"font-medium text-foreground"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<p[39m
+    [33mclass[39m=[32m"text-muted-foreground"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<p[39m
+    [33mclass[39m=[32m"font-medium text-foreground"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<p[39m
+    [33mclass[39m=[32m"text-[11px] font-semibold uppercase tracking-wider text-muted-foreground"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  button:
+
+  Name "Cancelar":
+  [36m<button[39m
+    [33mclass[39m=[32m"inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors duration-base ease-standard focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 border border-input bg-background hover:bg-accent hover:text-accent-foreground h-11 px-4 py-2 md:h-10 flex-1"[39m
+  [36m/>[39m
+
+  Name "Confirmar compra (1)":
+  [36m<button[39m
+    [33mclass[39m=[32m"inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors duration-base ease-standard focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 bg-primary text-primary-foreground hover:bg-primary/90 h-11 px-4 py-2 md:h-10 flex-1 gap-2"[39m
+  [36m/>[39m
+
+  Name "Close":
+  [36m<button[39m
+    [33mclass[39m=[32m"absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+
+Ignored nodes: comments, script, style
+[36m<body[39m
+  [33mdata-scroll-locked[39m=[32m"1"[39m
+  [33mstyle[39m=[32m"pointer-events: none;"[39m
+[36m>[39m
+  [36m<span[39m
+    [33maria-hidden[39m=[32m"true"[39m
+    [33mdata-aria-hidden[39m=[32m"true"[39m
+    [33mdata-radix-focus-guard[39m=[32m""[39m
+    [33mstyle[39m=[32m"outline: none; opacity: 0; position: fixed; pointer-events: none;"[39m
+    [33mtabindex[39m=[32m"0"[39m
+  [36m/>[39m
+  [36m<div[39m
+    [33maria-hidden[39m=[32m"true"[39m
+    [33mdata-aria-hidden[39m=[32m"true"[39m
+  [36m>[39m
+    [36m<button[39m
+      [33mclass[39m=[32m"inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors duration-base ease-standard focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 border bg-background hover:text-accent-foreground h-11 px-4 py-2 md:h-10 gap-2 border-primary/30 text-primary hover:bg-primary/10 hover:border-primary"[39m
+    [36m>[39m
+      [36m<svg[39m
+        [33maria-hidden[39m=[32m"true"[39m
+        [33mclass[39m=[32m"lucide lucide-scan-text h-4 w-4"[39m
+        [33mfill[39m=[32m"none"[39m
+        [33mheight[39m=[32m"24"[39m
+        [33mstroke[39m=[32m"currentColor"[39m
+        [33mstroke-linecap[39m=[32m"round"[39m
+        [33mstroke-linejoin[39m=[32m"round"[39m
+        [33mstroke-width[39m=[32m"2"[39m
+        [33mviewBox[39m=[32m"0 0 24 24"[39m
+        [33mwidth[39m=[32m"24"[39m
+        [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+      [36m>[39m
+        [36m<path[39m
+          [33md[39m=[32m"M3 7V5a2 2 0 0 1 2-2h2"[39m
+        [36m/>[39m
+        [36m<path[39m
+          [33md[39m=[32m"M17 3h2a2 2 0 0 1 2 2v2"[39m
+        [36m/>[39m
+        [36m<path[39m
+          [33md[39m=[32m"M21 17v2a2 2 0 0 1-2 2h-2"[39m
+        [36m/>[39m
+        [36m<path[39m
+          [33md[39m=[32m"M7 21H5a2 2 0 0 1-2-2v-2"[39m
+        [36m/>[39m
+        [36m<path[39m
+          [33md[39m=[32m"M7 8h8"[39m
+        [36m/>[39m
+        [36m<path[39m
+          [33md[39m=[32m"M7 12h10"[39m
+        [36m/>[39m
+        [36m<path[39m
+          [33md[39m=[32m"M7 16h6"[39m
+        [36m/>[39m
+      [36m</svg>[39m
+      [36m<span[39m
+        [33mclass[39m=[32m"hidden sm:inline"[39m
+      [36m>[39m
+        [0mSubir factura IA[0m
+      [36m</span>[39m
+      [36m<svg[39m
+        [33maria-hidden[39m=[32m"true"[39m
+        [33mclass[39m=[32m"lucide lucide-sparkles h-3 w-3 opacity-60"[39m
+        [33mfill[39m=[32m"none"[39m
+        [33mheight[39m=[32m"24"[39m
+        [33mstroke[39m=[32m"currentColor"[39m
+        [33mstroke-linecap[39m=[32m"round"[39m
+        [33mstroke-linejoin[39m=[32m"round"[39m
+        [33mstroke-width[39m=[32m"2"[39m
+        [33mviewBox[39m=[32m"0 0 24 24"[39m
+        [33mwidth[39m=[32m"24"[39m
+        [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+      [36m>[39m
+        [36m<path[39m
+          [33md[39m=[32m"M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z"[39m
+        [36m/>[39m
+        [36m<path[39m
+          [33md[39m=[32m"M20 2v4"[39m
+        [36m/>[39m
+        [36m<path[39m
+          [33md[39m=[32m"M22 4h-4"[39m
+        [36m/>[39m
+        [36m<circle[39m
+          [33mcx[39m=[32m"4"[39m
+          [33mcy[39m=[32m"20"[39m
+          [33mr[39m=[32m"2"[39m
+        [36m/>[39m
+      [36m</svg>[39m
+    [36m</button>[39m
+  [36m</div>[39m
+  [36m<div[39m
+    [33maria-hidden[39m=[32m"true"[39m
+    [33mclass[39m=[32m"fixed inset-0 z-50 bg-black/80 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0"[39m
+    [33mdata-aria-hidden[39m=[32m"true"[39m
+    [33mdata-state[39m=[32m"open"[39m
+    [33mstyle[39m=[32m"pointer-events: auto;"[39m
+  [36m/>[39m
+  [36m<div[39m
+    [33maria-describedby[39m=[32m"radix-_r_b_"[39m
+    [33maria-labelledby[39m=[32m"radix-_r_a_"[39m
+    [33mclass[39m=[32m"fixed left-[50%] top-[50%] z-50 w-[calc(100vw-2rem)] sm:w-full translate-x-[-50%] translate-y-[-50%] gap-4 border shadow-elevation-4 duration-base overflow-y-auto data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%] sm:rounded-lg bg-card border-border max-w-2xl max-h-[90vh] flex flex-col p-0"[39m
+    [33mdata-scanner-modal[39m=[32m""[39m
+    [33mdata-state[39m=[32m"open"[39m
+    [33mid[39m=[32m"radix-_r_9_"[39m
+    [33mrole[39m=[32m"dialog"[39m
+    [33mstyle[39m=[32m"pointer-events: auto;"[39m
+    [33mtabindex[39m=[32m"-1"[39m
+  [36m>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"flex flex-col space-y-1.5 text-center sm:text-left px-6 pt-6 pb-4 border-b border-border shrink-0"[39m
+    [36m>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"flex items-center justify-between"[39m
+      [36m>[39m
+        [36m<h2[39m
+          [33mclass[39m=[32m"tracking-tight text-lg font-bold text-card-foreground flex items-center gap-2"[39m
+          [33mid[39m=[32m"radix-_r_a_"[39m
+        [36m>[39m
+          [36m<svg[39m
+            [33maria-hidden[39m=[32m"true"[39m
+            [33mclass[39m=[32m"lucide lucide-shopping-bag h-5 w-5 text-primary"[39m
+            [33mfill[39m=[32m"none"[39m
+            [33mheight[39m=[32m"24"[39m
+            [33mstroke[39m=[32m"currentColor"[39m
+            [33mstroke-linecap[39m=[32m"round"[39m
+            [33mstroke-linejoin[39m=[32m"round"[39m
+            [33mstroke-width[39m=[32m"2"[39m
+            [33mviewBox[39m=[32m"0 0 24 24"[39m
+            [33mwidth[39m=[32m"24"[39m
+            [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+          [36m>[39m
+            [36m<path[39m
+              [33md[39m=[32m"M16 10a4 4 0 0 1-8 0"[39m
+            [36m/>[39m
+            [36m<path[39m
+              [33md[39m=[32m"M3.103 6.034h17.794"[39m
+            [36m/>[39m
+            [36m<path[39m
+              [33md[39m=[32m"M3.4 5.467a2 2 0 0 0-.4 1.2V20a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6.667a2 2 0 0 0-.4-1.2l-2-2.667A2 2 0 0 0 17 2H7a2 2 0 0 0-1.6.8z"[39m
+            [36m/>[39m
+          [36m</svg>[39m
+          [0mRevisar Compra[0m
+        [36m</h2>[39m
+        [36...
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ __tests__/components/invoice-ai-pending-delivery-notes.test.tsx:132:25
+    130|     await reachReview()
+    131|
+    132|     const note = screen.getByRole("note")
+       |                         ^
+    133|     const confirm = screen.getByRole("button", { name: /confirmar comp…
+    134|     expect(note.compareDocumentPosition(confirm) & Node.DOCUMENT_POSIT…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/13]⎯
+
+ FAIL  __tests__/components/invoice-ai-pending-delivery-notes.test.tsx > InvoiceAIButton — aviso contra la doble suma (remitos de compra pendientes) > el aviso NO bloquea: 'Confirmar compra' sigue habilitado y registra la compra
+TestingLibraryElementError: Unable to find an accessible element with the role "note"
+
+Here are the accessible roles:
+
+  dialog:
+
+  Name "Revisar Compra":
+  [36m<div[39m
+    [33maria-describedby[39m=[32m"radix-_r_n_"[39m
+    [33maria-labelledby[39m=[32m"radix-_r_m_"[39m
+    [33mclass[39m=[32m"fixed left-[50%] top-[50%] z-50 w-[calc(100vw-2rem)] sm:w-full translate-x-[-50%] translate-y-[-50%] gap-4 border shadow-elevation-4 duration-base overflow-y-auto data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%] sm:rounded-lg bg-card border-border max-w-2xl max-h-[90vh] flex flex-col p-0"[39m
+    [33mdata-scanner-modal[39m=[32m""[39m
+    [33mdata-state[39m=[32m"open"[39m
+    [33mid[39m=[32m"radix-_r_l_"[39m
+    [33mrole[39m=[32m"dialog"[39m
+    [33mstyle[39m=[32m"pointer-events: auto;"[39m
+    [33mtabindex[39m=[32m"-1"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  heading:
+
+  Name "Revisar Compra":
+  [36m<h2[39m
+    [33mclass[39m=[32m"tracking-tight text-lg font-bold text-card-foreground flex items-center gap-2"[39m
+    [33mid[39m=[32m"radix-_r_m_"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  paragraph:
+
+  Name "":
+  [36m<p[39m
+    [33mclass[39m=[32m"text-muted-foreground"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<p[39m
+    [33mclass[39m=[32m"font-medium text-foreground truncate max-w-[140px]"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<p[39m
+    [33mclass[39m=[32m"text-muted-foreground"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<p[39m
+    [33mclass[39m=[32m"font-medium text-foreground"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<p[39m
+    [33mclass[39m=[32m"text-muted-foreground"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<p[39m
+    [33mclass[39m=[32m"font-medium text-foreground"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<p[39m
+    [33mclass[39m=[32m"text-[11px] font-semibold uppercase tracking-wider text-muted-foreground"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  button:
+
+  Name "Cancelar":
+  [36m<button[39m
+    [33mclass[39m=[32m"inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors duration-base ease-standard focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 border border-input bg-background hover:bg-accent hover:text-accent-foreground h-11 px-4 py-2 md:h-10 flex-1"[39m
+  [36m/>[39m
+
+  Name "Confirmar compra (1)":
+  [36m<button[39m
+    [33mclass[39m=[32m"inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors duration-base ease-standard focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 bg-primary text-primary-foreground hover:bg-primary/90 h-11 px-4 py-2 md:h-10 flex-1 gap-2"[39m
+  [36m/>[39m
+
+  Name "Close":
+  [36m<button[39m
+    [33mclass[39m=[32m"absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+
+Ignored nodes: comments, script, style
+[36m<body[39m
+  [33mdata-scroll-locked[39m=[32m"1"[39m
+  [33mstyle[39m=[32m"pointer-events: none;"[39m
+[36m>[39m
+  [36m<span[39m
+    [33maria-hidden[39m=[32m"true"[39m
+    [33mdata-aria-hidden[39m=[32m"true"[39m
+    [33mdata-radix-focus-guard[39m=[32m""[39m
+    [33mstyle[39m=[32m"outline: none; opacity: 0; position: fixed; pointer-events: none;"[39m
+    [33mtabindex[39m=[32m"0"[39m
+  [36m/>[39m
+  [36m<div[39m
+    [33maria-hidden[39m=[32m"true"[39m
+    [33mdata-aria-hidden[39m=[32m"true"[39m
+  [36m>[39m
+    [36m<button[39m
+      [33mclass[39m=[32m"inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors duration-base ease-standard focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 border bg-background hover:text-accent-foreground h-11 px-4 py-2 md:h-10 gap-2 border-primary/30 text-primary hover:bg-primary/10 hover:border-primary"[39m
+    [36m>[39m
+      [36m<svg[39m
+        [33maria-hidden[39m=[32m"true"[39m
+        [33mclass[39m=[32m"lucide lucide-scan-text h-4 w-4"[39m
+        [33mfill[39m=[32m"none"[39m
+        [33mheight[39m=[32m"24"[39m
+        [33mstroke[39m=[32m"currentColor"[39m
+        [33mstroke-linecap[39m=[32m"round"[39m
+        [33mstroke-linejoin[39m=[32m"round"[39m
+        [33mstroke-width[39m=[32m"2"[39m
+        [33mviewBox[39m=[32m"0 0 24 24"[39m
+        [33mwidth[39m=[32m"24"[39m
+        [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+      [36m>[39m
+        [36m<path[39m
+          [33md[39m=[32m"M3 7V5a2 2 0 0 1 2-2h2"[39m
+        [36m/>[39m
+        [36m<path[39m
+          [33md[39m=[32m"M17 3h2a2 2 0 0 1 2 2v2"[39m
+        [36m/>[39m
+        [36m<path[39m
+          [33md[39m=[32m"M21 17v2a2 2 0 0 1-2 2h-2"[39m
+        [36m/>[39m
+        [36m<path[39m
+          [33md[39m=[32m"M7 21H5a2 2 0 0 1-2-2v-2"[39m
+        [36m/>[39m
+        [36m<path[39m
+          [33md[39m=[32m"M7 8h8"[39m
+        [36m/>[39m
+        [36m<path[39m
+          [33md[39m=[32m"M7 12h10"[39m
+        [36m/>[39m
+        [36m<path[39m
+          [33md[39m=[32m"M7 16h6"[39m
+        [36m/>[39m
+      [36m</svg>[39m
+      [36m<span[39m
+        [33mclass[39m=[32m"hidden sm:inline"[39m
+      [36m>[39m
+        [0mSubir factura IA[0m
+      [36m</span>[39m
+      [36m<svg[39m
+        [33maria-hidden[39m=[32m"true"[39m
+        [33mclass[39m=[32m"lucide lucide-sparkles h-3 w-3 opacity-60"[39m
+        [33mfill[39m=[32m"none"[39m
+        [33mheight[39m=[32m"24"[39m
+        [33mstroke[39m=[32m"currentColor"[39m
+        [33mstroke-linecap[39m=[32m"round"[39m
+        [33mstroke-linejoin[39m=[32m"round"[39m
+        [33mstroke-width[39m=[32m"2"[39m
+        [33mviewBox[39m=[32m"0 0 24 24"[39m
+        [33mwidth[39m=[32m"24"[39m
+        [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+      [36m>[39m
+        [36m<path[39m
+          [33md[39m=[32m"M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z"[39m
+        [36m/>[39m
+        [36m<path[39m
+          [33md[39m=[32m"M20 2v4"[39m
+        [36m/>[39m
+        [36m<path[39m
+          [33md[39m=[32m"M22 4h-4"[39m
+        [36m/>[39m
+        [36m<circle[39m
+          [33mcx[39m=[32m"4"[39m
+          [33mcy[39m=[32m"20"[39m
+          [33mr[39m=[32m"2"[39m
+        [36m/>[39m
+      [36m</svg>[39m
+    [36m</button>[39m
+  [36m</div>[39m
+  [36m<div[39m
+    [33maria-hidden[39m=[32m"true"[39m
+    [33mclass[39m=[32m"fixed inset-0 z-50 bg-black/80 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0"[39m
+    [33mdata-aria-hidden[39m=[32m"true"[39m
+    [33mdata-state[39m=[32m"open"[39m
+    [33mstyle[39m=[32m"pointer-events: auto;"[39m
+  [36m/>[39m
+  [36m<div[39m
+    [33maria-describedby[39m=[32m"radix-_r_n_"[39m
+    [33maria-labelledby[39m=[32m"radix-_r_m_"[39m
+    [33mclass[39m=[32m"fixed left-[50%] top-[50%] z-50 w-[calc(100vw-2rem)] sm:w-full translate-x-[-50%] translate-y-[-50%] gap-4 border shadow-elevation-4 duration-base overflow-y-auto data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%] sm:rounded-lg bg-card border-border max-w-2xl max-h-[90vh] flex flex-col p-0"[39m
+    [33mdata-scanner-modal[39m=[32m""[39m
+    [33mdata-state[39m=[32m"open"[39m
+    [33mid[39m=[32m"radix-_r_l_"[39m
+    [33mrole[39m=[32m"dialog"[39m
+    [33mstyle[39m=[32m"pointer-events: auto;"[39m
+    [33mtabindex[39m=[32m"-1"[39m
+  [36m>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"flex flex-col space-y-1.5 text-center sm:text-left px-6 pt-6 pb-4 border-b border-border shrink-0"[39m
+    [36m>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"flex items-center justify-between"[39m
+      [36m>[39m
+        [36m<h2[39m
+          [33mclass[39m=[32m"tracking-tight text-lg font-bold text-card-foreground flex items-center gap-2"[39m
+          [33mid[39m=[32m"radix-_r_m_"[39m
+        [36m>[39m
+          [36m<svg[39m
+            [33maria-hidden[39m=[32m"true"[39m
+            [33mclass[39m=[32m"lucide lucide-shopping-bag h-5 w-5 text-primary"[39m
+            [33mfill[39m=[32m"none"[39m
+            [33mheight[39m=[32m"24"[39m
+            [33mstroke[39m=[32m"currentColor"[39m
+            [33mstroke-linecap[39m=[32m"round"[39m
+            [33mstroke-linejoin[39m=[32m"round"[39m
+            [33mstroke-width[39m=[32m"2"[39m
+            [33mviewBox[39m=[32m"0 0 24 24"[39m
+            [33mwidth[39m=[32m"24"[39m
+            [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+          [36m>[39m
+            [36m<path[39m
+              [33md[39m=[32m"M16 10a4 4 0 0 1-8 0"[39m
+            [36m/>[39m
+            [36m<path[39m
+              [33md[39m=[32m"M3.103 6.034h17.794"[39m
+            [36m/>[39m
+            [36m<path[39m
+              [33md[39m=[32m"M3.4 5.467a2 2 0 0 0-.4 1.2V20a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6.667a2 2 0 0 0-.4-1.2l-2-2.667A2 2 0 0 0 17 2H7a2 2 0 0 0-1.6.8z"[39m
+            [36m/>[39m
+          [36m</svg>[39m
+          [0mRevisar Compra[0m
+        [36m</h2>[39m
+        [36...
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ __tests__/components/invoice-ai-pending-delivery-notes.test.tsx:148:19
+    146|     await reachReview()
+    147|
+    148|     expect(screen.getByRole("note")).toBeInTheDocument()
+       |                   ^
+    149|     const confirm = screen.getByRole("button", { name: /confirmar comp…
+    150|     expect(confirm).toBeEnabled()
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/13]⎯
+
+ FAIL  __tests__/components/PendingPurchaseNotesNotice.test.tsx > PendingPurchaseNotesNotice — con proveedor > consulta los pendientes de COMPRA de ese proveedor, de a una fila
+AssertionError: expected "vi.fn()" to be called with arguments: [ { direction: 'purchase', …(3) } ]
+
+Number of calls: 0
+
+ ❯ __tests__/components/PendingPurchaseNotesNotice.test.tsx:46:36
+     44|     render(<PendingPurchaseNotesNotice supplierId="sup-1" />)
+     45|
+     46|     expect(mocks.useDeliveryNotes).toHaveBeenCalledWith({
+       |                                    ^
+     47|       direction: "purchase",
+     48|       status: "issued",
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/13]⎯
+
+ FAIL  __tests__/components/PendingPurchaseNotesNotice.test.tsx > PendingPurchaseNotesNotice — con proveedor > con pendientes avisa cuántos hay y manda a convertirlos desde el remito
+TestingLibraryElementError: Unable to find an accessible element with the role "note"
+
+There are no accessible roles. But there might be some inaccessible roles. If you wish to access them, then set the `hidden` option to `true`. Learn more about this here: https://testing-library.com/docs/dom-testing-library/api-queries#byrole
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div />[39m
+[36m</body>[39m
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ __tests__/components/PendingPurchaseNotesNotice.test.tsx:58:25
+     56|     render(<PendingPurchaseNotesNotice supplierId="sup-1" />)
+     57|
+     58|     const note = screen.getByRole("note")
+       |                         ^
+     59|     expect(note).toHaveTextContent(/este proveedor tiene 3 remitos de …
+     60|     expect(note).toHaveTextContent(/convertilo desde el remito para no…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/13]⎯
+
+ FAIL  __tests__/components/PendingPurchaseNotesNotice.test.tsx > PendingPurchaseNotesNotice — con proveedor > el enlace lleva a la pestaña De compra, pendientes, de ese proveedor
+TestingLibraryElementError: Unable to find an accessible element with the role "link" and name `/ver remitos pendientes/i`
+
+There are no accessible roles. But there might be some inaccessible roles. If you wish to access them, then set the `hidden` option to `true`. Learn more about this here: https://testing-library.com/docs/dom-testing-library/api-queries#byrole
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div />[39m
+[36m</body>[39m
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ __tests__/components/PendingPurchaseNotesNotice.test.tsx:67:19
+     65|     render(<PendingPurchaseNotesNotice supplierId="sup-1" />)
+     66|
+     67|     expect(screen.getByRole("link", { name: /ver remitos pendientes/i …
+       |                   ^
+     68|       "href",
+     69|       "/remitos?sentido=compra&estado=pendientes&proveedor=sup-1",
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/13]⎯
+
+ FAIL  __tests__/components/PendingPurchaseNotesNotice.test.tsx > PendingPurchaseNotesNotice — con proveedor > un solo pendiente habla en singular
+TestingLibraryElementError: Unable to find an accessible element with the role "note"
+
+There are no accessible roles. But there might be some inaccessible roles. If you wish to access them, then set the `hidden` option to `true`. Learn more about this here: https://testing-library.com/docs/dom-testing-library/api-queries#byrole
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div />[39m
+[36m</body>[39m
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ __tests__/components/PendingPurchaseNotesNotice.test.tsx:77:19
+     75|     render(<PendingPurchaseNotesNotice supplierId="sup-1" />)
+     76|
+     77|     expect(screen.getByRole("note")).toHaveTextContent(/este proveedor…
+       |                   ^
+     78|   })
+     79|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/13]⎯
+
+ FAIL  __tests__/components/PendingPurchaseNotesNotice.test.tsx > PendingPurchaseNotesNotice — proveedor todavía sin elegir > al elegir un proveedor aparece el aviso de ese proveedor
+TestingLibraryElementError: Unable to find an accessible element with the role "note"
+
+There are no accessible roles. But there might be some inaccessible roles. If you wish to access them, then set the `hidden` option to `true`. Learn more about this here: https://testing-library.com/docs/dom-testing-library/api-queries#byrole
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div />[39m
+[36m</body>[39m
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ __tests__/components/PendingPurchaseNotesNotice.test.tsx:122:19
+    120|     view.rerender(<PendingPurchaseNotesNotice supplierId="sup-9" />)
+    121|
+    122|     expect(screen.getByRole("note")).toHaveTextContent(/2 remitos de c…
+       |                   ^
+    123|     expect(mocks.useDeliveryNotes).toHaveBeenCalledWith(expect.objectC…
+    124|   })
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/13]⎯
+
+ FAIL  __tests__/components/PendingPurchaseNotesNotice.test.tsx > PendingPurchaseNotesNotice — sin proveedor identificado (Factura IA) > consulta los pendientes de compra de TODA la cuenta, sin filtrar proveedor
+AssertionError: expected "vi.fn()" to be called with arguments: [ { direction: 'purchase', …(2) } ]
+
+Number of calls: 0
+
+ ❯ __tests__/components/PendingPurchaseNotesNotice.test.tsx:132:36
+    130|     render(<PendingPurchaseNotesNotice />)
+    131|
+    132|     expect(mocks.useDeliveryNotes).toHaveBeenCalledWith({ direction: "…
+       |                                    ^
+    133|     expect(mocks.useDeliveryNotes.mock.calls[0][0]).not.toHaveProperty…
+    134|   })
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/13]⎯
+
+ FAIL  __tests__/components/PendingPurchaseNotesNotice.test.tsx > PendingPurchaseNotesNotice — sin proveedor identificado (Factura IA) > avisa de los pendientes de la cuenta y enlaza a la pestaña De compra filtrada por pendientes
+TestingLibraryElementError: Unable to find an accessible element with the role "note"
+
+There are no accessible roles. But there might be some inaccessible roles. If you wish to access them, then set the `hidden` option to `true`. Learn more about this here: https://testing-library.com/docs/dom-testing-library/api-queries#byrole
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div />[39m
+[36m</body>[39m
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ __tests__/components/PendingPurchaseNotesNotice.test.tsx:140:19
+    138|     render(<PendingPurchaseNotesNotice />)
+    139|
+    140|     expect(screen.getByRole("note")).toHaveTextContent(/tenés 4 remito…
+       |                   ^
+    141|     expect(screen.getByRole("link", { name: /ver remitos pendientes/i …
+    142|       "href",
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/13]⎯
+
+ FAIL  __tests__/components/purchase-form-pending-delivery-notes.test.tsx > PurchaseForm — aviso contra la doble suma (remitos de compra pendientes) > al elegir un proveedor con remitos pendientes avisa y enlaza a la pestaña De compra de ese proveedor
+TestingLibraryElementError: Unable to find an accessible element with the role "note"
+
+Here are the accessible roles:
+
+  group:
+
+  Name "":
+  [36m<fieldset[39m
+    [33mclass[39m=[32m"contents"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  textbox:
+
+  Name "":
+  [36m<input[39m
+    [33mclass[39m=[32m"flex h-11 md:h-10 w-full rounded-md border px-3 py-2 text-base ring-offset-background transition-colors duration-base ease-standard file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 md:text-sm bg-background border-border text-foreground"[39m
+    [33mplaceholder[39m=[32m"Ej: Lote Dic 2026"[39m
+    [33mvalue[39m=[32m""[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  button:
+
+  Name "Nuevo proveedor":
+  [36m<button[39m
+    [33mclass[39m=[32m"inline-flex items-center justify-center gap-2 whitespace-nowrap font-medium ring-offset-background transition-colors duration-base ease-standard focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 hover:bg-accent hover:text-accent-foreground rounded-md px-3 md:h-9 h-6 text-xs text-primary"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Distribuidora Mendoza":
+  [36m<button[39m
+    [33mdata-testid[39m=[32m"supplier-option-sup-1"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "limpiar proveedor":
+  [36m<button[39m
+    [33mdata-testid[39m=[32m"supplier-clear"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Nuevo producto":
+  [36m<button[39m
+    [33mclass[39m=[32m"inline-flex items-center justify-center gap-2 whitespace-nowrap font-medium ring-offset-background transition-colors duration-base ease-standard focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 hover:bg-accent hover:text-accent-foreground rounded-md px-3 md:h-9 h-6 text-xs text-primary"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Insumo Test":
+  [36m<button[39m
+    [33mdata-testid[39m=[32m"product-option-prod-1"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Agregar al carrito":
+  [36m<button[39m
+    [33mclass[39m=[32m"inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors duration-base ease-standard focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 bg-secondary text-secondary-foreground hover:bg-secondary/80 h-11 px-4 py-2 md:h-10 w-full gap-2"[39m
+    [33mdisabled[39m=[32m""[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Confirmar compra":
+  [36m<button[39m
+    [33mclass[39m=[32m"inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors duration-base ease-standard focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 bg-primary text-primary-foreground hover:bg-primary/90 h-11 px-4 py-2 md:h-10 w-full"[39m
+    [33mdisabled[39m=[32m""[39m
+    [33mtype[39m=[32m"submit"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<form>[39m
+      [36m<fieldset[39m
+        [33mclass[39m=[32m"contents"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"grid grid-cols-2 gap-3"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"flex flex-col gap-2"[39m
+          [36m>[39m
+            [36m<label[39m
+              [33mclass[39m=[32m"text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 text-foreground flex items-center gap-1.5"[39m
+              [33mfor[39m=[32m"purchase-date-_r_2_"[39m
+            [36m>[39m
+              [36m<svg[39m
+                [33maria-hidden[39m=[32m"true"[39m
+                [33mclass[39m=[32m"lucide lucide-calendar h-3.5 w-3.5 text-muted-foreground"[39m
+                [33mfill[39m=[32m"none"[39m
+                [33mheight[39m=[32m"24"[39m
+                [33mstroke[39m=[32m"currentColor"[39m
+                [33mstroke-linecap[39m=[32m"round"[39m
+                [33mstroke-linejoin[39m=[32m"round"[39m
+                [33mstroke-width[39m=[32m"2"[39m
+                [33mviewBox[39m=[32m"0 0 24 24"[39m
+                [33mwidth[39m=[32m"24"[39m
+                [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+              [36m>[39m
+                [36m<path[39m
+                  [33md[39m=[32m"M8 2v4"[39m
+                [36m/>[39m
+                [36m<path[39m
+                  [33md[39m=[32m"M16 2v4"[39m
+                [36m/>[39m
+                [36m<rect[39m
+                  [33mheight[39m=[32m"18"[39m
+                  [33mrx[39m=[32m"2"[39m
+                  [33mwidth[39m=[32m"18"[39m
+                  [33mx[39m=[32m"3"[39m
+                  [33my[39m=[32m"4"[39m
+                [36m/>[39m
+                [36m<path[39m
+                  [33md[39m=[32m"M3 10h18"[39m
+                [36m/>[39m
+              [36m</svg>[39m
+              [0mFecha[0m
+            [36m</label>[39m
+            [36m<input[39m
+              [33mclass[39m=[32m"flex h-10 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"[39m
+              [33mid[39m=[32m"purchase-date-_r_2_"[39m
+              [33mmax[39m=[32m"2026-10-16"[39m
+              [33mtype[39m=[32m"date"[39m
+              [33mvalue[39m=[32m"2026-10-16"[39m
+            [36m/>[39m
+          [36m</div>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"flex flex-col gap-2"[39m
+          [36m>[39m
+            [36m<label[39m
+              [33mclass[39m=[32m"text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 text-foreground"[39m
+            [36m>[39m
+              [0mNotas (opcional)[0m
+            [36m</label>[39m
+            [36m<input[39m
+              [33mclass[39m=[32m"flex h-11 md:h-10 w-full rounded-md border px-3 py-2 text-base ring-offset-background transition-colors duration-base ease-standard file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 md:text-sm bg-background border-border text-foreground"[39m
+              [33mplaceholder[39m=[32m"Ej: Lote Dic 2026"[39m
+              [33mvalue[39m=[32m""[39m
+            [36m/>[39m
+          [36m</div>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"col-span-2 sm:col-span-1 empty:hidden"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mdata-testid[39m=[32m"branch-select"[39m
+            [36m/>[39m
+          [36m</div>[39m
+          [36m<div[39m
+            [33mdata-testid[39m=[32m"payment-method-select"[39m
+          [36m/>[39m
+        [36m</div>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex flex-col gap-2"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"flex items-center justify-between"[39m
+          [36m>[39m
+            [36m<label[39m
+              [33mclass[39m=[32m"text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 text-foreground"[39m
+              [33mid[39m=[32m"purchase-supplier-label"[39m
+            [36m>[39m
+              [0mProveedor[0m
+            [36m</label>[39m
+            [36m<button[39m
+              [33mclass[39m=[32m"inline-flex items-center justify-center gap-2 whitespace-nowrap font-medium ring-offset-background transition-colors duration-base ease-standard focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 hover:bg-accent hover:text-accent-foreground rounded-md px-3 md:h-9 h-6 text-xs text-primary"[39m
+              [33mtype[39m=[32m"button"[39m
+            [36m>[39m
+              [36m<svg[39m
+                [33maria-hidden[39m=[32m"true"[39m
+                [33mclass[39m=[32m"lucide lucide-user-plus h-3 w-3 mr-1"[39m
+                [33mfill[39m=[32m"none"[39m
+                [33mheight[39m=[32m"24"[39m
+                [33mstroke[39m=[32m"currentColor"[39m
+                [33mstroke-linecap[39m=[32m"round"[39m
+                [33mstroke-linejoin[39m=[32m"round"[39m
+                [33mstroke-width[39m=[32m"2"[39m
+                [33mviewBox[39m=[32m"0 0 24 24"[39m
+                [33mwidth[39m=[32m"24"[39m
+                [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+              [36m>[39m
+                [36m<path[39m
+                  [33md[39m=[32m"M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"[39m
+                [36m/>[39m
+                [36m<circle[39m
+                  [33mcx[39m=[32m"9"[39m
+                  [33mcy[39m=[32m"7"[39m
+                  [33mr[39m=[32m"4"[39m
+                [36m/>[39m
+                [36m<line[39m
+                  [33mx1[39m=[32m"19"[39m
+                  [33mx2[39m=[32m"19"[39m
+                  [33my1[39m=[32m"8"[39m
+                  [33my2[39m=[32m"14"[39m
+                [36m/>[39m
+                [36m<line[39m
+                  [33mx1[39m=[32m"22"[39m
+                  [33mx2[39m=[32m"16"[39m
+                  [33my1[39m=[32m"11"[39m
+                  [33my2[39m=[32m"11"[39m
+                [36m/>[39m
+              [36m</svg>[39m
+              [0mNuevo proveedor[0m
+            [36m</button>[39m
+          [36m</div>[39m
+          [36m<div[39m
+            [33mdata-testid[39m=[32m"searchable-select"[39m
+          [36m>[39m
+            [36m<button[39m
+              [33mdata-testid[39m=[32m"supplier-option-sup-1"[39m
+              [33mtype[39m=[32m"button"[39m
+            [36m>[39m
+              [0mDistribuidora Mendoza[0m
+            [36m</button>[39m
+            [36m<button[39m
+              [33mdata-testid[39m=[32m"supplier-clear"[39m
+              [33mtype[39m=[32m"button"[39m
+            [36m>[39m
+              [0mlimpiar proveedor[0m
+            [36m</button>[39m
+          [36m</div>[39m
+        [36m</div>[39m
+      [36m</fieldset>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"border-t border-border"[39m
+      [36m/>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"flex flex-col gap-3 rounded-lg border border-dashed border-border bg-accent/15 p-3"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex items-center justify-between"[39m
+        [36m>[39m
+          [36m<label[39m
+            [33mclass[39m=[32m"peer-disabled:cursor-not-allowed peer-disabled:opacity-70 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5"[39m
+          [36m>[39m
+            [36m<svg[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"lucide lucide-package-plus h-3.5 w-3.5"[39m
+              [33mfill[39m=[32m"none"[39m
+              [33mheight[39m=[32m"24"[39m
+              [33mstroke[39m=[32m"currentColor"[39m
+              [33mstroke-linecap[39m=[32m"round"[39m
+              [33mstroke-linejoin[39m=[32m"round"[39m
+              [33mstroke-width[39m=[32m"2"[39m
+              [33mviewBox[39m=[32m"0 0 24 24"[39m
+              [33mwidth[39m=[32m"24"[39m
+              [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+            [36m>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M16 16h6"[39m
+              [36m/>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M19 13v6"[39m
+              [36m/>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M21 10V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l2-1.14"[39m
+              [36m/>[39m
+              [36m<path[39m
+                [33md[39m=[32m"m7.5 4.27 9 5.15"[39m
+              [36m/>[39m
+              [36m<polyline[39m
+                [33mpoints[39m=[32m"3.29 7 12 12 20.71 7"[39m
+              [36m/>[39m
+              [36m<line[39m
+                [33mx1[39m=[32m"12"[39m
+                [33mx2[39m=[32m"12"[39m
+                [33my1[39m=[32m"22"[39m
+                [33my2[39m=[32m"12"[39m
+              [36m/>[39m
+            [36m</svg>[39m
+            [0mAgregar producto[0m
+          [36m</label>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"flex items-center gap-2"[39m
+          [36m>[39m
+            [36m<button[39m
+              [33mclass[39m=[32m"inline-flex items-center justify-center gap-2 whitespace-nowrap font-medium ring-offset-background transition-colors duration-base ease-standard focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 hover:bg-accent hover:text-accent-foreground rounded-md px-3 md:h-9 h-6 text-xs text-primary"[39m
+              [33mtype[39m=[32m"button"[39m
+            [36m>[39m
+              [36m<svg[39m
+                [33maria-hidden[39m=[32m"true"[39m
+                [33mclass[39m=[32m"lucide lucide-plus h-3 w-3 mr-1"[39m
+                [33mfill[39m=[32m"none"[39m
+                [33mheight[39m=[32m"24"[39m
+                [33mstroke[39m=[32m"currentColor"[39m
+                [33mstroke-linecap[39m=[32m"round"[39m
+                [33mstroke-linejoin[39m=[32m"round"[39m
+                [33mstroke-width[39m=[32m"2"[39m
+                [33mviewBox[39m=[32m"0 0 24 24"[39m
+                [33mwidth[39m=[32m"24"[39m
+                [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+              [36m>[39m
+                [36m<path[39m
+                  [33md[39m=[32m"M5 12h14"[39m
+                [36m/>[39m
+                [36m<path[39m
+                  [33md[39m=[32m"M12 5v14"[39m
+                [36m/>[39m
+              [36m</svg>[39m
+              [0mNuevo producto[0m
+            [36m</button>[39m
+          [36m</div>[39m
+        [36m</div>[39m
+        [36m<div[39m
+          [33mdata-testid[39m=[32m"product-picker"[39m
+        [36m>[39m
+          [36m<button[39m
+            [33mdata-testid[39m=[32m"product-option-prod-1"[39m
+            [33mtype[39m=[32m"button"[39m
+          [36m>[39m
+            [0mInsumo Test[0m
+          [36m</button>[39m
+        [36m</div>[39m
+        [36m<button[39m
+          [33mclass[39m=[32m"inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors duration-base ease-standard focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 bg-secondary text-secondary-foreground hover:bg-secondary/80 h-11 px-4 py-2 md:h-10 w-full gap-2"[39m
+          [33mdisabled[39m=[32m""[39m
+          [33mtype[39m=[32m"button"[39m
+        [36m>[39m
+          [36m<svg[39m
+            [33maria-hidden[39m=[32m"true"[39m
+            [33mclass[39m=[32m"lucide lucide-plus h-4 w-4"[39m
+            [33mfill[39m=[32m"none"[39m
+            [33mheight[39m=[32m"24"[39m
+            [33mstroke[39m=[32m"currentColor"[39m
+            [33mstroke-linecap[39m=[32m"round"[39m
+            [33mstroke-linejoin[39m=[32m"round"[39m
+            [33mstroke-width[39m=[32m"2"[39m
+            [33mviewBox[39m=[32m"0 0 24 24"[39m
+            [33mwidth[39m=[32m"24"[39m
+            [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+          [36m>[39m
+            [36m<path[39m
+              [33md[39m=[32m"M5 12h14"[39m
+            [36m/>[39m
+            [36m<path[39m
+              [33md[39m=[32m"M12 5v14"[39m
+            [36m/>[39m
+          [36m</svg>[39m
+          [0mAgregar al carrito[0m
+        [36m</button>[39m
+      [36m</div>[39m
+      [36m<button[39m
+        [33mclass[39m=[32m"inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors duration-base ease-standard focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 bg-primary text-primary-foreground hover:bg-primary/90 h-11 px-4 py-2 md:h-10 w-full"[39m
+        [33mdisabled[39m=[32m""[39m
+        [33mtype[39m=[32m"submit"[39m
+      [36m>[39m
+        [0mConfirmar compra[0m
+      [36m</button>[39m
+    [36m</form>[39m
+  [36m</div>[39m
+[36m</body>[39m
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ __tests__/components/purchase-form-pending-delivery-notes.test.tsx:167:25
+    165|     fireEvent.click(screen.getByTestId("supplier-option-sup-1"))
+    166|
+    167|     const note = screen.getByRole("note")
+       |                         ^
+    168|     expect(note).toHaveTextContent(/este proveedor tiene 2 remitos de …
+    169|     expect(note).toHaveTextContent(/convertilo desde el remito para no…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/13]⎯
+
+ FAIL  __tests__/components/purchase-form-pending-delivery-notes.test.tsx > PurchaseForm — aviso contra la doble suma (remitos de compra pendientes) > cambiar de proveedor cambia el aviso, y limpiar el proveedor lo quita
+TestingLibraryElementError: Unable to find an accessible element with the role "note"
+
+Here are the accessible roles:
+
+  group:
+
+  Name "":
+  [36m<fieldset[39m
+    [33mclass[39m=[32m"contents"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  textbox:
+
+  Name "":
+  [36m<input[39m
+    [33mclass[39m=[32m"flex h-11 md:h-10 w-full rounded-md border px-3 py-2 text-base ring-offset-background transition-colors duration-base ease-standard file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 md:text-sm bg-background border-border text-foreground"[39m
+    [33mplaceholder[39m=[32m"Ej: Lote Dic 2026"[39m
+    [33mvalue[39m=[32m""[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  button:
+
+  Name "Nuevo proveedor":
+  [36m<button[39m
+    [33mclass[39m=[32m"inline-flex items-center justify-center gap-2 whitespace-nowrap font-medium ring-offset-background transition-colors duration-base ease-standard focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 hover:bg-accent hover:text-accent-foreground rounded-md px-3 md:h-9 h-6 text-xs text-primary"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Distribuidora Mendoza":
+  [36m<button[39m
+    [33mdata-testid[39m=[32m"supplier-option-sup-1"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Mayorista Sur":
+  [36m<button[39m
+    [33mdata-testid[39m=[32m"supplier-option-sup-2"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "limpiar proveedor":
+  [36m<button[39m
+    [33mdata-testid[39m=[32m"supplier-clear"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Nuevo producto":
+  [36m<button[39m
+    [33mclass[39m=[32m"inline-flex items-center justify-center gap-2 whitespace-nowrap font-medium ring-offset-background transition-colors duration-base ease-standard focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 hover:bg-accent hover:text-accent-foreground rounded-md px-3 md:h-9 h-6 text-xs text-primary"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Insumo Test":
+  [36m<button[39m
+    [33mdata-testid[39m=[32m"product-option-prod-1"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Agregar al carrito":
+  [36m<button[39m
+    [33mclass[39m=[32m"inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors duration-base ease-standard focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 bg-secondary text-secondary-foreground hover:bg-secondary/80 h-11 px-4 py-2 md:h-10 w-full gap-2"[39m
+    [33mdisabled[39m=[32m""[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Confirmar compra":
+  [36m<button[39m
+    [33mclass[39m=[32m"inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors duration-base ease-standard focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 bg-primary text-primary-foreground hover:bg-primary/90 h-11 px-4 py-2 md:h-10 w-full"[39m
+    [33mdisabled[39m=[32m""[39m
+    [33mtype[39m=[32m"submit"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<form>[39m
+      [36m<fieldset[39m
+        [33mclass[39m=[32m"contents"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"grid grid-cols-2 gap-3"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"flex flex-col gap-2"[39m
+          [36m>[39m
+            [36m<label[39m
+              [33mclass[39m=[32m"text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 text-foreground flex items-center gap-1.5"[39m
+              [33mfor[39m=[32m"purchase-date-_r_6_"[39m
+            [36m>[39m
+              [36m<svg[39m
+                [33maria-hidden[39m=[32m"true"[39m
+                [33mclass[39m=[32m"lucide lucide-calendar h-3.5 w-3.5 text-muted-foreground"[39m
+                [33mfill[39m=[32m"none"[39m
+                [33mheight[39m=[32m"24"[39m
+                [33mstroke[39m=[32m"currentColor"[39m
+                [33mstroke-linecap[39m=[32m"round"[39m
+                [33mstroke-linejoin[39m=[32m"round"[39m
+                [33mstroke-width[39m=[32m"2"[39m
+                [33mviewBox[39m=[32m"0 0 24 24"[39m
+                [33mwidth[39m=[32m"24"[39m
+                [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+              [36m>[39m
+                [36m<path[39m
+                  [33md[39m=[32m"M8 2v4"[39m
+                [36m/>[39m
+                [36m<path[39m
+                  [33md[39m=[32m"M16 2v4"[39m
+                [36m/>[39m
+                [36m<rect[39m
+                  [33mheight[39m=[32m"18"[39m
+                  [33mrx[39m=[32m"2"[39m
+                  [33mwidth[39m=[32m"18"[39m
+                  [33mx[39m=[32m"3"[39m
+                  [33my[39m=[32m"4"[39m
+                [36m/>[39m
+                [36m<path[39m
+                  [33md[39m=[32m"M3 10h18"[39m
+                [36m/>[39m
+              [36m</svg>[39m
+              [0mFecha[0m
+            [36m</label>[39m
+            [36m<input[39m
+              [33mclass[39m=[32m"flex h-10 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"[39m
+              [33mid[39m=[32m"purchase-date-_r_6_"[39m
+              [33mmax[39m=[32m"2026-10-16"[39m
+              [33mtype[39m=[32m"date"[39m
+              [33mvalue[39m=[32m"2026-10-16"[39m
+            [36m/>[39m
+          [36m</div>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"flex flex-col gap-2"[39m
+          [36m>[39m
+            [36m<label[39m
+              [33mclass[39m=[32m"text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 text-foreground"[39m
+            [36m>[39m
+              [0mNotas (opcional)[0m
+            [36m</label>[39m
+            [36m<input[39m
+              [33mclass[39m=[32m"flex h-11 md:h-10 w-full rounded-md border px-3 py-2 text-base ring-offset-background transition-colors duration-base ease-standard file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 md:text-sm bg-background border-border text-foreground"[39m
+              [33mplaceholder[39m=[32m"Ej: Lote Dic 2026"[39m
+              [33mvalue[39m=[32m""[39m
+            [36m/>[39m
+          [36m</div>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"col-span-2 sm:col-span-1 empty:hidden"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mdata-testid[39m=[32m"branch-select"[39m
+            [36m/>[39m
+          [36m</div>[39m
+          [36m<div[39m
+            [33mdata-testid[39m=[32m"payment-method-select"[39m
+          [36m/>[39m
+        [36m</div>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex flex-col gap-2"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"flex items-center justify-between"[39m
+          [36m>[39m
+            [36m<label[39m
+              [33mclass[39m=[32m"text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 text-foreground"[39m
+              [33mid[39m=[32m"purchase-supplier-label"[39m
+            [36m>[39m
+              [0mProveedor[0m
+            [36m</label>[39m
+            [36m<button[39m
+              [33mclass[39m=[32m"inline-flex items-center justify-center gap-2 whitespace-nowrap font-medium ring-offset-background transition-colors duration-base ease-standard focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 hover:bg-accent hover:text-accent-foreground rounded-md px-3 md:h-9 h-6 text-xs text-primary"[39m
+              [33mtype[39m=[32m"button"[39m
+            [36m>[39m
+              [36m<svg[39m
+                [33maria-hidden[39m=[32m"true"[39m
+                [33mclass[39m=[32m"lucide lucide-user-plus h-3 w-3 mr-1"[39m
+                [33mfill[39m=[32m"none"[39m
+                [33mheight[39m=[32m"24"[39m
+                [33mstroke[39m=[32m"currentColor"[39m
+                [33mstroke-linecap[39m=[32m"round"[39m
+                [33mstroke-linejoin[39m=[32m"round"[39m
+                [33mstroke-width[39m=[32m"2"[39m
+                [33mviewBox[39m=[32m"0 0 24 24"[39m
+                [33mwidth[39m=[32m"24"[39m
+                [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+              [36m>[39m
+                [36m<path[39m
+                  [33md[39m=[32m"M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"[39m
+                [36m/>[39m
+                [36m<circle[39m
+                  [33mcx[39m=[32m"9"[39m
+                  [33mcy[39m=[32m"7"[39m
+                  [33mr[39m=[32m"4"[39m
+                [36m/>[39m
+                [36m<line[39m
+                  [33mx1[39m=[32m"19"[39m
+                  [33mx2[39m=[32m"19"[39m
+                  [33my1[39m=[32m"8"[39m
+                  [33my2[39m=[32m"14"[39m
+                [36m/>[39m
+                [36m<line[39m
+                  [33mx1[39m=[32m"22"[39m
+                  [33mx2[39m=[32m"16"[39m
+                  [33my1[39m=[32m"11"[39m
+                  [33my2[39m=[32m"11"[39m
+                [36m/>[39m
+              [36m</svg>[39m
+              [0mNuevo proveedor[0m
+            [36m</button>[39m
+          [36m</div>[39m
+          [36m<div[39m
+            [33mdata-testid[39m=[32m"searchable-select"[39m
+          [36m>[39m
+            [36m<button[39m
+              [33mdata-testid[39m=[32m"supplier-option-sup-1"[39m
+              [33mtype[39m=[32m"button"[39m
+            [36m>[39m
+              [0mDistribuidora Mendoza[0m
+            [36m</button>[39m
+            [36m<button[39m
+              [33mdata-testid[39m=[32m"supplier-option-sup-2"[39m
+              [33mtype[39m=[32m"button"[39m
+            [36m>[39m
+              [0mMayorista Sur[0m
+            [36m</button>[39m
+            [36m<button[39m
+              [33mdata-testid[39m=[32m"supplier-clear"[39m
+              [33mtype[39m=[32m"button"[39m
+            [36m>[39m
+              [0mlimpiar proveedor[0m
+            [36m</button>[39m
+          [36m</div>[39m
+        [36m</div>[39m
+      [36m</fieldset>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"border-t border-border"[39m
+      [36m/>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"flex flex-col gap-3 rounded-lg border border-dashed border-border bg-accent/15 p-3"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex items-center justify-between"[39m
+        [36m>[39m
+          [36m<label[39m
+            [33mclass[39m=[32m"peer-disabled:cursor-not-allowed peer-disabled:opacity-70 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5"[39m
+          [36m>[39m
+            [36m<svg[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"lucide lucide-package-plus h-3.5 w-3.5"[39m
+              [33mfill[39m=[32m"none"[39m
+              [33mheight[39m=[32m"24"[39m
+              [33mstroke[39m=[32m"currentColor"[39m
+              [33mstroke-linecap[39m=[32m"round"[39m
+              [33mstroke-linejoin[39m=[32m"round"[39m
+              [33mstroke-width[39m=[32m"2"[39m
+              [33mviewBox[39m=[32m"0 0 24 24"[39m
+              [33mwidth[39m=[32m"24"[39m
+              [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+            [36m>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M16 16h6"[39m
+              [36m/>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M19 13v6"[39m
+              [36m/>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M21 10V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l2-1.14"[39m
+              [36m/>[39m
+              [36m<path[39m
+                [33md[39m=[32m"m7.5 4.27 9 5.15"[39m
+              [36m/>[39m
+              [36m<polyline[39m
+                [33mpoints[39m=[32m"3.29 7 12 12 20.71 7"[39m
+              [36m/>[39m
+              [36m<line[39m
+                [33mx1[39m=[32m"12"[39m
+                [33mx2[39m=[32m"12"[39m
+                [33my1[39m=[32m"22"[39m
+                [33my2[39m=[32m"12"[39m
+              [36m/>[39m
+            [36m</svg>[39m
+            [0mAgregar producto[0m
+          [36m</label>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"flex items-center gap-2"[39m
+          [36m>[39m
+            [36m<button[39m
+              [33mclass[39m=[32m"inline-flex items-center justify-center gap-2 whitespace-nowrap font-medium ring-offset-background transition-colors duration-base ease-standard focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 hover:bg-accent hover:text-accent-foreground rounded-md px-3 md:h-9 h-6 text-xs text-primary"[39m
+              [33mtype[39m=[32m"button"[39m
+            [36m>[39m
+              [36m<svg[39m
+                [33maria-hidden[39m=[32m"true"[39m
+                [33mclass[39m=[32m"lucide lucide-plus h-3 w-3 mr-1"[39m
+                [33mfill[39m=[32m"none"[39m
+                [33mheight[39m=[32m"24"[39m
+                [33mstroke[39m=[32m"currentColor"[39m
+                [33mstroke-linecap[39m=[32m"round"[39m
+                [33mstroke-linejoin[39m=[32m"round"[39m
+                [33mstroke-width[39m=[32m"2"[39m
+                [33mviewBox[39m=[32m"0 0 24 24"[39m
+                [33mwidth[39m=[32m"24"[39m
+                [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+              [36m>[39m
+                [36m<path[39m
+                  [33md[39m=[32m"M5 12h14"[39m
+                [36m/>[39m
+                [36m<path[39m
+                  [33md[39m=[32m"M12 5v14"[39m
+                [36m/>[39m
+              [36m</svg>[39m
+              [0mNuevo producto[0m
+            [36m</button>[39m
+          [36m</div>[39m
+        [36m</div>[39m
+        [36m<div[39m
+          [33mdata-testid[39m=[32m"product-picker"[39m
+        [36m>[39m
+          [36m<button[39m
+            [33mdata-testid[39m=[32m"product-option-prod-1"[39m
+            [33mtype[39m=[32m"button"[39m
+          [36m>[39m
+            [0mInsumo Test[0m
+          [36m</button>[39m
+        [36m</div>[39m
+        [36m<button[39m
+          [33mclass[39m=[32m"inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors duration-base ease-standard focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 bg-secondary text-secondary-foreground hover:bg-secondary/80 h-11 px-4 py-2 md:h-10 w-full gap-2"[39m
+          [33mdisabled[39m=[32m""[39m
+          [33mtype[39m=[32m"button"[39m
+        [36m>[39m
+          [36m<svg[39m
+            [33maria-hidden[39m=[32m"true"[39m
+            [33mclass[39m=[32m"lucide lucide-plus h-4 w-4"[39m
+            [33mfill[39m=[32m"none"[39m
+            [33mheight[39m=[32m"24"[39m
+            [33mstroke[39m=[32m"currentColor"[39m
+            [33mstroke-linecap[39m=[32m"round"[39m
+            [33mstroke-linejoin[39m=[32m"round"[39m
+            [33mstroke-width[39m=[32m"2"[39m
+            [33mviewBox[39m=[32m"0 0 24 24"[39m
+            [33mwidth[39m=[32m"24"[39m
+            [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+          [36m>[39m
+            [36m<path[39m
+              [33md[39m=[32m"M5 12h14"[39m
+            [36m/>[39m
+            [36m<path[39m
+              [33md[39m=[32m"M12 5v14"[39m
+            [36m/>[39m
+          [36m</svg>[39m
+          [0mAgregar al carrito[0m
+        [36m</button>[39m
+      [36m</div>[39m
+      [36m<button[39m
+        [33mclass[39m=[32m"inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors duration-base ease-standard focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 bg-primary text-primary-foreground hover:bg-primary/90 h-11 px-4 py-2 md:h-10 w-full"[39m
+        [33mdisabled[39m=[32m""[39m
+        [33mtype[39m=[32m"submit"[39m
+      [36m>[39m
+        [0mConfirmar compra[0m
+      [36m</button>[39m
+    [36m</form>[39m
+  [36m</div>[39m
+[36m</body>[39m
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ __tests__/components/purchase-form-pending-delivery-notes.test.tsx:201:19
+    199|
+    200|     fireEvent.click(screen.getByTestId("supplier-option-sup-1"))
+    201|     expect(screen.getByRole("note")).toHaveTextContent(/2 remitos de c…
+       |                   ^
+    202|
+    203|     fireEvent.click(screen.getByTestId("supplier-option-sup-2"))
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[12/13]⎯
+
+ FAIL  __tests__/components/purchase-form-pending-delivery-notes.test.tsx > PurchaseForm — aviso contra la doble suma (remitos de compra pendientes) > el aviso NO bloquea el guardado: confirmar la compra sigue llamando al alta
+TestingLibraryElementError: Unable to find an accessible element with the role "note"
+
+Here are the accessible roles:
+
+  group:
+
+  Name "":
+  [36m<fieldset[39m
+    [33mclass[39m=[32m"contents"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  textbox:
+
+  Name "":
+  [36m<input[39m
+    [33mclass[39m=[32m"flex h-11 md:h-10 w-full rounded-md border px-3 py-2 text-base ring-offset-background transition-colors duration-base ease-standard file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 md:text-sm bg-background border-border text-foreground"[39m
+    [33mplaceholder[39m=[32m"Ej: Lote Dic 2026"[39m
+    [33mvalue[39m=[32m""[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  button:
+
+  Name "Nuevo proveedor":
+  [36m<button[39m
+    [33mclass[39m=[32m"inline-flex items-center justify-center gap-2 whitespace-nowrap font-medium ring-offset-background transition-colors duration-base ease-standard focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 hover:bg-accent hover:text-accent-foreground rounded-md px-3 md:h-9 h-6 text-xs text-primary"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Distribuidora Mendoza":
+  [36m<button[39m
+    [33mdata-testid[39m=[32m"supplier-option-sup-1"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "limpiar proveedor":
+  [36m<button[39m
+    [33mdata-testid[39m=[32m"supplier-clear"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Nuevo producto":
+  [36m<button[39m
+    [33mclass[39m=[32m"inline-flex items-center justify-center gap-2 whitespace-nowrap font-medium ring-offset-background transition-colors duration-base ease-standard focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 hover:bg-accent hover:text-accent-foreground rounded-md px-3 md:h-9 h-6 text-xs text-primary"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Insumo Test":
+  [36m<button[39m
+    [33mdata-testid[39m=[32m"product-option-prod-1"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Agregar al carrito":
+  [36m<button[39m
+    [33mclass[39m=[32m"inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors duration-base ease-standard focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 bg-secondary text-secondary-foreground hover:bg-secondary/80 h-11 px-4 py-2 md:h-10 w-full gap-2"[39m
+    [33mdisabled[39m=[32m""[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Confirmar compra":
+  [36m<button[39m
+    [33mclass[39m=[32m"inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors duration-base ease-standard focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 bg-primary text-primary-foreground hover:bg-primary/90 h-11 px-4 py-2 md:h-10 w-full"[39m
+    [33mdisabled[39m=[32m""[39m
+    [33mtype[39m=[32m"submit"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<form>[39m
+      [36m<fieldset[39m
+        [33mclass[39m=[32m"contents"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"grid grid-cols-2 gap-3"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"flex flex-col gap-2"[39m
+          [36m>[39m
+            [36m<label[39m
+              [33mclass[39m=[32m"text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 text-foreground flex items-center gap-1.5"[39m
+              [33mfor[39m=[32m"purchase-date-_r_8_"[39m
+            [36m>[39m
+              [36m<svg[39m
+                [33maria-hidden[39m=[32m"true"[39m
+                [33mclass[39m=[32m"lucide lucide-calendar h-3.5 w-3.5 text-muted-foreground"[39m
+                [33mfill[39m=[32m"none"[39m
+                [33mheight[39m=[32m"24"[39m
+                [33mstroke[39m=[32m"currentColor"[39m
+                [33mstroke-linecap[39m=[32m"round"[39m
+                [33mstroke-linejoin[39m=[32m"round"[39m
+                [33mstroke-width[39m=[32m"2"[39m
+                [33mviewBox[39m=[32m"0 0 24 24"[39m
+                [33mwidth[39m=[32m"24"[39m
+                [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+              [36m>[39m
+                [36m<path[39m
+                  [33md[39m=[32m"M8 2v4"[39m
+                [36m/>[39m
+                [36m<path[39m
+                  [33md[39m=[32m"M16 2v4"[39m
+                [36m/>[39m
+                [36m<rect[39m
+                  [33mheight[39m=[32m"18"[39m
+                  [33mrx[39m=[32m"2"[39m
+                  [33mwidth[39m=[32m"18"[39m
+                  [33mx[39m=[32m"3"[39m
+                  [33my[39m=[32m"4"[39m
+                [36m/>[39m
+                [36m<path[39m
+                  [33md[39m=[32m"M3 10h18"[39m
+                [36m/>[39m
+              [36m</svg>[39m
+              [0mFecha[0m
+            [36m</label>[39m
+            [36m<input[39m
+              [33mclass[39m=[32m"flex h-10 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"[39m
+              [33mid[39m=[32m"purchase-date-_r_8_"[39m
+              [33mmax[39m=[32m"2026-10-16"[39m
+              [33mtype[39m=[32m"date"[39m
+              [33mvalue[39m=[32m"2026-10-16"[39m
+            [36m/>[39m
+          [36m</div>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"flex flex-col gap-2"[39m
+          [36m>[39m
+            [36m<label[39m
+              [33mclass[39m=[32m"text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 text-foreground"[39m
+            [36m>[39m
+              [0mNotas (opcional)[0m
+            [36m</label>[39m
+            [36m<input[39m
+              [33mclass[39m=[32m"flex h-11 md:h-10 w-full rounded-md border px-3 py-2 text-base ring-offset-background transition-colors duration-base ease-standard file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 md:text-sm bg-background border-border text-foreground"[39m
+              [33mplaceholder[39m=[32m"Ej: Lote Dic 2026"[39m
+              [33mvalue[39m=[32m""[39m
+            [36m/>[39m
+          [36m</div>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"col-span-2 sm:col-span-1 empty:hidden"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mdata-testid[39m=[32m"branch-select"[39m
+            [36m/>[39m
+          [36m</div>[39m
+          [36m<div[39m
+            [33mdata-testid[39m=[32m"payment-method-select"[39m
+          [36m/>[39m
+        [36m</div>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex flex-col gap-2"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"flex items-center justify-between"[39m
+          [36m>[39m
+            [36m<label[39m
+              [33mclass[39m=[32m"text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 text-foreground"[39m
+              [33mid[39m=[32m"purchase-supplier-label"[39m
+            [36m>[39m
+              [0mProveedor[0m
+            [36m</label>[39m
+            [36m<button[39m
+              [33mclass[39m=[32m"inline-flex items-center justify-center gap-2 whitespace-nowrap font-medium ring-offset-background transition-colors duration-base ease-standard focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 hover:bg-accent hover:text-accent-foreground rounded-md px-3 md:h-9 h-6 text-xs text-primary"[39m
+              [33mtype[39m=[32m"button"[39m
+            [36m>[39m
+              [36m<svg[39m
+                [33maria-hidden[39m=[32m"true"[39m
+                [33mclass[39m=[32m"lucide lucide-user-plus h-3 w-3 mr-1"[39m
+                [33mfill[39m=[32m"none"[39m
+                [33mheight[39m=[32m"24"[39m
+                [33mstroke[39m=[32m"currentColor"[39m
+                [33mstroke-linecap[39m=[32m"round"[39m
+                [33mstroke-linejoin[39m=[32m"round"[39m
+                [33mstroke-width[39m=[32m"2"[39m
+                [33mviewBox[39m=[32m"0 0 24 24"[39m
+                [33mwidth[39m=[32m"24"[39m
+                [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+              [36m>[39m
+                [36m<path[39m
+                  [33md[39m=[32m"M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"[39m
+                [36m/>[39m
+                [36m<circle[39m
+                  [33mcx[39m=[32m"9"[39m
+                  [33mcy[39m=[32m"7"[39m
+                  [33mr[39m=[32m"4"[39m
+                [36m/>[39m
+                [36m<line[39m
+                  [33mx1[39m=[32m"19"[39m
+                  [33mx2[39m=[32m"19"[39m
+                  [33my1[39m=[32m"8"[39m
+                  [33my2[39m=[32m"14"[39m
+                [36m/>[39m
+                [36m<line[39m
+                  [33mx1[39m=[32m"22"[39m
+                  [33mx2[39m=[32m"16"[39m
+                  [33my1[39m=[32m"11"[39m
+                  [33my2[39m=[32m"11"[39m
+                [36m/>[39m
+              [36m</svg>[39m
+              [0mNuevo proveedor[0m
+            [36m</button>[39m
+          [36m</div>[39m
+          [36m<div[39m
+            [33mdata-testid[39m=[32m"searchable-select"[39m
+          [36m>[39m
+            [36m<button[39m
+              [33mdata-testid[39m=[32m"supplier-option-sup-1"[39m
+              [33mtype[39m=[32m"button"[39m
+            [36m>[39m
+              [0mDistribuidora Mendoza[0m
+            [36m</button>[39m
+            [36m<button[39m
+              [33mdata-testid[39m=[32m"supplier-clear"[39m
+              [33mtype[39m=[32m"button"[39m
+            [36m>[39m
+              [0mlimpiar proveedor[0m
+            [36m</button>[39m
+          [36m</div>[39m
+        [36m</div>[39m
+      [36m</fieldset>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"border-t border-border"[39m
+      [36m/>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"flex flex-col gap-3 rounded-lg border border-dashed border-border bg-accent/15 p-3"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex items-center justify-between"[39m
+        [36m>[39m
+          [36m<label[39m
+            [33mclass[39m=[32m"peer-disabled:cursor-not-allowed peer-disabled:opacity-70 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5"[39m
+          [36m>[39m
+            [36m<svg[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"lucide lucide-package-plus h-3.5 w-3.5"[39m
+              [33mfill[39m=[32m"none"[39m
+              [33mheight[39m=[32m"24"[39m
+              [33mstroke[39m=[32m"currentColor"[39m
+              [33mstroke-linecap[39m=[32m"round"[39m
+              [33mstroke-linejoin[39m=[32m"round"[39m
+              [33mstroke-width[39m=[32m"2"[39m
+              [33mviewBox[39m=[32m"0 0 24 24"[39m
+              [33mwidth[39m=[32m"24"[39m
+              [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+            [36m>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M16 16h6"[39m
+              [36m/>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M19 13v6"[39m
+              [36m/>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M21 10V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l2-1.14"[39m
+              [36m/>[39m
+              [36m<path[39m
+                [33md[39m=[32m"m7.5 4.27 9 5.15"[39m
+              [36m/>[39m
+              [36m<polyline[39m
+                [33mpoints[39m=[32m"3.29 7 12 12 20.71 7"[39m
+              [36m/>[39m
+              [36m<line[39m
+                [33mx1[39m=[32m"12"[39m
+                [33mx2[39m=[32m"12"[39m
+                [33my1[39m=[32m"22"[39m
+                [33my2[39m=[32m"12"[39m
+              [36m/>[39m
+            [36m</svg>[39m
+            [0mAgregar producto[0m
+          [36m</label>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"flex items-center gap-2"[39m
+          [36m>[39m
+            [36m<button[39m
+              [33mclass[39m=[32m"inline-flex items-center justify-center gap-2 whitespace-nowrap font-medium ring-offset-background transition-colors duration-base ease-standard focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 hover:bg-accent hover:text-accent-foreground rounded-md px-3 md:h-9 h-6 text-xs text-primary"[39m
+              [33mtype[39m=[32m"button"[39m
+            [36m>[39m
+              [36m<svg[39m
+                [33maria-hidden[39m=[32m"true"[39m
+                [33mclass[39m=[32m"lucide lucide-plus h-3 w-3 mr-1"[39m
+                [33mfill[39m=[32m"none"[39m
+                [33mheight[39m=[32m"24"[39m
+                [33mstroke[39m=[32m"currentColor"[39m
+                [33mstroke-linecap[39m=[32m"round"[39m
+                [33mstroke-linejoin[39m=[32m"round"[39m
+                [33mstroke-width[39m=[32m"2"[39m
+                [33mviewBox[39m=[32m"0 0 24 24"[39m
+                [33mwidth[39m=[32m"24"[39m
+                [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+              [36m>[39m
+                [36m<path[39m
+                  [33md[39m=[32m"M5 12h14"[39m
+                [36m/>[39m
+                [36m<path[39m
+                  [33md[39m=[32m"M12 5v14"[39m
+                [36m/>[39m
+              [36m</svg>[39m
+              [0mNuevo producto[0m
+            [36m</button>[39m
+          [36m</div>[39m
+        [36m</div>[39m
+        [36m<div[39m
+          [33mdata-testid[39m=[32m"product-picker"[39m
+        [36m>[39m
+          [36m<button[39m
+            [33mdata-testid[39m=[32m"product-option-prod-1"[39m
+            [33mtype[39m=[32m"button"[39m
+          [36m>[39m
+            [0mInsumo Test[0m
+          [36m</button>[39m
+        [36m</div>[39m
+        [36m<button[39m
+          [33mclass[39m=[32m"inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors duration-base ease-standard focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 bg-secondary text-secondary-foreground hover:bg-secondary/80 h-11 px-4 py-2 md:h-10 w-full gap-2"[39m
+          [33mdisabled[39m=[32m""[39m
+          [33mtype[39m=[32m"button"[39m
+        [36m>[39m
+          [36m<svg[39m
+            [33maria-hidden[39m=[32m"true"[39m
+            [33mclass[39m=[32m"lucide lucide-plus h-4 w-4"[39m
+            [33mfill[39m=[32m"none"[39m
+            [33mheight[39m=[32m"24"[39m
+            [33mstroke[39m=[32m"currentColor"[39m
+            [33mstroke-linecap[39m=[32m"round"[39m
+            [33mstroke-linejoin[39m=[32m"round"[39m
+            [33mstroke-width[39m=[32m"2"[39m
+            [33mviewBox[39m=[32m"0 0 24 24"[39m
+            [33mwidth[39m=[32m"24"[39m
+            [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+          [36m>[39m
+            [36m<path[39m
+              [33md[39m=[32m"M5 12h14"[39m
+            [36m/>[39m
+            [36m<path[39m
+              [33md[39m=[32m"M12 5v14"[39m
+            [36m/>[39m
+          [36m</svg>[39m
+          [0mAgregar al carrito[0m
+        [36m</button>[39m
+      [36m</div>[39m
+      [36m<button[39m
+        [33mclass[39m=[32m"inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors duration-base ease-standard focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 bg-primary text-primary-foreground hover:bg-primary/90 h-11 px-4 py-2 md:h-10 w-full"[39m
+        [33mdisabled[39m=[32m""[39m
+        [33mtype[39m=[32m"submit"[39m
+      [36m>[39m
+        [0mConfirmar compra[0m
+      [36m</button>[39m
+    [36m</form>[39m
+  [36m</div>[39m
+[36m</body>[39m
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ __tests__/components/purchase-form-pending-delivery-notes.test.tsx:220:19
+    218|
+    219|     fireEvent.click(screen.getByTestId("supplier-option-sup-1"))
+    220|     expect(screen.getByRole("note")).toBeInTheDocument()
+       |                   ^
+    221|     fireEvent.click(screen.getByTestId("product-option-prod-1"))
+    222|     fireEvent.click(screen.getByRole("button", { name: /agregar al car…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[13/13]⎯
+
+
+ Test Files  3 failed (3)
+      Tests  13 failed | 11 passed (24)
+   Start at  10:57:01
+   Duration  8.19s (transform 1.07s, setup 1.20s, import 5.06s, tests 2.45s, environment 11.19s)
+

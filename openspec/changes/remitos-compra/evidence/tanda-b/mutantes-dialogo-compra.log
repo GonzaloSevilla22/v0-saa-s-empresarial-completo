@@ -1,0 +1,18 @@
+baseline: exit 0
+M1 el payload manda supplier_id: MUERTO
+M2 la forma de pago deja de ser obligatoria (se ofrece 'Sin especificar'): MUERTO
+M3 el vencimiento viaja aunque no sea crédito: MUERTO
+M4 el vencimiento viaja sin que el usuario lo toque: MUERTO
+M5 se permite una fecha anterior a la recepción: MUERTO
+M6 invalid_state no recarga el remito: MUERTO
+M7 la clave de idempotencia usa el alcance de VENTA: MUERTO
+M8 el plazo del proveedor no se consulta: MUERTO
+M9 la caja se resuelve sin la sucursal del remito: MUERTO
+M10 la confirmación no exige forma de pago: MUERTO
+M11 el crédito sin proveedor deja confirmar: MUERTO
+M12 cambiar de forma de pago conserva la cuenta bancaria: MUERTO
+M13 el mensaje del remito ya convertido habla de venta: MUERTO
+M14 humaniza como remito de venta: MUERTO
+M15 la expected_revision no viaja: MUERTO
+sobrevivientes: ninguno
+exit 0

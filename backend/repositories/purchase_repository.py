@@ -91,6 +91,23 @@ class PurchaseRepository(BaseRepository):
                    -- nombrar la keyword de union seguida de una palabra acá.
                    p.supplier_id,
                    sup.name AS supplier_name,
+                   -- remitos-compra (tanda B, D11/D13): el remito de compra que originó
+                   -- la compra, derivado de purchases.source_delivery_note_id (sin
+                   -- columnas denormalizadas), con la cuenta y el sentido en el cruce.
+                   -- source_delivery_note_branch_active usa el MISMO predicado que
+                   -- rpc_delete_purchase_operation (sucursal del remito activa y no
+                   -- cerrada, con la cuenta en el cruce): el listado deshabilita
+                   -- "Eliminar" con su motivo ANTES de llegar al P0422. Y el motivo por
+                   -- el que la operación NO se edita: una compra nacida de un remito es
+                   -- inmutable (P0423 delivery_note_purchase_locked) porque editarla
+                   -- restaría stock que el remito sigue aportando; es el mismo token del
+                   -- RAISE para que la UI explique antes del error.
+                   p.source_delivery_note_id               AS source_delivery_note_id,
+                   sdn.number                              AS source_delivery_note_number,
+                   (sdb.is_active = TRUE AND sdb.status IS DISTINCT FROM 'closed')
+                                                           AS source_delivery_note_branch_active,
+                   CASE WHEN p.source_delivery_note_id IS NOT NULL THEN 'delivery_note_purchase_locked' END
+                                                           AS edit_locked_reason,
                    -- pagos-cableados-restantes (D6, task 9.3): MISMO
                    -- predicado que el guard P0423 de
                    -- rpc_atomic_update_purchase_operation. Sin la doble
@@ -157,6 +174,8 @@ class PurchaseRepository(BaseRepository):
             LEFT JOIN cost_centers cc ON cc.id = p.cost_center_id
             LEFT JOIN payment_methods pm ON pm.id = p.payment_method_id
             LEFT JOIN suppliers sup ON sup.id = p.supplier_id
+            LEFT JOIN delivery_notes sdn ON sdn.id = p.source_delivery_note_id AND sdn.account_id = p.account_id AND sdn.direction = 'purchase'
+            LEFT JOIN branches sdb ON sdb.id = sdn.branch_id AND sdb.account_id = sdn.account_id
             WHERE p.account_id = $1::uuid
             ORDER BY p.date DESC, p.id
             """,

@@ -34,6 +34,7 @@ const mocks = vi.hoisted(() => ({
   shareProps: vi.fn(),
   cancelDialog: vi.fn(),
   convertDialog: vi.fn(),
+  purchaseConvertDialog: vi.fn(),
 }))
 
 vi.mock("next/navigation", () => ({
@@ -104,6 +105,24 @@ vi.mock("@/components/delivery-notes/ConvertDeliveryNoteDialog", () => ({
         <span data-testid="convert-dialog-note-status">{props.deliveryNote.status}</span>
         <button type="button" onClick={() => props.onOpenChange(false)}>
           cerrar venta
+        </button>
+      </div>
+    ) : null
+  },
+}))
+
+vi.mock("@/components/delivery-notes/ConvertPurchaseDeliveryNoteDialog", () => ({
+  ConvertPurchaseDeliveryNoteDialog: (props: {
+    deliveryNote: { id: string; status: string }
+    open: boolean
+    onOpenChange: (open: boolean) => void
+  }) => {
+    mocks.purchaseConvertDialog(props)
+    return props.open ? (
+      <div role="dialog" aria-label="Pasar a compra (mock)">
+        <span data-testid="convert-purchase-dialog-note-status">{props.deliveryNote.status}</span>
+        <button type="button" onClick={() => props.onOpenChange(false)}>
+          cerrar compra
         </button>
       </div>
     ) : null
@@ -700,15 +719,112 @@ describe("DeliveryNoteDetailPage (compra) — acciones por estado y rol (D11)", 
     expect(screen.getByRole("group", { name: /menú de compartir/i })).toBeInTheDocument()
   })
 
-  it("en la tanda A 'Compra' no se muestra (la conversión llega en la tanda B)", () => {
+  // remitos-compra tanda B (7.6): "Compra" es la conversión del remito (CAN_CONVERT_PURCHASE_DELIVERY_NOTE:
+  // owner, admin, purchases y stock). El depósito (stock) recibe Y convierte: tiene la factura en la mano.
+  it.each([
+    [["owner"], true],
+    [["admin"], true],
+    [["stock"], true],
+    [["purchases"], true],
+    [["seller"], false],
+    [["cashier"], false],
+    [["viewer"], false],
+    [["seller", "purchases"], true],
+  ])("pendiente con roles %j: 'Compra' visible = %s (CAN_CONVERT_PURCHASE_DELIVERY_NOTE)", (roles, visible) => {
+    setRoles(roles)
     showPurchase()
-    expect(screen.queryByRole("button", { name: /^compra$/i })).not.toBeInTheDocument()
+    expect(!!screen.queryByRole("button", { name: /^compra$/i })).toBe(visible)
     expect(buttonNames().join("|")).not.toMatch(/Venta/)
+  })
+
+  it("'Compra' abre el diálogo de conversión de COMPRA con ESTE remito y Cancelar lo cierra", () => {
+    showPurchase()
+    expect(screen.queryByRole("dialog", { name: /pasar a compra/i })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole("button", { name: /^compra$/i }))
+
+    expect(screen.getByRole("dialog", { name: /pasar a compra/i })).toBeInTheDocument()
+    expect(mocks.purchaseConvertDialog.mock.calls.at(-1)?.[0].deliveryNote.id).toBe("dn-1")
+    fireEvent.click(screen.getByRole("button", { name: /cerrar compra/i }))
+    expect(screen.queryByRole("dialog", { name: /pasar a compra/i })).not.toBeInTheDocument()
   })
 
   it("el diálogo de conversión de venta no se monta en un remito de compra", () => {
     showPurchase()
+    fireEvent.click(screen.getByRole("button", { name: /^compra$/i }))
     expect(mocks.convertDialog).not.toHaveBeenCalled()
+  })
+
+  it("el diálogo de compra no se monta en un remito de VENTA", () => {
+    render(<DeliveryNoteDetailPage />)
+    fireEvent.click(screen.getByRole("button", { name: /^venta$/i }))
+    expect(mocks.purchaseConvertDialog).not.toHaveBeenCalled()
+  })
+
+  it("con una línea sin precio 'Compra' queda deshabilitada y el motivo está visible y asociado al botón", () => {
+    showPurchase({ missing_price_count: 2 })
+
+    const compra = screen.getByRole("button", { name: /^compra$/i })
+    expect(compra).toBeDisabled()
+    expect(compra).toHaveAccessibleDescription(/falta el precio de compra de 2 líneas/i)
+    expect(screen.getAllByText(/falta el precio de compra de 2 líneas: editá el remito y cargalo para convertirlo/i).length).toBeGreaterThan(0)
+    fireEvent.click(compra)
+    expect(screen.queryByRole("dialog", { name: /pasar a compra/i })).not.toBeInTheDocument()
+    expect(mocks.purchaseConvertDialog).not.toHaveBeenCalled()
+  })
+
+  it("con UNA línea sin precio el motivo habla en singular", () => {
+    showPurchase({ missing_price_count: 1 })
+    expect(screen.getByRole("button", { name: /^compra$/i })).toHaveAccessibleDescription(/falta el precio de compra de 1 línea:/i)
+  })
+
+  it("proveedor dado de baja: 'Compra' queda deshabilitada con su motivo (que tiene precedencia sobre el faltante de precio)", () => {
+    showPurchase({ supplier_deleted: true, missing_price_count: 3 })
+
+    const compra = screen.getByRole("button", { name: /^compra$/i })
+    expect(compra).toBeDisabled()
+    expect(compra).toHaveAccessibleDescription(/el proveedor fue dado de baja: editá el remito y elegí uno vigente/i)
+    expect(screen.queryByText(/falta el precio de compra/i)).not.toBeInTheDocument()
+  })
+
+  it("un remito con todos los precios y proveedor vigente no muestra ningún motivo bajo los botones", () => {
+    showPurchase()
+    expect(screen.getByRole("button", { name: /^compra$/i })).toBeEnabled()
+    expect(screen.queryByText(/falta el precio de compra/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/el proveedor fue dado de baja: editá el remito/i)).not.toBeInTheDocument()
+  })
+
+  it("al convertir, el remito pasa a convertido pero el diálogo SIGUE montado (si no, 'Compra registrada' desaparecería)", () => {
+    const view = showPurchase()
+    fireEvent.click(screen.getByRole("button", { name: /^compra$/i }))
+    expect(screen.getByRole("dialog", { name: /pasar a compra/i })).toBeInTheDocument()
+
+    mocks.useDeliveryNote.mockReturnValue({
+      data: purchaseNote({ status: "converted", converted_operation_id: "op-9" }),
+      isLoading: false,
+      isError: false,
+    })
+    view.rerender(<DeliveryNoteDetailPage />)
+
+    expect(screen.getByRole("dialog", { name: /pasar a compra/i })).toBeInTheDocument()
+    expect(screen.getByTestId("convert-purchase-dialog-note-status")).toHaveTextContent("converted")
+    // Y el detalle ya no ofrece convertir de nuevo, pero sí ver la compra.
+    expect(screen.queryByRole("button", { name: /^compra$/i })).not.toBeInTheDocument()
+    expect(screen.getByRole("link", { name: /ver compra/i })).toHaveAttribute("href", "/compras")
+  })
+
+  it("el diálogo no se monta en un remito convertido o anulado que nunca lo abrió", () => {
+    const first = showPurchase({ status: "converted", converted_operation_id: "op-9" })
+    expect(mocks.purchaseConvertDialog).not.toHaveBeenCalled()
+    first.unmount()
+    showPurchase({ status: "canceled" })
+    expect(mocks.purchaseConvertDialog).not.toHaveBeenCalled()
+  })
+
+  it("sin CAN_CONVERT_PURCHASE_DELIVERY_NOTE el diálogo tampoco se monta", () => {
+    setRoles(["seller"])
+    showPurchase()
+    expect(mocks.purchaseConvertDialog).not.toHaveBeenCalled()
   })
 
   it("Editar lleva a la pantalla de edición del remito", () => {

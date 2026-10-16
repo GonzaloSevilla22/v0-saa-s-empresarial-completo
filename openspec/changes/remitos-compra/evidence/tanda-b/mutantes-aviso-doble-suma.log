@@ -1,0 +1,17 @@
+baseline: exit 0
+A1 sin proveedor (null) igual consulta y avisa: MUERTO
+A2 el aviso consulta también los remitos de venta: MUERTO
+A3 el aviso cuenta también los ya convertidos: MUERTO
+A4 con proveedor no se acota al proveedor: MUERTO
+A5 pide la página completa en vez de una fila: MUERTO
+A6 el aviso pasa a ser una alerta: MUERTO
+A7 el enlace pierde el filtro de proveedor: MUERTO
+A8 el formulario avisa también al EDITAR: MUERTO
+A9 el formulario no monta el aviso: MUERTO
+A10 la revisión de Factura IA no muestra el aviso: MUERTO
+A11 el botón de Factura IA no pasa el aviso: MUERTO
+A12 la Factura IA acota el aviso a un proveedor inexistente (null): MUERTO
+A13 el texto pierde el singular: MUERTO
+A14 el enlace no escapa el proveedor: MUERTO
+sobrevivientes: ninguno
+exit 0

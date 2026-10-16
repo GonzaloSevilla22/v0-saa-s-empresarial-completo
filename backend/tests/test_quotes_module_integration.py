@@ -39,6 +39,23 @@ from backend.schemas.quotes import (
     QuoteUpdateIn,
 )
 from backend.services import quotes as svc
+from backend.services.commercial_documents.branding import branding_from_rpc
+
+# Contrato VIGENTE de `rpc_commercial_issuer` (migración
+# 20261078000001_documentos_marca_empresa): las 6 claves del perfil fiscal y del
+# dueño que existían desde presupuestos-modulo + las 12 planas y aditivas de la marca
+# que sumó documentos-marca-empresa. Son exactamente las claves que leen
+# `issuer_from_rpc` y `branding_from_rpc` (backend/services/commercial_documents).
+# Si el contrato cambia, este conjunto cambia con él: que falle es la señal.
+RPC_COMMERCIAL_ISSUER_KEYS = {
+    # perfil fiscal + dueño
+    "nombre_fantasia", "razon_social", "cuit", "domicilio_comercial", "business_name", "phone",
+    "iva_condition",
+    # marca de la cuenta (`account_branding`)
+    "brand_display_name", "brand_legal_name", "brand_tax_id", "brand_address", "brand_phone",
+    "brand_email", "brand_website", "brand_footer_note",
+    "palette_preset", "accent_color", "logo_sha256",
+}
 
 DSN = os.environ.get("DATABASE_URL", "postgresql://postgres:postgres@127.0.0.1:54322/postgres")
 
@@ -512,7 +529,15 @@ async def test_commercial_issuer_is_complete_for_a_seller_who_is_not_the_owner(c
 
     assert issuer["business_name"] == "Almacén Integración"
     assert issuer["phone"] == "2615550101"
-    assert set(issuer) == {"nombre_fantasia", "razon_social", "cuit", "domicilio_comercial", "business_name", "phone"}
+    # El conjunto REAL de claves, no el de antes de la marca: la RPC devuelve las del
+    # perfil fiscal/dueño Y las de la marca (todas presentes, con `None` donde la
+    # cuenta no cargó nada). Una clave de menos o de más es un cambio de contrato.
+    assert set(issuer) == RPC_COMMERCIAL_ISSUER_KEYS
+    # La cuenta de la integración no configuró marca: toda clave `brand_*` viaja vacía.
+    assert all(issuer[key] is None for key in RPC_COMMERCIAL_ISSUER_KEYS if key.startswith("brand_"))
+    # Y el servicio que la consume (cascada del emisor) resuelve el nombre del dueño
+    # para un vendedor que no lo es: es lo que imprime el PDF.
+    assert branding_from_rpc(issuer).issuer.name == "Almacén Integración"
 
     with pytest.raises(asyncpg.PostgresError) as info:
         async with _as(conn, world.owner_b, authenticated_role=True):

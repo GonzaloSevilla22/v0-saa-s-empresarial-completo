@@ -237,7 +237,7 @@ function ConvertPurchaseDeliveryNoteDialogBody({
         </>
       )}
       confirmLabel="Registrar compra"
-      confirmDisabled={blockReason !== null || checkout.creditBlockedNoSupplier}
+      confirmDisabled={blockReason !== null || checkout.creditBlockedNoSupplier || checkout.cashPending}
       confirmDescribedBy={reasonId}
       onConfirm={handleConfirm}
       renderSuccess={(result, close) => (

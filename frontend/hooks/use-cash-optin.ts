@@ -90,6 +90,16 @@ export interface CashOptinState {
   session: CashSession | null
   /** Las tres condiciones cumplidas. */
   eligible: boolean
+  /**
+   * `caja-optin-carga`: con `kind = cash`, todavía se está averiguando dónde está
+   * la caja (sucursales, cajas o sesión sin resolver). Mientras sea `true`,
+   * `eligible` es `false` por DESCONOCIMIENTO, no porque no haya caja abierta, y
+   * el consumidor NO debe permitir confirmar: si confirma ahora manda
+   * `cash_session_id = null` y la operación en efectivo se registra sin
+   * movimiento de caja, en silencio. Con otro `kind` es siempre `false` (no se
+   * consulta nada). No bloquea cuando NO hay sesión: sólo mientras se averigua.
+   */
+  isLoading: boolean
   /** Motivo concreto de por qué no es elegible (vacío de sentido si lo es). */
   reason: string
 }
@@ -103,7 +113,7 @@ export function useCashOptin({
 }: UseCashOptinParams): CashOptinState {
   const isCashSelected = kind === "cash"
 
-  const { branches } = useBranches()
+  const { branches, isLoading: branchesLoading } = useBranches()
   // ventas-sucursal-por-defecto (D10): la principal es la MISMA que resuelve el
   // servidor (`c26_default_branch`: la más antigua activa y operativa), no
   // `branches[0]` — con la más antigua cerrada, el servidor usa la siguiente.
@@ -111,9 +121,16 @@ export function useCashOptin({
 
   // Los dos hooks reciben `null` mientras el kind no es efectivo: sin eso el
   // formulario consultaría cajas y sesiones que no va a usar en cada render.
-  const { data: cashboxes } = useCashboxes(isCashSelected ? effectiveBranchId : null)
+  const { data: cashboxes, isLoading: cashboxesLoading } = useCashboxes(isCashSelected ? effectiveBranchId : null)
   const cashboxId = cashboxes?.[0]?.id ?? null
-  const { data: currentSession } = useCurrentSession(isCashSelected ? cashboxId : null)
+  const { data: currentSession, isLoading: sessionLoading } = useCurrentSession(isCashSelected ? cashboxId : null)
+
+  // caja-optin-carga: «cargando» = alguno de los tres eslabones de la cadena
+  // sucursal → caja → sesión todavía no resolvió. Las sucursales sólo cuentan si
+  // la operación no trae una elegida (si la trae, no las necesita). Las queries
+  // deshabilitadas (sin sucursal / sin caja) no están «cargando» en TanStack, así
+  // que la cadena no queda colgada cuando una sucursal no tiene caja.
+  const isLoading = isCashSelected && !!(cashboxesLoading || sessionLoading || (!branchId && branchesLoading))
 
   // caja-compras-cobranzas (D5): con requiresDate=false la condición 3 se
   // trata como cumplida por construcción — el cobro/pago no tiene fecha
@@ -134,6 +151,7 @@ export function useCashOptin({
     cashboxId,
     session: currentSession ?? null,
     eligible,
+    isLoading,
     reason,
   }
 }

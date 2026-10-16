@@ -42,6 +42,7 @@ function cashState(over: Record<string, unknown> = {}) {
     cashboxId: null,
     session: null,
     eligible: false,
+    isLoading: false,
     reason: "Sólo un pago en efectivo puede registrarse en la caja.",
     ...over,
   }
@@ -160,5 +161,52 @@ describe("usePurchaseCheckout", () => {
       expect(supplierAccountMock).toHaveBeenLastCalledWith(null)
       expect(result.current.creditBlockedNoSupplier).toBe(false)
     })
+  })
+})
+
+describe("usePurchaseCheckout — caja cargando (caja-optin-carga)", () => {
+  const loading = cashState({ isCashSelected: true, isLoading: true })
+
+  it("efectivo con la caja todavía cargando: cashPending=true y NO manda sesión (confirmar ahora la perdería en silencio)", () => {
+    cashOptinMock.mockReturnValue(loading)
+    const { result } = renderHook(() => usePurchaseCheckout({ ...base, paymentMethodId: "pm-cash" }))
+
+    expect(result.current.cashPending).toBe(true)
+    expect(result.current.cashSessionId).toBeNull()
+    // El bloque de caja se muestra (ahí vive el «Verificando la caja…»).
+    expect(result.current.showCashBlock).toBe(true)
+  })
+
+  it("resuelta CON sesión: cashPending=false y manda la sesión pre-marcada", () => {
+    cashOptinMock.mockReturnValue(
+      cashState({ isCashSelected: true, eligible: true, session: { id: "session-abcdef123456" } }),
+    )
+    const { result } = renderHook(() => usePurchaseCheckout({ ...base, paymentMethodId: "pm-cash" }))
+
+    expect(result.current.cashPending).toBe(false)
+    expect(result.current.cashSessionId).toBe("session-abcdef123456")
+  })
+
+  it("resuelta SIN sesión: cashPending=false — no se bloquea para siempre cuando NO hay caja abierta", () => {
+    cashOptinMock.mockReturnValue(cashState({ isCashSelected: true }))
+    const { result } = renderHook(() => usePurchaseCheckout({ ...base, paymentMethodId: "pm-cash" }))
+
+    expect(result.current.cashPending).toBe(false)
+    expect(result.current.cashSessionId).toBeNull()
+  })
+
+  it("en la edición no hay caja que esperar (D8): cashPending=false aunque el hook diga que carga", () => {
+    cashOptinMock.mockReturnValue(loading)
+    const { result } = renderHook(() =>
+      usePurchaseCheckout({ ...base, paymentMethodId: "pm-cash", isEdit: true }),
+    )
+
+    expect(result.current.cashPending).toBe(false)
+  })
+
+  it("forma de pago que no es efectivo: cashPending=false", () => {
+    const { result } = renderHook(() => usePurchaseCheckout({ ...base, paymentMethodId: "pm-transfer" }))
+
+    expect(result.current.cashPending).toBe(false)
   })
 })

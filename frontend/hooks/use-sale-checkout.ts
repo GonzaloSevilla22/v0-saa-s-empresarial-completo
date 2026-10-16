@@ -10,7 +10,9 @@
  *   - el `kind` de la forma de pago elegida;
  *   - la sesión de caja abierta de la sucursal elegida, con la semántica del
  *     POS: con `kind = cash` se manda SIEMPRE esa sesión (sin checkbox de
- *     opt-in) y sin sesión no se puede confirmar;
+ *     opt-in) y sin sesión no se puede confirmar. `caja-optin-carga`: mientras
+ *     la sesión TODAVÍA se está averiguando tampoco se confirma, y el motivo es
+ *     «Verificando la caja…» (no «abrí la caja»: todavía no se sabe si hay);
  *   - el motivo por el que confirmar está bloqueado, o `null`.
  *
  * La autoridad sigue siendo el servidor (`cash_requires_session`, `P0422`…):
@@ -23,11 +25,12 @@
 
 import { usePaymentMethods } from "@/hooks/data/use-payment-methods"
 import { useCashOptin, type CashOptinState } from "@/hooks/use-cash-optin"
+import { CASH_OPTIN_PENDING_TEXT } from "@/lib/cash-optin"
 import { argentinaToday } from "@/lib/date-range"
 import type { PaymentMethodKind } from "@/lib/types"
 
 /** Motivo bloqueante: por qué "confirmar" no se puede apretar todavía. */
-export type SaleCheckoutBlock = "payment_method" | "cash_session" | "client" | null
+export type SaleCheckoutBlock = "payment_method" | "cash_loading" | "cash_session" | "client" | null
 
 export interface SaleCheckoutState {
   /** `kind` de la forma de pago elegida; `null` si no se eligió ninguna. */
@@ -71,20 +74,24 @@ export function useSaleCheckout({ paymentMethodId, branchId, clientId }: UseSale
   const block: SaleCheckoutBlock =
     !paymentMethodId || kind === null
       ? "payment_method"
-      : cash.isCashSelected && !cash.session
-        ? "cash_session"
-        : kind === "credit" && !clientId
-          ? "client"
-          : null
+      : cash.isLoading
+        ? "cash_loading"
+        : cash.isCashSelected && !cash.session
+          ? "cash_session"
+          : kind === "credit" && !clientId
+            ? "client"
+            : null
 
   const blockedReason =
     block === "payment_method"
       ? SALE_CHECKOUT_PAYMENT_REQUIRED_REASON
-      : block === "cash_session"
-        ? SALE_CHECKOUT_NO_CASH_SESSION_REASON
-        : block === "client"
-          ? SALE_CHECKOUT_CREDIT_NEEDS_CLIENT_REASON
-          : null
+      : block === "cash_loading"
+        ? CASH_OPTIN_PENDING_TEXT
+        : block === "cash_session"
+          ? SALE_CHECKOUT_NO_CASH_SESSION_REASON
+          : block === "client"
+            ? SALE_CHECKOUT_CREDIT_NEEDS_CLIENT_REASON
+            : null
 
   return {
     kind,

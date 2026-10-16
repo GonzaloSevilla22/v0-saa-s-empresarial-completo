@@ -43,6 +43,8 @@ const mocks = vi.hoisted(() => ({
   supplierFor: vi.fn(),
   paymentMethodSelectProps: vi.fn(),
   session: null as { id: string } | null,
+  // caja-optin-carga: mientras es true, las cajas y la sesión están sin resolver.
+  cashLoading: false,
   supplierBalance: 0,
   supplierTermsDays: null as number | null,
   accountTermsDays: null as number | null,
@@ -74,7 +76,8 @@ vi.mock("@/hooks/data/use-branches", () => ({
 vi.mock("@/hooks/data/use-cashboxes", () => ({
   useCashboxes: (branchId: string | null) => {
     mocks.cashboxesFor(branchId)
-    return { data: branchId ? [{ id: `cb-${branchId}` }] : undefined }
+    if (mocks.cashLoading) return { data: undefined, isLoading: true }
+    return { data: branchId ? [{ id: `cb-${branchId}` }] : undefined, isLoading: false }
   },
 }))
 vi.mock("@/hooks/data/use-cash-session", () => ({
@@ -224,6 +227,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   window.sessionStorage.clear()
   mocks.session = { id: "cs-1" }
+  mocks.cashLoading = false
   mocks.supplierBalance = 0
   mocks.supplierTermsDays = null
   mocks.accountTermsDays = null
@@ -352,6 +356,66 @@ describe("ConvertPurchaseDeliveryNoteDialog — forma de pago obligatoria y banc
 
     await waitFor(() => expect(mocks.convert).toHaveBeenCalledTimes(1))
     expect(mocks.convert.mock.calls[0][0].payload.bank_account_id).toBeNull()
+  })
+})
+
+// caja-optin-carga — el caso del humo de la tanda B (2026-10-16): el script clicaba
+// «Registrar compra» enseguida, antes de que cargaran las cajas y la sesión, y la
+// compra en efectivo se registraba SIN movimiento de caja, en silencio.
+describe("ConvertPurchaseDeliveryNoteDialog — caja cargando (caja-optin-carga)", () => {
+  it("efectivo con la caja cargando: avisa «Verificando la caja…» y NO deja registrar la compra", () => {
+    mocks.cashLoading = true
+    renderDialog()
+    pickPayment("pm-cash")
+
+    expect(screen.getByRole("status")).toHaveTextContent("Verificando la caja…")
+    expect(purchaseButton()).toBeDisabled()
+    expect(screen.queryByText(/no hay caja abierta/i)).not.toBeInTheDocument()
+    fireEvent.click(purchaseButton())
+    expect(mocks.convert).not.toHaveBeenCalled()
+  })
+
+  it("al resolver CON sesión: se habilita y la compra sale con la sesión pre-marcada", async () => {
+    mocks.cashLoading = true
+    const { rerenderWith } = renderDialog()
+    pickPayment("pm-cash")
+    expect(purchaseButton()).toBeDisabled()
+
+    mocks.cashLoading = false
+    rerenderWith(note())
+
+    expect(screen.queryByRole("status")).not.toBeInTheDocument()
+    expect(screen.getByRole("checkbox")).toBeChecked()
+    expect(purchaseButton()).toBeEnabled()
+    fireEvent.click(purchaseButton())
+    await waitFor(() => expect(mocks.convert).toHaveBeenCalledTimes(1))
+    expect(mocks.convert.mock.calls[0][0].payload).toMatchObject({ payment_method_id: "pm-cash", cash_session_id: "cs-1" })
+  })
+
+  it("al resolver SIN sesión: se habilita (no bloquea para siempre) y la compra sale sin caja", async () => {
+    mocks.cashLoading = true
+    mocks.session = null
+    const { rerenderWith } = renderDialog()
+    pickPayment("pm-cash")
+    expect(purchaseButton()).toBeDisabled()
+
+    mocks.cashLoading = false
+    rerenderWith(note())
+
+    expect(screen.getByText(/no hay caja abierta en esta sucursal/i)).toBeInTheDocument()
+    expect(purchaseButton()).toBeEnabled()
+    fireEvent.click(purchaseButton())
+    await waitFor(() => expect(mocks.convert).toHaveBeenCalledTimes(1))
+    expect(mocks.convert.mock.calls[0][0].payload.cash_session_id).toBeNull()
+  })
+
+  it("otra forma de pago: no hay espera de caja aunque las consultas estén cargando", async () => {
+    mocks.cashLoading = true
+    renderDialog()
+    pickPayment("pm-transfer")
+
+    expect(screen.queryByRole("status")).not.toBeInTheDocument()
+    expect(purchaseButton()).toBeEnabled()
   })
 })
 

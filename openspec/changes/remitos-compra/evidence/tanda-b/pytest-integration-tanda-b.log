@@ -1,0 +1,67 @@
+sF...................................................................... [ 59%]
+..s....................F..........................                       [100%]
+================================== FAILURES ===================================
+_______ TestWSFEHomologacionE2E.test_wsfe_homologacion_obtiene_cae_real _______
+
+self = <backend.tests.test_c31_wsfe_homologacion_wiring.TestWSFEHomologacionE2E object at 0x0000010F9EE5A210>
+
+    @pytest.mark.asyncio
+    async def test_wsfe_homologacion_obtiene_cae_real(self):
+        """7.1 E2E real: WSAA loginCms → WSFEv1 FECAESolicitar → CAE válido de homologación.
+    
+        Este test llama a los servicios reales de ARCA homologación.
+        Requiere el cert real en el bucket privado afip-certs.
+        """
+        import os
+        import datetime
+        import decimal
+        from unittest.mock import AsyncMock as _AsyncMock
+    
+        from backend.services.fiscal.wsfe_adapter import WSFEAdapter
+        from backend.services.fiscal.fiscal_document_port import CAERequest
+    
+        # Credenciales reales necesarias en el env
+        supabase_url = os.environ.get("SUPABASE_URL")
+        service_role_key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+    
+        if not supabase_url or not service_role_key:
+            pytest.skip(
+                "SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY requeridas para E2E homologación. "
+                "Configurar en el entorno antes de correr -m integration."
+            )
+    
+        # Construir cliente service-role real
+>       from supabase import create_client
+E       ImportError: cannot import name 'create_client' from 'supabase' (unknown location)
+
+backend\tests\test_c31_wsfe_homologacion_wiring.py:730: ImportError
+____ test_commercial_issuer_is_complete_for_a_seller_who_is_not_the_owner _____
+
+conn = <asyncpg.connection.Connection object at 0x0000010FA2130C80>
+world = <backend.tests.test_quotes_module_integration.World object at 0x0000010FA21AF110>
+
+    async def test_commercial_issuer_is_complete_for_a_seller_who_is_not_the_owner(conn, world: World):
+        """Con la lectura directa de `profiles` (su RLS sólo deja ver el perfil
+        propio) el vendedor recibiría el emisor vacío: la RPC definer lo resuelve."""
+        async with _as(conn, world.seller, authenticated_role=True):
+            issuer = await QuoteRepository(conn).get_commercial_issuer(str(world.account_a))
+    
+        assert issuer["business_name"] == "Almacén Integración"
+        assert issuer["phone"] == "2615550101"
+>       assert set(issuer) == {"nombre_fantasia", "razon_social", "cuit", "domicilio_comercial", "business_name", "phone"}
+E       AssertionError: assert {'accent_colo...al_name', ...} == {'business_na...razon_social'}
+E         
+E         Extra items in the left set:
+E         'brand_display_name'
+E         'brand_address'
+E         'iva_condition'
+E         'brand_footer_note'
+E         'brand_phone'...
+E         
+E         ...Full output truncated (8 lines hidden), use '-vv' to show
+
+backend\tests\test_quotes_module_integration.py:515: AssertionError
+=========================== short test summary info ===========================
+FAILED backend\tests\test_c31_wsfe_homologacion_wiring.py::TestWSFEHomologacionE2E::test_wsfe_homologacion_obtiene_cae_real
+FAILED backend\tests\test_quotes_module_integration.py::test_commercial_issuer_is_complete_for_a_seller_who_is_not_the_owner
+2 failed, 118 passed, 2 skipped, 4218 deselected in 227.74s (0:03:47)

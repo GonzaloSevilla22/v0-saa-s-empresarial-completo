@@ -298,7 +298,7 @@ Usuario (seller/cashier/admin/owner) → /remitos/{id} → "Venta"  (remito issu
 ```
 Editar la venta nacida de un remito está bloqueado (`delivery_note_sale_locked`); un remito convertido no se anula ni se edita.
 
-## Flujo 13: Remito de compra (`remitos-compra`, tanda A)
+## Flujo 13: Remito de compra (`remitos-compra`, tandas A y B)
 
 ```
 Usuario (stock/admin/owner) → /remitos/nuevo?tipo=compra
@@ -316,8 +316,18 @@ Usuario (stock/admin/owner) → /remitos/nuevo?tipo=compra
     │
     ├── GET /delivery-notes/{id}/pdf?show_prices=  → descarga o WhatsApp al proveedor
     │
-    └── POST /delivery-notes/{id}/cancel  (admin/owner, motivo)
-            └── Resta lo retenido (purchase_return); si ya se consumió → P0409
-                delivery_note_stock_consumed; estado terminal canceled
+    ├── POST /delivery-notes/{id}/cancel  (admin/owner, motivo)
+    │       └── Resta lo retenido (purchase_return); si ya se consumió → P0409
+    │           delivery_note_stock_consumed; estado terminal canceled
+    │
+    └── Llega la factura → botón "Compra" (stock/purchases/admin/owner) → POST /delivery-notes/{id}/convert-to-purchase
+            │   (Idempotency-Key por header; forma de pago obligatoria; fecha >= recepción; todos los precios > 0)
+            └── RPC rpc_convert_delivery_note_to_purchase — UNA transacción:
+                ├── Bloquea el remito; rol, idempotencia, estado issued, versión, proveedor vivo, sucursal activa
+                ├── _purchase_operation_core en modo remito: líneas, precios y snapshots DEL REMITO;
+                │   NO suma stock ni escribe movimientos; caja (opt-in), banco y cuenta corriente del proveedor
+                └── Remito → converted (historial issued → converted); compra con source_delivery_note_id
+    Borrar la compra (admin/owner) → compensa caja/banco/cuenta corriente, NO toca el stock,
+    el remito vuelve a issued (se puede reconvertir o anular). Editarla está bloqueado (delivery_note_purchase_locked).
 ```
-La conversión del remito en compra (sin volver a sumar stock) es la tanda B de `remitos-compra`.
+Las otras dos puertas que crean una compra directa (formulario de compra y Factura IA) vuelven a sumar el stock: avisan si hay remitos de compra pendientes (RN-RC9).

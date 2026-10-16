@@ -1,0 +1,80 @@
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=4e8c9d30-ca48-4f37-a4ee-5f1aad388853
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=47d7e0b7-46a1-4e51-9b34-deceebf8d0d6
+[1] A: {"sub" : "e95a2b07-b237-478b-a1d3-0c049a90c68f", "role" : "authenticated"} e95a2b07-b237-478b-a1d3-0c049a90c68f RES={"id": "1d43ccf8-3aa5-4c0a-a731-2706db11581d
+[1] B: {"sub" : "e95a2b07-b237-478b-a1d3-0c049a90c68f", "role" : "authenticated"} e95a2b07-b237-478b-a1d3-0c049a90c68f RES={"id": "ee0f14e9-ffdd-4dfd-a372-c72a9f2e38f9
+PASS (1): dos recepciones concurrentes del mismo producto -> la segunda esperó el lock del producto; las dos sumaron (7) con números RC distintos.
+[2] A: {"sub" : "e95a2b07-b237-478b-a1d3-0c049a90c68f", "role" : "authenticated"} e95a2b07-b237-478b-a1d3-0c049a90c68f RES={"id": "ff325ed1-6fd0-4088-b988-4e393c0cb3f4
+[2] B: {"sub" : "e95a2b07-b237-478b-a1d3-0c049a90c68f", "role" : "authenticated"} e95a2b07-b237-478b-a1d3-0c049a90c68f RES={"id": "ff325ed1-6fd0-4088-b988-4e393c0cb3f4
+PASS (2): doble clic con la misma clave -> B esperó en el ON CONFLICT y devolvió el mismo remito con replayed = true; una sola suma.
+[3a] A: {"sub" : "e95a2b07-b237-478b-a1d3-0c049a90c68f", "role" : "authenticated"} e95a2b07-b237-478b-a1d3-0c049a90c68f RES={"id": "358d6241-ae50-44a6-ab14-c97a68fd0035
+[3a] B: {"sub" : "e95a2b07-b237-478b-a1d3-0c049a90c68f", "role" : "authenticated"} e95a2b07-b237-478b-a1d3-0c049a90c68f ERROR:  stock_insuficiente para producto fd12ee8
+PASS (3a): anulación abierta vs venta del POS -> la venta esperó el lock y rechazó por stock; stock 0, ledger del remito en 0.
+[3b] A: {"sub" : "e95a2b07-b237-478b-a1d3-0c049a90c68f", "role" : "authenticated"} e95a2b07-b237-478b-a1d3-0c049a90c68f RES={"total": 1.00, "replayed": false, "operatio
+[3b] B: {"sub" : "e95a2b07-b237-478b-a1d3-0c049a90c68f", "role" : "authenticated"} e95a2b07-b237-478b-a1d3-0c049a90c68f ERROR:  delivery_note_stock_consumed: de RC Race
+PASS (3b): venta del POS abierta vs anulación -> la anulación esperó y rechazó con delivery_note_stock_consumed; nunca stock negativo ni 23514.
+[4a] A: {"sub" : "e95a2b07-b237-478b-a1d3-0c049a90c68f", "role" : "authenticated"} e95a2b07-b237-478b-a1d3-0c049a90c68f RES={"id": "6b6cf858-ef95-4015-83c2-593990450fb0
+[4a] B: {"sub" : "e95a2b07-b237-478b-a1d3-0c049a90c68f", "role" : "authenticated"} e95a2b07-b237-478b-a1d3-0c049a90c68f ERROR:  delivery_note_changed: el remito cambió
+PASS (4a): edición abierta vs anulación -> la anulación esperó el FOR UPDATE y recibió delivery_note_changed; Σ delta = +aportado.
+[4b] A: {"sub" : "e95a2b07-b237-478b-a1d3-0c049a90c68f", "role" : "authenticated"} e95a2b07-b237-478b-a1d3-0c049a90c68f RES={"id": "132decbd-b288-4ee8-8219-b9eea665da7d
+[4b] B: {"sub" : "e95a2b07-b237-478b-a1d3-0c049a90c68f", "role" : "authenticated"} e95a2b07-b237-478b-a1d3-0c049a90c68f ERROR:  delivery_note_invalid_state: el remito e
+PASS (4b): anulación abierta vs edición -> la edición recibió delivery_note_invalid_state; ledger del remito en 0.
+[5a] A: {"sub" : "e95a2b07-b237-478b-a1d3-0c049a90c68f", "role" : "authenticated"} e95a2b07-b237-478b-a1d3-0c049a90c68f RES={"id": "05b3b9b6-a118-45b3-be42-c1e36e8a369b
+[5a] B: {"sub" : "e95a2b07-b237-478b-a1d3-0c049a90c68f", "role" : "authenticated"} e95a2b07-b237-478b-a1d3-0c049a90c68f ERROR:  branch_has_stock: la sucursal tiene 1.00
+PASS (5a): recepción abierta vs baja de una sucursal vacía -> la baja esperó el FOR SHARE y rechazó con P0428 (la sucursal ya tiene lo recibido).
+[5b] A: {"sub" : "e95a2b07-b237-478b-a1d3-0c049a90c68f", "role" : "authenticated"} e95a2b07-b237-478b-a1d3-0c049a90c68f RES=deactivated:  
+[5b] B: {"sub" : "e95a2b07-b237-478b-a1d3-0c049a90c68f", "role" : "authenticated"} e95a2b07-b237-478b-a1d3-0c049a90c68f ERROR:  delivery_note_branch_inactive: la sucurs
+PASS (5b): baja abierta vs recepción -> la recepción esperó, releyó la sucursal desactivada y rechazó con P0422; sin stock ni remito ahí.
+[5c] A: {"sub" : "e95a2b07-b237-478b-a1d3-0c049a90c68f", "role" : "authenticated"} e95a2b07-b237-478b-a1d3-0c049a90c68f RES=deactivated:  
+[5c] B: {"sub" : "e95a2b07-b237-478b-a1d3-0c049a90c68f", "role" : "authenticated"} e95a2b07-b237-478b-a1d3-0c049a90c68f ERROR:  delivery_note_branch_inactive: la sucurs
+PASS (5c): baja abierta vs edición hacia esa sucursal -> la edición esperó el FOR SHARE de la sucursal nueva y rechazó con P0422.
+[6a] A: {"sub" : "e95a2b07-b237-478b-a1d3-0c049a90c68f", "role" : "authenticated"} e95a2b07-b237-478b-a1d3-0c049a90c68f RES={"id": "e62c5300-0680-4505-99ed-0db4f2f400ba
+[6a] B: {"sub" : "e95a2b07-b237-478b-a1d3-0c049a90c68f", "role" : "authenticated"} e95a2b07-b237-478b-a1d3-0c049a90c68f LOCKED=1 PENDING=1 
+PASS (6a): recepción abierta vs borrado del proveedor -> el borrado esperó el FOR SHARE, contó el remito y no borró.
+[6b] A: {"sub" : "e95a2b07-b237-478b-a1d3-0c049a90c68f", "role" : "authenticated"} e95a2b07-b237-478b-a1d3-0c049a90c68f LOCKED=1 PENDING=0 DELETED=f147287c-e419-40fa-92
+[6b] B: {"sub" : "e95a2b07-b237-478b-a1d3-0c049a90c68f", "role" : "authenticated"} e95a2b07-b237-478b-a1d3-0c049a90c68f ERROR:  supplier_not_found: f147287c-e419-40fa-9
+PASS (6b): borrado abierto vs recepción -> la recepción esperó, releyó el proveedor borrado y rechazó con supplier_not_found; ningún remito en un proveedor dado de baja.
+[6c] A: {"sub" : "e95a2b07-b237-478b-a1d3-0c049a90c68f", "role" : "authenticated"} e95a2b07-b237-478b-a1d3-0c049a90c68f RES={"id": "54975901-6fa3-484e-82e8-df3c4ea8a385
+[6c] B: {"sub" : "e95a2b07-b237-478b-a1d3-0c049a90c68f", "role" : "authenticated"} e95a2b07-b237-478b-a1d3-0c049a90c68f LOCKED=1 PENDING=1 
+PASS (6c): edición abierta vs borrado del proveedor -> el borrado esperó el FOR SHARE y no borró.
+[7a] A: {"sub" : "e95a2b07-b237-478b-a1d3-0c049a90c68f", "role" : "authenticated"} e95a2b07-b237-478b-a1d3-0c049a90c68f RES={"total": 200.00, "replayed": false, "operat
+[7a] B: {"sub" : "e95a2b07-b237-478b-a1d3-0c049a90c68f", "role" : "authenticated"} e95a2b07-b237-478b-a1d3-0c049a90c68f ERROR:  delivery_note_invalid_state: el remito e
+PASS (7a): dos conversiones del mismo remito -> B esperó el lock del remito y recibió delivery_note_invalid_state; una sola compra, un solo historial, stock intacto.
+[7b] A: {"sub" : "e95a2b07-b237-478b-a1d3-0c049a90c68f", "role" : "authenticated"} e95a2b07-b237-478b-a1d3-0c049a90c68f RES={"total": 100.00, "replayed": false, "operat
+[7b] B: {"sub" : "e95a2b07-b237-478b-a1d3-0c049a90c68f", "role" : "authenticated"} e95a2b07-b237-478b-a1d3-0c049a90c68f ERROR:  idempotency_key_conflict: la clave ya se
+PASS (7b): la misma clave sobre dos remitos -> B esperó el ON CONFLICT y rechazó con idempotency_key_conflict; el segundo remito sigue pendiente, sin compra.
+[7c] A: {"sub" : "e95a2b07-b237-478b-a1d3-0c049a90c68f", "role" : "authenticated"} e95a2b07-b237-478b-a1d3-0c049a90c68f RES={"total": 100.00, "replayed": false, "operat
+[7c] B: {"sub" : "e95a2b07-b237-478b-a1d3-0c049a90c68f", "role" : "authenticated"} e95a2b07-b237-478b-a1d3-0c049a90c68f RES={"total": 100.00, "replayed": true, "operati
+PASS (7c): doble clic con la misma clave -> B esperó el lock del remito y devolvió la MISMA compra con replayed = true; una sola compra.
+[8a] A: {"sub" : "e95a2b07-b237-478b-a1d3-0c049a90c68f", "role" : "authenticated"} e95a2b07-b237-478b-a1d3-0c049a90c68f RES={"total": 200.00, "replayed": false, "operat
+[8a] B: {"sub" : "e95a2b07-b237-478b-a1d3-0c049a90c68f", "role" : "authenticated"} e95a2b07-b237-478b-a1d3-0c049a90c68f ERROR:  delivery_note_locked_converted: el remit
+PASS (8a): conversión abierta vs anulación -> la anulación esperó y recibió delivery_note_locked_converted; nunca una compra con el remito anulado.
+[8b] A: {"sub" : "e95a2b07-b237-478b-a1d3-0c049a90c68f", "role" : "authenticated"} e95a2b07-b237-478b-a1d3-0c049a90c68f RES={"id": "68b34b33-d5c6-42a1-8ec0-053a8f12aafc
+[8b] B: {"sub" : "e95a2b07-b237-478b-a1d3-0c049a90c68f", "role" : "authenticated"} e95a2b07-b237-478b-a1d3-0c049a90c68f ERROR:  delivery_note_invalid_state: el remito e
+PASS (8b): anulación abierta vs conversión -> la conversión esperó y recibió delivery_note_invalid_state; remito anulado, sin compra, stock 0.
+[9a] A: {"sub" : "e95a2b07-b237-478b-a1d3-0c049a90c68f", "role" : "authenticated"} e95a2b07-b237-478b-a1d3-0c049a90c68f RES={"id": "957f18ce-5dc1-40de-bc10-b0700ff10625
+[9a] B: {"sub" : "e95a2b07-b237-478b-a1d3-0c049a90c68f", "role" : "authenticated"} e95a2b07-b237-478b-a1d3-0c049a90c68f ERROR:  delivery_note_changed: el remito cambió
+PASS (9a): edición abierta vs conversión -> la conversión esperó y recibió delivery_note_changed (precios viejos nunca se convierten); sin compra.
+[9b] A: {"sub" : "e95a2b07-b237-478b-a1d3-0c049a90c68f", "role" : "authenticated"} e95a2b07-b237-478b-a1d3-0c049a90c68f RES={"total": 200.00, "replayed": false, "operat
+[9b] B: {"sub" : "e95a2b07-b237-478b-a1d3-0c049a90c68f", "role" : "authenticated"} e95a2b07-b237-478b-a1d3-0c049a90c68f ERROR:  delivery_note_locked_converted: el remit
+PASS (9b): conversión abierta vs edición -> la edición esperó y rechazó el remito ya convertido; líneas y stock intactos.
+[10a] A: {"sub" : "e95a2b07-b237-478b-a1d3-0c049a90c68f", "role" : "authenticated"} e95a2b07-b237-478b-a1d3-0c049a90c68f RES=true  
+[10a] B: {"sub" : "e95a2b07-b237-478b-a1d3-0c049a90c68f", "role" : "authenticated"} e95a2b07-b237-478b-a1d3-0c049a90c68f RES=false 
+PASS (10a): dos borrados concurrentes -> B esperó el lock del remito y terminó sin efectos; una sola compensación (saldo 0), una sola transición, stock intacto.
+[10b1] A: {"sub" : "e95a2b07-b237-478b-a1d3-0c049a90c68f", "role" : "authenticated"} e95a2b07-b237-478b-a1d3-0c049a90c68f RES=true
+[10b1] B: {"sub" : "e95a2b07-b237-478b-a1d3-0c049a90c68f", "role" : "authenticated"} e95a2b07-b237-478b-a1d3-0c049a90c68f RES=fals
+[10b1] C: {"sub" : "e95a2b07-b237-478b-a1d3-0c049a90c68f", "role" : "authenticated"} e95a2b07-b237-478b-a1d3-0c049a90c68f RES={"to
+[10b2] A: {"sub" : "e95a2b07-b237-478b-a1d3-0c049a90c68f", "role" : "authenticated"} e95a2b07-b237-478b-a1d3-0c049a90c68f RES=true
+[10b2] B: {"sub" : "e95a2b07-b237-478b-a1d3-0c049a90c68f", "role" : "authenticated"} e95a2b07-b237-478b-a1d3-0c049a90c68f RES=fals
+[10b2] C: {"sub" : "e95a2b07-b237-478b-a1d3-0c049a90c68f", "role" : "authenticated"} e95a2b07-b237-478b-a1d3-0c049a90c68f RES={"to
+[10b3] A: {"sub" : "e95a2b07-b237-478b-a1d3-0c049a90c68f", "role" : "authenticated"} e95a2b07-b237-478b-a1d3-0c049a90c68f RES=true
+[10b3] B: {"sub" : "e95a2b07-b237-478b-a1d3-0c049a90c68f", "role" : "authenticated"} e95a2b07-b237-478b-a1d3-0c049a90c68f RES=fals
+[10b3] C: {"sub" : "e95a2b07-b237-478b-a1d3-0c049a90c68f", "role" : "authenticated"} e95a2b07-b237-478b-a1d3-0c049a90c68f RES={"to
+[10b4] A: {"sub" : "e95a2b07-b237-478b-a1d3-0c049a90c68f", "role" : "authenticated"} e95a2b07-b237-478b-a1d3-0c049a90c68f RES=true
+[10b4] B: {"sub" : "e95a2b07-b237-478b-a1d3-0c049a90c68f", "role" : "authenticated"} e95a2b07-b237-478b-a1d3-0c049a90c68f RES=fals
+[10b4] C: {"sub" : "e95a2b07-b237-478b-a1d3-0c049a90c68f", "role" : "authenticated"} e95a2b07-b237-478b-a1d3-0c049a90c68f RES={"to
+PASS (10b): borrado viejo contra reconversión, a crédito, 4 iteraciones con tres conexiones -> sin 40P01; T2 nunca reabrió el remito reconvertido; una sola compra viva por remito y una sola deuda.
+[10c] A: {"sub" : "e95a2b07-b237-478b-a1d3-0c049a90c68f", "role" : "authenticated"} e95a2b07-b237-478b-a1d3-0c049a90c68f RES=true  
+[10c] B: {"sub" : "e95a2b07-b237-478b-a1d3-0c049a90c68f", "role" : "authenticated"} e95a2b07-b237-478b-a1d3-0c049a90c68f RES={"id": "1ed98f29-2d82-4b6f-8fda-4d8278a54ae5
+PASS (10c): borrado abierto vs anulación del remito -> sin interbloqueo; el remito reabierto se anuló, la deuda y el stock quedaron compensados una sola vez.
+PASS (11): invariantes finales de la tanda B -> ningún remito convertido sin compra, ninguno con dos compras vivas, ninguna compra de remito con movimientos de stock propios.
+GATE REMITOS-COMPRA-RACE PASSED: 12 carreras de la tanda A y 11 de la tanda B con bloqueo real verificado (recepciones concurrentes, doble clic, anulación contra venta del POS en los dos órdenes, edición contra anulación en los dos órdenes, recepción y edición contra la baja de una sucursal vacía y contra el borrado del proveedor; dos conversiones, la misma clave en dos remitos, conversión contra anulación y contra edición en los dos órdenes, dos borrados de la misma compra, borrado viejo contra reconversión a crédito con tres conexiones, borrado contra anulación del remito), residuo cero.

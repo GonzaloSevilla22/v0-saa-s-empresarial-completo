@@ -1,0 +1,20 @@
+Applying migration 20261081000001_remitos_compra_conversion.sql...
+20261063000001 idempotente: introspección OK y schema IDÉNTICO al previo a este paso.
+20261064000001 idempotente: introspección OK y schema IDÉNTICO al previo a este paso.
+20261065000001 idempotente: las dos decisiones corrieron y el schema quedó IDÉNTICO al previo a este paso.
+20261066000001 idempotente: introspección OK, scale_plu última columna de la vista y schema IDÉNTICO al previo a este paso.
+20261067000001 idempotente: introspección OK y schema IDÉNTICO al previo a este paso.
+20261068000001 idempotente: introspección OK y schema IDÉNTICO al previo a este paso.
+Applying migration 20261081000001_remitos_compra_conversion.sql...
+20261070000001 idempotente: introspección OK y schema IDÉNTICO al previo a este paso.
+20261071000001 idempotente: introspección OK, cuerpos de remitos-venta y remitos-compra presentes y schema IDÉNTICO al previo a este paso.
+20261075000001 y 20261075000002 idempotentes: 3 NOTICE de reaplicación, introspección OK, 0 ventas asignadas por el backfill y schema IDÉNTICO al previo a este paso.
+20261077000001 y 20261077000002 idempotentes: NOTICE de reaplicación, introspección OK, 0 movimientos completados por el backfill y schema IDÉNTICO al previo a este paso.
+NOTICE:  remitos-compra tanda B (preflight): 1 cuerpos de partida verificados por md5, 3 ya reaplicados
+NOTICE:  remitos-compra tanda B (introspección OK): puente (columna, FK NO ACTION, índice parcial, disparador INVOKER), catálogo issued->converted / converted->issued, núcleo interno sin EXECUTE, wrapper de la misma firma, conversión, borrado, edición y 
+NOTICE:  remitos-compra tanda B (preflight): 0 cuerpos de partida verificados por md5, 4 ya reaplicados
+NOTICE:  remitos-compra tanda B (introspección OK): puente (columna, FK NO ACTION, índice parcial, disparador INVOKER), catálogo issued->converted / converted->issued, núcleo interno sin EXECUTE, wrapper de la misma firma, conversión, borrado, edición y 
+20261081000001 idempotente: preflight 1+3 y 0+4, introspección OK, cuerpos de la compra y del payload presentes y schema IDÉNTICO al previo a este paso.
+DO
+NOTICE:  remitos-compra tanda B (introspección OK): puente (columna, FK NO ACTION, índice parcial, disparador INVOKER), catálogo issued->converted / converted->issued, núcleo interno sin EXECUTE, 
+20261081000001 idempotente: preflight 1+3 y 0+4, introspección OK, cuerpos de la compra y del payload presentes y schema IDÉNTICO al previo a este paso.

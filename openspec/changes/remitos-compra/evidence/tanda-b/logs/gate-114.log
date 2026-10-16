@@ -1,0 +1,47 @@
+SET
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=d6c0f9b9-bdae-4bba-8151-4e1b1e7408ec
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=e1a14482-cd43-433c-863d-4be0287d31b8
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=1f06a981-e0ce-4922-8ccf-6112b3e28441
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=6f6dcd71-d173-41b7-baf8-239aea878d3f
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=7e8e4b91-da4d-4698-a7d1-c5b5cee54dba
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=2c3ae40b-6c6f-48fb-af78-d8798d95c5b7
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=bac6e6b3-be96-4082-b789-c949bf8931d0
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=d96c0ba0-4d85-4a52-a226-df19647b336c
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=493e647c-a3bd-44e7-a9ac-94ff7e242c2e
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=5a23e87f-608a-466f-9345-4da6a067d052
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=9c5ad964-a619-4fd2-ae6f-c65df9a2a321
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=e4264fe0-8aab-4b21-ac07-06b1abf3d4fb
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=e64b2c0d-af6a-416d-b798-d6fdba398ca8
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=a0b1055c-db32-47a3-88a4-4b2956f2235d
+NOTICE:  PASS (g0): compra directa idéntica al golden — cash con caja, credit con cargo y vencimiento a 30 días, transfer con banco, línea sin producto, 450 g -> 0,45 kg, replay sin efectos, 42501 sin sesión y el P0423 de dinero intacto.
+NOTICE:  PASS (z): el núcleo, con un origen de remito válido, no suma stock ni escribe movimientos, congela los snapshots del remito y deja el remito converted con su historial.
+NOTICE:  PASS (n): los orígenes inválidos (otra cuenta, venta —también sin proveedor—, anulado, convertido, otro proveedor, otra sucursal, p_items del request, compra ya existente) rebotan sin compra, stock, evento ni idempotencia.
+NOTICE:  PASS (a): conversión cash — stock idéntico, 0 movimientos, egreso de caja, PurchaseCreated, 3 filas con origen, total = el del remito, remito converted sin subir revisión, historial, snapshots del remito (renombrado y costo remarcado) y payload con la compra.
+NOTICE:  PASS (g/h/i): replay sin efectos, clave ajena (de otro remito o de una compra directa) -> idempotency_key_conflict, segunda conversión -> delivery_note_invalid_state.
+NOTICE:  PASS (j/k/l): versión vieja, parámetros, forma de pago ajena, seller y cashier, remito ajeno, de venta e inexistente y la caja (otra sucursal, otra fecha, otra forma de pago) rebotan sin efectos; stock y purchases convierten con el precio del remito.
+NOTICE:  PASS (b): conversión a crédito como authenticated por el rol purchases — cargo en la cuenta corriente del proveedor con vencimiento por cascada (30 días), sin caja ni stock.
+NOTICE:  PASS (c/d): transferencia con egreso bancario en la sucursal del remito; producto dado de baja después de recibir convierte con su snapshot.
+NOTICE:  PASS (e/f/dt): proveedor dado de baja -> delivery_note_supplier_unavailable; sucursal desactivada o cerrada -> P0422 branch_closed; fecha anterior al remito -> P0400; cero efectos.
+NOTICE:  PASS (q/r): editar la compra nacida del remito -> P0423 delivery_note_purchase_locked antes del de dinero y sin efectos (con y sin dinero posteado); anular o editar un convertido -> P0423.
+NOTICE:  PASS (o): borrar la compra compensa caja o cuenta corriente, deja el stock idéntico y devuelve el remito a issued con historial, usuario y motivo; reconvertir funciona; purchases y stock no reabren el remito; el segundo borrado no tiene efectos.
+NOTICE:  PASS (o): un origen de otra cuenta o de venta, orígenes mezclados y un origen cuyo remito no está converted rebotan con P0409 delivery_note_purchase_mismatch sin reabrir nada.
+NOTICE:  PASS (p): con la sucursal del remito desactivada o cerrada el borrado da P0422 delivery_note_branch_inactive sin efectos; reactivada, funciona y compensa el banco.
+NOTICE:  PASS (pg): como seller por PostgREST, forjar / limpiar / cambiar el origen, tocar una fila con origen, partir, mezclar (UPDATE e INSERT), INSERT con origen y DELETE dan P0403 delivery_note_source_protected; las mismas escrituras sobre compras directas siguen funcionando.
+NOTICE:  PASS (s): ninguna fila de compra con origen tiene movimiento de stock y el ledger reconcilia con branch_stock.
+NOTICE:  GATE REMITO-A-COMPRA PASSED: golden de la compra directa, núcleo sin doble suma (orígenes inválidos rebotan), conversión cash / crédito / transferencia, rechazos sin efectos, idempotencia, roles, edición bloqueada, borrado que reabre el remito sin tocar stock, sucursal viva, integridad del puente por PostgREST e invariante del ledger — residuo cero.
+DO
+NOTICE:  PASS (u): introspección permanente de la tanda B -- una definición por función, ACLs, núcleo interno, wrapper sin parámetro de origen, disparador del puente, catálogo, lock del remito antes de toda compensación, salto de la reversa, P0423 antes del dinero.
+DO

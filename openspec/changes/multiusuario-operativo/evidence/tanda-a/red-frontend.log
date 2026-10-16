@@ -1,0 +1,328 @@
+
+ RUN  v4.1.8 C:/Users/Usuario/Desktop/EIE/wt-multiusuario-a/frontend
+
+ ❯ __tests__/lib/auth-headers.test.ts (0 test)
+ ❯ __tests__/components/AccountSwitcher.test.tsx (0 test)
+ ❯ __tests__/auth-context-active-account.test.tsx (0 test)
+ ❯ __tests__/lib/python-client.test.ts (0 test)
+ ❯ __tests__/lib/active-account-store.test.ts (0 test)
+ ❯ __tests__/lib/document-logo-api.test.ts (29 tests | 1 failed) 60ms
+     × PUT con el cuerpo binario crudo, el tipo del archivo y la sesión 20ms
+ ❯ __tests__/reporting/product-ranking.test.ts (11 tests | 4 failed) 24ms
+     × pide la cuenta activa a la base con la RPC canónica y devuelve su id 5ms
+     × acepta también un escalar (algunos clientes devuelven el único valor sin arreglo) 1ms
+     × sin cuenta activa (0 filas: sin membresía, o claim de una cuenta revocada) -> null 2ms
+     × error -> null (no lanza; el caller degrada omitiendo el bloque) 1ms
+ ❯ __tests__/lib/session-bus.test.ts (18 tests | 3 failed) 435ms
+     × el anuncio local sale por el transporte compartido hacia las otras pestañas, sin token 5ms
+     × una cuenta cambiada en otra pestaña se adopta (token nuevo) y se avisa a los suscriptores 12ms
+     × no es un cierre por inactividad ni un cierre de sesión 3ms
+ ❯ __tests__/reporting/edge-product-ranking.test.ts (9 tests | 4 failed) 20ms
+     × pide la cuenta activa a la base con la RPC canónica y devuelve su id 5ms
+     × acepta también un escalar (algunos clientes devuelven el único valor sin arreglo) 1ms
+     × sin cuenta activa (0 filas: sin membresía, o claim de una cuenta revocada) -> null 1ms
+     × error -> null (no lanza; el caller degrada omitiendo el bloque) 1ms
+ ❯ __tests__/lib/accounts.test.ts (0 test)
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 6 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  __tests__/auth-context-active-account.test.tsx [ __tests__/auth-context-active-account.test.tsx ]
+Error: Failed to resolve import "@/lib/auth/active-account-store" from "__tests__/auth-context-active-account.test.tsx". Does the file exist?
+  Plugin: vite:import-analysis
+  File: C:/Users/Usuario/Desktop/EIE/wt-multiusuario-a/frontend/__tests__/auth-context-active-account.test.tsx:90:0
+  48 |  const __vi_import_3__ = await import("react/jsx-dev-runtime");
+  49 |  const __vi_import_4__ = await import("@/contexts/auth-context");
+  50 |  const __vi_import_5__ = await import("@/lib/auth/active-account-store");
+     |                                       ^
+  51 |  /**
+  52 |  * multiusuario-operativo tanda A (D4, D5, D6) — el `AuthProvider` resuelve la
+ ❯ TransformPluginContext._formatLog ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:30602:39
+ ❯ TransformPluginContext.error ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:30599:14
+ ❯ normalizeUrl ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:27842:18
+ ❯ ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:27905:30
+ ❯ TransformPluginContext.transform ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:27873:4
+ ❯ EnvironmentPluginContainer.transform ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:30387:14
+ ❯ loadAndTransform ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:24646:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/18]⎯
+
+ FAIL  __tests__/components/AccountSwitcher.test.tsx [ __tests__/components/AccountSwitcher.test.tsx ]
+Error: Failed to resolve import "@/components/accounts/AccountSwitcher" from "__tests__/components/AccountSwitcher.test.tsx". Does the file exist?
+  Plugin: vite:import-analysis
+  File: C:/Users/Usuario/Desktop/EIE/wt-multiusuario-a/frontend/__tests__/components/AccountSwitcher.test.tsx:41:0
+  34 |  const __vi_import_2__ = await import("react");
+  35 |  const __vi_import_3__ = await import("react/jsx-dev-runtime");
+  36 |  const __vi_import_4__ = await import("@/components/accounts/AccountSwitcher");
+     |                                       ^
+  37 |  /**
+  38 |  * multiusuario-operativo tanda A (D5) — `AccountSwitcher`.
+ ❯ TransformPluginContext._formatLog ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:30602:39
+ ❯ TransformPluginContext.error ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:30599:14
+ ❯ normalizeUrl ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:27842:18
+ ❯ ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:27905:30
+ ❯ TransformPluginContext.transform ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:27873:4
+ ❯ EnvironmentPluginContainer.transform ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:30387:14
+ ❯ loadAndTransform ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:24646:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/18]⎯
+
+ FAIL  __tests__/lib/accounts.test.ts [ __tests__/lib/accounts.test.ts ]
+Error: Failed to resolve import "@/lib/accounts" from "__tests__/lib/accounts.test.ts". Does the file exist?
+  Plugin: vite:import-analysis
+  File: C:/Users/Usuario/Desktop/EIE/wt-multiusuario-a/frontend/__tests__/lib/accounts.test.ts:11:69
+  9  |  */
+  10 |  import { describe, it, expect } from "vitest";
+  11 |  import { getActiveAccount, parseMyAccounts } from "@/lib/accounts";
+     |                                                     ^
+  12 |  import { DEFAULT_ISSUER_NAME } from "@/lib/document-branding";
+  13 |  function row(overrides = {}) {
+ ❯ TransformPluginContext._formatLog ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:30602:39
+ ❯ TransformPluginContext.error ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:30599:14
+ ❯ normalizeUrl ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:27842:18
+ ❯ ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:27905:30
+ ❯ TransformPluginContext.transform ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:27873:4
+ ❯ EnvironmentPluginContainer.transform ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:30387:14
+ ❯ loadAndTransform ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:24646:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/18]⎯
+
+ FAIL  __tests__/lib/active-account-store.test.ts [ __tests__/lib/active-account-store.test.ts ]
+Error: Failed to resolve import "@/lib/auth/active-account-store" from "__tests__/lib/active-account-store.test.ts". Does the file exist?
+  Plugin: vite:import-analysis
+  File: C:/Users/Usuario/Desktop/EIE/wt-multiusuario-a/frontend/__tests__/lib/active-account-store.test.ts:17:7
+  9  |  */
+  10 |  import { describe, it, expect, vi, beforeEach } from "vitest";
+  11 |  ...ync, resetActiveAccountStore, setDisplayedAccountId } from "@/lib/auth/active-account-store";
+     |                                                                 ^
+  12 |  beforeEach(() => {
+  13 |  	resetActiveAccountStore();
+ ❯ TransformPluginContext._formatLog ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:30602:39
+ ❯ TransformPluginContext.error ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:30599:14
+ ❯ normalizeUrl ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:27842:18
+ ❯ ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:27905:30
+ ❯ TransformPluginContext.transform ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:27873:4
+ ❯ EnvironmentPluginContainer.transform ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:30387:14
+ ❯ loadAndTransform ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:24646:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/18]⎯
+
+ FAIL  __tests__/lib/auth-headers.test.ts [ __tests__/lib/auth-headers.test.ts ]
+Error: Failed to resolve import "@/lib/auth/active-account-store" from "__tests__/lib/auth-headers.test.ts". Does the file exist?
+  Plugin: vite:import-analysis
+  File: C:/Users/Usuario/Desktop/EIE/wt-multiusuario-a/frontend/__tests__/lib/auth-headers.test.ts:483:76
+  408 |  	it("un caller no puede forzar X-Account-Id: el encabezado lo pone el módulo, no el call site", async () => {
+  409 |  		const { getBackendHeaders } = await import("@/lib/api/auth-headers");
+  410 |  		const { setDisplayedAccountId, resetActiveAccountStore } = await import("@/lib/auth/active-account-store");
+      |                                                                            ^
+  411 |  		resetActiveAccountStore();
+  412 |  		withSession("tok-1");
+ ❯ TransformPluginContext._formatLog ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:30602:39
+ ❯ TransformPluginContext.error ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:30599:14
+ ❯ normalizeUrl ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:27842:18
+ ❯ ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:27905:30
+ ❯ TransformPluginContext.transform ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:27873:4
+ ❯ EnvironmentPluginContainer.transform ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:30387:14
+ ❯ loadAndTransform ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:24646:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/18]⎯
+
+ FAIL  __tests__/lib/python-client.test.ts [ __tests__/lib/python-client.test.ts ]
+Error: Failed to resolve import "@/lib/auth/active-account-store" from "__tests__/lib/python-client.test.ts". Does the file exist?
+  Plugin: vite:import-analysis
+  File: C:/Users/Usuario/Desktop/EIE/wt-multiusuario-a/frontend/__tests__/lib/python-client.test.ts:325:25
+  274 |  		});
+  275 |  		vi.stubEnv("NEXT_PUBLIC_BACKEND_URL", "http://localhost:8000");
+  276 |  		store = await import("@/lib/auth/active-account-store");
+      |                         ^
+  277 |  		store.resetActiveAccountStore();
+  278 |  		({pythonClient} = await import("@/lib/api/python-client"));
+ ❯ TransformPluginContext._formatLog ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:30602:39
+ ❯ TransformPluginContext.error ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:30599:14
+ ❯ normalizeUrl ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:27842:18
+ ❯ ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:27905:30
+ ❯ TransformPluginContext.transform ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:27873:4
+ ❯ EnvironmentPluginContainer.transform ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:30387:14
+ ❯ loadAndTransform ../node_modules/.pnpm/vite@8.0.16_@types+node@22.19.3_jiti@1.21.7/node_modules/vite/dist/node/chunks/node.js:24646:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/18]⎯
+
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 12 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  __tests__/lib/document-logo-api.test.ts > uploadDocumentLogo > PUT con el cuerpo binario crudo, el tipo del archivo y la sesión
+AssertionError: expected { 'Content-Type': 'image/png', …(1) } to deeply equal { 'Content-Type': 'image/png', …(2) }
+
+- Expected
++ Received
+
+  {
+    "Authorization": "Bearer tok-1",
+    "Content-Type": "image/png",
+-   "X-Account-Id": "acc-1",
+  }
+
+ ❯ __tests__/lib/document-logo-api.test.ts:70:26
+     68|     // multiusuario-operativo (D6): la subida es una ESCRITURA de la c…
+     69|     // que muestra la pantalla (`X-Account-Id`) además de la sesión.
+     70|     expect(init.headers).toEqual({ "Content-Type": "image/png", Author…
+       |                          ^
+     71|   })
+     72|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/18]⎯
+
+ FAIL  __tests__/lib/session-bus.test.ts > session-bus — account:switched > el anuncio local sale por el transporte compartido hacia las otras pestañas, sin token
+TypeError: announceAccountSwitched is not a function
+ ❯ __tests__/lib/session-bus.test.ts:370:5
+    368|     const peer = openPeerTab()
+    369|
+    370|     announceAccountSwitched()
+       |     ^
+    371|
+    372|     expect(peer.received).toEqual([{ type: "account:switched" }])
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/18]⎯
+
+ FAIL  __tests__/lib/session-bus.test.ts > session-bus — account:switched > una cuenta cambiada en otra pestaña se adopta (token nuevo) y se avisa a los suscriptores
+AssertionError: expected [] to deeply equal [ 'account:switched' ]
+
+- Expected
++ Received
+
+- [
+-   "account:switched",
+- ]
++ []
+
+ ❯ __tests__/lib/session-bus.test.ts:385:18
+    383|     await flush()
+    384|
+    385|     expect(seen).toEqual(["account:switched"])
+       |                  ^
+    386|     // La cookie compartida ya tiene el token de la cuenta nueva: se l…
+    387|     // manejador (no se recibe por el canal) y NO se borra el de esta …
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/18]⎯
+
+ FAIL  __tests__/lib/session-bus.test.ts > session-bus — account:switched > no es un cierre por inactividad ni un cierre de sesión
+TypeError: announceAccountSwitched is not a function
+ ❯ __tests__/lib/session-bus.test.ts:412:5
+    410|     })
+    411|
+    412|     announceAccountSwitched()
+       |     ^
+    413|
+    414|     expect(idleLogoutsSeen).toBe(0)
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/18]⎯
+
+ FAIL  __tests__/reporting/edge-product-ranking.test.ts > resolveActiveAccountId (Deno, cliente inyectado) > pide la cuenta activa a la base con la RPC canónica y devuelve su id
+TypeError: Cannot read properties of undefined (reading 'select')
+ ❯ resolveActiveAccountId ../supabase/functions/_shared/reporting-canon.ts:398:28
+    396| ): Promise<string | null> {
+    397|   const { data, error } = await client
+    398|     .from("account_members")
+       |                            ^
+    399|     .select("account_id")
+    400|     .eq("user_id", userId)
+ ❯ __tests__/reporting/edge-product-ranking.test.ts:89:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/18]⎯
+
+ FAIL  __tests__/reporting/edge-product-ranking.test.ts > resolveActiveAccountId (Deno, cliente inyectado) > acepta también un escalar (algunos clientes devuelven el único valor sin arreglo)
+TypeError: client.from is not a function
+ ❯ resolveActiveAccountId ../supabase/functions/_shared/reporting-canon.ts:398:6
+    396| ): Promise<string | null> {
+    397|   const { data, error } = await client
+    398|     .from("account_members")
+       |      ^
+    399|     .select("account_id")
+    400|     .eq("user_id", userId)
+ ❯ __tests__/reporting/edge-product-ranking.test.ts:100:18
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[12/18]⎯
+
+ FAIL  __tests__/reporting/edge-product-ranking.test.ts > resolveActiveAccountId (Deno, cliente inyectado) > sin cuenta activa (0 filas: sin membresía, o claim de una cuenta revocada) -> null
+TypeError: client.from is not a function
+ ❯ resolveActiveAccountId ../supabase/functions/_shared/reporting-canon.ts:398:6
+    396| ): Promise<string | null> {
+    397|   const { data, error } = await client
+    398|     .from("account_members")
+       |      ^
+    399|     .select("account_id")
+    400|     .eq("user_id", userId)
+ ❯ __tests__/reporting/edge-product-ranking.test.ts:107:18
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[13/18]⎯
+
+ FAIL  __tests__/reporting/edge-product-ranking.test.ts > resolveActiveAccountId (Deno, cliente inyectado) > error -> null (no lanza; el caller degrada omitiendo el bloque)
+TypeError: client.from is not a function
+ ❯ resolveActiveAccountId ../supabase/functions/_shared/reporting-canon.ts:398:6
+    396| ): Promise<string | null> {
+    397|   const { data, error } = await client
+    398|     .from("account_members")
+       |      ^
+    399|     .select("account_id")
+    400|     .eq("user_id", userId)
+ ❯ __tests__/reporting/edge-product-ranking.test.ts:114:18
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[14/18]⎯
+
+ FAIL  __tests__/reporting/product-ranking.test.ts > resolveActiveAccountId > pide la cuenta activa a la base con la RPC canónica y devuelve su id
+TypeError: Cannot read properties of undefined (reading 'select')
+ ❯ resolveActiveAccountId lib/reporting/product-ranking.ts:81:28
+     79| ): Promise<string | null> {
+     80|   const { data, error } = await supabase
+     81|     .from("account_members")
+       |                            ^
+     82|     .select("account_id")
+     83|     .eq("user_id", userId)
+ ❯ __tests__/reporting/product-ranking.test.ts:113:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[15/18]⎯
+
+ FAIL  __tests__/reporting/product-ranking.test.ts > resolveActiveAccountId > acepta también un escalar (algunos clientes devuelven el único valor sin arreglo)
+TypeError: supabase.from is not a function
+ ❯ resolveActiveAccountId lib/reporting/product-ranking.ts:81:6
+     79| ): Promise<string | null> {
+     80|   const { data, error } = await supabase
+     81|     .from("account_members")
+       |      ^
+     82|     .select("account_id")
+     83|     .eq("user_id", userId)
+ ❯ __tests__/reporting/product-ranking.test.ts:124:18
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[16/18]⎯
+
+ FAIL  __tests__/reporting/product-ranking.test.ts > resolveActiveAccountId > sin cuenta activa (0 filas: sin membresía, o claim de una cuenta revocada) -> null
+TypeError: supabase.from is not a function
+ ❯ resolveActiveAccountId lib/reporting/product-ranking.ts:81:6
+     79| ): Promise<string | null> {
+     80|   const { data, error } = await supabase
+     81|     .from("account_members")
+       |      ^
+     82|     .select("account_id")
+     83|     .eq("user_id", userId)
+ ❯ __tests__/reporting/product-ranking.test.ts:131:18
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[17/18]⎯
+
+ FAIL  __tests__/reporting/product-ranking.test.ts > resolveActiveAccountId > error -> null (no lanza; el caller degrada omitiendo el bloque)
+TypeError: supabase.from is not a function
+ ❯ resolveActiveAccountId lib/reporting/product-ranking.ts:81:6
+     79| ): Promise<string | null> {
+     80|   const { data, error } = await supabase
+     81|     .from("account_members")
+       |      ^
+     82|     .select("account_id")
+     83|     .eq("user_id", userId)
+ ❯ __tests__/reporting/product-ranking.test.ts:138:18
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[18/18]⎯
+
+
+ Test Files  10 failed (10)
+      Tests  12 failed | 55 passed (67)
+   Start at  18:28:18
+   Duration  18.98s (transform 1.55s, setup 7.70s, import 2.09s, tests 538ms, environment 92.82s)
+

@@ -41,10 +41,12 @@ interface Recorded {
   filters: Record<string, unknown>
   inserts: Record<string, unknown[]>
   rankingArgs: Record<string, unknown> | null
+  /** RPCs invocadas, en orden (la cuenta activa se pide a la base: `current_account_ids`). */
+  rpcFns: string[]
 }
 
 function makeDouble(): { supabase: SupabaseClient; recorded: Recorded } {
-  const recorded: Recorded = { filters: {}, inserts: {}, rankingArgs: null }
+  const recorded: Recorded = { filters: {}, inserts: {}, rankingArgs: null, rpcFns: [] }
 
   const thenable = <T>(data: T) => ({
     select: () => thenable(data),
@@ -58,6 +60,10 @@ function makeDouble(): { supabase: SupabaseClient; recorded: Recorded } {
   })
 
   const rpc = vi.fn((fn: string, args?: Record<string, unknown>) => {
+    recorded.rpcFns.push(fn)
+    // multiusuario-operativo (tanda A, D4): la cuenta activa la resuelve la base —la RPC canónica
+    // `current_account_ids()`, con el JWT del usuario—, no se reconstruye ordenando `account_members`.
+    if (fn === "current_account_ids") return Promise.resolve({ data: ["acc-1"], error: null })
     if (fn === "rpc_product_ranking") {
       recorded.rankingArgs = args ?? null
       return Promise.resolve({
@@ -150,8 +156,10 @@ describe("buildBusinessSnapshot recibe la identidad del caller", () => {
       nombre: "Remera negra",
       unidades: 4,
     })
-    // Y la cuenta se resolvió con ESA identidad, no con una del store.
-    expect(recorded.filters.account_members).toBe(USER_ID)
+    // La cuenta se resolvió con la RPC canónica de la base (la sesión del cliente es la del caller;
+    // el store del token no interviene) y NO consultando `account_members` por cuenta propia.
+    expect(recorded.rpcFns).toContain("current_account_ids")
+    expect(recorded.filters.account_members).toBeUndefined()
     expect(recorded.rankingArgs).toMatchObject({ p_account_id: "acc-1" })
   })
 

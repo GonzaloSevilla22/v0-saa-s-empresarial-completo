@@ -1,10 +1,13 @@
 "use client"
 
-import React, { createContext, useContext, useState, useEffect, useCallback } from "react"
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from "react"
 import { useQueryClient } from "@tanstack/react-query"
+import { toast } from "sonner"
 import { createClient } from "@/lib/supabase/client"
 import { useRouter } from "next/navigation"
 import type { User, Plan, UserRole, BillingStatus } from "@/lib/types"
+import { getActiveAccount, parseMyAccounts, type AccountSummary } from "@/lib/accounts"
+import { Button } from "@/components/ui/button"
 import { getEffectivePlan } from "@/lib/plan-utils"
 import { buildProfileUpdatePayload, type ProfileUpdateData } from "@/lib/profile-update"
 import { clearAuthUxCookies } from "@/lib/cookies"
@@ -14,6 +17,7 @@ import { clearAuthUxCookies } from "@/lib/cookies"
 // (`useAuth()`) no cambia, así que `/auth/login`, `MagicLinkForm`,
 // `/auth/register` y `components/settings/AccountForm.tsx` conservan su UI.
 import {
+  refreshSessionAction,
   requestEmailChangeAction,
   signInWithMagicLinkAction,
   signInWithPasswordAction,
@@ -27,10 +31,19 @@ import { clearAccessToken, refreshAccessToken } from "@/lib/auth/access-token-st
 // `supabase.auth.onAuthStateChange`, que con `accessToken` configurado ni se
 // instala. El bus corre sobre el único transporte entre pestañas del proyecto.
 import {
+  announceAccountSwitched,
   announceSignedIn,
   announceSignedOut,
   subscribeToSessionEvents,
 } from "@/lib/auth/session-bus"
+// multiusuario-operativo (tanda A, D5/D6): la cuenta que muestra la pantalla se declara
+// en cada request al backend, y el cliente HTTP le pide a este proveedor que se
+// resincronice cuando el backend dice que quedó vieja.
+import {
+  registerAccountResync,
+  setDisplayedAccountId,
+  type AccountResyncReason,
+} from "@/lib/auth/active-account-store"
 
 // G11 (H9): el tipo y el armado del payload viven en la capa canónica
 // (lib/profile-update.ts) — null limpia la columna, undefined la omite.
@@ -80,6 +93,19 @@ interface AuthContextType {
    */
   refreshSession: () => Promise<boolean>
   /**
+   * multiusuario-operativo (tanda A, D5): las cuentas a las que pertenece el usuario
+   * (una fila por membresía), con la activa marcada. El selector del menú lateral se
+   * muestra sólo con dos o más.
+   */
+  accounts: AccountSummary[]
+  /**
+   * Cambia la cuenta activa: persiste la elección (`rpc_set_active_account`), renueva el
+   * token (el hook emite el claim de la cuenta nueva), descarta lo que había en caché,
+   * avisa a las otras pestañas y lleva al Tablero. Rechaza si la base no la acepta (p. ej.
+   * la membresía se revocó entre que se listó y se eligió).
+   */
+  switchAccount: (accountId: string) => Promise<void>
+  /**
    * accounts-profiles-privilege-columns (2026-09-21): `upgradePlan` /
    * `downgradePlan` se RETIRARON. Escribían `profiles.plan` con
    * `.from('profiles').update(...)` desde el navegador, o sea un
@@ -106,12 +132,189 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | null>(null)
 
+/**
+ * Renovación FORZADA del token ante el proveedor (multiusuario-operativo, D4).
+ *
+ * Releer el token handler NO alcanza: sólo renueva un access token por vencer, y el claim de la
+ * cuenta activa (`app_metadata.account_id`) lo emite el hook al EMITIR. Sin esto, cambiar de cuenta
+ * (o recuperarse de una cuenta revocada) dejaba el token vigente —con la cuenta vieja— hasta una
+ * hora después. Devuelve `false` si el proveedor no entregó una sesión nueva; nunca lanza.
+ */
+async function renewSessionAtProvider(): Promise<boolean> {
+  try {
+    const result = await refreshSessionAction()
+    return result.ok
+  } catch (error) {
+    console.error("[auth-context] no se pudo renovar la sesión ante el proveedor:", error)
+    return false
+  }
+}
+
+/** Qué dejó una carga de sesión: si hay sesión, y si falta una cuenta activa. */
+interface SessionLoad {
+  session: boolean
+  /** Hay membresías pero NINGUNA está activa (token de una cuenta ya revocada). */
+  needsAccount: boolean
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
+  const [accounts, setAccounts] = useState<AccountSummary[]>([])
+  // multiusuario-operativo (5.4): el usuario tiene membresías pero ninguna activa, y
+  // renovar el token no lo arregló -> pantalla de error con "Cerrar sesión".
+  const [accountProblem, setAccountProblem] = useState<"no-active-account" | null>(null)
   const [loading, setLoading] = useState(true)
   const supabase = createClient()
   const router = useRouter()
   const queryClient = useQueryClient()
+  // Nombre del negocio activo tras la última carga (para los avisos de cambio de cuenta).
+  const activeNameRef = useRef<string | null>(null)
+
+  /**
+   * Una carga de identidad, perfil, cuentas y plan, **forzando** la renovación del token.
+   *
+   * multiusuario-operativo (tanda A, D4): la cuenta activa sale de `rpc_my_accounts()` —
+   * la fila `is_active` es la que resuelve `current_account_ids()` en la base, la misma
+   * que ven FastAPI y la RLS —, NUNCA de ordenar `account_members` acá (era uno de los
+   * cuatro criterios de "cuenta activa" que convivían). Si hay membresías pero ninguna
+   * está activa, NO se elige otra en silencio: se informa `needsAccount`.
+   */
+  const loadSession = useCallback(async (): Promise<SessionLoad> => {
+    // Durante la renovación NO se declara cuenta (`X-Account-Id`): entre que el token
+    // nuevo está en memoria y que se conoce la cuenta activa, un request con el token
+    // de la cuenta B y el encabezado de la A se rechazaría con 409 contra su propio token.
+    setDisplayedAccountId(null)
+    // auth-hardening-jwt-cookies (Parte C, D1, task 19.8a): la identidad sale
+    // del token handler y no de `supabase.auth.getUser()`, que con `accessToken`
+    // configurado LANZA (`supabase-js/index.mjs:389`).
+    //
+    // **`refreshAccessToken()` y no `getAccessToken()`**, o sea FORZANDO: esta
+    // función se llama justo después de `signInWithPasswordAction()`, y el store
+    // viene de la pantalla de login —una página anónima— donde ya cacheó "no hay
+    // sesión". Sin forzar, el login terminaría bien en el servidor y la app
+    // quedaría anónima hasta que el usuario recargue.
+    //
+    // El token que devuelve el manejador lo emitió el proveedor y lo verifica
+    // quien lo recibe (PostgREST y FastAPI comprueban la firma): la garantía que
+    // daba `getUser()` —"esto no es una cookie que alguien escribió"— la sigue
+    // dando el servidor, que es el único que puede leer la sesión.
+    const resolution = await refreshAccessToken()
+    const authUser = resolution.status === "active" ? resolution.user : null
+    if (!authUser) {
+      setUser(null)
+      // Sin sesión no hay cuentas: se conserva la MISMA referencia si ya estaba vacía (un arreglo
+      // nuevo por carga re-renderizaría el proveedor sin que nada haya cambiado).
+      setAccounts((previous) => (previous.length === 0 ? previous : []))
+      return { session: false, needsAccount: false }
+    }
+
+    // ── Fetch profile + accounts in parallel ─────────────────────────────────
+    // Profile: personal data, preferences, legacy billing columns.
+    // Accounts (multiusuario-operativo): una fila por membresía con la activa marcada,
+    // el rol propio en cada una y el estado de billing de la cuenta (C-05 D5).
+    const [{ data: profile }, accountsResult] = await Promise.all([
+      supabase
+        .from("profiles")
+        .select("*")
+        .eq("id", authUser.id)
+        .single(),
+      supabase.rpc("rpc_my_accounts"),
+    ])
+    if (accountsResult.error) {
+      console.error("[auth-context] rpc_my_accounts falló:", accountsResult.error)
+    }
+
+    const myAccounts = parseMyAccounts(accountsResult.data)
+    const active = getActiveAccount(myAccounts)
+    setAccounts(myAccounts)
+
+    if (myAccounts.length > 0 && !active) {
+      // Membresías sin cuenta activa: el token declara una cuenta de la que ya no es
+      // miembro. NO se cae en silencio a otra cuenta: se pide renovar y, si persiste, error.
+      setUser(null)
+      activeNameRef.current = null
+      return { session: true, needsAccount: true }
+    }
+
+    // ── Resolve billing state from the ACTIVE account (C-05 D5, billing-pro-trial D4) ─
+    // Prefer the account's billing data; fall back to profile columns for
+    // legacy compatibility while both sources are maintained in parallel.
+    const billingPlan    = (active?.billingPlan as Plan)        ?? (profile?.billing_plan as Plan) ?? "gratis"
+    const billingStatus  = (active?.billingStatus as BillingStatus) ?? (profile?.billing_status as BillingStatus) ?? "trialing"
+    const trialPlan      = (active?.trialPlan as Plan | undefined) ?? (profile?.trial_plan as Plan | undefined)
+    const trialExpiresAt = active?.trialExpiresAt ?? profile?.trial_expires_at ?? undefined
+    // billing-pro-trial (D4): ausente en profiles (legacy) → false. Solo
+    // accounts es la fuente — nunca se derivó de un default implícito.
+    const billingExempt  = active?.billingExempt ?? false
+
+    const accountId   = active?.accountId ?? ""
+    const accountRole = (active?.memberRole as "owner" | "admin" | "member") ?? "owner"
+
+    if (profile) {
+      setUser({
+        id:             authUser.id,
+        email:          authUser.email || "",
+        // ── Tenant account (C-05) ──────────────────────────────────────────
+        accountId,
+        accountRole,
+        // @deprecated `plan` kept for legacy compat — use effectivePlan for gating
+        plan:           (profile.plan as Plan) ?? "gratis",
+        billingPlan,
+        billingStatus,
+        trialPlan,
+        trialExpiresAt,
+        billingExempt,
+        effectivePlan:  getEffectivePlan({ billingPlan, trialPlan, trialExpiresAt, billingExempt }),
+        aiQueriesUsed:  profile.ai_queries_used ?? 0,
+        aiAdviceUsed:   profile.ai_advice_used  ?? 0,
+        role:           profile.role as UserRole,
+        name:           profile.name || authUser.name || authUser.email?.split("@")[0] || "Emprendedor",
+        lastName:       profile.last_name     ?? undefined,
+        avatar:         profile.avatar_url    ?? undefined,
+        businessName:   profile.business_name ?? undefined,
+        phone:          profile.phone         ?? undefined,
+        locality:       profile.locality      ?? undefined,
+        province:       profile.province      ?? undefined,
+        bio:            profile.bio           ?? undefined,
+        termsVersion:        profile.terms_version              ?? undefined,
+        termsAcceptedAt:     profile.terms_accepted_at          ?? undefined,
+        emailNotificationsOptIn: profile.email_notifications_opt_in ?? undefined,
+        currency:       profile.currency    ?? "ARS",
+        timezone:       profile.timezone    ?? "America/Argentina/Buenos_Aires",
+        dateFormat:     profile.date_format ?? "DD/MM/YYYY",
+        language:       profile.language    ?? "es",
+      })
+    } else {
+      setUser({
+        id:            authUser.id,
+        email:         authUser.email || "",
+        accountId,
+        accountRole,
+        plan:          "gratis",
+        billingPlan,
+        billingStatus,
+        trialPlan,
+        trialExpiresAt,
+        billingExempt,
+        effectivePlan: getEffectivePlan({ billingPlan, trialPlan, trialExpiresAt, billingExempt }),
+        aiQueriesUsed: 0,
+        aiAdviceUsed:  0,
+        role:          "user",
+        name:          authUser.name || authUser.email?.split("@")[0] || "Emprendedor",
+        currency:      "ARS",
+        timezone:      "America/Argentina/Buenos_Aires",
+        dateFormat:    "DD/MM/YYYY",
+        language:      "es",
+      })
+    }
+    activeNameRef.current = active?.displayName ?? null
+    // Recién ahora se conoce la cuenta que muestra la pantalla: se declara en cada request.
+    setDisplayedAccountId(accountId)
+    // Plan may have changed (upgrade/downgrade/trial expiry) → drop cached
+    // plan limits so usePlanLimits re-fetches against the current plan.
+    queryClient.invalidateQueries({ queryKey: ["planLimits"] })
+    return { session: true, needsAccount: false }
+  }, [supabase, queryClient])
 
   /**
    * @returns `true` si tras renovar hay sesión viva. Quien navega por el resultado
@@ -127,147 +330,49 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const refreshSession = useCallback(async (): Promise<boolean> => {
     let haySesion = false
     try {
-      // auth-hardening-jwt-cookies (Parte C, D1, task 19.8a): la identidad sale
-      // del token handler y no de `supabase.auth.getUser()`, que con `accessToken`
-      // configurado LANZA (`supabase-js/index.mjs:389`).
-      //
-      // **`refreshAccessToken()` y no `getAccessToken()`**, o sea FORZANDO: esta
-      // función se llama justo después de `signInWithPasswordAction()`, y el store
-      // viene de la pantalla de login —una página anónima— donde ya cacheó "no hay
-      // sesión". Sin forzar, el login terminaría bien en el servidor y la app
-      // quedaría anónima hasta que el usuario recargue.
-      //
-      // El token que devuelve el manejador lo emitió el proveedor y lo verifica
-      // quien lo recibe (PostgREST y FastAPI comprueban la firma): la garantía que
-      // daba `getUser()` —"esto no es una cookie que alguien escribió"— la sigue
-      // dando el servidor, que es el único que puede leer la sesión.
-      const resolution = await refreshAccessToken()
-      const authUser = resolution.status === "active" ? resolution.user : null
-      if (!authUser) {
-        setUser(null)
-        return false
+      let load = await loadSession()
+      if (load.needsAccount) {
+        // Membresías sin cuenta activa: UNA renovación más —ante el proveedor, no releyendo el
+        // mismo token— (el hook resuelve la cuenta que corresponde al emitir el token nuevo)
+        // antes de rendirse.
+        await renewSessionAtProvider()
+        load = await loadSession()
       }
-      haySesion = true
-      // ── Fetch profile + account membership in parallel ─────────────────────
-      // Profile: personal data, preferences, legacy billing columns.
-      // Membership: account_id, role, and the account's billing state (C-05 D5).
-      const [{ data: profile }, { data: membership }] = await Promise.all([
-        supabase
-          .from("profiles")
-          .select("*")
-          .eq("id", authUser.id)
-          .single(),
-        // v3-rbac-multirole Parte C (ronda 3, MAJOR-1): `.single()` devolvía
-        // 406/PGRST116 en cuanto el usuario tenía 2+ membresías (todo
-        // invitado a una cuenta ajena, porque handle_new_user ya le dio una
-        // propia) -- membership quedaba null, accountId "" y todos los hooks
-        // `enabled: !!accountId` se apagaban en silencio. Mismo criterio
-        // determinístico que backend/core/deps.py::get_account_id y el hook
-        // de auth (20260827000001): la membresía más antigua por
-        // created_at, desempatada por id. `.maybeSingle()` además nunca
-        // lanza con 0 filas (el otro borde que `.single()` rompía igual).
-        supabase
-          .from("account_members")
-          .select("account_id, role, accounts(billing_plan, billing_status, trial_plan, trial_started_at, trial_expires_at, billing_exempt)")
-          .eq("user_id", authUser.id)
-          .order("created_at", { ascending: true })
-          .order("id", { ascending: true })
-          .limit(1)
-          .maybeSingle(),
-      ])
-
-      // ── Resolve billing state from account (C-05 D5, billing-pro-trial D4) ─
-      // Prefer the account's billing data; fall back to profile columns for
-      // legacy compatibility while both sources are maintained in parallel.
-      // Supabase infers the join as an array type; cast via unknown to get
-      // the single-row object shape we know the query returns (1:1 membership).
-      const accountRow = (membership?.accounts as unknown) as {
-        billing_plan: string
-        billing_status: string
-        trial_plan: string | null
-        trial_started_at: string | null
-        trial_expires_at: string | null
-        billing_exempt: boolean | null
-      } | null
-
-      const billingPlan    = (accountRow?.billing_plan as Plan)    ?? (profile?.billing_plan as Plan) ?? "gratis"
-      const billingStatus  = (accountRow?.billing_status as BillingStatus) ?? (profile?.billing_status as BillingStatus) ?? "trialing"
-      const trialPlan      = (accountRow?.trial_plan as Plan | undefined) ?? (profile?.trial_plan as Plan | undefined)
-      const trialExpiresAt = accountRow?.trial_expires_at ?? profile?.trial_expires_at ?? undefined
-      // billing-pro-trial (D4): ausente en profiles (legacy) → false. Solo
-      // accounts es la fuente — nunca se derivó de un default implícito.
-      const billingExempt  = accountRow?.billing_exempt ?? false
-
-      const accountId   = membership?.account_id ?? ""
-      const accountRole = (membership?.role as "owner" | "admin" | "member") ?? "owner"
-
-      if (profile) {
-        setUser({
-          id:             authUser.id,
-          email:          authUser.email || "",
-          // ── Tenant account (C-05) ──────────────────────────────────────────
-          accountId,
-          accountRole,
-          // @deprecated `plan` kept for legacy compat — use effectivePlan for gating
-          plan:           (profile.plan as Plan) ?? "gratis",
-          billingPlan,
-          billingStatus,
-          trialPlan,
-          trialExpiresAt,
-          billingExempt,
-          effectivePlan:  getEffectivePlan({ billingPlan, trialPlan, trialExpiresAt, billingExempt }),
-          aiQueriesUsed:  profile.ai_queries_used ?? 0,
-          aiAdviceUsed:   profile.ai_advice_used  ?? 0,
-          role:           profile.role as UserRole,
-          name:           profile.name || authUser.name || authUser.email?.split("@")[0] || "Emprendedor",
-          lastName:       profile.last_name     ?? undefined,
-          avatar:         profile.avatar_url    ?? undefined,
-          businessName:   profile.business_name ?? undefined,
-          phone:          profile.phone         ?? undefined,
-          locality:       profile.locality      ?? undefined,
-          province:       profile.province      ?? undefined,
-          bio:            profile.bio           ?? undefined,
-          termsVersion:        profile.terms_version              ?? undefined,
-          termsAcceptedAt:     profile.terms_accepted_at          ?? undefined,
-          emailNotificationsOptIn: profile.email_notifications_opt_in ?? undefined,
-          currency:       profile.currency    ?? "ARS",
-          timezone:       profile.timezone    ?? "America/Argentina/Buenos_Aires",
-          dateFormat:     profile.date_format ?? "DD/MM/YYYY",
-          language:       profile.language    ?? "es",
-        })
-      } else {
-        setUser({
-          id:            authUser.id,
-          email:         authUser.email || "",
-          accountId,
-          accountRole,
-          plan:          "gratis",
-          billingPlan,
-          billingStatus,
-          trialPlan,
-          trialExpiresAt,
-          billingExempt,
-          effectivePlan: getEffectivePlan({ billingPlan, trialPlan, trialExpiresAt, billingExempt }),
-          aiQueriesUsed: 0,
-          aiAdviceUsed:  0,
-          role:          "user",
-          name:          authUser.name || authUser.email?.split("@")[0] || "Emprendedor",
-          currency:      "ARS",
-          timezone:      "America/Argentina/Buenos_Aires",
-          dateFormat:    "DD/MM/YYYY",
-          language:      "es",
-        })
-      }
-      // Plan may have changed (upgrade/downgrade/trial expiry) → drop cached
-      // plan limits so usePlanLimits re-fetches against the current plan.
-      queryClient.invalidateQueries({ queryKey: ["planLimits"] })
+      haySesion = load.session
+      setAccountProblem(load.needsAccount ? "no-active-account" : null)
     } catch (e) {
       console.error(e)
     } finally {
       setLoading(false)
     }
     return haySesion
-  }, [supabase, queryClient])
+  }, [loadSession])
+
+  /**
+   * Resincroniza con la cuenta activa de la base. Lo piden: otra pestaña que cambió de
+   * cuenta (bus), el 409 `account_switched` y el 403 "sin cuenta activa" del cliente HTTP.
+   *
+   * Descarta TODO lo que había en caché (era de la cuenta anterior), re-resuelve la
+   * cuenta y lleva al Tablero con un aviso. NO reanuncia el cambio: lo adoptado de otra
+   * pestaña no se reenvía (lazo entre pestañas).
+   */
+  const resync = useCallback(
+    async (reason: AccountResyncReason): Promise<void> => {
+      queryClient.clear()
+      await refreshSession()
+      const name = activeNameRef.current
+      if (!name) return // sin cuenta activa: lo muestra la pantalla de error
+      router.replace("/dashboard")
+      toast.info(
+        reason === "switched"
+          ? `Cambiaste de cuenta en otra pestaña. Ahora estás en ${name}.`
+          : `Actualizamos tu cuenta activa. Ahora estás en ${name}.`,
+      )
+    },
+    [queryClient, refreshSession, router],
+  )
+
+  useEffect(() => registerAccountResync(resync), [resync])
 
   useEffect(() => {
     refreshSession()
@@ -287,6 +392,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // (que significa "cierre por inactividad" y lleva a `?reason=idle`): tiene
     // tipos propios, y los del temporizador no llegan acá.
     const unsubscribe = subscribeToSessionEvents((event) => {
+      if (event === "account:switched") {
+        // Otra pestaña cambió de cuenta: el bus ya adoptó el token nuevo, que describe
+        // la cuenta nueva. Esta pestaña sigue MOSTRANDO la anterior hasta resincronizarse.
+        void resync("switched")
+        return
+      }
       if (event === "session:signed-out") {
         // El token en memoria ya lo olvidó el bus; las cookies las borró la
         // pestaña que cerró (son del navegador, no de la pestaña). Lo que le queda
@@ -302,7 +413,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     })
 
     return unsubscribe
-  }, [refreshSession, router])
+  }, [refreshSession, resync, router])
 
   // auth-hardening-jwt-cookies (Parte C, grupo 18): el `getSiteUrl()` que vivía
   // acá se retiró. El `emailRedirectTo` lo resuelve el servidor con
@@ -439,6 +550,45 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await refreshSession()
   }, [supabase, user, refreshSession])
 
+  const switchAccount = useCallback(
+    async (accountId: string): Promise<void> => {
+      const target = accounts.find((account) => account.accountId === accountId)
+
+      // 1) Persistir la elección. Va PRIMERO: el hook que emite el token lee esta
+      //    preferencia, así que renovar el token antes emitiría la cuenta vieja.
+      //    Por supabase-js y no por FastAPI, para no colgar el arranque de la app del
+      //    cold start de Render (~50 s). El único error posible es una carrera: la
+      //    membresía se revocó entre que se listó y se eligió.
+      const { error } = await supabase.rpc("rpc_set_active_account", { p_account_id: accountId })
+      if (error) {
+        toast.error("No pudimos cambiar de cuenta. Actualizamos tu lista de cuentas.")
+        await refreshSession()
+        throw new Error("No se pudo cambiar de cuenta activa")
+      }
+
+      // 2) Renovar el token ANTE EL PROVEEDOR: el claim `account_id` lo emite el hook al
+      //    emitir, y releer el token vigente (lo que hace `refreshSession` solo) no cambia la
+      //    cuenta hasta que el token venza. Si no se pudo renovar, el cambio no rige: se avisa
+      //    y se recarga la lista (la preferencia ya quedó guardada: un reintento la reaplica).
+      if (!(await renewSessionAtProvider())) {
+        toast.error("No pudimos cambiar de cuenta. Probá de nuevo.")
+        await refreshSession()
+        throw new Error("No se pudo renovar la sesión para cambiar de cuenta")
+      }
+
+      // 3) Descartar lo que había en caché (es de la cuenta anterior) y re-resolver la cuenta
+      //    con el token nuevo.
+      queryClient.clear()
+      await refreshSession()
+
+      // 4) Avisar a las otras pestañas (sin token en el mensaje) y llevar al Tablero.
+      announceAccountSwitched()
+      router.replace("/dashboard")
+      toast.success(`Ahora estás en ${target?.displayName ?? activeNameRef.current ?? "tu cuenta"}`)
+    },
+    [accounts, supabase, queryClient, refreshSession, router],
+  )
+
   const changePassword = useCallback(async (newPassword: string) => {
     unwrapAuthResult(await updatePasswordAction({ password: newPassword }))
   }, [])
@@ -471,10 +621,38 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return <div className="min-h-screen flex items-center justify-center">Loading...</div>
   }
 
+  // multiusuario-operativo (5.4): hay membresías pero ninguna activa y renovar el token no
+  // lo arregló. NO se muestra la app (no hay cuenta sobre la cual operar) ni se elige otra
+  // en silencio: se ofrece reintentar o cerrar sesión.
+  if (accountProblem === "no-active-account") {
+    return (
+      <div
+        role="alert"
+        className="min-h-screen flex flex-col items-center justify-center gap-4 bg-background p-6 text-center"
+      >
+        <h1 className="text-xl font-semibold text-foreground">No pudimos determinar tu cuenta activa</h1>
+        <p className="max-w-md text-sm text-muted-foreground">
+          Tu sesión ya no corresponde a ninguna de tus cuentas. Probá de nuevo; si sigue igual, cerrá
+          sesión e ingresá otra vez.
+        </p>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <Button className="min-h-11" onClick={() => void refreshSession()}>
+            Reintentar
+          </Button>
+          <Button className="min-h-11" variant="outline" onClick={() => void logout()}>
+            Cerrar sesión
+          </Button>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <AuthContext.Provider
       value={{
         user,
+        accounts,
+        switchAccount,
         isAuthenticated: !!user,
         isAdmin: user?.role === "admin",
         effectivePlan: user?.effectivePlan ?? "gratis",

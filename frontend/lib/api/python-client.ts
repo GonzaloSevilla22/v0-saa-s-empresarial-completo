@@ -1,5 +1,6 @@
-import { getAuthHeaders, handleUnauthorized, tokenFromHeaders } from "@/lib/api/auth-headers";
+import { getBackendHeaders, handleUnauthorized, tokenFromHeaders } from "@/lib/api/auth-headers";
 import { PythonApiError } from "@/lib/api/python-api-error";
+import { requestAccountResync } from "@/lib/auth/active-account-store";
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL;
 
@@ -20,7 +21,9 @@ const JSON_HEADERS = { "Content-Type": "application/json" } as const;
  * `sb-*`, chunkeadas a 3180 bytes por `@supabase/ssr`.
  */
 function jsonAuthHeaders(extra?: Record<string, string>): Promise<Record<string, string>> {
-  return getAuthHeaders({ ...JSON_HEADERS, ...(extra ?? {}) });
+  // multiusuario-operativo (D6): `getBackendHeaders` suma `X-Account-Id` (la cuenta que
+  // muestra la pantalla) a los de auth. Este cliente habla SOLO con FastAPI.
+  return getBackendHeaders({ ...JSON_HEADERS, ...(extra ?? {}) });
 }
 
 /**
@@ -41,6 +44,17 @@ const UNAUTHORIZED_MESSAGES = {
   "session-unknown": "No se pudo autorizar la operación. Reintentá.",
 } as const;
 
+/**
+ * multiusuario-operativo (D6): el backend contestó `409 account_switched` — la pantalla
+ * muestra una cuenta distinta de la activa del token (se cambió de cuenta en otra
+ * pestaña). Sin este mensaje el usuario vería un error genérico de conflicto.
+ */
+const ACCOUNT_SWITCHED_MESSAGE =
+  "Cambiaste de cuenta en otra pestaña. Te llevamos al Tablero de la cuenta actual.";
+
+/** El 403 de `get_account_id` cuando el token no describe ninguna cuenta del usuario. */
+const NO_ACTIVE_ACCOUNT_DETAIL = "No active account found";
+
 async function handleResponse<T>(response: Response, sentToken?: string | null): Promise<T> {
   if (response.status === 401) {
     const outcome = await handleUnauthorized(sentToken);
@@ -48,6 +62,17 @@ async function handleResponse<T>(response: Response, sentToken?: string | null):
   }
   if (!response.ok) {
     const body = await response.json().catch(() => ({ detail: response.statusText }));
+    // multiusuario-operativo (D6): dos fallos de cuenta que el cliente resuelve solo —
+    // renovar el token, descartar la caché y llevar al Tablero— en vez de dejarlos como
+    // un error más. El request que falló NO se reintenta (una escritura no es segura de
+    // repetir): la pantalla se resincroniza y el usuario decide.
+    if (response.status === 409 && body?.code === "account_switched") {
+      await requestAccountResync("switched");
+      throw new PythonApiError(ACCOUNT_SWITCHED_MESSAGE, response.status, body);
+    }
+    if (response.status === 403 && body?.detail === NO_ACTIVE_ACCOUNT_DETAIL) {
+      await requestAccountResync("no-active-account");
+    }
     // ventas-unidades-conversion (decisión 7): mismo `message` que antes (el
     // `detail`), más `status`/`code`/`field` del problem+json para quien
     // necesite distinguir un error puntual sin parsear el texto.

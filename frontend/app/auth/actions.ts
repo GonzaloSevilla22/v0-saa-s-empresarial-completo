@@ -1,7 +1,7 @@
 "use server"
 
 /**
- * actions.ts — las siete operaciones que crean, modifican o destruyen la sesión,
+ * actions.ts — las operaciones que crean, modifican, renuevan o destruyen la sesión,
  * corriendo en el servidor.
  *
  * auth-hardening-jwt-cookies (Parte C, D1, tasks 18.3 y 18.4a-g). Hasta este
@@ -235,4 +235,27 @@ export async function signOutAction(input?: {
   const supabase = createClient()
   const { error } = await supabase.auth.signOut({ scope: input?.scope ?? "local" })
   return toResult(`signOut(${input?.scope ?? "local"})`, error)
+}
+
+/**
+ * multiusuario-operativo (tanda A, D4) — renovación FORZADA de la sesión.
+ *
+ * El token handler (`GET /api/auth/token`) renueva el access token sólo cuando está por
+ * vencer: `getSession()` no llama al proveedor antes. Pero el claim
+ * `app_metadata.account_id` —la cuenta activa— lo emite el HOOK, y el hook corre cuando el
+ * proveedor EMITE un token. Sin forzar la renovación, elegir otra cuenta no cambiaba nada
+ * del token vigente hasta una hora después (lo atrapó el humo con el build de producción:
+ * el selector persistía la preferencia y la pantalla seguía mostrando la cuenta vieja).
+ *
+ * Corre en el servidor por la misma razón que las demás: el refresh token rotado queda en la
+ * cookie `HttpOnly` y nunca pasa por JavaScript del navegador. Devuelve `ok` sólo si el
+ * proveedor entregó una sesión nueva; un token que no se pudo renovar no se da por renovado.
+ */
+export async function refreshSessionAction(): Promise<AuthActionResult> {
+  const supabase = createClient()
+  const { data, error } = await supabase.auth.refreshSession()
+  if (!error && !data?.session) {
+    return toResult("refreshSession", { message: "El proveedor no devolvió una sesión renovada" })
+  }
+  return toResult("refreshSession", error)
 }

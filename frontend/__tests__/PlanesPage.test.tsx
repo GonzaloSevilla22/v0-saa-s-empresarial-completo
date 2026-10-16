@@ -46,10 +46,13 @@ let accountRow: typeof BASE_ACCOUNT_ROW = BASE_ACCOUNT_ROW
 let subscriptionsResult: { data: unknown; error: unknown } = { data: null, error: null }
 
 function makeQueryBuilder(table: string) {
-  if (table === "account_members") {
-    const resolved = { data: { account_id: "acc-1", accounts: accountRow }, error: null }
+  // multiusuario-operativo (tanda A, D1): las páginas de billing leen la cuenta ACTIVA de `accounts`
+  // (la RLS `accounts_member_select` muestra sólo esa fila) y NO por `account_members` + `.maybeSingle()`,
+  // que falla (PGRST116) apenas el usuario tiene dos membresías.
+  if (table === "accounts") {
+    const resolved = { data: { id: "acc-1", ...accountRow }, error: null }
     return {
-      select: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve(resolved) }) }),
+      select: () => ({ maybeSingle: () => Promise.resolve(resolved) }),
     }
   }
   if (table === "plan_limits") {

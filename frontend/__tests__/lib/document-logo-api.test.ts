@@ -14,6 +14,11 @@ vi.mock("@/lib/api/auth-headers", () => ({
     ...(extra ?? {}),
     Authorization: "Bearer tok-1",
   })),
+  getBackendHeaders: vi.fn(async (extra?: Record<string, string>) => ({
+    ...(extra ?? {}),
+    Authorization: "Bearer tok-1",
+    "X-Account-Id": "acc-1",
+  })),
   tokenFromHeaders: (h: Record<string, string>) => h.Authorization?.slice(7) ?? null,
   redirectedOnUnauthorized: redirectedMock,
 }))
@@ -60,7 +65,9 @@ describe("uploadDocumentLogo", () => {
     expect(url).toBe("http://api.test/document-branding/logo")
     expect(init.method).toBe("PUT")
     expect(init.body).toBe(file)                                   // el Blob tal cual: sin FormData
-    expect(init.headers).toEqual({ "Content-Type": "image/png", Authorization: "Bearer tok-1" })
+    // multiusuario-operativo (D6): la subida es una ESCRITURA de la cuenta -> declara la cuenta
+    // que muestra la pantalla (`X-Account-Id`) además de la sesión.
+    expect(init.headers).toEqual({ "Content-Type": "image/png", Authorization: "Bearer tok-1", "X-Account-Id": "acc-1" })
   })
 
   it("un archivo sin tipo viaja como application/octet-stream (el servidor reconoce por contenido)", async () => {

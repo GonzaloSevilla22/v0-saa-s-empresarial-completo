@@ -31,6 +31,7 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { ModeToggle } from "@/components/mode-toggle"
+import { AccountSwitcher } from "@/components/accounts/AccountSwitcher"
 import { getFirstName, capitalizeName } from "@/lib/helpers/user-helpers"
 
 /**
@@ -508,7 +509,7 @@ export function AppSidebar() {
 
   return (
     <Sidebar collapsible="icon" className="border-r border-sidebar-border">
-      <SidebarHeader className="p-4">
+      <SidebarHeader className="gap-3 p-4">
         <Link href="/dashboard" className="flex items-center gap-2">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg overflow-hidden">
             <img src="/aliadata-logo.png" alt="Logo" className="h-full w-full object-contain" />
@@ -518,6 +519,9 @@ export function AppSidebar() {
             <span className="text-[10px] text-sidebar-foreground/60">Emprender es Inteligente</span>
           </div>
         </Link>
+        {/* multiusuario-operativo (tanda A, D5): selector de la cuenta activa — sólo con dos
+            o más cuentas; el mismo componente en el riel, el menú expandido y el drawer móvil. */}
+        <AccountSwitcher />
       </SidebarHeader>
 
       <SidebarSeparator />

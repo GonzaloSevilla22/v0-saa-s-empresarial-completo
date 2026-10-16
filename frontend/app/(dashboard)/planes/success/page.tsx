@@ -30,13 +30,13 @@ export default async function PlanesSuccessPage() {
   }
 
   // Read current plan (webhook may already have updated it)
-  const { data: memberRow } = await supabase
-    .from("account_members")
-    .select("accounts(billing_plan)")
-    .eq("user_id", user.id)
+  // multiusuario-operativo (tanda A, D1): la cuenta ACTIVA (ver /facturacion y /planes).
+  const { data: accountRow } = await supabase
+    .from("accounts")
+    .select("billing_plan")
     .maybeSingle()
 
-  const currentPlan = (memberRow?.accounts as unknown as { billing_plan: Plan } | null)?.billing_plan ?? "gratis"
+  const currentPlan = (accountRow as unknown as { billing_plan: Plan } | null)?.billing_plan ?? "gratis"
   const planName = PLAN_DISPLAY_NAMES[currentPlan]
 
   return (

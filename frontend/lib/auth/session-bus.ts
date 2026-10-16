@@ -70,6 +70,7 @@ function isSessionMessage(msg: TabMessage): msg is SessionMessage {
   return msg.type === "session:signed-in"
     || msg.type === "session:signed-out"
     || msg.type === "session:token-refreshed"
+    || msg.type === "account:switched"
 }
 
 function notify(event: SessionEvent): void {
@@ -103,10 +104,11 @@ function handleInbound(msg: TabMessage): void {
     // en memoria de ESTA pestaña sólo lo puede olvidar ella.
     clearAccessToken()
   } else {
-    // Sesión nueva o token rotado en otra pestaña: la cookie compartida ya tiene
-    // el valor nuevo, así que pedirlo al manejador NO gasta una renovación contra
-    // el proveedor (D19: varias pestañas presentando el mismo refresh token es
-    // justamente lo que hay que evitar).
+    // Sesión nueva, token rotado o CUENTA CAMBIADA en otra pestaña: la cookie
+    // compartida ya tiene el valor nuevo, así que pedirlo al manejador NO gasta una
+    // renovación contra el proveedor (D19: varias pestañas presentando el mismo
+    // refresh token es justamente lo que hay que evitar). Para `account:switched` el
+    // token adoptado es el que describe la cuenta nueva (multiusuario-operativo, D5).
     void adoptRemoteToken()
   }
 
@@ -151,6 +153,17 @@ export function announceSignedIn(): void {
 export function announceSignedOut(): void {
   lastSeenToken = null
   publish("session:signed-out")
+}
+
+/**
+ * Avisa a las demás pestañas que el usuario cambió de cuenta activa.
+ *
+ * multiusuario-operativo (tanda A, D5). Sin token en el mensaje (regla 1 del bus): las
+ * otras pestañas adoptan el token nuevo —que ya describe la cuenta nueva— pidiéndoselo
+ * al manejador, descartan lo que tenían en caché y van al Tablero.
+ */
+export function announceAccountSwitched(): void {
+  publish("account:switched")
 }
 
 /**

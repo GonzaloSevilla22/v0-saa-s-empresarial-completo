@@ -304,3 +304,99 @@ describe("pythonClient — los errores conservan status, code y field del proble
     expect(apiError.field).toBeUndefined()
   })
 })
+
+
+// ── multiusuario-operativo tanda A (D6) — guard de pestaña desfasada ─────────
+//
+// El cliente declara en cada request la cuenta que muestra la pantalla
+// (`X-Account-Id`). Si el backend contesta `409 account_switched` (otra pestaña
+// cambió de cuenta y el token ya describe la nueva), el cliente renueva el token,
+// descarta la caché y lleva al Tablero — en vez de dejar al usuario con un error
+// genérico o, peor, con una escritura en la cuenta equivocada.
+describe("pythonClient — cuenta declarada y resincronización", () => {
+  let pythonClient: typeof import("@/lib/api/python-client").pythonClient
+  let store: typeof import("@/lib/auth/active-account-store")
+
+  beforeEach(async () => {
+    vi.clearAllMocks()
+    vi.resetModules()
+    resolveAccessTokenMock.mockResolvedValue({ status: "active", token: "test-token" })
+    vi.stubEnv("NEXT_PUBLIC_BACKEND_URL", "http://localhost:8000")
+    store = await import("@/lib/auth/active-account-store")
+    store.resetActiveAccountStore()
+    ;({ pythonClient } = await import("@/lib/api/python-client"))
+  })
+
+  it("manda X-Account-Id con la cuenta que muestra la pantalla", async () => {
+    store.setDisplayedAccountId("acc-A")
+    mockFetch.mockResolvedValueOnce(buildFetchResponse({ ok: true }))
+
+    await pythonClient.get("/sales")
+
+    const [, init] = mockFetch.mock.calls[0]
+    expect(init.headers).toMatchObject({ Authorization: "Bearer test-token", "X-Account-Id": "acc-A" })
+  })
+
+  it("sin cuenta declarada no manda el encabezado", async () => {
+    mockFetch.mockResolvedValueOnce(buildFetchResponse({ ok: true }))
+
+    await pythonClient.get("/sales")
+
+    const [, init] = mockFetch.mock.calls[0]
+    expect(init.headers["X-Account-Id"]).toBeUndefined()
+  })
+
+  it("un 409 account_switched dispara la resincronización y falla con un mensaje que lo explica", async () => {
+    const resync = vi.fn().mockResolvedValue(undefined)
+    store.registerAccountResync(resync)
+    store.setDisplayedAccountId("acc-A")
+    mockFetch.mockResolvedValueOnce(
+      buildFetchResponse(
+        { type: "account_switched", title: "Conflicto", status: 409, detail: "La cuenta activa cambió", code: "account_switched" },
+        409,
+      ),
+    )
+
+    await expect(pythonClient.post("/expenses", { amount: 10 })).rejects.toMatchObject({
+      status: 409,
+      code: "account_switched",
+      message: expect.stringMatching(/cuenta/i),
+    })
+
+    expect(resync).toHaveBeenCalledWith("switched")
+  })
+
+  it("un 409 de otro tipo (p. ej. stock) NO dispara la resincronización de cuenta", async () => {
+    const resync = vi.fn().mockResolvedValue(undefined)
+    store.registerAccountResync(resync)
+    mockFetch.mockResolvedValueOnce(
+      buildFetchResponse({ status: 409, detail: "Stock insuficiente", code: "stock_insuficiente" }, 409),
+    )
+
+    await expect(pythonClient.post("/sales", {})).rejects.toMatchObject({ status: 409, code: "stock_insuficiente" })
+
+    expect(resync).not.toHaveBeenCalled()
+  })
+
+  it("un 403 'No active account found' pide la resincronización por falta de cuenta activa", async () => {
+    const resync = vi.fn().mockResolvedValue(undefined)
+    store.registerAccountResync(resync)
+    mockFetch.mockResolvedValueOnce(buildFetchResponse({ status: 403, detail: "No active account found", code: "http_error" }, 403))
+
+    await expect(pythonClient.get("/sales")).rejects.toMatchObject({ status: 403 })
+
+    expect(resync).toHaveBeenCalledWith("no-active-account")
+  })
+
+  it("un 403 de permisos común NO dispara la resincronización", async () => {
+    const resync = vi.fn().mockResolvedValue(undefined)
+    store.registerAccountResync(resync)
+    mockFetch.mockResolvedValueOnce(
+      buildFetchResponse({ status: 403, detail: "Rol de cuenta insuficiente: se requiere owner", code: "http_error" }, 403),
+    )
+
+    await expect(pythonClient.get("/sales")).rejects.toMatchObject({ status: 403 })
+
+    expect(resync).not.toHaveBeenCalled()
+  })
+})

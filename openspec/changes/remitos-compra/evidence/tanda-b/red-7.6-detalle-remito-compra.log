@@ -1,0 +1,2843 @@
+
+ RUN  v4.1.8 C:/Users/Usuario/Desktop/EIE/wt-remitos-compra-b/frontend
+
+ ❯ __tests__/DeliveryNoteDetailPage.test.tsx (88 tests | 12 failed) 4395ms
+     × pendiente con roles ["owner"]: 'Compra' visible = true (CAN_CONVERT_PURCHASE_DELIVERY_NOTE) 36ms
+     × pendiente con roles ["admin"]: 'Compra' visible = true (CAN_CONVERT_PURCHASE_DELIVERY_NOTE) 30ms
+     × pendiente con roles ["stock"]: 'Compra' visible = true (CAN_CONVERT_PURCHASE_DELIVERY_NOTE) 25ms
+     × pendiente con roles ["purchases"]: 'Compra' visible = true (CAN_CONVERT_PURCHASE_DELIVERY_NOTE) 24ms
+     × pendiente con roles ["seller","purchases"]: 'Compra' visible = true (CAN_CONVERT_PURCHASE_DELIVERY_NOTE) 32ms
+     × 'Compra' abre el diálogo de conversión de COMPRA con ESTE remito y Cancelar lo cierra 183ms
+     × el diálogo de conversión de venta no se monta en un remito de compra 207ms
+     × con una línea sin precio 'Compra' queda deshabilitada y el motivo está visible y asociado al botón 222ms
+     × con UNA línea sin precio el motivo habla en singular 117ms
+     × proveedor dado de baja: 'Compra' queda deshabilitada con su motivo (que tiene precedencia sobre el faltante de precio) 140ms
+     × un remito con todos los precios y proveedor vigente no muestra ningún motivo bajo los botones 120ms
+     × al convertir, el remito pasa a convertido pero el diálogo SIGUE montado (si no, 'Compra registrada' desaparecería) 105ms
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 12 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  __tests__/DeliveryNoteDetailPage.test.tsx > DeliveryNoteDetailPage (compra) — acciones por estado y rol (D11) > pendiente con roles ["owner"]: 'Compra' visible = true (CAN_CONVERT_PURCHASE_DELIVERY_NOTE)
+ FAIL  __tests__/DeliveryNoteDetailPage.test.tsx > DeliveryNoteDetailPage (compra) — acciones por estado y rol (D11) > pendiente con roles ["admin"]: 'Compra' visible = true (CAN_CONVERT_PURCHASE_DELIVERY_NOTE)
+ FAIL  __tests__/DeliveryNoteDetailPage.test.tsx > DeliveryNoteDetailPage (compra) — acciones por estado y rol (D11) > pendiente con roles ["stock"]: 'Compra' visible = true (CAN_CONVERT_PURCHASE_DELIVERY_NOTE)
+ FAIL  __tests__/DeliveryNoteDetailPage.test.tsx > DeliveryNoteDetailPage (compra) — acciones por estado y rol (D11) > pendiente con roles ["purchases"]: 'Compra' visible = true (CAN_CONVERT_PURCHASE_DELIVERY_NOTE)
+ FAIL  __tests__/DeliveryNoteDetailPage.test.tsx > DeliveryNoteDetailPage (compra) — acciones por estado y rol (D11) > pendiente con roles ["seller","purchases"]: 'Compra' visible = true (CAN_CONVERT_PURCHASE_DELIVERY_NOTE)
+AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ __tests__/DeliveryNoteDetailPage.test.tsx:736:67
+    734|     setRoles(roles)
+    735|     showPurchase()
+    736|     expect(!!screen.queryByRole("button", { name: /^compra$/i })).toBe…
+       |                                                                   ^
+    737|     expect(buttonNames().join("|")).not.toMatch(/Venta/)
+    738|   })
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/12]⎯
+
+ FAIL  __tests__/DeliveryNoteDetailPage.test.tsx > DeliveryNoteDetailPage (compra) — acciones por estado y rol (D11) > 'Compra' abre el diálogo de conversión de COMPRA con ESTE remito y Cancelar lo cierra
+TestingLibraryElementError: Unable to find an accessible element with the role "button" and name `/^compra$/i`
+
+Here are the accessible roles:
+
+  link:
+
+  Name "Volver al listado":
+  [36m<a[39m
+    [33maria-label[39m=[32m"Volver al listado"[39m
+    [33mclass[39m=[32m"inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors duration-base ease-standard focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 hover:bg-accent hover:text-accent-foreground md:h-10 md:w-10 h-8 w-8 shrink-0"[39m
+    [33mhref[39m=[32m"/remitos?sentido=compra"[39m
+  [36m/>[39m
+
+  Name "Distribuidora Sur":
+  [36m<a[39m
+    [33mclass[39m=[32m"text-primary underline-offset-2 hover:underline"[39m
+    [33mhref[39m=[32m"/proveedores/s-1/cuenta"[39m
+  [36m/>[39m
+
+  Name "Editar":
+  [36m<a[39m
+    [33mclass[39m=[32m"inline-flex items-center justify-center whitespace-nowrap text-sm font-medium ring-offset-background transition-colors duration-base ease-standard focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 border border-input bg-background hover:bg-accent hover:text-accent-foreground h-10 rounded-md px-3 md:h-9 gap-1.5"[39m
+    [33mhref[39m=[32m"/remitos/dn-1/editar"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  heading:
+
+  Name "RC-00000007":
+  [36m<h1[39m
+    [33mclass[39m=[32m"text-2xl font-bold text-foreground tracking-tight"[39m
+  [36m/>[39m
+
+  Name "Historial":
+  [36m<h2[39m
+    [33mclass[39m=[32m"text-sm font-semibold text-foreground"[39m
+    [33mid[39m=[32m"delivery-note-history-title"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  paragraph:
+
+  Name "":
+  [36m<p[39m
+    [33mclass[39m=[32m"mt-1 text-sm text-muted-foreground"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  term:
+
+  Name "":
+  [36m<dt />[39m
+
+  Name "":
+  [36m<dt />[39m
+
+  Name "":
+  [36m<dt />[39m
+
+  --------------------------------------------------
+  definition:
+
+  Name "":
+  [36m<dd[39m
+    [33mclass[39m=[32m"text-foreground"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<dd[39m
+    [33mclass[39m=[32m"break-all text-foreground"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<dd[39m
+    [33mclass[39m=[32m"tabular-nums text-foreground"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  group:
+
+  Name "Menú de compartir (mock)":
+  [36m<div[39m
+    [33maria-label[39m=[32m"Menú de compartir (mock)"[39m
+    [33mrole[39m=[32m"group"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  button:
+
+  Name "Descargar (mock)":
+  [36m<button[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Anular":
+  [36m<button[39m
+    [33mclass[39m=[32m"inline-flex items-center justify-center whitespace-nowrap text-sm font-medium ring-offset-background transition-colors duration-base ease-standard focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 border bg-background hover:text-accent-foreground h-10 rounded-md px-3 md:h-9 gap-1.5 border-destructive/40 text-destructive hover:bg-destructive/10"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  switch:
+
+  Name "Mostrar precios":
+  [36m<button[39m
+    [33maria-checked[39m=[32m"false"[39m
+    [33mclass[39m=[32m"peer inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:bg-primary data-[state=unchecked]:bg-input"[39m
+    [33mdata-state[39m=[32m"unchecked"[39m
+    [33mid[39m=[32m"delivery-note-show-prices"[39m
+    [33mrole[39m=[32m"switch"[39m
+    [33mtype[39m=[32m"button"[39m
+    [33mvalue[39m=[32m"on"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  table:
+
+  Name "Líneas del remito":
+  [36m<table[39m
+    [33maria-label[39m=[32m"Líneas del remito"[39m
+    [33mclass[39m=[32m"w-full text-sm"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  rowgroup:
+
+  Name "":
+  [36m<thead />[39m
+
+  Name "":
+  [36m<tbody />[39m
+
+  --------------------------------------------------
+  row:
+
+  Name "Producto Cant. Precio unit. Subtotal":
+  [36m<tr[39m
+    [33mclass[39m=[32m"border-b border-border text-left"[39m
+  [36m/>[39m
+
+  Name "Remera 10 u $ 50 $ 500":
+  [36m<tr[39m
+    [33mclass[39m=[32m"border-b border-border/50 last:border-b-0"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  columnheader:
+
+  Name "Producto":
+  [36m<th[39m
+    [33mclass[39m=[32m"px-2 py-3 sm:px-4 font-medium text-muted-foreground"[39m
+    [33mscope[39m=[32m"col"[39m
+  [36m/>[39m
+
+  Name "Cant.":
+  [36m<th[39m
+    [33mclass[39m=[32m"px-2 py-3 sm:px-4 text-right font-medium text-muted-foreground"[39m
+    [33mscope[39m=[32m"col"[39m
+  [36m/>[39m
+
+  Name "Precio unit.":
+  [36m<th[39m
+    [33mclass[39m=[32m"px-2 py-3 sm:px-4 text-right font-medium text-muted-foreground"[39m
+    [33mscope[39m=[32m"col"[39m
+  [36m/>[39m
+
+  Name "Subtotal":
+  [36m<th[39m
+    [33mclass[39m=[32m"px-2 py-3 sm:px-4 text-right font-medium text-muted-foreground"[39m
+    [33mscope[39m=[32m"col"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  cell:
+
+  Name "Remera":
+  [36m<td[39m
+    [33mclass[39m=[32m"px-2 py-3 sm:px-4 break-words text-foreground"[39m
+  [36m/>[39m
+
+  Name "10 u":
+  [36m<td[39m
+    [33mclass[39m=[32m"px-2 py-3 sm:px-4 text-right tabular-nums whitespace-nowrap"[39m
+  [36m/>[39m
+
+  Name "$ 50":
+  [36m<td[39m
+    [33mclass[39m=[32m"px-2 py-3 sm:px-4 text-right tabular-nums whitespace-nowrap"[39m
+  [36m/>[39m
+
+  Name "$ 500":
+  [36m<td[39m
+    [33mclass[39m=[32m"px-2 py-3 sm:px-4 text-right font-medium tabular-nums whitespace-nowrap text-foreground"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  region:
+
+  Name "Historial":
+  [36m<section[39m
+    [33maria-labelledby[39m=[32m"delivery-note-history-title"[39m
+    [33mclass[39m=[32m"flex flex-col gap-2"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  list:
+
+  Name "Historial de estados":
+  [36m<ul[39m
+    [33maria-label[39m=[32m"Historial de estados"[39m
+    [33mclass[39m=[32m"flex flex-col gap-1.5 text-sm"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  listitem:
+
+  Name "":
+  [36m<li[39m
+    [33mclass[39m=[32m"flex flex-wrap items-baseline gap-x-2 rounded-md border border-border/60 bg-card px-3 py-2"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"flex flex-col gap-6 min-w-0"[39m
+    [36m>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"flex items-start gap-3"[39m
+      [36m>[39m
+        [36m<a[39m
+          [33maria-label[39m=[32m"Volver al listado"[39m
+          [33mclass[39m=[32m"inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors duration-base ease-standard focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 hover:bg-accent hover:text-accent-foreground md:h-10 md:w-10 h-8 w-8 shrink-0"[39m
+          [33mhref[39m=[32m"/remitos?sentido=compra"[39m
+        [36m>[39m
+          [36m<svg[39m
+            [33maria-hidden[39m=[32m"true"[39m
+            [33mclass[39m=[32m"lucide lucide-arrow-left h-4 w-4"[39m
+            [33mfill[39m=[32m"none"[39m
+            [33mheight[39m=[32m"24"[39m
+            [33mstroke[39m=[32m"currentColor"[39m
+            [33mstroke-linecap[39m=[32m"round"[39m
+            [33mstroke-linejoin[39m=[32m"round"[39m
+            [33mstroke-width[39m=[32m"2"[39m
+            [33mviewBox[39m=[32m"0 0 24 24"[39m
+            [33mwidth[39m=[32m"24"[39m
+            [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+          [36m>[39m
+            [36m<path[39m
+              [33md[39m=[32m"m12 19-7-7 7-7"[39m
+            [36m/>[39m
+            [36m<path[39m
+              [33md[39m=[32m"M19 12H5"[39m
+            [36m/>[39m
+          [36m</svg>[39m
+        [36m</a>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"min-w-0 flex-1"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"flex flex-wrap items-center gap-2"[39m
+          [36m>[39m
+            [36m<h1[39m
+              [33mclass[39m=[32m"text-2xl font-bold text-foreground tracking-tight"[39m
+            [36m>[39m
+              [0mRC-00000007[0m
+            [36m</h1>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors duration-base ease-standard focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 whitespace-nowrap border-warning/40 bg-warning/10 text-warning"[39m
+              [33mdata-status[39m=[32m"issued"[39m
+            [36m>[39m
+              [0mPendiente[0m
+            [36m</div>[39m
+          [36m</div>[39m
+          [36m<p[39m
+            [33mclass[39m=[32m"mt-1 text-sm text-muted-foreground"[39m
+          [36m>[39m
+            [36m<a[39m
+              [33mclass[39m=[32m"text-primary underline-offset-2 hover:underline"[39m
+              [33mhref[39m=[32m"/proveedores/s-1/cuenta"[39m
+            [36m>[39m
+              [0mDistribuidora Sur[0m
+            [36m</a>[39m
+            [36m<span>[39m
+              [0m · Tel. [0m
+              [0m2615550000[0m
+            [36m</span>[39m
+          [36m</p>[39m
+          [36m<dl[39m
+            [33mclass[39m=[32m"mt-3 grid grid-cols-1 gap-x-6 gap-y-1 text-xs text-muted-foreground sm:flex sm:flex-wrap"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"flex gap-1"[39m
+            [36m>[39m
+              [36m<dt>[39m
+                [0mIngresa a:[0m
+              [36m</dt>[39m
+              [36m<dd[39m
+                [33mclass[39m=[32m"text-foreground"[39m
+              [36m>[39m
+                [0mSucursal Centro[0m
+              [36m</dd>[39m
+            [36m</div>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"flex gap-1"[39m
+            [36m>[39m
+              [36m<dt>[39m
+                [0mRemito del proveedor:[0m
+              [36m</dt>[39m
+              [36m<dd[39m
+                [33mclass[39m=[32m"break-all text-foreground"[39m
+              [36m>[39m
+                [0m0004-00001234[0m
+              [36m</dd>[39m
+            [36m</div>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"flex gap-1"[39m
+            [36m>[39m
+              [36m<dt>[39m
+                [0mFecha:[0m
+              [36m</dt>[39m
+              [36m<dd[39m
+                [33mclass[39m=[32m"tabular-nums text-foreground"[39m
+              [36m>[39m
+                [0m02/10/2026[0m
+              [36m</dd>[39m
+            [36m</div>[39m
+          [36m</dl>[39m
+        [36m</div>[39m
+      [36m</div>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"flex flex-col gap-2"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex flex-wrap items-center gap-x-4 gap-y-2"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"flex flex-wrap items-center gap-3"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33maria-label[39m=[32m"Menú de compartir (mock)"[39m
+              [33mrole[39m=[32m"group"[39m
+            [36m>[39m
+              [36m<button[39m
+                [33mtype[39m=[32m"button"[39m
+              [36m>[39m
+                [0mDescargar (mock)[0m
+              [36m</button>[39m
+              [36m<span[39m
+                [33mdata-testid[39m=[32m"share-file"[39m
+              [36m>[39m
+                [0mremito-compra-RC-00000007.pdf[0m
+              [36m</span>[39m
+              [36m<span[39m
+                [33mdata-testid[39m=[32m"share-text"[39m
+              [36m>[39m
+                [0mHola Distribuidora Sur, te confirmo la recepción de la mercadería del remito RC-00000007 (tu remito N° 0004-00001234) el 02/10/2026. Kiosco Lola[0m
+              [36m</span>[39m
+              [36m<span[39m
+                [33mdata-testid[39m=[32m"share-phone"[39m
+              [36m>[39m
+                [0m2615550000[0m
+              [36m</span>[39m
+              [36m<span[39m
+                [33mdata-testid[39m=[32m"share-has-on-shared"[39m
+              [36m>[39m
+                [0mno[0m
+              [36m</span>[39m
+            [36m</div>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"flex items-center gap-2"[39m
+            [36m>[39m
+              [36m<button[39m
+                [33maria-checked[39m=[32m"false"[39m
+                [33mclass[39m=[32m"peer inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:bg-primary data-[state=unchecked]:bg-input"[39m
+                [33mdata-state[...
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ __tests__/DeliveryNoteDetailPage.test.tsx:744:28
+    742|     expect(screen.queryByRole("dialog", { name: /pasar a compra/i })).…
+    743|
+    744|     fireEvent.click(screen.getByRole("button", { name: /^compra$/i }))
+       |                            ^
+    745|
+    746|     expect(screen.getByRole("dialog", { name: /pasar a compra/i })).to…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/12]⎯
+
+ FAIL  __tests__/DeliveryNoteDetailPage.test.tsx > DeliveryNoteDetailPage (compra) — acciones por estado y rol (D11) > el diálogo de conversión de venta no se monta en un remito de compra
+TestingLibraryElementError: Unable to find an accessible element with the role "button" and name `/^compra$/i`
+
+Here are the accessible roles:
+
+  link:
+
+  Name "Volver al listado":
+  [36m<a[39m
+    [33maria-label[39m=[32m"Volver al listado"[39m
+    [33mclass[39m=[32m"inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors duration-base ease-standard focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 hover:bg-accent hover:text-accent-foreground md:h-10 md:w-10 h-8 w-8 shrink-0"[39m
+    [33mhref[39m=[32m"/remitos?sentido=compra"[39m
+  [36m/>[39m
+
+  Name "Distribuidora Sur":
+  [36m<a[39m
+    [33mclass[39m=[32m"text-primary underline-offset-2 hover:underline"[39m
+    [33mhref[39m=[32m"/proveedores/s-1/cuenta"[39m
+  [36m/>[39m
+
+  Name "Editar":
+  [36m<a[39m
+    [33mclass[39m=[32m"inline-flex items-center justify-center whitespace-nowrap text-sm font-medium ring-offset-background transition-colors duration-base ease-standard focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 border border-input bg-background hover:bg-accent hover:text-accent-foreground h-10 rounded-md px-3 md:h-9 gap-1.5"[39m
+    [33mhref[39m=[32m"/remitos/dn-1/editar"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  heading:
+
+  Name "RC-00000007":
+  [36m<h1[39m
+    [33mclass[39m=[32m"text-2xl font-bold text-foreground tracking-tight"[39m
+  [36m/>[39m
+
+  Name "Historial":
+  [36m<h2[39m
+    [33mclass[39m=[32m"text-sm font-semibold text-foreground"[39m
+    [33mid[39m=[32m"delivery-note-history-title"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  paragraph:
+
+  Name "":
+  [36m<p[39m
+    [33mclass[39m=[32m"mt-1 text-sm text-muted-foreground"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  term:
+
+  Name "":
+  [36m<dt />[39m
+
+  Name "":
+  [36m<dt />[39m
+
+  Name "":
+  [36m<dt />[39m
+
+  --------------------------------------------------
+  definition:
+
+  Name "":
+  [36m<dd[39m
+    [33mclass[39m=[32m"text-foreground"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<dd[39m
+    [33mclass[39m=[32m"break-all text-foreground"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<dd[39m
+    [33mclass[39m=[32m"tabular-nums text-foreground"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  group:
+
+  Name "Menú de compartir (mock)":
+  [36m<div[39m
+    [33maria-label[39m=[32m"Menú de compartir (mock)"[39m
+    [33mrole[39m=[32m"group"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  button:
+
+  Name "Descargar (mock)":
+  [36m<button[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Anular":
+  [36m<button[39m
+    [33mclass[39m=[32m"inline-flex items-center justify-center whitespace-nowrap text-sm font-medium ring-offset-background transition-colors duration-base ease-standard focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 border bg-background hover:text-accent-foreground h-10 rounded-md px-3 md:h-9 gap-1.5 border-destructive/40 text-destructive hover:bg-destructive/10"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  switch:
+
+  Name "Mostrar precios":
+  [36m<button[39m
+    [33maria-checked[39m=[32m"false"[39m
+    [33mclass[39m=[32m"peer inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:bg-primary data-[state=unchecked]:bg-input"[39m
+    [33mdata-state[39m=[32m"unchecked"[39m
+    [33mid[39m=[32m"delivery-note-show-prices"[39m
+    [33mrole[39m=[32m"switch"[39m
+    [33mtype[39m=[32m"button"[39m
+    [33mvalue[39m=[32m"on"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  table:
+
+  Name "Líneas del remito":
+  [36m<table[39m
+    [33maria-label[39m=[32m"Líneas del remito"[39m
+    [33mclass[39m=[32m"w-full text-sm"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  rowgroup:
+
+  Name "":
+  [36m<thead />[39m
+
+  Name "":
+  [36m<tbody />[39m
+
+  --------------------------------------------------
+  row:
+
+  Name "Producto Cant. Precio unit. Subtotal":
+  [36m<tr[39m
+    [33mclass[39m=[32m"border-b border-border text-left"[39m
+  [36m/>[39m
+
+  Name "Remera 10 u $ 50 $ 500":
+  [36m<tr[39m
+    [33mclass[39m=[32m"border-b border-border/50 last:border-b-0"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  columnheader:
+
+  Name "Producto":
+  [36m<th[39m
+    [33mclass[39m=[32m"px-2 py-3 sm:px-4 font-medium text-muted-foreground"[39m
+    [33mscope[39m=[32m"col"[39m
+  [36m/>[39m
+
+  Name "Cant.":
+  [36m<th[39m
+    [33mclass[39m=[32m"px-2 py-3 sm:px-4 text-right font-medium text-muted-foreground"[39m
+    [33mscope[39m=[32m"col"[39m
+  [36m/>[39m
+
+  Name "Precio unit.":
+  [36m<th[39m
+    [33mclass[39m=[32m"px-2 py-3 sm:px-4 text-right font-medium text-muted-foreground"[39m
+    [33mscope[39m=[32m"col"[39m
+  [36m/>[39m
+
+  Name "Subtotal":
+  [36m<th[39m
+    [33mclass[39m=[32m"px-2 py-3 sm:px-4 text-right font-medium text-muted-foreground"[39m
+    [33mscope[39m=[32m"col"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  cell:
+
+  Name "Remera":
+  [36m<td[39m
+    [33mclass[39m=[32m"px-2 py-3 sm:px-4 break-words text-foreground"[39m
+  [36m/>[39m
+
+  Name "10 u":
+  [36m<td[39m
+    [33mclass[39m=[32m"px-2 py-3 sm:px-4 text-right tabular-nums whitespace-nowrap"[39m
+  [36m/>[39m
+
+  Name "$ 50":
+  [36m<td[39m
+    [33mclass[39m=[32m"px-2 py-3 sm:px-4 text-right tabular-nums whitespace-nowrap"[39m
+  [36m/>[39m
+
+  Name "$ 500":
+  [36m<td[39m
+    [33mclass[39m=[32m"px-2 py-3 sm:px-4 text-right font-medium tabular-nums whitespace-nowrap text-foreground"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  region:
+
+  Name "Historial":
+  [36m<section[39m
+    [33maria-labelledby[39m=[32m"delivery-note-history-title"[39m
+    [33mclass[39m=[32m"flex flex-col gap-2"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  list:
+
+  Name "Historial de estados":
+  [36m<ul[39m
+    [33maria-label[39m=[32m"Historial de estados"[39m
+    [33mclass[39m=[32m"flex flex-col gap-1.5 text-sm"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  listitem:
+
+  Name "":
+  [36m<li[39m
+    [33mclass[39m=[32m"flex flex-wrap items-baseline gap-x-2 rounded-md border border-border/60 bg-card px-3 py-2"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"flex flex-col gap-6 min-w-0"[39m
+    [36m>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"flex items-start gap-3"[39m
+      [36m>[39m
+        [36m<a[39m
+          [33maria-label[39m=[32m"Volver al listado"[39m
+          [33mclass[39m=[32m"inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors duration-base ease-standard focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 hover:bg-accent hover:text-accent-foreground md:h-10 md:w-10 h-8 w-8 shrink-0"[39m
+          [33mhref[39m=[32m"/remitos?sentido=compra"[39m
+        [36m>[39m
+          [36m<svg[39m
+            [33maria-hidden[39m=[32m"true"[39m
+            [33mclass[39m=[32m"lucide lucide-arrow-left h-4 w-4"[39m
+            [33mfill[39m=[32m"none"[39m
+            [33mheight[39m=[32m"24"[39m
+            [33mstroke[39m=[32m"currentColor"[39m
+            [33mstroke-linecap[39m=[32m"round"[39m
+            [33mstroke-linejoin[39m=[32m"round"[39m
+            [33mstroke-width[39m=[32m"2"[39m
+            [33mviewBox[39m=[32m"0 0 24 24"[39m
+            [33mwidth[39m=[32m"24"[39m
+            [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+          [36m>[39m
+            [36m<path[39m
+              [33md[39m=[32m"m12 19-7-7 7-7"[39m
+            [36m/>[39m
+            [36m<path[39m
+              [33md[39m=[32m"M19 12H5"[39m
+            [36m/>[39m
+          [36m</svg>[39m
+        [36m</a>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"min-w-0 flex-1"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"flex flex-wrap items-center gap-2"[39m
+          [36m>[39m
+            [36m<h1[39m
+              [33mclass[39m=[32m"text-2xl font-bold text-foreground tracking-tight"[39m
+            [36m>[39m
+              [0mRC-00000007[0m
+            [36m</h1>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors duration-base ease-standard focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 whitespace-nowrap border-warning/40 bg-warning/10 text-warning"[39m
+              [33mdata-status[39m=[32m"issued"[39m
+            [36m>[39m
+              [0mPendiente[0m
+            [36m</div>[39m
+          [36m</div>[39m
+          [36m<p[39m
+            [33mclass[39m=[32m"mt-1 text-sm text-muted-foreground"[39m
+          [36m>[39m
+            [36m<a[39m
+              [33mclass[39m=[32m"text-primary underline-offset-2 hover:underline"[39m
+              [33mhref[39m=[32m"/proveedores/s-1/cuenta"[39m
+            [36m>[39m
+              [0mDistribuidora Sur[0m
+            [36m</a>[39m
+            [36m<span>[39m
+              [0m · Tel. [0m
+              [0m2615550000[0m
+            [36m</span>[39m
+          [36m</p>[39m
+          [36m<dl[39m
+            [33mclass[39m=[32m"mt-3 grid grid-cols-1 gap-x-6 gap-y-1 text-xs text-muted-foreground sm:flex sm:flex-wrap"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"flex gap-1"[39m
+            [36m>[39m
+              [36m<dt>[39m
+                [0mIngresa a:[0m
+              [36m</dt>[39m
+              [36m<dd[39m
+                [33mclass[39m=[32m"text-foreground"[39m
+              [36m>[39m
+                [0mSucursal Centro[0m
+              [36m</dd>[39m
+            [36m</div>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"flex gap-1"[39m
+            [36m>[39m
+              [36m<dt>[39m
+                [0mRemito del proveedor:[0m
+              [36m</dt>[39m
+              [36m<dd[39m
+                [33mclass[39m=[32m"break-all text-foreground"[39m
+              [36m>[39m
+                [0m0004-00001234[0m
+              [36m</dd>[39m
+            [36m</div>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"flex gap-1"[39m
+            [36m>[39m
+              [36m<dt>[39m
+                [0mFecha:[0m
+              [36m</dt>[39m
+              [36m<dd[39m
+                [33mclass[39m=[32m"tabular-nums text-foreground"[39m
+              [36m>[39m
+                [0m02/10/2026[0m
+              [36m</dd>[39m
+            [36m</div>[39m
+          [36m</dl>[39m
+        [36m</div>[39m
+      [36m</div>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"flex flex-col gap-2"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex flex-wrap items-center gap-x-4 gap-y-2"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"flex flex-wrap items-center gap-3"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33maria-label[39m=[32m"Menú de compartir (mock)"[39m
+              [33mrole[39m=[32m"group"[39m
+            [36m>[39m
+              [36m<button[39m
+                [33mtype[39m=[32m"button"[39m
+              [36m>[39m
+                [0mDescargar (mock)[0m
+              [36m</button>[39m
+              [36m<span[39m
+                [33mdata-testid[39m=[32m"share-file"[39m
+              [36m>[39m
+                [0mremito-compra-RC-00000007.pdf[0m
+              [36m</span>[39m
+              [36m<span[39m
+                [33mdata-testid[39m=[32m"share-text"[39m
+              [36m>[39m
+                [0mHola Distribuidora Sur, te confirmo la recepción de la mercadería del remito RC-00000007 (tu remito N° 0004-00001234) el 02/10/2026. Kiosco Lola[0m
+              [36m</span>[39m
+              [36m<span[39m
+                [33mdata-testid[39m=[32m"share-phone"[39m
+              [36m>[39m
+                [0m2615550000[0m
+              [36m</span>[39m
+              [36m<span[39m
+                [33mdata-testid[39m=[32m"share-has-on-shared"[39m
+              [36m>[39m
+                [0mno[0m
+              [36m</span>[39m
+            [36m</div>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"flex items-center gap-2"[39m
+            [36m>[39m
+              [36m<button[39m
+                [33maria-checked[39m=[32m"false"[39m
+                [33mclass[39m=[32m"peer inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:bg-primary data-[state=unchecked]:bg-input"[39m
+                [33mdata-state[...
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ __tests__/DeliveryNoteDetailPage.test.tsx:754:28
+    752|   it("el diálogo de conversión de venta no se monta en un remito de co…
+    753|     showPurchase()
+    754|     fireEvent.click(screen.getByRole("button", { name: /^compra$/i }))
+       |                            ^
+    755|     expect(mocks.convertDialog).not.toHaveBeenCalled()
+    756|   })
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/12]⎯
+
+ FAIL  __tests__/DeliveryNoteDetailPage.test.tsx > DeliveryNoteDetailPage (compra) — acciones por estado y rol (D11) > con una línea sin precio 'Compra' queda deshabilitada y el motivo está visible y asociado al botón
+TestingLibraryElementError: Unable to find an accessible element with the role "button" and name `/^compra$/i`
+
+Here are the accessible roles:
+
+  link:
+
+  Name "Volver al listado":
+  [36m<a[39m
+    [33maria-label[39m=[32m"Volver al listado"[39m
+    [33mclass[39m=[32m"inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors duration-base ease-standard focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 hover:bg-accent hover:text-accent-foreground md:h-10 md:w-10 h-8 w-8 shrink-0"[39m
+    [33mhref[39m=[32m"/remitos?sentido=compra"[39m
+  [36m/>[39m
+
+  Name "Distribuidora Sur":
+  [36m<a[39m
+    [33mclass[39m=[32m"text-primary underline-offset-2 hover:underline"[39m
+    [33mhref[39m=[32m"/proveedores/s-1/cuenta"[39m
+  [36m/>[39m
+
+  Name "Editar":
+  [36m<a[39m
+    [33mclass[39m=[32m"inline-flex items-center justify-center whitespace-nowrap text-sm font-medium ring-offset-background transition-colors duration-base ease-standard focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 border border-input bg-background hover:bg-accent hover:text-accent-foreground h-10 rounded-md px-3 md:h-9 gap-1.5"[39m
+    [33mhref[39m=[32m"/remitos/dn-1/editar"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  heading:
+
+  Name "RC-00000007":
+  [36m<h1[39m
+    [33mclass[39m=[32m"text-2xl font-bold text-foreground tracking-tight"[39m
+  [36m/>[39m
+
+  Name "Historial":
+  [36m<h2[39m
+    [33mclass[39m=[32m"text-sm font-semibold text-foreground"[39m
+    [33mid[39m=[32m"delivery-note-history-title"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  paragraph:
+
+  Name "":
+  [36m<p[39m
+    [33mclass[39m=[32m"mt-1 text-sm text-muted-foreground"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  term:
+
+  Name "":
+  [36m<dt />[39m
+
+  Name "":
+  [36m<dt />[39m
+
+  Name "":
+  [36m<dt />[39m
+
+  --------------------------------------------------
+  definition:
+
+  Name "":
+  [36m<dd[39m
+    [33mclass[39m=[32m"text-foreground"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<dd[39m
+    [33mclass[39m=[32m"break-all text-foreground"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<dd[39m
+    [33mclass[39m=[32m"tabular-nums text-foreground"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  status:
+
+  Name "Líneas sin precio":
+  [36m<p[39m
+    [33maria-label[39m=[32m"Líneas sin precio"[39m
+    [33mclass[39m=[32m"rounded-lg border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-foreground"[39m
+    [33mrole[39m=[32m"status"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  group:
+
+  Name "Menú de compartir (mock)":
+  [36m<div[39m
+    [33maria-label[39m=[32m"Menú de compartir (mock)"[39m
+    [33mrole[39m=[32m"group"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  button:
+
+  Name "Descargar (mock)":
+  [36m<button[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Anular":
+  [36m<button[39m
+    [33mclass[39m=[32m"inline-flex items-center justify-center whitespace-nowrap text-sm font-medium ring-offset-background transition-colors duration-base ease-standard focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 border bg-background hover:text-accent-foreground h-10 rounded-md px-3 md:h-9 gap-1.5 border-destructive/40 text-destructive hover:bg-destructive/10"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  switch:
+
+  Name "Mostrar precios":
+  [36m<button[39m
+    [33maria-checked[39m=[32m"false"[39m
+    [33mclass[39m=[32m"peer inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:bg-primary data-[state=unchecked]:bg-input"[39m
+    [33mdata-state[39m=[32m"unchecked"[39m
+    [33mid[39m=[32m"delivery-note-show-prices"[39m
+    [33mrole[39m=[32m"switch"[39m
+    [33mtype[39m=[32m"button"[39m
+    [33mvalue[39m=[32m"on"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  table:
+
+  Name "Líneas del remito":
+  [36m<table[39m
+    [33maria-label[39m=[32m"Líneas del remito"[39m
+    [33mclass[39m=[32m"w-full text-sm"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  rowgroup:
+
+  Name "":
+  [36m<thead />[39m
+
+  Name "":
+  [36m<tbody />[39m
+
+  --------------------------------------------------
+  row:
+
+  Name "Producto Cant. Precio unit. Subtotal":
+  [36m<tr[39m
+    [33mclass[39m=[32m"border-b border-border text-left"[39m
+  [36m/>[39m
+
+  Name "Remera 10 u $ 50 $ 500":
+  [36m<tr[39m
+    [33mclass[39m=[32m"border-b border-border/50 last:border-b-0"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  columnheader:
+
+  Name "Producto":
+  [36m<th[39m
+    [33mclass[39m=[32m"px-2 py-3 sm:px-4 font-medium text-muted-foreground"[39m
+    [33mscope[39m=[32m"col"[39m
+  [36m/>[39m
+
+  Name "Cant.":
+  [36m<th[39m
+    [33mclass[39m=[32m"px-2 py-3 sm:px-4 text-right font-medium text-muted-foreground"[39m
+    [33mscope[39m=[32m"col"[39m
+  [36m/>[39m
+
+  Name "Precio unit.":
+  [36m<th[39m
+    [33mclass[39m=[32m"px-2 py-3 sm:px-4 text-right font-medium text-muted-foreground"[39m
+    [33mscope[39m=[32m"col"[39m
+  [36m/>[39m
+
+  Name "Subtotal":
+  [36m<th[39m
+    [33mclass[39m=[32m"px-2 py-3 sm:px-4 text-right font-medium text-muted-foreground"[39m
+    [33mscope[39m=[32m"col"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  cell:
+
+  Name "Remera":
+  [36m<td[39m
+    [33mclass[39m=[32m"px-2 py-3 sm:px-4 break-words text-foreground"[39m
+  [36m/>[39m
+
+  Name "10 u":
+  [36m<td[39m
+    [33mclass[39m=[32m"px-2 py-3 sm:px-4 text-right tabular-nums whitespace-nowrap"[39m
+  [36m/>[39m
+
+  Name "$ 50":
+  [36m<td[39m
+    [33mclass[39m=[32m"px-2 py-3 sm:px-4 text-right tabular-nums whitespace-nowrap"[39m
+  [36m/>[39m
+
+  Name "$ 500":
+  [36m<td[39m
+    [33mclass[39m=[32m"px-2 py-3 sm:px-4 text-right font-medium tabular-nums whitespace-nowrap text-foreground"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  region:
+
+  Name "Historial":
+  [36m<section[39m
+    [33maria-labelledby[39m=[32m"delivery-note-history-title"[39m
+    [33mclass[39m=[32m"flex flex-col gap-2"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  list:
+
+  Name "Historial de estados":
+  [36m<ul[39m
+    [33maria-label[39m=[32m"Historial de estados"[39m
+    [33mclass[39m=[32m"flex flex-col gap-1.5 text-sm"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  listitem:
+
+  Name "":
+  [36m<li[39m
+    [33mclass[39m=[32m"flex flex-wrap items-baseline gap-x-2 rounded-md border border-border/60 bg-card px-3 py-2"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"flex flex-col gap-6 min-w-0"[39m
+    [36m>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"flex items-start gap-3"[39m
+      [36m>[39m
+        [36m<a[39m
+          [33maria-label[39m=[32m"Volver al listado"[39m
+          [33mclass[39m=[32m"inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors duration-base ease-standard focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 hover:bg-accent hover:text-accent-foreground md:h-10 md:w-10 h-8 w-8 shrink-0"[39m
+          [33mhref[39m=[32m"/remitos?sentido=compra"[39m
+        [36m>[39m
+          [36m<svg[39m
+            [33maria-hidden[39m=[32m"true"[39m
+            [33mclass[39m=[32m"lucide lucide-arrow-left h-4 w-4"[39m
+            [33mfill[39m=[32m"none"[39m
+            [33mheight[39m=[32m"24"[39m
+            [33mstroke[39m=[32m"currentColor"[39m
+            [33mstroke-linecap[39m=[32m"round"[39m
+            [33mstroke-linejoin[39m=[32m"round"[39m
+            [33mstroke-width[39m=[32m"2"[39m
+            [33mviewBox[39m=[32m"0 0 24 24"[39m
+            [33mwidth[39m=[32m"24"[39m
+            [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+          [36m>[39m
+            [36m<path[39m
+              [33md[39m=[32m"m12 19-7-7 7-7"[39m
+            [36m/>[39m
+            [36m<path[39m
+              [33md[39m=[32m"M19 12H5"[39m
+            [36m/>[39m
+          [36m</svg>[39m
+        [36m</a>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"min-w-0 flex-1"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"flex flex-wrap items-center gap-2"[39m
+          [36m>[39m
+            [36m<h1[39m
+              [33mclass[39m=[32m"text-2xl font-bold text-foreground tracking-tight"[39m
+            [36m>[39m
+              [0mRC-00000007[0m
+            [36m</h1>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors duration-base ease-standard focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 whitespace-nowrap border-warning/40 bg-warning/10 text-warning"[39m
+              [33mdata-status[39m=[32m"issued"[39m
+            [36m>[39m
+              [0mPendiente[0m
+            [36m</div>[39m
+          [36m</div>[39m
+          [36m<p[39m
+            [33mclass[39m=[32m"mt-1 text-sm text-muted-foreground"[39m
+          [36m>[39m
+            [36m<a[39m
+              [33mclass[39m=[32m"text-primary underline-offset-2 hover:underline"[39m
+              [33mhref[39m=[32m"/proveedores/s-1/cuenta"[39m
+            [36m>[39m
+              [0mDistribuidora Sur[0m
+            [36m</a>[39m
+            [36m<span>[39m
+              [0m · Tel. [0m
+              [0m2615550000[0m
+            [36m</span>[39m
+          [36m</p>[39m
+          [36m<dl[39m
+            [33mclass[39m=[32m"mt-3 grid grid-cols-1 gap-x-6 gap-y-1 text-xs text-muted-foreground sm:flex sm:flex-wrap"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"flex gap-1"[39m
+            [36m>[39m
+              [36m<dt>[39m
+                [0mIngresa a:[0m
+              [36m</dt>[39m
+              [36m<dd[39m
+                [33mclass[39m=[32m"text-foreground"[39m
+              [36m>[39m
+                [0mSucursal Centro[0m
+              [36m</dd>[39m
+            [36m</div>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"flex gap-1"[39m
+            [36m>[39m
+              [36m<dt>[39m
+                [0mRemito del proveedor:[0m
+              [36m</dt>[39m
+              [36m<dd[39m
+                [33mclass[39m=[32m"break-all text-foreground"[39m
+              [36m>[39m
+                [0m0004-00001234[0m
+              [36m</dd>[39m
+            [36m</div>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"flex gap-1"[39m
+            [36m>[39m
+              [36m<dt>[39m
+                [0mFecha:[0m
+              [36m</dt>[39m
+              [36m<dd[39m
+                [33mclass[39m=[32m"tabular-nums text-foreground"[39m
+              [36m>[39m
+                [0m02/10/2026[0m
+              [36m</dd>[39m
+            [36m</div>[39m
+          [36m</dl>[39m
+        [36m</div>[39m
+      [36m</div>[39m
+      [36m<p[39m
+        [33maria-label[39m=[32m"Líneas sin precio"[39m
+        [33mclass[39m=[32m"rounded-lg border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-foreground"[39m
+        [33mrole[39m=[32m"status"[39m
+      [36m>[39m
+        [0m2 líneas sin precio: lo vas a poder cargar antes de convertir el remito en compra.[0m
+      [36m</p>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"flex flex-col gap-2"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex flex-wrap items-center gap-x-4 gap-y-2"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"flex flex-wrap items-center gap-3"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33maria-label[39m=[32m"Menú de compartir (mock)"[39m
+              [33mrole[39m=[32m"group"[39m
+            [36m>[39m
+              [36m<button[39m
+                [33mtype[39m=[32m"button"[39m
+              [36m>[39m
+                [0mDescargar (mock)[0m
+              [36m</button>[39m
+              [36m<span[39m
+                [33mdata-testid[39m=[32m"share-file"[39m
+              [36m>[39m
+                [0mremito-compra-RC-00000007.pdf[0m
+              [36m</span>[39m
+              [36m<span[39m
+                [33mdata-testid[39m=[32m"share-text"[39m
+              [36m>[39m
+                [0mHola Distribuidora Sur, te confirmo la recepción de la mercadería del remito RC-00000007 (tu remito N° 0004-00001234) el 02/10/2026. Kiosco Lola[0m
+              [36m</span>[39m
+              [36m<span[39m
+                [33mdata-testid[39m=[32m"share-phone"[39m
+              [36m>[39m
+                [0m2615550000[0m
+              [36m</span>[39m
+              [36m<span[39m
+                [33mdata-testid[39m=[32m"share-has-on-shared"[39m
+              [36m>[39m
+                [0mno[0m
+              [36m</span>[39m
+            [36m</div>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"flex items-center gap-2"[39m
+            [36m>[39m
+              [36m<button[39m
+                [33maria-checked[39m=[32m"false"[39m
+                [33mclass[39m=[32m"peer inline-flex h-6 w-11 shrink...
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ __tests__/DeliveryNoteDetailPage.test.tsx:767:27
+    765|     showPurchase({ missing_price_count: 2 })
+    766|
+    767|     const compra = screen.getByRole("button", { name: /^compra$/i })
+       |                           ^
+    768|     expect(compra).toBeDisabled()
+    769|     expect(compra).toHaveAccessibleDescription(/falta el precio de com…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/12]⎯
+
+ FAIL  __tests__/DeliveryNoteDetailPage.test.tsx > DeliveryNoteDetailPage (compra) — acciones por estado y rol (D11) > con UNA línea sin precio el motivo habla en singular
+TestingLibraryElementError: Unable to find an accessible element with the role "button" and name `/^compra$/i`
+
+Here are the accessible roles:
+
+  link:
+
+  Name "Volver al listado":
+  [36m<a[39m
+    [33maria-label[39m=[32m"Volver al listado"[39m
+    [33mclass[39m=[32m"inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors duration-base ease-standard focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 hover:bg-accent hover:text-accent-foreground md:h-10 md:w-10 h-8 w-8 shrink-0"[39m
+    [33mhref[39m=[32m"/remitos?sentido=compra"[39m
+  [36m/>[39m
+
+  Name "Distribuidora Sur":
+  [36m<a[39m
+    [33mclass[39m=[32m"text-primary underline-offset-2 hover:underline"[39m
+    [33mhref[39m=[32m"/proveedores/s-1/cuenta"[39m
+  [36m/>[39m
+
+  Name "Editar":
+  [36m<a[39m
+    [33mclass[39m=[32m"inline-flex items-center justify-center whitespace-nowrap text-sm font-medium ring-offset-background transition-colors duration-base ease-standard focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 border border-input bg-background hover:bg-accent hover:text-accent-foreground h-10 rounded-md px-3 md:h-9 gap-1.5"[39m
+    [33mhref[39m=[32m"/remitos/dn-1/editar"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  heading:
+
+  Name "RC-00000007":
+  [36m<h1[39m
+    [33mclass[39m=[32m"text-2xl font-bold text-foreground tracking-tight"[39m
+  [36m/>[39m
+
+  Name "Historial":
+  [36m<h2[39m
+    [33mclass[39m=[32m"text-sm font-semibold text-foreground"[39m
+    [33mid[39m=[32m"delivery-note-history-title"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  paragraph:
+
+  Name "":
+  [36m<p[39m
+    [33mclass[39m=[32m"mt-1 text-sm text-muted-foreground"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  term:
+
+  Name "":
+  [36m<dt />[39m
+
+  Name "":
+  [36m<dt />[39m
+
+  Name "":
+  [36m<dt />[39m
+
+  --------------------------------------------------
+  definition:
+
+  Name "":
+  [36m<dd[39m
+    [33mclass[39m=[32m"text-foreground"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<dd[39m
+    [33mclass[39m=[32m"break-all text-foreground"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<dd[39m
+    [33mclass[39m=[32m"tabular-nums text-foreground"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  status:
+
+  Name "Líneas sin precio":
+  [36m<p[39m
+    [33maria-label[39m=[32m"Líneas sin precio"[39m
+    [33mclass[39m=[32m"rounded-lg border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-foreground"[39m
+    [33mrole[39m=[32m"status"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  group:
+
+  Name "Menú de compartir (mock)":
+  [36m<div[39m
+    [33maria-label[39m=[32m"Menú de compartir (mock)"[39m
+    [33mrole[39m=[32m"group"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  button:
+
+  Name "Descargar (mock)":
+  [36m<button[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Anular":
+  [36m<button[39m
+    [33mclass[39m=[32m"inline-flex items-center justify-center whitespace-nowrap text-sm font-medium ring-offset-background transition-colors duration-base ease-standard focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 border bg-background hover:text-accent-foreground h-10 rounded-md px-3 md:h-9 gap-1.5 border-destructive/40 text-destructive hover:bg-destructive/10"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  switch:
+
+  Name "Mostrar precios":
+  [36m<button[39m
+    [33maria-checked[39m=[32m"false"[39m
+    [33mclass[39m=[32m"peer inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:bg-primary data-[state=unchecked]:bg-input"[39m
+    [33mdata-state[39m=[32m"unchecked"[39m
+    [33mid[39m=[32m"delivery-note-show-prices"[39m
+    [33mrole[39m=[32m"switch"[39m
+    [33mtype[39m=[32m"button"[39m
+    [33mvalue[39m=[32m"on"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  table:
+
+  Name "Líneas del remito":
+  [36m<table[39m
+    [33maria-label[39m=[32m"Líneas del remito"[39m
+    [33mclass[39m=[32m"w-full text-sm"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  rowgroup:
+
+  Name "":
+  [36m<thead />[39m
+
+  Name "":
+  [36m<tbody />[39m
+
+  --------------------------------------------------
+  row:
+
+  Name "Producto Cant. Precio unit. Subtotal":
+  [36m<tr[39m
+    [33mclass[39m=[32m"border-b border-border text-left"[39m
+  [36m/>[39m
+
+  Name "Remera 10 u $ 50 $ 500":
+  [36m<tr[39m
+    [33mclass[39m=[32m"border-b border-border/50 last:border-b-0"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  columnheader:
+
+  Name "Producto":
+  [36m<th[39m
+    [33mclass[39m=[32m"px-2 py-3 sm:px-4 font-medium text-muted-foreground"[39m
+    [33mscope[39m=[32m"col"[39m
+  [36m/>[39m
+
+  Name "Cant.":
+  [36m<th[39m
+    [33mclass[39m=[32m"px-2 py-3 sm:px-4 text-right font-medium text-muted-foreground"[39m
+    [33mscope[39m=[32m"col"[39m
+  [36m/>[39m
+
+  Name "Precio unit.":
+  [36m<th[39m
+    [33mclass[39m=[32m"px-2 py-3 sm:px-4 text-right font-medium text-muted-foreground"[39m
+    [33mscope[39m=[32m"col"[39m
+  [36m/>[39m
+
+  Name "Subtotal":
+  [36m<th[39m
+    [33mclass[39m=[32m"px-2 py-3 sm:px-4 text-right font-medium text-muted-foreground"[39m
+    [33mscope[39m=[32m"col"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  cell:
+
+  Name "Remera":
+  [36m<td[39m
+    [33mclass[39m=[32m"px-2 py-3 sm:px-4 break-words text-foreground"[39m
+  [36m/>[39m
+
+  Name "10 u":
+  [36m<td[39m
+    [33mclass[39m=[32m"px-2 py-3 sm:px-4 text-right tabular-nums whitespace-nowrap"[39m
+  [36m/>[39m
+
+  Name "$ 50":
+  [36m<td[39m
+    [33mclass[39m=[32m"px-2 py-3 sm:px-4 text-right tabular-nums whitespace-nowrap"[39m
+  [36m/>[39m
+
+  Name "$ 500":
+  [36m<td[39m
+    [33mclass[39m=[32m"px-2 py-3 sm:px-4 text-right font-medium tabular-nums whitespace-nowrap text-foreground"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  region:
+
+  Name "Historial":
+  [36m<section[39m
+    [33maria-labelledby[39m=[32m"delivery-note-history-title"[39m
+    [33mclass[39m=[32m"flex flex-col gap-2"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  list:
+
+  Name "Historial de estados":
+  [36m<ul[39m
+    [33maria-label[39m=[32m"Historial de estados"[39m
+    [33mclass[39m=[32m"flex flex-col gap-1.5 text-sm"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  listitem:
+
+  Name "":
+  [36m<li[39m
+    [33mclass[39m=[32m"flex flex-wrap items-baseline gap-x-2 rounded-md border border-border/60 bg-card px-3 py-2"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"flex flex-col gap-6 min-w-0"[39m
+    [36m>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"flex items-start gap-3"[39m
+      [36m>[39m
+        [36m<a[39m
+          [33maria-label[39m=[32m"Volver al listado"[39m
+          [33mclass[39m=[32m"inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors duration-base ease-standard focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 hover:bg-accent hover:text-accent-foreground md:h-10 md:w-10 h-8 w-8 shrink-0"[39m
+          [33mhref[39m=[32m"/remitos?sentido=compra"[39m
+        [36m>[39m
+          [36m<svg[39m
+            [33maria-hidden[39m=[32m"true"[39m
+            [33mclass[39m=[32m"lucide lucide-arrow-left h-4 w-4"[39m
+            [33mfill[39m=[32m"none"[39m
+            [33mheight[39m=[32m"24"[39m
+            [33mstroke[39m=[32m"currentColor"[39m
+            [33mstroke-linecap[39m=[32m"round"[39m
+            [33mstroke-linejoin[39m=[32m"round"[39m
+            [33mstroke-width[39m=[32m"2"[39m
+            [33mviewBox[39m=[32m"0 0 24 24"[39m
+            [33mwidth[39m=[32m"24"[39m
+            [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+          [36m>[39m
+            [36m<path[39m
+              [33md[39m=[32m"m12 19-7-7 7-7"[39m
+            [36m/>[39m
+            [36m<path[39m
+              [33md[39m=[32m"M19 12H5"[39m
+            [36m/>[39m
+          [36m</svg>[39m
+        [36m</a>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"min-w-0 flex-1"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"flex flex-wrap items-center gap-2"[39m
+          [36m>[39m
+            [36m<h1[39m
+              [33mclass[39m=[32m"text-2xl font-bold text-foreground tracking-tight"[39m
+            [36m>[39m
+              [0mRC-00000007[0m
+            [36m</h1>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors duration-base ease-standard focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 whitespace-nowrap border-warning/40 bg-warning/10 text-warning"[39m
+              [33mdata-status[39m=[32m"issued"[39m
+            [36m>[39m
+              [0mPendiente[0m
+            [36m</div>[39m
+          [36m</div>[39m
+          [36m<p[39m
+            [33mclass[39m=[32m"mt-1 text-sm text-muted-foreground"[39m
+          [36m>[39m
+            [36m<a[39m
+              [33mclass[39m=[32m"text-primary underline-offset-2 hover:underline"[39m
+              [33mhref[39m=[32m"/proveedores/s-1/cuenta"[39m
+            [36m>[39m
+              [0mDistribuidora Sur[0m
+            [36m</a>[39m
+            [36m<span>[39m
+              [0m · Tel. [0m
+              [0m2615550000[0m
+            [36m</span>[39m
+          [36m</p>[39m
+          [36m<dl[39m
+            [33mclass[39m=[32m"mt-3 grid grid-cols-1 gap-x-6 gap-y-1 text-xs text-muted-foreground sm:flex sm:flex-wrap"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"flex gap-1"[39m
+            [36m>[39m
+              [36m<dt>[39m
+                [0mIngresa a:[0m
+              [36m</dt>[39m
+              [36m<dd[39m
+                [33mclass[39m=[32m"text-foreground"[39m
+              [36m>[39m
+                [0mSucursal Centro[0m
+              [36m</dd>[39m
+            [36m</div>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"flex gap-1"[39m
+            [36m>[39m
+              [36m<dt>[39m
+                [0mRemito del proveedor:[0m
+              [36m</dt>[39m
+              [36m<dd[39m
+                [33mclass[39m=[32m"break-all text-foreground"[39m
+              [36m>[39m
+                [0m0004-00001234[0m
+              [36m</dd>[39m
+            [36m</div>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"flex gap-1"[39m
+            [36m>[39m
+              [36m<dt>[39m
+                [0mFecha:[0m
+              [36m</dt>[39m
+              [36m<dd[39m
+                [33mclass[39m=[32m"tabular-nums text-foreground"[39m
+              [36m>[39m
+                [0m02/10/2026[0m
+              [36m</dd>[39m
+            [36m</div>[39m
+          [36m</dl>[39m
+        [36m</div>[39m
+      [36m</div>[39m
+      [36m<p[39m
+        [33maria-label[39m=[32m"Líneas sin precio"[39m
+        [33mclass[39m=[32m"rounded-lg border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-foreground"[39m
+        [33mrole[39m=[32m"status"[39m
+      [36m>[39m
+        [0m1 línea sin precio: lo vas a poder cargar antes de convertir el remito en compra.[0m
+      [36m</p>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"flex flex-col gap-2"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex flex-wrap items-center gap-x-4 gap-y-2"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"flex flex-wrap items-center gap-3"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33maria-label[39m=[32m"Menú de compartir (mock)"[39m
+              [33mrole[39m=[32m"group"[39m
+            [36m>[39m
+              [36m<button[39m
+                [33mtype[39m=[32m"button"[39m
+              [36m>[39m
+                [0mDescargar (mock)[0m
+              [36m</button>[39m
+              [36m<span[39m
+                [33mdata-testid[39m=[32m"share-file"[39m
+              [36m>[39m
+                [0mremito-compra-RC-00000007.pdf[0m
+              [36m</span>[39m
+              [36m<span[39m
+                [33mdata-testid[39m=[32m"share-text"[39m
+              [36m>[39m
+                [0mHola Distribuidora Sur, te confirmo la recepción de la mercadería del remito RC-00000007 (tu remito N° 0004-00001234) el 02/10/2026. Kiosco Lola[0m
+              [36m</span>[39m
+              [36m<span[39m
+                [33mdata-testid[39m=[32m"share-phone"[39m
+              [36m>[39m
+                [0m2615550000[0m
+              [36m</span>[39m
+              [36m<span[39m
+                [33mdata-testid[39m=[32m"share-has-on-shared"[39m
+              [36m>[39m
+                [0mno[0m
+              [36m</span>[39m
+            [36m</div>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"flex items-center gap-2"[39m
+            [36m>[39m
+              [36m<button[39m
+                [33maria-checked[39m=[32m"false"[39m
+                [33mclass[39m=[32m"peer inline-flex h-6 w-11 shrink-...
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ __tests__/DeliveryNoteDetailPage.test.tsx:778:19
+    776|   it("con UNA línea sin precio el motivo habla en singular", () => {
+    777|     showPurchase({ missing_price_count: 1 })
+    778|     expect(screen.getByRole("button", { name: /^compra$/i })).toHaveAc…
+       |                   ^
+    779|   })
+    780|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/12]⎯
+
+ FAIL  __tests__/DeliveryNoteDetailPage.test.tsx > DeliveryNoteDetailPage (compra) — acciones por estado y rol (D11) > proveedor dado de baja: 'Compra' queda deshabilitada con su motivo (que tiene precedencia sobre el faltante de precio)
+TestingLibraryElementError: Unable to find an accessible element with the role "button" and name `/^compra$/i`
+
+Here are the accessible roles:
+
+  link:
+
+  Name "Volver al listado":
+  [36m<a[39m
+    [33maria-label[39m=[32m"Volver al listado"[39m
+    [33mclass[39m=[32m"inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors duration-base ease-standard focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 hover:bg-accent hover:text-accent-foreground md:h-10 md:w-10 h-8 w-8 shrink-0"[39m
+    [33mhref[39m=[32m"/remitos?sentido=compra"[39m
+  [36m/>[39m
+
+  Name "Editar":
+  [36m<a[39m
+    [33mclass[39m=[32m"inline-flex items-center justify-center whitespace-nowrap text-sm font-medium ring-offset-background transition-colors duration-base ease-standard focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 border border-input bg-background hover:bg-accent hover:text-accent-foreground h-10 rounded-md px-3 md:h-9 gap-1.5"[39m
+    [33mhref[39m=[32m"/remitos/dn-1/editar"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  heading:
+
+  Name "RC-00000007":
+  [36m<h1[39m
+    [33mclass[39m=[32m"text-2xl font-bold text-foreground tracking-tight"[39m
+  [36m/>[39m
+
+  Name "Historial":
+  [36m<h2[39m
+    [33mclass[39m=[32m"text-sm font-semibold text-foreground"[39m
+    [33mid[39m=[32m"delivery-note-history-title"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  paragraph:
+
+  Name "":
+  [36m<p[39m
+    [33mclass[39m=[32m"mt-1 text-sm text-muted-foreground"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  term:
+
+  Name "":
+  [36m<dt />[39m
+
+  Name "":
+  [36m<dt />[39m
+
+  Name "":
+  [36m<dt />[39m
+
+  --------------------------------------------------
+  definition:
+
+  Name "":
+  [36m<dd[39m
+    [33mclass[39m=[32m"text-foreground"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<dd[39m
+    [33mclass[39m=[32m"break-all text-foreground"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<dd[39m
+    [33mclass[39m=[32m"tabular-nums text-foreground"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  status:
+
+  Name "Líneas sin precio":
+  [36m<p[39m
+    [33maria-label[39m=[32m"Líneas sin precio"[39m
+    [33mclass[39m=[32m"rounded-lg border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-foreground"[39m
+    [33mrole[39m=[32m"status"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  group:
+
+  Name "Menú de compartir (mock)":
+  [36m<div[39m
+    [33maria-label[39m=[32m"Menú de compartir (mock)"[39m
+    [33mrole[39m=[32m"group"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  button:
+
+  Name "Descargar (mock)":
+  [36m<button[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Anular":
+  [36m<button[39m
+    [33mclass[39m=[32m"inline-flex items-center justify-center whitespace-nowrap text-sm font-medium ring-offset-background transition-colors duration-base ease-standard focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 border bg-background hover:text-accent-foreground h-10 rounded-md px-3 md:h-9 gap-1.5 border-destructive/40 text-destructive hover:bg-destructive/10"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  switch:
+
+  Name "Mostrar precios":
+  [36m<button[39m
+    [33maria-checked[39m=[32m"false"[39m
+    [33mclass[39m=[32m"peer inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:bg-primary data-[state=unchecked]:bg-input"[39m
+    [33mdata-state[39m=[32m"unchecked"[39m
+    [33mid[39m=[32m"delivery-note-show-prices"[39m
+    [33mrole[39m=[32m"switch"[39m
+    [33mtype[39m=[32m"button"[39m
+    [33mvalue[39m=[32m"on"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  table:
+
+  Name "Líneas del remito":
+  [36m<table[39m
+    [33maria-label[39m=[32m"Líneas del remito"[39m
+    [33mclass[39m=[32m"w-full text-sm"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  rowgroup:
+
+  Name "":
+  [36m<thead />[39m
+
+  Name "":
+  [36m<tbody />[39m
+
+  --------------------------------------------------
+  row:
+
+  Name "Producto Cant. Precio unit. Subtotal":
+  [36m<tr[39m
+    [33mclass[39m=[32m"border-b border-border text-left"[39m
+  [36m/>[39m
+
+  Name "Remera 10 u $ 50 $ 500":
+  [36m<tr[39m
+    [33mclass[39m=[32m"border-b border-border/50 last:border-b-0"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  columnheader:
+
+  Name "Producto":
+  [36m<th[39m
+    [33mclass[39m=[32m"px-2 py-3 sm:px-4 font-medium text-muted-foreground"[39m
+    [33mscope[39m=[32m"col"[39m
+  [36m/>[39m
+
+  Name "Cant.":
+  [36m<th[39m
+    [33mclass[39m=[32m"px-2 py-3 sm:px-4 text-right font-medium text-muted-foreground"[39m
+    [33mscope[39m=[32m"col"[39m
+  [36m/>[39m
+
+  Name "Precio unit.":
+  [36m<th[39m
+    [33mclass[39m=[32m"px-2 py-3 sm:px-4 text-right font-medium text-muted-foreground"[39m
+    [33mscope[39m=[32m"col"[39m
+  [36m/>[39m
+
+  Name "Subtotal":
+  [36m<th[39m
+    [33mclass[39m=[32m"px-2 py-3 sm:px-4 text-right font-medium text-muted-foreground"[39m
+    [33mscope[39m=[32m"col"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  cell:
+
+  Name "Remera":
+  [36m<td[39m
+    [33mclass[39m=[32m"px-2 py-3 sm:px-4 break-words text-foreground"[39m
+  [36m/>[39m
+
+  Name "10 u":
+  [36m<td[39m
+    [33mclass[39m=[32m"px-2 py-3 sm:px-4 text-right tabular-nums whitespace-nowrap"[39m
+  [36m/>[39m
+
+  Name "$ 50":
+  [36m<td[39m
+    [33mclass[39m=[32m"px-2 py-3 sm:px-4 text-right tabular-nums whitespace-nowrap"[39m
+  [36m/>[39m
+
+  Name "$ 500":
+  [36m<td[39m
+    [33mclass[39m=[32m"px-2 py-3 sm:px-4 text-right font-medium tabular-nums whitespace-nowrap text-foreground"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  region:
+
+  Name "Historial":
+  [36m<section[39m
+    [33maria-labelledby[39m=[32m"delivery-note-history-title"[39m
+    [33mclass[39m=[32m"flex flex-col gap-2"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  list:
+
+  Name "Historial de estados":
+  [36m<ul[39m
+    [33maria-label[39m=[32m"Historial de estados"[39m
+    [33mclass[39m=[32m"flex flex-col gap-1.5 text-sm"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  listitem:
+
+  Name "":
+  [36m<li[39m
+    [33mclass[39m=[32m"flex flex-wrap items-baseline gap-x-2 rounded-md border border-border/60 bg-card px-3 py-2"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"flex flex-col gap-6 min-w-0"[39m
+    [36m>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"flex items-start gap-3"[39m
+      [36m>[39m
+        [36m<a[39m
+          [33maria-label[39m=[32m"Volver al listado"[39m
+          [33mclass[39m=[32m"inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors duration-base ease-standard focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 hover:bg-accent hover:text-accent-foreground md:h-10 md:w-10 h-8 w-8 shrink-0"[39m
+          [33mhref[39m=[32m"/remitos?sentido=compra"[39m
+        [36m>[39m
+          [36m<svg[39m
+            [33maria-hidden[39m=[32m"true"[39m
+            [33mclass[39m=[32m"lucide lucide-arrow-left h-4 w-4"[39m
+            [33mfill[39m=[32m"none"[39m
+            [33mheight[39m=[32m"24"[39m
+            [33mstroke[39m=[32m"currentColor"[39m
+            [33mstroke-linecap[39m=[32m"round"[39m
+            [33mstroke-linejoin[39m=[32m"round"[39m
+            [33mstroke-width[39m=[32m"2"[39m
+            [33mviewBox[39m=[32m"0 0 24 24"[39m
+            [33mwidth[39m=[32m"24"[39m
+            [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+          [36m>[39m
+            [36m<path[39m
+              [33md[39m=[32m"m12 19-7-7 7-7"[39m
+            [36m/>[39m
+            [36m<path[39m
+              [33md[39m=[32m"M19 12H5"[39m
+            [36m/>[39m
+          [36m</svg>[39m
+        [36m</a>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"min-w-0 flex-1"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"flex flex-wrap items-center gap-2"[39m
+          [36m>[39m
+            [36m<h1[39m
+              [33mclass[39m=[32m"text-2xl font-bold text-foreground tracking-tight"[39m
+            [36m>[39m
+              [0mRC-00000007[0m
+            [36m</h1>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors duration-base ease-standard focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 whitespace-nowrap border-warning/40 bg-warning/10 text-warning"[39m
+              [33mdata-status[39m=[32m"issued"[39m
+            [36m>[39m
+              [0mPendiente[0m
+            [36m</div>[39m
+          [36m</div>[39m
+          [36m<p[39m
+            [33mclass[39m=[32m"mt-1 text-sm text-muted-foreground"[39m
+          [36m>[39m
+            [36m<span[39m
+              [33mclass[39m=[32m"text-foreground"[39m
+            [36m>[39m
+              [0mDistribuidora Sur[0m
+            [36m</span>[39m
+            [36m<span>[39m
+              [0m · Proveedor dado de baja[0m
+            [36m</span>[39m
+            [36m<span>[39m
+              [0m · Tel. [0m
+              [0m2615550000[0m
+            [36m</span>[39m
+          [36m</p>[39m
+          [36m<dl[39m
+            [33mclass[39m=[32m"mt-3 grid grid-cols-1 gap-x-6 gap-y-1 text-xs text-muted-foreground sm:flex sm:flex-wrap"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"flex gap-1"[39m
+            [36m>[39m
+              [36m<dt>[39m
+                [0mIngresa a:[0m
+              [36m</dt>[39m
+              [36m<dd[39m
+                [33mclass[39m=[32m"text-foreground"[39m
+              [36m>[39m
+                [0mSucursal Centro[0m
+              [36m</dd>[39m
+            [36m</div>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"flex gap-1"[39m
+            [36m>[39m
+              [36m<dt>[39m
+                [0mRemito del proveedor:[0m
+              [36m</dt>[39m
+              [36m<dd[39m
+                [33mclass[39m=[32m"break-all text-foreground"[39m
+              [36m>[39m
+                [0m0004-00001234[0m
+              [36m</dd>[39m
+            [36m</div>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"flex gap-1"[39m
+            [36m>[39m
+              [36m<dt>[39m
+                [0mFecha:[0m
+              [36m</dt>[39m
+              [36m<dd[39m
+                [33mclass[39m=[32m"tabular-nums text-foreground"[39m
+              [36m>[39m
+                [0m02/10/2026[0m
+              [36m</dd>[39m
+            [36m</div>[39m
+          [36m</dl>[39m
+        [36m</div>[39m
+      [36m</div>[39m
+      [36m<p[39m
+        [33maria-label[39m=[32m"Líneas sin precio"[39m
+        [33mclass[39m=[32m"rounded-lg border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-foreground"[39m
+        [33mrole[39m=[32m"status"[39m
+      [36m>[39m
+        [0m3 líneas sin precio: lo vas a poder cargar antes de convertir el remito en compra.[0m
+      [36m</p>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"flex flex-col gap-2"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex flex-wrap items-center gap-x-4 gap-y-2"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"flex flex-wrap items-center gap-3"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33maria-label[39m=[32m"Menú de compartir (mock)"[39m
+              [33mrole[39m=[32m"group"[39m
+            [36m>[39m
+              [36m<button[39m
+                [33mtype[39m=[32m"button"[39m
+              [36m>[39m
+                [0mDescargar (mock)[0m
+              [36m</button>[39m
+              [36m<span[39m
+                [33mdata-testid[39m=[32m"share-file"[39m
+              [36m>[39m
+                [0mremito-compra-RC-00000007.pdf[0m
+              [36m</span>[39m
+              [36m<span[39m
+                [33mdata-testid[39m=[32m"share-text"[39m
+              [36m>[39m
+                [0mHola Distribuidora Sur, te confirmo la recepción de la mercadería del remito RC-00000007 (tu remito N° 0004-00001234) el 02/10/2026. Kiosco Lola[0m
+              [36m</span>[39m
+              [36m<span[39m
+                [33mdata-testid[39m=[32m"share-phone"[39m
+              [36m>[39m
+                [0m2615550000[0m
+              [36m</span>[39m
+              [36m<span[39m
+                [33mdata-testid[39m=[32m"share-has-on-shared"[39m
+              [36m>[39m
+                [0mno[0m
+              [36m</span>[39m
+            [36m</div>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"flex items-center gap-2"[39m
+            [36m>[39m
+              [36m<button[39m
+                [33maria-checked[39m=[32m"false"[39m
+                [33mclass[39m=[32m"peer inline-flex...
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ __tests__/DeliveryNoteDetailPage.test.tsx:784:27
+    782|     showPurchase({ supplier_deleted: true, missing_price_count: 3 })
+    783|
+    784|     const compra = screen.getByRole("button", { name: /^compra$/i })
+       |                           ^
+    785|     expect(compra).toBeDisabled()
+    786|     expect(compra).toHaveAccessibleDescription(/el proveedor fue dado …
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/12]⎯
+
+ FAIL  __tests__/DeliveryNoteDetailPage.test.tsx > DeliveryNoteDetailPage (compra) — acciones por estado y rol (D11) > un remito con todos los precios y proveedor vigente no muestra ningún motivo bajo los botones
+TestingLibraryElementError: Unable to find an accessible element with the role "button" and name `/^compra$/i`
+
+Here are the accessible roles:
+
+  link:
+
+  Name "Volver al listado":
+  [36m<a[39m
+    [33maria-label[39m=[32m"Volver al listado"[39m
+    [33mclass[39m=[32m"inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors duration-base ease-standard focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 hover:bg-accent hover:text-accent-foreground md:h-10 md:w-10 h-8 w-8 shrink-0"[39m
+    [33mhref[39m=[32m"/remitos?sentido=compra"[39m
+  [36m/>[39m
+
+  Name "Distribuidora Sur":
+  [36m<a[39m
+    [33mclass[39m=[32m"text-primary underline-offset-2 hover:underline"[39m
+    [33mhref[39m=[32m"/proveedores/s-1/cuenta"[39m
+  [36m/>[39m
+
+  Name "Editar":
+  [36m<a[39m
+    [33mclass[39m=[32m"inline-flex items-center justify-center whitespace-nowrap text-sm font-medium ring-offset-background transition-colors duration-base ease-standard focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 border border-input bg-background hover:bg-accent hover:text-accent-foreground h-10 rounded-md px-3 md:h-9 gap-1.5"[39m
+    [33mhref[39m=[32m"/remitos/dn-1/editar"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  heading:
+
+  Name "RC-00000007":
+  [36m<h1[39m
+    [33mclass[39m=[32m"text-2xl font-bold text-foreground tracking-tight"[39m
+  [36m/>[39m
+
+  Name "Historial":
+  [36m<h2[39m
+    [33mclass[39m=[32m"text-sm font-semibold text-foreground"[39m
+    [33mid[39m=[32m"delivery-note-history-title"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  paragraph:
+
+  Name "":
+  [36m<p[39m
+    [33mclass[39m=[32m"mt-1 text-sm text-muted-foreground"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  term:
+
+  Name "":
+  [36m<dt />[39m
+
+  Name "":
+  [36m<dt />[39m
+
+  Name "":
+  [36m<dt />[39m
+
+  --------------------------------------------------
+  definition:
+
+  Name "":
+  [36m<dd[39m
+    [33mclass[39m=[32m"text-foreground"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<dd[39m
+    [33mclass[39m=[32m"break-all text-foreground"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<dd[39m
+    [33mclass[39m=[32m"tabular-nums text-foreground"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  group:
+
+  Name "Menú de compartir (mock)":
+  [36m<div[39m
+    [33maria-label[39m=[32m"Menú de compartir (mock)"[39m
+    [33mrole[39m=[32m"group"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  button:
+
+  Name "Descargar (mock)":
+  [36m<button[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Anular":
+  [36m<button[39m
+    [33mclass[39m=[32m"inline-flex items-center justify-center whitespace-nowrap text-sm font-medium ring-offset-background transition-colors duration-base ease-standard focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 border bg-background hover:text-accent-foreground h-10 rounded-md px-3 md:h-9 gap-1.5 border-destructive/40 text-destructive hover:bg-destructive/10"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  switch:
+
+  Name "Mostrar precios":
+  [36m<button[39m
+    [33maria-checked[39m=[32m"false"[39m
+    [33mclass[39m=[32m"peer inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:bg-primary data-[state=unchecked]:bg-input"[39m
+    [33mdata-state[39m=[32m"unchecked"[39m
+    [33mid[39m=[32m"delivery-note-show-prices"[39m
+    [33mrole[39m=[32m"switch"[39m
+    [33mtype[39m=[32m"button"[39m
+    [33mvalue[39m=[32m"on"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  table:
+
+  Name "Líneas del remito":
+  [36m<table[39m
+    [33maria-label[39m=[32m"Líneas del remito"[39m
+    [33mclass[39m=[32m"w-full text-sm"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  rowgroup:
+
+  Name "":
+  [36m<thead />[39m
+
+  Name "":
+  [36m<tbody />[39m
+
+  --------------------------------------------------
+  row:
+
+  Name "Producto Cant. Precio unit. Subtotal":
+  [36m<tr[39m
+    [33mclass[39m=[32m"border-b border-border text-left"[39m
+  [36m/>[39m
+
+  Name "Remera 10 u $ 50 $ 500":
+  [36m<tr[39m
+    [33mclass[39m=[32m"border-b border-border/50 last:border-b-0"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  columnheader:
+
+  Name "Producto":
+  [36m<th[39m
+    [33mclass[39m=[32m"px-2 py-3 sm:px-4 font-medium text-muted-foreground"[39m
+    [33mscope[39m=[32m"col"[39m
+  [36m/>[39m
+
+  Name "Cant.":
+  [36m<th[39m
+    [33mclass[39m=[32m"px-2 py-3 sm:px-4 text-right font-medium text-muted-foreground"[39m
+    [33mscope[39m=[32m"col"[39m
+  [36m/>[39m
+
+  Name "Precio unit.":
+  [36m<th[39m
+    [33mclass[39m=[32m"px-2 py-3 sm:px-4 text-right font-medium text-muted-foreground"[39m
+    [33mscope[39m=[32m"col"[39m
+  [36m/>[39m
+
+  Name "Subtotal":
+  [36m<th[39m
+    [33mclass[39m=[32m"px-2 py-3 sm:px-4 text-right font-medium text-muted-foreground"[39m
+    [33mscope[39m=[32m"col"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  cell:
+
+  Name "Remera":
+  [36m<td[39m
+    [33mclass[39m=[32m"px-2 py-3 sm:px-4 break-words text-foreground"[39m
+  [36m/>[39m
+
+  Name "10 u":
+  [36m<td[39m
+    [33mclass[39m=[32m"px-2 py-3 sm:px-4 text-right tabular-nums whitespace-nowrap"[39m
+  [36m/>[39m
+
+  Name "$ 50":
+  [36m<td[39m
+    [33mclass[39m=[32m"px-2 py-3 sm:px-4 text-right tabular-nums whitespace-nowrap"[39m
+  [36m/>[39m
+
+  Name "$ 500":
+  [36m<td[39m
+    [33mclass[39m=[32m"px-2 py-3 sm:px-4 text-right font-medium tabular-nums whitespace-nowrap text-foreground"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  region:
+
+  Name "Historial":
+  [36m<section[39m
+    [33maria-labelledby[39m=[32m"delivery-note-history-title"[39m
+    [33mclass[39m=[32m"flex flex-col gap-2"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  list:
+
+  Name "Historial de estados":
+  [36m<ul[39m
+    [33maria-label[39m=[32m"Historial de estados"[39m
+    [33mclass[39m=[32m"flex flex-col gap-1.5 text-sm"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  listitem:
+
+  Name "":
+  [36m<li[39m
+    [33mclass[39m=[32m"flex flex-wrap items-baseline gap-x-2 rounded-md border border-border/60 bg-card px-3 py-2"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"flex flex-col gap-6 min-w-0"[39m
+    [36m>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"flex items-start gap-3"[39m
+      [36m>[39m
+        [36m<a[39m
+          [33maria-label[39m=[32m"Volver al listado"[39m
+          [33mclass[39m=[32m"inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors duration-base ease-standard focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 hover:bg-accent hover:text-accent-foreground md:h-10 md:w-10 h-8 w-8 shrink-0"[39m
+          [33mhref[39m=[32m"/remitos?sentido=compra"[39m
+        [36m>[39m
+          [36m<svg[39m
+            [33maria-hidden[39m=[32m"true"[39m
+            [33mclass[39m=[32m"lucide lucide-arrow-left h-4 w-4"[39m
+            [33mfill[39m=[32m"none"[39m
+            [33mheight[39m=[32m"24"[39m
+            [33mstroke[39m=[32m"currentColor"[39m
+            [33mstroke-linecap[39m=[32m"round"[39m
+            [33mstroke-linejoin[39m=[32m"round"[39m
+            [33mstroke-width[39m=[32m"2"[39m
+            [33mviewBox[39m=[32m"0 0 24 24"[39m
+            [33mwidth[39m=[32m"24"[39m
+            [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+          [36m>[39m
+            [36m<path[39m
+              [33md[39m=[32m"m12 19-7-7 7-7"[39m
+            [36m/>[39m
+            [36m<path[39m
+              [33md[39m=[32m"M19 12H5"[39m
+            [36m/>[39m
+          [36m</svg>[39m
+        [36m</a>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"min-w-0 flex-1"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"flex flex-wrap items-center gap-2"[39m
+          [36m>[39m
+            [36m<h1[39m
+              [33mclass[39m=[32m"text-2xl font-bold text-foreground tracking-tight"[39m
+            [36m>[39m
+              [0mRC-00000007[0m
+            [36m</h1>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors duration-base ease-standard focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 whitespace-nowrap border-warning/40 bg-warning/10 text-warning"[39m
+              [33mdata-status[39m=[32m"issued"[39m
+            [36m>[39m
+              [0mPendiente[0m
+            [36m</div>[39m
+          [36m</div>[39m
+          [36m<p[39m
+            [33mclass[39m=[32m"mt-1 text-sm text-muted-foreground"[39m
+          [36m>[39m
+            [36m<a[39m
+              [33mclass[39m=[32m"text-primary underline-offset-2 hover:underline"[39m
+              [33mhref[39m=[32m"/proveedores/s-1/cuenta"[39m
+            [36m>[39m
+              [0mDistribuidora Sur[0m
+            [36m</a>[39m
+            [36m<span>[39m
+              [0m · Tel. [0m
+              [0m2615550000[0m
+            [36m</span>[39m
+          [36m</p>[39m
+          [36m<dl[39m
+            [33mclass[39m=[32m"mt-3 grid grid-cols-1 gap-x-6 gap-y-1 text-xs text-muted-foreground sm:flex sm:flex-wrap"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"flex gap-1"[39m
+            [36m>[39m
+              [36m<dt>[39m
+                [0mIngresa a:[0m
+              [36m</dt>[39m
+              [36m<dd[39m
+                [33mclass[39m=[32m"text-foreground"[39m
+              [36m>[39m
+                [0mSucursal Centro[0m
+              [36m</dd>[39m
+            [36m</div>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"flex gap-1"[39m
+            [36m>[39m
+              [36m<dt>[39m
+                [0mRemito del proveedor:[0m
+              [36m</dt>[39m
+              [36m<dd[39m
+                [33mclass[39m=[32m"break-all text-foreground"[39m
+              [36m>[39m
+                [0m0004-00001234[0m
+              [36m</dd>[39m
+            [36m</div>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"flex gap-1"[39m
+            [36m>[39m
+              [36m<dt>[39m
+                [0mFecha:[0m
+              [36m</dt>[39m
+              [36m<dd[39m
+                [33mclass[39m=[32m"tabular-nums text-foreground"[39m
+              [36m>[39m
+                [0m02/10/2026[0m
+              [36m</dd>[39m
+            [36m</div>[39m
+          [36m</dl>[39m
+        [36m</div>[39m
+      [36m</div>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"flex flex-col gap-2"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex flex-wrap items-center gap-x-4 gap-y-2"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"flex flex-wrap items-center gap-3"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33maria-label[39m=[32m"Menú de compartir (mock)"[39m
+              [33mrole[39m=[32m"group"[39m
+            [36m>[39m
+              [36m<button[39m
+                [33mtype[39m=[32m"button"[39m
+              [36m>[39m
+                [0mDescargar (mock)[0m
+              [36m</button>[39m
+              [36m<span[39m
+                [33mdata-testid[39m=[32m"share-file"[39m
+              [36m>[39m
+                [0mremito-compra-RC-00000007.pdf[0m
+              [36m</span>[39m
+              [36m<span[39m
+                [33mdata-testid[39m=[32m"share-text"[39m
+              [36m>[39m
+                [0mHola Distribuidora Sur, te confirmo la recepción de la mercadería del remito RC-00000007 (tu remito N° 0004-00001234) el 02/10/2026. Kiosco Lola[0m
+              [36m</span>[39m
+              [36m<span[39m
+                [33mdata-testid[39m=[32m"share-phone"[39m
+              [36m>[39m
+                [0m2615550000[0m
+              [36m</span>[39m
+              [36m<span[39m
+                [33mdata-testid[39m=[32m"share-has-on-shared"[39m
+              [36m>[39m
+                [0mno[0m
+              [36m</span>[39m
+            [36m</div>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"flex items-center gap-2"[39m
+            [36m>[39m
+              [36m<button[39m
+                [33maria-checked[39m=[32m"false"[39m
+                [33mclass[39m=[32m"peer inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:bg-primary data-[state=unchecked]:bg-input"[39m
+                [33mdata-state[...
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ __tests__/DeliveryNoteDetailPage.test.tsx:792:19
+    790|   it("un remito con todos los precios y proveedor vigente no muestra n…
+    791|     showPurchase()
+    792|     expect(screen.getByRole("button", { name: /^compra$/i })).toBeEnab…
+       |                   ^
+    793|     expect(screen.queryByText(/falta el precio de compra/i)).not.toBeI…
+    794|     expect(screen.queryByText(/el proveedor fue dado de baja: editá el…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/12]⎯
+
+ FAIL  __tests__/DeliveryNoteDetailPage.test.tsx > DeliveryNoteDetailPage (compra) — acciones por estado y rol (D11) > al convertir, el remito pasa a convertido pero el diálogo SIGUE montado (si no, 'Compra registrada' desaparecería)
+TestingLibraryElementError: Unable to find an accessible element with the role "button" and name `/^compra$/i`
+
+Here are the accessible roles:
+
+  link:
+
+  Name "Volver al listado":
+  [36m<a[39m
+    [33maria-label[39m=[32m"Volver al listado"[39m
+    [33mclass[39m=[32m"inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors duration-base ease-standard focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 hover:bg-accent hover:text-accent-foreground md:h-10 md:w-10 h-8 w-8 shrink-0"[39m
+    [33mhref[39m=[32m"/remitos?sentido=compra"[39m
+  [36m/>[39m
+
+  Name "Distribuidora Sur":
+  [36m<a[39m
+    [33mclass[39m=[32m"text-primary underline-offset-2 hover:underline"[39m
+    [33mhref[39m=[32m"/proveedores/s-1/cuenta"[39m
+  [36m/>[39m
+
+  Name "Editar":
+  [36m<a[39m
+    [33mclass[39m=[32m"inline-flex items-center justify-center whitespace-nowrap text-sm font-medium ring-offset-background transition-colors duration-base ease-standard focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 border border-input bg-background hover:bg-accent hover:text-accent-foreground h-10 rounded-md px-3 md:h-9 gap-1.5"[39m
+    [33mhref[39m=[32m"/remitos/dn-1/editar"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  heading:
+
+  Name "RC-00000007":
+  [36m<h1[39m
+    [33mclass[39m=[32m"text-2xl font-bold text-foreground tracking-tight"[39m
+  [36m/>[39m
+
+  Name "Historial":
+  [36m<h2[39m
+    [33mclass[39m=[32m"text-sm font-semibold text-foreground"[39m
+    [33mid[39m=[32m"delivery-note-history-title"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  paragraph:
+
+  Name "":
+  [36m<p[39m
+    [33mclass[39m=[32m"mt-1 text-sm text-muted-foreground"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  term:
+
+  Name "":
+  [36m<dt />[39m
+
+  Name "":
+  [36m<dt />[39m
+
+  Name "":
+  [36m<dt />[39m
+
+  --------------------------------------------------
+  definition:
+
+  Name "":
+  [36m<dd[39m
+    [33mclass[39m=[32m"text-foreground"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<dd[39m
+    [33mclass[39m=[32m"break-all text-foreground"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<dd[39m
+    [33mclass[39m=[32m"tabular-nums text-foreground"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  group:
+
+  Name "Menú de compartir (mock)":
+  [36m<div[39m
+    [33maria-label[39m=[32m"Menú de compartir (mock)"[39m
+    [33mrole[39m=[32m"group"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  button:
+
+  Name "Descargar (mock)":
+  [36m<button[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Anular":
+  [36m<button[39m
+    [33mclass[39m=[32m"inline-flex items-center justify-center whitespace-nowrap text-sm font-medium ring-offset-background transition-colors duration-base ease-standard focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 border bg-background hover:text-accent-foreground h-10 rounded-md px-3 md:h-9 gap-1.5 border-destructive/40 text-destructive hover:bg-destructive/10"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  switch:
+
+  Name "Mostrar precios":
+  [36m<button[39m
+    [33maria-checked[39m=[32m"false"[39m
+    [33mclass[39m=[32m"peer inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:bg-primary data-[state=unchecked]:bg-input"[39m
+    [33mdata-state[39m=[32m"unchecked"[39m
+    [33mid[39m=[32m"delivery-note-show-prices"[39m
+    [33mrole[39m=[32m"switch"[39m
+    [33mtype[39m=[32m"button"[39m
+    [33mvalue[39m=[32m"on"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  table:
+
+  Name "Líneas del remito":
+  [36m<table[39m
+    [33maria-label[39m=[32m"Líneas del remito"[39m
+    [33mclass[39m=[32m"w-full text-sm"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  rowgroup:
+
+  Name "":
+  [36m<thead />[39m
+
+  Name "":
+  [36m<tbody />[39m
+
+  --------------------------------------------------
+  row:
+
+  Name "Producto Cant. Precio unit. Subtotal":
+  [36m<tr[39m
+    [33mclass[39m=[32m"border-b border-border text-left"[39m
+  [36m/>[39m
+
+  Name "Remera 10 u $ 50 $ 500":
+  [36m<tr[39m
+    [33mclass[39m=[32m"border-b border-border/50 last:border-b-0"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  columnheader:
+
+  Name "Producto":
+  [36m<th[39m
+    [33mclass[39m=[32m"px-2 py-3 sm:px-4 font-medium text-muted-foreground"[39m
+    [33mscope[39m=[32m"col"[39m
+  [36m/>[39m
+
+  Name "Cant.":
+  [36m<th[39m
+    [33mclass[39m=[32m"px-2 py-3 sm:px-4 text-right font-medium text-muted-foreground"[39m
+    [33mscope[39m=[32m"col"[39m
+  [36m/>[39m
+
+  Name "Precio unit.":
+  [36m<th[39m
+    [33mclass[39m=[32m"px-2 py-3 sm:px-4 text-right font-medium text-muted-foreground"[39m
+    [33mscope[39m=[32m"col"[39m
+  [36m/>[39m
+
+  Name "Subtotal":
+  [36m<th[39m
+    [33mclass[39m=[32m"px-2 py-3 sm:px-4 text-right font-medium text-muted-foreground"[39m
+    [33mscope[39m=[32m"col"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  cell:
+
+  Name "Remera":
+  [36m<td[39m
+    [33mclass[39m=[32m"px-2 py-3 sm:px-4 break-words text-foreground"[39m
+  [36m/>[39m
+
+  Name "10 u":
+  [36m<td[39m
+    [33mclass[39m=[32m"px-2 py-3 sm:px-4 text-right tabular-nums whitespace-nowrap"[39m
+  [36m/>[39m
+
+  Name "$ 50":
+  [36m<td[39m
+    [33mclass[39m=[32m"px-2 py-3 sm:px-4 text-right tabular-nums whitespace-nowrap"[39m
+  [36m/>[39m
+
+  Name "$ 500":
+  [36m<td[39m
+    [33mclass[39m=[32m"px-2 py-3 sm:px-4 text-right font-medium tabular-nums whitespace-nowrap text-foreground"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  region:
+
+  Name "Historial":
+  [36m<section[39m
+    [33maria-labelledby[39m=[32m"delivery-note-history-title"[39m
+    [33mclass[39m=[32m"flex flex-col gap-2"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  list:
+
+  Name "Historial de estados":
+  [36m<ul[39m
+    [33maria-label[39m=[32m"Historial de estados"[39m
+    [33mclass[39m=[32m"flex flex-col gap-1.5 text-sm"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  listitem:
+
+  Name "":
+  [36m<li[39m
+    [33mclass[39m=[32m"flex flex-wrap items-baseline gap-x-2 rounded-md border border-border/60 bg-card px-3 py-2"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"flex flex-col gap-6 min-w-0"[39m
+    [36m>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"flex items-start gap-3"[39m
+      [36m>[39m
+        [36m<a[39m
+          [33maria-label[39m=[32m"Volver al listado"[39m
+          [33mclass[39m=[32m"inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors duration-base ease-standard focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 hover:bg-accent hover:text-accent-foreground md:h-10 md:w-10 h-8 w-8 shrink-0"[39m
+          [33mhref[39m=[32m"/remitos?sentido=compra"[39m
+        [36m>[39m
+          [36m<svg[39m
+            [33maria-hidden[39m=[32m"true"[39m
+            [33mclass[39m=[32m"lucide lucide-arrow-left h-4 w-4"[39m
+            [33mfill[39m=[32m"none"[39m
+            [33mheight[39m=[32m"24"[39m
+            [33mstroke[39m=[32m"currentColor"[39m
+            [33mstroke-linecap[39m=[32m"round"[39m
+            [33mstroke-linejoin[39m=[32m"round"[39m
+            [33mstroke-width[39m=[32m"2"[39m
+            [33mviewBox[39m=[32m"0 0 24 24"[39m
+            [33mwidth[39m=[32m"24"[39m
+            [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+          [36m>[39m
+            [36m<path[39m
+              [33md[39m=[32m"m12 19-7-7 7-7"[39m
+            [36m/>[39m
+            [36m<path[39m
+              [33md[39m=[32m"M19 12H5"[39m
+            [36m/>[39m
+          [36m</svg>[39m
+        [36m</a>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"min-w-0 flex-1"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"flex flex-wrap items-center gap-2"[39m
+          [36m>[39m
+            [36m<h1[39m
+              [33mclass[39m=[32m"text-2xl font-bold text-foreground tracking-tight"[39m
+            [36m>[39m
+              [0mRC-00000007[0m
+            [36m</h1>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors duration-base ease-standard focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 whitespace-nowrap border-warning/40 bg-warning/10 text-warning"[39m
+              [33mdata-status[39m=[32m"issued"[39m
+            [36m>[39m
+              [0mPendiente[0m
+            [36m</div>[39m
+          [36m</div>[39m
+          [36m<p[39m
+            [33mclass[39m=[32m"mt-1 text-sm text-muted-foreground"[39m
+          [36m>[39m
+            [36m<a[39m
+              [33mclass[39m=[32m"text-primary underline-offset-2 hover:underline"[39m
+              [33mhref[39m=[32m"/proveedores/s-1/cuenta"[39m
+            [36m>[39m
+              [0mDistribuidora Sur[0m
+            [36m</a>[39m
+            [36m<span>[39m
+              [0m · Tel. [0m
+              [0m2615550000[0m
+            [36m</span>[39m
+          [36m</p>[39m
+          [36m<dl[39m
+            [33mclass[39m=[32m"mt-3 grid grid-cols-1 gap-x-6 gap-y-1 text-xs text-muted-foreground sm:flex sm:flex-wrap"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"flex gap-1"[39m
+            [36m>[39m
+              [36m<dt>[39m
+                [0mIngresa a:[0m
+              [36m</dt>[39m
+              [36m<dd[39m
+                [33mclass[39m=[32m"text-foreground"[39m
+              [36m>[39m
+                [0mSucursal Centro[0m
+              [36m</dd>[39m
+            [36m</div>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"flex gap-1"[39m
+            [36m>[39m
+              [36m<dt>[39m
+                [0mRemito del proveedor:[0m
+              [36m</dt>[39m
+              [36m<dd[39m
+                [33mclass[39m=[32m"break-all text-foreground"[39m
+              [36m>[39m
+                [0m0004-00001234[0m
+              [36m</dd>[39m
+            [36m</div>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"flex gap-1"[39m
+            [36m>[39m
+              [36m<dt>[39m
+                [0mFecha:[0m
+              [36m</dt>[39m
+              [36m<dd[39m
+                [33mclass[39m=[32m"tabular-nums text-foreground"[39m
+              [36m>[39m
+                [0m02/10/2026[0m
+              [36m</dd>[39m
+            [36m</div>[39m
+          [36m</dl>[39m
+        [36m</div>[39m
+      [36m</div>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"flex flex-col gap-2"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex flex-wrap items-center gap-x-4 gap-y-2"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"flex flex-wrap items-center gap-3"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33maria-label[39m=[32m"Menú de compartir (mock)"[39m
+              [33mrole[39m=[32m"group"[39m
+            [36m>[39m
+              [36m<button[39m
+                [33mtype[39m=[32m"button"[39m
+              [36m>[39m
+                [0mDescargar (mock)[0m
+              [36m</button>[39m
+              [36m<span[39m
+                [33mdata-testid[39m=[32m"share-file"[39m
+              [36m>[39m
+                [0mremito-compra-RC-00000007.pdf[0m
+              [36m</span>[39m
+              [36m<span[39m
+                [33mdata-testid[39m=[32m"share-text"[39m
+              [36m>[39m
+                [0mHola Distribuidora Sur, te confirmo la recepción de la mercadería del remito RC-00000007 (tu remito N° 0004-00001234) el 02/10/2026. Kiosco Lola[0m
+              [36m</span>[39m
+              [36m<span[39m
+                [33mdata-testid[39m=[32m"share-phone"[39m
+              [36m>[39m
+                [0m2615550000[0m
+              [36m</span>[39m
+              [36m<span[39m
+                [33mdata-testid[39m=[32m"share-has-on-shared"[39m
+              [36m>[39m
+                [0mno[0m
+              [36m</span>[39m
+            [36m</div>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"flex items-center gap-2"[39m
+            [36m>[39m
+              [36m<button[39m
+                [33maria-checked[39m=[32m"false"[39m
+                [33mclass[39m=[32m"peer inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:bg-primary data-[state=unchecked]:bg-input"[39m
+                [33mdata-state[...
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ __tests__/DeliveryNoteDetailPage.test.tsx:799:28
+    797|   it("al convertir, el remito pasa a convertido pero el diálogo SIGUE …
+    798|     const view = showPurchase()
+    799|     fireEvent.click(screen.getByRole("button", { name: /^compra$/i }))
+       |                            ^
+    800|     expect(screen.getByRole("dialog", { name: /pasar a compra/i })).to…
+    801|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/12]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  12 failed | 76 passed (88)
+   Start at  10:48:12
+   Duration  10.69s (transform 616ms, setup 392ms, import 1.89s, tests 4.40s, environment 3.49s)
+

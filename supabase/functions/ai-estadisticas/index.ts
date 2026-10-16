@@ -17,6 +17,7 @@
 import { createClient } from 'jsr:@supabase/supabase-js@2'
 import { checkAiQuota, incrementAiUsage, type AiQuotaClient } from '../_shared/ai-quota.ts'
 import { parseBusinessDateRange, parseOptionalUuid } from '../_shared/statistics-params.ts'
+import { resolveActiveAccountId, type AccountResolutionClient } from '../_shared/reporting-canon.ts'
 import {
   ESTADISTICAS_INSIGHT_TYPE,
   runEstadisticasAnalysis,
@@ -111,18 +112,14 @@ Deno.serve(async (req) => {
     const { start, end } = range.value
     const branchId = branch.value
 
-    // 3. Cuenta activa — mismo criterio determinístico que
-    //    backend/core/deps.py:get_account_id (membresía más antigua, por id).
-    //    Las RPCs vuelven a verificar la membresía (P0401).
-    const { data: membership } = await supabase
-      .from('account_members')
-      .select('account_id')
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: true })
-      .order('id', { ascending: true })
-      .limit(1)
-      .maybeSingle()
-    const accountId = (membership as { account_id?: string } | null)?.account_id
+    // 3. Cuenta activa — multiusuario-operativo (tanda A, D4): la MISMA
+    //    `resolveActiveAccountId` compartida que usan ai-insights / ai-precio /
+    //    generate-export (la copia en línea que había acá ordenaba `account_members`
+    //    por su cuenta). Es la RPC canónica `current_account_ids()`, ejecutada con el
+    //    JWT del usuario. Las RPCs vuelven a verificar la membresía (P0401).
+    //    Cast acotado (no `any`): el tipo real de supabase-js dispara TS2589 al
+    //    compararse con una interfaz angosta (mismo patrón que ai-precio/ai-insights).
+    const accountId = await resolveActiveAccountId(supabase as unknown as AccountResolutionClient)
     if (!accountId) return jsonResponse({ ok: false, error: 'no_active_account' }, 403)
 
     async function rpcRows<T>(fn: string, args: Record<string, unknown>): Promise<T[]> {

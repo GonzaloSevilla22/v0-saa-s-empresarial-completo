@@ -1,10 +1,10 @@
 baseline: exit 0
-D1 la conversi髇 sigue deshabilitada para compra: MUERTO
-D2 el bot髇 de compra abre el di醠ogo de VENTA: MUERTO
-D3 el bot髇 se llama siempre 'Venta': MUERTO
-D4 el motivo deshabilitado no se asocia al bot髇: MUERTO
-D5 el di醠ogo se monta sin que se haya abierto: MUERTO
-D6 el di醠ogo se desmonta al pasar a convertido: MUERTO
+D1 la conversi贸n sigue deshabilitada para compra: MUERTO
+D2 el bot贸n de compra abre el di谩logo de VENTA: MUERTO
+D3 el bot贸n se llama siempre 'Venta': MUERTO
+D4 el motivo deshabilitado no se asocia al bot贸n: MUERTO
+D5 el di谩logo se monta sin que se haya abierto: MUERTO
+D6 el di谩logo se desmonta al pasar a convertido: MUERTO
 D7 la capacidad de compra es la de venta: MUERTO
 sobrevivientes: ninguno
 exit 0

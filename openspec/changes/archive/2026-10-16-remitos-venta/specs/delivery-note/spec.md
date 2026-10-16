@@ -181,10 +181,11 @@ Las anulaciones rechazadas responden así:
 - **WHEN** se suman las `quantity_delta` de sus movimientos por par producto-sucursal
 - **THEN** cada suma es `0` e iguala al cambio neto del stock de ese par
 
-#### Scenario: Una fila forjada en el ledger no devuelve stock
-- **GIVEN** un remito `issued` que retiene 3 unidades de A, y un movimiento de `-1000` insertado por PostgREST con la referencia de ese remito
-- **WHEN** un administrador anula el remito
-- **THEN** el stock de A en su sucursal aumenta exactamente en 3, no en 1003
+#### Scenario: Una fila forjada en el ledger es rechazada y no devuelve stock
+- **GIVEN** un remito `issued` que retiene 3 unidades de A
+- **WHEN** un miembro de la cuenta intenta insertar por PostgREST un movimiento de `-1000` con la referencia de ese remito
+- **THEN** la inserción falla con `42501` *permission denied* (capa de privilegio) y no queda ninguna fila
+- **AND** al anular el remito un administrador, el stock de A en su sucursal aumenta exactamente en 3, no en 1003
 
 ### Requirement: Conversión atómica del remito en venta sin volver a mover stock
 El sistema SHALL convertir un remito `issued` en una venta confirmada en una sola transacción, con estos pasos:

@@ -1,0 +1,31 @@
+
+ RUN  v4.1.8 C:/Users/Usuario/Desktop/EIE/wt-remitos-compra-b/frontend
+
+ ❯ __tests__/pages/banco-conciliacion-import-warnings.test.tsx (8 tests | 1 failed) 24105ms
+     × muestra el conteo y el detalle de advertencias cuando el parser devuelve líneas ambiguas 20899ms
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  __tests__/pages/banco-conciliacion-import-warnings.test.tsx > ConciliacionTab — avisos de ambigüedad > muestra el conteo y el detalle de advertencias cuando el parser devuelve líneas ambiguas
+Error: Test timed out in 20000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ __tests__/pages/banco-conciliacion-import-warnings.test.tsx:77:3
+     75|
+     76| describe("ConciliacionTab — avisos de ambigüedad", () => {
+     77|   it("muestra el conteo y el detalle de advertencias cuando el parser …
+       |   ^
+     78|     mockParseBankStatementFile.mockResolvedValue({
+     79|       ok: true,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 92 passed (93)
+      Tests  1 failed | 1045 passed (1046)
+   Start at  11:10:56
+   Duration  205.95s (transform 69.48s, setup 87.36s, import 274.46s, tests 169.91s, environment 861.73s)
+

@@ -315,8 +315,12 @@ for (const who of ['owner', 'seller', 'stock', 'purchases']) {
   const sBefore = stockAll(harina)
   const del = await be(T.owner, 'DELETE', `/purchases?operation_id=${d.body.operation_id}`)
   check('(7) borrar una compra DIRECTA repone el stock (la regresión no cambió ese camino)', d.status === 201 && del.status < 300 && stockAll(harina) === sBefore - 3, `${sBefore}->${stockAll(harina)}`)
-  const sell = await be(T.seller, 'POST', '/purchases', { org_id: accA, items: [{ product_id: alf, quantity: 1, amount: 100 }], branch_id: br1 }, { 'Idempotency-Key': key() })
-  info(`(7) control de rol de compra directa: seller -> ${sell.status} (la compra directa exige rol de compras)`)
+  // Medición, no ataque: la compra DIRECTA la rechaza con `P0403 Permission denied to product` cualquier rol que no sea el dueño del
+  // producto (el chequeo por usuario `v_product.user_id <> v_uid`, preexistente y candidato del change); CAN_PURCHASE no se exige en el router.
+  for (const who of ['seller', 'stock', 'purchases']) {
+    const sell = await be(T[who], 'POST', '/purchases', { org_id: accA, items: [{ product_id: alf, quantity: 1, amount: 100 }], branch_id: br1 }, { 'Idempotency-Key': key() })
+    info(`(7) medición: compra directa como ${who} -> ${sell.status} ${JSON.stringify(sell.body?.detail ?? '').slice(0, 60)}`)
+  }
 }
 
 const bad = results.filter(([, ok]) => !ok)

@@ -172,7 +172,7 @@
 ## 9. Documentación
 
 - [x] 9.1a **Tanda A** (2026-10-03): ficha del change en `CHANGES.md` (pedido textual, sign-off, D1-D16 en una línea, migración `20261071000001`, verificación con conteos, humo, red-team, defectos abiertos, orden de locks, coordinación y candidatos que deja).
-- [ ] 9.1b **Tanda B**: completar la ficha con la conversión, el borrado y la edición de la compra nacida de un remito. Lo que sigue es el detalle original de 9.1:
+- [x] 9.1b **Tanda B**: completar la ficha con la conversión, el borrado y la edición de la compra nacida de un remito. *Hecho (2026-10-16)*: `CHANGES.md`, entrada del change `remitos-compra`, sección «TANDA B» (migración `20261081000001`, desvíos 1 a 12, verificación con conteos, humo 57/57, red-team 106/106, visual 101, defectos abiertos, orden de locks, coordinación con #645/#646, pendientes y candidatos); el encabezado del change pasa a «TANDA B apply». Nada en `CLAUDE.md`/`AGENTS.md`. Lo que sigue es el detalle original de 9.1:
   - ficha del change, con los hallazgos;
   - el orden de locks (`delivery_notes` primero en la conversión a compra, al final en el borrado de la compra) junto a la regla global;
   - candidatos que deja, cada uno con su motivo:

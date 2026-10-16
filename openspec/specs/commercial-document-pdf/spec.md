@@ -167,3 +167,48 @@ El componente SHALL notificar al consumidor cuando el documento se descargó o s
 - **WHEN** el usuario comparte el comprobante interno o la factura de una venta
 - **THEN** el comportamiento es el mismo que antes de la extracción de los helpers
 
+### Requirement: El constructor del PDF comercial admite el remito
+El sistema SHALL construir el PDF del remito con el mismo constructor compartido de documentos comerciales, extendido de forma aditiva para el presupuesto, que no cambia. La vista suma dos campos opcionales:
+- un **bloque de firma de recepción** con espacios para firma, aclaración, DNI y fecha, que no se parte entre páginas;
+- un **rótulo de origen** con la sucursal de la que sale la mercadería.
+
+Cuando la vista indica no mostrar precios, el PDF SHALL omitir las columnas de precio unitario y subtotal y el total, y la tabla de líneas SHALL quedar con descripción y cantidad con su unidad. La leyenda del remito SHALL ser "Remito — documento no válido como factura." Los datos del emisor SHALL resolverse igual que para el presupuesto, sin bloquear por datos faltantes.
+
+#### Scenario: Remito sin precios
+- **WHEN** se construye el PDF de un remito con la opción de no mostrar precios
+- **THEN** el PDF contiene "REMITO", el número, la sucursal de origen, las cantidades con su unidad, el bloque de firma y la leyenda, y no contiene precios ni total
+
+#### Scenario: Remito con precios
+- **WHEN** se construye el mismo PDF con la opción de mostrar precios
+- **THEN** el PDF incluye precio unitario, subtotal y total
+
+#### Scenario: El presupuesto no cambia
+- **WHEN** se construye el PDF de un presupuesto después de este cambio
+- **THEN** no lleva bloque de firma ni rótulo de origen y su contenido es el mismo que antes
+
+### Requirement: Endpoint del PDF del remito por id con tenencia
+El sistema SHALL exponer `GET /delivery-notes/{id}/pdf` con `disposition` (`inline` o `attachment`) y `show_prices` (booleano, falso por defecto).
+
+El endpoint SHALL devolver el PDF para cualquier estado del remito y para cualquier miembro de su cuenta. El archivo se llama `remito-R-00000012.pdf`, y `remito-R-00000012-con-precios.pdf` cuando se piden precios, para que las dos variantes no se confundan.
+
+Un remito de otra cuenta o inexistente SHALL responder 404 con el mismo cuerpo RFC 7807. Un parámetro inválido SHALL responder 422 y un pedido sin sesión, 401.
+
+#### Scenario: Descarga por defecto
+- **WHEN** un miembro de la cuenta pide el PDF de un remito sin `show_prices`
+- **THEN** recibe 200 `application/pdf` sin precios, con el nombre de archivo del número del remito
+
+#### Scenario: Remito de otra cuenta
+- **WHEN** un usuario pide el PDF de un remito de otra cuenta
+- **THEN** recibe 404 `delivery_note_not_found`, igual que para un id inexistente
+
+### Requirement: El constructor del PDF comercial admite el remito de compra
+El sistema SHALL generar el PDF del remito de compra con el constructor compartido de documentos comerciales y la vista del remito parametrizada por sentido: título "REMITO DE COMPRA", bloque "Recibido de" con el proveedor y su número de remito si existe, la sucursal donde ingresa la mercadería, el bloque de firma de quien recibe, precios y total sólo si se piden, sello "ANULADO" si corresponde y la leyenda "Remito — documento no válido como factura". El archivo SHALL llamarse `remito-compra-RC-<número>.pdf` (con el sufijo `-con-precios` si los muestra), tanto en la respuesta del endpoint como en el nombre que pone la pantalla al descargarlo o compartirlo.
+
+#### Scenario: PDF con precios
+- **WHEN** se descarga el PDF de un remito de compra pidiendo mostrar precios
+- **THEN** el PDF muestra el precio por línea y el total, y el archivo se llama `remito-compra-RC-00000012-con-precios.pdf`
+
+#### Scenario: El presupuesto y el remito de venta no cambian
+- **WHEN** se generan el PDF de un presupuesto y el de un remito de venta
+- **THEN** su contenido es el mismo que antes de este cambio
+

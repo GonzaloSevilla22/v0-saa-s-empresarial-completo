@@ -2,9 +2,11 @@
 
 ### Requirement: Reversa de stock al eliminar venta o compra, independiente de la ruta de creación
 
-Al eliminar una venta o una compra, el sistema SHALL revertir el movimiento de stock asociado contra `branch_stock`, de forma independiente de la ruta por la que se creó **o se modificó** la operación (`rpc_create_sale_operation_v2`, ruta legacy con `sale_items_rpc_v2` OFF, ruta C-29 `rpc_quick_sale` / `rpc_confirm_sales_order`, o el resultado de `rpc_atomic_update_sale_operation` / `rpc_atomic_update_purchase_operation`). Los datos de la reversa (`product_id`, `quantity_delta`, `branch_id`) SHALL leerse desde la fila de `stock_movements` que toda ruta de creación **y toda edición** escribe (`reference_id = <sale|purchase>.id`, `reference_type = 'sale'|'purchase'`), y NO desde `sale_items` / `purchase_items`. La reversa SHALL aplicar `-quantity_delta` (signo opuesto al movimiento original) vía `rpc_apply_product_stock_delta` sobre la `branch_id` registrada en el movimiento.
+Al eliminar una venta o una compra, el sistema SHALL revertir el movimiento de stock asociado contra `branch_stock`, de forma independiente de la ruta por la que se creó **o se modificó** la operación (`rpc_create_sale_operation_v2`, ruta legacy con `sale_items_rpc_v2` OFF, ruta C-29 `rpc_quick_sale` / `rpc_confirm_sales_order`, o el resultado de `rpc_atomic_update_sale_operation` / `rpc_atomic_update_purchase_operation`). Los datos de la reversa (`product_id`, `quantity_delta`, `branch_id`) SHALL leerse desde la fila de `stock_movements` que toda ruta de creación **y toda edición** escribe (`reference_id = <sale|purchase>.id`, `reference_type = 'sale'|'purchase'`), y NO desde `sale_items` / `purchase_items`. La reversa SHALL aplicar `-quantity_delta` (signo opuesto al movimiento original) sobre la `branch_id` registrada en el movimiento, salvo la excepción de la sucursal desactivada descrita abajo, a través del **helper interno de aritmética de saldo** (`_stock_apply_delta`: lock del producto, validación de sucursal, piso en cero trazable cuando el stock ya se vendió), y SHALL NOT pasar por la RPC pública de ajuste `rpc_apply_product_stock_delta`, que desde este cambio exige rol y motivo y rechaza los parámetros internos.
 
-El ledger es append-only: la fila reversada NO SHALL eliminarse ni modificarse. La reversa SHALL expresarse como un **contramovimiento** nuevo (`type = 'sale_return'` / `'purchase_return'`, `reference_type = 'sale_reversal'` / `'purchase_reversal'`, `metadata.reverses_movement_id` apuntando al movimiento original), tal como lo implementa `rpc_reverse_stock_movement`. Cuando la operación no tiene movimiento de stock (línea de servicio sin `product_id`), la eliminación SHALL proceder sin reversa y sin error; cuando la operación **tiene** `product_id`, la ausencia de movimiento de referencia es una violación de invariante, no un caso válido de "sin reversa", **salvo** en la venta nacida de un remito y en la compra nacida de un remito de compra.
+**Sucursal desactivada** (`stock-movimientos-sucursal-origen`): cuando la sucursal registrada en el movimiento original está desactivada (`is_active = false`), la reversa NO SHALL aplicarse en ella: una sucursal dada de baja no se lista ni se vende, y el stock que entrara ahí quedaría invisible. La reversa SHALL aplicarse en la sucursal principal operativa vigente de la cuenta (la misma resolución que se usa para un movimiento sin sucursal). Una sucursal **cerrada** pero activa NO es una sucursal desactivada: la reversa sobre ella SHALL seguir rechazándose con `P0422 branch_closed` hasta que se reabra. Un movimiento original sin sucursal SHALL seguir revirtiéndose en la principal vigente. Si la cuenta no tiene ninguna sucursal operativa, la principal vigente puede ser la misma sucursal desactivada: el stock SHALL entrar donde ya entra un movimiento sin sucursal, sin error nuevo, y el contramovimiento SHALL conservar la sucursal original sin `fallback_*` (no hubo respaldo).
+
+El ledger es append-only: la fila reversada NO SHALL eliminarse ni modificarse. La reversa SHALL expresarse como un **contramovimiento** nuevo (`type = 'sale_return'` / `'purchase_return'`, `reference_type = 'sale_reversal'` / `'purchase_reversal'`, `metadata.reverses_movement_id` apuntando al movimiento original), tal como lo implementa `rpc_reverse_stock_movement`. El contramovimiento SHALL registrar en `branch_id` la sucursal del movimiento original, salvo cuando se aplicó en la principal por estar desactivada la original: entonces SHALL registrar la sucursal en la que efectivamente se aplicó, y su `metadata` SHALL incluir también la sucursal original (`fallback_from_branch_id`) y el motivo (`fallback_reason = 'branch_inactive'`). `rpc_reverse_stock_movement` SHALL ser interna: invocable sólo desde las funciones `SECURITY DEFINER` de borrado (`rpc_delete_sale_operation`, `rpc_delete_purchase_operation`), nunca por `anon` ni `authenticated`. Cuando la operación no tiene movimiento de stock (línea de servicio sin `product_id`), la eliminación SHALL proceder sin reversa y sin error; cuando la operación **tiene** `product_id`, la ausencia de movimiento de referencia es una violación de invariante, no un caso válido de "sin reversa", **salvo** en la venta nacida de un remito y en la compra nacida de un remito de compra.
 
 **Excepción — venta nacida de un remito** (`remitos-venta`): cuando la orden de la venta tiene origen en un remito (`sales_orders.source_delivery_note_id`), el movimiento de stock de esa mercadería pertenece al remito (`reference_type = 'delivery_note'`, `reference_id` = id del remito), no a las filas de `sales`. La eliminación de esa venta SHALL saltear explícitamente la reversa de stock, sin depender de que no encuentre movimientos, y NO SHALL modificar `branch_stock`. La mercadería sigue entregada, el remito vuelve a pendiente, y devolver el stock es la anulación del remito.
 
@@ -45,6 +47,47 @@ El ledger es append-only: la fila reversada NO SHALL eliminarse ni modificarse. 
 - **GIVEN** una compra con `product_id` y fila en `stock_movements` (`reference_type = 'purchase'`, `quantity_delta > 0`, una entrada de stock)
 - **WHEN** se elimina la compra
 - **THEN** `branch_stock` de `(product_id, branch_id)` se decrementa en `quantity_delta` (revierte la entrada) y se registra el contramovimiento `purchase_return` / `purchase_reversal`
+
+#### Scenario: eliminar una compra ya vendida aplica el piso en cero trazable
+
+- **GIVEN** una compra de 5 unidades de las que ya se vendieron 3 (quedan 2 en la sucursal)
+- **WHEN** un usuario con permiso elimina la compra
+- **THEN** el saldo queda en 0, se registra el ajuste trazable con motivo `floor_on_purchase_delete` y el contramovimiento `purchase_return` por lo efectivamente aplicado, sin error
+
+#### Scenario: la reversa no es invocable por PostgREST
+
+- **WHEN** un usuario autenticado llama directamente a `rpc_reverse_stock_movement` con el id de una venta propia
+- **THEN** la llamada es rechazada por falta de `EXECUTE` y ni el saldo ni el ledger cambian; borrar esa venta por su camino normal sí la revierte
+
+#### Scenario: eliminar una venta cuyo movimiento está en una sucursal desactivada repone en la principal operativa
+
+- **GIVEN** una venta de 2 unidades cuyo movimiento registra la sucursal A, y A fue vaciada y desactivada después; la principal operativa de la cuenta es B
+- **WHEN** se elimina la venta
+- **THEN** `branch_stock` de B aumenta en 2, A sigue en 0, y el contramovimiento registra `branch_id = B` con `metadata.reverses_movement_id`, `metadata.fallback_from_branch_id = A` y `metadata.fallback_reason = 'branch_inactive'`
+
+#### Scenario: eliminar una compra cuyo movimiento está en una sucursal desactivada descuenta de la principal operativa
+
+- **GIVEN** una compra de 5 unidades cuyo movimiento registra la sucursal A, A fue vaciada y desactivada, y la principal operativa B tiene 3 unidades del producto
+- **WHEN** se elimina la compra
+- **THEN** B queda en 0 con el ajuste trazable `floor_on_purchase_delete`, A no cambia, y el contramovimiento `purchase_return` registra `branch_id = B` con la sucursal original en `metadata`
+
+#### Scenario: una sucursal cerrada sigue pidiendo reabrirse
+
+- **GIVEN** una venta cuyo movimiento registra la sucursal A, activa pero cerrada
+- **WHEN** se intenta eliminar la venta
+- **THEN** la eliminación se rechaza con `P0422 branch_closed`, sin cambios en `branch_stock` ni en el ledger
+
+#### Scenario: sin ninguna sucursal operativa no hay respaldo ni error nuevo
+
+- **GIVEN** una venta cuyo movimiento registra la sucursal A, y todas las sucursales de la cuenta están desactivadas
+- **WHEN** se elimina la venta
+- **THEN** el stock entra en la sucursal más antigua de la cuenta (donde ya entra un movimiento sin sucursal), el contramovimiento conserva `branch_id = A` y su `metadata` NO trae `fallback_from_branch_id` ni `fallback_reason`
+
+#### Scenario: un movimiento sin sucursal se sigue revirtiendo en la principal vigente
+
+- **GIVEN** una venta cuyo movimiento tiene `branch_id` nulo
+- **WHEN** se elimina la venta
+- **THEN** el stock se repone en la principal operativa vigente y el contramovimiento conserva `branch_id` nulo, como antes de este cambio
 
 #### Scenario: eliminar una venta nacida de un remito no repone el stock
 
@@ -108,7 +151,7 @@ Los `reference_type` SHALL ser estos, sumados de forma aditiva al conjunto cerra
 
 Cada movimiento SHALL poblar `quantity_before`, `quantity_after`, `branch_id`, `product_name`, `performed_by`, `operation_group_id` y el costo unitario congelado de la línea.
 
-El stock que un remito retiene (venta) o aporta (compra) en cada par SHALL ser la suma de las cantidades base guardadas en sus líneas vigentes, en su sucursal vigente: la cantidad que efectivamente se movió, normalizada al emitir o editar. La edición y la anulación SHALL revertir por ese valor, nunca reconvirtiendo las líneas y nunca sumando movimientos del ledger: `stock_movements` admite inserciones de los roles de aplicación, y una fila forjada NO SHALL poder convertirse en stock devuelto o restado de `branch_stock`.
+El stock que un remito retiene (venta) o aporta (compra) en cada par SHALL ser la suma de las cantidades base guardadas en sus líneas vigentes, en su sucursal vigente: la cantidad que efectivamente se movió, normalizada al emitir o editar. La edición y la anulación SHALL revertir por ese valor, nunca reconvirtiendo las líneas y nunca sumando movimientos del ledger: aunque ningún rol de aplicación puede escribir en `stock_movements` (ver «El ledger de stock y el saldo por sucursal se escriben sólo desde funciones SECURITY DEFINER»), el stock devuelto o restado de `branch_stock` NO SHALL depender de lo que diga el ledger, de modo que una fila ajena al remito, de cualquier origen, nunca pueda convertirse en stock devuelto o restado.
 
 Toda pata que resta stock SHALL verificar antes del delta que la sucursal tiene la cantidad y, si no, fallar con un error de negocio (en el remito de venta, el de stock insuficiente; en el de compra, `P0409 delivery_note_stock_consumed`), de modo que el stock nunca quede negativo ni la operación aborte por la restricción de stock no negativo de la tabla.
 
@@ -121,10 +164,11 @@ Ningún consumidor del ledger SHALL asumir que `type = 'sale'` implica una fila 
 - **WHEN** se emite un remito, se edita su cantidad dos veces y se lo anula
 - **THEN** la suma de los `quantity_delta` del remito para ese par es cero, el stock final iguala al inicial y cada movimiento lleva el `reference_type` de su momento
 
-#### Scenario: una fila forjada no cambia lo que devuelve la anulación
-- **GIVEN** un remito pendiente que retiene 3 unidades de A, y un movimiento de `-1000` con la referencia de ese remito insertado por PostgREST por un miembro de la cuenta
-- **WHEN** se anula el remito
-- **THEN** `branch_stock` de A aumenta exactamente en 3
+#### Scenario: una fila forjada es rechazada y no cambia lo que devuelve la anulación
+- **GIVEN** un remito pendiente que retiene 3 unidades de A
+- **WHEN** un miembro de la cuenta intenta insertar por PostgREST un movimiento de `-1000` con la referencia de ese remito
+- **THEN** la inserción falla con `42501` *permission denied* (capa de privilegio) y no queda ninguna fila
+- **AND** al anular el remito, `branch_stock` de A aumenta exactamente en 3
 
 #### Scenario: el reference_type del remito es admitido y distinto del de la venta
 - **WHEN** se registra un movimiento con `reference_type = 'delivery_note'`

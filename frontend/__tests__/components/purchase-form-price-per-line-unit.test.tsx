@@ -37,6 +37,11 @@ const SALAME: Product = {
 // productos-categorias-sku: purchase-form monta ProductCategorySelect en el alta
 // inline de producto → use-product-categories → python-client (explota sin
 // NEXT_PUBLIC_BACKEND_URL) y useOrgRole → react-query real (mockeado acá).
+// remitos-compra (tanda B, 7.9): purchase-form monta el aviso contra la doble suma
+// (consulta remitos de compra pendientes por react-query + python-client, que exige
+// NEXT_PUBLIC_BACKEND_URL). Este archivo no prueba ese aviso (lo cubre
+// purchase-form-pending-delivery-notes.test.tsx): se aísla.
+vi.mock("@/components/delivery-notes/PendingPurchaseNotesNotice", () => ({ PendingPurchaseNotesNotice: () => null }))
 vi.mock("@/hooks/data/use-product-categories", () => ({
   useProductCategories: () => ({ productCategories: [], isLoading: false, createProductCategory: vi.fn(), createProductCategoryMutation: { isPending: false } }),
 }))

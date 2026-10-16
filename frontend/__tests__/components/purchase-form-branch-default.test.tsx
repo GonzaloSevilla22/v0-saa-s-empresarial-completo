@@ -53,6 +53,11 @@ let currentSessionMock: { id: string } | null = null
 const usePlanLimitsMock = vi.fn()
 const useBranchesMock = vi.fn()
 
+// remitos-compra (tanda B, 7.9): purchase-form monta el aviso contra la doble suma
+// (consulta remitos de compra pendientes por react-query + python-client, que exige
+// NEXT_PUBLIC_BACKEND_URL). Este archivo no prueba ese aviso (lo cubre
+// purchase-form-pending-delivery-notes.test.tsx): se aísla.
+vi.mock("@/components/delivery-notes/PendingPurchaseNotesNotice", () => ({ PendingPurchaseNotesNotice: () => null }))
 vi.mock("@/hooks/auth/use-plan-limits", () => ({ usePlanLimits: () => usePlanLimitsMock() }))
 vi.mock("@/hooks/data/use-branches", () => ({ useBranches: () => useBranchesMock() }))
 vi.mock("@/hooks/data/use-cashboxes", () => ({ useCashboxes: () => ({ data: [{ id: "cashbox-1" }] }) }))

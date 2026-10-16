@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useCallback, useMemo, useEffect } from "react"
+import { useState, useCallback, useMemo, useEffect, type ReactNode } from "react"
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog"
@@ -32,11 +32,16 @@ interface Props {
     parsed:      ParsedInvoice,
     documentId:  string | null,
   ) => Promise<void>
+  /**
+   * Un aviso informativo justo antes de confirmar (remitos-compra tanda B, 7.9: los remitos
+   * de compra pendientes, para no sumar el stock dos veces). No bloquea la confirmación.
+   */
+  notice?:      ReactNode
 }
 
 export function InvoiceReviewModal({
   open, onOpenChange, parsed, lines: initialLines,
-  products, units, documentId, onConfirm,
+  products, units, documentId, onConfirm, notice,
 }: Props) {
   const [lines,       setLines]       = useState<MatchedInvoiceLine[]>(initialLines)
   const [confirming,  setConfirming]  = useState(false)
@@ -190,6 +195,8 @@ export function InvoiceReviewModal({
 
         {/* ── Footer ───────────────────────────────────────────────────────── */}
         <div className="border-t border-border px-6 py-4 shrink-0">
+          {notice && <div className="mb-4">{notice}</div>}
+
           {/* Summary */}
           <div className="flex items-center justify-between mb-4">
             <div className="text-sm text-muted-foreground">

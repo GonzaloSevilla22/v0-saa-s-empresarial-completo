@@ -14,6 +14,7 @@ import type {
   DeliveryNoteHistoryEntry,
   DeliveryNoteStatus,
 } from "@/lib/delivery-note-types"
+import { formatNumber } from "@/lib/format"
 
 /** El rótulo de cada estado, por sentido: sólo `converted` cambia ("en venta" / "en compra"). */
 export const DELIVERY_NOTE_STATUS_LABELS: Record<DeliveryNoteDirection, Record<DeliveryNoteStatus, string>> = {
@@ -319,4 +320,36 @@ export const DELIVERY_NOTE_TEXTS: Record<DeliveryNoteDirection, DeliveryNoteDire
       linkLabel: "Ver remitos de compra pendientes",
     }),
   },
+}
+
+// ── Aviso contra la doble suma (remitos-compra tanda B, D11, tarea 7.9) ─────────
+
+/**
+ * El escenario que justifica `remitos-compra` es "recibo con remito y la factura llega
+ * después". Las otras dos puertas que vuelven a SUMAR el stock —porque crean una compra
+ * directa— son el formulario de compra y la Factura IA: avisan que hay remitos de compra
+ * pendientes y mandan a convertirlos desde el remito. Es un AVISO, no un bloqueo: una
+ * compra directa puede ser legítimamente otra mercadería.
+ */
+export const PENDING_PURCHASE_NOTES_LINK_LABEL = "Ver remitos pendientes"
+
+const PENDING_PURCHASE_NOTES_TAIL = "convertilo desde el remito para no sumar el stock dos veces."
+
+/**
+ * El texto del aviso, o `null` si no hay pendientes. `supplier`: el formulario de compra
+ * con un proveedor elegido ("Este proveedor tiene …"); `account`: la Factura IA, que no
+ * identifica al proveedor ("Tenés …", de toda la cuenta).
+ */
+export function pendingPurchaseNotesNotice(count: number, scope: "supplier" | "account"): string | null {
+  if (!Number.isFinite(count) || count <= 0) return null
+  const lead = scope === "supplier" ? "Este proveedor tiene" : "Tenés"
+  const noun = count === 1 ? "remito de compra pendiente" : "remitos de compra pendientes"
+  const which = count === 1 ? "ese remito" : "uno de ellos"
+  return `${lead} ${formatNumber(count, 0)} ${noun}. Si esta factura es de ${which}, ${PENDING_PURCHASE_NOTES_TAIL}`
+}
+
+/** A la pestaña De compra, pendientes, y filtrada por proveedor si se conoce. */
+export function pendingPurchaseNotesHref(supplierId?: string | null): string {
+  const base = "/remitos?sentido=compra&estado=pendientes"
+  return supplierId ? `${base}&proveedor=${encodeURIComponent(supplierId)}` : base
 }

@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { InvoiceUploadZone } from "@/components/invoice/InvoiceUploadZone"
 import { InvoiceProcessingCard } from "@/components/invoice/InvoiceProcessingCard"
 import { InvoiceReviewModal } from "@/components/invoice/InvoiceReviewModal"
+import { PendingPurchaseNotesNotice } from "@/components/delivery-notes/PendingPurchaseNotesNotice"
 import { invoiceOcrService } from "@/lib/services/invoiceOcrService"
 import { enrichLines } from "@/lib/invoice-matcher"
 import type { PurchaseCartItem } from "@/lib/cart-utils"
@@ -249,6 +250,10 @@ export function InvoiceAIButton({ onPurchasesCreated }: Props) {
           units={units}
           documentId={session.document_id}
           onConfirm={handleConfirm}
+          // remitos-compra (tanda B, D11, 7.9): la Factura IA crea una compra directa, que
+          // vuelve a SUMAR el stock. No identifica al proveedor: si la cuenta tiene remitos
+          // de compra pendientes, avisa antes de confirmar (sin bloquear).
+          notice={<PendingPurchaseNotesNotice />}
         />
       )}
     </>

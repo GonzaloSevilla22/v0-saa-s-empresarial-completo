@@ -7,6 +7,7 @@ import { NumericInput } from "@/components/ui/numeric-input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { SupplierSelect } from "@/components/suppliers/SupplierSelect"
+import { PendingPurchaseNotesNotice } from "@/components/delivery-notes/PendingPurchaseNotesNotice"
 import { CartItemList } from "@/components/shared/cart-item-list"
 import { BarcodeScannerInput } from "@/components/shared/barcode-scanner-input"
 import { useProducts } from "@/hooks/data/use-products"
@@ -799,6 +800,12 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
                 labelId="purchase-supplier-label"
                 unresolvedHint={supplierUnresolved ? "Proveedor actual no disponible (dado de baja)" : null}
               />
+              {/* remitos-compra (tanda B, D11, 7.9): aviso contra la doble suma. Una compra
+                  directa vuelve a SUMAR el stock: si el proveedor tiene remitos de compra
+                  pendientes, la factura puede ser de uno de ellos y conviene convertirlo desde
+                  el remito. Sólo en el alta (la edición no suma stock de nuevo) y sin proveedor
+                  elegido no consulta nada. Es un aviso: no bloquea el guardado. */}
+              {!isEdit && <PendingPurchaseNotesNotice supplierId={supplierId} />}
             </>
           }
         />

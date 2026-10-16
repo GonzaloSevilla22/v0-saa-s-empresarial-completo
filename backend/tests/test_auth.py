@@ -288,6 +288,7 @@ async def test_claims_status_all_present_reports_source_token():
         "role_claim_present": True,
         "account_role_claim_present": True,
         "account_roles_claim_present": False,
+        "account_id_claim_present": False,
         "plan_claim_present": True,
         "effective_role": "admin",
         "effective_account_role": "owner",
@@ -373,7 +374,7 @@ async def test_claims_status_reports_account_roles_set_claim_presence_and_value(
 @pytest.mark.asyncio
 async def test_claims_status_never_exposes_raw_token_or_payload():
     """7.3c: la respuesta NUNCA debe contener el token ni el payload crudo —
-    solo las 7 claves del contrato de diagnóstico."""
+    solo las claves del contrato de diagnóstico."""
     token = make_token({
         "sub": "user-444",
         "role": "authenticated",
@@ -388,6 +389,7 @@ async def test_claims_status_never_exposes_raw_token_or_payload():
         "role_claim_present",
         "account_role_claim_present",
         "account_roles_claim_present",
+        "account_id_claim_present",
         "plan_claim_present",
         "effective_role",
         "effective_account_role",
@@ -523,3 +525,70 @@ async def test_clock_skew_beyond_leeway_is_still_rejected():
         with pytest.raises(HTTPException) as exc:
             await get_current_user(token=token)
     assert exc.value.status_code == 401
+
+
+
+# ── multiusuario-operativo tanda A (D4) — el token declara la cuenta activa ──
+# El hook emite `app_metadata.account_id` junto con los claims de rol y de plan
+# DE ESA cuenta. `get_current_user` lo expone en el contexto (siempre presente,
+# `None` si el token no lo trae) para que `require_account_role` sepa si los
+# claims de rol describen la cuenta activa del request, y `get_db_conn` lo
+# empuje a SQL.
+
+ACTIVE_ACCOUNT_ID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+
+
+@pytest.mark.asyncio
+async def test_get_current_user_exposes_account_id_claim():
+    """RED (3.4): `app_metadata.account_id` llega al contexto como string."""
+    token = make_token({
+        "sub": "user-acc-1",
+        "app_metadata": {"account_roles": ["owner"], "account_id": ACTIVE_ACCOUNT_ID},
+    })
+    with patch("backend.core.auth.settings") as mock_settings:
+        mock_settings.supabase_url = ""
+        mock_settings.supabase_jwt_secret = TEST_SECRET
+        mock_settings.auth_allow_hs256_fallback = True
+        result = await get_current_user(token=token)
+
+    assert result["account_id"] == ACTIVE_ACCOUNT_ID
+    assert set(result.keys()) == set(AuthContext.__annotations__.keys())
+    assert "account_id" in AuthContext.__annotations__
+
+
+@pytest.mark.asyncio
+async def test_get_current_user_without_account_id_claim_defaults_to_none():
+    """TRIANGULATE: token emitido antes del deploy (o usuario sin membresía) =>
+    `account_id` es None, la clave sigue presente (contrato anti-deriva) y NO se
+    inventa ningún default."""
+    token = make_token({
+        "sub": "user-acc-2",
+        "app_metadata": {"role": "user", "account_roles": ["owner"], "plan": "pro"},
+    })
+    with patch("backend.core.auth.settings") as mock_settings:
+        mock_settings.supabase_url = ""
+        mock_settings.supabase_jwt_secret = TEST_SECRET
+        mock_settings.auth_allow_hs256_fallback = True
+        result = await get_current_user(token=token)
+
+    assert "account_id" in result
+    assert result["account_id"] is None
+
+
+@pytest.mark.asyncio
+async def test_claims_status_reports_account_id_claim_presence_without_exposing_it():
+    """El diagnóstico dice SI el claim viaja (instrumento de verificación del
+    deploy: el hook nunca escribe auth.users.raw_app_metadata), pero no devuelve
+    el valor: la respuesta describe presencia, no identidad."""
+    token = make_token({
+        "sub": "user-acc-3",
+        "app_metadata": {"role": "user", "account_role": "owner", "plan": "pro", "account_id": ACTIVE_ACCOUNT_ID},
+    })
+    with patch("backend.core.auth.settings") as mock_settings:
+        mock_settings.supabase_url = ""
+        mock_settings.supabase_jwt_secret = TEST_SECRET
+        mock_settings.auth_allow_hs256_fallback = True
+        present = await get_claims_status(token=token)
+
+    assert present["account_id_claim_present"] is True
+    assert ACTIVE_ACCOUNT_ID not in str(present)

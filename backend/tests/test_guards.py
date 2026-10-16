@@ -19,12 +19,24 @@ import pytest
 from fastapi import HTTPException
 
 
-def _auth(account_role: str | None = None, account_roles: list[str] | None = None) -> dict:
+ACTIVE_ACCOUNT = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+
+
+def _auth(
+    account_role: str | None = None,
+    account_roles: list[str] | None = None,
+    account_id: str | None = ACTIVE_ACCOUNT,
+) -> dict:
+    """Contexto de auth. multiusuario-operativo (D4): los claims de rol sólo
+    valen si el token DECLARA la cuenta que describen (`account_id`); por
+    defecto el token la declara, que es lo que emite el hook. Los tests de
+    'token viejo' la pasan en `None`."""
     return {
         "user_id": "11111111-1111-1111-1111-111111111111",
         "role": "user",
         "account_role": account_role,
         "account_roles": account_roles,
+        "account_id": account_id,
         "plan": "gratis",
     }
 
@@ -288,3 +300,98 @@ async def test_require_account_role_non_iterable_claim_denies_instead_of_500():
         await require_account_role(conn, auth, ["owner", "admin"])
 
     assert exc_info.value.status_code == 403
+
+
+# ── multiusuario-operativo tanda A (D4) — los claims de rol sólo valen si ───
+# ── describen la cuenta activa del request ──────────────────────────────────
+#
+# El hook emite `account_role`/`account_roles`/`plan` DE LA CUENTA ACTIVA y,
+# desde este change, también `account_id`. Un token SIN `account_id` (emitido
+# antes del deploy: vive a lo sumo 15 min) trae claims de rol de la membresía MÁS
+# ANTIGUA, que bajo multi-membresía puede no ser la cuenta sobre la que SQL va a
+# operar. Autorizar con ellos sería autorizar sobre una cuenta y escribir en otra.
+
+
+@pytest.mark.asyncio
+async def test_require_account_role_ignores_role_claims_when_token_has_no_account_id():
+    """RED (3.3): sin `account_id` en el contexto, los claims de rol se IGNORAN
+    y se consulta la base (`rpc_my_active_account_roles()`, que ya resuelve sobre
+    la cuenta activa). El claim diría 'owner'; la base dice 'viewer' => 403."""
+    from backend.core.guards import require_account_role
+
+    conn = AsyncMock()
+    conn.fetchval = AsyncMock(return_value=["viewer"])
+    auth = _auth(account_role="owner", account_roles=["owner"], account_id=None)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await require_account_role(conn, auth, ["owner", "admin", "seller"])
+
+    assert exc_info.value.status_code == 403
+    conn.fetchval.assert_awaited_once()
+    assert "rpc_my_active_account_roles" in conn.fetchval.call_args.args[0]
+
+
+@pytest.mark.asyncio
+async def test_require_account_role_without_account_id_authorizes_with_the_database_roles():
+    """TRIANGULATE (3.3): el caso espejo — el claim NO alcanzaría (['viewer']) pero
+    la base dice ['seller'] => autoriza. Prueba que decide la base, no el claim."""
+    from backend.core.guards import require_account_role
+
+    conn = AsyncMock()
+    conn.fetchval = AsyncMock(return_value=["seller"])
+    auth = _auth(account_role="viewer", account_roles=["viewer"], account_id=None)
+
+    await require_account_role(conn, auth, ["seller"])
+
+    conn.fetchval.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_require_account_role_with_account_id_uses_the_claim_without_querying():
+    """El camino normal no cambia: con `account_id` presente el claim del
+    conjunto decide, sin tocar la base (hot path del POS)."""
+    from backend.core.guards import require_account_role
+
+    conn = AsyncMock()
+    auth = _auth(account_roles=["seller"], account_id=ACTIVE_ACCOUNT)
+
+    await require_account_role(conn, auth, ["seller", "cashier"])
+
+    conn.fetchval.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_require_account_role_sensitive_capability_exception_is_unchanged():
+    """La excepción de CAN_CONFIGURE (D12 de auth-hardening) no cambia: se
+    consulta la base AUNQUE el token traiga `account_id` y el claim, y decide la
+    base."""
+    from backend.core.guards import require_account_role
+    from backend.core.rbac import CAN_CONFIGURE
+
+    conn = AsyncMock()
+    conn.fetchval = AsyncMock(return_value=["viewer"])
+    auth = _auth(account_roles=["owner"], account_id=ACTIVE_ACCOUNT)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await require_account_role(conn, auth, CAN_CONFIGURE)
+
+    assert exc_info.value.status_code == 403
+    conn.fetchval.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_require_account_role_context_without_the_account_id_key_behaves_as_absent():
+    """Un contexto armado sin la clave `account_id` (código viejo, dict a mano)
+    se trata igual que `None`: falla cerrado hacia la base, nunca hacia el claim."""
+    from backend.core.guards import require_account_role
+
+    conn = AsyncMock()
+    conn.fetchval = AsyncMock(return_value=[])
+    auth = _auth(account_roles=["owner"])
+    del auth["account_id"]
+
+    with pytest.raises(HTTPException) as exc_info:
+        await require_account_role(conn, auth, ["owner"])
+
+    assert exc_info.value.status_code == 403
+    conn.fetchval.assert_awaited_once()

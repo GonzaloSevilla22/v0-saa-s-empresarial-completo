@@ -88,6 +88,24 @@ updated_at      TIMESTAMP   -- auto-update via trigger
 
 ---
 
+### `account_invitations` — Invitaciones a una cuenta (`multiusuario-operativo`, tanda C, 2026-10-17)
+```sql
+id                   UUID     PK
+account_id           UUID     FK accounts ON DELETE CASCADE
+email                TEXT     -- minúsculas; lo valida rpc_invite_member (P0400 invalid_email)
+token                TEXT     UNIQUE   -- hex de 64 caracteres; se ROTA al reenviar; nunca se lista
+status               TEXT     -- pending|accepted|expired|revoked   (CHECK; 'revoked' agregado en la tanda C)
+roles                TEXT[]   -- conjunto de códigos de account_role_catalog (NULL = fila legacy: deriva de role)
+role                 TEXT     -- legacy: owner|admin|member
+invited_by           UUID     FK auth.users ON DELETE RESTRICT
+created_at / expires_at       -- vence a los 7 días; reenviar renueva
+account_display_name TEXT     -- snapshot del nombre visible del negocio al ENVIAR (≤ 120): lo necesita la vista previa
+revoked_at / revoked_by       -- autoría de la revocación (sin FK dura)
+```
+RLS: `account_invitations_owner_all` sólo deja ver y escribir las filas al **dueño** de la cuenta; el listado para dueño **y** administrador sale de `rpc_list_account_invitations` (`SECURITY DEFINER`, sin token). La escritura y la lectura de la aplicación van por las RPCs `rpc_invite_member`, `rpc_send_invitation_email`, `rpc_revoke_invitation`, `rpc_invitation_preview` y `rpc_accept_invitation` (ninguna ejecutable por `anon`). El envío se cuenta sobre `email_logs` (índice parcial por cuenta para `org_invite`): `email_logs.metadata` lleva `invitation_id`, `account_id`, `token`, `account_name`, `inviter_name`, `role_labels`, `expires_at` y `sent_at`.
+
+---
+
 ### `products` — Catálogo de Productos
 ```sql
 id                  UUID        PK
@@ -526,7 +544,7 @@ created_at  TIMESTAMP
 ```sql
 id              UUID    PK
 user_id         UUID    NULLABLE    FK auth.users
-event_type      TEXT    -- welcome|meeting_notice|pool_notice|low_stock_alert|low_margin_alert
+event_type      TEXT    -- welcome|meeting_notice|pool_notice|low_stock_alert|low_margin_alert|org_invite|...
 recipient       TEXT    -- email address o 'all_users'
 subject         TEXT
 status          TEXT    -- pending|sent|failed|partial

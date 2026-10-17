@@ -125,6 +125,39 @@ export function receiptAttachmentFilename(receiptNumber: unknown): string {
   return `recibo-${safeFilenamePart(receiptNumber, "aliadata")}.pdf`
 }
 
+// ── org_invite (multiusuario-operativo tanda C) ─────────────────────────────────
+/**
+ * Un token de invitación real es hex de 64 caracteres. La plantilla sólo dibuja el botón si el
+ * token tiene FORMA de token (letras, dígitos, `_`, `-`): lo demás —vacío, con `/`, `..`, espacios,
+ * un objeto con `toString`— no llega a un href. Además se codifica con `encodeURIComponent`.
+ */
+const INVITE_TOKEN_SHAPE = /^[A-Za-z0-9_-]{16,128}$/
+
+function inviteLink(rawToken: unknown): string | undefined {
+  if (typeof rawToken !== "string" || !INVITE_TOKEN_SHAPE.test(rawToken)) return undefined
+  return `${APP_URL}/invitacion/${encodeURIComponent(rawToken)}`
+}
+
+/** Hasta 8 textos no vacíos (etiquetas de rol o, en su defecto, códigos), de a lo sumo 60 caracteres. */
+function inviteRoleNames(m: Meta): string[] {
+  const pick = (raw: unknown): string[] =>
+    Array.isArray(raw)
+      ? raw
+          .filter((v): v is string => typeof v === "string" && v.trim() !== "")
+          .map((v) => v.trim().slice(0, 60))
+          .slice(0, 8)
+      : []
+  const labels = pick(m.role_labels)
+  return labels.length > 0 ? labels : pick(m.roles)
+}
+
+/** Fecha de vencimiento legible, o `""` si la metadata no trae una fecha válida (nada de "Invalid Date"). */
+function inviteExpiry(raw: unknown): string {
+  if (typeof raw !== "string") return ""
+  const date = new Date(raw)
+  return Number.isNaN(date.getTime()) ? "" : date.toLocaleDateString("es-AR")
+}
+
 /**
  * Renders the HTML body of the email for one `email_logs` row. `metadata` is
  * untrusted: it is escaped slot by slot and never read for a URL.
@@ -328,6 +361,26 @@ export function renderEmailHtml(eventType: string, rawMetadata: unknown): string
       bodyHtml: digest.bodyHtml,
       ctaText: digest.ctaText,
       ctaUrl: digest.ctaUrl,
+    })
+  } else if (eventType === "org_invite") {
+    // multiusuario-operativo tanda C (D10, spec transactional-email-delivery «Plantilla de correo de
+    // invitación a una cuenta»). El único correo que la app manda a una dirección que elige un usuario.
+    // Nombre del negocio, de quien invita y etiquetas de rol son datos del usuario: van ESCAPADOS. El
+    // botón sale de APP_URL + el token codificado; ninguna URL de la metadata se lee, y `layout()`
+    // además descarta cualquier ctaUrl que no esté bajo APP_URL.
+    const inviter = typeof m.inviter_name === "string" && m.inviter_name.trim() !== "" ? m.inviter_name.trim() : ""
+    const business = typeof m.account_name === "string" && m.account_name.trim() !== "" ? m.account_name.trim() : "un negocio"
+    const roles = inviteRoleNames(m)
+    const expiry = inviteExpiry(m.expires_at)
+    const link = inviteLink(m.token)
+    const inviterHtml = inviter ? `<strong>${escapeHtml(inviter)}</strong>` : "Alguien de tu equipo"
+    htmlContent = layout({
+      title: "Te invitaron a sumarte a un equipo",
+      intro: `${inviterHtml} te invitó a sumarte a <strong>${escapeHtml(business)}</strong> en ALIADATA${roles.length > 0 ? ` como <strong>${escapeHtml(roles.join(", "))}</strong>` : ""}.`,
+      bodyHtml: `<p style="margin:0 0 12px;">${expiry ? `La invitación vence el <strong>${escapeHtml(expiry)}</strong>. ` : ""}Para aceptarla ingresá a ALIADATA con este mismo email, o creá tu cuenta con él.</p>
+          <p style="margin:0;color:#64748b;">Si no esperabas esta invitación, ignorá este mensaje: no pasa nada hasta que la aceptes.</p>`,
+      ctaText: link ? "Ver la invitación" : undefined,
+      ctaUrl: link,
     })
   } else if (eventType === "subscription_cancelled") {
     // mp-real-subscriptions (task 7.2) — baja voluntaria o reportada por

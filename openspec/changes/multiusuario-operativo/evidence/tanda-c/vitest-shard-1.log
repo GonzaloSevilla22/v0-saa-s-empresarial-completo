@@ -1,0 +1,9 @@
+
+ RUN  v4.1.8 C:/Users/Usuario/Desktop/EIE/wt-multiusuario-c/frontend
+
+
+ Test Files  97 passed (97)
+      Tests  1276 passed (1276)
+   Start at  06:03:40
+   Duration  228.71s (transform 78.76s, setup 101.75s, import 287.67s, tests 222.76s, environment 924.22s)
+

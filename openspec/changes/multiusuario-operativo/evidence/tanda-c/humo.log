@@ -1,0 +1,41 @@
+PASS: 1. el dueño invita desde /organizacion/invitar y la pantalla dice «Le enviamos un email a humoc-invitee@test.local»
+PASS:    la invitación quedó pendiente con el rol vendedor (roles=["seller"])
+PASS:    se encoló UN email org_invite con el destinatario y el token de la fila
+   mailbridge: 1 correo(s) entregados a Mailpit
+PASS: 2. en Mailpit hay UN correo para el invitado (hay 1)
+PASS:    el botón es APP_URL + /invitacion/ + el token de la fila (https://www.aliadata.com.ar/invitacion/<token>)
+PASS:    el nombre del negocio «Ferretería <Roca> & Hijos» sale ESCAPADO (texto, no marcado)
+PASS:    nombra a quien invita (Dueña Roca) y el rol (Vendedor)
+PASS:    ningún enlace del correo sale de la app
+   asunto: Invitación para sumarte a Ferretería <Roca> & Hijos en ALIADATA
+PASS: 3. sin sesión: ve el mensaje genérico
+PASS:    y NO ve el nombre del negocio ni el de quien invita
+PASS:    (el token sólo está en la URL)
+PASS:    Referrer-Policy: no-referrer
+PASS:    X-Robots-Tag: noindex, nofollow, noarchive
+PASS:    <meta name=robots> noindex
+PASS:    «Crear cuenta» lleva al registro con ?next=/invitacion/<token>
+PASS:    se registra con el email invitado y la pantalla de verificación lo devuelve a LA INVITACIÓN (no al Tablero)
+PASS:    con la identidad correcta ve la vista previa: negocio, quién invita y rol
+PASS: 4. aceptar dejó el negocio como cuenta activa (profiles.active_account_id)
+PASS:    conserva su cuenta personal: dos membresías
+PASS:    la invitación quedó accepted
+PASS:    el Tablero muestra el negocio como cuenta activa (nombre en el selector)
+PASS:    el invitado vende por el formulario un producto cargado por el DUEÑO (R3a): la venta quedó en el NEGOCIO con él como autor
+PASS:    el stock del negocio bajó 1
+PASS:    ninguna venta cayó en su cuenta personal (R3l)
+PASS: 5. el dueño edita la venta del invitado (R3d) -> 200
+PASS:    la autoría de la venta se CONSERVA (sigue siendo del invitado)
+PASS: 6. reenviar enseguida: «Esperá unos minutos…» (enfriamiento de 10 min)
+PASS:    el rechazo no rotó el token
+PASS:    pasado el enfriamiento, reenviar ROTA el token
+   mailbridge: 2 correo(s) entregados a Mailpit
+PASS:    hay 2 correos para la invitada y uno lleva el link NUEVO (2)
+PASS:    el link VIEJO muestra «no disponible para tu usuario»
+PASS:    el link NUEVO muestra la vista previa con «Aceptar»
+PASS:    «Revocar» (con confirmación) deja la invitación revocada
+PASS:    y el invitado ya no puede aceptar: «no disponible para tu usuario»
+PASS:    con 20 envíos en el día: «Alcanzaste el máximo de invitaciones por día…» (429)
+PASS:    y la invitación NO quedó creada (crear + enviar son atómicos)
+
+RESULTADO: TODO PASS

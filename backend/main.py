@@ -30,6 +30,7 @@ from backend.routers import (
     expenses,
     fiscal,
     health,
+    invitations,
     journal_entries,
     members,
     outbox,
@@ -229,6 +230,11 @@ app.include_router(bank_accounts.router)
 app.include_router(bank_reconciliation.router)
 # banco-caja-historial-ajustes (D3) — historial paginado de movimientos bancarios
 app.include_router(bank_movements.router)
+# multiusuario-operativo tanda C (grupo 15): la invitación de punta a punta. Las rutas literales de
+# /members/invitations se registran ANTES que el router de /members; ninguna de ellas la puede capturar un
+# `/members/{user_id}`. `token_router` (/invitations/{token}) es del invitado: ya autenticado, sin rol ni cuenta.
+app.include_router(invitations.router)
+app.include_router(invitations.token_router)
 # v3-rbac-multirole Parte C (grupo 14): administración de miembros y sus roles
 app.include_router(members.router)
 # balanza-etiquetas-pos (D13): configuración de la balanza etiquetadora por cuenta

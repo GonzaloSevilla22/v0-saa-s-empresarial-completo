@@ -48,6 +48,11 @@ vi.mock("@/lib/supabase/client", () => ({
   createClient: () => ({ rpc: vi.fn() }),
 }))
 
+// multiusuario-operativo tanda C: la invitación rápida comparte `InviteMemberForm` (catálogo de roles +
+// FastAPI) y por eso TeamSection arrastra `python-client` (que exige NEXT_PUBLIC_BACKEND_URL al importarse).
+vi.mock("@/lib/api/python-client", () => ({ pythonClient: { get: vi.fn(), post: vi.fn(), delete: vi.fn() } }))
+vi.mock("@/hooks/data/use-role-catalog", () => ({ useRoleCatalog: () => ({ data: [] }) }))
+
 import { TeamSection } from "@/components/settings/TeamSection"
 
 function wrapper({ children }: { children: ReactNode }) {

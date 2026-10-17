@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
 import { useAuth } from "@/contexts/auth-context"
 import { Button } from "@/components/ui/button"
@@ -17,6 +17,7 @@ import { CAPTCHA_RENEWAL_LABEL } from "@/lib/captcha-freshness"
 import { useCaptchaGate } from "@/hooks/auth"
 import { TERMS_VERSION, LEGAL_ROUTES } from "@/lib/legal"
 import { PROVINCIAS_AR } from "@/lib/provincias"
+import { safeInvitationNext } from "@/lib/auth/invitation-next"
 import { AuthSceneMount, AUTH_SCENE_BOX_CLASS } from "@/components/three/AuthSceneMount"
 
 // Email: chequeo pragmático (algo@algo.algo, sin espacios).
@@ -46,7 +47,12 @@ export default function RegisterPage() {
   const [emailOptIn, setEmailOptIn] = useState(false)
   const { register } = useAuth()
   const router = useRouter()
+  const searchParams = useSearchParams()
   const captchaGate = useCaptchaGate()
+  // multiusuario-operativo tanda C (D12): quien abre el link de una invitación sin cuenta llega acá con
+  // `?next=/invitacion/<token>` y, al confirmar su email, tiene que VOLVER a esa invitación. Allow-list
+  // estrecha (`safeInvitationNext`): cualquier otro destino se descarta; la acción de servidor lo re-valida.
+  const invitationNext = safeInvitationNext(searchParams.get("next"))
 
   const passwordRequirements = [
     { label: "Mínimo 8 caracteres", test: (p: string) => p.length >= 8 },
@@ -146,11 +152,17 @@ export default function RegisterPage() {
           termsVersion: TERMS_VERSION,
           emailOptIn,
           captchaToken: token,
+          ...(invitationNext ? { next: invitationNext } : {}),
         }),
       )
       // Go directly to the verification screen — no intermediate /dashboard hop.
       // The middleware would catch it anyway, but going direct avoids the extra redirect.
-      router.push(`/auth/verify-email?email=${encodeURIComponent(email)}`)
+      // Con una invitación de por medio, la pantalla de verificación la recuerda para llevar ahí al verificarse.
+      router.push(
+        `/auth/verify-email?email=${encodeURIComponent(email)}${
+          invitationNext ? `&next=${encodeURIComponent(invitationNext)}` : ""
+        }`,
+      )
     } catch (error: unknown) {
       toast.error(error instanceof Error ? error.message : "No se pudo crear la cuenta")
     }
@@ -389,7 +401,10 @@ export default function RegisterPage() {
               </Button>
               <p className="text-sm text-muted-foreground">
                 {"¿Ya tenés cuenta? "}
-                <Link href="/auth/login" className="text-primary underline-offset-4 hover:underline">
+                <Link
+                  href={invitationNext ? `/auth/login?next=${encodeURIComponent(invitationNext)}` : "/auth/login"}
+                  className="text-primary underline-offset-4 hover:underline"
+                >
                   Iniciá sesión
                 </Link>
               </p>

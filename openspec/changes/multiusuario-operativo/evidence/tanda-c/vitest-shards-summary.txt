@@ -1,0 +1,19 @@
+shard 1 EXIT=0
+shard 1:  Test Files  97 passed (97)
+shard 1:       Tests  1276 passed (1276)
+shard 2 EXIT=0
+shard 2:  Test Files  96 passed (96)
+shard 2:       Tests  1130 passed (1130)
+shard 3 EXIT=0
+shard 3:  Test Files  96 passed (96)
+shard 3:       Tests  1096 passed (1096)
+shard 4 EXIT=0
+shard 4:  Test Files  96 passed (96)
+shard 4:       Tests  1176 passed (1176)
+shard 5 EXIT=0
+shard 5:  Test Files  96 passed (96)
+shard 5:       Tests  1172 passed (1172)
+shard 6 EXIT=0
+shard 6:  Test Files  96 passed (96)
+shard 6:       Tests  1154 passed (1154)
+DONE

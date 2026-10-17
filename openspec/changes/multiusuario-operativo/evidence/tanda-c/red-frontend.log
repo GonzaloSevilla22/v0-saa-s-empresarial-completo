@@ -1,0 +1,75 @@
+RED de la tanda C (frontend): los tests nuevos contra las fuentes de HEAD (sin la implementación)
+      Tests  38 failed | 156 passed (194)
+ FAIL  __tests__/RegisterPage.test.tsx > RegisterPage — volver a la invitación tras crear la cuenta > con ?next=/invitacion/<token> lo pasa al registro y la pantalla de verificación recuerda la invitación
+ FAIL  __tests__/RegisterPage.test.tsx > RegisterPage — volver a la invitación tras crear la cuenta > «Iniciá sesión» conserva la invitación (el link vuelve a la misma pantalla)
+ FAIL  __tests__/a11y/invitaciones.a11y.test.tsx [ __tests__/a11y/invitaciones.a11y.test.tsx ]
+ FAIL  __tests__/app/VerifyEmailPage-invitation-next.test.tsx > /auth/verify-email — destino tras verificarse > con ?next=/invitacion/<token> navega a la invitación
+ FAIL  __tests__/app/VerifyEmailPage-invitation-next.test.tsx > /auth/verify-email — destino tras verificarse > si no hay sesión viva tras verificar, el login conserva la invitación para volver
+ FAIL  __tests__/app/auth-actions.test.ts > signUpAction — volver a la invitación tras registrarse > con next = /invitacion/<token> el enlace de verificación vuelve a esa invitación
+ FAIL  __tests__/auth-context-active-account.test.tsx > auth-context — adoptActiveAccount (aceptar una invitación) > NO vuelve a persistir la cuenta: la preferencia ya la guardó la base al aceptar
+ FAIL  __tests__/auth-context-active-account.test.tsx > auth-context — adoptActiveAccount (aceptar una invitación) > el orden importa: renovación ante el proveedor -> lectura del token nuevo -> recién ahí resincroniza
+ FAIL  __tests__/auth-context-active-account.test.tsx > auth-context — adoptActiveAccount (aceptar una invitación) > renueva ante el proveedor, limpia la caché, avisa a las otras pestañas, lleva al Tablero y da la bienvenida
+ FAIL  __tests__/auth-context-active-account.test.tsx > auth-context — adoptActiveAccount (aceptar una invitación) > si el proveedor no entrega una sesión nueva, el cambio NO se da por hecho: avisa y rechaza
+ FAIL  __tests__/auth-context-active-account.test.tsx > auth-context — logout con returnTo > con la ruta de una invitación, el login conserva el destino para volver tras ingresar
+ FAIL  __tests__/components/InvitationAcceptance.test.tsx [ __tests__/components/InvitationAcceptance.test.tsx ]
+ FAIL  __tests__/components/TeamSection-invite.test.tsx > TeamSection — invitación rápida > declara el conjunto de roles y va por FastAPI (no por rpc_invite_member de 2 argumentos)
+ FAIL  __tests__/components/TeamSection-invite.test.tsx > TeamSection — invitación rápida > el administrador también invita, pero sin ofrecer propietario ni administrador
+ FAIL  __tests__/components/TeamSection-invite.test.tsx > TeamSection — invitación rápida > ofrece el selector de roles (la invitación rápida ya no es ciega)
+ FAIL  __tests__/components/TeamSection-invite.test.tsx > TeamSection — invitación rápida > quien no es dueño ni administrador no ve el formulario
+ FAIL  __tests__/components/TeamSection-invite.test.tsx > TeamSection — invitación rápida > un error del backend (429) se muestra con su mensaje accionable
+ FAIL  __tests__/lib/invitation-errors.test.ts [ __tests__/lib/invitation-errors.test.ts ]
+ FAIL  __tests__/lib/invitation-next.test.ts [ __tests__/lib/invitation-next.test.ts ]
+ FAIL  __tests__/lib/middleware-invitation-route.test.ts > updateSession — /invitacion/[token] > la respuesta lleva Referrer-Policy: no-referrer y X-Robots-Tag: noindex
+ FAIL  __tests__/lib/middleware-invitation-route.test.ts > updateSession — /invitacion/[token] > sin sesión se sirve (no hay redirect al login): la pantalla decide qué mostrar
+ FAIL  __tests__/lib/protected-routes-coverage.test.ts > D4 — candado simétrico: ningún árbol público nace gateado > lee los árboles reales de app/ que no son el área autenticada
+ FAIL  __tests__/pages/organizacion-invitar.test.tsx > Reenviar > reenvía por FastAPI, avisa que el link anterior ya no sirve y ofrece copiar el link NUEVO
+ FAIL  __tests__/pages/organizacion-invitar.test.tsx > Reenviar > un reenvío demasiado pronto (429) dice qué esperar y no ofrece link
+ FAIL  __tests__/pages/organizacion-invitar.test.tsx > Revocar > pide confirmación y recién después revoca
+ FAIL  __tests__/pages/organizacion-invitar.test.tsx > Revocar > «Cancelar» no revoca nada
+ FAIL  __tests__/pages/organizacion-invitar.test.tsx > crear la invitación > NUNCA invita por supabase-js (rpc_invite_member ya no se llama desde el navegador)
+ FAIL  __tests__/pages/organizacion-invitar.test.tsx > crear la invitación > el éxito dice que se envió un email — no «compartí el token»
+ FAIL  __tests__/pages/organizacion-invitar.test.tsx > crear la invitación > invita por FastAPI con el email normalizado y el conjunto de roles
+ FAIL  __tests__/pages/organizacion-invitar.test.tsx > crear la invitación > no imprime el token en pantalla
+ FAIL  __tests__/pages/organizacion-invitar.test.tsx > crear la invitación > traduce el error 0 a un mensaje accionable
+ FAIL  __tests__/pages/organizacion-invitar.test.tsx > crear la invitación > traduce el error 1 a un mensaje accionable
+ FAIL  __tests__/pages/organizacion-invitar.test.tsx > crear la invitación > traduce el error 2 a un mensaje accionable
+ FAIL  __tests__/pages/organizacion-invitar.test.tsx > crear la invitación > traduce el error 3 a un mensaje accionable
+ FAIL  __tests__/pages/organizacion-invitar.test.tsx > crear la invitación > traduce el error 4 a un mensaje accionable
+ FAIL  __tests__/pages/organizacion-invitar.test.tsx > crear la invitación > «Copiar link» es secundario y copia el LINK completo, no el token suelto
+ FAIL  __tests__/pages/organizacion-invitar.test.tsx > la lista de invitaciones > distingue vencidas y revocadas; las revocadas no ofrecen acciones
+ FAIL  __tests__/pages/organizacion-invitar.test.tsx > la lista de invitaciones > muestra email, roles, estado, cuántas veces se envió y el vencimiento — sin token
+ FAIL  __tests__/pages/organizacion-invitar.test.tsx > la lista de invitaciones > si no se puede cargar, ofrece reintentar
+ FAIL  __tests__/pages/organizacion-invitar.test.tsx > la lista de invitaciones > sin invitaciones lo dice
+ FAIL  __tests__/pages/organizacion-invitar.test.tsx > roles invitables > con el cupo lleno no se ofrece el formulario y se ofrece ver planes
+ FAIL  __tests__/pages/organizacion-invitar.test.tsx > roles invitables > quien no es dueño ni administrador no ve el formulario ni pide la lista
+ Test Files  12 failed (12)
+AssertionError: expected "vi.fn()" to be called at least once
+AssertionError: expected "vi.fn()" to be called with arguments: [ 'Susana', 'susana@test.com', …(2) ]
+AssertionError: expected "vi.fn()" to be called with arguments: [ Array(1) ]
+AssertionError: expected '/auth/login' to be '/auth/login?next=%2Finvitacion%2F0123…' // Object.is equality
+AssertionError: expected 'acc-p' to be 'acc-a' // Object.is equality
+AssertionError: expected 'https://aliadata.com.ar/auth/callback' to be 'https://aliadata.com.ar/auth/callback…' // Object.is equality
+AssertionError: expected 'strict-origin-when-cross-origin' to be 'no-referrer' // Object.is equality
+AssertionError: expected [ 'auth', 'dev-harness', …(2) ] to deeply equal [ 'auth', 'dev-harness', …(3) ]
+AssertionError: expected true to be false // Object.is equality
+Error: Failed to resolve import "@/components/invitations/InvitationAcceptance" from "__tests__/components/InvitationAcceptance.test.tsx". Does the file exist?
+Error: Failed to resolve import "@/components/invitations/InviteMemberForm" from "__tests__/a11y/invitaciones.a11y.test.tsx". Does the file exist?
+Error: Failed to resolve import "@/lib/auth/invitation-next" from "__tests__/lib/invitation-next.test.ts". Does the file exist?
+Error: Failed to resolve import "@/lib/invitation-errors" from "__tests__/lib/invitation-errors.test.ts". Does the file exist?
+TestingLibraryElementError: Unable to find a label with the text of: Email de la persona a invitar
+TestingLibraryElementError: Unable to find an accessible element with the role "group" and name `/roles/i`
+TestingLibraryElementError: Unable to find an element with the text: /contactá al dueño de la cuenta/i. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+TestingLibraryElementError: Unable to find an element with the text: /cupo lleno/i. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+TestingLibraryElementError: Unable to find an element with the text: /le enviamos un email a nuevo@test\.local/i. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+TestingLibraryElementError: Unable to find an element with the text: /le enviamos un email/i. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+TestingLibraryElementError: Unable to find an element with the text: /no hay invitaciones pendientes/i. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+TestingLibraryElementError: Unable to find an element with the text: /no pudimos cargar las invitaciones/i. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+TestingLibraryElementError: Unable to find an element with the text: /solo el dueño o un administrador puede invitar/i. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+TestingLibraryElementError: Unable to find an element with the text: Vencida. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+TestingLibraryElementError: Unable to find role="alert"
+TestingLibraryElementError: Unable to find role="button" and name `/copiar link/i`
+TestingLibraryElementError: Unable to find role="button" and name `/reenviar la invitación a pendiente@test\.local/i`
+TestingLibraryElementError: Unable to find role="button" and name `/revocar la invitación a pendiente@test\.local/i`
+TestingLibraryElementError: Unable to find role="list" and name `/invitaciones de la cuenta/i`
+TypeError: adoptActiveAccount is not a function
+⎯⎯⎯⎯⎯⎯ Failed Tests 38 ⎯⎯⎯⎯⎯⎯⎯

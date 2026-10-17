@@ -1,0 +1,33 @@
+=== test_invite_member_roles_and_plan_gate ===
+NOTICE:  PASS (1): rpc_change_member_role promueve a admin sin exigir plan pro (D17).
+NOTICE:  PASS (3): el cupo cuenta MIEMBROS, no asignaciones -- un miembro con 4 roles consume un solo lugar.
+NOTICE:  PASS (2): rpc_invite_member invita con el rol admin sin exigir plan pro (D17).
+NOTICE:  PASS (5): invitación duplicada -> P0407 con el texto original conservado (D18).
+NOTICE:  PASS (8): invitación sin roles declarados resuelve a {viewer} (account-membership-roles).
+NOTICE:  PASS (9): invitación con un conjunto de roles concede TODOS al aceptarse.
+NOTICE:  PASS (11): rpc_accept_invitation -- token inválido/vencido -> P0404 (ronda 1 adversarial).
+NOTICE:  PASS (12): rpc_accept_invitation -- ya es miembro -> P0409, texto conservado (ronda 1 adversarial).
+NOTICE:  PASS (13): rpc_invite_member -- cuenta gratis con trial pro vigente invita sin cupo agotado (plan EFECTIVO, no billing_plan crudo).
+NOTICE:  PASS (13b): la invitación sin roles declarados (el camino de la invitación rápida) invita con el cupo EFECTIVO (trial pro vigente) y resuelve a {viewer} -- en CONDUCTA.
+NOTICE:  PASS (15): rpc_accept_invitation reevalúa el plan EFECTIVO al aceptar (no lo hereda del momento de invitar) -> P0402 cuando el trial venció entretanto.
+NOTICE:  PASS (14): rpc_invite_member -- trial vencido degrada el efectivo a gratis (cupo 1) -> P0402.
+NOTICE:  PASS (16): ninguna de las 4 funciones lee billing_plan crudo -- las 4 resuelven el cupo/módulo contra get_effective_plan.
+NOTICE:  PASS (6): el administrador no puede invitar con el rol de administrador en el conjunto.
+NOTICE:  PASS (4): rpc_invite_member(3-arg) -- cupo agotado -> P0402, texto conservado (D18).
+NOTICE:  PASS (7): el overload de 2 args ya no existe; la invitación sin roles (NULL = viewer) respeta el mismo cupo P0402 (D18).
+NOTICE:  PASS (10): rpc_accept_invitation rechaza con P0402 si el cupo se agotó entre invitar y aceptar.
+NOTICE:  GATE INVITE-MEMBER-ROLES-AND-PLAN-GATE: 17/17 bloques PASS.
+EXIT
+=== test_accept_invitation_binding ===
+NOTICE:  PASS (1): una identidad distinta de la invitada -> P0404 con el texto de token inválido, sin membresía, sin rol, y la invitación sigue pendiente.
+NOTICE:  PASS (2): la identidad invitada acepta con normalidad (claims con email), recibe su conjunto de roles y el negocio queda como su cuenta activa.
+NOTICE:  PASS (3): la comparación de email ignora mayúsculas (lower() en ambos lados).
+NOTICE:  PASS (4): con los claims EXACTOS del backend propio (sub+role, sin email) la aceptación legítima se completa -- el email se resuelve contra auth.users.
+NOTICE:  PASS (5): el mismo token no se canjea dos veces y no deja una 2ª membresía (secuencia serializada; la exclusión mutua real la sostiene el FOR UPDATE verificado en (6)).
+NOTICE:  PASS (6): el cuerpo vivo conserva el lock, la resolución contra auth.users, la comparación insensible a mayúsculas y el fail-closed explícito ante email NULL, todo ANTES de la primera escritura.
+NOTICE:  PASS (7): una sola definición de rpc_accept_invitation, sin EXECUTE para PUBLIC ni anon, con EXECUTE para authenticated y service_role.
+NOTICE:  GATE ACCEPT-INVITATION-BINDING: 7/7 bloques PASS (fase principal). El bloque (8) corre por separado más abajo.
+NOTICE:  PASS (8): una invitación con email NULL NO se puede canjear -- el guard falla CERRADO, no abierto.
+NOTICE:  GATE ACCEPT-INVITATION-BINDING: bloque (8) PASS, NOT NULL restaurado y fixtures limpios.
+NOTICE:  PASS (9): el COMMENT vivo de rpc_my_active_account_roles describe sus DOS consumidores (fallback por claim ausente + re-chequeo de D12).
+EXIT

@@ -198,8 +198,18 @@ BEGIN
     ) THEN
       RAISE EXCEPTION 'GATE ACCEPT-INVITATION-BINDING FAILED (2): la invitada aceptó pero no quedó con el rol invitado: %', v_result;
     END IF;
+    -- AJUSTE A PROPÓSITO (multiusuario-operativo tanda C, D7): aceptar además DEJA EL
+    -- NEGOCIO COMO CUENTA ACTIVA del invitado, en la misma transacción. Sin esto la
+    -- primera venta del invitado caería en su cuenta personal (R3l). El detalle
+    -- completo (selector, venta posterior, conservación de la personal) lo ejercita
+    -- test_multiusuario_invitaciones.sql; acá queda el candado del binding: la
+    -- aceptación legítima fija profiles.active_account_id.
+    IF (SELECT active_account_id FROM profiles WHERE id = v_invitee_uid) IS DISTINCT FROM v_account THEN
+      RAISE EXCEPTION 'GATE ACCEPT-INVITATION-BINDING FAILED (2): aceptar no dejó la cuenta del negocio como cuenta activa (profiles.active_account_id = %, esperaba %).',
+        (SELECT active_account_id FROM profiles WHERE id = v_invitee_uid), v_account;
+    END IF;
     v_blocks_run := v_blocks_run + 1;
-    RAISE NOTICE 'PASS (2): la identidad invitada acepta con normalidad (claims con email) y recibe su conjunto de roles.';
+    RAISE NOTICE 'PASS (2): la identidad invitada acepta con normalidad (claims con email), recibe su conjunto de roles y el negocio queda como su cuenta activa.';
   END IF;
 
   -- ═══ (3) la comparación ignora mayúsculas ════════════════════════════════

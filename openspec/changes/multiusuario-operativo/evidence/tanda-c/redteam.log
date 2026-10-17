@@ -1,0 +1,34 @@
+PASS: la invitación a humoc-destino@test.local se crea (201) y el invitador recibe el token para «Copiar link»
+PASS: otra identidad: la vista previa da 404 (404), igual que un token inexistente (404)
+PASS:    y el cuerpo del error es IDÉNTICO byte a byte (no revela que el token existe)
+PASS:    mensaje genérico: P404: invalid or expired invitation token
+PASS: otra identidad: aceptar da 404 (404)
+PASS:    y NO se creó ninguna membresía para el intruso
+PASS:    la invitación sigue pendiente (el rechazo no la consume)
+PASS: el dueño de otra cuenta no reenvía (404) ni revoca (404) la invitación de A: 404
+PASS:    y su listado no contiene la invitación de A
+PASS:    la invitación de A no cambió
+PASS: un VENDEDOR no crea (403), no lista (403), no reenvía (403) ni revoca (403): 403
+PASS:    y no quedó ninguna invitación
+PASS: INSERT directo en email_logs como DUEÑO -> 403 {"code":"42501","details":null,"hint":"Grant the required privileges to the curr
+PASS:    y no quedó ninguna fila
+PASS: INSERT directo en account_invitations como VENDEDOR (roles=owner) -> 403
+PASS: un vendedor no LEE las invitaciones ni los tokens por PostgREST ([])
+PASS: aceptar por PostgREST con otra identidad no funciona (500)
+PASS: sin sesión: vista previa 401, aceptar 401, invitar 401 -> 401
+PASS: anon por PostgREST no ejecuta rpc_invitation_preview (401)
+PASS: payload hostil «email con salto de línea (inyección de encabezados)» -> 422
+PASS: payload hostil «all_users» -> 422
+PASS: payload hostil «email sin dominio» -> 422
+PASS: payload hostil «rol inyectado» -> 422
+PASS:    y no se encoló ningún email con ese destinatario
+PASS: X-Account-Id de OTRA cuenta al invitar -> 409 account_switched
+PASS: token VENCIDO (aun para el invitado correcto): vista previa 404, aceptar 404, mismo error genérico
+PASS: reenviar una VENCIDA la revive con token nuevo (200)
+PASS:    y el token viejo sigue muerto (404)
+PASS: el dueño revoca (200)
+PASS:    la revocada: mismo error genérico para el invitado correcto
+PASS:    y no se reenvía una revocada (409)
+PASS: el listado del dueño no contiene ningún token
+
+RESULTADO: TODO PASS

@@ -316,6 +316,13 @@ claim app_metadata.account_id  ──▶ current_account_ids() ──▶ 0 o 1 f
 - **Guard de pestaña desfasada**: `X-Account-Id` (sólo hacia FastAPI — las Edge Functions no admiten esa cabecera en su preflight) y `409 account_switched` (RFC 7807).
 - **Regla**: ningún componente ordena `account_members` por su cuenta para decidir "la" cuenta. El gate `test_multiusuario_cuenta_activa.sql` lo barre por convención.
 
+### Invitación a una cuenta (multiusuario-operativo, tanda C)
+
+- **El email se encola en SQL, no lo inserta el backend ni el navegador.** `rpc_send_invitation_email` (`SECURITY DEFINER`) escribe en `email_logs` en la misma transacción que crea o renueva la invitación: el destinatario y el token salen de la **fila**, y nada del email depende de la policy de escritura de `email_logs` (cerrada a los usuarios por el hotfix `email-logs-cierre-insert`). La Edge Function `send-email` sólo renderiza (`_shared/email-templates.ts`, todo dato escapado, el link armado con `APP_URL`) y entrega por Resend.
+- **La aceptación y la vista previa van por FastAPI**, no por PostgREST: el `P0404` y el `P0409` llegan como 404 y 409 en vez de un 500. Ninguna de las dos usa `get_account_id` (el invitado todavía no es miembro; el guard de pestaña desfasada no aplica).
+- **La identidad la liga la base**: se resuelve el email contra `auth.users` cuando el claim no lo trae (el backend empuja sólo `sub`, `role` y `app_metadata.account_id`).
+- **La ruta pública `/invitacion/[token]`** está en la allow-list de `route-access.ts`; el middleware la sirve con `Referrer-Policy: no-referrer` y `X-Robots-Tag: noindex` (el token viaja en el path). El registro y la verificación de email aceptan un `next` **sólo** con esa forma (`safeInvitationNext`), re-validada en la acción de servidor.
+
 ### Lo que NO se migra (queda en Supabase)
 | Componente | Razón |
 |---|---|

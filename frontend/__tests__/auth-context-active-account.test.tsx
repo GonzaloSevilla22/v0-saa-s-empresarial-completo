@@ -151,7 +151,7 @@ let rows: ReturnType<typeof accountRow>[] = []
 let queryClient: QueryClient
 
 function Consumer() {
-  const { user, accounts, switchAccount } = useAuth()
+  const { user, accounts, switchAccount, adoptActiveAccount, logout } = useAuth()
   return (
     <div>
       <span data-testid="account-id">{user?.accountId ?? ""}</span>
@@ -159,6 +159,10 @@ function Consumer() {
       <span data-testid="billing-plan">{user?.billingPlan ?? ""}</span>
       <span data-testid="account-count">{accounts.length}</span>
       <button onClick={() => void switchAccount("acc-a").catch(() => undefined)}>cambiar</button>
+      <button onClick={() => void adoptActiveAccount({ message: "Te sumaste a Ferretería Roca como Vendedor" }).catch(() => undefined)}>adoptar</button>
+      <button onClick={() => void logout()}>salir</button>
+      <button onClick={() => void logout({ returnTo: `/invitacion/${"0123456789abcdef".repeat(4)}` })}>salir-a-la-invitacion</button>
+      <button onClick={() => void logout({ returnTo: "https://evil.example/invitacion/x" })}>salir-a-otro-lado</button>
     </div>
   )
 }
@@ -613,5 +617,119 @@ describe("auth-context — si rpc_my_accounts falla (ventana de despliegue) cae 
     await waitFor(() => expect(screen.getByTestId("account-id").textContent).toBe("acc-p"))
     expect(h.fromTables).not.toContain("account_members")
     expect(h.warn.mock.calls.some(([message]) => /rpc_my_accounts/.test(String(message)))).toBe(false)
+  })
+})
+
+// ── multiusuario-operativo tanda C (17.1, D7) — la base YA dejó el negocio como cuenta activa ──
+//
+// Aceptar una invitación fija `profiles.active_account_id` dentro de `rpc_accept_invitation`. A
+// diferencia de `switchAccount`, el frontend NO vuelve a persistir nada (no llama a
+// `rpc_set_active_account`): lo que le falta es lo que hay detrás del cambio de cuenta —renovar el
+// token ANTE EL PROVEEDOR (el hook emite el claim de la cuenta nueva sólo al emitir), descartar la
+// caché, resincronizar, avisar a las otras pestañas y llevar al Tablero— con el aviso de bienvenida.
+describe("auth-context — adoptActiveAccount (aceptar una invitación)", () => {
+  async function renderJoined() {
+    rows = [
+      accountRow({ account_id: "acc-p", is_active: true, brand_display_name: "Mi Kiosco" }),
+      accountRow({ account_id: "acc-a", is_active: false, is_owner: false, member_role: "member", roles: ["seller"], brand_display_name: "Ferretería Roca" }),
+    ]
+    renderWithAuth()
+    await waitFor(() => expect(screen.getByTestId("account-id").textContent).toBe("acc-p"))
+  }
+
+  /** La base ya cambió de cuenta (lo hizo rpc_accept_invitation): la lista nueva marca el negocio como activo. */
+  function dbAlreadySwitchedTo(activeId: string) {
+    rows = rows.map((r) => ({ ...r, is_active: r.account_id === activeId }))
+  }
+
+  it("renueva ante el proveedor, limpia la caché, avisa a las otras pestañas, lleva al Tablero y da la bienvenida", async () => {
+    await renderJoined()
+    dbAlreadySwitchedTo("acc-a")
+    const clearSpy = vi.spyOn(queryClient, "clear")
+
+    fireEvent.click(screen.getByRole("button", { name: "adoptar" }))
+
+    await waitFor(() => expect(screen.getByTestId("account-id").textContent).toBe("acc-a"))
+    expect(h.refreshSessionAction).toHaveBeenCalledTimes(1)
+    expect(clearSpy).toHaveBeenCalled()
+    expect(h.announceAccountSwitched).toHaveBeenCalledTimes(1)
+    expect(h.replace).toHaveBeenCalledWith("/dashboard")
+    expect(h.toast.success).toHaveBeenCalledWith("Te sumaste a Ferretería Roca como Vendedor")
+    expect(getDisplayedAccountId()).toBe("acc-a")
+  })
+
+  it("NO vuelve a persistir la cuenta: la preferencia ya la guardó la base al aceptar", async () => {
+    await renderJoined()
+    dbAlreadySwitchedTo("acc-a")
+
+    fireEvent.click(screen.getByRole("button", { name: "adoptar" }))
+    await waitFor(() => expect(h.announceAccountSwitched).toHaveBeenCalled())
+
+    expect(h.rpc).not.toHaveBeenCalledWith("rpc_set_active_account", expect.anything())
+  })
+
+  it("el orden importa: renovación ante el proveedor -> lectura del token nuevo -> recién ahí resincroniza", async () => {
+    await renderJoined()
+    dbAlreadySwitchedTo("acc-a")
+    const order: string[] = []
+    h.refreshSessionAction.mockImplementation(() => {
+      order.push("refreshSessionAction")
+      return Promise.resolve({ ok: true })
+    })
+    h.refreshAccessToken.mockImplementation(() => {
+      order.push("refreshToken")
+      return Promise.resolve(ACTIVE_SESSION)
+    })
+
+    fireEvent.click(screen.getByRole("button", { name: "adoptar" }))
+    await waitFor(() => expect(h.announceAccountSwitched).toHaveBeenCalled())
+
+    expect(order.indexOf("refreshSessionAction")).toBeGreaterThanOrEqual(0)
+    expect(order.indexOf("refreshSessionAction")).toBeLessThan(order.lastIndexOf("refreshToken"))
+  })
+
+  it("si el proveedor no entrega una sesión nueva, el cambio NO se da por hecho: avisa y rechaza", async () => {
+    await renderJoined()
+    dbAlreadySwitchedTo("acc-a")
+    h.refreshSessionAction.mockResolvedValue({ ok: false, error: "provider down" })
+
+    fireEvent.click(screen.getByRole("button", { name: "adoptar" }))
+    await waitFor(() => expect(h.toast.error).toHaveBeenCalled())
+
+    expect(h.announceAccountSwitched).not.toHaveBeenCalled()
+    expect(h.replace).not.toHaveBeenCalled()
+    expect(h.toast.success).not.toHaveBeenCalled()
+  })
+})
+
+// ── multiusuario-operativo tanda C (17.1): «Cerrar sesión e ingresar con otro email» vuelve a la invitación ──
+describe("auth-context — logout con returnTo", () => {
+  const TOKEN = "0123456789abcdef".repeat(4)
+
+  async function renderOneAccount() {
+    rows = [accountRow({ account_id: "acc-p", is_active: true })]
+    renderWithAuth()
+    await waitFor(() => expect(screen.getByTestId("account-id").textContent).toBe("acc-p"))
+  }
+
+  it("sin returnTo el login es el de siempre (no-regresión)", async () => {
+    await renderOneAccount()
+    fireEvent.click(screen.getByRole("button", { name: "salir" }))
+    await waitFor(() => expect(h.push).toHaveBeenCalledWith("/auth/login"))
+  })
+
+  it("con la ruta de una invitación, el login conserva el destino para volver tras ingresar", async () => {
+    await renderOneAccount()
+    fireEvent.click(screen.getByRole("button", { name: "salir-a-la-invitacion" }))
+    await waitFor(() => expect(h.push).toHaveBeenCalledWith(`/auth/login?next=${encodeURIComponent(`/invitacion/${TOKEN}`)}`))
+    expect(h.signOut).toHaveBeenCalledWith({ scope: "local" })
+    expect(h.announceSignedOut).toHaveBeenCalled()
+  })
+
+  it("cualquier otro returnTo se descarta (allow-list estrecha: no es un open redirect)", async () => {
+    await renderOneAccount()
+    fireEvent.click(screen.getByRole("button", { name: "salir-a-otro-lado" }))
+    await waitFor(() => expect(h.push).toHaveBeenCalledWith("/auth/login"))
+    expect(h.push).not.toHaveBeenCalledWith(expect.stringContaining("evil.example"))
   })
 })

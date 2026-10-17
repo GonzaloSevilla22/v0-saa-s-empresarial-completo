@@ -1209,6 +1209,37 @@ jobs:
           fi
           echo "Reconvergencia (remitos-compra) OK: constraints + firmas de función + ACLs IDÉNTICOS al estado previo a este paso."
 
+          # multiusuario-operativo TANDA B (2026-10-17, governance CRÍTICO): REBASE de los pasos de abajo.
+          # 20261083000001 reescribe nueve funciones —las ocho RPCs del camino del dinero de ventas y compras y el
+          # núcleo _purchase_operation_core— que los reapply de 20261070000001 (remitos-venta B), 20261075000001
+          # (ventas-sucursal-por-defecto) y 20261081000001 (remitos-compra B) fijan por md5 o por introspección de SU
+          # cuerpo: cada uno decía «una migración posterior que redefina estas funciones tiene que retirar o rebasar este
+          # paso en el mismo PR». Se REBASAN (no se retiran: así se conservan sus controles de idempotencia). El reset de
+          # reconvergencia de arriba ya reconstruyó la base con la historia real completa, incluida 20261083000001; acá se
+          # restauran los nueve cuerpos de producción previos con
+          # supabase/migrations_bak/rollback_20261083000001_multiusuario_operaciones.sql —que además es la PRUEBA del
+          # rollback de la tanda—, de modo que cada reapply de abajo corre contra el estado para el que fue escrito. La
+          # reaplicación de 20261083000001 va AL FINAL de la cadena (después de la de 20261082000001) y exige ver los
+          # nueve cuerpos de partida en la primera pasada y ya reaplicados en la segunda.
+          echo "Rebase de multiusuario-operativo tanda B: restaurando los nueve cuerpos previos a 20261083000001 (rollback)..."
+          psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations_bak/rollback_20261083000001_multiusuario_operaciones.sql
+          MTB_RESTORED=$(psql -tA "$DSN" -c "SELECT count(*) FROM pg_proc p JOIN (VALUES
+              ('_purchase_operation_core', '7ad5c56ea845bcb188f69d8a2ce96ddb'),
+              ('rpc_atomic_update_purchase_operation', '170fc4693bf217b77c20cc4fb4602271'),
+              ('rpc_atomic_update_sale_operation', '52acb873d8c446c24abb19b79eb43c75'),
+              ('rpc_create_purchase_operation_v2', '64a2a151caef3c9c12d40cf7bab54df1'),
+              ('rpc_create_purchase_operation', '98e045e69109fe903aedd7ca2d78e448'),
+              ('rpc_create_sale_operation_v2', '9fde6d956bc37838e8d81402e22de8fa'),
+              ('rpc_create_sale_operation', 'e5185557021d2f481b9e3f6679c50493'),
+              ('rpc_delete_purchase_operation', 'a74eac28d5f504f1e0682420b41558af'),
+              ('rpc_delete_sale_operation', '7ab91a899dd0fbc81e6a415f1ea99aac')) AS e(fn, h) ON e.fn = p.proname AND e.h = md5(replace(p.prosrc, E'\r', ''))
+              WHERE p.pronamespace = 'public'::regnamespace")
+          if [ "$MTB_RESTORED" != "9" ]; then
+            echo "ERROR: el rollback de 20261083000001 no dejó los nueve cuerpos de producción previos (md5 de partida): $MTB_RESTORED de 9."
+            exit 1
+          fi
+          echo "Rollback de 20261083000001 OK: los nueve cuerpos son los de producción previos a la tanda B."
+
           # remitos-venta tanda B (2026-10-03): reaplicación de 20261070000001
           # AL FINAL de la cadena, DESPUÉS de la de 20261069000001 (contrato
           # 6.0 con la tanda A: esa reaplicación vuelve a dejar el cuerpo de la
@@ -1521,6 +1552,62 @@ jobs:
             exit 1
           fi
           echo "20261082000001 idempotente: 0+6 en las dos pasadas, introspección OK, cuerpos presentes y schema IDÉNTICO al previo a este paso."
+
+          # multiusuario-operativo TANDA B (2026-10-17, governance CRÍTICO): reaplicación de 20261083000001 AL FINAL
+          # de la cadena, después de la de 20261082000001. Autoriza por pertenencia a la CUENTA ACTIVA y ROL las ocho RPCs
+          # del camino del dinero de ventas y compras (alta, edición y borrado) y el núcleo de compra: suma el helper
+          # canónico _account_assert_capability y _account_assert_document_authority (la regla de autor: sobre un documento
+          # de otro miembro sólo dueño o administrador), filtra el producto por cuenta DENTRO del SELECT … FOR UPDATE y
+          # elimina todo guard por autor. Idempotente: CREATE OR REPLACE con firmas fijas (sin overload, sin 42725),
+          # REVOKE/GRANT/COMMENT re-emitidos; no amplía ningún CHECK.
+          #
+          # El preflight de la migración exige que cada cuerpo sea el de partida (md5 de producción) o el suyo: la PRIMERA
+          # pasada ve los nueve de partida (los dejaron el rollback de arriba y los reapply de 20261070000001,
+          # 20261075000001 y 20261081000001), y la SEGUNDA, los nueve ya reaplicados. SIN tolerancia. schema_snapshot() no
+          # compara cuerpos: por eso se re-consultan.
+          #
+          # REGLA PARA EL PR SIGUIENTE: una migración posterior que redefina cualquiera de estas nueve funciones
+          # (fix/stock-edicion-sucursal-y-piso, edicion-operaciones-con-dinero) tiene que partir del cuerpo VIVO
+          # (preflight por md5) y rebasar este paso en el mismo PR: el archivo de rollback de arriba restaura los cuerpos de
+          # PRODUCCIÓN previos a ESTA tanda; si esos md5 dejan de ser los que existen, hay que actualizarlos allá y acá.
+          MTB_OUT1=$(psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261083000001_multiusuario_operaciones.sql 2>&1) || { echo "$MTB_OUT1"; echo "ERROR: el reapply de 20261083000001 falló (sin tolerancia)."; exit 1; }
+          echo "$MTB_OUT1"
+          if ! echo "$MTB_OUT1" | grep -qF '9 cuerpos de partida verificados por md5, 0 ya reaplicados'; then
+            echo "ERROR: la primera pasada de 20261083000001 debía ver los nueve cuerpos de partida: ¿un paso anterior pisó alguna de las nueve funciones?"
+            exit 1
+          fi
+          MTB_OUT2=$(psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261083000001_multiusuario_operaciones.sql 2>&1) || { echo "$MTB_OUT2"; echo "ERROR: la segunda pasada de 20261083000001 falló (sin tolerancia)."; exit 1; }
+          echo "$MTB_OUT2"
+          if ! echo "$MTB_OUT2" | grep -qF '0 cuerpos de partida verificados por md5, 9 ya reaplicados'; then
+            echo "ERROR: la segunda pasada de 20261083000001 debía ver los nueve cuerpos ya reaplicados."
+            exit 1
+          fi
+          if ! echo "$MTB_OUT2" | grep -qF 'multiusuario-operativo tanda B (introspecci'; then
+            echo "ERROR: el reapply de 20261083000001 no imprimió el OK de su bloque de introspección."
+            exit 1
+          fi
+          MTB_BODIES=$(psql -tA "$DSN" -c "SELECT count(*) FROM pg_proc p JOIN (VALUES
+              ('_purchase_operation_core', '12d47cda44f3497817cdc2219d886526'),
+              ('rpc_create_purchase_operation', '9a3b868b883d2f59b3ae1a6908288ea1'),
+              ('rpc_create_purchase_operation_v2', '8daac77ff5dac89357e27f45ee8e214f'),
+              ('rpc_create_sale_operation', '748c7a7e6cd1c4074bd127ae6e0092ee'),
+              ('rpc_create_sale_operation_v2', '41bfa7554f971d1b386541e01b3cf403'),
+              ('rpc_atomic_update_sale_operation', 'd95db43c5e737c080661c74208595b93'),
+              ('rpc_atomic_update_purchase_operation', '691d0a01893439e39e7cda93ddcbcc6f'),
+              ('rpc_delete_sale_operation', 'a786dd6dcb2ad607a84b0ec96939aa67'),
+              ('rpc_delete_purchase_operation', '06c3ea363cbdf1ae4027a3e55c8c3ca3')) AS e(fn, h) ON e.fn = p.proname AND e.h = md5(replace(p.prosrc, E'\r', ''))
+              WHERE p.pronamespace = 'public'::regnamespace")
+          if [ "$MTB_BODIES" != "9" ]; then
+            echo "ERROR: después de reaplicar 20261083000001, los nueve cuerpos de multiusuario-operativo tanda B no quedaron (md5): $MTB_BODIES de 9."
+            exit 1
+          fi
+          schema_snapshot > /tmp/schema_after_mtb_reapply.txt
+          if ! diff -u /tmp/schema_before_reapply.txt /tmp/schema_after_mtb_reapply.txt > /tmp/schema_diff_mtb.txt; then
+            echo "NOT IDEMPOTENT: reaplicar 20261083000001 cambió el schema (constraints + firmas de función + ACLs):"
+            cat /tmp/schema_diff_mtb.txt
+            exit 1
+          fi
+          echo "20261083000001 idempotente: 9+0 y 0+9 en las dos pasadas, introspección OK, cuerpos presentes y schema IDÉNTICO al previo a este paso."
 
       # -v ON_ERROR_STOP=1 is required: without it psql prints RAISE EXCEPTION
       # errors but still exits 0, so failing assertions show green in CI.
@@ -3371,3 +3458,20 @@ jobs:
       # miembro declara la cuenta A; el agregado ya no mezcla cuentas).
       - name: Run multiusuario cuenta activa gate
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_multiusuario_cuenta_activa.sql
+
+      # multiusuario-operativo TANDA B (2026-10-17, governance CRÍTICO): EJECUTA, como `authenticated` con claims
+      # armados a mano, las ocho RPCs del camino del dinero de ventas y compras con un equipo real (dueño, administrador,
+      # vendedor, cajero, depósito, compras, contador, observador, un multirol, un ex-miembro con el token vigente y un
+      # dueño de otra cuenta): (a)-(b) la matriz de roles del alta de venta (por las dos firmas públicas) y de compra (el
+      # depósito NO compra), (a2) el observador no opera nada aun con un producto propio, (c) la tenencia —un producto de otra
+      # cuenta o de la cuenta no activa es P0404 indistinguible de uno inexistente, claim revocado, R3l, replay—, (d)-(g) la
+      # edición y el borrado (dueño y administrador sobre lo ajeno; el resto sólo lo propio; la autoría se conserva; un
+      # documento de otra cuenta es P0404 / false), (h) la rama legacy del kill-switch, (i) la v2 de compra, (j) el candado
+      # de cuerpo (sin guard por autor, filtro de cuenta dentro del FOR UPDATE, guard de rol antes de la primera escritura) y
+      # (k) la ACL. Corre dentro de BEGIN..ROLLBACK: residuo cero. Ajusta a propósito, además: test_operation_edit_lines.sql
+      # (1.9: el producto de otra cuenta es P0404), test_ventas_unidades_conversion.sql (el FOR UPDATE del producto lleva el filtro
+      # de cuenta), test_facturar_venta_manual.sql (el lock de la edición filtra por cuenta), test_ventas_sucursal_por_defecto.sql y
+      # test_compras_gastos_sucursal_por_defecto.sql (los md5 de los cuerpos) y test_remito_a_compra.sql (el depósito no borra
+      # compras: insufficient_role).
+      - name: Run multiusuario operaciones gate
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_multiusuario_operaciones.sql

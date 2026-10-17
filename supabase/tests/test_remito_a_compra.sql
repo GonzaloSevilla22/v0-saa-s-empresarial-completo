@@ -1100,8 +1100,13 @@ BEGIN
       PERFORM pg_temp.rcb_as(v_uuid);
       v_txt := pg_temp.rcb_err(format('SELECT public.rpc_delete_purchase_operation(NULL, %L::uuid, NULL)', v_op_credit));
       PERFORM pg_temp.rcb_as(v_owner_a);
-      IF v_txt NOT LIKE 'P0403 delivery_note_purchase_delete_forbidden%' OR pg_temp.rcb_effects(v_account_a) IS DISTINCT FROM v_before THEN
-        v_failures := v_failures || format('FAIL (o): el rol %s no debía poder borrar la compra de un remito (P0403 delivery_note_purchase_delete_forbidden sin efectos), vino %s', v_uuid, v_txt);
+      -- multiusuario-operativo (tanda B, D9): borrar una compra exige CAN_PURCHASE (dueño, administrador o compras) ANTES de
+      -- llegar al remito. El rol `purchases` (autor de esta compra: la convirtió él) la pasa y recibe el literal propio del
+      -- remito; el depósito (`stock`) NO tiene CAN_PURCHASE (recibe mercadería por remito, no compra con factura: OQ-3) y
+      -- recibe el P0403 insufficient_role de la capacidad. En los dos casos: P0403 y sin efectos.
+      IF v_txt NOT LIKE (CASE WHEN v_uuid = v_stocker THEN 'P0403 insufficient_role%' ELSE 'P0403 delivery_note_purchase_delete_forbidden%' END)
+         OR pg_temp.rcb_effects(v_account_a) IS DISTINCT FROM v_before THEN
+        v_failures := v_failures || format('FAIL (o): el rol %s no debía poder borrar la compra de un remito (P0403 sin efectos: delivery_note_purchase_delete_forbidden para compras, insufficient_role para el depósito), vino %s', v_uuid, v_txt);
       END IF;
     END LOOP;
 

@@ -836,7 +836,9 @@ BEGIN
     WHERE n.nspname = 'public' AND p.proname = v_fn;
     -- Cuarta revisión: posiciones por regexp_instr (tolerante a espacios y
     -- saltos de línea), no por strpos del primer texto literal.
-    v_pos1 := regexp_instr(v_src, 'FROM\s+public\.products\s+WHERE\s+id\s*=\s*v_item\.product_id\s+FOR\s+UPDATE');
+    -- multiusuario-operativo (tanda B, D8): el SELECT … FOR UPDATE del producto lleva el filtro de cuenta
+    -- (AND account_id = v_account_id) dentro del mismo statement; el orden respecto de la normalización no cambia.
+    v_pos1 := regexp_instr(v_src, 'FROM\s+public\.products\s+WHERE\s+id\s*=\s*v_item\.product_id(\s+AND\s+account_id\s*=\s*v_account_id)?\s+FOR\s+UPDATE');
     v_pos2 := regexp_instr(v_src, '_uom_normalize_quantity\s*\(\s*v_item\.product_id');
     IF v_pos1 = 0 OR v_pos2 = 0 OR v_pos2 < v_pos1 THEN
       v_failures := v_failures || format('E %s: normaliza la cantidad antes de tomar el producto FOR UPDATE (lock en %s, helper en %s)', v_fn, v_pos1, v_pos2);

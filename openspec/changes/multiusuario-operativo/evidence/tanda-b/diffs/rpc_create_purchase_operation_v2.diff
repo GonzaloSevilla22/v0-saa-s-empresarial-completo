@@ -1,0 +1,27 @@
+--- vivo/rpc_create_purchase_operation_v2
++++ nuevo/rpc_create_purchase_operation_v2
+@@ -33,4 +33,8 @@
+     RAISE EXCEPTION 'Usuario sin cuenta activa' USING ERRCODE = 'P0403';
+   END IF;
++
++  -- multiusuario-operativo (tanda B, D9): el ROL decide, antes de cualquier escritura. El observador
++  -- (sin rol de escritura) da P0401; un rol de escritura sin la capacidad del dominio, P0403.
++  PERFORM public._account_assert_capability(v_account_id, ARRAY['owner', 'admin', 'purchases'], 'tu rol no permite registrar compras (requiere compras, administrador o dueño)');
+ 
+   IF p_idempotency_key IS NULL OR length(trim(p_idempotency_key)) = 0 THEN
+@@ -101,4 +105,5 @@
+       FROM   public.products
+       WHERE  id = v_item.product_id
++        AND account_id = v_account_id
+       FOR UPDATE;
+ 
+@@ -107,7 +112,6 @@
+       END IF;
+ 
+-      IF v_product.user_id <> v_uid THEN
+-        RAISE EXCEPTION 'Permission denied to product: %', v_item.product_id USING ERRCODE = 'P0403';
+-      END IF;
++      -- multiusuario-operativo (tanda B, D8): la tenencia del producto la decide la CUENTA (filtro del SELECT … FOR UPDATE
++      -- de arriba: un producto de otra cuenta es indistinguible de uno inexistente, P0404), nunca quién lo cargó.
+ 
+       IF NOT v_product.is_variant THEN

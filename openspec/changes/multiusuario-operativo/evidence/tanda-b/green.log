@@ -1,0 +1,56 @@
+BEGIN
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+psql:<stdin>:868: NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=f87dd071-9bcc-4b3f-9bf1-1c5cefef1ce0
+psql:<stdin>:868: NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=c9154606-2888-4e3d-bd5b-8f99845d65ae
+psql:<stdin>:868: NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=c1d72020-edad-49a7-b291-b8617b129280
+psql:<stdin>:868: NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=e450497d-6131-4ddf-803b-be31ca07fe07
+psql:<stdin>:868: NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=e7fbcf85-dba1-47c5-a61b-632e86a2c990
+psql:<stdin>:868: NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=8f5b0b6f-b1a5-4f75-9455-c56d8f937ed0
+psql:<stdin>:868: NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=6d70973f-48d4-4ea9-b457-c953bc1806a0
+psql:<stdin>:868: NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=026c2e9f-823e-4cd8-a1cc-0418b3625621
+psql:<stdin>:868: NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=2e9f80ca-70e6-487f-bc09-af4f15edd6ce
+psql:<stdin>:868: NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=7241dd87-9c1b-4f64-8435-7ad57a091731
+psql:<stdin>:868: NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=fdcc9b23-32b4-49d8-907f-4b78463619d1
+psql:<stdin>:868: NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=0932eb50-dbde-493b-a285-e08fe6bd14bb
+psql:<stdin>:868: NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=e70e025f-6416-44a9-82b8-8b8d0b238848
+psql:<stdin>:868: NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=80371935-bab1-408f-825c-b8e8e9addcd1
+psql:<stdin>:868: NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=c1a62b9b-a56e-4518-b28e-7efb6ca19fe5
+psql:<stdin>:868: NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=007a3b15-576e-48f7-a2a1-c2457e194a17
+psql:<stdin>:868: NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=6f200a5d-7492-433c-919a-4d0089af15fa
+psql:<stdin>:868: NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=b546afbd-d2c4-42ba-a171-3d39dddb774b
+psql:<stdin>:868: NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=f16395c8-c8b1-4543-9ec7-5fe8916ddae5
+psql:<stdin>:868: NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=2c4e23d7-22ea-48d5-b28c-4f8b17833d0c
+psql:<stdin>:868: NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=69455ea2-1828-4658-af01-03c3382753ba
+psql:<stdin>:868: NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=bccecdf4-627f-491c-8e3f-ad4e1abdbb6f
+psql:<stdin>:868: NOTICE:  PASS (a): vender un producto del dueño lo logran dueño/admin/vendedor/cajero/multirol; depósito y contador P0403; observador P0401 (aun con producto propio), sin efectos.
+psql:<stdin>:868: NOTICE:  PASS (b): comprar un producto del dueño lo logran dueño/admin/compras/multirol; vendedor, cajero, depósito y contador P0403 (el depósito NO compra: OQ-3); observador P0401, sin efectos.
+psql:<stdin>:868: NOTICE:  PASS (c): producto ajeno / de la cuenta no activa = P0404 indistinguible de un id inexistente; claim revocado = sin cuenta activa; R3l en A; replay intacto.
+psql:<stdin>:868: NOTICE:  PASS (a2): el observador no vende, no compra, no edita ni borra (P0401), aun con un producto propio, sin efectos.
+psql:<stdin>:868: NOTICE:  PASS (d): dueño y admin editan lo ajeno (la autoría se conserva); vendedor y cajero sólo lo propio (P0403); depósito/contador P0403; observador P0401; documento y producto de otra cuenta P0404.
+psql:<stdin>:868: NOTICE:  PASS (e): dueño y admin borran lo ajeno; vendedor sólo lo propio (P0403 sobre lo ajeno); sin capacidad P0403/P0401; otra cuenta = false como un inexistente.
+psql:<stdin>:868: NOTICE:  PASS (f): compras edita lo propio; dueño y admin lo ajeno (autoría conservada); sin CAN_PURCHASE P0403/P0401; otra cuenta P0404.
+psql:<stdin>:868: NOTICE:  PASS (g): dueño y admin borran lo ajeno; compras sólo lo propio (P0403 sobre lo ajeno); sin CAN_PURCHASE P0403/P0401; otra cuenta = false.
+psql:<stdin>:868: NOTICE:  PASS (h): la rama legacy de rpc_create_sale_operation tiene los mismos guards (producto por cuenta, rol).
+psql:<stdin>:868: NOTICE:  PASS (i): rpc_create_purchase_operation_v2 (sólo service_role) lleva los mismos guards.
+psql:<stdin>:868: NOTICE:  PASS (j): sin guard por autor, filtro de cuenta dentro del FOR UPDATE, guard de rol antes de la primera escritura.
+psql:<stdin>:868: NOTICE:  PASS (k): helpers internos con COMMENT, una definición viva por función, ACLs de las ocho intactas.
+psql:<stdin>:868: NOTICE:  GATE MULTIUSUARIO-OPERACIONES OK: las ocho RPCs autorizan por cuenta activa y rol, nunca por autor (a-k).
+DO
+ROLLBACK
+GATE_EXIT=0

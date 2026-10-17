@@ -152,7 +152,7 @@
   - un gasto desde la pestaña vieja recibe el `409`.
   - **Hecho** con el build de producción y el backend real: `evidence/tanda-a/humo.log` (15/15 PASS). La primera corrida **falló** y destapó el defecto de la renovación del token (ver 5.3); se corrigió y se re-corrió completa.
 - [ ] 6.3 PR de la tanda A (cuerpo que termina en la línea de Claude Code) y CI en verde.
-  - **PR abierto: (pendiente de crear)**. La CI y el merge quedan a cargo del orquestador.
+  - **PR abierto: #651**. La CI y el merge quedan a cargo del orquestador.
 - [ ] 6.4 **Post-merge** (sólo lectura):
   - `MAX(version)`;
   - ACLs de las funciones nuevas;

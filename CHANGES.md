@@ -4336,7 +4336,7 @@ El pedido literal (RPC con rol y motivo + quitar `GRANT` y policies) es correcto
 
 **Lección**: «no sé todavía» y «no hay» son estados distintos y un booleano derivado de `!!data` los funde. Cualquier dato que decide si una operación toca dinero tiene que exponer su estado de carga, y quien lo consume tiene que esperar — bloquear sólo cuando se sabe que no hay es lo que vuelve el bloqueo seguro.
 
-## Change `multiusuario-operativo` — TANDA A apply 2026-10-16 (propose PR #643 mergeado · apply A PR **{{PR}}**, migración `20261082000001_multiusuario_cuenta_activa.sql`; governance **CRÍTICO**)
+## Change `multiusuario-operativo` — TANDA A apply 2026-10-16 (propose PR #643 mergeado · apply A PR **#651**, migración `20261082000001_multiusuario_cuenta_activa.sql`; governance **CRÍTICO**)
 
 **Pedido y sign-off.** El PO, el 2026-10-16: *«dale, aplicá multiusuario-operativo»*; siguiendo la práctica del proyecto se firman **OQ-1 a OQ-9 por su opción recomendada** (OQ-1 (a) preferencia por usuario en `profiles.active_account_id`; OQ-2 (a); OQ-3 (b); OQ-4 (b); OQ-5 (a); OQ-6 (a); OQ-7 (a) hotfix propio de `email_logs` antes de la tanda C; OQ-8 (a); OQ-9 (a) tanda B antes que `edicion-operaciones-con-dinero`). Registrado en `design.md` §"Sign-off del PO". **Este apply cubre sólo la tanda A** (una sola cuenta activa); las tandas B y C, el hotfix de `email_logs` y el archive quedan para sus PRs.
 

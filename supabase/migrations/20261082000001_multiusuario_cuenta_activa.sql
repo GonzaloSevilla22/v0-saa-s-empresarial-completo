@@ -136,7 +136,10 @@ CREATE OR REPLACE FUNCTION public.resolve_active_account(p_user_id uuid)
 AS $function$
   -- 1) la preferencia del usuario, SOLO si sigue siendo una membresía suya;
   -- 2) si no hay preferencia o dejó de ser válida, la membresía más antigua
-  --    (created_at, id) — el criterio que regía antes de este change.
+  --    (created_at) — el criterio que regía antes de este change. A igual instante
+  --    (dentro de una transacción now() es constante: pasa en los gates, no en
+  --    producción) gana la cuenta de la que el usuario es DUEÑO y, en último
+  --    lugar, el id: así el desempate es reproducible y no depende de un uuid.
   SELECT COALESCE(
     (SELECT am.account_id
        FROM public.profiles p
@@ -146,13 +149,13 @@ AS $function$
     (SELECT am.account_id
        FROM public.account_members am
       WHERE am.user_id = p_user_id
-      ORDER BY am.created_at, am.id
+      ORDER BY am.created_at, (am.role <> 'owner'), am.id
       LIMIT 1)
   );
 $function$;
 
 COMMENT ON FUNCTION public.resolve_active_account(uuid) IS
-  $c$multiusuario-operativo (D3): resolver CANÓNICO de la cuenta activa de un usuario — la preferencia (profiles.active_account_id) si sigue siendo una membresía; si no, la membresía más antigua por (created_at, id). Lo usan current_account_ids(), el custom access token hook y el trigger set_insight_account_id; NINGÚN otro componente (backend, Edge Functions, frontend) implementa un criterio propio. Recibe un usuario por parámetro: por eso NO es ejecutable por anon ni authenticated (misma lección que get_account_ids_for_user, h4), sólo por supabase_auth_admin (el hook).$c$;
+  $c$multiusuario-operativo (D3): resolver CANÓNICO de la cuenta activa de un usuario — la preferencia (profiles.active_account_id) si sigue siendo una membresía; si no, la membresía más antigua por created_at (a igual instante, la cuenta de la que es dueño; en último lugar el id). Lo usan current_account_ids(), el custom access token hook y el trigger set_insight_account_id; NINGÚN otro componente (backend, Edge Functions, frontend) implementa un criterio propio. Recibe un usuario por parámetro: por eso NO es ejecutable por anon ni authenticated (misma lección que get_account_ids_for_user, h4), sólo por supabase_auth_admin (el hook).$c$;
 
 -- =============================================================================
 -- 3. current_account_ids(): la cuenta ACTIVA, 0 o 1 fila (D1)

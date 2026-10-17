@@ -57,6 +57,9 @@
 --   (n) rpc_atomic_log_ai_insight y el trigger set_insight_account_id sellan la activa
 --   (o) rpc_my_accounts(): una fila por membresía, una sola activa, campos crudos
 --   (p) get_account_ids_for_user sigue devolviendo TODAS las membresías
+--   (q) desempate DETERMINISTA: dos membresías con el MISMO created_at (lo que pasa
+--       dentro de una transacción de un gate: now() es constante) resuelven a la
+--       cuenta que el usuario ES DUEÑO, no a la del uuid que ordene primero
 --   (s) ESTRUCTURAL: resolve_active_account sin EXECUTE para anon/authenticated y
 --       con EXECUTE para supabase_auth_admin; profiles.active_account_id fuera
 --       de los privilegios de escritura; una definición por función; barrido por
@@ -823,6 +826,43 @@ BEGIN
     RAISE NOTICE 'FAIL %: % [%]', v_blk, SQLERRM, SQLSTATE;
   END;
 
+  -- ── (q) Desempate DETERMINISTA: a igual created_at gana la cuenta propia ───────
+  -- En producción dos membresías no comparten instante (la personal nace al registrarse; la otra,
+  -- al aceptar una invitación), pero DENTRO DE UNA TRANSACCIÓN now() es constante: un gate que da de
+  -- alta a un usuario (handle_new_user crea su personal) y lo suma a otra cuenta crea dos membresías
+  -- con el mismo created_at. Si el desempate fuera el id (un uuid al azar) esos gates pasarían o
+  -- fallarían según la suerte; con "la cuenta de la que es dueño primero" son reproducibles. El
+  -- fixture le da a la membresía AJENA un id que ordena ANTES que el de la propia: con el desempate
+  -- por id gana la ajena (lo que este bloque no debe permitir).
+  v_blk := '(q)';
+  DECLARE
+    v_t      uuid := gen_random_uuid();
+    v_t_acc  uuid;
+    v_ts     timestamptz := now() - interval '3 days';
+  BEGIN
+    INSERT INTO auth.users (id, aud, role, email, created_at, updated_at, raw_user_meta_data)
+    VALUES (v_t, 'authenticated', 'authenticated', 'multiusuario-a-tie@test.local', now(), now(), '{"name":"MU Empate"}'::jsonb);
+    SELECT account_id INTO v_t_acc FROM public.account_members WHERE user_id = v_t;
+    UPDATE public.account_members SET created_at = v_ts WHERE user_id = v_t AND account_id = v_t_acc;
+    INSERT INTO public.account_members (id, account_id, user_id, role, created_at)
+    VALUES ('00000000-0000-0000-0000-00000000ab01', v_a, v_t, 'member', v_ts);
+
+    PERFORM pg_temp.as_user(v_t);
+    v_ids := pg_temp.cai();
+    IF v_ids <> ARRAY[v_t_acc] THEN
+      RAISE EXCEPTION 'con membresías de igual created_at debía ganar la cuenta de la que es dueño (%), vio %', v_t_acc, pg_temp.ids_txt(v_ids);
+    END IF;
+    -- Lo mismo para el hook y para rpc_my_accounts (un solo criterio).
+    v_j := pg_temp.q('SELECT account_id, is_active FROM public.rpc_my_accounts() ORDER BY is_active DESC');
+    IF (v_j -> 0 ->> 'account_id')::uuid <> v_t_acc OR NOT (v_j -> 0 ->> 'is_active')::boolean THEN
+      RAISE EXCEPTION 'rpc_my_accounts debía marcar como activa la cuenta propia %, devolvió %', v_t_acc, v_j;
+    END IF;
+    RAISE NOTICE 'PASS (q): a igual created_at gana la cuenta de la que el usuario es dueño — el desempate no depende de un uuid.';
+  EXCEPTION WHEN OTHERS THEN
+    v_fail := v_fail || format('%s %s [%s]', v_blk, SQLERRM, SQLSTATE);
+    RAISE NOTICE 'FAIL %: % [%]', v_blk, SQLERRM, SQLSTATE;
+  END;
+
   -- ── (s) ESTRUCTURAL ─────────────────────────────────────────────────────────
   v_blk := '(s1) ACL de resolve_active_account';
   BEGIN
@@ -947,7 +987,7 @@ BEGIN
   IF array_length(v_fail, 1) IS NOT NULL THEN
     RAISE EXCEPTION E'GATE MULTIUSUARIO-CUENTA-ACTIVA FAILED en % bloque(s):\n  - %', array_length(v_fail, 1), array_to_string(v_fail, E'\n  - ');
   END IF;
-  RAISE NOTICE 'GATE MULTIUSUARIO-CUENTA-ACTIVA OK: la cuenta activa es única y la misma en base, token y RPCs (a-p, s1-s4).';
+  RAISE NOTICE 'GATE MULTIUSUARIO-CUENTA-ACTIVA OK: la cuenta activa es única y la misma en base, token y RPCs (a-q, s1-s4).';
 END
 $gate$;
 

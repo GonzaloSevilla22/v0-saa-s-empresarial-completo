@@ -6,36 +6,39 @@ CREATE FUNCTION
 CREATE FUNCTION
 CREATE FUNCTION
 CREATE FUNCTION
-psql:<stdin>:952: NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=1f060251-ba64-403b-a293-2985ed5c1459
-psql:<stdin>:952: NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=e12120d2-5499-4217-a1a2-5e272658807e
-psql:<stdin>:952: NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=931d04fe-0958-4a7b-8ad9-77c9e31b30fc
-psql:<stdin>:952: NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=f931e74f-94e6-42b5-b270-4dc08603c905
-psql:<stdin>:952: NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=e168b114-4837-4c89-b84e-47d9b1c4f84b
-psql:<stdin>:952: NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=46497ed0-4c93-47c4-87f8-135e6eebf7e4
-psql:<stdin>:952: NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=6307aadc-8c8e-45cb-97ea-f8cdb6b6de8f
-psql:<stdin>:952: NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=5bc02846-ba1d-4e1a-a6c4-1b0c1c5caa73
-psql:<stdin>:952: NOTICE:  PASS (a): el usuario de una sola cuenta ve exactamente su cuenta, con y sin claim.
-psql:<stdin>:952: NOTICE:  PASS (b): sin preferencia gana la más antigua; con preferencia válida gana la preferencia; una preferencia inválida se ignora.
-psql:<stdin>:952: NOTICE:  PASS (c): rpc_set_active_account cambia la cuenta, rechaza una ajena con P0404 indistinguible de una inexistente y sin sesión da P0401.
-psql:<stdin>:952: NOTICE:  PASS (d): el claim del token gana sobre la preferencia guardada, en los dos sentidos.
-psql:<stdin>:952: NOTICE:  PASS (e): un claim de una cuenta ajena o revocada devuelve 0 filas y nunca cae en silencio a otra cuenta.
-psql:<stdin>:952: WARNING:  custom_access_token_hook degradado (SQLSTATE=22023): cannot set path in scalar
-psql:<stdin>:952: NOTICE:  PASS (f): el hook emite account_id, roles y plan de la cuenta activa, preserva app_metadata y conserva la degradación.
-psql:<stdin>:952: NOTICE:  PASS (g): la RLS muestra sólo la cuenta activa (por preferencia y por claim) y nada ajeno.
-psql:<stdin>:952: NOTICE:  PASS (h): get_dashboard_financials y rpc_period_comparison suman sólo la cuenta activa.
-psql:<stdin>:952: NOTICE:  PASS (i): R3j y R3l — el POS y la venta de servicio de U2 quedan en la cuenta activa (por claim y por preferencia).
-psql:<stdin>:952: NOTICE:  PASS (j): un gasto de U2 queda en la cuenta activa.
-psql:<stdin>:952: NOTICE:  PASS (k): el import en dry run funciona para el usuario de dos cuentas (su guard cuenta_ambigua queda inerte con 0/1 fila).
-psql:<stdin>:952: NOTICE:  PASS (l): rpc_my_active_account_roles() devuelve los roles de la cuenta activa.
-psql:<stdin>:952: NOTICE:  PASS (m): rpc_my_effective_plan() resuelve el plan de la cuenta activa y falla cerrado sin ella.
-psql:<stdin>:952: NOTICE:  PASS (n): rpc_atomic_log_ai_insight y el trigger set_insight_account_id sellan la cuenta activa.
-psql:<stdin>:952: NOTICE:  PASS (o): rpc_my_accounts() lista una fila por membresía, una sola activa, con los campos crudos y el billing.
-psql:<stdin>:952: NOTICE:  PASS (p): quien necesite todas las membresías sigue teniendo get_account_ids_for_user.
-psql:<stdin>:952: NOTICE:  PASS (s1): resolve_active_account — sin EXECUTE para anon/authenticated, con EXECUTE para supabase_auth_admin.
-psql:<stdin>:952: NOTICE:  PASS (s2): rpc_set_active_account / rpc_my_accounts con su ACL, una definición viva por función y current_account_ids documentada.
-psql:<stdin>:952: NOTICE:  PASS (s3): profiles.active_account_id es una columna de PRIVILEGIO (no escribible por PostgREST) con FK ON DELETE SET NULL.
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=5466bdc6-0222-4879-984c-909bdc15f4ed
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=173c07a8-a5bc-4dc3-8a53-147658d8623d
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=89fee661-310c-4aee-ab41-0a08ed77a5ff
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=b21949b8-6c46-420e-8be9-cdb9d141aee6
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=abf7642c-5f53-4228-a9c4-d842a02bd187
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=c476cdfa-5f7a-4327-a158-6c1ac3a7bc4c
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=cf1bda3b-ce28-4ce3-9703-d928f32958a7
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=a722ecbd-23f3-4d3d-b5ee-0480563a9f1c
+NOTICE:  PASS (a): el usuario de una sola cuenta ve exactamente su cuenta, con y sin claim.
+NOTICE:  PASS (b): sin preferencia gana la más antigua; con preferencia válida gana la preferencia; una preferencia inválida se ignora.
+NOTICE:  PASS (c): rpc_set_active_account cambia la cuenta, rechaza una ajena con P0404 indistinguible de una inexistente y sin sesión da P0401.
+NOTICE:  PASS (d): el claim del token gana sobre la preferencia guardada, en los dos sentidos.
+NOTICE:  PASS (e): un claim de una cuenta ajena o revocada devuelve 0 filas y nunca cae en silencio a otra cuenta.
+WARNING:  custom_access_token_hook degradado (SQLSTATE=22023): cannot set path in scalar
+NOTICE:  PASS (f): el hook emite account_id, roles y plan de la cuenta activa, preserva app_metadata y conserva la degradación.
+NOTICE:  PASS (g): la RLS muestra sólo la cuenta activa (por preferencia y por claim) y nada ajeno.
+NOTICE:  PASS (h): get_dashboard_financials y rpc_period_comparison suman sólo la cuenta activa.
+NOTICE:  PASS (i): R3j y R3l — el POS y la venta de servicio de U2 quedan en la cuenta activa (por claim y por preferencia).
+NOTICE:  PASS (j): un gasto de U2 queda en la cuenta activa.
+NOTICE:  PASS (k): el import en dry run funciona para el usuario de dos cuentas (su guard cuenta_ambigua queda inerte con 0/1 fila).
+NOTICE:  PASS (l): rpc_my_active_account_roles() devuelve los roles de la cuenta activa.
+NOTICE:  PASS (m): rpc_my_effective_plan() resuelve el plan de la cuenta activa y falla cerrado sin ella.
+NOTICE:  PASS (n): rpc_atomic_log_ai_insight y el trigger set_insight_account_id sellan la cuenta activa.
+NOTICE:  PASS (o): rpc_my_accounts() lista una fila por membresía, una sola activa, con los campos crudos y el billing.
+NOTICE:  PASS (p): quien necesite todas las membresías sigue teniendo get_account_ids_for_user.
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=9da3b721-451e-4bf7-9703-a0019a30deab
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=3cb712ff-3105-41c3-94de-72e22d6fa749
+NOTICE:  PASS (q): a igual created_at gana la cuenta de la que el usuario es dueño — el desempate no depende de un uuid.
+NOTICE:  PASS (s1): resolve_active_account — sin EXECUTE para anon/authenticated, con EXECUTE para supabase_auth_admin.
+NOTICE:  PASS (s2): rpc_set_active_account / rpc_my_accounts con su ACL, una definición viva por función y current_account_ids documentada.
+NOTICE:  PASS (s3): profiles.active_account_id es una columna de PRIVILEGIO (no escribible por PostgREST) con FK ON DELETE SET NULL.
+NOTICE:  PASS (s4): ninguna función de public (fuera de la allow-list) mantiene un criterio propio de cuenta activa.
+NOTICE:  GATE MULTIUSUARIO-CUENTA-ACTIVA OK: la cuenta activa es única y la misma en base, token y RPCs (a-q, s1-s4).
 DO
-psql:<stdin>:952: NOTICE:  PASS (s4): ninguna función de public (fuera de la allow-list) mantiene un criterio propio de cuenta activa.
-psql:<stdin>:952: NOTICE:  GATE MULTIUSUARIO-CUENTA-ACTIVA OK: la cuenta activa es única y la misma en base, token y RPCs (a-p, s1-s4).
 ROLLBACK
 EXIT=0

@@ -189,8 +189,12 @@ BEGIN
 
   -- D4: v_member_id es MIEMBRO (no owner) de la cuenta de v_owner_id — nunca
   -- fue dueño de los productos (products.user_id sigue siendo v_owner_id).
-  INSERT INTO public.account_members (account_id, user_id, role)
-  VALUES (v_account_id, v_member_id, 'member')
+  -- multiusuario-operativo (tanda A): la membresía de A se fecha DESPUÉS de la personal que crea
+  -- handle_new_user en esta misma transacción. Con el mismo `created_at` (now() es constante dentro
+  -- de la transacción), "la más antigua" se desempata por un uuid al azar y el control 4.5a-bis
+  -- pasaba o fallaba según la suerte.
+  INSERT INTO public.account_members (account_id, user_id, role, created_at)
+  VALUES (v_account_id, v_member_id, 'member', now() + interval '1 second')
   ON CONFLICT DO NOTHING;
 
   -- ── Sucursales ────────────────────────────────────────────────────────────

@@ -1648,6 +1648,63 @@ jobs:
           fi
           echo "20261084000001 idempotente: dos pasadas, introspección OK, cuerpo presente, email_logs cerrada y schema IDÉNTICO al previo a este paso."
 
+          # multiusuario-operativo TANDA C (2026-10-17, governance CRÍTICO): reaplicación de 20261085000001 AL FINAL de la
+          # cadena, después de la de 20261084000001. La invitación de punta a punta: rpc_send_invitation_email (encola el
+          # email org_invite dentro de la transacción, con el destinatario y el token de la FILA, rota el token al reenviar y
+          # aplica los topes P0439), rpc_list_account_invitations, rpc_revoke_invitation y rpc_invitation_preview (ligada a la
+          # identidad); reescribe rpc_accept_invitation (deja el negocio como cuenta ACTIVA del invitado) y rpc_invite_member
+          # (3 args: P0401 y email válido); RETIRA el overload de 2 argumentos de rpc_invite_member. Suma tres columnas a
+          # account_invitations, `revoked` al CHECK de estado (POR AGREGADO al vivo, nunca una lista fija) y un índice parcial
+          # sobre email_logs. Idempotente: ADD COLUMN / CREATE INDEX IF NOT EXISTS, CHECK ampliado sólo si falta el valor,
+          # CREATE OR REPLACE con firmas fijas (sin overload, sin 42725), DROP FUNCTION IF EXISTS del overload retirado,
+          # REVOKE/GRANT/COMMENT re-emitidos.
+          #
+          # El preflight de la migración exige que cada cuerpo sea el de partida (md5 de producción) o el suyo. Para este punto
+          # de la cadena el reset de reconvergencia de arriba ya reconstruyó la base con la historia completa, que incluye esta
+          # migración en su orden: la PRIMERA pasada ve los 2 cuerpos ya reaplicados, y la SEGUNDA, igual. SIN tolerancia.
+          # schema_snapshot() no compara cuerpos: por eso se re-consultan. El gate test_membership_rpcs_pivot_rewrite.sql suma
+          # su propio eslabón (reconverge-4) porque su \i de las migraciones viejas revive el overload de 2 args.
+          #
+          # REGLA PARA EL PR SIGUIENTE: una migración posterior que redefina rpc_invite_member, rpc_accept_invitation o cualquiera
+          # de las cuatro funciones nuevas tiene que partir del cuerpo VIVO (preflight por md5) y rebasar este paso en el mismo PR;
+          # y NADIE puede volver a crear rpc_invite_member(text, uuid) ni otorgar EXECUTE de ninguna de las seis a anon / PUBLIC.
+          MTC_OUT1=$(psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261085000001_multiusuario_invitaciones.sql 2>&1) || { echo "$MTC_OUT1"; echo "ERROR: el reapply de 20261085000001 falló (sin tolerancia)."; exit 1; }
+          echo "$MTC_OUT1"
+          if ! echo "$MTC_OUT1" | grep -qF '0 cuerpos de partida verificados por md5, 2 ya reaplicados'; then
+            echo "ERROR: la primera pasada de 20261085000001 debía ver los 2 cuerpos ya reaplicados (el reset de reconvergencia incluye la migración)."
+            exit 1
+          fi
+          MTC_OUT2=$(psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261085000001_multiusuario_invitaciones.sql 2>&1) || { echo "$MTC_OUT2"; echo "ERROR: la segunda pasada de 20261085000001 falló (sin tolerancia)."; exit 1; }
+          echo "$MTC_OUT2"
+          if ! echo "$MTC_OUT2" | grep -qF '0 cuerpos de partida verificados por md5, 2 ya reaplicados'; then
+            echo "ERROR: la segunda pasada de 20261085000001 debía ver los 2 cuerpos ya reaplicados."
+            exit 1
+          fi
+          if ! echo "$MTC_OUT2" | grep -qF 'multiusuario-operativo tanda C (introspecci'; then
+            echo "ERROR: el reapply de 20261085000001 no imprimió el OK de su bloque de introspección."
+            exit 1
+          fi
+          MTC_BODIES=$(psql -tA "$DSN" -c "SELECT count(*) FROM pg_proc p JOIN (VALUES
+              ('rpc_invite_member', 'ff9d4a38e7dad25455d13249195263ec'),
+              ('rpc_accept_invitation', '92abe7e8e0c66314ff6d47230a8a913c')) AS e(fn, h) ON e.fn = p.proname AND e.h = md5(replace(p.prosrc, E'\r', ''))
+              WHERE p.pronamespace = 'public'::regnamespace")
+          if [ "$MTC_BODIES" != "2" ]; then
+            echo "ERROR: después de reaplicar 20261085000001, los 2 cuerpos de multiusuario-operativo tanda C no quedaron (md5): $MTC_BODIES de 2."
+            exit 1
+          fi
+          MTC_OVERLOAD=$(psql -tA "$DSN" -c "SELECT count(*) FROM pg_proc WHERE pronamespace = 'public'::regnamespace AND proname = 'rpc_invite_member'")
+          if [ "$MTC_OVERLOAD" != "1" ]; then
+            echo "ERROR: después de reaplicar 20261085000001 rpc_invite_member debía tener UNA sola definición viva (el overload de 2 args se retiró), tiene $MTC_OVERLOAD."
+            exit 1
+          fi
+          schema_snapshot > /tmp/schema_after_mtc_reapply.txt
+          if ! diff -u /tmp/schema_before_reapply.txt /tmp/schema_after_mtc_reapply.txt > /tmp/schema_diff_mtc.txt; then
+            echo "NOT IDEMPOTENT: reaplicar 20261085000001 cambió el schema (constraints + firmas de función + ACLs):"
+            cat /tmp/schema_diff_mtc.txt
+            exit 1
+          fi
+          echo "20261085000001 idempotente: 0+2 en las dos pasadas, introspección OK, cuerpos presentes, una sola rpc_invite_member y schema IDÉNTICO al previo a este paso."
+
       # -v ON_ERROR_STOP=1 is required: without it psql prints RAISE EXCEPTION
       # errors but still exits 0, so failing assertions show green in CI.
       - name: Run deterministic KPI tests
@@ -3528,3 +3585,21 @@ jobs:
       # compras: insufficient_role).
       - name: Run multiusuario operaciones gate
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_multiusuario_operaciones.sql
+
+      # multiusuario-operativo TANDA C (2026-10-17, governance CRÍTICO): EJECUTA, como `authenticated` con claims armados a
+      # mano (SIN email, como los empuja el backend propio), la invitación de punta a punta con un equipo real (dueño,
+      # administrador, vendedor, observador, el invitado, OTRA identidad y el dueño de otra cuenta): (a) el envío encola el
+      # email `org_invite` con el destinatario y el token de la FILA (la función no recibe ninguno por parámetro), el
+      # invitador y las etiquetas del catálogo; el nombre se recorta y no admite saltos de línea; (b) autoridad: vendedor P0403,
+      # observador P0401, otra cuenta P0404 indistinguible de inexistente, sin sesión P0401, y un rechazo no deja emails;
+      # (c) el enfriamiento (P0439) y el reenvío que ROTA el token —el link viejo deja de servir— y revive una vencida;
+      # (d) el tope diario por cuenta (P0439) con ventana de 24 h; (e) revocar (idempotente) hace fallar la aceptación y la vista
+      # previa IGUAL que un token inexistente; (f) listar sin token y con ventana de 30 días; (g) la vista previa ligada a la
+      # identidad; (h) aceptar deja el negocio como cuenta ACTIVA y la primera venta del invitado cae en el negocio (con y sin
+      # claim), conservando la personal; (i) email válido y "Not authenticated" = P0401; (j) el overload de 2 args retirado,
+      # CHECK con `revoked`, ACLs sin anon ni PUBLIC, candado de cuerpo y email_logs sigue cerrada a la escritura de usuarios.
+      # Corre dentro de BEGIN..ROLLBACK: residuo cero. Ajusta a propósito, además: test_invite_member_roles_and_plan_gate.sql (el
+      # overload de 2 args ya no existe), test_accept_invitation_binding.sql (aceptar fija la cuenta activa) y
+      # test_membership_rpcs_pivot_rewrite.sql (suma su reconverge-4 con esta migración).
+      - name: Run multiusuario invitaciones gate
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_multiusuario_invitaciones.sql

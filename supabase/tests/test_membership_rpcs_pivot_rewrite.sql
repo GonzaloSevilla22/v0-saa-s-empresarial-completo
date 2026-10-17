@@ -448,6 +448,22 @@ END $$;
 --    toda migración que redefina rpc_accept_invitation debe sumar el suyo.
 \i supabase/migrations/20261051000001_accept_invitation_binding_realtime_fiscal.sql
 
+-- ── Fase 13b-reconverge-4 (multiusuario-operativo tanda C, D14): el \i de arriba
+--    reaplica rpc_accept_invitation y rpc_invite_member(3 args) con los cuerpos
+--    ANTERIORES a la tanda C —el accept que NO deja el negocio como cuenta activa
+--    del invitado, y las dos con "Not authenticated" en P0001— y vuelve a CREAR el
+--    overload de 2 argumentos de rpc_invite_member que la tanda C retiró. Sin este
+--    reconverge, correr ESTE gate en cualquier momento DESPUÉS de que 20261085000001
+--    esté aplicada deja esas dos funciones viejas y el overload fantasma vivo para
+--    el RESTO de la corrida de CI: test_invite_member_roles_and_plan_gate.sql (que
+--    exige que el overload de 2 args NO exista) y test_multiusuario_invitaciones.sql
+--    fallarían. Cuarto eslabón de la misma cadena: toda migración que redefina
+--    rpc_accept_invitation o rpc_invite_member debe sumar el suyo. La migración
+--    parte del cuerpo vivo con preflight por md5: acepta el de producción previo (el
+--    que dejó el \i de arriba) o el propio, y su DROP FUNCTION IF EXISTS elimina el
+--    overload resucitado.
+\i supabase/migrations/20261085000001_multiusuario_invitaciones.sql
+
 -- ── Fase 13c: assert contra lo que la migración REAL dejó ───────────────────
 DO $$
 DECLARE

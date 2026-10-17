@@ -113,7 +113,9 @@ async def _supplier_balance(conn: asyncpg.Connection, supplier: uuid.UUID) -> De
 async def _delete_purchase(conn, w: World, operation_id: str, *, user=None):
     user = user or w.owner_a
     async with _as(conn, user, authenticated_role=True):
-        await purchases_svc.delete_purchase_operation(PurchaseRepository(conn), _auth(user), str(w.account_a), operation_id)
+        await purchases_svc.delete_purchase_operation(
+            PurchaseRepository(conn), _auth(user), str(w.account_a), operation_id, conn=conn
+        )
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -459,10 +461,19 @@ async def test_only_admin_or_owner_deletes_the_purchase_of_a_note(conn, pworld: 
     result = await _convert(conn, w, dn, _convert_payload(dn, pm), "integ-rcb-del-role")
     before = await _effects(conn, w)
 
-    with pytest.raises(asyncpg.PostgresError) as info:
+    # multiusuario-operativo (tanda B, D9): borrar una compra exige CAN_PURCHASE ANTES de llegar al remito. El depósito
+    # (`stock`) convierte pero NO compra: el guard de FastAPI lo corta con un 403 sin ejecutar la RPC…
+    with pytest.raises(HTTPException) as info_api:
         await _delete_purchase(conn, w, result["operation_id"], user=w.stocker)
+    assert info_api.value.status_code == 403
+    assert await _effects(conn, w) == before
 
-    assert info.value.sqlstate == "P0403" and "delivery_note_purchase_delete_forbidden" in str(info.value)
+    # …y la base lo rechaza igual si se la invoca directo (defensa en dos capas): P0403 insufficient_role.
+    with pytest.raises(asyncpg.PostgresError) as info:
+        async with _as(conn, w.stocker, authenticated_role=True):
+            await conn.fetchval("SELECT public.rpc_delete_purchase_operation(NULL, $1::uuid, NULL)", _u(result["operation_id"]))
+
+    assert info.value.sqlstate == "P0403" and "insufficient_role" in str(info.value)
     assert await _effects(conn, w) == before
     assert await conn.fetchval("SELECT status FROM public.delivery_notes WHERE id = $1", _u(dn["id"])) == "converted"
 
@@ -495,10 +506,18 @@ async def test_editing_the_purchase_is_locked_and_changes_neither_stock_nor_ledg
         "SELECT id FROM public.purchases WHERE operation_id = $1", uuid.UUID(result["operation_id"]))]
     before = await _effects(conn, w)
 
-    with pytest.raises(asyncpg.PostgresError) as info:
-        # quien convirtió (`stock`): la edición de una compra ajena corta antes, con P0403 (el chequeo por
-        # usuario de la compra, preexistente), así que el P0423 del remito se prueba con el mismo usuario.
+    # multiusuario-operativo (tanda B, D9): editar una compra exige CAN_PURCHASE (el depósito, que convirtió, no
+    # compra: P0403 insufficient_role) y, sobre la compra de OTRO miembro, dueño o administrador. El P0423 del remito
+    # —el primer guard de la edición después de esos— se prueba con el administrador, que sí puede editarla.
+    with pytest.raises(asyncpg.PostgresError) as stocker_info:
         async with _as(conn, w.stocker, authenticated_role=True):
+            await PurchaseRepository(conn).update_operation(
+                [str(i) for i in purchase_ids], datetime.date.today(), None,
+                [{"product_id": str(w.product_a), "quantity": "1", "amount": "100"}])
+    assert stocker_info.value.sqlstate == "P0403" and "insufficient_role" in str(stocker_info.value)
+
+    with pytest.raises(asyncpg.PostgresError) as info:
+        async with _as(conn, w.admin, authenticated_role=True):
             await PurchaseRepository(conn).update_operation(
                 [str(i) for i in purchase_ids], datetime.date.today(), None,
                 [{"product_id": str(w.product_a), "quantity": "1", "amount": "100"}])

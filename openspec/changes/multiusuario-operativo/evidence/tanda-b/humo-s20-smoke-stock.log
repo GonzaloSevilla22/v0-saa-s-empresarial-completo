@@ -1,0 +1,122 @@
+BEGIN
+CREATE TABLE
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+                                          conteos_antes                                           
+--------------------------------------------------------------------------------------------------
+ ANTES branch_stock=5 stock_movements=75 products=5 sales=25 purchases=16 branches=48 accounts=14
+(1 row)
+
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=ae5e0999-9791-4cc6-9f80-0ea804f6bc2f
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=f81b6da8-0b46-404b-ad55-b1fd3d98879e
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=363ae25a-57b4-486c-ad8c-a6fb25283493
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=679fb48e-63c7-4d3a-bb38-a773f65c8161
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  [OK  ] S0 setup -- cuenta=a6287aef principal=145d B=aafd
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  [OK  ] S1 venta 3u (stock 10 -> 7) -- estado=00000 msg= saldoA=7.0000 movs=[sale:-3.0000/sale@145d]
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  [OK  ] S1b venta sin sucursal elegida queda con la principal -- filas sales con branch=principal: 1
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  [OK  ] S1c movimiento sale sellado (account/branch/before/after) -- movs coincidentes=1
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  [OK  ] S1d reintento con misma Idempotency-Key no vuelve a descontar -- replayed=true saldoA=7.0000
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  [OK  ] S2 editar venta 3 -> 5 (stock 7 -> 5) -- estado=00000 msg= saldoA=5.0000 movs=[sale:-3.0000/sale@145d | sale_return:3.0000/sale_update@145d | sale:-5.0000/sale@145d]
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  [OK  ] S3 borrar venta editada (stock 5 -> 10) -- estado=00000 msg= saldoA=10.0000 libro_concilia=t movs=[sale:-3.0000/sale@145d | sale_return:3.0000/sale_update@145d | sale:-5.0000/sale@145d | sale_return:5.0000/sale_reversal@145d]
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  [OK  ] S3b vender 11 con stock 10 se rechaza sin tocar saldo -- estado=P0409 msg=Insufficient stock for product 7595578f-55e3-4e2a-8813-08399b1b735c saldoA=10.0000
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  [OK  ] S3c cantidad 0 se rechaza -- estado=P0400
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  [OK  ] S3d vender exactamente todo el stock (10) deja 0 y no negativo -- estado=00000 saldoA=0.0000
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  [OK  ] S3e borrar esa venta repone los 10 -- saldoA=10.0000
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  [OK  ] S4 compra 4u (stock 10 -> 14) -- estado=00000 msg= saldoA=14.0000 movs=[purchase:4.0000/purchase@145d]
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  [OK  ] S4b compra sin sucursal elegida queda con la principal -- filas=1
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  [OK  ] S5 editar compra 4 -> 6 (stock 14 -> 16) -- estado=00000 msg= saldoA=16.0000 movs=[purchase:6.0000/purchase@145d | purchase:4.0000/purchase@145d | purchase_return:-4.0000/purchase_update@145d]
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  [OK  ] S6 borrar compra (stock 16 -> 10) -- estado=00000 msg= saldoA=10.0000 libro_concilia=t movs=[purchase:6.0000/purchase@145d | purchase:4.0000/purchase@145d | purchase_return:-6.0000/purchase_reversal@145d | purchase_return:-4.0000/purchase_update@145d]
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  [OK  ] S7a P4: compra 4 (14) + venta 12 -> 2 -- saldoA=2.0000
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  [OK  ] S7b editar compra a menos de lo ya vendido: informativo (que error da y deja saldo intacto) -- estado=23514 msg=new row for relation "branch_stock" violates check constraint "branch_stock_quantity_non_negative" saldoA=2.0000 (no debe quedar negativo ni parcial)
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  [OK  ] S7c borrar compra ya vendida: piso en cero trazable (no negativo) -- estado=00000 msg= saldoA=0.0000 movs=[purchase:4.0000/purchase@145d | adjustment:-2.0000/-@145d | sale:-12.0000/sale@145d | purchase_return:-2.0000/purchase_reversal@145d]
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  [OK  ] S7d borrar la venta tras el piso: INFORMATIVO (stock final vs 10 original) -- saldoA=12.0000 (original 10; diferencia=2.0000 por el piso) libro_concilia=f
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  [FAIL] S7e R4b: el libro suma lo mismo que el saldo tras piso+borrado? (suma deltas P4 vs saldo vivo) -- saldo vivo=12.0000 ; 10 + suma(deltas)=10.0000 ; filas=purchase d=4.0000 antes=10.0000 despues=14.0000 | adjustment d=-2.0000 antes=2.0000 despues=0 | sale d=-12.0000 antes=14.0000 despues=2.0000 | sale_return d=12.0000 antes=0.0000 despues=12.0000 | purchase_return d=-2.0000 antes=2.0000 despues=0.0000
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  [OK  ] S8 POS vende 2u (stock 10 -> 8) -- estado=00000 msg= saldoA=8.0000 movs=[sale:-2.0000/sale@145d]
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  [OK  ] S8b borrar venta POS repone (8 -> 10) -- estado=00000 msg= saldoA=10.0000 movs=[sale_return:2.0000/sale_reversal@145d | sale:-2.0000/sale@145d]
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  [OK  ] S9 transferir 2u A->B (A=8, B=2, total 10) -- estado=00000 msg= A=8.0000 B=2.0000 total=10.0000 movs=[transfer_out:-2/transfer@145d | transfer_in:2/transfer@aafd]
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  [OK  ] S9b ambas patas comparten transfer_id y llevan account_id -- transfer_ids distintos=1
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  [OK  ] S9c transferir mas de lo disponible se rechaza -- estado=P0409 A=8.0000
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  [OK  ] S9d transferir a la misma sucursal se rechaza -- estado=P0400
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  [OK  ] S10 venta en sucursal B elegida (B 2 -> 1, A intacta 8) -- estado=00000 msg= A=8.0000 B=1.0000
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  [OK  ] S10b borrar esa venta repone en B (no en A) -- A=8.0000 B=2.0000
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  [OK  ] S10c vender 5 desde B con solo 2 (A tiene 8) se rechaza por sucursal -- estado=P0409 B=2.0000
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  [OK  ] S11 ajuste manual -1 (merma) sobre la principal (A 8 -> 7) -- estado=00000 msg= A=7.0000
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  [OK  ] S11b el ajuste deja fila con account_id, branch_id y motivo (visible en historial) -- filas=1
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  [OK  ] S11c conteo fisico objetivo total=12 (A 7+B 2=9 -> +3 en A=10) -- estado=00000 msg= A=10.0000 B=2.0000 total=12.0000
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  [OK  ] S11d ajuste absoluto por sucursal B=5 -- estado=00000 msg= B=5.0000
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  [OK  ] S11e ajuste sin motivo se rechaza -- estado=P0400 msg=stock_adjustment_reason_required: el ajuste de stock requiere un motivo
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  [OK  ] S11f ajuste que dejaria negativo se rechaza y no cambia saldo -- estado=P0409 A=10.0000
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  [OK  ] S12 remito de venta 3u descuenta (10 -> 7) -- estado=00000 msg= saldoA=7.0000 movs=[sale:-3.0000/delivery_note@145d]
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  [OK  ] S12b anular remito repone (7 -> 10) -- estado=00000 msg= saldoA=10.0000 movs=[sale:-3.0000/delivery_note@145d | sale_return:3.0000/delivery_note_reversal@145d]
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  [OK  ] S12c convertir remito a venta NO vuelve a descontar (8 se mantiene) -- estado=00000 msg= saldoA=8.0000 movs=[sale:-3.0000/delivery_note@145d | sale:-2.0000/delivery_note@145d | sale_return:3.0000/delivery_note_reversal@145d]
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  [OK  ] S12d borrar la venta nacida del remito NO repone (el remito sigue reteniendo) -- estado=00000 msg= saldoA=8.0000
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  [OK  ] S12e anular el remito repone (8 -> 10) -- estado=00000 msg= saldoA=10.0000 libro_concilia=t movs=[sale:-3.0000/delivery_note@145d | sale:-2.0000/delivery_note@145d | sale_return:3.0000/delivery_note_reversal@145d | sale_return:2.0000/delivery_note_reversal@145d]
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  [OK  ] S13 remito de compra 5u suma (10 -> 15) -- estado=00000 msg= saldoA=15.0000 movs=[purchase:5.0000/delivery_note@145d]
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  [OK  ] S13b anular remito de compra resta (15 -> 10) -- estado=00000 msg= saldoA=10.0000
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  [OK  ] S14 venta decimal 0,35 (5 -> 4,65) -- estado=00000 msg= saldoA=4.6500
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  [OK  ] S14b editar a 0,5 (-> 4,5) -- estado=00000 msg= saldoA=4.5000
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  [OK  ] S14c borrar -> vuelve a 5 exacto, libro concilia -- saldoA=5.0000 libro_concilia=t
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  [OK  ] S14d cantidad con 5 decimales (0,33333): INFORMATIVO (que pasa con el redondeo a 4 dec) -- estado=00000 msg= saldoA=4.6667 movs=[sale:-0.3500/sale@145d | sale:-0.5000/sale@145d | sale_return:0.3500/sale_update@145d | sale:-0.3333/sale@145d | sale_return:0.5000/sale_reversal@145d]
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  [OK  ] S15 vender el PADRE de variantes se rechaza (P0422) -- estado=P0422 msg=Este producto tiene variantes. Seleccioná una variante específica para registrar la venta.
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  [OK  ] S15b vender la VARIANTE descuenta su propio stock (10 -> 8) -- estado=00000 msg= saldoHijo=8.0000
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  [OK  ] S16 importar producto con stock inicial 20 (branch_stock = 20 en la principal) -- estado=00000 msg= saldoA=20.0000 movimientos_en_ledger=0 resp={"plan": {"plan": "pro", "added": 1, "after": 11, "limit": 5000, "before": 10, "exceeded": false}, "errors": [], "dry_run": false, "updated": 0, "inserted": 1, 
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  [FAIL] S16b R1: el stock inicial importado deja fila en stock_movements (apertura)? -- movimientos_en_ledger=0 (0 = sin rastro de apertura)
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  [OK  ] S16c venta de 5 sobre el producto importado (20 -> 15) -- estado=00000 saldoA=15.0000
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  [FAIL] S16d R1: reimportar OTRO archivo con el mismo SKU y stock=20 tras vender 5 respeta las ventas (debe quedar 15)? -- estado=00000 msg= saldoA=20.0000 (15 = respeta; 20 = pisa el stock vivo) movs=[sale:-5.0000/sale@145d] libro_concilia_desde_apertura20=f
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  [OK  ] S16e reimportar SIN columna stock (celda vacia) no toca el saldo -- estado=00000 saldoA=20.0000 (se mantiene el valor que dejo S16d)
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  [OK  ] S17 CHECK quantity >= 0 en branch_stock -- rechazado con check_violation (23514)
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=e23681f2-c7d8-492c-b957-c6e72180b783
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=c534da6b-0f3d-4baf-90fc-0f4ad2bbd9eb
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=5f2dfc99-1d8c-4543-b0c6-cb812eb77ff7
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=3e86090d-a6bb-4563-a48d-36b181fcff47
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=8522627d-ccc5-4e49-9a38-2a969fa53727
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=3cf35145-4a6e-41cf-b8a4-f39574c04f03
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=9197319e-9d60-4b0a-aa8a-a209f309fbbf
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=b3272540-17c5-47a6-a6ae-9db61bc95f87
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  [OK  ] S20 setup R3: seller y admin miembros UNICOS de A; multi con cuenta personal + A -- membresias seller=1 admin=1 multi=2
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  [OK  ] R3a seller vende por FORMULARIO un producto creado por el owner -- estado=00000 msg= saldoA=29.0000
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  [OK  ] R3b admin vende por FORMULARIO un producto creado por el owner -- estado=00000 msg= saldoA=28.0000
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  [OK  ] R3c seller vende por POS un producto creado por el owner -- estado=00000 msg= saldoA=27.0000
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  [OK  ] R3d owner EDITA una venta hecha por el seller (POS) -- estado=00000 msg= saldoA=26.0000
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  [OK  ] R3e owner BORRA una venta hecha por el seller -- estado=00000 msg=
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  [OK  ] R3f admin EDITA una venta hecha por el owner (formulario) -- estado=00000 msg=
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  [OK  ] R3g el rol COMPRAS carga una COMPRA de un producto del owner -- estado=00000 msg=
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  [OK  ] R3g2 seller carga una COMPRA (esperado por diseno OQ-3 b: rechazado P0403, el vendedor no compra) -- estado=P0403 msg=insufficient_role: tu rol no permite registrar compras (requiere compras, administrador o dueño)
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  [OK  ] R3h seller AJUSTA stock a mano (esperado por diseno: rechazado P0403) -- estado=P0403 msg=insufficient_role: tu rol no permite ajustar el stock a mano (requiere depósito, administrador o dueño)
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  [OK  ] R3i seller TRANSFIERE stock entre sucursales (INFORMATIVO) -- estado=P0403 msg=insufficient_role: 6653293c-6a3a-4e2f-91e8-ca688f4d1534 no tiene un rol habilitado para la transición <NULL>→completed de stock_transfer (requiere uno de: {stock,admin,owner})
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  [OK  ] R3j usuario con 2 membresias (personal + A): el POS opera sobre la cuenta A? -- estado=00000 msg= current_account_ids=[a6287aef] cuenta_A=a6287aef cuenta_usada=a6287aef
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  [OK  ] R3k usuario con 2 membresias: venta por formulario sobre producto de A -- estado=00000 msg=
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  [OK  ] R3l usuario con 2 membresias: una venta de servicio (sin producto) queda en la cuenta A? -- estado=00000 msg= cuenta_A=a6287aef cuenta_donde_quedo_la_venta=a6287aef (la otra es su cuenta personal)
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  [OK  ] S18 otro tenant NO puede vender un producto ajeno ni mover su stock -- estado=P0404 msg=Product not found: 1b9ebdbf-5c2f-43b2-8e62-c851143d908d totalP6 antes=15.0000 despues=15.0000
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  [OK  ] S18a otro tenant NO puede transferir stock ajeno -- estado=P0404 msg=branch_not_found: origin branch not found or not active
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  [OK  ] S18b otro tenant NO puede ajustar stock ajeno -- estado=P0404 msg=product_not_found: el producto no existe o no pertenece a tu cuenta
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  [OK  ] S19 ningun saldo negativo en la cuenta -- saldos negativos=0
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  [OK  ] S19b todo movimiento de la cuenta lleva branch_id -- movimientos sin sucursal=0
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  [OK  ] S19c todo movimiento de productos de la cuenta lleva account_id (si no, invisible por RLS) -- movimientos sin account_id=0
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  [OK  ] S19d el historial es visible por RLS para el dueño (movs en tabla vs movs visibles) -- en tabla=48 visibles_para_authenticated=48
+psql:/tmp/smoke_stock_s20.sql:556: NOTICE:  [OK  ] S19e libro concilia P1/P3/P5/P7 (saldo inicial + deltas = saldo vivo) -- P3=t P5=t P7=t
+DO
+            resumen            
+-------------------------------
+ RESUMEN: 73 OK / 3 FAIL de 76
+(1 row)
+
+ seq |                                                      step                                                       |                                                                                                                                                      detail                                                                                                                                                      
+-----+-----------------------------------------------------------------------------------------------------------------+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+  20 | S7e R4b: el libro suma lo mismo que el saldo tras piso+borrado? (suma deltas P4 vs saldo vivo)                  | saldo vivo=12.0000 ; 10 + suma(deltas)=10.0000 ; filas=purchase d=4.0000 antes=10.0000 despues=14.0000 | adjustment d=-2.0000 antes=2.0000 despues=0 | sale d=-12.0000 antes=14.0000 despues=2.0000 | sale_return d=12.0000 antes=0.0000 despues=12.0000 | purchase_return d=-2.0000 antes=2.0000 despues=0.0000
+  50 | S16b R1: el stock inicial importado deja fila en stock_movements (apertura)?                                    | movimientos_en_ledger=0 (0 = sin rastro de apertura)
+  52 | S16d R1: reimportar OTRO archivo con el mismo SKU y stock=20 tras vender 5 respeta las ventas (debe quedar 15)? | estado=00000 msg= saldoA=20.0000 (15 = respeta; 20 = pisa el stock vivo) movs=[sale:-5.0000/sale@145d] libro_concilia_desde_apertura20=f
+(3 rows)
+
+ROLLBACK
+EXIT=0

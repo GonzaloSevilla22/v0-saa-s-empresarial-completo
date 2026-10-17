@@ -66,13 +66,14 @@ def problem_response(
     field: str | None = None,
     headers: dict[str, str] | None = None,
     extensions: dict | None = None,
+    type_: str = "about:blank",
 ) -> JSONResponse:
     """Envuelve `problem_detail` en un `JSONResponse` con el media type 7807."""
     return JSONResponse(
         status_code=status,
         content=problem_detail(
             status=status, detail=detail, code=code, title=title, field=field,
-            extensions=extensions,
+            extensions=extensions, type_=type_,
         ),
         headers=headers,
         media_type=PROBLEM_JSON_MEDIA_TYPE,
@@ -282,12 +283,16 @@ class ProblemHTTPException(HTTPException):
         field: str | None = None,
         headers: dict[str, str] | None = None,
         extensions: dict | None = None,
+        type_: str | None = None,
     ) -> None:
         super().__init__(status_code=status_code, detail=detail, headers=headers)
         self.code = code
         self.field = field
         # factura-fiscal-imprimible: miembros de extensión RFC 7807 extra.
         self.extensions = extensions
+        # multiusuario-operativo (D6): `type` propio del problema (el 409
+        # `account_switched`); None = "about:blank", como el resto.
+        self.type_ = type_
 
 
 # presupuestos-modulo (D12): los RAISE de las RPCs de negocio escriben el

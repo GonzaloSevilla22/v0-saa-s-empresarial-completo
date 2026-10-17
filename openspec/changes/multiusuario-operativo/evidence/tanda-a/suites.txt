@@ -1,0 +1,19 @@
+# Suites completas de la tanda A (2026-10-16)
+
+## Frontend — vitest, 6 shards secuenciales sobre el árbol final
+shard 1/6:  Test Files 94 passed (94)  Tests 1239 passed (1239) 
+shard 2/6:  Test Files 94 passed (94)  Tests 1044 passed (1044) 
+shard 3/6:  Test Files 94 passed (94)  Tests 1052 passed (1052) 
+shard 4/6:  Test Files 94 passed (94)  Tests 1111 passed (1111) 
+shard 5/6:  Test Files 94 passed (94)  Tests 1136 passed (1136) 
+shard 6/6:  Test Files 94 passed (94)  Tests 1142 passed (1142) 
+TOTAL: 564 archivos, 6724 tests, 0 fallos
+
+## Backend — pytest como en CI (-m "not integration", --cov-fail-under=87)
+7 failed, 4230 passed, 1 skipped, 122 deselected, 1 warning in 182.92s (0:03:02)
+TOTAL                                                        9408    435    95%
+Required test coverage of 87% reached. Total coverage: 95.38%
+Los 7 fallos son test_invoice_pdf.py, preexistentes en el entorno local (no tocados por este change).
+
+## Backend — integración contra la base local (-m integration)
+119 passed, 3 skipped, 4238 deselected in 230.75s (0:03:50)

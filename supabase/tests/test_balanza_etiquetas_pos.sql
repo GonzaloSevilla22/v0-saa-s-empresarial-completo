@@ -268,7 +268,11 @@ BEGIN
 
   v_claims_a := json_build_object('sub', v_owner_a::text, 'role', 'authenticated')::text;
   v_claims_b := json_build_object('sub', v_owner_b::text, 'role', 'authenticated')::text;
-  v_claims_s := json_build_object('sub', v_seller::text,  'role', 'authenticated')::text;
+  -- multiusuario-operativo (tanda A): el seller tiene DOS membresías (su cuenta personal, que crea
+  -- handle_new_user, y la cuenta A). Su token declara la cuenta donde opera —lo que emite el hook
+  -- cuando A es su cuenta activa—; sin declararla rige la personal y la fila de A no se ve.
+  v_claims_s := json_build_object('sub', v_seller::text,  'role', 'authenticated',
+                                  'app_metadata', json_build_object('account_id', v_account_a::text))::text;
 
   -- ═══ (a) Unicidad por cuenta, filas vivas ═══
   INSERT INTO public.products (user_id, account_id, name, price, cost, min_stock, scale_plu)

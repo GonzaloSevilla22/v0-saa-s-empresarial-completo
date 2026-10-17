@@ -271,7 +271,7 @@ Deno.serve(async (req) => {
       // la RPC (p.ej. P0401) rechazaba el `Promise.all` ENTERO y el reporte
       // no se generaba. `fetchFullReportRankingRows` (en `_shared/
       // export-ranking.ts`) encapsula ambos casos.
-      const accountId = await resolveActiveAccountId(supabase as unknown as AccountResolutionClient, user.id)
+      const accountId = await resolveActiveAccountId(supabase as unknown as AccountResolutionClient)
       const [salesRows, purchasesRows, expensesRows, stockRows, rankingRows] = await Promise.all([
         fetchSalesRows(supabase, dateFrom),
         fetchPurchasesRows(supabase, dateFrom),
@@ -302,7 +302,7 @@ Deno.serve(async (req) => {
       } else if (exportType === 'product_ranking_csv' && rankingParams?.ok) {
         // rpc_product_ranking exige p_account_id y vuelve a verificar la
         // membresía (P0401).
-        const accountId = await resolveActiveAccountId(supabase as unknown as AccountResolutionClient, user.id)
+        const accountId = await resolveActiveAccountId(supabase as unknown as AccountResolutionClient)
         if (!accountId) {
           return jsonResponse({ ok: false, error: 'no_active_account' }, 403)
         }

@@ -14,7 +14,7 @@
  * cookies), un 401 que ya navegó al login corta con `null`, y los errores RFC 7807 llegan
  * como un error con el `code` estable del backend.
  */
-import { getAuthHeaders, redirectedOnUnauthorized, tokenFromHeaders } from "@/lib/api/auth-headers"
+import { getAuthHeaders, getBackendHeaders, redirectedOnUnauthorized, tokenFromHeaders } from "@/lib/api/auth-headers"
 import { isSafeLogoDataUri, type LogoDescriptor } from "@/lib/document-branding"
 
 /** Tope de la subida (el servidor corta con 413 por encima). */
@@ -88,7 +88,10 @@ export function logoErrorMessage(error: unknown): string {
  * ya se navegó al login. Levanta `DocumentLogoError` ante cualquier otra respuesta no exitosa.
  */
 export async function uploadDocumentLogo(file: Blob): Promise<LogoDescriptor | null> {
-  const headers = await getAuthHeaders({ "Content-Type": file.type || "application/octet-stream" })
+  // multiusuario-operativo (D6): la subida es una ESCRITURA sobre la marca de la cuenta
+  // — declara la cuenta que la pantalla muestra, para que una pestaña desfasada reciba el
+  // 409 en vez de pisar el logo de la cuenta nueva.
+  const headers = await getBackendHeaders({ "Content-Type": file.type || "application/octet-stream" })
   const response = await fetch(backendUrl("/document-branding/logo"), { method: "PUT", headers, body: file })
   if (await redirectedOnUnauthorized(response, tokenFromHeaders(headers))) return null
   if (!response.ok) throw await toError(response)

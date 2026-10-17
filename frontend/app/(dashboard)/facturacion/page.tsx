@@ -81,13 +81,16 @@ export default async function FacturacionPage() {
   }
 
   // ── Account billing state ──────────────────────────────────────────────────
-  const { data: memberRow } = await supabase
-    .from("account_members")
-    .select("account_id, accounts(billing_plan, billing_status, trial_plan, trial_expires_at, plan_expires_at, created_at, billing_exempt)")
-    .eq("user_id", user.id)
+  // multiusuario-operativo (tanda A, D1): la cuenta ACTIVA. `accounts` sólo muestra, por RLS
+  // (accounts_member_select -> current_account_ids()), la fila de la cuenta activa: una fila
+  // aunque el usuario tenga dos membresías. Leer por `account_members` + `.maybeSingle()`
+  // fallaría con PGRST116 bajo multi-membresía y dejaría el billing en 'gratis' en silencio.
+  const { data: accountRow } = await supabase
+    .from("accounts")
+    .select("id, billing_plan, billing_status, trial_plan, trial_expires_at, plan_expires_at, created_at, billing_exempt")
     .maybeSingle()
 
-  const accountData = memberRow?.accounts as unknown as {
+  const accountData = accountRow as unknown as {
     billing_plan: Plan
     billing_status: string
     trial_plan: Plan | null
@@ -139,7 +142,7 @@ export default async function FacturacionPage() {
   // lanza: sin fila, error de Postgrest o palanca `billing_subscriptions_enabled`
   // apagada (default hoy en producción, cero filas todavía) degradan limpio
   // a "no mostrar nada" sin ninguna lógica de flag adicional acá.
-  const accountId = memberRow?.account_id as string | undefined
+  const accountId = (accountRow as { id?: string } | null)?.id
   const subscription: LiveSubscriptionRow | null = await getLiveSubscription(supabase, accountId)
   const subscriptionInRetry = subscription?.retry_state === "retrying"
 

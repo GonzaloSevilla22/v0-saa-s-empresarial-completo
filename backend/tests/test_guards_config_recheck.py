@@ -33,6 +33,8 @@ def _auth(**overrides) -> dict:
         "role": "user",
         "account_role": None,
         "account_roles": None,
+        # multiusuario-operativo (D4): el token declara la cuenta a la que describen los claims.
+        "account_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
         "plan": "pro",
     }
     auth.update(overrides)

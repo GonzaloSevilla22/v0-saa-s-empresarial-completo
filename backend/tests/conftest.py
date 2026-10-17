@@ -52,6 +52,17 @@ def make_token(extra: dict = {}) -> str:
         "exp": int(time.time()) + 3600,
     }
     payload.update(extra)
+    # multiusuario-operativo (D4): el custom access token hook emite `account_id` JUNTO
+    # con `account_role` / `account_roles` (los claims de rol describen ESA cuenta), y
+    # `require_account_role` sólo confía en ellos si el token la declara. Un doble que
+    # lleve claims de rol sin `account_id` ya no es fiel al token real (sería el de antes
+    # del deploy). Los tests de "token viejo" lo piden explícito con `"account_id": None`.
+    metadata = payload.get("app_metadata")
+    if isinstance(metadata, dict) and ("account_roles" in metadata or "account_role" in metadata):
+        if "account_id" not in metadata:
+            payload["app_metadata"] = {**metadata, "account_id": str(TEST_ACCOUNT_ID)}
+        elif metadata["account_id"] is None:
+            payload["app_metadata"] = {k: v for k, v in metadata.items() if k != "account_id"}
     return jwt.encode(payload, TEST_SECRET, algorithm="HS256")
 
 

@@ -494,7 +494,8 @@ def _quote_payload_for(client_id: str):
 
 
 def _seller_auth() -> dict:
-    return {**_auth(), "account_roles": ["seller"]}
+    # multiusuario-operativo (D4): los claims de rol sólo valen si el token declara la cuenta.
+    return {**_auth(), "account_roles": ["seller"], "account_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"}
 
 
 class TestCreateQuotePartyGuard:

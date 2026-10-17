@@ -1,0 +1,10 @@
+Check ai-estadisticas/index.ts
+Check ai-insights/index.ts
+Check ai-precio/index.ts
+Check generate-export/index.ts
+Check _shared/reporting-canon.ts
+Check ai-resumen/index.ts
+Check ai-comparativo/index.ts
+Check ai-rentabilidad/index.ts
+Check send-email/index.ts
+deno check EXIT=0

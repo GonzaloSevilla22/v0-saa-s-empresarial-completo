@@ -126,12 +126,17 @@ async def set_default_product_category(
     otra cuenta/inactiva/soft-deleted → P0404 (traducidos por el
     asyncpg_error_handler global, igual que set_collection_settings).
 
-    La RPC resuelve SU destino con current_account_ids() LIMIT 1, que puede
-    no coincidir con el account_id de la dependencia de lectura (usuario
-    miembro de más de una cuenta) — releer con
-    repo.get_default_category_id(account_id) evita devolver optimistamente
-    un category_id que el GET siguiente no confirmaría (hallazgo F5 del
-    revisor adversarial, tanda candidatos-db-backend, 2026-09-08)."""
+    Hallazgo F5 (revisor adversarial, tanda candidatos-db-backend, 2026-09-08):
+    la RPC resolvía SU destino con `current_account_ids() LIMIT 1`, que podía no
+    coincidir con el account_id de la dependencia de lectura (usuario miembro de
+    más de una cuenta). **Cerrado por construcción** en multiusuario-operativo
+    (tanda A, D1/D4): `current_account_ids()` devuelve la cuenta ACTIVA (0 o 1
+    fila) y `get_account_id` lee esa MISMA función, así que la escritura y la
+    lectura siguiente caen siempre en la misma cuenta — y el header
+    `X-Account-Id` cubre la pestaña desfasada. Se CONSERVA la relectura con
+    repo.get_default_category_id(account_id): devuelve lo que quedó persistido
+    (p. ej. `null` tras limpiar), no el category_id recibido, y es una sola
+    consulta por un PATCH poco frecuente."""
     await require_account_role(conn, auth, CAN_CONFIGURE)
     await repo.set_default_category_id(category_id)
     resolved = await repo.get_default_category_id(account_id)

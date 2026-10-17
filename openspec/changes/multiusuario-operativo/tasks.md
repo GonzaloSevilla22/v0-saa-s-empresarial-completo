@@ -16,28 +16,33 @@
 
 ## 0. Sign-off y checkpoints previos (sólo lectura)
 
-- [ ] 0.1 **[PO]** Firma de OQ-1 a OQ-9. Registrar la respuesta textual en una sección "Sign-off del PO" de `design.md`.
+- [x] 0.1 **[PO]** Firma de OQ-1 a OQ-9. Registrar la respuesta textual en una sección "Sign-off del PO" de `design.md`.
+  - **Hecho (2026-10-16)**: el PO dijo «dale, aplicá multiusuario-operativo»; se firman OQ-1 a OQ-9 por su opción recomendada. Registrado en `design.md` §"Sign-off del PO".
   - Sin respuesta explícita, **no** se aplica nada: es governance CRÍTICO.
   - Si alguna OQ se resuelve distinto de la recomendación, ajustar en el mismo PR los deltas de `active-account` (OQ-1), `operation-member-authorization` (OQ-3, OQ-4) y `account-invitation-flow` (OQ-2, OQ-5, OQ-6, OQ-8).
-- [ ] 0.2 Re-medir en producción (sólo lectura) lo que afirma `design.md` §Context:
+- [x] 0.2 Re-medir en producción (sólo lectura) lo que afirma `design.md` §Context:
   - cuentas con más de un miembro y usuarios en más de una cuenta (hoy 0 y 0);
   - invitaciones (hoy 0);
   - filas con un autor que no es miembro de su cuenta (hoy 0, salvo los 10 *insights* legacy con `account_id NULL`);
   - `MAX(version)`.
 
   Si ya hay cuentas con más de un miembro, avisar al PO **antes** de seguir: cambia la exposición y puede exigir una auditoría de daño.
-- [ ] 0.3 Re-confirmar el inventario contra la base viva: los 45 sitios del patrón A, los 5 del patrón B, los 4 agregados del patrón C, las 6 funciones del patrón E y las 8 del patrón F (consultas en `design.md` §Context). Si un change mergeado en el medio sumó un sitio nuevo, agregarlo al alcance de la tanda que corresponda.
-- [ ] 0.4 **Coordinación (D11)**: anotar acá el estado de cada hermano en `main` y en prod:
+  - **Medido el 2026-10-16** (producción, sólo lectura): 41 cuentas, 41 miembros, **0** cuentas con más de un miembro, **0** usuarios con más de una membresía, 0 invitaciones, 0 emails `org_invite`, 0 filas con autor que no es miembro en `products`/`sales`/`purchases`/`expenses`, `MAX(version) = 20261081000001` (328 migraciones). Igual que el 2026-10-14: no hay nada que avisar.
+- [x] 0.3 Re-confirmar el inventario contra la base viva: los 45 sitios del patrón A, los 5 del patrón B, los 4 agregados del patrón C, las 6 funciones del patrón E y las 8 del patrón F (consultas en `design.md` §Context). Si un change mergeado en el medio sumó un sitio nuevo, agregarlo al alcance de la tanda que corresponda.
+  - **Re-confirmado contra prod (2026-10-16)**: patrón A **45** (regex estricta `current_account_ids() AS x LIMIT 1`); patrón B **5** sitios (`custom_access_token_hook`, `rpc_my_active_account_roles`, `rpc_my_effective_plan`, `rpc_atomic_log_ai_insight`, `set_insight_account_id`) más `rpc_accept_invitation`, que sólo lee la membresía para otro fin y queda en la allow-list de membresía; patrón C: `get_dashboard_financials`, `get_dashboard_critical_stock`, `get_dashboard_critical_stock_items` (`IN (SELECT current_account_ids())`), `rpc_period_comparison` (`ARRAY(SELECT …)`) y `rpc_import_products` (`cuenta_ambigua`). Patrón E: **la lista cambió**: ahora también `_purchase_operation_core` (la extracción de `remitos-compra` tanda B, mergeada en #647) lleva `user_id <> v_uid`, y `rpc_create_purchase_operation` ya es un wrapper que delega en él. **Es alcance de la tanda B (D11), no de la A.** Patrón F: las 8 funciones siguen sin `is_account_writer`. Policies: 90 sobre 62 tablas con la regex `current_account_ids` en `pg_policies.qual/with_check` (el diseño decía 98/64; la diferencia es de cómo se cuenta —el diseño incluía las que la usan a través de otra función—, no hay un sitio nuevo).
+- [x] 0.4 **Coordinación (D11)**: anotar acá el estado de cada hermano en `main` y en prod:
   - `fix/stock-edicion-sucursal-y-piso`;
   - `remitos-compra` tanda B: ¿existe `public._purchase_operation_core`?
   - `edicion-operaciones-con-dinero`.
 
   Recalcular el orden de la tanda B con esos datos y con la respuesta de OQ-9.
+  - **Estado al 2026-10-16**: `fix/stock-edicion-sucursal-y-piso` = PR #646, **abierto, rojo y en conflicto** (migración `20261080000001`, reescribe `rpc_atomic_update_sale_operation` y `_purchase_operation`); `remitos-compra` tanda B **ya está en `main` y en prod** (#647, migración `20261081000001`): **`public._purchase_operation_core` existe** y es donde va el guard de producto de la compra en la tanda B; `edicion-operaciones-con-dinero` = PR #644, **sólo propose** (sin código). OQ-9 (a): multiusuario B antes que el hermano. Otros PRs con migración: #645 (`20261079000001`, importador de productos). **La tanda A no toca ninguna RPC de operaciones**, así que no se pisa con ninguno; el número de migración libre es `20261082000001`.
 
 ## 1. Tanda A — RED: gate de cuenta activa
 
-- [ ] 1.1 Crear `supabase/tests/test_multiusuario_cuenta_activa.sql`, molde de `test_tenancy_guard_caja_outbox.sql`: fixtures propios, cleanup con `session_replication_role = replica` y asserts con `RAISE EXCEPTION`. Usuarios: U1 de una sola cuenta; U2 miembro de su cuenta personal P (la más antigua) y de la cuenta A.
-- [ ] 1.2 Bloques de comportamiento, ejecutando como `authenticated` con `request.jwt.claims` armado a mano:
+- [x] 1.1 Crear `supabase/tests/test_multiusuario_cuenta_activa.sql`, molde de `test_tenancy_guard_caja_outbox.sql`: fixtures propios, cleanup con `session_replication_role = replica` y asserts con `RAISE EXCEPTION`. Usuarios: U1 de una sola cuenta; U2 miembro de su cuenta personal P (la más antigua) y de la cuenta A.
+  - **Hecho (2026-10-16)**: `supabase/tests/test_multiusuario_cuenta_activa.sql` (fixtures O, U1, U2, Z; cada bloque en su sub-bloque con `EXCEPTION`, así el RED muestra de una vez qué falla).
+- [x] 1.2 Bloques de comportamiento, ejecutando como `authenticated` con `request.jwt.claims` armado a mano:
   - (a) U1, con claim y sin claim, ve exactamente su cuenta (no regresión);
   - (b) U2 sin preferencia ve sólo P; con la preferencia en A, ve sólo A;
   - (c) `rpc_set_active_account(A)` funciona, y con una cuenta ajena da `P0404`, indistinguible;
@@ -50,17 +55,22 @@
   - (j) un gasto de U2 queda en la cuenta activa;
   - (k) `rpc_import_products` en dry run no responde `cuenta_ambigua`;
   - (l) `rpc_my_active_account_roles()` devuelve los roles de U2 en la cuenta activa.
-- [ ] 1.3 Bloques estructurales:
+  - **Hecho**: bloques (a)-(p) como los de esta lista + (q), agregado en el apply: desempate determinista de dos membresías con el mismo `created_at`.
+- [x] 1.3 Bloques estructurales:
   - `resolve_active_account` sin `EXECUTE` para `anon` ni `authenticated`, y con `EXECUTE` para `supabase_auth_admin`;
   - `profiles.active_account_id` fuera de los privilegios de columna de `authenticated` (ampliar `test_accounts_privilege_columns.sql`);
   - **barrido por convención** (D15): ninguna función de `public` fuera de la allow-list contiene `account_members … user_id = … LIMIT 1` sin `account_id = <parámetro>`.
-- [ ] 1.4 Correr el gate contra la base local **antes** de la migración: tiene que fallar en (b), (d), (e), (f), (g), (h), (i), (k) y en el estructural, por la razón esperada. Guardar la salida en `evidence/tanda-a/red.log`.
+  - **Hecho**: (s1) ACL de `resolve_active_account`, (s2) ACL y una definición viva por función, (s3) `profiles.active_account_id` fuera de los privilegios de columna (con la ampliación de `test_accounts_privilege_columns.sql`), (s4) el barrido por convención.
+- [x] 1.4 Correr el gate contra la base local **antes** de la migración: tiene que fallar en (b), (d), (e), (f), (g), (h), (i), (k) y en el estructural, por la razón esperada. Guardar la salida en `evidence/tanda-a/red.log`.
+  - **Hecho**: `evidence/tanda-a/red.log` — 18 bloques fallan antes de la migración por la razón esperada (R3j `P0409 ... disponible 0.0000`, claims ignorados, columna inexistente, funciones con criterio propio). El bloque (q), agregado después, tuvo su propio RED visto contra la migración sin el desempate (falla sólo (q)).
 
 ## 2. Tanda A — GREEN: migración de cuenta activa
 
-- [ ] 2.1 Elegir el número: `ls supabase/migrations`, PRs abiertos con migraciones y `MAX(version)` de prod. Tomar el siguiente libre y anotarlo acá.
-- [ ] 2.2 *Preflight* de `md5` sin `\r` contra prod de `current_account_ids`, `custom_access_token_hook`, `rpc_my_active_account_roles`, `rpc_my_effective_plan`, `rpc_atomic_log_ai_insight` y `set_insight_account_id`. Guardar los cuerpos vivos en `evidence/tanda-a/` para el rollback.
-- [ ] 2.3 Escribir la migración:
+- [x] 2.1 Elegir el número: `ls supabase/migrations`, PRs abiertos con migraciones y `MAX(version)` de prod. Tomar el siguiente libre y anotarlo acá.
+  - **Hecho**: `20261082000001_multiusuario_cuenta_activa.sql` (`MAX(version)` de prod = `20261081000001`; los PRs abiertos con migración, #645 y #646, usan `20261079000001` y `20261080000001`).
+- [x] 2.2 *Preflight* de `md5` sin `\r` contra prod de `current_account_ids`, `custom_access_token_hook`, `rpc_my_active_account_roles`, `rpc_my_effective_plan`, `rpc_atomic_log_ai_insight` y `set_insight_account_id`. Guardar los cuerpos vivos en `evidence/tanda-a/` para el rollback.
+  - **Hecho**: *preflight* de `md5` de `prosrc` (sin `\r`) de las seis funciones, igual en prod y en la base local; los cuerpos vivos están en `evidence/tanda-a/cuerpos-previos/` (el rollback).
+- [x] 2.3 Escribir la migración:
   - columna `profiles.active_account_id`;
   - `resolve_active_account(uuid)` (`DEFINER`, `STABLE`, `EXECUTE` sólo para `supabase_auth_admin`);
   - redefinir `current_account_ids()` (D1, D3), con un `COMMENT` que diga "cuenta activa, 0 o 1 fila";
@@ -69,40 +79,55 @@
   - las cinco reescrituras del patrón B (D4).
 
   `REVOKE`/`GRANT` explícitos al final, porque `DROP` + `CREATE` resetea las ACLs. Re-`REVOKE` de `anon`.
-- [ ] 2.4 Correr el gate (verde) y la cadena completa de gates de `KPI_Validation.yml` en su orden, sobre un `db reset` limpio. Atención a `test_custom_access_token_hook_account_roles.sql`: se ajusta **a propósito** para el claim `account_id`. Documentar cada ajuste.
-- [ ] 2.5 `EXPLAIN (ANALYZE)` de una consulta de `/ventas` y del Tablero, antes y después, en la base local. Anotar el costo en `evidence/tanda-a/explain.md`.
-- [ ] 2.6 Agregar la reaplicación de la migración al final de la cadena de `KPI_Validation.yml`.
+  - **Hecho**, con una precisión: además de las cinco reescrituras del patrón B, `custom_access_token_hook` conserva su `EXCEPTION WHEN OTHERS` (claims intactos + `WARNING`) y el `COMMENT` y las ACLs de cada función se re-emiten. El resolver desempata, a igual `created_at`, a favor de la cuenta propia.
+- [x] 2.4 Correr el gate (verde) y la cadena completa de gates de `KPI_Validation.yml` en su orden, sobre un `db reset` limpio. Atención a `test_custom_access_token_hook_account_roles.sql`: se ajusta **a propósito** para el claim `account_id`. Documentar cada ajuste.
+  - **Hecho**: `evidence/tanda-a/green.log` (EXIT=0) y la cadena completa de `KPI_Validation.yml` en su orden sobre un `db reset` limpio — 117 pasos (004-120): 117/117 en verde. La corrida completa dio 3 con rc != 0 y se re-corrieron en verde: 100 (el gate de balanza tenía un vendedor de dos membresías sin declarar la cuenta; se corrigió el gate) y 108 y 111 (carreras de presupuestos y remitos de venta: el arnés local no reenviaba `PGAPPNAME` al contenedor y el gate no encontraba su sesión; con el shim corregido pasan). Resumen en `evidence/tanda-a/chain-kpi.txt`. Ajustes deliberados a gates existentes (cada uno documentado en `CHANGES.md`): hook (bloque 7), privilegios, `test_kpis_edge_cases.sql` (4.5a/4.5a-bis y la fecha de la membresía), `test_product_import_batch.sql` (13), `test_documentos_marca_empresa.sql`, `test_presupuestos_modulo.sql` y `test_punto_venta_predeterminado.sql` (i).
+- [x] 2.5 `EXPLAIN (ANALYZE)` de una consulta de `/ventas` y del Tablero, antes y después, en la base local. Anotar el costo en `evidence/tanda-a/explain.md`.
+  - **Hecho**: `evidence/tanda-a/explain.md` — con claim (el camino de producción) `current_account_ids()` pasa de 0,13 a 0,07 ms y las consultas de negocio quedan en el ruido; los planes son idénticos (una evaluación por sentencia).
+- [x] 2.6 Agregar la reaplicación de la migración al final de la cadena de `KPI_Validation.yml`.
+  - **Hecho**: bloque de reaplicación `MCA_*` al final de la cadena de reaplicación y paso nuevo "Run multiusuario cuenta activa gate" (YAML validado).
 
 ## 3. Tanda A — backend
 
-- [ ] 3.1 RED en `backend/tests/test_database.py`: `get_db_conn` empuja `app_metadata.account_id` cuando el contexto lo trae, y no lo inventa cuando falta.
-- [ ] 3.2 RED en `test_deps.py`: `get_account_id` lee `current_account_ids()`. Un `X-Account-Id` distinto da `409` con `type` `account_switched`; sin header, no compara; sin cuenta, `403` "No active account found".
-- [ ] 3.3 RED en `test_guards.py`: `require_account_role` ignora los claims de rol cuando el contexto no trae `account_id` y consulta la base. Con `account_id`, usa el claim. La excepción de `CAN_CONFIGURE` no cambia.
-- [ ] 3.4 GREEN:
+- [x] 3.1 RED en `backend/tests/test_database.py`: `get_db_conn` empuja `app_metadata.account_id` cuando el contexto lo trae, y no lo inventa cuando falta.
+  - **Hecho**: `test_database.py` (RED visto: 2 casos).
+- [x] 3.2 RED en `test_deps.py`: `get_account_id` lee `current_account_ids()`. Un `X-Account-Id` distinto da `409` con `type` `account_switched`; sin header, no compara; sin cuenta, `403` "No active account found".
+  - **Hecho**: `test_deps.py` reescrito (RED visto: 6 casos).
+- [x] 3.3 RED en `test_guards.py`: `require_account_role` ignora los claims de rol cuando el contexto no trae `account_id` y consulta la base. Con `account_id`, usa el claim. La excepción de `CAN_CONFIGURE` no cambia.
+  - **Hecho**: `test_guards.py` (RED visto: 3 casos).
+- [x] 3.4 GREEN:
   - `core/auth.py`: `AuthContext.account_id`, leído de `app_metadata.account_id`;
   - `core/database.py`: los claims empujados;
   - `core/deps.py`;
   - `core/guards.py`;
   - `core/cors.py`: `X-Account-Id` permitido;
   - `core/errors.py`: el problema `account_switched`.
-- [ ] 3.5 Revisar `services/product_categories.py`: la divergencia documentada en `set_default_category` queda cerrada por construcción. Actualizar el docstring y su test.
-- [ ] 3.6 Suite completa de backend y coverage ≥ el umbral de CI.
+  - **Hecho**. `core/cors.py` **sin cambio funcional**: `allow_headers=["*"]` ya devuelve en el preflight lo que el navegador pide; el candado nuevo vive en `test_cors_allowlist.py`. `schemas/auth.py` y `claims-status` suman `account_id_claim_present`.
+- [x] 3.5 Revisar `services/product_categories.py`: la divergencia documentada en `set_default_category` queda cerrada por construcción. Actualizar el docstring y su test.
+  - **Hecho**: el docstring de `set_default_category` y su test.
+- [x] 3.6 Suite completa de backend y coverage ≥ el umbral de CI.
+  - **Hecho**: pytest como en CI, 4230 passed y 7 failed (`test_invoice_pdf.py`, preexistentes en el entorno local), cobertura 95,38 % (umbral 87 %); integración contra la base local 119 passed. Detalle en `evidence/tanda-a/suites.txt`.
 
 ## 4. Tanda A — Edge Functions
 
-- [ ] 4.1 RED: `resolveActiveAccountId` (`_shared/reporting-canon.ts`) invoca la RPC canónica y no ordena `account_members`.
-- [ ] 4.2 GREEN: migrar `_shared/reporting-canon.ts`. `ai-estadisticas` deja su copia en línea y usa la compartida. Grep de todo `supabase/functions/` por `account_members` para confirmar que no queda otra resolución.
-- [ ] 4.3 `deno check` fuera del monorepo (`DENO_NO_PACKAGE_JSON=1`) y los tests de las funciones tocadas.
+- [x] 4.1 RED: `resolveActiveAccountId` (`_shared/reporting-canon.ts`) invoca la RPC canónica y no ordena `account_members`.
+  - **Hecho**: el espejo de la copia (`__tests__/reporting/edge-product-ranking.test.ts`) y `product-ranking.test.ts` (RED visto).
+- [x] 4.2 GREEN: migrar `_shared/reporting-canon.ts`. `ai-estadisticas` deja su copia en línea y usa la compartida. Grep de todo `supabase/functions/` por `account_members` para confirmar que no queda otra resolución.
+  - **Hecho**: `_shared/reporting-canon.ts` es la única copia; `ai-estadisticas`, `ai-insights`, `ai-precio` y `generate-export` la usan; grep de `supabase/functions/` sin otra resolución por `account_members`.
+- [x] 4.3 `deno check` fuera del monorepo (`DENO_NO_PACKAGE_JSON=1`) y los tests de las funciones tocadas.
+  - **Hecho**: `evidence/tanda-a/deno-check.log` (EXIT=0).
 
 ## 5. Tanda A — frontend
 
-- [ ] 5.1 RED (vitest):
+- [x] 5.1 RED (vitest):
   - `auth-context` toma la cuenta activa de `rpc_my_accounts()`;
   - `auth-headers.ts` agrega `X-Account-Id`;
   - el cliente de FastAPI intercepta el `409 account_switched`: renueva el token, limpia la caché y navega;
   - `session-bus` emite y adopta `account:switched` sin token en el mensaje (candado existente: no nace un segundo `BroadcastChannel`).
-- [ ] 5.2 RED: `AccountSwitcher` no se muestra con una cuenta; con dos, lista ambas con el nombre de `previewIssuer` y el rol; al elegir, llama `rpc_set_active_account`, `refreshSession()`, `queryClient.clear()` y navega al Tablero.
-- [ ] 5.3 GREEN:
+  - **Hecho** (RED visto en 10 archivos, `evidence/tanda-a/red-frontend.log`): `auth-context-active-account.test.tsx`, `auth-headers`, `python-client`, `session-bus`, `active-account-store`, `accounts`.
+- [x] 5.2 RED: `AccountSwitcher` no se muestra con una cuenta; con dos, lista ambas con el nombre de `previewIssuer` y el rol; al elegir, llama `rpc_set_active_account`, `refreshSession()`, `queryClient.clear()` y navega al Tablero.
+  - **Hecho**: `AccountSwitcher.test.tsx` (incluye: con una sola cuenta no pide el catálogo de roles).
+- [x] 5.3 GREEN:
   - `contexts/auth-context.tsx`;
   - `lib/api/auth-headers.ts` y `lib/api/python-client.ts`;
   - `lib/auth/session-bus.ts`;
@@ -110,18 +135,24 @@
   - montaje en el `SidebarHeader` de `components/app-sidebar.tsx`.
 
   Sin `any`.
-- [ ] 5.4 Manejo de "sin cuenta activa" (`403 No active account found`): renovar el token una vez y recargar. Si persiste, pantalla de error con "Cerrar sesión".
-- [ ] 5.5 `tsc` sin errores nuevos y suite de vitest completa.
+  - **Hecho**. Desvío declarado: `X-Account-Id` se compone en `getBackendHeaders` y no en `getAuthHeaders` (ésta también sirve a las Edge Functions, cuyo CORS no admite la cabecera). **Y un hallazgo del humo**: releer el token no cambia la cuenta (el token handler sólo renueva un token por vencer y el hook emite el claim al emitir); se agregó `refreshSessionAction` (acción de servidor) y `switchAccount` la llama entre persistir y releer.
+- [x] 5.4 Manejo de "sin cuenta activa" (`403 No active account found`): renovar el token una vez y recargar. Si persiste, pantalla de error con "Cerrar sesión".
+  - **Hecho**: `auth-context` + `active-account-store` (tope de 15 s para el 403 repetido) + pantalla de error con "Cerrar sesión".
+- [x] 5.5 `tsc` sin errores nuevos y suite de vitest completa.
+  - **Hecho**: `tsc` con los mismos 8 errores de 5 archivos de test ajenos (`evidence/tanda-a/tsc.log`); vitest completo, 564 archivos y 6724 tests, 0 fallos (`evidence/tanda-a/suites.txt`).
 
 ## 6. Tanda A — verificación y PR
 
-- [ ] 6.1 Verificación visual del selector: escritorio y móvil (drawer), tema claro y oscuro, con una y con dos cuentas. Targets de 44 px en móvil. Capturas en `evidence/tanda-a/`.
-- [ ] 6.2 Humo en el stack local con un build de producción:
+- [x] 6.1 Verificación visual del selector: escritorio y móvil (drawer), tema claro y oscuro, con una y con dos cuentas. Targets de 44 px en móvil. Capturas en `evidence/tanda-a/`.
+  - **Hecho**: 12 capturas en `evidence/tanda-a/visual-*.png` y `visual.log` (escritorio y drawer móvil, claro y oscuro, una y dos cuentas; el selector mide 44 px de alto y los ítems de la lista 48 px).
+- [x] 6.2 Humo en el stack local con un build de producción:
   - usuario de una cuenta: todo igual;
   - usuario de dos cuentas: el selector cambia de cuenta, el Tablero y `/ventas` muestran la cuenta elegida, y una venta de servicio queda en ella;
   - dos pestañas: cambiar en una resincroniza la otra;
   - un gasto desde la pestaña vieja recibe el `409`.
+  - **Hecho** con el build de producción y el backend real: `evidence/tanda-a/humo.log` (15/15 PASS). La primera corrida **falló** y destapó el defecto de la renovación del token (ver 5.3); se corrigió y se re-corrió completa.
 - [ ] 6.3 PR de la tanda A (cuerpo que termina en la línea de Claude Code) y CI en verde.
+  - **PR abierto: #651**. La CI y el merge quedan a cargo del orquestador.
 - [ ] 6.4 **Post-merge** (sólo lectura):
   - `MAX(version)`;
   - ACLs de las funciones nuevas;
@@ -268,14 +299,15 @@
 
 ## 19. Specs, KB y documentación (en el PR de cada tanda)
 
-- [ ] 19.1 Validar los deltas: `npx openspec validate multiusuario-operativo --strict`. Si una OQ cambió el alcance, ajustar el delta en el mismo PR.
-- [ ] 19.2 KB:
+- [x] 19.1 Validar los deltas: `npx openspec validate multiusuario-operativo --strict`. Si una OQ cambió el alcance, ajustar el delta en el mismo PR.
+  - **Hecho**: `npx openspec validate multiusuario-operativo --strict` — válido.
+- [ ] 19.2 KB (**tanda A hecha**: `03_actores_y_roles.md`, `04_modelo_de_datos.md` y `08_arquitectura_propuesta.md`; `05` y `10` van con las tandas B y C):
   - `knowledge-base/03_actores_y_roles.md` (cuenta activa, invitación);
   - `knowledge-base/05_reglas_de_negocio.md` (reglas nuevas de autorización de operaciones);
   - `knowledge-base/08_arquitectura_propuesta.md` (resolver único);
   - `knowledge-base/10_preguntas_abiertas.md` (cerrar lo que este change resuelve).
-- [ ] 19.3 `CHANGES.md`: ficha del change con las mediciones. Cerrar los candidatos absorbidos (`invitacion-aceptar-ui`, `cuenta-activa-selector`, la invitación rápida de `TeamSection`, `membership-rpcs-not-authenticated-p0401` y la parte de `v4-producto-calidad-05`) y dar de alta los que deja (`design.md` §Candidatos).
-- [ ] 19.4 `CLAUDE.md`: el puntero del roadmap y una regla dura nueva ("la cuenta activa se resuelve sólo con `current_account_ids()` / `resolve_active_account`; ningún componente ordena `account_members` por su cuenta"). Correr `python scripts/ci/check_docs_sync.py --fix` en el mismo PR.
+- [ ] 19.3 `CHANGES.md` (**ficha de la tanda A hecha**; el cierre de los candidatos absorbidos va con las tandas B y C): ficha del change con las mediciones. Cerrar los candidatos absorbidos (`invitacion-aceptar-ui`, `cuenta-activa-selector`, la invitación rápida de `TeamSection`, `membership-rpcs-not-authenticated-p0401` y la parte de `v4-producto-calidad-05`) y dar de alta los que deja (`design.md` §Candidatos).
+- [ ] 19.4 (**a cargo del orquestador**: el apply de la tanda A no toca `CLAUDE.md`/`AGENTS.md`) `CLAUDE.md`: el puntero del roadmap y una regla dura nueva ("la cuenta activa se resuelve sólo con `current_account_ids()` / `resolve_active_account`; ningún componente ordena `account_members` por su cuenta"). Correr `python scripts/ci/check_docs_sync.py --fix` en el mismo PR.
 
 ## 20. Archive
 
@@ -285,10 +317,10 @@
 
 | Tarea | Archivo de test o gate | Capa | Safety net | RED | GREEN | Triangulación | Refactor |
 |---|---|---|---|---|---|---|---|
-| 1.x / 2.x | `supabase/tests/test_multiusuario_cuenta_activa.sql` | SQL | | | | | |
-| 3.x | `backend/tests/test_deps.py`, `test_guards.py`, `test_database.py` | Unit | | | | | |
-| 4.x | tests de `_shared/reporting-canon.ts` | Unit (Deno) | | | | | |
-| 5.x | `__tests__/components/AccountSwitcher.test.tsx`, `auth-context`, `session-bus`, `auth-headers` | Unit | | | | | |
+| 1.x / 2.x | `supabase/tests/test_multiusuario_cuenta_activa.sql` | SQL | gates de `main` 004-094 sobre `db reset` limpio (`baseline-gates.txt`; 4 pasos con rc != 0 por el arnés local, no por `main`) | 18 bloques fallan (`red.log`); (q) con su RED aparte | EXIT=0 (`green.log`) | 17 bloques de comportamiento con dos usuarios de dos cuentas, uno de una, claim vs preferencia vs revocada, + (q) | comentarios del cuerpo y *md5* recalculado; desempate determinista |
+| 3.x | `backend/tests/test_deps.py`, `test_guards.py`, `test_database.py`, `test_auth*.py` | Unit | 96 passed en los archivos tocados | 18 failed (`red-backend.log`) | 114 passed | header igual / distinto / malformado / ausente; con y sin `account_id` en el token | `make_token`/`_auth` declaran cuenta |
+| 4.x | `__tests__/reporting/edge-product-ranking.test.ts`, `product-ranking.test.ts` (espejo de `_shared/reporting-canon.ts`) | Unit | 4 failed antes (RED en `red-frontend.log`) | RED visto | verde | resolver canónico vía RPC vs `account_members` | `deno check` limpio |
+| 5.x | `__tests__/components/AccountSwitcher.test.tsx`, `auth-context`, `session-bus`, `auth-headers` | Unit | 12 failed / 55 passed en los 10 archivos tocados (`red-frontend.log`) | 10 archivos fallan | 564 archivos / 6724 tests verdes | selector con 0, 1, 2 cuentas; cambio, fallo del proveedor, orden de pasos; 409 y 403 | `AccountSwitcher` partido (el catálogo sólo con 2+ cuentas) |
 | 8.x / 9.x | `supabase/tests/test_multiusuario_operaciones.sql` | SQL | | | | | |
 | 10.x | `backend/tests/test_sales*.py`, `test_purchases*.py`, el espejo de capacidades, `rbac-capabilities.test.ts` | Unit | | | | | |
 | 13.x / 14.x | `supabase/tests/test_multiusuario_invitaciones.sql` | SQL | | | | | |

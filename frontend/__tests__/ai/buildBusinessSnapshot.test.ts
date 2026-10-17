@@ -162,7 +162,8 @@ function makeSupabaseDouble(cfg: {
     error: { message: string } | null
   }
   // migrar-top-productos-canon: doble de rpc_product_ranking + resolución
-  // de cuenta activa (identidad de la sesión + account_members). Defaults = camino
+  // de cuenta activa (multiusuario-operativo: la RPC canónica `current_account_ids()`, no
+  // `account_members`). Defaults = camino
   // feliz (usuario autenticado, una membresía, ranking vacío) para no
   // romper los tests que no ejercitan top_rentables.
   ranking?: { data: RankingRowFixture[] | null; error: { message: string } | null }
@@ -179,23 +180,17 @@ function makeSupabaseDouble(cfg: {
     if (fn === "rpc_product_ranking") {
       return Promise.resolve(cfg.ranking ?? { data: [], error: null })
     }
+    if (fn === "current_account_ids") {
+      // 0 o 1 fila: la cuenta ACTIVA (vacío = sin cuenta activa).
+      const members = cfg.accountMembers ?? [{ account_id: "acc-1" }]
+      return Promise.resolve({ data: members.map((m) => m.account_id), error: null })
+    }
     return Promise.resolve(cfg.rpc ?? { data: [fullRpcRow({})], error: null })
   })
 
   const fromMock = vi.fn((table: string) => {
     if (table === "account_members") {
-      const result = { data: cfg.accountMembers ?? [{ account_id: "acc-1" }], error: null }
-      return {
-        select: () => ({
-          eq: () => ({
-            order: () => ({
-              order: () => ({
-                limit: () => Promise.resolve(result),
-              }),
-            }),
-          }),
-        }),
-      }
+      throw new Error("la cuenta activa se pide a la base (current_account_ids), no se ordena account_members")
     }
     return {
       select: (columns: string) => {
@@ -348,7 +343,7 @@ describe("buildBusinessSnapshot — top productos (migrar-top-productos-canon)",
     expect(snapshot.productos.top_rentables).toEqual([])
   })
 
-  it("sin cuenta activa (account_members vacío) -> top_rentables omitido, sin throw", async () => {
+  it("sin cuenta activa (current_account_ids vacío) -> top_rentables omitido, sin throw", async () => {
     const supabase = makeSupabaseDouble({ accountMembers: [] })
 
     const snapshot = await buildBusinessSnapshot(supabase, doubleUserId)

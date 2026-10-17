@@ -157,7 +157,11 @@ DECLARE
     'trial_expires_at', 'billing_provider_customer_id',
     'ai_queries_used', 'ai_advice_used', 'exports_used', 'insights_used',
     'usage_reset_at', 'insights_reset_at',
-    'terms_accepted_at', 'terms_version'
+    'terms_accepted_at', 'terms_version',
+    -- multiusuario-operativo (tanda A, D2): la CUENTA ACTIVA del usuario. Cambiarla a mano
+    -- (por PostgREST) saltearía la validación de membresía de rpc_set_active_account. Sólo la
+    -- escriben esa RPC y la aceptación de una invitación (SECURITY DEFINER).
+    'active_account_id'
   ];
   v_col  RECORD;
   v_name text;
@@ -398,6 +402,19 @@ BEGIN
     v_bad := v_bad || format('(e4c) UPDATE profiles SET role=admin: se esperaba el rechazo de la capa de PRIVILEGIO ("permission denied"), no el del trigger ni otro — sqlstate=%s msg=%s; ', v_sqlstate, v_msg);
   END IF;
 
+  -- (e4d) multiusuario-operativo (tanda A, D2): profiles.active_account_id es la cuenta ACTIVA.
+  --       Escribirla directo (aunque sea con una cuenta propia y válida) saltearía la validación
+  --       de membresía de rpc_set_active_account: tiene que frenar la capa de PRIVILEGIO.
+  BEGIN
+    EXECUTE format('UPDATE public.profiles SET active_account_id = %L WHERE id = %L', v_account_a, v_user_a);
+    v_sqlstate := 'NO_ERROR'; v_msg := 'el UPDATE de active_account_id tuvo éxito';
+  EXCEPTION WHEN OTHERS THEN
+    GET STACKED DIAGNOSTICS v_sqlstate = RETURNED_SQLSTATE, v_msg = MESSAGE_TEXT;
+  END;
+  IF NOT (v_sqlstate = '42501' AND v_msg ILIKE 'permission denied%') THEN
+    v_bad := v_bad || format('(e4d) UPDATE profiles SET active_account_id: se esperaba el rechazo de la capa de PRIVILEGIO ("permission denied") — sqlstate=%s msg=%s; ', v_sqlstate, v_msg);
+  END IF;
+
   -- (e5) Vista actualizable sobre profiles: la columna protegida no se
   --      alcanza ni por ahí, y la permitida sí (security_invoker hace que la
   --      allow-list gobierne también este camino).
@@ -519,6 +536,9 @@ BEGIN
   END IF;
   IF v_plan <> 'gratis' THEN
     v_bad := v_bad || format('(e-fila) profiles.billing_plan quedó en %s, se esperaba gratis intacto; ', v_plan);
+  END IF;
+  IF (SELECT active_account_id FROM public.profiles WHERE id = v_user_a) IS NOT NULL THEN
+    v_bad := v_bad || '(e-fila) profiles.active_account_id quedó escrita: el intento (e4d) debía ser inocuo; ';
   END IF;
   IF v_name IS DISTINCT FROM 'Gate PrivCols' THEN
     v_bad := v_bad || format('(e-fila, control positivo) profiles.name quedó en %s, se esperaba el valor escrito por el camino legítimo; ', v_name);

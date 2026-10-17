@@ -190,7 +190,7 @@ Columna nueva `profiles.active_account_id uuid NULL REFERENCES accounts(id) ON D
 Función interna `resolve_active_account(p_user_id uuid) RETURNS uuid`:
 - es `SECURITY DEFINER` y `STABLE`;
 - tiene `EXECUTE` sólo para `supabase_auth_admin`, nunca para `anon` ni `authenticated`, porque recibe un usuario por parámetro (misma lección que `get_account_ids_for_user`, h4);
-- devuelve la preferencia si sigue siendo una membresía y, si no, la membresía más antigua por `(created_at, id)`, el criterio vigente.
+- devuelve la preferencia si sigue siendo una membresía y, si no, la membresía más antigua por `created_at`, el criterio vigente. **Desempate (apply de la tanda A)**: a igual instante gana la cuenta de la que el usuario es dueño y, en último lugar, el `id` — dentro de una transacción `now()` es constante (le pasa a todo gate que da de alta a un usuario y lo suma a otra cuenta), y con el `id` como único desempate esos gates pasaban o fallaban según el uuid sorteado. En producción no cambia nada: las membresías no comparten instante.
 
 `current_account_ids()`:
 1. si el claim `app_metadata.account_id` del request **está presente**, devuelve esa cuenta **sólo si** `auth.uid()` sigue siendo miembro de ella; si no, **cero filas**;
@@ -482,6 +482,38 @@ Las nueve se firman antes de cualquier apply. Cada una lleva su opción recomend
 
   En cualquiera de las dos, la tanda A va primera y la C después de la B.
 
+## Sign-off del PO
+
+**Fecha: 2026-10-16.** Respuesta textual del PO al orquestador: «dale, aplicá multiusuario-operativo».
+
+Siguiendo la práctica del proyecto, esa instrucción se interpreta como la firma de **OQ-1 a OQ-9 por su opción recomendada**. El orquestador le comunicó esta interpretación al PO; si llegara una corrección, se ajusta en el mismo PR (deltas de `active-account` por OQ-1, de `operation-member-authorization` por OQ-3 y OQ-4, y de `account-invitation-flow` por OQ-2, OQ-5, OQ-6 y OQ-8).
+
+| OQ | Resolución | Alcance en la tanda A |
+|---|---|---|
+| OQ-1 | (a) Preferencia por usuario, en `profiles.active_account_id` | Se aplica (D2) |
+| OQ-2 | (a) El invitado conserva su cuenta personal y la aceptación activa el negocio | Tanda C (D7) |
+| OQ-3 | (b) Capacidad por dominio (`CAN_SELL` / `CAN_PURCHASE`), sin sumar `stock` a la compra | Tanda B (D9) |
+| OQ-4 | (b) Owner y admin editan y borran cualquiera; el resto, sólo lo propio | Tanda B (D9) |
+| OQ-5 | (a) El anónimo ve un mensaje genérico | Tanda C (D12) |
+| OQ-6 | (a) Se conserva «Copiar link» como opción secundaria | Tanda C |
+| OQ-7 | (a) Hotfix propio de `email_logs`, antes de la tanda C | Fuera de la tanda A: PR aparte |
+| OQ-8 | (a) 1 envío por invitación cada 10 minutos y 20 por cuenta por día | Tanda C (D13) |
+| OQ-9 | (a) Multiusuario tanda B antes que `edicion-operaciones-con-dinero` | Tanda B (D11) |
+
+Este apply cubre **sólo la tanda A** (grupos 0 a 6 de `tasks.md` y la parte de la tanda A del grupo 19). Las tandas B y C, el hotfix de `email_logs` y el archive quedan para sus propios PRs.
+
+## Notas de implementación de la tanda A
+
+Hallazgos del apply que corrigen o precisan lo decidido arriba. Nada de esto reabre una decisión firmada: son los bordes que sólo se ven con el sistema armado.
+
+1. **La renovación del token tiene que ser FORZADA ante el proveedor (precisa D4 y D5; lo atrapó el humo con el build de producción).** El diseño decía "persistir la elección, renovar el token". El código existente que renueva (`refreshAccessToken` → `GET /api/auth/token` → `getSession()`) sólo llama a GoTrue cuando el access token está por vencer, y el claim `app_metadata.account_id` lo emite el hook **únicamente al emitir** un token. Resultado antes del arreglo: el selector persistía `profiles.active_account_id`, "renovaba" el token (leía el mismo, todavía válido, con la cuenta vieja) y `current_account_ids()` —que valida el claim contra la membresía viva y le da prioridad sobre la preferencia— seguía resolviendo la cuenta anterior **durante la hora de vida del token**. Los tests unitarios con el cliente mockeado no podían verlo. Arreglo: `refreshSessionAction()` (`app/auth/actions.ts`, acción de servidor: el refresh token rotado queda en la cookie `HttpOnly`, nunca pasa por el navegador) fuerza `supabase.auth.refreshSession()`; `switchAccount` la llama entre `rpc_set_active_account` y la lectura del token nuevo, y la recuperación de "sin cuenta activa" (5.4) también. Si el proveedor no entrega una sesión nueva el cambio **no se da por hecho** (aviso + recarga de la lista; la preferencia ya guardada se reaplica en el reintento). Candados: `auth-actions-refresh-session.test.ts` y los tres casos de orden/fallo de `auth-context-active-account.test.tsx`.
+2. **`X-Account-Id` se compone en `getBackendHeaders` y no en `getAuthHeaders`.** `getAuthHeaders` también arma los encabezados de las Edge Functions de Supabase, cuyo `Access-Control-Allow-Headers` es `authorization, x-client-info, apikey, content-type`: declararles `x-account-id` rompe el preflight de TODAS las funciones de IA. FastAPI sí lo admite (`allow_headers=["*"]`, con candado de test en `test_cors_allowlist.py`).
+3. **Durante la renovación el cliente NO declara cuenta.** Entre que el token nuevo está en memoria y que `rpc_my_accounts()` dice cuál es la activa, un request con el token de B y el encabezado de A se rechazaría con `409` contra su propio token. `loadSession` limpia la cuenta declarada al empezar y la publica al terminar.
+4. **El catálogo de roles sólo se pide con dos o más cuentas.** `AccountSwitcher` se parte en un cascarón (decide si se muestra) y un cuerpo (el menú y `useRoleCatalog`): el usuario de una sola cuenta —los 41 de hoy— no paga una lectura a Supabase en cada pantalla por un selector que no ve.
+5. **Había una cuarta copia del criterio de "cuenta activa".** `lib/reporting/product-ranking.ts::resolveActiveAccountId` (la usa el Copilot) ordenaba `account_members` en el navegador; y `/facturacion`, `/planes` y `/planes/success` leían `account_members` con `.maybeSingle()`, que con dos membresías devuelve **error (PGRST116)** y dejaba el billing en `gratis` en silencio. Las cuatro leen ahora la cuenta activa por la vía canónica.
+6. **Dos membresías creadas en la MISMA transacción tienen el mismo `created_at`.** Con el `id` como único desempate, "la más antigua" se resolvía por un `uuid` al azar y un gate con un miembro de dos cuentas pasaba o fallaba según la suerte (el chequeo de la cadena lo mostró dos veces: `test_kpis_edge_cases.sql` 4.5a-bis y `test_punto_venta_predeterminado.sql` (i)). `resolve_active_account` desempata ahora, a igual instante, a favor de la cuenta de la que el usuario es dueño (`ORDER BY created_at, (role <> 'owner'), id`; bloque (q) del gate nuevo): los gates se vuelven reproducibles y los que dependen de actuar en la cuenta AJENA declaran la cuenta por claim, como hace el hook en producción.
+7. **`claims-status` suma `account_id_claim_present`** (presencia, nunca el valor): es el instrumento con el que el PO o el orquestador verifican, tras el deploy, que el hook ya emite la cuenta activa.
+
 ## Candidatos que deja
 
 - `pos-capacidad-venta`: que el POS exija `CAN_SELL` en vez de `is_account_writer`.
@@ -494,3 +526,6 @@ Las nueve se firman antes de cualquier apply. Cada una lleva su opción recomend
 - `responsive-shell` desactualizada: no lista Presupuestos ni Remitos, que el menú ya tiene.
 - Una acción para salir de una cuenta y otra para eliminar la cuenta personal vacía.
 - Activar `single-session-per-user` (acción del PO).
+- `payments-webhook-cuenta-por-referencia` (**CRÍTICO**, hallado en la tanda A): `backend/services/payments.py` (webhook de MercadoPago) resuelve la cuenta a acreditar con `SELECT ... FROM account_members WHERE user_id = $1` **sin orden**; para un usuario de dos cuentas acreditaría una cualquiera. Latente (0 usuarios con dos cuentas). Exige que el `external_reference` lleve el `account_id` (cambio coordinado con la creación de la preferencia / suscripción).
+- Uniformidad de `X-Account-Id` en los lectores `fetch` a mano contra FastAPI (`document-pdf`, `sale-receipt-button`, `admin/pagos`, `subscriptions-client`): sólo leen, así que no tienen el riesgo de la pestaña desfasada.
+- El cast `(event ->> 'user_id')::uuid` del hook está en el `DECLARE`, fuera del bloque `EXCEPTION`: un `user_id` que no sea uuid no degrada a claims intactos (preexistente; GoTrue siempre manda un uuid).

@@ -75,9 +75,16 @@ date_format     TEXT        DEFAULT 'DD/MM/YYYY' -- DD/MM/YYYY | MM/DD/YYYY | YY
 language        TEXT        DEFAULT 'es'
 insights_used   INTEGER     DEFAULT 0
 insights_reset_at TIMESTAMP DEFAULT NOW()
+active_account_id UUID      NULL REFERENCES accounts(id) ON DELETE SET NULL
+                            -- multiusuario-operativo (2026-10-16): la cuenta que el usuario eligió como ACTIVA.
+                            -- NULL = sin elección (rige la membresía más antigua). Columna de PRIVILEGIO: NO es
+                            -- escribible por PostgREST; sólo la escriben rpc_set_active_account (valida la
+                            -- membresía) y la aceptación de una invitación.
 created_at      TIMESTAMP   DEFAULT NOW()
 updated_at      TIMESTAMP   -- auto-update via trigger
 ```
+
+> **Cuenta activa (multiusuario-operativo, tanda A)**: `current_account_ids()` (`SETOF uuid`, mismo nombre y firma de siempre) devuelve **0 o 1 fila** —la cuenta activa del caller—, no todas sus membresías: es el punto por el que pasan las ~45 RPCs que resuelven la cuenta y las ~90 policies de RLS que la usan. Resolución en `resolve_active_account(uuid)` (interna: sólo `supabase_auth_admin`). Quien necesite **todas** las membresías usa `get_account_ids_for_user(auth.uid())` o la policy `self_select` de `account_members`. Funciones del selector: `rpc_set_active_account(uuid)` y `rpc_my_accounts()` (una fila por membresía, con la activa marcada y los campos crudos del nombre).
 
 ---
 

@@ -39,12 +39,23 @@ class AuthContext(TypedDict):
     por el hook) y dispara el fallback en `require_account_role`; una lista
     VACÍA presente SÍ es una respuesta válida (sin roles activos) y NO cae
     al fallback — distinción deliberada, ver `require_account_role`.
+
+    `account_id` (multiusuario-operativo, D4): la cuenta ACTIVA a la que
+    corresponden `account_role`, `account_roles` y `plan` — el hook la emite
+    junto con ellos. `str | None`: `None` = el token no la declara (emitido antes
+    del deploy: vive a lo sumo 15 minutos, o usuario sin membresía). Sin ella los
+    claims de rol NO describen necesariamente la cuenta sobre la que va a operar
+    la base (bajo multi-membresía el hook pudo haber elegido otra), así que
+    `require_account_role` los ignora y consulta la base; y `get_db_conn` la
+    empuja a SQL para que `current_account_ids()` resuelva la MISMA cuenta que
+    describe el token.
     """
 
     user_id: str
     role: str
     account_role: str | None
     account_roles: list[str] | None
+    account_id: str | None
     plan: str
 
 
@@ -195,12 +206,16 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> AuthContext:
     # (jwt.decode ya la deserializa como list[str] desde el array JSON),
     # incluida una lista vacía real (sin roles activos).
     app_account_roles = app_metadata.get("account_roles")
+    # account_id (multiusuario-operativo, D4): la cuenta que describen los claims
+    # de arriba. Sin fallback: ausente -> None (los claims de rol no se usan).
+    app_account_id = app_metadata.get("account_id")
 
     return {
         "user_id": payload["sub"],
         "role": app_role,
         "account_role": app_account_role,
         "account_roles": app_account_roles,
+        "account_id": app_account_id,
         "plan": app_plan,
     }
 
@@ -236,6 +251,11 @@ async def get_claims_status(token: str = Depends(oauth2_scheme)) -> dict:
     # no cambiar su semántica con tokens viejos que nunca van a tener
     # `account_roles`.
     account_roles_present = "account_roles" in app_metadata
+    # multiusuario-operativo (D4): el claim que declara la cuenta activa. Sólo se
+    # informa su PRESENCIA, nunca el valor: la respuesta describe qué claims
+    # viajan, no la identidad de nadie (y es el instrumento para verificar tras el
+    # deploy que el hook ya lo emite).
+    account_id_present = bool(app_metadata.get("account_id"))
 
     jwt_role = payload.get("role", "authenticated")
     effective_role = app_metadata.get("role") or (
@@ -249,6 +269,7 @@ async def get_claims_status(token: str = Depends(oauth2_scheme)) -> dict:
         "role_claim_present": role_present,
         "account_role_claim_present": account_role_present,
         "account_roles_claim_present": account_roles_present,
+        "account_id_claim_present": account_id_present,
         "plan_claim_present": plan_present,
         "effective_role": effective_role,
         "effective_account_role": effective_account_role,

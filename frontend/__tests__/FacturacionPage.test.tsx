@@ -49,8 +49,9 @@ let subscriptionData: Record<string, unknown> | null = null
 
 function makeQueryBuilder(table: string) {
   const resolved =
-    table === "account_members"
-      ? { data: { account_id: "acc-1", accounts: ACCOUNT_ROW }, error: null }
+    table === "accounts"
+      // multiusuario-operativo (tanda A, D1): la cuenta ACTIVA sale de `accounts` (RLS: sólo esa fila).
+      ? { data: { id: "acc-1", ...ACCOUNT_ROW }, error: null }
       : table === "billing_events"
         ? { data: [], error: null }
         : table === "subscriptions"

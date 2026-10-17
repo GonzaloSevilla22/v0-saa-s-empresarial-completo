@@ -1,0 +1,17 @@
+PASS: usuario de UNA cuenta: no hay selector de cuenta
+PASS: usuario de UNA cuenta: no ve datos de otras cuentas en el Tablero
+PASS: dos cuentas: el selector muestra la personal (la más antigua) como activa
+PASS: tab 2 abierta en la cuenta personal
+PASS: /ventas en la personal: ve su venta de $100 y NO la de $1.000 del negocio
+PASS: tab 1: tras elegir el negocio, el selector muestra Ferretería Roca y queda en el Tablero
+PASS: la preferencia quedó persistida en profiles.active_account_id (= negocio)
+PASS: /ventas en el negocio: ve la venta de $1.000 y NO la de $100 de la personal
+PASS: tab 2 (abierta antes) se resincronizó sola al negocio (account:switched)
+captura: humo-tab2-resincronizada.png
+PASS: el manejador de token entrega un token de la sesión
+PASS: venta de servicio (R3l) quedó en el NEGOCIO (correcto)
+PASS: gasto con X-Account-Id del negocio -> 201 y en el negocio (201)
+PASS: gasto desde la pestaña vieja -> 409 account_switched; filas escritas: 0; content-type application/problem+json
+PASS: sin X-Account-Id no se compara y opera sobre la cuenta activa del token (201)
+PASS: preflight CORS admite X-Account-Id (200)
+captura: humo-tab1-negocio.png

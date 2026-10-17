@@ -67,6 +67,17 @@ const HOSTILE_METADATA: Record<string, unknown> = {
   party_count: HOSTILE,
   overdue_total: HOSTILE,
   as_of: HOSTILE,
+  // org_invite (multiusuario-operativo tanda C)
+  account_name: HOSTILE,
+  inviter_name: HOSTILE,
+  role_labels: [HOSTILE, HOSTILE],
+  roles: [HOSTILE],
+  token: HOSTILE,
+  expires_at: HOSTILE,
+  invitation_id: HOSTILE,
+  account_id: HOSTILE,
+  link: "https://evil.example/phish",
+  cta_url: "https://evil.example/phish",
 }
 
 const EVENT_TYPES = [
@@ -87,6 +98,7 @@ const EVENT_TYPES = [
   "receivables_overdue_digest",
   "payables_overdue_digest",
   "subscription_cancelled",
+  "org_invite",
   "evento_desconocido",
 ] as const
 
@@ -311,5 +323,111 @@ describe("correos legítimos: el contenido sigue ahí (control positivo)", () =>
   it("un event_type desconocido cae en el aviso genérico, con el nombre escapado", () => {
     const html = renderEmailHtml("<b>raro</b>", {})
     expect(html).toContain("Recibiste un nuevo aviso: &lt;b&gt;raro&lt;/b&gt;.")
+  })
+})
+
+// ── org_invite (multiusuario-operativo tanda C, grupo 16) ────────────────────────────────────
+//
+// El email de invitación es el único que la app manda a una dirección que elige un usuario, y su
+// botón lleva un token. Lo que fijan estos tests (specs transactional-email-delivery, «Plantilla de
+// correo de invitación a una cuenta»):
+//   · todo dato que el usuario controla (nombre del negocio, nombre de quien invita, etiquetas de
+//     rol) sale ESCAPADO como texto;
+//   · el botón es `APP_URL + /invitacion/ + encodeURIComponent(token)`, NUNCA una URL de la metadata;
+//   · un token con forma inválida no dibuja el botón (no hay link a nada raro).
+
+const TOKEN = "0123456789abcdef".repeat(4)
+
+const INVITE_METADATA = {
+  invitation_id: "11111111-1111-1111-1111-111111111111",
+  account_id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+  token: TOKEN,
+  account_name: "Panadería Sol",
+  inviter_name: "Ana Gómez",
+  roles: ["seller", "cashier"],
+  role_labels: ["Vendedor", "Cajero"],
+  expires_at: "2026-10-24T12:00:00+00:00",
+}
+
+describe("org_invite — el email de invitación a una cuenta", () => {
+  it("nombra a quien invita, al negocio, los roles y el vencimiento", () => {
+    const html = renderEmailHtml("org_invite", INVITE_METADATA)
+    expect(html).toContain("<strong>Ana Gómez</strong> te invitó a sumarte a <strong>Panadería Sol</strong> en ALIADATA")
+    expect(html).toContain("<strong>Vendedor, Cajero</strong>")
+    expect(html).toContain("<strong>24/10/2026</strong>")
+  })
+
+  it("el botón es APP_URL + /invitacion/ + el token codificado, y es el único enlace", () => {
+    const html = renderEmailHtml("org_invite", INVITE_METADATA)
+    expect(hrefsOf(html)).toEqual([`${APP_URL}/invitacion/${TOKEN}`])
+  })
+
+  it("el token se codifica con encodeURIComponent (un carácter reservado no cambia la ruta)", () => {
+    // Un token real es hex; uno con `-`/`_` sigue pasando. Lo reservado no pasa la validación de forma.
+    const html = renderEmailHtml("org_invite", { ...INVITE_METADATA, token: "abc-DEF_0123456789abcdef" })
+    expect(hrefsOf(html)).toEqual([`${APP_URL}/invitacion/${encodeURIComponent("abc-DEF_0123456789abcdef")}`])
+  })
+
+  it("el nombre del negocio con marcado se muestra como TEXTO, sin interpretar las etiquetas", () => {
+    const html = renderEmailHtml("org_invite", { ...INVITE_METADATA, account_name: "<b>Sol</b> & <i>Hijos</i>" })
+    expect(html).toContain("<strong>&lt;b&gt;Sol&lt;/b&gt; &amp; &lt;i&gt;Hijos&lt;/i&gt;</strong>")
+    expect(html).not.toContain("<b>Sol</b>")
+  })
+
+  it("el nombre de quien invita y las etiquetas de rol también salen escapados", () => {
+    const html = renderEmailHtml("org_invite", {
+      ...INVITE_METADATA,
+      inviter_name: HOSTILE,
+      role_labels: [HOSTILE],
+    })
+    expect(html).not.toContain("<script")
+    expect(html).not.toMatch(/<[^>]*onerror[ 	]*=/i)
+    expect(html).not.toContain('<a href="https://evil.example')
+    expect(html).toContain("&lt;script&gt;alert(1)&lt;/script&gt;")
+  })
+
+  it("una URL en la metadata NO aparece en el HTML y no cambia el botón", () => {
+    const html = renderEmailHtml("org_invite", {
+      ...INVITE_METADATA,
+      url: "https://evil.example/phish",
+      link: "https://evil.example/phish",
+      cta_url: "https://evil.example/phish",
+      invite_url: "https://evil.example/phish",
+      account_url: "https://evil.example/phish",
+    })
+    expect(html).not.toContain("evil.example")
+    expect(hrefsOf(html)).toEqual([`${APP_URL}/invitacion/${TOKEN}`])
+  })
+
+  it("un token hostil o con forma inválida no dibuja ningún botón", () => {
+    for (const token of [HOSTILE, "", "corto", "../../etc/passwd", "a b".repeat(20), undefined, null, 42, { toString: () => TOKEN }]) {
+      const html = renderEmailHtml("org_invite", { ...INVITE_METADATA, token })
+      expect(hrefsOf(html)).toEqual([])
+      expect(html).not.toContain("/invitacion/")
+    }
+  })
+
+  it("sin etiquetas de rol cae a los códigos, y sin ninguno no inventa un rol", () => {
+    const codes = renderEmailHtml("org_invite", { ...INVITE_METADATA, role_labels: undefined, roles: ["viewer"] })
+    expect(codes).toContain("<strong>viewer</strong>")
+    const none = renderEmailHtml("org_invite", { ...INVITE_METADATA, role_labels: [], roles: [] })
+    expect(none).not.toContain("como <strong>")
+  })
+
+  it("un vencimiento ilegible no rompe el correo ni imprime «Invalid Date»", () => {
+    const html = renderEmailHtml("org_invite", { ...INVITE_METADATA, expires_at: "no-es-una-fecha" })
+    expect(html).not.toContain("Invalid Date")
+    expect(hrefsOf(html)).toEqual([`${APP_URL}/invitacion/${TOKEN}`])
+  })
+
+  it("sin nombre de quien invita ni del negocio igual sale un correo legible", () => {
+    const html = renderEmailHtml("org_invite", { token: TOKEN })
+    expect(html).toContain("Alguien de tu equipo te invitó a sumarte a <strong>un negocio</strong>")
+    expect(hrefsOf(html)).toEqual([`${APP_URL}/invitacion/${TOKEN}`])
+  })
+
+  it("org_invite NO está entre los eventos que admiten el envío masivo a todos los usuarios", async () => {
+    const { isAllUsersFanoutAllowed } = await import("../../supabase/functions/_shared/email-fanout-policy")
+    expect(isAllUsersFanoutAllowed("org_invite")).toBe(false)
   })
 })

@@ -4372,7 +4372,7 @@ El pedido literal (RPC con rol y motivo + quitar `GRANT` y policies) es correcto
 
 **Pendiente (no es de esta tanda).** 6.4 post-merge (a cargo del orquestador); tanda B (guards de operaciones, D11: ya está `_purchase_operation_core` en `main`), hotfix de `email_logs` (OQ-7), tanda C (invitación de punta a punta) y archive.
 
-## Change `multiusuario-operativo` — TANDA B apply 2026-10-17 (apply B PR **#<<PR>>**, migración `20261083000001_multiusuario_operaciones.sql`; governance **CRÍTICO**)
+## Change `multiusuario-operativo` — TANDA B apply 2026-10-17 (apply B PR **#652**, migración `20261083000001_multiusuario_operaciones.sql`; governance **CRÍTICO**)
 
 **Pedido y sign-off.** Los de la tanda A (`design.md` §"Sign-off del PO", 2026-10-16: *«dale, aplicá multiusuario-operativo»* = OQ-1 a OQ-9 por su opción recomendada). Esta tanda aplica **OQ-3 (b)** (capacidad por dominio: la venta exige `CAN_SELL`, la compra `CAN_PURCHASE`; la compra **no** suma `stock`), **OQ-4 (b)** (dueño y administrador editan y borran cualquier documento de la cuenta; el resto, sólo los propios) y **OQ-9 (a)** (esta tanda va antes que `edicion-operaciones-con-dinero`, #644). Cubre los grupos **7 a 11** de `tasks.md` y la parte B del 19; el hotfix de `email_logs` (grupo 12), la tanda C y el archive quedan para sus PRs.
 

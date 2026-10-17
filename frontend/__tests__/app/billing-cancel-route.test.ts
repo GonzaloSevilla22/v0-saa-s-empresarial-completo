@@ -13,6 +13,11 @@
  *     hacerlo, en producción devolvería 500 por permission denied).
  *   · `expiresAt` y el `from_plan` del evento de auditoría salen de lo que
  *     devuelve la RPC, no de un cálculo del cliente.
+ *   · email-logs-cierre-insert (OQ-7 de multiusuario-operativo): la ruta NUNCA
+ *     escribe en `email_logs`. `authenticated` ya no tiene INSERT en esa tabla
+ *     (era un vector de phishing: correo desde el dominio de ALIADATA a
+ *     cualquier destinatario); el correo `plan_downgraded` lo encola la propia
+ *     RPC, con el email de la sesión, en la misma transacción que la cancelación.
  *   · El mapeo de los ERRCODEs del guard a los status HTTP, incluido el
  *     P0403 de "no sos el titular" — antes un miembro no titular recibía
  *     `{ok:true}` con 0 filas afectadas (falsa confirmación de cancelación).
@@ -76,6 +81,32 @@ describe("POST /api/billing/cancel — cancelación vía RPC, sin UPDATE directo
     expect(body).toEqual({ ok: true, expiresAt: EXPIRES })
   })
 
+  it("NUNCA escribe en email_logs: el correo lo encola la RPC, no la ruta", async () => {
+    rpcOk()
+
+    const res = await POST()
+
+    expect(res.status).toBe(200)
+    expect(mockFrom.mock.calls.map((c) => c[0])).not.toContain("email_logs")
+    // Ningún insert (ni el de auditoría ni otro) lleva la forma de una fila de email_logs.
+    const emailShaped = mockInsert.mock.calls
+      .map((c) => c[0] as Record<string, unknown>)
+      .filter((p) => "recipient" in p || "subject" in p || p.event_type === "plan_downgraded")
+    expect(emailShaped).toEqual([])
+  })
+
+  it("el correo no depende de user.email: un usuario sin email cancela igual y sin tocar email_logs", async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: "user-2", email: undefined } }, error: null })
+    rpcOk()
+
+    const res = await POST()
+    const body = (await res.json()) as { ok: boolean }
+
+    expect(res.status).toBe(200)
+    expect(body.ok).toBe(true)
+    expect(mockFrom.mock.calls.map((c) => c[0])).not.toContain("email_logs")
+  })
+
   it("audita en billing_events con el from_plan y la fecha que devolvió la RPC", async () => {
     rpcOk()
 
@@ -98,7 +129,7 @@ describe("POST /api/billing/cancel — cancelación vía RPC, sin UPDATE directo
     expect(res.status).toBe(403)
     expect(body.ok).toBe(false)
     expect(body.error).toMatch(/titular/i)
-    // No se audita ni se encola mail de algo que no pasó.
+    // No se audita nada de algo que no pasó (el correo lo encola la propia RPC, dentro de su transacción).
     expect(mockInsert).not.toHaveBeenCalled()
   })
 

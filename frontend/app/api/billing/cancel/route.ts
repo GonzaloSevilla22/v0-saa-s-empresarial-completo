@@ -24,6 +24,16 @@
  * titular el UPDATE afectaba 0 filas y la ruta respondía `{ok:true}` igual —
  * una confirmación de cancelación falsa. Ahora es un 403 explícito.
  *
+ * email-logs-cierre-insert (OQ-7 de multiusuario-operativo, governance CRÍTICO):
+ * esta ruta era además el ÚNICO caller con sesión de usuario que escribía en
+ * `public.email_logs` (el correo `plan_downgraded`), y lo hacía porque la tabla
+ * admitía INSERT de cualquier autenticado (`WITH CHECK (true)`): el mismo
+ * mecanismo permitía mandar un correo, desde el dominio de ALIADATA, a CUALQUIER
+ * destinatario y con CUALQUIER asunto. La migración 20261084000001 cierra la
+ * escritura de `authenticated`/`anon` sobre `email_logs`, y el correo pasa a
+ * encolarlo `rpc_request_subscription_cancellation()` adentro de su transacción,
+ * con el email de la SESIÓN (`auth.users`), nunca de un parámetro.
+ *
  * Returns: { ok: true, expiresAt: string }
  */
 
@@ -114,20 +124,8 @@ export async function POST(): Promise<NextResponse> {
       },
     })
 
-    // ── Enqueue downgrade email ───────────────────────────────────────────────
-    if (user.email) {
-      await supabase.from('email_logs').insert({
-        user_id: user.id,
-        event_type: 'plan_downgraded',
-        recipient: user.email,
-        subject: 'Tu suscripción fue cancelada — Aliadata',
-        metadata: {
-          plan: fromPlan,
-          plan_expires_at: expiresAt,
-          reason: 'user_requested',
-        },
-      })
-    }
+    // El correo de confirmación (`plan_downgraded`) NO se encola acá: lo hace la
+    // propia RPC, en la misma transacción que la cancelación (email-logs-cierre-insert).
 
     return NextResponse.json({ ok: true, expiresAt })
 

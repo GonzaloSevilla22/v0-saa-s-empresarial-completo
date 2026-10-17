@@ -35,6 +35,11 @@ const h = vi.hoisted(() => ({
   refreshSessionAction: vi.fn(),
   toast: { success: vi.fn(), info: vi.fn(), error: vi.fn() },
   fromTables: [] as string[],
+  // Lectura de EMERGENCIA de account_members (sólo la usa el fallback de rpc_my_accounts):
+  // `undefined` = el test NO espera que se consulte (el doble lanza si alguien lo hace).
+  membership: undefined as undefined | { data: unknown; error: unknown },
+  membershipOrder: [] as unknown[][],
+  warn: vi.fn(),
 }))
 
 vi.mock("@/app/auth/actions", () => ({
@@ -76,6 +81,20 @@ const clienteDoble = {
           eq: () => ({ single: () => Promise.resolve({ data: { plan: "pro", role: "user", name: "Usuaria" }, error: null }) }),
         }),
       }
+    }
+    if (table === "account_members" && h.membership !== undefined) {
+      const result = h.membership
+      const builder = {
+        select: () => builder,
+        eq: () => builder,
+        order: (...args: unknown[]) => {
+          h.membershipOrder.push(args)
+          return builder
+        },
+        limit: () => builder,
+        maybeSingle: () => Promise.resolve(result),
+      }
+      return builder
     }
     throw new Error(`Tabla no mockeada en este test: ${table} (el contexto NO debe consultar account_members)`)
   },
@@ -183,6 +202,10 @@ beforeEach(() => {
   h.toast.info.mockReset()
   h.toast.error.mockReset()
   h.fromTables.length = 0
+  h.membership = undefined
+  h.membershipOrder.length = 0
+  h.warn.mockReset()
+  vi.spyOn(console, "warn").mockImplementation((...args: unknown[]) => h.warn(...args))
   resetActiveAccountStore()
 })
 
@@ -474,5 +497,121 @@ describe("auth-context — sin cuenta activa", () => {
     fireEvent.click(await screen.findByRole("button", { name: /cerrar sesión/i }))
 
     await waitFor(() => expect(h.signOut).toHaveBeenCalled())
+  })
+})
+
+describe("auth-context — si rpc_my_accounts falla (ventana de despliegue) cae a la membresía más antigua", () => {
+  // El caso real: Vercel publica el frontend apenas se mergea y `supabase db push` corre en otro job
+  // del deploy; durante esos minutos `rpc_my_accounts` no existe (PGRST202) y quien recarga quedaba
+  // con accountId "" y todas las pantallas rotas, sin aviso. El camino NORMAL sigue siendo la RPC;
+  // esto es una salida de emergencia que resuelve la cuenta como antes de la tanda A.
+  const OLDEST = {
+    account_id: "acc-old",
+    role: "owner",
+    accounts: {
+      billing_plan: "avanzado",
+      billing_status: "active",
+      trial_plan: null,
+      trial_started_at: null,
+      trial_expires_at: null,
+      billing_exempt: false,
+    },
+  }
+
+  function rpcFailsWith(error: unknown) {
+    h.rpc.mockImplementation((name: string) => {
+      if (name === "rpc_my_accounts") return Promise.resolve({ data: null, error })
+      return Promise.resolve({ data: null, error: null })
+    })
+  }
+
+  it("PGRST202 (la función todavía no existe): resuelve la cuenta de su membresía más antigua, la marca activa y avisa por consola", async () => {
+    rpcFailsWith({ code: "PGRST202", message: "Could not find the function public.rpc_my_accounts without parameters" })
+    h.membership = { data: OLDEST, error: null }
+
+    renderWithAuth()
+
+    await waitFor(() => expect(screen.getByTestId("account-id").textContent).toBe("acc-old"))
+    expect(screen.getByTestId("account-role").textContent).toBe("owner")
+    expect(screen.getByTestId("billing-plan").textContent).toBe("avanzado")
+    expect(screen.getByTestId("account-count").textContent).toBe("1")
+    // La pantalla declara la cuenta resuelta (X-Account-Id) y no hay pantalla de error.
+    expect(getDisplayedAccountId()).toBe("acc-old")
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument()
+    // Es un camino de emergencia: queda dicho en la consola, con la causa.
+    expect(h.warn).toHaveBeenCalledWith(expect.stringContaining("rpc_my_accounts"), expect.anything())
+    expect(h.warn.mock.calls.some(([message]) => /fallback/i.test(String(message)))).toBe(true)
+  })
+
+  it("lee la membresía más antigua por (created_at, id) — el criterio previo a la tanda A", async () => {
+    rpcFailsWith({ code: "PGRST202", message: "no existe" })
+    h.membership = { data: OLDEST, error: null }
+
+    renderWithAuth()
+
+    await waitFor(() => expect(screen.getByTestId("account-id").textContent).toBe("acc-old"))
+    expect(h.fromTables).toContain("account_members")
+    expect(h.membershipOrder).toEqual([
+      ["created_at", { ascending: true }],
+      ["id", { ascending: true }],
+    ])
+  })
+
+  it("un error genérico (red, 5xx de PostgREST) hace lo mismo: no es sólo PGRST202", async () => {
+    rpcFailsWith({ message: "TypeError: Failed to fetch" })
+    h.membership = { data: { ...OLDEST, account_id: "acc-net", role: "member" }, error: null }
+
+    renderWithAuth()
+
+    await waitFor(() => expect(screen.getByTestId("account-id").textContent).toBe("acc-net"))
+    expect(screen.getByTestId("account-role").textContent).toBe("member")
+    expect(h.warn).toHaveBeenCalled()
+  })
+
+  it("si la llamada a la RPC RECHAZA (no devuelve un error), también cae al fallback en vez de romper la carga", async () => {
+    h.rpc.mockImplementation((name: string) => {
+      if (name === "rpc_my_accounts") return Promise.reject(new Error("network down"))
+      return Promise.resolve({ data: null, error: null })
+    })
+    h.membership = { data: OLDEST, error: null }
+
+    renderWithAuth()
+
+    await waitFor(() => expect(screen.getByTestId("account-id").textContent).toBe("acc-old"))
+    expect(h.warn).toHaveBeenCalled()
+  })
+
+  it("si el fallback tampoco encuentra membresía, queda como hoy: sin cuenta, sin pantalla de error y sin romper", async () => {
+    rpcFailsWith({ code: "PGRST202", message: "no existe" })
+    h.membership = { data: null, error: null }
+
+    renderWithAuth()
+
+    await waitFor(() => expect(screen.getByTestId("account-count").textContent).toBe("0"))
+    expect(screen.getByTestId("account-id").textContent).toBe("")
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument()
+  })
+
+  it("si el fallback TAMBIÉN falla, no lanza: sin cuenta y el aviso lo dice", async () => {
+    rpcFailsWith({ code: "PGRST202", message: "no existe" })
+    h.membership = { data: null, error: { message: "permission denied" } }
+
+    renderWithAuth()
+
+    await waitFor(() => expect(screen.getByTestId("account-count").textContent).toBe("0"))
+    expect(screen.getByTestId("account-id").textContent).toBe("")
+    expect(h.warn).toHaveBeenCalled()
+  })
+
+  it("con la RPC funcionando el fallback NO se consulta ni se avisa (el camino normal no cambia)", async () => {
+    rows = [accountRow({ account_id: "acc-p", is_active: true, brand_display_name: "Mi Kiosco" })]
+    // Aunque haya una membresía configurada, no debe leerse: la RPC manda.
+    h.membership = { data: OLDEST, error: null }
+
+    renderWithAuth()
+
+    await waitFor(() => expect(screen.getByTestId("account-id").textContent).toBe("acc-p"))
+    expect(h.fromTables).not.toContain("account_members")
+    expect(h.warn.mock.calls.some(([message]) => /rpc_my_accounts/.test(String(message)))).toBe(false)
   })
 })

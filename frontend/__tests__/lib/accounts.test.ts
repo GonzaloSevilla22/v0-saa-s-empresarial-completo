@@ -8,7 +8,7 @@
  * selector de cuenta no tiene un criterio de nombre propio.
  */
 import { describe, it, expect } from "vitest"
-import { getActiveAccount, parseMyAccounts, type MyAccountRow } from "@/lib/accounts"
+import { accountFromMembership, getActiveAccount, parseMyAccounts, type MyAccountRow } from "@/lib/accounts"
 import { DEFAULT_ISSUER_NAME } from "@/lib/document-branding"
 
 function row(overrides: Partial<MyAccountRow> = {}): MyAccountRow {
@@ -117,5 +117,71 @@ describe("getActiveAccount", () => {
 
   it("devuelve null con una lista vacía", () => {
     expect(getActiveAccount([])).toBeNull()
+  })
+})
+
+describe("accountFromMembership — la lectura de EMERGENCIA cuando rpc_my_accounts falla", () => {
+  it("convierte la membresía más antigua en la cuenta ACTIVA, con su rol y su billing", () => {
+    const account = accountFromMembership(
+      {
+        account_id: "acc-old",
+        role: "owner",
+        accounts: {
+          billing_plan: "avanzado",
+          billing_status: "active",
+          trial_plan: null,
+          trial_started_at: null,
+          trial_expires_at: null,
+          billing_exempt: false,
+        },
+      },
+      "Mi Kiosco",
+    )
+
+    expect(account).toMatchObject({
+      accountId: "acc-old",
+      isActive: true,
+      isOwner: true,
+      memberRole: "owner",
+      roles: ["owner"],
+      displayName: "Mi Kiosco",
+      billingPlan: "avanzado",
+      billingStatus: "active",
+      billingExempt: false,
+      effectivePlan: "avanzado",
+    })
+  })
+
+  it("un miembro no es dueño y la cuenta sin datos de billing cae a los defaults previos", () => {
+    const account = accountFromMembership({ account_id: "acc-x", role: "member", accounts: null }, "Mi cuenta")
+
+    expect(account.isOwner).toBe(false)
+    expect(account.memberRole).toBe("member")
+    expect(account.roles).toEqual(["member"])
+    expect(account.billingPlan).toBe("gratis")
+    expect(account.billingStatus).toBe("trialing")
+    expect(account.effectivePlan).toBe("gratis")
+    expect(account.isActive).toBe(true)
+  })
+
+  it("un trial vigente se refleja en el plan efectivo, como en el camino normal", () => {
+    const account = accountFromMembership(
+      {
+        account_id: "acc-t",
+        role: "owner",
+        accounts: {
+          billing_plan: "gratis",
+          billing_status: "trialing",
+          trial_plan: "pro",
+          trial_started_at: "2026-10-01T00:00:00.000Z",
+          trial_expires_at: "2099-01-01T00:00:00.000Z",
+          billing_exempt: false,
+        },
+      },
+      "Mi cuenta",
+    )
+
+    expect(account.trialPlan).toBe("pro")
+    expect(account.effectivePlan).toBe("pro")
   })
 })

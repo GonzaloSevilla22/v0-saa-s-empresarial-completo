@@ -18,6 +18,7 @@
  *     resultado es `null` — NUNCA se elige otra en silencio.
  */
 import { emptyBrandingForm, previewIssuer } from "@/lib/document-branding"
+import { getEffectivePlan } from "@/lib/plan-utils"
 import type { BillingStatus, OrgRole, Plan } from "@/lib/types"
 
 /** Una fila cruda de `rpc_my_accounts()`. */
@@ -120,4 +121,56 @@ export function parseMyAccounts(raw: unknown): AccountSummary[] {
 /** La cuenta activa, o `null` si ninguna lo está. Nunca elige otra por su cuenta. */
 export function getActiveAccount(accounts: readonly AccountSummary[]): AccountSummary | null {
   return accounts.find((account) => account.isActive) ?? null
+}
+
+/** La cuenta embebida en la lectura de EMERGENCIA de `account_members` (sólo lo que usa el contexto). */
+export interface FallbackAccountRow {
+  billing_plan: string
+  billing_status: string
+  trial_plan: string | null
+  trial_started_at: string | null
+  trial_expires_at: string | null
+  billing_exempt: boolean | null
+}
+
+/** Una fila de `account_members` con su cuenta embebida: la salida de emergencia del contexto. */
+export interface FallbackMembershipRow {
+  account_id: string
+  role: string
+  accounts: FallbackAccountRow | null
+}
+
+/**
+ * La cuenta ACTIVA a partir de la membresía más antigua del usuario.
+ *
+ * **Es el camino de EMERGENCIA, no el normal** (el normal es `rpc_my_accounts()`, que marca la
+ * activa con `current_account_ids()`): lo usa el contexto cuando esa RPC falla —típicamente en la
+ * ventana de un deploy en la que el frontend ya está publicado y la migración todavía no corrió
+ * (`PGRST202`), o ante un hipo de la red— para que el usuario no quede con `accountId = ""` y todas
+ * las pantallas rotas. Resuelve como antes de la tanda A: la membresía más antigua es "la activa".
+ * Una sola cuenta, sin selector; el nombre visible se lo pasa quien llama (acá no hay datos de marca).
+ */
+export function accountFromMembership(row: FallbackMembershipRow, displayName: string): AccountSummary {
+  const account = row.accounts
+  const billingPlan = (account?.billing_plan ?? "gratis") as Plan
+  const billingStatus = (account?.billing_status ?? "trialing") as BillingStatus
+  const trialPlan = nullToUndefined(account?.trial_plan) as Plan | undefined
+  const trialExpiresAt = nullToUndefined(account?.trial_expires_at)
+  const billingExempt = account?.billing_exempt === true
+  return {
+    accountId: row.account_id,
+    isActive: true,
+    isOwner: row.role === "owner",
+    memberRole: row.role as OrgRole,
+    roles: [row.role],
+    displayName,
+    billingPlan,
+    billingStatus,
+    trialPlan,
+    trialStartedAt: nullToUndefined(account?.trial_started_at),
+    trialExpiresAt,
+    planExpiresAt: undefined,
+    billingExempt,
+    effectivePlan: getEffectivePlan({ billingPlan, trialPlan, trialExpiresAt, billingExempt }),
+  }
 }

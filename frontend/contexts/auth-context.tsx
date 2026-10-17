@@ -6,7 +6,13 @@ import { toast } from "sonner"
 import { createClient } from "@/lib/supabase/client"
 import { useRouter } from "next/navigation"
 import type { User, Plan, UserRole, BillingStatus } from "@/lib/types"
-import { getActiveAccount, parseMyAccounts, type AccountSummary } from "@/lib/accounts"
+import {
+  accountFromMembership,
+  getActiveAccount,
+  parseMyAccounts,
+  type AccountSummary,
+  type FallbackMembershipRow,
+} from "@/lib/accounts"
 import { Button } from "@/components/ui/button"
 import { getEffectivePlan } from "@/lib/plan-utils"
 import { buildProfileUpdatePayload, type ProfileUpdateData } from "@/lib/profile-update"
@@ -150,6 +156,45 @@ async function renewSessionAtProvider(): Promise<boolean> {
   }
 }
 
+/**
+ * Salida de EMERGENCIA cuando `rpc_my_accounts()` falla: la membresía más antigua del usuario por
+ * `(created_at, id)` —el criterio previo a la tanda A—, marcada como su cuenta activa.
+ *
+ * No contradice D1 (la cuenta activa se resuelve en la base): el camino NORMAL sigue siendo la RPC.
+ * Esto cubre dos casos que de otro modo dejarían `accountId = ""` y todas las pantallas rotas sin
+ * ningún aviso: (1) la ventana de un deploy en la que Vercel ya publicó el frontend y `supabase db
+ * push` todavía no aplicó la migración (`PGRST202`, unos minutos), y (2) un hipo transitorio de
+ * PostgREST o de la red. Nunca lanza: si la lectura también falla o no hay membresía, devuelve
+ * `[]` y el contexto queda como estaba antes de este fallback (sin cuenta).
+ */
+async function loadOldestMembershipFallback(
+  supabase: ReturnType<typeof createClient>,
+  userId: string,
+  businessName: string | null | undefined,
+): Promise<AccountSummary[]> {
+  try {
+    const { data, error } = await supabase
+      .from("account_members")
+      .select("account_id, role, accounts(billing_plan, billing_status, trial_plan, trial_started_at, trial_expires_at, billing_exempt)")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: true })
+      .order("id", { ascending: true })
+      .limit(1)
+      .maybeSingle()
+    if (error) {
+      console.warn("[auth-context] el FALLBACK de cuenta (account_members) tampoco pudo leer:", error)
+      return []
+    }
+    if (!data) return []
+    // Supabase infiere el embed como arreglo; es 1:1 por la membresía (mismo cast que antes de la tanda A).
+    const row = data as unknown as FallbackMembershipRow
+    return [accountFromMembership(row, businessName?.trim() || "Mi cuenta")]
+  } catch (error) {
+    console.warn("[auth-context] el FALLBACK de cuenta (account_members) lanzó:", error)
+    return []
+  }
+}
+
 /** Qué dejó una carga de sesión: si hay sesión, y si falta una cuenta activa. */
 interface SessionLoad {
   session: boolean
@@ -218,13 +263,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         .select("*")
         .eq("id", authUser.id)
         .single(),
-      supabase.rpc("rpc_my_accounts"),
+      // Una llamada que RECHAZA (la red) se trata igual que una que devuelve error: la carga no se rompe.
+      Promise.resolve(supabase.rpc("rpc_my_accounts")).then(
+        (result) => result,
+        (error: unknown) => ({ data: null, error }),
+      ),
     ])
-    if (accountsResult.error) {
-      console.error("[auth-context] rpc_my_accounts falló:", accountsResult.error)
-    }
 
-    const myAccounts = parseMyAccounts(accountsResult.data)
+    let myAccounts: AccountSummary[]
+    if (accountsResult.error) {
+      // Camino de EMERGENCIA (ver `loadOldestMembershipFallback`): sin esto el usuario entra con
+      // `accountId = ""` y todas las pantallas rompen sin un solo aviso.
+      console.warn(
+        "[auth-context] rpc_my_accounts falló: se usa el FALLBACK (membresía más antigua por created_at, id; sin selector de cuenta)",
+        accountsResult.error,
+      )
+      myAccounts = await loadOldestMembershipFallback(supabase, authUser.id, profile?.business_name)
+    } else {
+      myAccounts = parseMyAccounts(accountsResult.data)
+    }
     const active = getActiveAccount(myAccounts)
     setAccounts(myAccounts)
 

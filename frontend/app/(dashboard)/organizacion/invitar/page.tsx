@@ -60,11 +60,11 @@ export default function InvitarPage() {
       </div>
 
       {quotaFull && (
-        <div className="rounded-lg border border-orange-500/30 bg-orange-500/10 px-4 py-3 text-sm text-orange-700 dark:text-orange-400">
+        <div className="rounded-lg border border-warning/30 bg-warning/10 px-4 py-3 text-sm text-warning">
           <strong>Cupo lleno.</strong> Actualizá tu plan para agregar más miembros.
           <div className="mt-2">
             <Link href="/configuracion">
-              <Button size="sm" variant="outline" className="min-h-11 border-orange-500/40 text-orange-700 sm:min-h-8 dark:text-orange-400">
+              <Button size="sm" variant="outline" className="min-h-11 border-warning/50 text-warning sm:min-h-8">
                 Ver planes
               </Button>
             </Link>

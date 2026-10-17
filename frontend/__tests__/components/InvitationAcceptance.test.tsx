@@ -192,6 +192,21 @@ describe("aceptar", () => {
     release({ account_id: "acc-negocio", active_account_id: "acc-negocio", roles: ["seller"] })
   })
 
+  it("mientras activa la cuenta (renovar el token tarda) el botón sigue ocupado: no se acepta dos veces", async () => {
+    let release: () => void = () => undefined
+    h.adoptActiveAccount.mockReturnValue(new Promise<void>((resolve) => (release = resolve)))
+    renderScreen()
+    fireEvent.click(await screen.findByRole("button", { name: /aceptar invitación/i }))
+
+    // La base ya aceptó; el cambio de cuenta sigue en vuelo.
+    await waitFor(() => expect(h.adoptActiveAccount).toHaveBeenCalledTimes(1))
+    const busy = screen.getByRole("button", { name: /aceptando/i })
+    expect(busy).toBeDisabled()
+    fireEvent.click(busy)
+    expect(h.post).toHaveBeenCalledTimes(1)
+    release()
+  })
+
   it("si aceptó pero no pudo cambiar de cuenta, lo dice y ofrece reintentar el cambio (la membresía ya existe)", async () => {
     h.adoptActiveAccount.mockRejectedValueOnce(new Error("no se pudo renovar"))
     renderScreen()

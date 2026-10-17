@@ -54,7 +54,7 @@ function StateBadge({ state }: { state: InvitationState }) {
     return <Badge className="border-primary/30 bg-primary/10 text-xs text-primary">{STATE_LABEL.pending}</Badge>
   }
   if (state === "expired") {
-    return <Badge variant="outline" className="border-orange-500/40 text-xs text-orange-600 dark:text-orange-400">{STATE_LABEL.expired}</Badge>
+    return <Badge variant="outline" className="border-warning/50 text-xs text-warning">{STATE_LABEL.expired}</Badge>
   }
   return <Badge variant="outline" className="text-xs text-muted-foreground">{STATE_LABEL.revoked}</Badge>
 }

@@ -78,6 +78,9 @@ export function InvitationAcceptance({ token }: { token: string }) {
   // Lo que pasó al ACEPTAR (la vista previa ya andaba): puede cambiar la pantalla sin recargar.
   const [acceptFailure, setAcceptFailure] = useState<InvitationFailure | null>(null)
   const [adoptFailed, setAdoptFailed] = useState(false)
+  // Entre que la base aceptó y que el cambio de cuenta termina (renovar el token tarda) el botón sigue ocupado:
+  // sin esto quedaba habilitado un instante y un segundo clic habría pegado contra una invitación ya usada.
+  const [adopting, setAdopting] = useState(false)
   const [switching, setSwitching] = useState(false)
 
   const data: InvitationPreview | undefined = preview.data
@@ -88,11 +91,13 @@ export function InvitationAcceptance({ token }: { token: string }) {
 
   async function runAdopt() {
     setAdoptFailed(false)
+    setAdopting(true)
     try {
       await adoptActiveAccount({ message: welcome })
     } catch {
       // La membresía YA existe: lo que falló es el cambio de cuenta. Se ofrece reintentarlo, no volver a aceptar.
       setAdoptFailed(true)
+      setAdopting(false)
     }
   }
 
@@ -330,8 +335,8 @@ export function InvitationAcceptance({ token }: { token: string }) {
           </p>
         </CardContent>
         <CardFooter className="flex flex-col gap-2">
-          <Button className="min-h-11 w-full" disabled={accept.isPending} onClick={() => void handleAccept()}>
-            {accept.isPending ? (
+          <Button className="min-h-11 w-full" disabled={accept.isPending || adopting} onClick={() => void handleAccept()}>
+            {accept.isPending || adopting ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />
                 Aceptando…
@@ -340,7 +345,7 @@ export function InvitationAcceptance({ token }: { token: string }) {
               "Aceptar invitación"
             )}
           </Button>
-          <Button variant="ghost" className="min-h-11 w-full text-muted-foreground" disabled={accept.isPending} onClick={() => router.push("/dashboard")}>
+          <Button variant="ghost" className="min-h-11 w-full text-muted-foreground" disabled={accept.isPending || adopting} onClick={() => router.push("/dashboard")}>
             Ahora no
           </Button>
         </CardFooter>

@@ -236,7 +236,7 @@
 
 ## 13. Tanda C — RED: gate de invitaciones
 
-- [ ] 13.1 Crear `supabase/tests/test_multiusuario_invitaciones.sql`, con los bloques de D15:
+- [x] 13.1 Crear `supabase/tests/test_multiusuario_invitaciones.sql`, con los bloques de D15:
   - el envío encola un `org_invite` con el `recipient` de la fila y el token de la fila, y un seller recibe `P0403`;
   - el reenvío rota el token, el viejo falla y el vencimiento se renueva;
   - revocar hace fallar la aceptación con el error genérico;
@@ -245,14 +245,17 @@
   - se cumplen el enfriamiento y el tope diario (`P0439`);
   - `rpc_invite_member(text, uuid)` ya no existe;
   - "Not authenticated" da `P0401`.
-- [ ] 13.2 Ajustar a propósito `test_accept_invitation_binding.sql` (la cuenta activa tras aceptar) y `test_invite_member_roles_and_plan_gate.sql` (el overload retirado). Documentar cada ajuste.
-- [ ] 13.3 Correr el gate **antes** de la migración: falla por la razón esperada. `evidence/tanda-c/red.log`.
+- [x] 13.2 Ajustar a propósito `test_accept_invitation_binding.sql` (la cuenta activa tras aceptar) y `test_invite_member_roles_and_plan_gate.sql` (el overload retirado). Documentar cada ajuste.
+- [x] 13.3 Correr el gate **antes** de la migración: falla por la razón esperada. `evidence/tanda-c/red.log`.
+  - **Hecho**: `red.log`: 11 bloques de `test_multiusuario_invitaciones.sql` fallan por la razón esperada (funciones inexistentes, columnas ausentes, overload de 2 args vivo, aceptar sin activar la cuenta), más `test_invite_member_roles_and_plan_gate` y `test_accept_invitation_binding` ajustados a propósito.
 
 ## 14. Tanda C — GREEN: migración de invitaciones
 
-- [ ] 14.1 Número de migración (como 2.1).
-- [ ] 14.2 Migrar los callers del overload de 2 argumentos **antes** del `DROP` (grep de `frontend/`, `backend/` y `supabase/functions/`, más `pg_proc.prosrc` de prod).
-- [ ] 14.3 Escribir la migración:
+- [x] 14.1 Número de migración (como 2.1).
+  - **Hecho**: `20261085000001_multiusuario_invitaciones.sql` (`…79` = #645 y `…80` = #646 siguen abiertos; prod en `…84`).
+- [x] 14.2 Migrar los callers del overload de 2 argumentos **antes** del `DROP` (grep de `frontend/`, `backend/` y `supabase/functions/`, más `pg_proc.prosrc` de prod).
+  - **Hecho**: el único caller del overload de 2 args era la invitación rápida de `TeamSection` (migrada); `pg_proc.prosrc` de producción: ningún otro (sólo un comentario de `rpc_create_branch`).
+- [x] 14.3 Escribir la migración:
   - columna `account_invitations.account_display_name` y valor `revoked` en el `CHECK` de estado;
   - funciones nuevas: `rpc_send_invitation_email`, `rpc_list_account_invitations`, `rpc_revoke_invitation` y `rpc_invitation_preview`;
   - reescritura desde el vivo de `rpc_accept_invitation` (activa la cuenta) y de `rpc_invite_member` (3 argumentos);
@@ -260,53 +263,57 @@
   - `DROP FUNCTION rpc_invite_member(text, uuid)`.
 
   ACLs explícitas.
-- [ ] 14.4 Gate en verde, más la cadena completa de `KPI_Validation.yml`, más la reaplicación al final.
+- [x] 14.4 Gate en verde, más la cadena completa de `KPI_Validation.yml`, más la reaplicación al final.
+  - **Hecho**: la cadena completa de `KPI_Validation.yml` sobre un `db reset` limpio y la reaplicación de la migración al final de la cadena (dos pasadas, 0 de partida + 2 ya reaplicados); `test_membership_rpcs_pivot_rewrite` suma su *reconverge-4*.
 
 ## 15. Tanda C — backend
 
-- [ ] 15.1 RED (pytest), para los endpoints de D10:
+- [x] 15.1 RED (pytest), para los endpoints de D10:
   - crear (llama a la invitación y al envío en la misma transacción, con el nombre de `resolve_commercial_issuer`);
   - listar (sin token);
   - reenviar y revocar (`CAN_CONFIGURE`);
   - vista previa y aceptación (`P0404` → 404, `P0409` → 409, `P0402` → 403, `P0439` → 429).
-- [ ] 15.2 GREEN: router, service, repository y schemas Pydantic v2 (tres capas). Agregar `P0439` a `core/errors.py`.
-- [ ] 15.3 Suite completa y coverage.
+- [x] 15.2 GREEN: router, service, repository y schemas Pydantic v2 (tres capas). Agregar `P0439` a `core/errors.py`.
+- [x] 15.3 Suite completa y coverage.
 
 ## 16. Tanda C — email
 
-- [ ] 16.1 RED (Deno):
+- [x] 16.1 RED (Deno):
+  - **Hecho**: los tests de plantilla viven en vitest (`frontend/__tests__/send-email-templates.test.ts`, convención del repo: el módulo es puro y se importa por ruta relativa), no en Deno; `deno check` aparte.
   - `_shared/html-escape.ts` escapa `& < > " '`;
   - la plantilla `org_invite` escapa el nombre del negocio y el del invitador;
   - el CTA es `APP_URL + /invitacion/ + encodeURIComponent(token)`;
   - una URL en la metadata no aparece en el HTML.
-- [ ] 16.2 GREEN en `supabase/functions/send-email/index.ts` y `_shared/html-escape.ts`. `deno check` fuera del monorepo.
+- [x] 16.2 GREEN en `supabase/functions/send-email/index.ts` y `_shared/html-escape.ts`. `deno check` fuera del monorepo.
+  - **Hecho**: `deno check` limpio de `send-email/index.ts` y de los módulos, en una copia fuera del monorepo con `DENO_NO_PACKAGE_JSON=1` (por docker `denoland/deno:2.1.4`: no hay Deno instalado).
 - [ ] 16.3 El redeploy de la Edge Function lo hace el pipeline de `deploy.yml`. Confirmarlo en el post-merge.
 
 ## 17. Tanda C — frontend
 
-- [ ] 17.1 RED (vitest):
+- [x] 17.1 RED (vitest):
   - `/invitacion/[token]`, sin sesión: tarjeta genérica, sin datos del negocio, con "Ingresar" y "Crear cuenta" que vuelven a la invitación;
   - con la identidad correcta: vista previa y "Aceptar";
   - con otra identidad o un token inválido: el mensaje único;
   - si ya es miembro: "Ya sos parte de {negocio}" con "Cambiar a esa cuenta";
   - tras aceptar: `refreshSession()`, `account:switched` y el Tablero con un toast.
-- [ ] 17.2 GREEN:
+- [x] 17.2 GREEN:
   - `app/invitacion/[token]/page.tsx`;
   - prefijo `/invitacion/` en `PUBLIC_PREFIXES` (`lib/auth/route-access.ts`);
   - `Referrer-Policy: no-referrer` y `noindex` para esa ruta (`lib/supabase/middleware.ts`, metadata de la página);
   - el registro acepta `next` **sólo** con el prefijo `/invitacion/` (allow-list, con test del rechazo de cualquier otro destino).
-- [ ] 17.3 RED/GREEN `/organizacion/invitar`:
+- [x] 17.3 RED/GREEN `/organizacion/invitar`:
   - crea por FastAPI y deja de llamar a `rpc_invite_member` por supabase-js;
   - lista las pendientes con "Reenviar" y "Revocar" (con confirmación);
   - "Copiar link" según OQ-6, con el link y no el token suelto;
   - la copia de éxito ya no dice "compartí el token", sino "le enviamos un email a …".
-- [ ] 17.4 RED/GREEN `components/settings/TeamSection.tsx`: la invitación rápida pasa al conjunto de roles y a FastAPI.
-- [ ] 17.5 `tsc` sin errores nuevos y suite de vitest completa.
+- [x] 17.4 RED/GREEN `components/settings/TeamSection.tsx`: la invitación rápida pasa al conjunto de roles y a FastAPI.
+- [x] 17.5 `tsc` sin errores nuevos y suite de vitest completa.
 
 ## 18. Tanda C — verificación, humo y demo
 
-- [ ] 18.1 Verificación visual de `/invitacion/[token]` (los cuatro estados) y de `/organizacion/invitar` (con y sin pendientes): escritorio y móvil, tema claro y oscuro. Contraste AA (gate `token-contrast-aa`). Capturas en `evidence/tanda-c/`.
-- [ ] 18.2 Humo local de punta a punta con Inbucket:
+- [x] 18.1 Verificación visual de `/invitacion/[token]` (los cuatro estados) y de `/organizacion/invitar` (con y sin pendientes): escritorio y móvil, tema claro y oscuro. Contraste AA (gate `token-contrast-aa`). Capturas en `evidence/tanda-c/`.
+- [x] 18.2 Humo local de punta a punta con Inbucket:
+  - **Hecho**: humo local con un puente de correo (`mailbridge.mjs`: la fila real + la plantilla real por SMTP a Mailpit; no ejercita Resend). La confirmación de email está apagada en el stack local.
   1. el owner invita a un email nuevo como seller;
   2. llega el email, con el nombre escapado y el link correcto;
   3. el invitado se registra desde el link, verifica, vuelve a la invitación y acepta;
@@ -320,12 +327,12 @@
 
 - [x] 19.1 Validar los deltas: `npx openspec validate multiusuario-operativo --strict`. Si una OQ cambió el alcance, ajustar el delta en el mismo PR.
   - **Hecho**: `npx openspec validate multiusuario-operativo --strict` — válido.
-- [ ] 19.2 KB (**tandas A y B hechas**: `03_actores_y_roles.md` —incluye la matriz de quién vende, compra, edita y borra—, `04_modelo_de_datos.md`, `05_reglas_de_negocio.md` —RN-MU1 y RN-MU2— y `08_arquitectura_propuesta.md`; `10` no tiene nada que cerrar con la B y va con la C):
+- [x] 19.2 KB (**tandas A, B y C hechas**: `03_actores_y_roles.md` —la matriz de quién vende, compra, edita y borra, y «Invitar a un negocio»—, `04_modelo_de_datos.md` —`account_invitations`—, `05_reglas_de_negocio.md` —RN-MU1 a RN-MU4—, `07_flujos_principales.md` —Flujo 14, la invitación de punta a punta— y `08_arquitectura_propuesta.md`; `10_preguntas_abiertas.md` no tiene nada que cerrar: este change no resolvía ninguna pregunta abierta de la KB):
   - `knowledge-base/03_actores_y_roles.md` (cuenta activa, invitación);
   - `knowledge-base/05_reglas_de_negocio.md` (reglas nuevas de autorización de operaciones);
   - `knowledge-base/08_arquitectura_propuesta.md` (resolver único);
   - `knowledge-base/10_preguntas_abiertas.md` (cerrar lo que este change resuelve).
-- [ ] 19.3 `CHANGES.md` (**fichas de las tandas A y B hechas**; el cierre de los candidatos absorbidos va con la tanda C): ficha del change con las mediciones. Cerrar los candidatos absorbidos (`invitacion-aceptar-ui`, `cuenta-activa-selector`, la invitación rápida de `TeamSection`, `membership-rpcs-not-authenticated-p0401` y la parte de `v4-producto-calidad-05`) y dar de alta los que deja (`design.md` §Candidatos).
+- [x] 19.3 `CHANGES.md` (**fichas de las tandas A, B y C hechas**; la tanda C cierra los candidatos absorbidos y da de alta los que deja): ficha del change con las mediciones. Cerrar los candidatos absorbidos (`invitacion-aceptar-ui`, `cuenta-activa-selector`, la invitación rápida de `TeamSection`, `membership-rpcs-not-authenticated-p0401` y la parte de `v4-producto-calidad-05`) y dar de alta los que deja (`design.md` §Candidatos).
 - [ ] 19.4 (**a cargo del orquestador**: el apply de la tanda A no toca `CLAUDE.md`/`AGENTS.md`) `CLAUDE.md`: el puntero del roadmap y una regla dura nueva ("la cuenta activa se resuelve sólo con `current_account_ids()` / `resolve_active_account`; ningún componente ordena `account_members` por su cuenta"). Correr `python scripts/ci/check_docs_sync.py --fix` en el mismo PR.
 
 ## 20. Archive
@@ -342,7 +349,7 @@
 | 5.x | `__tests__/components/AccountSwitcher.test.tsx`, `auth-context`, `session-bus`, `auth-headers` | Unit | 12 failed / 55 passed en los 10 archivos tocados (`red-frontend.log`) | 10 archivos fallan | 564 archivos / 6724 tests verdes | selector con 0, 1, 2 cuentas; cambio, fallo del proveedor, orden de pasos; 409 y 403 | `AccountSwitcher` partido (el catálogo sólo con 2+ cuentas) |
 | 8.x / 9.x | `supabase/tests/test_multiusuario_operaciones.sql` | SQL | 39 pasos de la cadena sobre `main` (`baseline-gates.txt`, 39/39) | 12 bloques fallan (`red.log`) | EXIT=0, 12 bloques PASS (`green.log`); cadena 118/118 (`chain-kpi.txt`, `chain-095-rerun.txt`) | alta/edición/borrado × 7 roles, las dos firmas de alta, rama legacy, v2 de compra, otra cuenta / cuenta no activa / claim revocado, idempotencia; **5 mutantes matados** (`mutantes.log`) | diffs mínimos contra el vivo (`diffs/`); `COMMENT` y ACL conservados |
 | 10.x | `backend/tests/test_ventas_compras_capacidades.py` (+ `test_sales*`, `test_purchases*`, `test_sale_items`, …); `__tests__/lib/rbac-capabilities-ventas-compras.test.ts`, `components/operations-list-authorization`, `pages/ventas-compras-capacidades`, `lib/operation-errors-ventas-compras-roles` | Unit | 506 passed en los archivos de backend tocados; suite de frontend completa antes de tocar | backend 44 failed / 43 passed (`red-backend.log`); frontend 4 archivos / 43 tests (`red-frontend.log`) | backend 4319 passed (cobertura 95,38 %) y 7 failed preexistentes (`test_invoice_pdf.py`); integración 119 passed; vitest 568 archivos / 6792 tests, 0 fallos | los 7 perfiles de rol × 2 pantallas, multirol, token viejo, autor propio / ajeno, optimismo con roles sin resolver | helper `tenant_token`; `canModifyDocument` único para las dos pantallas |
-| 13.x / 14.x | `supabase/tests/test_multiusuario_invitaciones.sql` | SQL | | | | | |
-| 15.x | `backend/tests/test_invitations.py` | Unit | | | | | |
-| 16.x | tests de `send-email` y `_shared/html-escape.ts` | Unit (Deno) | | | | | |
-| 17.x | `__tests__/app/invitacion.test.tsx`, `organizacion-invitar`, `TeamSection` | Unit | | | | | |
+| 13.x / 14.x | `supabase/tests/test_multiusuario_invitaciones.sql` (+ `test_invite_member_roles_and_plan_gate`, `test_accept_invitation_binding`, `test_membership_rpcs_pivot_rewrite` ajustados) | SQL | los tres gates de invitación/membresía verdes sobre `main` antes de tocar nada | 11 bloques (a-j y h2) fallan por la razón esperada (`red.log`); los dos gates ajustados también | EXIT=0, 10 bloques PASS (`green.log`; h2 se informa dentro de h); cadena completa de `KPI_Validation.yml` 120/120 (`chain-kpi.txt`) | 10 bloques con 7 usuarios (dueño, administrador, vendedor, observador, invitado, otra identidad, dueño de otra cuenta) y los dos caminos de token (rotado / vencido / revocado / ajeno); **21 mutantes matados de 21** (`mutantes.log`; el M19 original era un no-mutante por precedencia de operadores y se corrigió) | `COMMENT` y ACL re-emitidos; *preflight* por `md5`; los dos cuerpos reescritos son diff mínimo contra el vivo |
+| 15.x | `backend/tests/test_invitations.py` (+ `test_invitations_integration.py`) | Unit + integración | suite completa sobre `main` (4319 passed + 7 preexistentes) | 51 failed / 4 passed (`red-backend.log`) | 55 passed; suite completa 4374 passed y los mismos 7 failed preexistentes de `test_invoice_pdf.py`, cobertura 95 % (módulos nuevos 100 %); integración contra la base local 6 passed | las seis rutas, la matriz de roles (dueño, administrador, vendedor, observador, multirol), 9 payloads hostiles (422 sin tocar la base), la matriz de errores P04xx → RFC 7807 incluido `P0439` → 429, la pestaña desfasada (409 con el `get_account_id` real) y **la atomicidad crear + enviar contra la base real** | `wire()` único para los dobles; el nombre del negocio por la cascada canónica |
+| 16.x | `frontend/__tests__/send-email-templates.test.ts` (sobre `_shared/email-templates.ts`) | Unit (vitest sobre el módulo real) | 53 passed antes | 9 failed (`red-frontend-email.log`) | 62 passed; `deno check` limpio (`deno-check.log`) | nombre con marcado, inviter/etiquetas hostiles, URL en la metadata (5 claves), token hostil / vacío / corto / objeto con `toString` / `../`, vencimiento ilegible, sin nombre, fan-out masivo no admitido; la matriz hostil de las 17 plantillas ahora incluye `org_invite` | helpers `inviteLink` / `inviteRoleNames` / `inviteExpiry` |
+| 17.x | `frontend/__tests__/{components/InvitationAcceptance,pages/organizacion-invitar,components/TeamSection-invite,a11y/invitaciones.a11y,lib/invitation-next,lib/invitation-errors,lib/middleware-invitation-route,app/VerifyEmailPage-invitation-next}` + `RegisterPage`, `auth-actions`, `auth-context-active-account`, `protected-routes-coverage` ampliados | Unit (vitest + Testing Library) | las suites tocadas verdes sobre `main` (tanda B: 568 archivos / 6792 tests) | 38 failed y 12 suites no cargan (`red-frontend.log`, contra las fuentes de HEAD con `git stash -u` por pathspec) | los archivos nuevos y tocados en verde; suite completa en 6 shards **577 archivos / 7004 tests, 0 fallos** (`vitest-shards-summary.txt`); `tsc` con los mismos 8 errores de 5 archivos ajenos (`tsc.log`) | los cuatro estados de la pantalla pública (sin sesión, vista previa, no disponible —idéntico ante cualquier 404—, ya es miembro) × aceptar / 404 / 409 / cupo / red; la lista (pendiente / vencida / revocada) y Reenviar / Revocar con confirmación; allow-list del `next` (23 destinos hostiles descartados); `Referrer-Policy` y `X-Robots-Tag` sólo en esa ruta | `adoptActiveAccount` y `switchAccount` comparten `finishAccountChange`; `<h1>` real por estado (lo atrapó el test a11y); el botón sigue ocupado mientras la cuenta cambia |

@@ -331,3 +331,32 @@ Usuario (stock/admin/owner) → /remitos/nuevo?tipo=compra
     el remito vuelve a issued (se puede reconvertir o anular). Editarla está bloqueado (delivery_note_purchase_locked).
 ```
 Las otras dos puertas que crean una compra directa (formulario de compra y Factura IA) vuelven a sumar el stock: avisan si hay remitos de compra pendientes (RN-RC9).
+
+
+## Flujo 14: Invitación a un negocio, de punta a punta (`multiusuario-operativo`, tanda C)
+
+```
+Dueño / administrador → Configuración → Equipo (invitación rápida) o /organizacion/invitar
+    │   email + conjunto de roles (el administrador nunca con propietario ni administrador)
+    │
+    ├── POST /members/invitations  (CAN_CONFIGURE)  — UNA transacción:
+    │       ├── rpc_invite_member(email, cuenta, roles): cupo del plan efectivo, duplicada (P0407), catálogo
+    │       └── rpc_send_invitation_email(id, nombre del negocio por la cascada del emisor):
+    │           ├── autoridad (_account_assert_capability) ANTES de escribir; la invitación es de la cuenta activa
+    │           ├── topes: 1 envío por invitación cada 10 min y 20 por cuenta por día (P0439 → 429, revierte todo)
+    │           └── INSERT en email_logs (org_invite): recipient y token DE LA FILA
+    │
+    ├── Email (Edge Function send-email, plantilla org_invite): botón → https://www.aliadata.com.ar/invitacion/<token>
+    │
+Invitado → /invitacion/<token>  (pública; sin Referer, sin indexar)
+    ├── sin sesión ─▶ mensaje genérico + «Ingresar» / «Crear cuenta» (con ?next=/invitacion/<token>, allow-list estrecha)
+    │                   └── registro → verificación de email → vuelve a la invitación
+    ├── GET /invitations/{token}   — rpc_invitation_preview: sólo si el email de la sesión es el invitado
+    │       (otra identidad / vencida / revocada / usada / inexistente → el MISMO P0404)
+    └── POST /invitations/{token}/accept — rpc_accept_invitation — UNA transacción:
+            ├── FOR UPDATE de la fila; identidad, cupo efectivo, no era miembro
+            ├── membresía + asignaciones de rol en el pivot; invitación → accepted
+            └── profiles.active_account_id = el negocio  →  el frontend renueva el token ante el proveedor (adoptActiveAccount),
+                limpia la caché, avisa a las otras pestañas y lleva al Tablero del negocio
+Dueño → «Reenviar» (rota el token; el link viejo muere) · «Revocar» (con confirmación)
+```

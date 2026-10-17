@@ -1609,6 +1609,45 @@ jobs:
           fi
           echo "20261083000001 idempotente: 9+0 y 0+9 en las dos pasadas, introspección OK, cuerpos presentes y schema IDÉNTICO al previo a este paso."
 
+          # email-logs-cierre-insert (OQ-7 de multiusuario-operativo, 2026-10-17, governance CRÍTICO): reaplicación de
+          # 20261084000001 AL FINAL de la cadena, después de la de 20261083000001. Cierra el INSERT abierto de
+          # public.email_logs (DROP POLICY + REVOKE ALL a authenticated/anon + SELECT de vuelta) y reescribe
+          # rpc_request_subscription_cancellation() para que encole el correo plan_downgraded adentro. Idempotente:
+          # DROP POLICY IF EXISTS, REVOKE/GRANT, CREATE OR REPLACE sobre firma fija (sin overload, sin 42725); no amplía
+          # ningún CHECK. Su preflight acepta el cuerpo de partida (md5 de producción, de 20261053000001) o el propio: como
+          # el reset de reconvergencia de arriba ya reconstruyó la base con la historia completa, las DOS pasadas ven el
+          # cuerpo propio. SIN tolerancia: exige el OK de su introspección, el md5 del cuerpo y el schema IDÉNTICO.
+          #
+          # REGLA PARA EL PR SIGUIENTE: una migración posterior que redefina rpc_request_subscription_cancellation() tiene
+          # que partir del cuerpo VIVO (preflight por md5), conservar el encolado del correo y rebasar este paso en el mismo
+          # PR; y ninguna migración posterior puede volver a otorgar INSERT/UPDATE/DELETE/TRUNCATE de email_logs a
+          # authenticated/anon ni crear una policy de escritura (lo atrapa test_email_logs_insert_cerrado.sql).
+          ELI_OUT1=$(psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261084000001_email_logs_cierre_insert.sql 2>&1) || { echo "$ELI_OUT1"; echo "ERROR: el reapply de 20261084000001 falló (sin tolerancia)."; exit 1; }
+          echo "$ELI_OUT1"
+          ELI_OUT2=$(psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261084000001_email_logs_cierre_insert.sql 2>&1) || { echo "$ELI_OUT2"; echo "ERROR: la segunda pasada de 20261084000001 falló (sin tolerancia)."; exit 1; }
+          echo "$ELI_OUT2"
+          if ! echo "$ELI_OUT2" | grep -qF 'email-logs-cierre-insert (introspecci'; then
+            echo "ERROR: el reapply de 20261084000001 no imprimió el OK de su bloque de introspección."
+            exit 1
+          fi
+          ELI_BODY=$(psql -tA "$DSN" -c "SELECT md5(replace(prosrc, E'\r', '')) FROM pg_proc WHERE oid = 'public.rpc_request_subscription_cancellation()'::regprocedure")
+          if [ "$ELI_BODY" != "7f355faf5ad2c5c20a953ae32386dab9" ]; then
+            echo "ERROR: después de reaplicar 20261084000001 el cuerpo de rpc_request_subscription_cancellation() no es el de la migración (md5 $ELI_BODY)."
+            exit 1
+          fi
+          ELI_CLOSED=$(psql -tA "$DSN" -c "SELECT (NOT has_table_privilege('authenticated', 'public.email_logs', 'INSERT')) AND (NOT has_table_privilege('anon', 'public.email_logs', 'INSERT')) AND NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'email_logs' AND cmd IN ('INSERT', 'UPDATE', 'DELETE', 'ALL'))")
+          if [ "$ELI_CLOSED" != "t" ]; then
+            echo "ERROR: después de reaplicar 20261084000001, email_logs volvió a admitir escritura de authenticated/anon."
+            exit 1
+          fi
+          schema_snapshot > /tmp/schema_after_eli_reapply.txt
+          if ! diff -u /tmp/schema_before_reapply.txt /tmp/schema_after_eli_reapply.txt > /tmp/schema_diff_eli.txt; then
+            echo "NOT IDEMPOTENT: reaplicar 20261084000001 cambió el schema (constraints + firmas de función + ACLs):"
+            cat /tmp/schema_diff_eli.txt
+            exit 1
+          fi
+          echo "20261084000001 idempotente: dos pasadas, introspección OK, cuerpo presente, email_logs cerrada y schema IDÉNTICO al previo a este paso."
+
       # -v ON_ERROR_STOP=1 is required: without it psql prints RAISE EXCEPTION
       # errors but still exits 0, so failing assertions show green in CI.
       - name: Run deterministic KPI tests
@@ -2794,6 +2833,20 @@ jobs:
       # cancelacion sin parametros) y que la fila quede intacta.
       - name: Run accounts/profiles privilege columns gate
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_accounts_privilege_columns.sql
+
+      # email-logs-cierre-insert (OQ-7 de multiusuario-operativo, 2026-10-17, governance CRÍTICO): EJECUTA, con
+      # impersonación real (SET LOCAL ROLE + request.jwt.claims), el cierre del INSERT abierto de public.email_logs
+      # (policy email_logs_backend_insert WITH CHECK (true) + INSERT de tabla para authenticated: cualquier usuario podía
+      # mandar un correo desde el dominio de ALIADATA a cualquier destinatario). Asserta: (a) sin policy ni privilegio de
+      # escritura para authenticated/anon (SELECT de administradores y service_role intactos), (b) barrido por catálogo:
+      # toda función que escribe en email_logs es SECURITY DEFINER, (d) la matriz de evasión ejecutada —INSERT plano,
+      # ON CONFLICT, all_users, INSERT…SELECT, UPDATE, DELETE, TRUNCATE— para miembro, titular y anon exigiendo que frene
+      # la capa de PRIVILEGIO y no la RLS (mismo 42501), (e) los escritores legítimos siguen encolando —un trigger DEFINER
+      # disparado por un authenticated, el camino de servicio, el propietario— y el trigger de envío sigue instalado, y
+      # (f) la cancelación de plan encola SU correo adentro de la RPC con el destinatario de la sesión (no titular → P0403,
+      # reintento → P0409, sin plan → P0400, sin parámetros). Corre dentro de BEGIN..ROLLBACK: residuo cero.
+      - name: Run email_logs insert closed gate
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_email_logs_insert_cerrado.sql
 
       # fiscal-emision-segura (2026-09-22, governance CRITICO -- PRIMER gate SQL
       # del dominio fiscal: hasta este change supabase/tests/ no tenia ninguno,

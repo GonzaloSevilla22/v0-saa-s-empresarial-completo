@@ -69,7 +69,23 @@ Un usuario puede pertenecer a **más de una cuenta**: su cuenta personal (la cre
 - **Cómo se cambia**: selector en el encabezado del menú lateral (escritorio y drawer móvil), visible sólo con dos o más cuentas; muestra el nombre del negocio (la cascada de los documentos comerciales) y el rol propio en cada uno. Cambiar persiste la elección (`rpc_set_active_account`), renueva el token **ante el proveedor** (`refreshSessionAction`: releer el token vigente no alcanza, porque el hook sólo emite el claim al emitir; el hook emite `account_id`, roles y plan de la cuenta nueva), descarta la caché y lleva al Tablero. Las demás pestañas abiertas se resincronizan solas (señal `account:switched` del bus de sesión, sin token en el mensaje).
 - **Pestaña desfasada**: el cliente declara en cada request a FastAPI la cuenta que muestra (`X-Account-Id`); si no coincide con la del token, `409 account_switched` y la pantalla se resincroniza — una escritura sin entidad (un gasto, una venta de servicio) nunca cae en la cuenta equivocada en silencio.
 - **Lo que NO cambia para quien tiene una sola cuenta** (los 41 de hoy): el resultado es idéntico; el selector no se muestra.
-- **Pendiente de este change**: la autorización por rol de las ventas y compras (tanda B) y la invitación de punta a punta (tanda C).
+- **Quién puede operar (tanda B, 2026-10-17)**: ver la sección siguiente. **Pendiente de este change**: la invitación de punta a punta (tanda C).
+
+## Quién puede vender, comprar, editar y borrar (multiusuario-operativo, tanda B — 2026-10-17)
+
+Las ocho operaciones del camino del dinero de ventas y compras (alta, edición y borrado de una venta y de una compra) se autorizan por **pertenencia a la cuenta activa y por rol**, nunca por quién cargó el producto o el documento. Hasta la tanda B un invitado no podía vender ni comprar un producto que cargó el dueño, y el dueño no podía corregir la venta del vendedor; y un observador con un producto propio vendía, compraba y borraba, porque las ocho no tenían ningún guard de rol en la base.
+
+| Operación | Quién | Rechazo |
+|---|---|---|
+| Alta de una **venta** por formulario | `CAN_SELL`: dueño, administrador, vendedor, cajero | observador: `P0401`; contador, depósito, compras: `P0403 insufficient_role` |
+| Alta de una **compra** con factura | `CAN_PURCHASE`: dueño, administrador, compras | observador: `P0401`; vendedor, cajero, **depósito** (recibe mercadería por remito), contador: `P0403` |
+| **Editar o borrar** una venta / una compra **propia** | la capacidad del dominio (`CAN_SELL` / `CAN_PURCHASE`) | — |
+| **Editar o borrar** una venta / una compra **de otro miembro** | sólo **dueño y administrador** (`CAN_MODIFY_ANY_DOCUMENT`) | el resto: `P0403 insufficient_role` |
+| Un producto o un documento **de otra cuenta** (o de la cuenta no activa) | nadie | `P0404`, **indistinguible** de un id inexistente (no revela que existe en otra cuenta); borrar un documento ajeno responde `false`, como uno inexistente |
+
+- **La base es la autoridad.** Cada RPC verifica la cuenta dentro de su propio `SELECT … FOR UPDATE` y el rol con `_account_assert_capability` antes de cualquier escritura; FastAPI repite la capacidad (`require_account_role`) y la interfaz oculta lo que el rol no habilita (la acción no se ofrece, no queda deshabilitada). Los conjuntos de roles se declaran una vez por capa y un test falla si divergen (`CAN_SELL`, `CAN_PURCHASE`, `CAN_MODIFY_ANY_DOCUMENT`).
+- **La autoría se conserva.** `sales.user_id` / `purchases.user_id` se siguen escribiendo y **no se usan para autorizar**. Cuando el dueño o un administrador corrige lo que cargó otro miembro, las filas nuevas llevan al autor original (la edición reemplaza las líneas): el vendedor no pierde su venta.
+- **Fuera de alcance de esta tanda**: el POS, los gastos, los cobros y pagos, el banco y el stock siguen con `is_account_writer` (su capacidad fina es un candidato: `pos-capacidad-venta`).
 
 ## Planes Comerciales (4 planes — fuente: tabla_resumen_planes_aliadata.docx)
 

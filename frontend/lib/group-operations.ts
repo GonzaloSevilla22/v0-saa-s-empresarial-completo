@@ -64,6 +64,8 @@ export interface SaleOperation {
   /** presupuestos-modulo (OQ-P16): ALGUNA fila de la operación es un concepto sin
    * producto (línea de servicio). Un OR: una operación mixta también lo es. */
   hasServiceLines: boolean
+  /** multiusuario-operativo tanda B (D9, OQ-4 b): quién cargó la operación (`created_by` del listado). Sólo informativo: decide qué se muestra (`canModifyDocument`); la autoridad es la RPC (P0403). */
+  createdBy?: string | null
 }
 
 export function groupSalesByOperation(sales: Sale[]): SaleOperation[] {
@@ -90,6 +92,7 @@ export function groupSalesByOperation(sales: Sale[]): SaleOperation[] {
       op.sourceDeliveryNoteNumber = op.sourceDeliveryNoteNumber ?? sale.sourceDeliveryNoteNumber ?? null
       op.editLockedReason = op.editLockedReason ?? sale.editLockedReason ?? null
       op.hasServiceLines = op.hasServiceLines || !!sale.hasServiceLines
+      op.createdBy = op.createdBy ?? sale.createdBy ?? null
     } else {
       map.set(key, {
         key,
@@ -117,6 +120,7 @@ export function groupSalesByOperation(sales: Sale[]): SaleOperation[] {
         sourceDeliveryNoteNumber: sale.sourceDeliveryNoteNumber ?? null,
         editLockedReason: sale.editLockedReason ?? null,
         hasServiceLines: !!sale.hasServiceLines,
+        createdBy: sale.createdBy ?? null,
       })
     }
   }
@@ -170,6 +174,8 @@ export interface PurchaseOperation {
   sourceDeliveryNoteBranchActive?: boolean | null
   /** Motivo por el que la operación no se edita (`delivery_note_purchase_locked`). */
   editLockedReason?: string | null
+  /** multiusuario-operativo tanda B (D9, OQ-4 b): quién cargó la operación (`created_by` del listado). Sólo informativo: decide qué se muestra (`canModifyDocument`); la autoridad es la RPC (P0403). */
+  createdBy?: string | null
 }
 
 export function groupPurchasesByOperation(purchases: Purchase[]): PurchaseOperation[] {
@@ -192,6 +198,7 @@ export function groupPurchasesByOperation(purchases: Purchase[]): PurchaseOperat
       op.sourceDeliveryNoteNumber = op.sourceDeliveryNoteNumber ?? purchase.sourceDeliveryNoteNumber ?? null
       op.sourceDeliveryNoteBranchActive = op.sourceDeliveryNoteBranchActive ?? purchase.sourceDeliveryNoteBranchActive ?? null
       op.editLockedReason = op.editLockedReason ?? purchase.editLockedReason ?? null
+      op.createdBy = op.createdBy ?? purchase.createdBy ?? null
     } else {
       map.set(key, {
         key,
@@ -216,6 +223,7 @@ export function groupPurchasesByOperation(purchases: Purchase[]): PurchaseOperat
         sourceDeliveryNoteNumber: purchase.sourceDeliveryNoteNumber ?? null,
         sourceDeliveryNoteBranchActive: purchase.sourceDeliveryNoteBranchActive ?? null,
         editLockedReason: purchase.editLockedReason ?? null,
+        createdBy: purchase.createdBy ?? null,
       })
     }
   }

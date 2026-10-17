@@ -142,7 +142,19 @@ const QUOTE_CHANGED_ERROR = /quote_changed/
 // El RAISE lleva el nombre congelado del producto detrás de los dos puntos.
 const QUOTE_PRODUCT_UNAVAILABLE_ERROR = /quote_product_unavailable(?::\s*([^\n]+))?/
 const QUOTE_CLIENT_UNAVAILABLE_ERROR = /quote_client_unavailable/
-const PRODUCT_NOT_FOUND_ERROR = /product_not_found/
+// `Product not found: <uuid>` (P0404 de las RPCs de venta y compra) es el mismo caso que `product_not_found`:
+// con el filtro de cuenta dentro del SELECT … FOR UPDATE (multiusuario-operativo tanda B, D8) un producto de OTRA
+// cuenta da el mismo texto que uno inexistente. El uuid nunca se muestra.
+const PRODUCT_NOT_FOUND_ERROR = /product_not_found|Product not found/i
+// multiusuario-operativo tanda B (D9): el rechazo de rol de las RPCs de ventas y compras y la regla de autor
+// traen la frase lista para leer detrás de `insufficient_role:` ("tu rol no permite eliminar compras (requiere
+// compras, administrador o dueño)", "solo el dueño o un administrador modifican las ventas que cargó otro
+// miembro"). Se muestra esa frase —nombra el rol que hace falta— en vez del genérico "rol de vendedor", que para
+// una compra sería mentira.
+const OPERATION_ROLE_REASON_ERROR =
+  /insufficient_role:\s*((?:tu rol no permite (?:registrar|editar|eliminar) (?:ventas|compras)|solo el dueño o un administrador modifican las (?:ventas|compras) que cargó otro miembro)[^\n]*)/i
+// El observador (sin rol de escritura) recibe P0401 `unauthorized` de la propia RPC.
+const UNAUTHORIZED_ERROR = /^\s*(?:P0401\s*)?unauthorized\s*$/i
 const PRODUCT_IS_PARENT_ERROR = /product_is_parent/
 // P0403 de la RPC (`insufficient_role`) y el 403 de `require_account_role`
 // ("Rol de cuenta insuficiente: se requiere …", sin `code`): un solo texto.
@@ -700,6 +712,24 @@ export function humanizeOperationError(
     return {
       message:
         "Uno de los productos no existe o no pertenece a esta cuenta. Quitalo o reemplazalo y volvé a intentar.",
+    }
+  }
+
+  const roleReason = OPERATION_ROLE_REASON_ERROR.exec(message)
+  if (roleReason && !isRemito && !isStockAdjustment) {
+    const phrase = roleReason[1].trim().replace(/[.\s]+$/, "")
+    return {
+      message:
+        `${phrase.charAt(0).toUpperCase()}${phrase.slice(1)}. ` +
+        "Pedile al dueño o a un administrador de la cuenta que te asigne el rol que corresponde.",
+    }
+  }
+
+  if (UNAUTHORIZED_ERROR.test(message)) {
+    return {
+      message:
+        "Tu usuario sólo puede ver la información de esta cuenta: no puede registrar, editar ni eliminar ventas ni compras. " +
+        "Pedile al dueño o a un administrador que te asigne un rol de escritura.",
     }
   }
 

@@ -56,6 +56,8 @@ interface PurchaseApiRow {
   source_delivery_note_number?: number | null
   source_delivery_note_branch_active?: boolean | null
   edit_locked_reason?: string | null
+  // multiusuario-operativo tanda B (D9, OQ-4 b): quién cargó la operación.
+  created_by?: string | null
 }
 
 interface PurchasesPageResponse {
@@ -103,6 +105,7 @@ function mapPurchase(p: PurchaseApiRow): Purchase {
     sourceDeliveryNoteNumber:       p.source_delivery_note_number ?? null,
     sourceDeliveryNoteBranchActive: p.source_delivery_note_branch_active ?? null,
     editLockedReason:               p.edit_locked_reason ?? null,
+    createdBy:                      p.created_by ?? null,
   }
 }
 

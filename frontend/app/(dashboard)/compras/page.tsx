@@ -9,7 +9,7 @@ import { InvoiceAIButton } from "@/components/invoice/InvoiceAIButton"
 import { useAuth } from "@/contexts/auth-context"
 import { useUnitsOfMeasure } from "@/hooks/use-units-of-measure"
 import { useOrgRole } from "@/hooks/useOrgRole"
-import { CAN_VOID_DELIVERY_NOTE, hasCapability } from "@/lib/rbac-capabilities"
+import { CAN_PURCHASE, CAN_VOID_DELIVERY_NOTE, canModifyDocument, hasCapability } from "@/lib/rbac-capabilities"
 import { NoWriteAccessBanner } from "@/components/shared/NoWriteAccessBanner"
 import { ModuleMetricsWrapper } from "@/components/admin/ModuleMetricsWrapper"
 import { ExportButton } from "@/components/export/ExportButton"
@@ -25,7 +25,7 @@ export default function ComprasPage() {
     deletePurchase, deletePurchasesByOperation,
   } = usePurchases()
 
-  const { isAdmin } = useAuth()
+  const { isAdmin, user } = useAuth()
   // ventas-unidades-conversion (cuarta revisión, D-F′): el listado muestra la
   // cantidad con el símbolo de su línea ("450 g") y lo exporta en el CSV.
   const { unitsById } = useUnitsOfMeasure()
@@ -33,6 +33,18 @@ export default function ComprasPage() {
   // remitos-compra (D9): borrar la compra de un remito lo reabre y lo deja anulable, así que exige
   // el mismo rol que anularlo; el listado deshabilita «Eliminar» con su motivo si falta.
   const canVoidDeliveryNote = hasCapability(roles, CAN_VOID_DELIVERY_NOTE, rolesResolved)
+  // multiusuario-operativo tanda B (D9, OQ-3 b): cargar una compra con factura exige CAN_PURCHASE (dueño,
+  // administrador o compras), además de poder escribir: el depósito recibe mercadería por remito, no compra.
+  // Sobre una compra de OTRO miembro sólo editan y eliminan el dueño y el administrador (OQ-4 b). Es sólo qué se
+  // muestra: la barrera es la RPC (P0403) y `require_account_role` de FastAPI.
+  const canPurchase = isWriter && hasCapability(roles, CAN_PURCHASE, rolesResolved)
+  const canModifyPurchase = useCallback(
+    (op: PurchaseOperation) =>
+      canModifyDocument({
+        roles, rolesResolved, capability: CAN_PURCHASE, authorId: op.createdBy, userId: user?.id,
+      }),
+    [roles, rolesResolved, user?.id],
+  )
 
   const [dialogOpen,       setDialogOpen]       = useState(false)
   const [editingOperation, setEditingOperation] = useState<PurchaseOperation | null>(null)
@@ -66,7 +78,9 @@ export default function ComprasPage() {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <ExportButton exportType="purchases_csv" />
-          <InvoiceAIButton onPurchasesCreated={refetch} />
+          {/* multiusuario-operativo tanda B (D9): la Factura IA termina en un alta de compra (POST /purchases),
+              así que se ofrece sólo a quien puede comprar. */}
+          {canPurchase && <InvoiceAIButton onPurchasesCreated={refetch} />}
         </div>
       </div>
 
@@ -96,9 +110,10 @@ export default function ComprasPage() {
         clearFilters={clearFilters}
         onPageChange={setPage}
         onPageSizeChange={setPageSize}
-        onAdd={isWriter ? handleAdd : undefined}
+        onAdd={canPurchase ? handleAdd : undefined}
         onDeleteOperation={handleDeleteOperation}
         onEditOperation={handleEdit}
+        canModifyOperation={canModifyPurchase}
         onRefetch={refetch}
         canVoidDeliveryNote={canVoidDeliveryNote}
         unitsById={unitsById}

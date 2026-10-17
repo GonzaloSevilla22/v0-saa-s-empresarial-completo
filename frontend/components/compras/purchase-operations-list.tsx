@@ -31,6 +31,7 @@ import {
   Lock,
 } from "lucide-react"
 import { toast } from "sonner"
+import { humanizeOperationError } from "@/lib/operation-errors"
 import { CostCenterSelect } from "@/components/cost-centers/CostCenterSelect"
 import { PaymentMethodSelect } from "@/components/payment-methods/PaymentMethodSelect"
 
@@ -118,6 +119,14 @@ interface PurchaseOperationsListProps {
    */
   canVoidDeliveryNote?: boolean
   /**
+   * multiusuario-operativo tanda B (D9, OQ-4 b): ¿se ofrece «Editar» y «Eliminar» sobre esta operación? La
+   * página lo decide con la capacidad del dominio y la regla de autor (`canModifyDocument`): sin la
+   * capacidad, o sobre lo de otro miembro sin ser dueño ni administrador, las dos acciones NO se ofrecen
+   * (no quedan deshabilitadas: no hay nada que explicar, el usuario no puede hacerlas). Es sólo informativo
+   * —la autoridad es la RPC (P0403)—. Default: todas, para que sin la prop nada cambie.
+   */
+  canModifyOperation?: (op: PurchaseOperation) => boolean
+  /**
    * ventas-unidades-conversion (cuarta revisión, D-F′): unidades de medida por
    * id, para mostrar la cantidad con el símbolo de SU línea ("450 g") y
    * exportarlo en el CSV. La página lo pasa desde useUnitsOfMeasure (el
@@ -135,6 +144,7 @@ export function PurchaseOperationsList({
   onPageChange, onPageSizeChange,
   onAdd, onDeleteOperation, onEditOperation, onRefetch,
   canVoidDeliveryNote = true,
+  canModifyOperation,
   unitsById,
 }: PurchaseOperationsListProps) {
   const unitSymbolFor = useCallback(
@@ -201,7 +211,9 @@ export function PurchaseOperationsList({
         toast.success(op.isGrouped ? `${op.items.length} registros eliminados` : "Compra eliminada")
         onRefetch()
       } catch (err: any) {
-        toast.error(err.message || "Error al eliminar")
+        // multiusuario-operativo tanda B (D9): el rechazo de rol / autor de la base (P0401, P0403) se traduce a lo que el
+        // usuario puede hacer, no se muestra el token crudo. Lo que el mapa no reconoce pasa tal cual.
+        toast.error(humanizeOperationError(err.message || "Error al eliminar").message)
       } finally {
         setDeletingKey(null)
       }
@@ -372,6 +384,8 @@ export function PurchaseOperationsList({
           const editBlockedReason =
             editLockedReasonText(op.editLockedReason, remitoLabel) ??
             (op.isPaymentLocked ? PAYMENT_LOCKED_REASON : null)
+          // multiusuario-operativo tanda B (D9): sin la capacidad de compra, o sobre lo ajeno sin ser dueño ni administrador, no se ofrece ni Editar ni Eliminar.
+          const canModify = canModifyOperation ? canModifyOperation(op) : true
           const deleteInfo = getDeleteCompensation(
             {
               ...op,
@@ -409,7 +423,7 @@ export function PurchaseOperationsList({
                           <ShoppingCart className="h-2.5 w-2.5 mr-1" />{op.items.length}
                         </Badge>
                       )}
-                      {onEditOperation && (
+                      {onEditOperation && canModify && (
                         editBlockedReason ? (
                           <Button type="button" variant="ghost" size="icon" disabled
                             title={editBlockedReason} aria-label={editBlockedReason}
@@ -424,13 +438,15 @@ export function PurchaseOperationsList({
                           </Button>
                         )
                       )}
-                      <DeleteOperationDialog
-                        label={op.isGrouped ? `esta operación (${op.items.length} ítems)` : "esta compra"}
-                        info={deleteInfo}
-                        onConfirm={() => handleDelete(op)}
-                        isDeleting={deletingKey === op.key}
-                        onTriggerClick={(e) => e.stopPropagation()}
-                      />
+                      {canModify && (
+                        <DeleteOperationDialog
+                          label={op.isGrouped ? `esta operación (${op.items.length} ítems)` : "esta compra"}
+                          info={deleteInfo}
+                          onConfirm={() => handleDelete(op)}
+                          isDeleting={deletingKey === op.key}
+                          onTriggerClick={(e) => e.stopPropagation()}
+                        />
+                      )}
                     </div>
                   </div>
                   <div className="flex items-center justify-between gap-2">
@@ -501,7 +517,7 @@ export function PurchaseOperationsList({
                     }
                   </div>
                   <span className="text-right text-sm font-bold text-cyan-400 tabular-nums">{formatMoney(op.total)}</span>
-                  {onEditOperation
+                  {onEditOperation && canModify
                     ? editBlockedReason
                       ? <Button type="button" variant="ghost" size="icon" disabled
                           title={editBlockedReason} aria-label={editBlockedReason}
@@ -515,13 +531,15 @@ export function PurchaseOperationsList({
                         </Button>
                     : <span />
                   }
-                  <DeleteOperationDialog
-                    label={op.isGrouped ? `esta operación (${op.items.length} ítems)` : "esta compra"}
-                    info={deleteInfo}
-                    onConfirm={() => handleDelete(op)}
-                    isDeleting={deletingKey === op.key}
-                    onTriggerClick={(e) => e.stopPropagation()}
-                  />
+                  {canModify ? (
+                    <DeleteOperationDialog
+                      label={op.isGrouped ? `esta operación (${op.items.length} ítems)` : "esta compra"}
+                      info={deleteInfo}
+                      onConfirm={() => handleDelete(op)}
+                      isDeleting={deletingKey === op.key}
+                      onTriggerClick={(e) => e.stopPropagation()}
+                    />
+                  ) : <span />}
                   {sourceBadge && <div className="col-span-6 pl-[132px]">{sourceBadge}</div>}
                 </div>
               </div>

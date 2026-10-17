@@ -151,14 +151,16 @@
   - dos pestañas: cambiar en una resincroniza la otra;
   - un gasto desde la pestaña vieja recibe el `409`.
   - **Hecho** con el build de producción y el backend real: `evidence/tanda-a/humo.log` (15/15 PASS). La primera corrida **falló** y destapó el defecto de la renovación del token (ver 5.3); se corrigió y se re-corrió completa.
-- [ ] 6.3 PR de la tanda A (cuerpo que termina en la línea de Claude Code) y CI en verde.
+- [x] 6.3 PR de la tanda A (cuerpo que termina en la línea de Claude Code) y CI en verde.
   - **PR abierto: #651**. La CI y el merge quedan a cargo del orquestador.
-- [ ] 6.4 **Post-merge** (sólo lectura):
+  - **Hecho (2026-10-17)**: #651 mergeado con la CI en verde → `b01e445a` (migración `20261082000001_multiusuario_cuenta_activa`).
+- [x] 6.4 **Post-merge** (sólo lectura):
   - `MAX(version)`;
   - ACLs de las funciones nuevas;
   - `current_account_ids()` devuelve una fila para un usuario real (por `sub` en una transacción de lectura);
   - `auth_logs` sin `custom_access_token_hook degradado` en la hora siguiente al deploy;
   - el deploy de Render existe (`GET /deploys`).
+  - **Hecho (verificado 2026-10-17 01:20 UTC)**: 329 migraciones; ACLs exactas (el resolver por usuario sólo para `supabase_auth_admin`/`service_role`; el hook ídem; `rpc_set_active_account` y `rpc_my_accounts` para `authenticated`); cuerpos vivos con el claim, el resolver, `account_id` y la rama «degradado»; 0 usuarios con dos cuentas; Render live en `b01e445a`. **Residuo**: el control positivo del hook (ningún «custom_access_token_hook degradado» en `postgres_logs`) sigue pendiente de tráfico real de login — 0 eventos de auth entre 01:14 y 09:30 UTC; las 5 menciones al hook en los logs son el texto de la propia migración aplicándose, no un login.
 
 ## 7. Tanda B — checkpoints
 
@@ -223,9 +225,11 @@
 
 - [x] 11.1 Humo local: re-correr `smoke_stock.sql` S20, que debe quedar todo en OK salvo R3h y R3i, esperados, más el gate de la tanda B, como `authenticated`.
   - **Hecho**: `smoke_stock.sql` re-corrido contra la base migrada (`humo-s20-smoke-stock.log`): **R3a-R3l todo OK**. Dos adaptaciones, ambas consecuencia de lo firmado: el invitado queda con el negocio como cuenta activa (`profiles.active_account_id`, como lo deja la aceptación de una invitación) y **R3g lo hace el rol compras** —el vendedor ya no compra por diseño, OQ-3 (b); se agregó R3g2, que lo verifica (`P0403`)—. Los tres FAIL restantes del script (S7e, S16b, S16d) son hallazgos de la auditoría de stock de #645 y #646, ajenos a este change. **Humo real con build de producción, GoTrue ES256 y FastAPI con las dos palancas de tenencia** (`humo-api.log`, 42/42): R3a-R3l, la edición conserva la autoría, el observador y el depósito rechazados por FastAPI y por PostgREST directo, producto y documento de otra cuenta (404 indistinguible del inexistente, sin mover la otra cuenta), cuenta personal activa y producto del negocio, y **claim revocado** (un miembro quitado con el token vigente: 403 por FastAPI y `P0403` por PostgREST). Y **por la interfaz** (`humo-ui-venta.log`, 3/3): el vendedor vende «Cinta métrica» del dueño desde el formulario de `/ventas` y el dueño elimina esa venta desde el listado.
-- [ ] 11.2 PR de la tanda B y CI en verde.
+- [x] 11.2 PR de la tanda B y CI en verde.
   - **PR abierto: #652**. La CI, el merge y el post-merge (11.3) quedan a cargo del orquestador.
-- [ ] 11.3 **Post-merge** (sólo lectura): `MAX(version)`, una sola definición viva de cada una de las ocho funciones sin overload nuevo, ACLs, el `md5` de cada cuerpo igual al de la migración, y el deploy de Render.
+  - **Hecho (2026-10-17)**: #652 mergeado con la CI en verde → `ca1f0b6d` (migración `20261083000001_multiusuario_operaciones`).
+- [x] 11.3 **Post-merge** (sólo lectura): `MAX(version)`, una sola definición viva de cada una de las ocho funciones sin overload nuevo, ACLs, el `md5` de cada cuerpo igual al de la migración, y el deploy de Render.
+  - **Hecho (verificado 2026-10-17 04:20 UTC)**: 330 migraciones; las ocho RPCs con el guard de rol y ninguna con el chequeo por autor; una definición cada una; ACLs exactas; `rpc_delete_purchase_operation` con `md5` `06c3ea36…` igual al de la migración; 0 cuentas con más de un miembro; Render live en `ca1f0b6d`.
 
 ## 12. Hallazgo `email_logs` (OQ-7)
 
@@ -286,7 +290,8 @@
   - una URL en la metadata no aparece en el HTML.
 - [x] 16.2 GREEN en `supabase/functions/send-email/index.ts` y `_shared/html-escape.ts`. `deno check` fuera del monorepo.
   - **Hecho**: `deno check` limpio de `send-email/index.ts` y de los módulos, en una copia fuera del monorepo con `DENO_NO_PACKAGE_JSON=1` (por docker `denoland/deno:2.1.4`: no hay Deno instalado).
-- [ ] 16.3 El redeploy de la Edge Function lo hace el pipeline de `deploy.yml`. Confirmarlo en el post-merge.
+- [x] 16.3 El redeploy de la Edge Function lo hace el pipeline de `deploy.yml`. Confirmarlo en el post-merge.
+  - **Hecho (2026-10-17)**: `send-email` redesplegada por `deploy.yml` (run 39022505794, «Deploying Function: send-email (script size: 2.0 MB)»).
 
 ## 17. Tanda C — frontend
 
@@ -320,8 +325,11 @@
   4. aterriza en el Tablero del negocio, el selector muestra dos cuentas, y vende por formulario un producto del owner;
   5. el owner edita esa venta;
   6. reenviar invalida el link viejo, y revocar impide aceptar.
-- [ ] 18.3 PR de la tanda C y CI en verde.
+- [x] 18.3 PR de la tanda C y CI en verde.
+  - **Hecho (2026-10-17)**: #654 mergeado → `e6853773` (migración `20261085000001_multiusuario_invitaciones`). La CI quedó en verde; el job de vitest cayó UNA vez por un flake ajeno al change —un temporizador de 150 ms de `lib/excel.ts:43` que dispara después de `__tests__/pages/stock-export-sku.test.tsx` con jsdom ya desmontado, 577/577 archivos verdes— y el rerun del job dio verde (candidato con chip `task_340ded1c`).
+  - **Post-merge de la tanda C (verificado 2026-10-17 09:55 UTC)**: 332 migraciones; las seis funciones de invitación con UNA definición cada una, todas `SECURITY DEFINER`, `anon=false`, `authenticated=true` y sin grantee `PUBLIC`; `rpc_invite_member(text,uuid)` NO existe; `md5` de `rpc_invite_member` `ff9d4a38…` y de `rpc_accept_invitation` `92abe7e8…` iguales a los de la migración; CHECK `account_invitations_status_values` con `revoked`; columnas `account_display_name`/`revoked_at`/`revoked_by`; índice `idx_email_logs_org_invite_account`; 0 invitaciones y 0 emails `org_invite` en la historia.
 - [ ] 18.4 **[PO]** Demo real en prod con un segundo usuario propio (su familiar), con los mismos pasos del humo. Si pasa, el PO decide cuándo activar `Enforce single session per user` en el Dashboard.
+  - **Pendiente al archivar (2026-10-17)**: queda SIN marcar. Si la demo falla, el arreglo va en un PR aparte. La activación de `Enforce single session per user` sigue siendo una acción del PO (candidato `single-session-per-user`).
 
 ## 19. Specs, KB y documentación (en el PR de cada tanda)
 
@@ -333,11 +341,13 @@
   - `knowledge-base/08_arquitectura_propuesta.md` (resolver único);
   - `knowledge-base/10_preguntas_abiertas.md` (cerrar lo que este change resuelve).
 - [x] 19.3 `CHANGES.md` (**fichas de las tandas A, B y C hechas**; la tanda C cierra los candidatos absorbidos y da de alta los que deja): ficha del change con las mediciones. Cerrar los candidatos absorbidos (`invitacion-aceptar-ui`, `cuenta-activa-selector`, la invitación rápida de `TeamSection`, `membership-rpcs-not-authenticated-p0401` y la parte de `v4-producto-calidad-05`) y dar de alta los que deja (`design.md` §Candidatos).
-- [ ] 19.4 (**a cargo del orquestador**: el apply de la tanda A no toca `CLAUDE.md`/`AGENTS.md`) `CLAUDE.md`: el puntero del roadmap y una regla dura nueva ("la cuenta activa se resuelve sólo con `current_account_ids()` / `resolve_active_account`; ningún componente ordena `account_members` por su cuenta"). Correr `python scripts/ci/check_docs_sync.py --fix` en el mismo PR.
+- [x] 19.4 (**a cargo del orquestador**: el apply de la tanda A no toca `CLAUDE.md`/`AGENTS.md`) `CLAUDE.md`: el puntero del roadmap y una regla dura nueva ("la cuenta activa se resuelve sólo con `current_account_ids()` / `resolve_active_account`; ningún componente ordena `account_members` por su cuenta"). Correr `python scripts/ci/check_docs_sync.py --fix` en el mismo PR.
+  - **Hecho (PR de archive, 2026-10-17)**: ítem 36 en «Próximo change recomendado», fila DB de la tabla de infraestructura a 332 migraciones (última `20261085000001_multiusuario_invitaciones`) y una regla dura nueva en «Supabase / Auth / Seguridad» (la cuenta activa se resuelve sólo con `current_account_ids()` / `resolve_active_account`, con la única excepción del fallback de despliegue del frontend; y todo email con destinatario elegido por un usuario se encola dentro de una función `SECURITY DEFINER`). `AGENTS.md` regenerado con `check_docs_sync.py --fix`.
 
 ## 20. Archive
 
-- [ ] 20.1 Con las tres tandas en prod y la demo del PO aprobada: `/opsx:archive multiusuario-operativo`, verificando los requirements en `HEAD` después del archive (gotchas conocidas de `openspec archive`).
+- [x] 20.1 Con las tres tandas en prod y la demo del PO aprobada: `/opsx:archive multiusuario-operativo`, verificando los requirements en `HEAD` después del archive (gotchas conocidas de `openspec archive`).
+  - **Hecho (2026-10-17)** con el PR de archive: las tres tandas y el hotfix están en prod; **la demo del PO (18.4) se archivó pendiente**, por indicación del orquestador, y no bloquea el archive. Specs sincronizadas (3 nuevas, 5 modificadas) con los requirements verificados en `HEAD` y los `Purpose` revisados a mano.
 
 ## Evidencia TDD
 

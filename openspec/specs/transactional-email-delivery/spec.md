@@ -1,7 +1,7 @@
 # transactional-email-delivery Specification
 
 ## Purpose
-TBD - created by archiving change send-email-webhook-hardening. Update Purpose after archive.
+Entrega confiable y segura de los correos transaccionales de la aplicación: el webhook de la función de envío se autentica con un secreto compartido y distingue el fallo de configuración del rechazo de origen; el trigger de entrega toma su destino y su secreto de configuración, es inerte en toda base sin la configuración de producción y emite la request sólo para filas pendientes; la lógica de verificación vive en un módulo puro y cubierto; el fan-out a todos los usuarios se restringe a una allowlist de `event_type`; y cada evento con plantilla propia (resumen de deuda vencida; invitación a una cuenta, con todo dato de usuario escapado como texto y el enlace armado con la URL fija de la aplicación y el token de la fila) tiene su correo. Creado por `send-email-webhook-hardening`; ampliado por `cobranzas-vencimientos` y `multiusuario-operativo`.
 ## Requirements
 ### Requirement: El webhook de entrega de correo SHALL autenticarse con un secreto compartido
 
@@ -197,4 +197,19 @@ Un tipo de evento de correo desconocido SHALL seguir cayendo en el comportamient
 
 - **WHEN** se entrega un correo de cualquiera de los tipos que ya existían
 - **THEN** su asunto y su cuerpo son los mismos que antes de este cambio
+
+### Requirement: Plantilla de correo de invitación a una cuenta
+La función de envío SHALL contar con una plantilla propia para la invitación a una cuenta, que nombre a quien invita, al negocio, los roles con que se incorpora y el vencimiento, y que lleve un único botón de acción hacia la pantalla de aceptación.
+
+Todo dato provisto por un usuario que la plantilla interpole —nombre del negocio, nombre de quien invita— SHALL escaparse como texto antes de insertarse en el HTML. El enlace del botón SHALL construirse con la URL fija de la aplicación y el token de la invitación codificado, y NOT SHALL tomar ninguna URL ni dominio de los datos de la fila.
+
+#### Scenario: El nombre del negocio con marcado se muestra como texto
+- **GIVEN** una invitación cuyo nombre de negocio contiene etiquetas HTML
+- **WHEN** se envía el email de invitación
+- **THEN** el email muestra el nombre como texto literal, sin interpretar las etiquetas
+
+#### Scenario: El enlace apunta siempre a la aplicación
+- **GIVEN** una fila de invitación cuyos datos incluyen una URL de otro dominio
+- **WHEN** se arma el email de invitación
+- **THEN** el botón apunta a la pantalla de aceptación de la aplicación con el token de la invitación, y la URL ajena no aparece en el email
 

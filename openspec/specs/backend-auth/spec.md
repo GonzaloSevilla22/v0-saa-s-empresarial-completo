@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Middleware de autenticación para FastAPI que valida los JWT emitidos por Supabase. FastAPI no emite tokens propios — actúa como *resource server*. Desde `auth-hardening-jwt-cookies`, verificar la firma es sólo una parte del contrato: el camino que corre en **producción** valida contra las **JWKS** de Supabase (`ES256`/`RS256`) exigiendo **emisor** (`<SUPABASE_URL>/auth/v1`), **audiencia** (`authenticated`, en forma de cadena o de lista), la presencia de `exp` y `sub`, y con una tolerancia de reloj acotada; un fallo de las JWKS se distingue en los registros de un token forjado. El `HS256` con secreto compartido queda **sólo** como fallback de desarrollo y detrás de una palanca explícita, apagada por default, porque sin ella una `SUPABASE_URL` ausente degradaba en silencio a un secreto publicado en el repo — es decir, aceptaba tokens forjados. El token viaja **únicamente** por el encabezado de autorización, y para las acciones de configuración el rol de tenant se resuelve contra la base y no contra el claim.
+Middleware de autenticación para FastAPI que valida los JWT emitidos por Supabase. FastAPI no emite tokens propios — actúa como *resource server*. Desde `auth-hardening-jwt-cookies`, verificar la firma es sólo una parte del contrato: el camino que corre en **producción** valida contra las **JWKS** de Supabase (`ES256`/`RS256`) exigiendo **emisor** (`<SUPABASE_URL>/auth/v1`), **audiencia** (`authenticated`, en forma de cadena o de lista), la presencia de `exp` y `sub`, y con una tolerancia de reloj acotada; un fallo de las JWKS se distingue en los registros de un token forjado. El `HS256` con secreto compartido queda **sólo** como fallback de desarrollo y detrás de una palanca explícita, apagada por default, porque sin ella una `SUPABASE_URL` ausente degradaba en silencio a un secreto publicado en el repo — es decir, aceptaba tokens forjados. El token viaja **únicamente** por el encabezado de autorización, y para las acciones de configuración el rol de tenant se resuelve contra la base y no contra el claim. Desde `multiusuario-operativo` (2026-10-17), además, los claims de rol de tenant y de conjunto de roles sólo autorizan cuando el token declara la cuenta activa a la que corresponden: sin esa declaración, el backend consulta los roles vigentes del usuario en la cuenta activa del request.
 
 ## Requirements
 
@@ -303,4 +303,19 @@ Un fallo de disponibilidad del proveedor de claves NOT SHALL ser indistinguible 
 
 - **WHEN** llega un token con firma inválida
 - **THEN** el backend responde no autorizado sin registrar el fallo de obtención de claves
+
+### Requirement: Los claims de rol de tenant sólo valen para la cuenta que describen
+El backend SHALL transportar en el contexto de autenticación la cuenta activa que declara el token, y SHALL usar los claims de rol de tenant y de conjunto de roles para autorizar **sólo** cuando el token declara esa cuenta. Cuando el token no la declara, el backend SHALL resolver el conjunto de roles consultando las asignaciones vigentes de la base en la cuenta activa del request, como si los claims de rol no viajaran.
+
+La consulta de respaldo SHALL devolver los roles de la membresía en la cuenta activa del request, NOT los de la membresía más antigua del usuario.
+
+#### Scenario: Un token sin cuenta declarada no autoriza con sus claims de rol
+- **GIVEN** un token emitido antes de que el token declarara la cuenta activa, con claims de rol de otra membresía del usuario
+- **WHEN** se ejercita un endpoint cuyo guard requiere rol de tenant
+- **THEN** la decisión se toma con los roles vigentes del usuario en la cuenta activa del request, consultados en la base
+
+#### Scenario: Un token con cuenta declarada autoriza con sus claims
+- **GIVEN** un token que declara la cuenta activa y trae el conjunto de roles de esa cuenta
+- **WHEN** se ejercita un endpoint cuyo guard requiere un rol de tenant que no es el de configuración
+- **THEN** la decisión se toma con el claim, sin consultar la base
 

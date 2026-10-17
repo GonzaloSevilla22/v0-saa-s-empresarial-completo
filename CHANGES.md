@@ -4441,7 +4441,7 @@ El pedido literal (RPC con rol y motivo + quitar `GRANT` y policies) es correcto
 **Pendiente (no es de este hotfix).** Que el PR esté mergeado y verificado en prod **antes de abrir la tanda C**; el PO puede confirmar, cancelando un plan de prueba, que llega el correo.
 
 
-## Change `multiusuario-operativo` — TANDA C apply 2026-10-17 (apply C PR **(PR de la tanda C; el número lo fija el PR abierto)**, migración `20261085000001_multiusuario_invitaciones.sql`; governance **CRÍTICO**)
+## Change `multiusuario-operativo` — TANDA C apply 2026-10-17 (apply C PR **#654**, migración `20261085000001_multiusuario_invitaciones.sql`; governance **CRÍTICO**)
 
 **Pedido y sign-off.** Los de las tandas A y B (`design.md` §"Sign-off del PO", 2026-10-16: *«dale, aplicá multiusuario-operativo»* = OQ-1 a OQ-9 por su opción recomendada). Esta tanda aplica **OQ-2 (a)** (el invitado conserva su cuenta personal y aceptar activa el negocio), **OQ-5 (a)** (el anónimo ve un mensaje genérico, sin el nombre del negocio), **OQ-6 (a)** («Copiar link» queda como opción secundaria) y **OQ-8 (a)** (1 envío por invitación cada 10 minutos y 20 por cuenta por día). Precondiciones cumplidas y verificadas en producción antes de empezar: tanda A (#651), tanda B (#652) y el hotfix OQ-7 de `email_logs` (#653) mergeados y en `MAX(version) = 20261084000001` (331 migraciones). Cubre los grupos **13 a 18** de `tasks.md` y la parte C del 19; el archive (grupo 20) queda para el cierre y la demo real del PO (18.4) queda abierta.
 

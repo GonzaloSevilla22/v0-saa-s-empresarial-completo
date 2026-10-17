@@ -122,6 +122,15 @@ await supabase.rpc('rpc_atomic_log_ai_insight', {
 6. Storage: RLS en buckets (owner-only para invoices, public read para avatars)
 ```
 
+### Correos transaccionales — `email_logs` sólo se escribe desde el servidor (email-logs-cierre-insert)
+
+`public.email_logs` es la **cola** de los correos: cada fila `pending` dispara el trigger `on_email_log_insert`, que invoca a la Edge Function `send-email`, y ésta manda el correo desde `no-reply@aliadata.com.ar` al `recipient` con el `subject` de la fila. Escribirla equivale entonces a **mandar un correo con la marca de ALIADATA a cualquier destinatario**. Por eso:
+
+- **`authenticated` y `anon` no tienen INSERT, UPDATE, DELETE ni TRUNCATE sobre `email_logs`**, y la tabla **no tiene ninguna policy de escritura** (default-deny de la RLS). `authenticated` conserva sólo `SELECT`, filtrado por la policy de administradores. Un `INSERT` por PostgREST con el token de un usuario da `42501`. Hasta 2026-10-17 existía `email_logs_backend_insert WITH CHECK (true)` (vector de phishing, OQ-7 de `multiusuario-operativo`).
+- **Quién escribe, y sólo así:** (1) funciones SQL **`SECURITY DEFINER`** (triggers, cron y RPCs: corren con el privilegio de su propietario aunque las dispare un `authenticated`); (2) el backend FastAPI por el contexto de servicio (`get_service_conn`, usuario `postgres`), nunca por `get_db_conn`; (3) la Edge Function `send-email` con la service role key, que sólo **actualiza** el estado.
+- **Un correo disparado por un usuario se encola dentro de una RPC `SECURITY DEFINER`**, con el destinatario y el `user_id` derivados de la sesión (`auth.uid()` + `auth.users`) o de la fila que la RPC ya validó, **nunca de un parámetro libre**. Ejemplo: `rpc_request_subscription_cancellation()` encola el `plan_downgraded` al email del titular. Una función nueva que escriba en `email_logs` **tiene que ser `SECURITY DEFINER`** (lo barre el gate `test_email_logs_insert_cerrado.sql`).
+- **Las plantillas no confían en la metadata.** `supabase/functions/_shared/email-templates.ts` escapa (`escapeHtml`) todo dato que no sea una constante, y **ningún enlace sale de la metadata**: todo botón se arma desde `APP_URL` y `layout()` descarta un `ctaUrl` que no esté bajo ella. El nombre del adjunto pasa por `safeFilenamePart`.
+
 ### Variables de Entorno
 ```
 # Públicas (NEXT_PUBLIC_*)

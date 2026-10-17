@@ -229,7 +229,7 @@
 
 ## 12. Hallazgo `email_logs` (OQ-7)
 
-- [ ] 12.1 Según OQ-7:
+- [x] 12.1 Según OQ-7 (**opción (a)** firmada por el PO; hecho en el hotfix `email-logs-cierre-insert`, rama `fix/email-logs-cierre-insert`, migración `20261084000001_email_logs_cierre_insert.sql`, gate `supabase/tests/test_email_logs_insert_cerrado.sql`, evidencia en `evidence/hotfix-email-logs/`; **pendiente: que el PR esté mergeado y verificado en prod antes de abrir la tanda C**):
   - **(a)**: abrir el hotfix aparte, con su propio PR, y esperar a que esté en prod antes de la tanda C;
   - **(b)**: sumar a la tanda C la migración del caller de `frontend/app/api/billing/cancel/route.ts` al servidor, el `DROP POLICY email_logs_backend_insert`, el `REVOKE INSERT` a `authenticated`, el escape en todas las plantillas de `send-email` y su gate;
   - **(c)**: registrar el candidato en `CHANGES.md`.

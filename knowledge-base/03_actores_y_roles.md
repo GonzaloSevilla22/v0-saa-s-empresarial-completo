@@ -61,6 +61,16 @@ plan  TEXT  DEFAULT 'pro'    -- valores: 'free' | 'pro'
                               -- (default fue 'free', migration 20260424000001 lo cambió a 'pro' para beta)
 ```
 
+## Cuenta activa (multiusuario-operativo, tanda A — 2026-10-16)
+
+Un usuario puede pertenecer a **más de una cuenta**: su cuenta personal (la crea `handle_new_user` al registrarse) y los negocios a los que lo invitan. **Opera siempre sobre UNA — la cuenta activa — y es la misma en la base, en el token, en FastAPI, en las Edge Functions y en el frontend.**
+
+- **Cómo se resuelve** (un único criterio, en la base: `current_account_ids()` → `resolve_active_account`): 1) la cuenta que declara el token (`app_metadata.account_id`), siempre que el usuario siga siendo miembro; 2) si el token no declara ninguna, la que el usuario eligió (`profiles.active_account_id`), mientras siga siendo una membresía; 3) si no, la membresía más antigua por `created_at` (a igual instante, la cuenta propia; luego `id`). **Un token que declara una cuenta de la que el usuario ya no es miembro NO cae en silencio a otra: no hay cuenta activa** (403 "No active account found").
+- **Cómo se cambia**: selector en el encabezado del menú lateral (escritorio y drawer móvil), visible sólo con dos o más cuentas; muestra el nombre del negocio (la cascada de los documentos comerciales) y el rol propio en cada uno. Cambiar persiste la elección (`rpc_set_active_account`), renueva el token **ante el proveedor** (`refreshSessionAction`: releer el token vigente no alcanza, porque el hook sólo emite el claim al emitir; el hook emite `account_id`, roles y plan de la cuenta nueva), descarta la caché y lleva al Tablero. Las demás pestañas abiertas se resincronizan solas (señal `account:switched` del bus de sesión, sin token en el mensaje).
+- **Pestaña desfasada**: el cliente declara en cada request a FastAPI la cuenta que muestra (`X-Account-Id`); si no coincide con la del token, `409 account_switched` y la pantalla se resincroniza — una escritura sin entidad (un gasto, una venta de servicio) nunca cae en la cuenta equivocada en silencio.
+- **Lo que NO cambia para quien tiene una sola cuenta** (los 41 de hoy): el resultado es idéntico; el selector no se muestra.
+- **Pendiente de este change**: la autorización por rol de las ventas y compras (tanda B) y la invitación de punta a punta (tanda C).
+
 ## Planes Comerciales (4 planes — fuente: tabla_resumen_planes_aliadata.docx)
 
 | Límite | Gratis | Inicial | Avanzado ⭐ | PRO |

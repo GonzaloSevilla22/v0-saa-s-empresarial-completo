@@ -77,6 +77,10 @@ class PurchaseRepository(BaseRepository):
                    -- edicion-preserva-contexto (D11): expuestos para
                    -- prefillear el form de edición (espejo de SalesRepository).
                    p.branch_id,
+                   -- multiusuario-operativo tanda B (D9, OQ-4 b): el AUTOR de la operación, para que la
+                   -- interfaz oculte "Editar"/"Eliminar" sobre lo ajeno cuando el rol no es dueño ni
+                   -- administrador. Es sólo informativo: la autoridad es la RPC (P0403).
+                   p.user_id AS created_by,
                    COALESCE(pi2.unit_id, p.unit_id) AS unit_id,
                    p.cost_center_id,
                    cc.name AS cost_center_name,

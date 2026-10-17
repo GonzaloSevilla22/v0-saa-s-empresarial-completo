@@ -161,6 +161,10 @@ class SaleItemOut(BaseModel):
     branch_id: uuid.UUID | None = None
     canal: str | None = None
     unit_id: uuid.UUID | None = None
+    # multiusuario-operativo tanda B (D9, OQ-4 b): quién cargó la operación (`sales.user_id`).
+    # Sólo informativo —la interfaz oculta "Editar"/"Eliminar" sobre lo ajeno cuando el rol no es
+    # dueño ni administrador—; la autoridad al editar y borrar es la RPC (P0403).
+    created_by: uuid.UUID | None = None
     # edicion-preserva-contexto (F2/D11) + venta-editable-sin-cae (D11):
     # derivado de lectura (mismo predicado que el helper de anulación), para
     # que el form se abra en solo-lectura ANTES de que el usuario llegue al

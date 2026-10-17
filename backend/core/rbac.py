@@ -46,6 +46,19 @@ CAN_CASH: frozenset[str] = frozenset({"owner", "admin", "cashier"})
 CAN_STOCK: frozenset[str] = frozenset({"owner", "admin", "stock"})
 CAN_PURCHASE: frozenset[str] = frozenset({"owner", "admin", "purchases"})
 CAN_ACCOUNT: frozenset[str] = frozenset({"owner", "admin", "accountant"})
+
+# multiusuario-operativo tanda B (D9, OQ-3 b / OQ-4 b): las ventas y las compras se autorizan por
+# CAPACIDAD DE ROL de la cuenta activa —nunca por quién cargó el producto o el documento—.
+#   · `CAN_SELL` (arriba) y `CAN_PURCHASE` (arriba) habilitan el alta, la edición y el borrado
+#     de una venta / una compra. El depósito (`stock`) NO compra: recibe mercadería por remito.
+#   · `CAN_MODIFY_ANY_DOCUMENT` es la regla de autor (OQ-4 b): sobre un documento de OTRO
+#     miembro sólo el dueño y el administrador; el resto modifica los que cargó él. La decide la
+#     BASE (`_account_assert_document_authority`): FastAPI no conoce al autor sin leerlo, así que
+#     esta constante no se usa en un service —existe para que el frontend y los tests tengan UNA
+#     definición y para que un test falle si divergen—.
+# ESPEJAN los `ARRAY[...]` de la migración 20261083000001: `test_ventas_compras_capacidades.py` los
+# lee y falla si divergen, y `frontend/__tests__/lib/rbac-capabilities.test.ts` los ata al frontend.
+CAN_MODIFY_ANY_DOCUMENT: frozenset[str] = frozenset({"owner", "admin"})
 # presupuestos-modulo (D11): crear, editar, enviar, rechazar, eliminar y
 # convertir presupuestos. ESPEJA los `allowed_role` de las transiciones de
 # `quote` del catálogo `document_status_transitions` (seed de

@@ -141,6 +141,9 @@ class PurchaseItemOut(BaseModel):
     # prefillear el form de edición (espejo de SaleItemOut).
     branch_id: uuid.UUID | None = None
     unit_id: uuid.UUID | None = None
+    # multiusuario-operativo tanda B (D9, OQ-4 b): quién cargó la operación (`purchases.user_id`).
+    # Sólo informativo; la autoridad al editar y borrar es la RPC (P0403).
+    created_by: uuid.UUID | None = None
     # compras-proveedor-cuenta-corriente (task 9.2): supplier_id + nombre
     # (LEFT JOIN suppliers), para el badge del listado y el prefill del
     # selector de edición — reemplaza el comentario D11 que decía "supplier_id

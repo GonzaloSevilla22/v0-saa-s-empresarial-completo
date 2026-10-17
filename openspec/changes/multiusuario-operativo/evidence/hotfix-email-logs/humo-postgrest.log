@@ -1,0 +1,38 @@
+### Humo local por PostgREST (GoTrue + PostgREST reales, tokens de usuarios @test.local descartables). NOTA: el paso 5 da P0400 (y no P0403) porque el miembro, sin el claim app_metadata.account_id, resuelve su PROPIA cuenta (gratis); el gate (f2) cubre el P0403 con el claim. En ningún caso se encola un correo.
+usuarios creados: owner=6df933e4… member=71fdd734…
+login GoTrue OK (tokens obtenidos)
+--- 1) INSERT directo por PostgREST con el token del miembro (el exploit)
+{"code":"42501","details":null,"hint":"Grant the required privileges to the current role with: GRANT INSERT ON public.email_logs TO authenticated;","message":"permission denied for table email_logs"}
+HTTP 403
+--- 2) idem con el token del titular
+{"code":"42501","details":null,"hint":"Grant the required privileges to the current role with: GRANT INSERT ON public.email_logs TO authenticated;","message":"permission denied for table email_logs"}
+HTTP 403
+--- 3) idem sin sesión (anon)
+{"code":"42501","details":null,"hint":"Grant the required privileges to the current role with: GRANT INSERT ON public.email_logs TO anon;","message":"permission denied for table email_logs"}
+HTTP 401
+--- 4) PATCH y DELETE masivos con el token del titular
+{"code":"42501","details":null,"hint":"Grant the required privileges to the current role with: GRANT UPDATE ON public.email_logs TO authenticated;","message":"permission denied for table email_logs"}
+HTTP 403
+{"code":"42501","details":null,"hint":"Grant the required privileges to the current role with: GRANT DELETE ON public.email_logs TO authenticated;","message":"permission denied for table email_logs"}
+HTTP 403
+filas hacia la víctima (esperado 0): 0
+--- 5) el miembro NO titular intenta cancelar el plan por la RPC (esperado: rechazo, sin correo)
+{"code":"P0400","details":null,"hint":null,"message":"no_active_paid_plan: no hay un plan pago activo para cancelar"}
+HTTP 500
+plan_downgraded tras el intento del miembro (esperado 0): 0
+--- 6) el titular cancela por la RPC, exactamente como lo hace /api/billing/cancel
+{"from_plan": "pro", "account_id": "36970110-a01c-4eff-a834-4c025f553cb0", "plan_expires_at": "2026-11-16T06:13:09.334926+00:00"}
+HTTP 200
+correo encolado:
+plan_downgraded|humo-owner-emaillogs@test.local|pending|t|pro|user_requested|Tu suscripción fue cancelada — Aliadata
+--- 7) segundo intento del titular (esperado P0409 y sin correo nuevo)
+{"code":"P0409","details":null,"hint":null,"message":"cancellation_already_scheduled: la cancelación ya está programada"}
+HTTP 500
+plan_downgraded del titular (esperado 1): 1
+--- 8) el titular intenta elegir destinatario por parámetro (esperado: la función no existe con argumentos)
+{"code":"PGRST202","details":"Searched for the function public.rpc_request_subscription_cancellation with parameter recipient or with a single unnamed json/jsonb parameter, but no matches were found in the schema cache.","hint":null,"message":"Could not find the function public.rpc_request_subscription_cancellation(recipient) in the schema cache"}
+HTTP 404
+--- 9) lectura: el titular (no admin) no ve filas de email_logs por PostgREST
+[]
+HTTP 200
+limpieza hecha

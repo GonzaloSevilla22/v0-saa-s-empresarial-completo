@@ -1,0 +1,26 @@
+### Nota: el RED se corrió con la versión inicial del gate (antes de acotar (d9) y (f) a las filas de la fixture y de agregar el prefijo del bloque (f)); esas dos correcciones sólo agregan robustez frente a residuos de otros gates y no cambian lo que se prueba.
+### RED 1: el gate tal cual (ON_ERROR_STOP=1), contra la base SIN la migración 20261084000001
+BEGIN
+ERROR:  GATE EMAIL-LOGS-INSERT-CERRADO FAILED (a): policy de escritura vigente: email_logs_backend_insert (INSERT); authenticated conserva INSERT a nivel tabla; authenticated conserva UPDATE a nivel tabla; authenticated conserva DELETE a nivel tabla; authenticated conserva TRUNCATE a nivel tabla; authenticated conserva INSERT/UPDATE por columna; anon conserva SELECT; 
+CONTEXT:  PL/pgSQL function inline_code_block line 55 at RAISE
+exit=3
+
+### RED 2: variante sin abortar (RAISE EXCEPTION -> RAISE WARNING) para ver TODOS los bloques que fallan
+BEGIN
+DO
+WARNING:  GATE EMAIL-LOGS-INSERT-CERRADO FAILED (a): policy de escritura vigente: email_logs_backend_insert (INSERT); authenticated conserva INSERT a nivel tabla; authenticated conserva UPDATE a nivel tabla; authenticated conserva DELETE a nivel tabla; authenticated conserva TRUNCATE a nivel tabla; authenticated conserva INSERT/UPDATE por columna; anon conserva SELECT; 
+NOTICE:  PASS (a): email_logs sin policy ni privilegio de escritura para authenticated/anon; SELECT de administradores y service_role intactos.
+DO
+NOTICE:  PASS (b): las 10 funciones que escriben en email_logs son todas SECURITY DEFINER.
+NOTICE:  PASS (c0): fixture creada (cuenta=b219b989-2087-4563-88d6-760c9976f50f); el alta de usuario encoló su correo welcome pending vía handle_new_user (SECURITY DEFINER).
+DO
+WARNING:  GATE EMAIL-LOGS-INSERT-CERRADO FAILED (d, matriz de evasión): (d1/miembro-B) INSERT directo a un tercero: sqlstate=NO_ERROR msg=el INSERT tuvo éxito [42501 + "permission denied", nunca el mensaje de la RLS]; (d2/miembro-B) INSERT … ON CONFLICT DO NOTHING: sqlstate=NO_ERROR msg=el INSERT … ON CONFLICT tuvo éxito; (d3/miembro-B) INSERT con destinatario all_users: sqlstate=NO_ERROR msg=el INSERT all_users tuvo éxito; (d4/miembro-B) INSERT … SELECT: sqlstate=NO_ERROR msg=el INSERT … SELECT tuvo éxito; (d5/miembro-B) UPDATE recipient/status: sqlstate=NO_ERROR msg=el UPDATE tuvo éxito [42501 + "permission denied", nunca el mensaje de la RLS]; (d6/miembro-B) DELETE: sqlstate=NO_ERROR msg=el DELETE tuvo éxito; (d7/miembro-B) TRUNCATE: sqlstate=NO_ERROR msg=el TRUNCATE tuvo éxito; (d1/titular-A) INSERT directo a un tercero: sqlstate=NO_ERROR msg=el INSERT tuvo éxito [42501 + "permission denied", nunca el mensaje de la RLS]; (d2/titular-A) INSERT … ON CONFLICT DO NOTHING: sqlstate=NO_ERROR msg=el INSERT … ON CONFLICT tuvo éxito; (d3/titular-A) INSERT con destinatario all_users: sqlstate=NO_ERROR msg=el INSERT all_users tuvo éxito; (d4/titular-A) INSERT … SELECT: sqlstate=NO_ERROR msg=el INSERT … SELECT tuvo éxito; (d5/titular-A) UPDATE recipient/status: sqlstate=NO_ERROR msg=el UPDATE tuvo éxito [42501 + "permission denied", nunca el mensaje de la RLS]; (d6/titular-A) DELETE: sqlstate=NO_ERROR msg=el DELETE tuvo éxito; (d7/titular-A) TRUNCATE: sqlstate=NO_ERROR msg=el TRUNCATE tuvo éxito; (d8b) SELECT como anon: sqlstate=NO_ERROR msg=el SELECT anónimo tuvo éxito; (d9) las 3 filas welcome de la fixture debían seguir intactas y pending; quedan 0; 
+NOTICE:  PASS (d): INSERT (plano, ON CONFLICT, all_users, INSERT…SELECT), UPDATE, DELETE y TRUNCATE rechazados por la capa de PRIVILEGIO para miembro, titular y anon; ninguna fila llegó al tercero.
+DO
+WARNING:  GATE EMAIL-LOGS-INSERT-CERRADO FAILED (e, escritores legítimos): (e2, control positivo) el administrador debía leer email_logs (≥ 3 filas de la fixture); ve 1; 
+NOTICE:  PASS (e): trigger SECURITY DEFINER disparado por authenticated sigue encolando; administrador lee, no administrador no; service_role y propietario escriben; trigger de envío intacto.
+DO
+WARNING:  GATE EMAIL-LOGS-INSERT-CERRADO FAILED (f, cancelación de plan): (f4) la cancelación debía encolar exactamente 1 correo plan_downgraded; encoló 0; (f4) el correo quedó con user_id=, se esperaba el titular aaf0b8a0-f7d1-44fa-baa2-0421c3569aa4; (f4) el destinatario es , debía ser el email de auth.users del titular; (f4) el correo debía nacer pending (lo necesita el trigger de envío); nació ; (f4) metadata inesperada (plan/reason/plan_expires_at): ; (f4) asunto inesperado: NULL; (f5) tras el reintento hay 0 correos plan_downgraded; debía seguir habiendo 1; (f6) sin plan pago no debía encolarse nada; hay 0 plan_downgraded; 
+NOTICE:  PASS (f): la cancelación encola 1 correo con destinatario y user_id de la sesión; no titular → P0403 sin correo; sin parámetros; reintento → P0409 sin correo; sin plan pago → P0400 sin correo.
+DO
+ROLLBACK

@@ -1,0 +1,23 @@
+### RED de plantillas: la matriz hostil contra el index.ts de HEAD (plantillas viejas, extraídas a un módulo temporal)
+### + diferencial: con metadata benigna, plantillas viejas == nuevas (17 tipos); en meeting_notice sólo cambian el enlace y el texto del botón
+ RUN  v4.1.8 C:/Users/Usuario/Desktop/EIE/wt-email-logs/frontend
+ ❯ __tests__/_tmp_red_old.test.ts (29 tests | 10 failed) 68ms
+     × welcome: la vieja emite markup vivo 13ms
+     × new_user_admin_notice: la vieja emite markup vivo 1ms
+     × meeting_notice: la vieja emite markup vivo 34ms
+     × pool_notice: la vieja emite markup vivo 1ms
+     × low_stock_alert: la vieja emite markup vivo 1ms
+     × low_margin_alert: la vieja emite markup vivo 1ms
+     × plan_upgraded: la vieja emite markup vivo 6ms
+     × payment_receipt: la vieja emite markup vivo 1ms
+     × plan_downgraded: la vieja emite markup vivo 1ms
+     × subscription_payment_approved: la vieja emite markup vivo 1ms
+⎯⎯⎯⎯⎯⎯ Failed Tests 10 ⎯⎯⎯⎯⎯⎯⎯
+ FAIL  __tests__/_tmp_red_old.test.ts > RED contra las plantillas viejas > welcome: la vieja emite markup vivo
+ FAIL  __tests__/_tmp_red_old.test.ts > RED contra las plantillas viejas > new_user_admin_notice: la vieja emite markup vivo
+ FAIL  __tests__/_tmp_red_old.test.ts > RED contra las plantillas viejas > meeting_notice: la vieja emite markup vivo
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/10]⎯
+ Test Files  1 failed (1)
+      Tests  10 failed | 19 passed (29)
+   Start at  01:35:45
+   Duration  4.92s (transform 172ms, setup 411ms, import 257ms, tests 68ms, environment 3.48s)

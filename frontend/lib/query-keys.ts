@@ -233,6 +233,13 @@ export const queryKeys = {
     all:  () => ["members"] as const,
     list: (accountId: string | null) => ["members", "list", accountId] as const,
   },
+  // multiusuario-operativo tanda C (grupo 17): invitaciones a la cuenta. `list` es de la cuenta
+  // activa (se invalida al cambiarla); `preview` es por token y el token NO se persiste en caché.
+  invitations: {
+    all:     () => ["invitations"] as const,
+    list:    (accountId: string | null) => ["invitations", "list", accountId] as const,
+    preview: (token: string) => ["invitations", "preview", token] as const,
+  },
   // bank-payment-routing C2 (V2.5 BankReconciliation)
   bankAccounts: {
     all:    () => ["bankAccounts"] as const,

@@ -4,23 +4,23 @@
  * TeamSection — C-05 Bloque G / Task 7.3
  *
  * Minimal team management UI shown in Configuración → Equipo tab.
- * Allows account owners to:
+ * Allows account owners and admins to:
  *   - See current members + their roles
- *   - Invite a new member by email (gated by plan max_users quota)
+ *   - Invite a new member by email WITH a set of roles (gated by plan max_users quota)
  *
- * Invitations are enforced server-side by:
- *   - rpc_invite_member  — creates token, validates quota (owner only)
- *   - rpc_accept_invitation — invitee accepts via token link
+ * multiusuario-operativo (tanda C, D14): la invitación rápida ya NO usa el overload de 2 argumentos de
+ * `rpc_invite_member` (que resolvía a `viewer` sin que nadie lo eligiera y se retiró de la base): comparte
+ * `InviteMemberForm` con /organizacion/invitar —declara el conjunto de roles y va por FastAPI
+ * (`POST /members/invitations`), que crea la invitación y encola el email—. La aceptación vive en
+ * /invitacion/[token]. Las invitaciones pendientes (reenviar / revocar) se gestionan en /organizacion/invitar.
  *
- * Non-owners see the member list read-only (no invite form).
+ * Quien no es dueño ni administrador ve la lista de miembros en sólo lectura (sin formulario).
  *
  * Governance: MEDIUM — business logic for invitations.
  */
 
 import React, { useState } from "react"
 import Link from "next/link"
-import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { createClient } from "@/lib/supabase/client"
 import { useAuth } from "@/contexts/auth-context"
 import { usePlanLimits } from "@/hooks/auth/use-plan-limits"
 import { useTeamMembers, type TeamMemberRow } from "@/hooks/data/use-team-members"
@@ -30,8 +30,8 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
-import { Crown, Shield, UserPlus, Users, Loader2, AlertCircle, CheckCircle2, Lock, Settings } from "lucide-react"
-import { planHasAccess } from "@/lib/plan-utils"
+import { Crown, Shield, UserPlus, Users, Loader2, AlertCircle, Lock, Settings } from "lucide-react"
+import { InviteMemberForm } from "@/components/invitations/InviteMemberForm"
 
 // ── Types ────────────────────────────────────────────────────────────────────
 // MemberRow / useTeamMembers viven en hooks/data/use-team-members.ts
@@ -45,70 +45,26 @@ type MemberRow = TeamMemberRow
 export function TeamSection() {
   const { user } = useAuth()
   const { limits } = usePlanLimits()
-  const queryClient = useQueryClient()
-  const supabase = createClient()
 
   const accountId   = user?.accountId ?? ""
   const accountRole = user?.accountRole ?? "member"
   const isOwner     = accountRole === "owner"
+  // Dueño y administrador invitan (CAN_CONFIGURE); el administrador nunca con propietario ni administrador.
+  const canManage   = isOwner || accountRole === "admin"
 
   const { data: members = [], isLoading: membersLoading } = useTeamMembers(accountId)
-  // Nombre y email de cada miembro salen de /members (rpc_list_account_members,
-  // SECURITY DEFINER), cruzado por user_id: el email no está en profiles (vive
-  // en auth.users) y la RLS de profiles sólo deja leer el perfil PROPIO, así que
-  // el nombre de un compañero tampoco llega por useTeamMembers. El perfil queda
-  // de respaldo del nombre propio mientras /members no responde; sin email
-  // resuelto la fila conserva el fallback al user_id.
+  // Nombre y email de cada miembro salen de /members (rpc_list_account_members, SECURITY DEFINER), cruzado por
+  // user_id: el email no está en profiles (vive en auth.users) y la RLS de profiles sólo deja leer el perfil
+  // PROPIO, así que el nombre de un compañero tampoco llega por useTeamMembers. El perfil queda de respaldo
+  // del nombre propio mientras /members no responde; sin email resuelto la fila conserva el fallback al user_id.
   const { members: directory } = useMembers(accountId || null)
   const directoryByUserId = new Map(directory.map((row) => [row.user_id, row]))
 
   const maxUsers   = limits?.maxUsers ?? 1
   const curUsers   = members.length
-  const canInvite  = isOwner && curUsers < maxUsers
+  const canInvite  = canManage && curUsers < maxUsers
   // Plans with max_users > 1 allow multiple members
   const planAllowsTeam = (limits?.maxUsers ?? 1) > 1
-
-  // ── Invite form state ──────────────────────────────────────────────────────
-  const [email, setEmail]   = useState("")
-  const [feedback, setFeedback] = useState<{ type: "success" | "error"; msg: string } | null>(null)
-
-  const inviteMutation = useMutation({
-    mutationFn: async (inviteEmail: string) => {
-      const { data, error } = await supabase.rpc("rpc_invite_member", {
-        p_email:      inviteEmail,
-        p_account_id: accountId,
-      })
-      if (error) throw error
-      return data as { id: string; token: string; email: string; expires_at: string }
-    },
-    onSuccess: (data) => {
-      setFeedback({
-        type: "success",
-        msg: `Invitación enviada a ${data.email}. Compartí el link de aceptación con tu equipo.`,
-      })
-      setEmail("")
-      queryClient.invalidateQueries({ queryKey: ["teamMembers", accountId] })
-    },
-    onError: (err: Error) => {
-      const msg = err.message ?? "Error al enviar la invitación"
-      if (msg.includes("P403")) {
-        setFeedback({ type: "error", msg: "Alcanzaste el límite de miembros de tu plan." })
-      } else if (msg.includes("P409")) {
-        setFeedback({ type: "error", msg: "Ya existe una invitación pendiente para ese email." })
-      } else if (msg.includes("P401")) {
-        setFeedback({ type: "error", msg: "Solo el owner de la cuenta puede invitar miembros." })
-      } else {
-        setFeedback({ type: "error", msg })
-      }
-    },
-  })
-
-  function handleInvite(e: React.FormEvent) {
-    e.preventDefault()
-    setFeedback(null)
-    if (!email.trim()) return
-    inviteMutation.mutate(email.trim().toLowerCase())
-  }
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
@@ -160,7 +116,7 @@ export function TeamSection() {
             ))
           )}
           {/* Quick links to dedicated role management pages */}
-          {(isOwner || accountRole === "admin") && planAllowsTeam && (
+          {canManage && planAllowsTeam && (
             <div className="flex gap-2 pt-1 mt-1 border-t border-border">
               <Link href="/organizacion/roles">
                 <Button variant="outline" size="sm" className="gap-1.5 text-xs border-border text-foreground">
@@ -186,9 +142,9 @@ export function TeamSection() {
             <UserPlus className="h-4 w-4" />
             Invitar miembro
           </CardTitle>
-          {!isOwner && (
+          {!canManage && (
             <CardDescription className="text-xs text-muted-foreground">
-              Solo el owner de la cuenta puede invitar nuevos miembros.
+              Solo el dueño o un administrador puede invitar nuevos miembros.
             </CardDescription>
           )}
         </CardHeader>
@@ -206,10 +162,10 @@ export function TeamSection() {
                 </p>
               </div>
             </div>
-          ) : !isOwner ? (
-            /* Non-owner informational */
+          ) : !canManage ? (
+            /* Sin autoridad para invitar: informativo */
             <p className="text-sm text-muted-foreground">
-              Contactá al owner de la cuenta para gestionar los miembros del equipo.
+              Contactá al dueño de la cuenta para gestionar los miembros del equipo.
             </p>
           ) : !canInvite ? (
             /* Quota reached */
@@ -223,54 +179,17 @@ export function TeamSection() {
               </div>
             </div>
           ) : (
-            /* Invite form */
-            <form onSubmit={handleInvite} className="flex flex-col gap-3">
-              <div className="flex gap-2">
-                <Input
-                  type="email"
-                  placeholder="email@empresa.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  disabled={inviteMutation.isPending}
-                  className="flex-1 text-sm"
-                  required
-                />
-                <Button
-                  type="submit"
-                  size="sm"
-                  disabled={inviteMutation.isPending || !email.trim()}
-                  className="shrink-0"
-                >
-                  {inviteMutation.isPending ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <UserPlus className="h-3.5 w-3.5" />
-                  )}
-                  <span className="ml-1.5">Invitar</span>
-                </Button>
-              </div>
-
-              {feedback && (
-                <div
-                  className={`flex items-start gap-2 rounded-md p-2.5 text-xs ${
-                    feedback.type === "success"
-                      ? "bg-green-500/10 text-green-600 border border-green-500/20"
-                      : "bg-red-500/10 text-red-600 border border-red-500/20"
-                  }`}
-                >
-                  {feedback.type === "success" ? (
-                    <CheckCircle2 className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-                  ) : (
-                    <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-                  )}
-                  {feedback.msg}
-                </div>
-              )}
-
+            /* Invitación rápida: email + conjunto de roles, por FastAPI (misma pieza que /organizacion/invitar) */
+            <div className="flex flex-col gap-3">
+              <InviteMemberForm callerRole={accountRole} idPrefix="team" compact />
               <p className="text-xs text-muted-foreground">
-                Se generará un token de invitación. Podés compartirlo directamente con la persona invitada.
+                Le mandamos un email con el link para sumarse. Las invitaciones pendientes se gestionan en{" "}
+                <Link href="/organizacion/invitar" className="text-foreground underline underline-offset-2">
+                  Invitar miembro
+                </Link>
+                .
               </p>
-            </form>
+            </div>
           )}
         </CardContent>
       </Card>

@@ -32,6 +32,7 @@ import { headers } from "next/headers"
 import { createClient } from "@/lib/supabase/server"
 import type { AuthActionResult } from "@/lib/auth/auth-result"
 import { isLocalOrigin, resolveSiteUrl } from "@/lib/auth/site-url"
+import { safeInvitationNext } from "@/lib/auth/invitation-next"
 
 // ── Contexto de la petición ─────────────────────────────────────────────────
 
@@ -108,12 +109,21 @@ export async function signInWithPasswordAction(input: {
   return toResult("signInWithPassword", error)
 }
 
-/** 18.4a — registro. */
+/**
+ * 18.4a — registro.
+ *
+ * multiusuario-operativo (tanda C, D12): `next` es OPCIONAL y admite una sola cosa —la ruta de una
+ * invitación (`/invitacion/<token>`)—, para que quien se registra desde el link del email VUELVA a esa
+ * invitación al confirmar. El cliente no es de fiar: se RE-VALIDA acá contra la allow-list estrecha
+ * `safeInvitationNext` y cualquier otro destino se descarta en silencio (el enlace de verificación
+ * queda como siempre). Abrir un `next` general sería el open redirect que auth-hardening-jwt-cookies D5 cerró.
+ */
 export async function signUpAction(input: {
   email: string
   password: string
   captchaToken?: string
   profile: SignUpProfile
+  next?: string
 }): Promise<AuthActionResult> {
   const supabase = createClient()
   const { profile } = input
@@ -136,7 +146,7 @@ export async function signUpAction(input: {
         // de la columna).
         email_notifications_opt_in: profile.emailOptIn ?? false,
       },
-      emailRedirectTo: await callbackUrl(),
+      emailRedirectTo: await callbackUrl(safeInvitationNext(input.next) ?? undefined),
       captchaToken: input.captchaToken,
     },
   })

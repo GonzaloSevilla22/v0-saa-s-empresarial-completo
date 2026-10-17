@@ -13,6 +13,7 @@ import Link from "next/link"
 // para siempre. El cooldown de 30 s se conserva acá, donde estaba: es de
 // experiencia.
 import { fetchAuthStatus } from "@/lib/auth/session-status"
+import { safeInvitationNext } from "@/lib/auth/invitation-next"
 import { subscribeToSessionEvents } from "@/lib/auth/session-bus"
 // H-5 (humo local del 2026-09-18): de acá sale la renovación FORZADA de la sesión
 // de la app. Se destructura `refreshSession` a propósito: un `const auth =
@@ -55,8 +56,12 @@ const SUCCESS_DWELL   = 1500 // ms
  */
 const REFRESH_WATCHDOG = 8000 // ms
 
-/** Los dos únicos destinos de esta pantalla una vez verificado el email. */
-type Destination = "/dashboard" | "/auth/login"
+/**
+ * Los destinos de esta pantalla una vez verificado el email: el dashboard o el login, y —si el registro
+ * vino de una invitación (multiusuario-operativo tanda C, D12)— la propia invitación o el login que
+ * vuelve a ella.
+ */
+type Destination = string
 
 // ─── Inner content (uses useSearchParams — must be inside Suspense) ───────────
 
@@ -64,6 +69,9 @@ function VerifyEmailContent() {
   const router      = useRouter()
   const params      = useSearchParams()
   const emailParam  = params.get("email") ?? ""
+  // La invitación a la que volver (allow-list estrecha; cualquier otro `next` se descarta).
+  const invitationNext = safeInvitationNext(params.get("next"))
+  const loginTarget = invitationNext ? `/auth/login?next=${encodeURIComponent(invitationNext)}` : "/auth/login"
   const { refreshSession } = useAuth()
   const captchaGate = useCaptchaGate()
 
@@ -155,12 +163,12 @@ function VerifyEmailContent() {
    */
   const resolveDestination = useCallback(async (): Promise<Destination> => {
     try {
-      return (await refreshSession()) ? "/dashboard" : "/auth/login"
+      return (await refreshSession()) ? (invitationNext ?? "/dashboard") : loginTarget
     } catch (error) {
       console.error("[verify-email] no se pudo renovar la sesión:", error)
-      return "/auth/login"
+      return loginTarget
     }
-  }, [refreshSession])
+  }, [refreshSession, invitationNext, loginTarget])
 
   // Called once verification is confirmed — show success then redirect
   //
@@ -185,7 +193,7 @@ function VerifyEmailContent() {
       // El techo de espera: sin él, una renovación que no settlea nunca (petición
       // colgada, sin `AbortSignal` en el store) deja esta pantalla sin salida.
       const porTecho = new Promise<Destination>((resolve) => {
-        scheduleTimer(REFRESH_WATCHDOG, () => resolve("/auth/login"))
+        scheduleTimer(REFRESH_WATCHDOG, () => resolve(loginTarget))
       })
       const renovada = Promise.race([resolveDestination(), porTecho]).then((target) => {
         if (aliveRef.current) setDestination(target)
@@ -201,7 +209,7 @@ function VerifyEmailContent() {
       // diciendo.
       router.push(target)
     })()
-  }, [router, stopPolling, resolveDestination, scheduleTimer])
+  }, [router, stopPolling, resolveDestination, scheduleTimer, loginTarget])
 
   // Core check: preguntarle al servidor por el estado REAL del email.
   //
@@ -328,12 +336,14 @@ function VerifyEmailContent() {
             <div className="flex flex-col gap-1">
               <h2 className="text-xl font-bold text-foreground">Email verificado</h2>
               <p className="text-sm text-muted-foreground">
-                {destination === "/auth/login"
+                {destination?.startsWith("/auth/login")
                   // El email quedó verificado igual: lo que falta es una sesión viva
                   // en este navegador. Las tres causas alcanzables están enumeradas
                   // en `resolveDestination`.
                   ? "Iniciá sesión para entrar a tu cuenta…"
-                  : "Redirigiendo al dashboard…"}
+                  : invitationNext
+                    ? "Volviendo a tu invitación…"
+                    : "Redirigiendo al dashboard…"}
               </p>
             </div>
             <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />

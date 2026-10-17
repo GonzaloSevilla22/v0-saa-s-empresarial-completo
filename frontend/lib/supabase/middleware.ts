@@ -6,6 +6,7 @@ import {
   isProtectedPath as isProtectedRoute,
   isApiPath as isApiRoute,
   isApiAuthPath as isApiAuthRoute,
+  isInvitationPath,
 } from "@/lib/auth/route-access"
 import { resolveSafeRedirect } from "@/lib/auth/safe-next"
 import { authCookieOptions } from "@/lib/supabase/cookie-options"
@@ -18,12 +19,21 @@ import { authCookieOptions } from "@/lib/supabase/cookie-options"
 // viajar además en los encabezados de la petición reenviada — y un segundo
 // `buildContentSecurityPolicy()` produciría otro nonce, que es exactamente la
 // forma de dejar la página en blanco sin que ningún test lo note.
-function applySecurityHeaders(response: NextResponse, csp: string): NextResponse {
+function applySecurityHeaders(response: NextResponse, csp: string, pathname = ""): NextResponse {
   const h = response.headers
 
   h.set("X-Frame-Options", "DENY")
   h.set("X-Content-Type-Options", "nosniff")
-  h.set("Referrer-Policy", "strict-origin-when-cross-origin")
+  if (isInvitationPath(pathname)) {
+    // multiusuario-operativo tanda C (D12): `/invitacion/<token>` lleva el token en el PATH. La política global
+    // (`strict-origin-when-cross-origin`) manda el path completo en los pedidos del MISMO origen y, ante un
+    // destino sin HTTPS-a-HTTPS, el origen: el token no tiene que salir por `Referer` hacia ningún lado, y la
+    // pantalla no tiene que indexarse. Sólo esa ruta; el resto conserva la política global.
+    h.set("Referrer-Policy", "no-referrer")
+    h.set("X-Robots-Tag", "noindex, nofollow, noarchive")
+  } else {
+    h.set("Referrer-Policy", "strict-origin-when-cross-origin")
+  }
   h.set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
   h.set("X-DNS-Prefetch-Control", "off")
 
@@ -221,7 +231,7 @@ export async function updateSession(
   // que es justamente lo que D19-5 existe para evitar. La CSP sí se emite: es lo
   // único que el middleware aporta a esas rutas.
   if (isApiAuthRoute(pathname)) {
-    return applySecurityHeaders(NextResponse.next(forward()), csp)
+    return applySecurityHeaders(NextResponse.next(forward()), csp, pathname)
   }
 
   let supabaseResponse = NextResponse.next(forward())
@@ -267,7 +277,7 @@ export async function updateSession(
     request.cookies.getAll().forEach((cookie) => {
       if (cookie.name.startsWith("sb-")) purge.cookies.delete(cookie.name)
     })
-    return applySecurityHeaders(purge, csp)
+    return applySecurityHeaders(purge, csp, pathname)
   }
 
   // getUser() makes a network call to validate the JWT server-side.
@@ -311,14 +321,14 @@ export async function updateSession(
     const url  = request.nextUrl.clone()
     url.pathname = "/auth/login"
     url.searchParams.set("next", pathname)
-    return applySecurityHeaders(NextResponse.redirect(url), csp)
+    return applySecurityHeaders(NextResponse.redirect(url), csp, pathname)
   }
 
   // Unverified email → block until confirmed
   if (isProtected && user && !user.email_confirmed_at) {
     const url = request.nextUrl.clone()
     url.pathname = "/auth/verify-email"
-    return applySecurityHeaders(withRotatedSessionCookies(NextResponse.redirect(url), supabaseResponse), csp)
+    return applySecurityHeaders(withRotatedSessionCookies(NextResponse.redirect(url), supabaseResponse), csp, pathname)
   }
 
   // ── Server-side idle enforcement (defense-in-depth) ─────────────────────
@@ -377,7 +387,7 @@ export async function updateSession(
       // Clear the activity signal and tenant cookie (parity with client logout)
       redirect.cookies.delete(COOKIE_KEYS.LAST_ACTIVITY)
       redirect.cookies.delete(COOKIE_KEYS.TENANT)
-      return applySecurityHeaders(redirect, csp)
+      return applySecurityHeaders(redirect, csp, pathname)
     }
 
     if (idleResult.action === "seed") {
@@ -405,7 +415,7 @@ export async function updateSession(
     if (!profile || profile.role !== "admin") {
       const url = request.nextUrl.clone()
       url.pathname = "/dashboard"
-      return applySecurityHeaders(withRotatedSessionCookies(NextResponse.redirect(url), supabaseResponse), csp)
+      return applySecurityHeaders(withRotatedSessionCookies(NextResponse.redirect(url), supabaseResponse), csp, pathname)
     }
   }
 
@@ -419,8 +429,8 @@ export async function updateSession(
     // puede cambiar el host, a diferencia del setter de `pathname` que había
     // antes de esta parte).
     const url = resolveSafeRedirect(request.nextUrl.searchParams.get("next"), request.url)
-    return applySecurityHeaders(withRotatedSessionCookies(NextResponse.redirect(url), supabaseResponse), csp)
+    return applySecurityHeaders(withRotatedSessionCookies(NextResponse.redirect(url), supabaseResponse), csp, pathname)
   }
 
-  return applySecurityHeaders(supabaseResponse, csp)
+  return applySecurityHeaders(supabaseResponse, csp, pathname)
 }

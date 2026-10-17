@@ -4,6 +4,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback, use
 import { useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { createClient } from "@/lib/supabase/client"
+import { safeInvitationNext } from "@/lib/auth/invitation-next"
 import { useRouter } from "next/navigation"
 import type { User, Plan, UserRole, BillingStatus } from "@/lib/types"
 import {
@@ -82,9 +83,19 @@ interface AuthContextType {
       termsVersion?: string
       emailOptIn?: boolean
       captchaToken?: string
+      /** Ruta de una invitación a la que volver tras verificar el email (allow-list estrecha; ver `signUpAction`). */
+      next?: string
     },
   ) => Promise<void>
-  logout: () => Promise<void>
+  /**
+   * Cierra la sesión de ESTE dispositivo y lleva al login.
+   *
+   * multiusuario-operativo (tanda C, D12): `returnTo` admite SOLO la ruta de una invitación
+   * (`/invitacion/<token>`, allow-list `safeInvitationNext`): el invitado que abrió el link con otra
+   * identidad elige «Cerrar sesión e ingresar con otro email» y, tras ingresar, tiene que volver a esa
+   * misma invitación. Cualquier otro valor se descarta (el login queda como siempre).
+   */
+  logout: (options?: { returnTo?: string }) => Promise<void>
   /**
    * Vuelve a resolver identidad, perfil, cuenta y plan **forzando** la renovación
    * del access token en memoria.
@@ -111,6 +122,15 @@ interface AuthContextType {
    * la membresía se revocó entre que se listó y se eligió).
    */
   switchAccount: (accountId: string) => Promise<void>
+  /**
+   * multiusuario-operativo (tanda C, D7): la base YA dejó una cuenta como activa —lo hace
+   * `rpc_accept_invitation` en su transacción— y falta TODO lo que hay detrás de un cambio de cuenta:
+   * renovar el token ANTE EL PROVEEDOR (el hook emite el claim de la cuenta nueva sólo al emitir),
+   * descartar la caché, resincronizar, avisar a las otras pestañas y llevar al Tablero, con el aviso de
+   * bienvenida de `options.message`. A diferencia de `switchAccount` NO vuelve a persistir la preferencia.
+   * Rechaza si el proveedor no entrega una sesión nueva (el cambio no se da por hecho).
+   */
+  adoptActiveAccount: (options?: { message?: string }) => Promise<void>
   /**
    * accounts-profiles-privilege-columns (2026-09-21): `upgradePlan` /
    * `downgradePlan` se RETIRARON. Escribían `profiles.plan` con
@@ -514,6 +534,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       termsVersion?: string
       emailOptIn?: boolean
       captchaToken?: string
+      next?: string
     },
   ) => {
     if (password.length < 6) throw new Error("La contraseña debe tener al menos 6 caracteres")
@@ -534,6 +555,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           termsVersion: extras?.termsVersion,
           emailOptIn: extras?.emailOptIn,
         },
+        next: extras?.next,
       }),
     )
     // H-5 (humo local del 2026-09-18): la MISMA renovación forzada que hace
@@ -554,7 +576,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // remains a pure auth operation, reusable from any context without side-effects.
   }, [refreshSession])
 
-  const logout = useCallback(async () => {
+  const logout = useCallback(async (options?: { returnTo?: string }) => {
     // auth-hardening-jwt-cookies (D6): `scope: 'local'` explícito. El
     // `signOut()` pelado es GLOBAL por default de la librería
     // (`GoTrueClient.js:3150`), así que cerrar sesión en el celular revocaba
@@ -580,7 +602,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // temporizador de inactividad, que haría que las otras pestañas mostraran
     // "tu sesión se cerró por inactividad" cuando no es cierto.
     announceSignedOut()
-    router.push("/auth/login")
+    const returnTo = typeof options?.returnTo === "string" ? safeInvitationNext(options.returnTo) : null
+    router.push(returnTo ? `/auth/login?next=${encodeURIComponent(returnTo)}` : "/auth/login")
   }, [router])
 
   const updateProfile = useCallback(async (data: ProfileUpdateData) => {
@@ -607,6 +630,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await refreshSession()
   }, [supabase, user, refreshSession])
 
+  /**
+   * Lo que sigue a que la BASE tiene una cuenta nueva como activa (la eligió `rpc_set_active_account` o la
+   * dejó `rpc_accept_invitation`): renovar el token, descartar la caché, resincronizar, avisar y llevar al
+   * Tablero. Una sola definición para los dos caminos (regla del proyecto: reutilización antes que repetición).
+   */
+  const finishAccountChange = useCallback(
+    async (welcome: string): Promise<void> => {
+      // 2) Renovar el token ANTE EL PROVEEDOR: el claim `account_id` lo emite el hook al emitir, y releer
+      //    el token vigente (lo que hace `refreshSession` solo) no cambia la cuenta hasta que el token venza.
+      //    Si no se pudo renovar, el cambio no rige: se avisa y se recarga la lista (la preferencia ya quedó
+      //    guardada: un reintento la reaplica).
+      if (!(await renewSessionAtProvider())) {
+        toast.error("No pudimos cambiar de cuenta. Probá de nuevo.")
+        await refreshSession()
+        throw new Error("No se pudo renovar la sesión para cambiar de cuenta")
+      }
+
+      // 3) Descartar lo que había en caché (es de la cuenta anterior) y re-resolver la cuenta con el token nuevo.
+      queryClient.clear()
+      await refreshSession()
+
+      // 4) Avisar a las otras pestañas (sin token en el mensaje) y llevar al Tablero.
+      announceAccountSwitched()
+      router.replace("/dashboard")
+      toast.success(welcome)
+    },
+    [queryClient, refreshSession, router],
+  )
+
   const switchAccount = useCallback(
     async (accountId: string): Promise<void> => {
       const target = accounts.find((account) => account.accountId === accountId)
@@ -623,27 +675,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         throw new Error("No se pudo cambiar de cuenta activa")
       }
 
-      // 2) Renovar el token ANTE EL PROVEEDOR: el claim `account_id` lo emite el hook al
-      //    emitir, y releer el token vigente (lo que hace `refreshSession` solo) no cambia la
-      //    cuenta hasta que el token venza. Si no se pudo renovar, el cambio no rige: se avisa
-      //    y se recarga la lista (la preferencia ya quedó guardada: un reintento la reaplica).
-      if (!(await renewSessionAtProvider())) {
-        toast.error("No pudimos cambiar de cuenta. Probá de nuevo.")
-        await refreshSession()
-        throw new Error("No se pudo renovar la sesión para cambiar de cuenta")
-      }
-
-      // 3) Descartar lo que había en caché (es de la cuenta anterior) y re-resolver la cuenta
-      //    con el token nuevo.
-      queryClient.clear()
-      await refreshSession()
-
-      // 4) Avisar a las otras pestañas (sin token en el mensaje) y llevar al Tablero.
-      announceAccountSwitched()
-      router.replace("/dashboard")
-      toast.success(`Ahora estás en ${target?.displayName ?? activeNameRef.current ?? "tu cuenta"}`)
+      await finishAccountChange(`Ahora estás en ${target?.displayName ?? activeNameRef.current ?? "tu cuenta"}`)
     },
-    [accounts, supabase, queryClient, refreshSession, router],
+    [accounts, supabase, refreshSession, finishAccountChange],
+  )
+
+  const adoptActiveAccount = useCallback(
+    (options?: { message?: string }): Promise<void> =>
+      finishAccountChange(options?.message ?? "Ahora estás en tu nueva cuenta"),
+    [finishAccountChange],
   )
 
   const changePassword = useCallback(async (newPassword: string) => {
@@ -710,6 +750,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         user,
         accounts,
         switchAccount,
+        adoptActiveAccount,
         isAuthenticated: !!user,
         isAdmin: user?.role === "admin",
         effectivePlan: user?.effectivePlan ?? "gratis",

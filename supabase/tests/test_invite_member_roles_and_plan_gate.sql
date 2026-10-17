@@ -17,8 +17,8 @@
 --       texto conservado ("pending invitation already exists").
 --   (6) rpc_invite_member(3-arg): el administrador NO puede invitar con el
 --       rol de administrador en el conjunto -> P0403.
---   (7) rpc_invite_member(2-arg, TeamSection.tsx): cupo agotado -> P0402
---       también (mismo código que el overload de 3 args).
+--   (7) [multiusuario-operativo tanda C, D14] el overload de 2 args (TeamSection.tsx) se RETIRÓ: se verifica que no exista y que la invitación sin roles (NULL = {viewer}) respete el cupo -> P0402
+--       (mismo código que antes, ahora por el único overload vivo).
 --   (8) Invitación SIN roles declarados (NULL) resuelve a {viewer} al
 --       aceptarse.
 --   (9) Invitación con el conjunto {seller, cashier} concede AMBOS roles al
@@ -346,12 +346,20 @@ BEGIN
     --    por texto aunque la conducta se rompa. Se invita un email DISTINTO,
     --    todavía con el trial de A5 vigente (antes del UPDATE de (15) que lo
     --    vence).
-    v_result_json := public.rpc_invite_member('gate-invite-a5-quick@test.local'::text, v_a5_account);
+    --
+    --    AJUSTE A PROPÓSITO (multiusuario-operativo tanda C, D14): el overload de 2
+    --    args se retiró. Lo que este bloque protegía —que la invitación RÁPIDA use
+    --    el cupo EFECTIVO— ahora lo hace el único overload vivo, invocado sin roles
+    --    declarados (el camino que seguía la invitación rápida: queda {viewer}).
+    v_result_json := public.rpc_invite_member('gate-invite-a5-quick@test.local'::text, v_a5_account, NULL::text[]);
     IF v_result_json IS NULL THEN
-      RAISE EXCEPTION 'GATE FAILED (13b): rpc_invite_member(2-arg) con trial pro VIGENTE fue rechazado -- debería usar el cupo EFECTIVO igual que el overload de 3 args.';
+      RAISE EXCEPTION 'GATE FAILED (13b): rpc_invite_member sin roles declarados con trial pro VIGENTE fue rechazado -- debería usar el cupo EFECTIVO.';
+    END IF;
+    IF (v_result_json->'roles')::jsonb IS DISTINCT FROM '["viewer"]'::jsonb THEN
+      RAISE EXCEPTION 'GATE FAILED (13b): sin roles declarados la invitación debía resolver a {viewer}, dio %', v_result_json->'roles';
     END IF;
     v_blocks_run := v_blocks_run + 1;
-    RAISE NOTICE 'PASS (13b): rpc_invite_member(2-arg, TeamSection.tsx) también invita con el cupo EFECTIVO (trial pro vigente) -- en CONDUCTA, no sólo por candado de texto.';
+    RAISE NOTICE 'PASS (13b): la invitación sin roles declarados (el camino de la invitación rápida) invita con el cupo EFECTIVO (trial pro vigente) y resuelve a {viewer} -- en CONDUCTA.';
 
     -- ── (15) rpc_accept_invitation reevalúa el cupo EFECTIVO al aceptar ────
     --    (no lo hereda del momento de invitar): se deja vencer el trial de
@@ -409,14 +417,12 @@ BEGIN
   --    identificador dentro de un comentario no es una lectura; mismo
   --    patrón que ya usa test_tenancy_guard_caja_outbox.sql). Cada una debe,
   --    además, llamar a get_effective_plan.
-  SELECT regexp_replace(pg_get_functiondef(p.oid), '--[^\n]*', '', 'g') INTO v_def
-  FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-  WHERE n.nspname = 'public' AND p.proname = 'rpc_invite_member' AND p.pronargs = 2;
-  IF position('billing_plan' in v_def) <> 0 THEN
-    RAISE EXCEPTION 'GATE FAILED (16): rpc_invite_member(2-arg) todavía lee billing_plan crudo -- el fix de membership-quota-effective-plan se revirtió.';
-  END IF;
-  IF position('get_effective_plan' in v_def) = 0 THEN
-    RAISE EXCEPTION 'GATE FAILED (16): rpc_invite_member(2-arg) no llama a get_effective_plan.';
+  -- AJUSTE A PROPÓSITO (multiusuario-operativo tanda C, D14): el overload de 2 args se
+  -- retiró; en su lugar se exige que NO haya revivido (un `\i` de una migración vieja
+  -- lo recrearía) y que quede UNA sola definición viva de rpc_invite_member.
+  IF EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+              WHERE n.nspname = 'public' AND p.proname = 'rpc_invite_member' AND p.pronargs = 2) THEN
+    RAISE EXCEPTION 'GATE FAILED (16): rpc_invite_member(2-arg) revivió -- multiusuario-operativo tanda C lo retiró (D14).';
   END IF;
 
   SELECT regexp_replace(pg_get_functiondef(p.oid), '--[^\n]*', '', 'g') INTO v_def
@@ -495,10 +501,20 @@ BEGIN
     v_blocks_run := v_blocks_run + 1;
     RAISE NOTICE 'PASS (4): rpc_invite_member(3-arg) -- cupo agotado -> P0402, texto conservado (D18).';
 
-    -- ── (7) rpc_invite_member(2-arg, TeamSection.tsx): cupo agotado ───────
+    -- ── (7) AJUSTE A PROPÓSITO (multiusuario-operativo tanda C, D14): el overload ──
+    --    de 2 argumentos (la invitación rápida de TeamSection.tsx, que resolvía a
+    --    `viewer` sin que nadie lo eligiera) SE RETIRÓ. Antes este bloque verificaba
+    --    que rechazara a una cuenta a cupo con P0402; ahora verifica que NO EXISTA
+    --    (la invitación rápida pasó al conjunto de roles por FastAPI) y que el
+    --    MISMO rechazo de cupo lo dé el overload de 3 argumentos con un conjunto
+    --    por defecto (`NULL` = {viewer}), que es el comportamiento que el overload
+    --    de 2 args tenía.
+    IF to_regprocedure('public.rpc_invite_member(text,uuid)') IS NOT NULL THEN
+      RAISE EXCEPTION 'GATE FAILED (7): rpc_invite_member(text, uuid) debía haberse retirado (multiusuario-operativo tanda C, D14).';
+    END IF;
     BEGIN
-      PERFORM public.rpc_invite_member('gate-invite-a1-y@test.local'::text, v_a1_account);
-      RAISE EXCEPTION 'GATE FAILED (7): el overload de 2 args no rechazó la cuenta a cupo.';
+      PERFORM public.rpc_invite_member('gate-invite-a1-y@test.local'::text, v_a1_account, NULL::text[]);
+      RAISE EXCEPTION 'GATE FAILED (7): la invitación sin roles declarados no rechazó la cuenta a cupo.';
     EXCEPTION WHEN OTHERS THEN
       GET STACKED DIAGNOSTICS v_caught_code = RETURNED_SQLSTATE;
       IF v_caught_code <> 'P0402' THEN
@@ -506,7 +522,7 @@ BEGIN
       END IF;
     END;
     v_blocks_run := v_blocks_run + 1;
-    RAISE NOTICE 'PASS (7): rpc_invite_member(2-arg) -- mismo código de cupo P0402 (D18).';
+    RAISE NOTICE 'PASS (7): el overload de 2 args ya no existe; la invitación sin roles (NULL = viewer) respeta el mismo cupo P0402 (D18).';
   END IF;
 
   -- ═══ Bloque 10: carrera invite/accept en A4 (inicial, max=2) ═══════════

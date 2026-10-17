@@ -162,50 +162,69 @@
 
 ## 7. Tanda B — checkpoints
 
-- [ ] 7.1 Re-ejecutar 0.4 y confirmar el orden. Si `_purchase_operation_core` existe, el guard de producto de la compra va en el núcleo (D11).
-- [ ] 7.2 *Preflight* de `md5` contra prod de las ocho funciones del patrón F (y del núcleo de compra, si existe). Guardar los cuerpos vivos en `evidence/tanda-b/`.
-- [ ] 7.3 Listar con `grep` los gates que introspectan o ejecutan esas funciones (`supabase/tests/`, `KPI_Validation.yml`) y anotarlos acá: son los que se re-corren en 9.3.
+- [x] 7.1 Re-ejecutar 0.4 y confirmar el orden. Si `_purchase_operation_core` existe, el guard de producto de la compra va en el núcleo (D11).
+  - **Hecho (2026-10-17)**: `main` = `b01e445a` (tanda A, #651). `fix/stock-edicion-sucursal-y-piso` = PR #646, **abierto, rojo y en conflicto** (`20261080000001`; reescribe las dos de edición, `_stock_apply_delta` y `rpc_reverse_stock_movement`): no se espera por él, se parte del cuerpo VIVO y el *preflight* aborta si cambia. #645 abierto (`20261079000001`, importador: no toca estas funciones). #644 sólo propose. **`_purchase_operation_core` existe en `main` y en prod** → el guard de producto de la compra va en el núcleo. OQ-9 (a): esta tanda primero. Producción: 41 cuentas, 0 con más de un miembro, 0 filas con autor que no es miembro, `MAX(version) = 20261082000001` (329).
+- [x] 7.2 *Preflight* de `md5` contra prod de las ocho funciones del patrón F (y del núcleo de compra, si existe). Guardar los cuerpos vivos en `evidence/tanda-b/`.
+  - **Hecho**: `md5` de `prosrc` (sin `\r`) de las nueve funciones, **prod == base local** (`evidence/tanda-b/cuerpos-previos/`, con el `COMMENT`, la ACL y el `md5` de cada una; es el rollback). Tabla en el *preflight* de la migración.
+- [x] 7.3 Listar con `grep` los gates que introspectan o ejecutan esas funciones (`supabase/tests/`, `KPI_Validation.yml`) y anotarlos acá: son los que se re-corren en 9.3.
+  - **Hecho**, y todos se re-corrieron en la cadena completa: `test_asiento_venta_formulario`, `test_branch_stock`, `test_cobranzas_vencimientos_schema`, `test_compras_gastos_sucursal_por_defecto` (ajustado), `test_compras_proveedor_cuenta_corriente`, `test_confirm_core_integrity`, `test_cuenta_corriente_party_guard`, `test_delete_guard_ledgers`, `test_document_status_transition_role_matrix`, `test_edicion_preserva_contexto`, `test_facturar_venta_manual` (ajustado) y su carrera, `test_function_acl_gate`, `test_gastos_forma_pago`, `test_idempotency`, `test_multiusuario_cuenta_activa`, `test_operacion_party_guard`, `test_operation_edit_lines` (ajustado), `test_pagos_cableados_restantes`, `test_payment_method_operations`, `test_pos_banco_movimientos`, `test_pos_rpc_signatures`, `test_purchase_cash_optin`, `test_purchase_delete_cash_compensation`, `test_remito_a_compra` (ajustado), `test_remito_a_venta`, `test_remitos_compra` y su carrera, `test_remitos_venta_race`, `test_sale_items_rpc_v2_activation`, `test_stock_ledger_solo_rpc`, `test_stock_movements_edicion`, `test_stock_movimientos_sucursal_origen`, `test_tenancy_guard_caja_outbox`, `test_unidades_decisiones_8_9`, `test_venta_editable_sin_cae` y su carrera, `test_ventas_formulario_sucursal`, `test_ventas_sucursal_por_defecto` (ajustado), `test_ventas_unidades_conversion` (ajustado) y su carrera. *Safety net*: 39 pasos de esa lista sobre `main` antes de tocar nada, 39/39 (`baseline-gates.txt`).
 
 ## 8. Tanda B — RED: gate de operaciones
 
-- [ ] 8.1 Crear `supabase/tests/test_multiusuario_operaciones.sql`. Una cuenta A con owner, admin, seller, cashier, stock, purchases y viewer; una cuenta B con un producto y una venta; un usuario de dos cuentas.
-- [ ] 8.2 Bloques de la matriz de D9:
+- [x] 8.1 Crear `supabase/tests/test_multiusuario_operaciones.sql`. Una cuenta A con owner, admin, seller, cashier, stock, purchases y viewer; una cuenta B con un producto y una venta; un usuario de dos cuentas.
+  - **Hecho**: `supabase/tests/test_multiusuario_operaciones.sql`. Equipo real en la cuenta A (dueño, administrador, vendedor, cajero, depósito, compras, contador, observador, un multirol y un ex-miembro con el token vigente), una cuenta B con producto, venta y compra, y cada miembro con su cuenta personal (el claim declara A, como el hook).
+- [x] 8.2 Bloques de la matriz de D9:
   - **alta de venta** por formulario: owner, admin, seller y cashier lo logran; stock da `P0403`; viewer da `P0401`;
   - **alta de compra**: owner, admin y purchases lo logran; seller, cashier y stock dan `P0403`; viewer da `P0401`;
   - **edición y borrado de venta y de compra**: owner y admin sobre lo ajeno, sí; seller sobre lo propio, sí; seller sobre lo del owner, `P0403`; viewer, `P0401`.
-- [ ] 8.3 Controles negativos de tenencia:
+  - **Hecho**: bloques (a) alta de venta —por las **dos** firmas públicas—, (b) alta de compra, (a2) el observador no vende, no compra, no edita ni borra aun con un producto propio, (d)/(e) edición y borrado de venta, (f)/(g) edición y borrado de compra. Matriz completa de D9; **el observador da `P0401`** (no `P0403`): es el diseño, las tareas y la spec.
+- [x] 8.3 Controles negativos de tenencia:
   - un producto de B vendido o comprado desde A da `P0404`, con el **mismo texto** que un id inexistente;
   - una venta de B editada o borrada desde A da `P0404`;
   - el usuario de dos cuentas, con un producto de la cuenta no activa, da `P0404`;
   - en ningún caso hay filas nuevas ni movimiento de stock.
-- [ ] 8.4 Correr el gate contra la base local **antes** de la migración: falla en R3a, R3b, R3d, R3f y R3g, y en el viewer sin rechazo (patrón F). Guardar en `evidence/tanda-b/red.log`.
+  - **Hecho**: bloque (c) y los de (d)-(g): producto de B vendido o comprado desde A = `P0404` con el **mismo texto** que un id inexistente; la venta o la compra de B editada = `P0404` y **borrada = `false`** (como un inexistente: las RPCs de borrado ya resolvían por cuenta); el usuario de dos cuentas con la personal activa y un producto de la cuenta no activa = `P0404`; claim revocado y cuenta nunca miembro = «sin cuenta activa»; en todos, huella de efectos idéntica (ventas, compras, movimientos de stock, stock, caja, eventos, idempotencia).
+- [x] 8.4 Correr el gate contra la base local **antes** de la migración: falla en R3a, R3b, R3d, R3f y R3g, y en el viewer sin rechazo (patrón F). Guardar en `evidence/tanda-b/red.log`.
+  - **Hecho**: `evidence/tanda-b/red.log` — **12 bloques fallan antes de la migración por la razón correcta**: R3b `P0403 Permission denied to product`, R3d `sale belongs to another user`, R3f/R3g `purchase belongs to another user`, el producto de otra cuenta que da `P0403` en vez de `P0404`, el helper inexistente, y el **observador que vende con un producto propio** (`debía dar P0401, dio 00000`) y el vendedor que borra la venta del dueño sin error (patrón F).
 
 ## 9. Tanda B — GREEN: migración de guards
 
-- [ ] 9.1 Número de migración (como 2.1).
-- [ ] 9.2 Escribir la migración:
+- [x] 9.1 Número de migración (como 2.1).
+  - **Hecho**: `20261083000001_multiusuario_operaciones.sql` (`MAX(version)` de prod = `20261082000001`; los PRs abiertos con migración, #645 y #646, usan `20261079000001` y `20261080000001`; `20261081000001` es remitos-compra B).
+- [x] 9.2 Escribir la migración:
   - `_account_assert_capability(uuid, text[], text)`: `INVOKER`, `STABLE`, sin `EXECUTE` para los roles de aplicación;
   - las ocho funciones desde el vivo (D8, D9): filtro de cuenta en el `SELECT … FOR UPDATE` del producto; documento por cuenta; el guard de rol al principio, antes de cualquier escritura; la regla de autor en edición y borrado;
   - se elimina todo `v_product.user_id <> v_uid` y todo `user_id != v_uid` de documento; `user_id` se sigue escribiendo como autoría.
-- [ ] 9.3 Gate de la tanda B en verde, más la lista de 7.3 y la cadena completa de `KPI_Validation.yml` sobre un `db reset` limpio.
-- [ ] 9.4 Mutantes: quitar el filtro de cuenta del `SELECT` del producto, y quitar el guard de rol del borrado. El gate tiene que fallar en los dos. Restaurar y dejarlo anotado.
-- [ ] 9.5 Reaplicación en `KPI_Validation.yml`, al final de la cadena.
+  - **Hecho**, con tres precisiones: (1) la migración se **genera por edición textual acotada del `pg_get_functiondef` vivo** (cada patrón se exige exactamente las veces esperadas) y los diffs contra el vivo —sólo el guard que cambia— están en `evidence/tanda-b/diffs/`; (2) además del `_account_assert_capability` hay un segundo helper, `_account_assert_document_authority` (la regla de autor de OQ-4, repetida en cuatro funciones); (3) **la edición conserva al autor original** (`v_author`): sin eso, el administrador que corrige la venta del vendedor se queda con su autoría. El `COMMENT` y la ACL de cada función se re-emiten tal cual. Se incluyó `rpc_create_purchase_operation_v2` (sin llamadores, sólo `service_role`) para que ninguna de las ocho conserve el criterio por autor.
+- [x] 9.3 Gate de la tanda B en verde, más la lista de 7.3 y la cadena completa de `KPI_Validation.yml` sobre un `db reset` limpio.
+  - **Hecho**: `evidence/tanda-b/green.log` (EXIT=0, los 12 bloques `PASS`) y la cadena completa de `KPI_Validation.yml` (pasos 004-121) sobre un `db reset` limpio: **118/118 en verde** (`chain-kpi.txt`; el paso 095, la carrera de facturar venta manual, dio rc=1 en la corrida completa porque se corrió **en paralelo con la suite de vitest** —`statement_timeout` de 25 s del arnés en 5 iteraciones cargadas— y pasó 20/20 iteraciones de los 9 escenarios corrido solo: `chain-095-rerun.txt`). Ocho gates existentes se ajustaron **a propósito** (listados en `CHANGES.md`).
+- [x] 9.4 Mutantes: quitar el filtro de cuenta del `SELECT` del producto, y quitar el guard de rol del borrado. El gate tiene que fallar en los dos. Restaurar y dejarlo anotado.
+  - **Hecho** (`evidence/tanda-b/mutantes.log`): cinco mutantes, todos matados por el gate y restaurados (el gate corre en la misma transacción que la mutación y la revierte): sin el filtro de cuenta del producto de la venta (c, j), borrado de venta sin el guard de rol (a2, e, j), borrado de compra sin la regla de autor (g), núcleo de compra sin el filtro de cuenta (c, j) y edición con el lock por autor en vez de por cuenta (d, e, j).
+- [x] 9.5 Reaplicación en `KPI_Validation.yml`, al final de la cadena.
+  - **Hecho**, **rebasando** y no retirando los pasos de `20261070000001`, `20261075000001` y `20261081000001` (cada uno decía «retirar o rebasar»): tras el reset de reconvergencia un paso nuevo restaura los nueve cuerpos de producción con `supabase/migrations_bak/rollback_20261083000001_multiusuario_operaciones.sql` —que es además la **prueba del rollback**— y la reaplicación de `20261083000001` va al final de la cadena (9 de partida en la primera pasada, 9 ya reaplicados en la segunda, schema idéntico). Paso nuevo «Run multiusuario operaciones gate».
 
 ## 10. Tanda B — backend y frontend
 
-- [ ] 10.1 RED (pytest): los services de ventas y compras llaman `require_account_role` con `CAN_SELL` / `CAN_PURCHASE` en alta, edición y borrado. Test espejo: lee la migración de la tanda B y `backend/core/rbac.py`, y falla si los conjuntos divergen.
-- [ ] 10.2 GREEN: `backend/services/sales.py` y `backend/services/purchases.py`.
-- [ ] 10.3 RED (vitest):
+- [x] 10.1 RED (pytest): los services de ventas y compras llaman `require_account_role` con `CAN_SELL` / `CAN_PURCHASE` en alta, edición y borrado. Test espejo: lee la migración de la tanda B y `backend/core/rbac.py`, y falla si los conjuntos divergen.
+  - **Hecho**: `backend/tests/test_ventas_compras_capacidades.py` (89 tests): espejo con la migración (`CAN_SELL`, `CAN_PURCHASE`, `CAN_MODIFY_ANY_DOCUMENT`), matriz de roles sobre los 8 endpoints (403 **sin tocar la RPC**, y con la capacidad llega a ella), un multirol, token viejo sin `account_id` (consulta la base), los rechazos `P0401`/`P0403`/`P0404` como RFC 7807 y `created_by` en los listados. RED: `red-backend.log` (44 failed / 43 passed antes del guard).
+- [x] 10.2 GREEN: `backend/services/sales.py` y `backend/services/purchases.py`.
+  - **Hecho**: `services/sales.py` y `services/purchases.py` (alta, edición y borrado; los routers inyectan `conn`), `core/rbac.py` (`CAN_MODIFY_ANY_DOCUMENT`), `created_by` en los dos listados y sus esquemas. Los tests existentes que usaban un token sin roles de cuenta pasan a `tenant_token(["owner"])`; dos tests de integración de remitos se actualizaron (el depósito ya no borra ni edita compras).
+- [x] 10.3 RED (vitest):
   - `lib/rbac-capabilities.ts` suma `CAN_PURCHASE`, con su test espejo contra `rbac.py`;
   - `/ventas` y `/compras` ocultan "Nueva", "Editar" y "Eliminar" sin la capacidad;
   - "Editar" y "Eliminar" sobre un documento ajeno, sin owner ni admin, también se ocultan.
-- [ ] 10.4 GREEN en las pantallas y componentes de listado y fila de ventas y compras (con `hasCapability` y `useOrgRole`). Los errores `P0401`/`P0403` se humanizan con `operation-errors.ts`.
-- [ ] 10.5 Verificación visual con un usuario viewer y con uno seller: escritorio y móvil, tema claro y oscuro.
+  - **Hecho**: `lib/rbac-capabilities.ts` (`CAN_PURCHASE`, `CAN_MODIFY_ANY_DOCUMENT`, `canModifyDocument`) con su test espejo contra `rbac.py` y contra la migración; `operations-list-authorization.test.tsx`, `ventas-compras-capacidades.test.tsx` (los siete perfiles sobre las dos pantallas) y `operation-errors-ventas-compras-roles.test.ts`. RED: `red-frontend.log` (4 archivos, 43 tests).
+- [x] 10.4 GREEN en las pantallas y componentes de listado y fila de ventas y compras (con `hasCapability` y `useOrgRole`). Los errores `P0401`/`P0403` se humanizan con `operation-errors.ts`.
+  - **Hecho**: `/ventas` y `/compras` (`canSell` / `canPurchase` para «Nueva…», la Factura IA sólo para quien compra, `canModifyOperation` para «Editar» y «Eliminar», que se **ocultan** —no se deshabilitan—), las dos listas (prop `canModifyOperation`, default todas), `created_by` hasta `SaleOperation` / `PurchaseOperation`, y `operation-errors.ts` (la frase de la base tras `insufficient_role:`, `unauthorized` y `Product not found`; el borrado desde el listado también se humaniza).
+- [x] 10.5 Verificación visual con un usuario viewer y con uno seller: escritorio y móvil, tema claro y oscuro.
+  - **Hecho**: 16 capturas en `evidence/tanda-b/visual-*.png` (observador y vendedor, `/ventas` y `/compras`, escritorio 1366 y móvil 375, claro y oscuro) y `humo-ui.log` (22/22): el observador no ve «Nueva…», lápiz ni papelera (y sí el aviso de sólo lectura); el vendedor ve «Nueva venta» y el lápiz y la papelera **sólo en las 7 ventas propias** de 16, y nada en `/compras`; compras lo mismo en `/compras` (4 propias de 8); el depósito, nada en ninguna; el dueño, todo (16 y 8).
 
 ## 11. Tanda B — humo y PR
 
-- [ ] 11.1 Humo local: re-correr `smoke_stock.sql` S20, que debe quedar todo en OK salvo R3h y R3i, esperados, más el gate de la tanda B, como `authenticated`.
+- [x] 11.1 Humo local: re-correr `smoke_stock.sql` S20, que debe quedar todo en OK salvo R3h y R3i, esperados, más el gate de la tanda B, como `authenticated`.
+  - **Hecho**: `smoke_stock.sql` re-corrido contra la base migrada (`humo-s20-smoke-stock.log`): **R3a-R3l todo OK**. Dos adaptaciones, ambas consecuencia de lo firmado: el invitado queda con el negocio como cuenta activa (`profiles.active_account_id`, como lo deja la aceptación de una invitación) y **R3g lo hace el rol compras** —el vendedor ya no compra por diseño, OQ-3 (b); se agregó R3g2, que lo verifica (`P0403`)—. Los tres FAIL restantes del script (S7e, S16b, S16d) son hallazgos de la auditoría de stock de #645 y #646, ajenos a este change. **Humo real con build de producción, GoTrue ES256 y FastAPI con las dos palancas de tenencia** (`humo-api.log`, 42/42): R3a-R3l, la edición conserva la autoría, el observador y el depósito rechazados por FastAPI y por PostgREST directo, producto y documento de otra cuenta (404 indistinguible del inexistente, sin mover la otra cuenta), cuenta personal activa y producto del negocio, y **claim revocado** (un miembro quitado con el token vigente: 403 por FastAPI y `P0403` por PostgREST). Y **por la interfaz** (`humo-ui-venta.log`, 3/3): el vendedor vende «Cinta métrica» del dueño desde el formulario de `/ventas` y el dueño elimina esa venta desde el listado.
 - [ ] 11.2 PR de la tanda B y CI en verde.
+  - **PR abierto: #652**. La CI, el merge y el post-merge (11.3) quedan a cargo del orquestador.
 - [ ] 11.3 **Post-merge** (sólo lectura): `MAX(version)`, una sola definición viva de cada una de las ocho funciones sin overload nuevo, ACLs, el `md5` de cada cuerpo igual al de la migración, y el deploy de Render.
 
 ## 12. Hallazgo `email_logs` (OQ-7)
@@ -301,12 +320,12 @@
 
 - [x] 19.1 Validar los deltas: `npx openspec validate multiusuario-operativo --strict`. Si una OQ cambió el alcance, ajustar el delta en el mismo PR.
   - **Hecho**: `npx openspec validate multiusuario-operativo --strict` — válido.
-- [ ] 19.2 KB (**tanda A hecha**: `03_actores_y_roles.md`, `04_modelo_de_datos.md` y `08_arquitectura_propuesta.md`; `05` y `10` van con las tandas B y C):
+- [ ] 19.2 KB (**tandas A y B hechas**: `03_actores_y_roles.md` —incluye la matriz de quién vende, compra, edita y borra—, `04_modelo_de_datos.md`, `05_reglas_de_negocio.md` —RN-MU1 y RN-MU2— y `08_arquitectura_propuesta.md`; `10` no tiene nada que cerrar con la B y va con la C):
   - `knowledge-base/03_actores_y_roles.md` (cuenta activa, invitación);
   - `knowledge-base/05_reglas_de_negocio.md` (reglas nuevas de autorización de operaciones);
   - `knowledge-base/08_arquitectura_propuesta.md` (resolver único);
   - `knowledge-base/10_preguntas_abiertas.md` (cerrar lo que este change resuelve).
-- [ ] 19.3 `CHANGES.md` (**ficha de la tanda A hecha**; el cierre de los candidatos absorbidos va con las tandas B y C): ficha del change con las mediciones. Cerrar los candidatos absorbidos (`invitacion-aceptar-ui`, `cuenta-activa-selector`, la invitación rápida de `TeamSection`, `membership-rpcs-not-authenticated-p0401` y la parte de `v4-producto-calidad-05`) y dar de alta los que deja (`design.md` §Candidatos).
+- [ ] 19.3 `CHANGES.md` (**fichas de las tandas A y B hechas**; el cierre de los candidatos absorbidos va con la tanda C): ficha del change con las mediciones. Cerrar los candidatos absorbidos (`invitacion-aceptar-ui`, `cuenta-activa-selector`, la invitación rápida de `TeamSection`, `membership-rpcs-not-authenticated-p0401` y la parte de `v4-producto-calidad-05`) y dar de alta los que deja (`design.md` §Candidatos).
 - [ ] 19.4 (**a cargo del orquestador**: el apply de la tanda A no toca `CLAUDE.md`/`AGENTS.md`) `CLAUDE.md`: el puntero del roadmap y una regla dura nueva ("la cuenta activa se resuelve sólo con `current_account_ids()` / `resolve_active_account`; ningún componente ordena `account_members` por su cuenta"). Correr `python scripts/ci/check_docs_sync.py --fix` en el mismo PR.
 
 ## 20. Archive
@@ -321,8 +340,8 @@
 | 3.x | `backend/tests/test_deps.py`, `test_guards.py`, `test_database.py`, `test_auth*.py` | Unit | 96 passed en los archivos tocados | 18 failed (`red-backend.log`) | 114 passed | header igual / distinto / malformado / ausente; con y sin `account_id` en el token | `make_token`/`_auth` declaran cuenta |
 | 4.x | `__tests__/reporting/edge-product-ranking.test.ts`, `product-ranking.test.ts` (espejo de `_shared/reporting-canon.ts`) | Unit | 4 failed antes (RED en `red-frontend.log`) | RED visto | verde | resolver canónico vía RPC vs `account_members` | `deno check` limpio |
 | 5.x | `__tests__/components/AccountSwitcher.test.tsx`, `auth-context`, `session-bus`, `auth-headers` | Unit | 12 failed / 55 passed en los 10 archivos tocados (`red-frontend.log`) | 10 archivos fallan | 564 archivos / 6724 tests verdes | selector con 0, 1, 2 cuentas; cambio, fallo del proveedor, orden de pasos; 409 y 403 | `AccountSwitcher` partido (el catálogo sólo con 2+ cuentas) |
-| 8.x / 9.x | `supabase/tests/test_multiusuario_operaciones.sql` | SQL | | | | | |
-| 10.x | `backend/tests/test_sales*.py`, `test_purchases*.py`, el espejo de capacidades, `rbac-capabilities.test.ts` | Unit | | | | | |
+| 8.x / 9.x | `supabase/tests/test_multiusuario_operaciones.sql` | SQL | 39 pasos de la cadena sobre `main` (`baseline-gates.txt`, 39/39) | 12 bloques fallan (`red.log`) | EXIT=0, 12 bloques PASS (`green.log`); cadena 118/118 (`chain-kpi.txt`, `chain-095-rerun.txt`) | alta/edición/borrado × 7 roles, las dos firmas de alta, rama legacy, v2 de compra, otra cuenta / cuenta no activa / claim revocado, idempotencia; **5 mutantes matados** (`mutantes.log`) | diffs mínimos contra el vivo (`diffs/`); `COMMENT` y ACL conservados |
+| 10.x | `backend/tests/test_ventas_compras_capacidades.py` (+ `test_sales*`, `test_purchases*`, `test_sale_items`, …); `__tests__/lib/rbac-capabilities-ventas-compras.test.ts`, `components/operations-list-authorization`, `pages/ventas-compras-capacidades`, `lib/operation-errors-ventas-compras-roles` | Unit | 506 passed en los archivos de backend tocados; suite de frontend completa antes de tocar | backend 44 failed / 43 passed (`red-backend.log`); frontend 4 archivos / 43 tests (`red-frontend.log`) | backend 4319 passed (cobertura 95,38 %) y 7 failed preexistentes (`test_invoice_pdf.py`); integración 119 passed; vitest 568 archivos / 6792 tests, 0 fallos | los 7 perfiles de rol × 2 pantallas, multirol, token viejo, autor propio / ajeno, optimismo con roles sin resolver | helper `tenant_token`; `canModifyDocument` único para las dos pantallas |
 | 13.x / 14.x | `supabase/tests/test_multiusuario_invitaciones.sql` | SQL | | | | | |
 | 15.x | `backend/tests/test_invitations.py` | Unit | | | | | |
 | 16.x | tests de `send-email` y `_shared/html-escape.ts` | Unit (Deno) | | | | | |

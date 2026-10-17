@@ -22,7 +22,7 @@ from pydantic import ValidationError
 from backend.repositories.sales_repository import SalesRepository
 from backend.schemas.sales import SaleOperationIn
 from backend.services import sales as sales_service
-from backend.tests.conftest import make_token, named_rpc_arg
+from backend.tests.conftest import make_token, named_rpc_arg, tenant_token
 
 USER_ID = "11111111-1111-1111-1111-111111111111"
 ACCOUNT_ID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
@@ -138,6 +138,11 @@ def test_schema_rejects_a_malformed_branch_id():
 # ── Eslabón 3: servicio ─────────────────────────────────────────────────────
 
 
+# multiusuario-operativo tanda B (D9): el service exige CAN_SELL de la cuenta activa. El contexto trae
+# `account_id` y `account_roles` (como el token que emite el hook), así que decide con el claim.
+_OWNER_AUTH = {"user_id": USER_ID, "role": "user", "account_id": ACCOUNT_ID, "account_roles": ["owner"]}
+
+
 def _service_repo() -> AsyncMock:
     repo = AsyncMock()
     repo.create_operation = AsyncMock(return_value=OPERATION_ROW)
@@ -152,7 +157,7 @@ async def test_service_forwards_branch_id_as_text():
         **_payload_kwargs(idempotency_key="key-svc-1", branch_id=BRANCH_ID)
     )
 
-    await sales_service.create_sale_operation(repo, {"user_id": USER_ID, "role": "user"}, ACCOUNT_ID, payload)
+    await sales_service.create_sale_operation(repo, _OWNER_AUTH, ACCOUNT_ID, payload, conn=AsyncMock())
 
     assert repo.create_operation.await_args.kwargs["branch_id"] == BRANCH_ID
 
@@ -161,7 +166,7 @@ async def test_service_without_branch_forwards_none():
     repo = _service_repo()
     payload = SaleOperationIn(**_payload_kwargs(idempotency_key="key-svc-2"))
 
-    await sales_service.create_sale_operation(repo, {"user_id": USER_ID, "role": "user"}, ACCOUNT_ID, payload)
+    await sales_service.create_sale_operation(repo, _OWNER_AUTH, ACCOUNT_ID, payload, conn=AsyncMock())
 
     assert repo.create_operation.await_args.kwargs["branch_id"] is None
 
@@ -191,7 +196,7 @@ def _post_capturing(conn: AsyncMock) -> dict:
 
 
 async def _post_sale(async_client, pool, body: dict):
-    token = make_token({"role": "user"})
+    token = tenant_token(["owner"])
     with patch("backend.core.database.pool", pool):
         return await async_client.post(
             "/sales", json=body, headers={"Authorization": f"Bearer {token}"}

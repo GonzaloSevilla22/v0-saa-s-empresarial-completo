@@ -1,0 +1,18 @@
+--- vivo/_purchase_operation_core
++++ nuevo/_purchase_operation_core
+@@ -312,4 +312,5 @@
+                 FROM   public.products
+                 WHERE  id = v_item.product_id
++                  AND account_id = v_account_id
+                 FOR UPDATE;
+ 
+@@ -318,7 +319,6 @@
+                 END IF;
+ 
+-                IF v_product.user_id <> v_uid THEN
+-                    RAISE EXCEPTION 'Permission denied to product: %', v_item.product_id USING ERRCODE = 'P0403';
+-                END IF;
++                -- multiusuario-operativo (tanda B, D8): la tenencia del producto la decide la CUENTA (filtro del SELECT … FOR UPDATE
++                -- de arriba: un producto de otra cuenta es indistinguible de uno inexistente, P0404), nunca quién lo cargó.
+ 
+                 IF NOT v_product.is_variant THEN

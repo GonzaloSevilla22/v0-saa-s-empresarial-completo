@@ -4,7 +4,8 @@ import datetime
 
 from fastapi import HTTPException
 
-from backend.core.guards import require_role
+from backend.core.guards import require_account_role, require_role
+from backend.core.rbac import CAN_PURCHASE
 from backend.repositories.purchase_repository import PurchaseRepository
 from backend.schemas.purchases import PurchaseOperationIn, PurchaseOperationUpdateIn
 
@@ -30,18 +31,23 @@ async def list_purchases_paginated(
 
 
 async def delete_purchase(
-    repo: PurchaseRepository, auth: dict, account_id: str, purchase_id: str
+    repo: PurchaseRepository, auth: dict, account_id: str, purchase_id: str, *, conn
 ) -> None:
     require_role(auth, ["user", "admin"])
+    # multiusuario-operativo tanda B (D9): borrar una compra exige la capacidad de COMPRA de la cuenta
+    # activa (CAN_PURCHASE). Sobre la compra de OTRO miembro sólo dueño o administrador: la regla de
+    # autor la decide la base (P0403).
+    await require_account_role(conn, auth, CAN_PURCHASE)
     found = await repo.delete_by_id(purchase_id, account_id)
     if not found:
         raise HTTPException(status_code=404, detail="Compra no encontrada")
 
 
 async def delete_purchase_operation(
-    repo: PurchaseRepository, auth: dict, account_id: str, operation_id: str
+    repo: PurchaseRepository, auth: dict, account_id: str, operation_id: str, *, conn
 ) -> None:
     require_role(auth, ["user", "admin"])
+    await require_account_role(conn, auth, CAN_PURCHASE)  # multiusuario-operativo tanda B (D9)
     found = await repo.delete_by_operation(operation_id, account_id)
     if not found:
         raise HTTPException(status_code=404, detail="Operación no encontrada")
@@ -55,8 +61,13 @@ async def update_purchase_operation(
     branch_provided: bool = False,
     supplier_provided: bool = False,
     cost_center_provided: bool = False,
+    *,
+    conn,
 ) -> None:
     require_role(auth, ["user", "admin"])
+    # multiusuario-operativo tanda B (D9): editar exige CAN_PURCHASE; la regla de autor y la tenencia de
+    # la compra y de los productos (P0404) las decide la RPC.
+    await require_account_role(conn, auth, CAN_PURCHASE)
     items = [item.model_dump() for item in payload.items]
     payment_method_id = (
         str(payload.payment_method_id) if payload.payment_method_id is not None else None
@@ -85,9 +96,12 @@ async def update_purchase_operation(
 
 
 async def create_purchase_operation(
-    repo: PurchaseRepository, auth: dict, account_id: str, payload: PurchaseOperationIn
+    repo: PurchaseRepository, auth: dict, account_id: str, payload: PurchaseOperationIn, *, conn
 ) -> dict:
     require_role(auth, ["user", "admin"])
+    # multiusuario-operativo tanda B (D9, OQ-3 b): el alta de una compra con factura exige CAN_PURCHASE
+    # (dueño, administrador o compras). El depósito NO compra: recibe mercadería por remito.
+    await require_account_role(conn, auth, CAN_PURCHASE)
     # Extract operation-level description from first item (frontend sends it per-item)
     description = payload.items[0].description if payload.items else None
     items = [item.model_dump() for item in payload.items]

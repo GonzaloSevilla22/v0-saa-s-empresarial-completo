@@ -17,7 +17,7 @@ from fastapi import Request
 from fastapi.exceptions import RequestValidationError
 
 from backend.core.idempotency import require_idempotency_key
-from backend.tests.conftest import make_token
+from backend.tests.conftest import make_token, tenant_token
 
 
 def _make_request(headers: dict, body: dict | None = None) -> Request:
@@ -83,7 +83,7 @@ async def test_confirm_sales_order_accepts_header_idempotency_key(async_client, 
     import json as jsonlib
 
     pool, conn = mock_pool
-    token = make_token({"role": "user"})
+    token = tenant_token(["owner"])
     sales_order_id = "11111111-1111-1111-1111-111111111111"
     operation_id = "22222222-2222-2222-2222-222222222222"
 
@@ -117,7 +117,7 @@ async def test_confirm_sales_order_accepts_header_idempotency_key(async_client, 
 async def test_confirm_sales_order_without_key_returns_422(async_client, mock_pool):
     """3.4: mutación sin clave (ni header ni body) -> 422 idempotency_key_required."""
     pool, conn = mock_pool
-    token = make_token({"role": "user"})
+    token = tenant_token(["owner"])
 
     with patch("backend.core.database.pool", pool):
         resp = await async_client.post(
@@ -144,7 +144,7 @@ async def test_create_sale_retry_same_key_does_not_duplicate(async_client, mock_
     ya es idempotente por (user_id, operation_kind, idempotency_key);
     ambas llamadas deben usar la misma clave en el RPC."""
     pool, conn = mock_pool
-    token = make_token({"role": "user"})
+    token = tenant_token(["owner"])
     operation_row = {"operation_id": "66666666-6666-6666-6666-666666666666", "operation_kind": "sale"}
 
     captured_keys: list[str] = []
@@ -179,7 +179,7 @@ async def test_create_sale_retry_same_key_does_not_duplicate(async_client, mock_
 async def test_create_sale_header_precedence_over_body(async_client, mock_pool):
     """3.4: si header y body traen claves distintas, gana el header."""
     pool, conn = mock_pool
-    token = make_token({"role": "user"})
+    token = tenant_token(["owner"])
     operation_row = {"operation_id": "66666666-6666-6666-6666-666666666666", "operation_kind": "sale"}
 
     conn.fetchrow = AsyncMock(return_value=operation_row)
@@ -203,7 +203,7 @@ async def test_create_sale_header_precedence_over_body(async_client, mock_pool):
 async def test_create_sale_without_key_returns_422(async_client, mock_pool):
     """3.4: sin Idempotency-Key en header ni idempotency_key en body -> 422."""
     pool, conn = mock_pool
-    token = make_token({"role": "user"})
+    token = tenant_token(["owner"])
 
     with patch("backend.core.database.pool", pool):
         resp = await async_client.post(

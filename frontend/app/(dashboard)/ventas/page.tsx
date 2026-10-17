@@ -9,6 +9,7 @@ import { SaleOperationsList } from "@/components/ventas/sale-operations-list"
 import { useAuth } from "@/contexts/auth-context"
 import { useUnitsOfMeasure } from "@/hooks/use-units-of-measure"
 import { useOrgRole } from "@/hooks/useOrgRole"
+import { CAN_SELL, canModifyDocument, hasCapability } from "@/lib/rbac-capabilities"
 import { NoWriteAccessBanner } from "@/components/shared/NoWriteAccessBanner"
 import { ModuleMetricsWrapper } from "@/components/admin/ModuleMetricsWrapper"
 import { ExportButton } from "@/components/export/ExportButton"
@@ -24,11 +25,23 @@ export default function VentasPage() {
     deleteSale, deleteSalesByOperation,
   } = useSales()
 
-  const { isAdmin } = useAuth()
+  const { isAdmin, user } = useAuth()
   // ventas-unidades-conversion (cuarta revisión, D-F′): el listado muestra la
   // cantidad con el símbolo de su línea ("450 g") y lo exporta en el CSV.
   const { unitsById } = useUnitsOfMeasure()
-  const { isWriter } = useOrgRole()
+  const { isWriter, roles, rolesResolved } = useOrgRole()
+  // multiusuario-operativo tanda B (D9, OQ-3 b): vender por el formulario exige CAN_SELL (dueño, administrador,
+  // vendedor o cajero), además de poder escribir: un depósito o un contador son escritores pero no venden. Y sobre
+  // una venta de OTRO miembro sólo editan y eliminan el dueño y el administrador (OQ-4 b). Es sólo qué se muestra:
+  // la barrera es la RPC (P0403) y `require_account_role` de FastAPI.
+  const canSell = isWriter && hasCapability(roles, CAN_SELL, rolesResolved)
+  const canModifySale = useCallback(
+    (op: SaleOperation) =>
+      canModifyDocument({
+        roles, rolesResolved, capability: CAN_SELL, authorId: op.createdBy, userId: user?.id,
+      }),
+    [roles, rolesResolved, user?.id],
+  )
 
   const [dialogOpen,       setDialogOpen]       = useState(false)
   const [editingOperation, setEditingOperation] = useState<SaleOperation | null>(null)
@@ -94,9 +107,10 @@ export default function VentasPage() {
         onPageChange={setPage}
         onPageSizeChange={setPageSize}
         clients={clients}
-        onAdd={isWriter ? handleAdd : undefined}
+        onAdd={canSell ? handleAdd : undefined}
         onDeleteOperation={handleDeleteOperation}
         onEditOperation={handleEdit}
+        canModifyOperation={canModifySale}
         onRefetch={refetch}
         unitsById={unitsById}
       />

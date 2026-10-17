@@ -214,9 +214,12 @@ DECLARE
 
   -- Cuerpos que deja 20261075000001: md5(replace(prosrc, E'\r', '')), medidos en
   -- el stack local después de aplicarla. Son el `v_rewritten` de su preflight.
-  v_md5_v2      constant text := '9fde6d956bc37838e8d81402e22de8fa';
-  v_md5_wrapper constant text := 'e5185557021d2f481b9e3f6679c50493';
-  v_md5_edit    constant text := '52acb873d8c446c24abb19b79eb43c75';
+  -- multiusuario-operativo (tanda B, 20261083000001) reescribió las tres desde el vivo: suma el guard de rol y
+  -- el filtro de cuenta del producto, sin tocar la sucursal resuelta que fija este gate. Son los md5 de ESA
+  -- migración (el `v_rewritten` de su preflight); quien las redefina después rebasa estos valores.
+  v_md5_v2      constant text := '41bfa7554f971d1b386541e01b3cf403';
+  v_md5_wrapper constant text := '748c7a7e6cd1c4074bd127ae6e0092ee';
+  v_md5_edit    constant text := 'd95db43c5e737c080661c74208595b93';
 
   -- Cuenta A (principal + B): bloques (1), (2), (5), (6).
   r_a jsonb; v_user_a uuid; v_acc_a uuid; v_a0 uuid; v_b uuid;

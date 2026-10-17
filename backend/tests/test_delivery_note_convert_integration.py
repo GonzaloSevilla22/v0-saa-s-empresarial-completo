@@ -418,7 +418,9 @@ async def test_the_origin_join_requires_the_same_account(conn, world: World):
 async def _delete_sale(conn, w: World, operation_id: str, *, user=None):
     user = user or w.owner_a
     async with _as(conn, user, authenticated_role=True):
-        await sales_svc.delete_sale_operation(SalesRepository(conn), _auth(user), str(w.account_a), operation_id)
+        await sales_svc.delete_sale_operation(
+            SalesRepository(conn), _auth(user), str(w.account_a), operation_id, conn=conn
+        )
 
 
 async def test_deleting_the_sale_does_not_return_stock_and_reopens_the_note_for_a_new_conversion(conn, world: World):

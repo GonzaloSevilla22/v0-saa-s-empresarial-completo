@@ -39,7 +39,7 @@ import pytest
 import asyncpg
 from fastapi import HTTPException
 
-from backend.tests.conftest import make_token, TEST_ACCOUNT_ID
+from backend.tests.conftest import make_token, TEST_ACCOUNT_ID, tenant_token
 
 # ── Workaround fpdf2 (pre-existing issue, mismo molde que
 #    backend/tests/test_c30_customer_supplier_accounts.py) ─────────────────────
@@ -252,7 +252,7 @@ class TestSaleOperationPartyGuardHttp:
 
         with patch("backend.core.database.pool", pool):
             headers = {
-                "Authorization": f"Bearer {make_token({'role': 'user'})}",
+                "Authorization": f"Bearer {tenant_token(['owner'])}",
                 "Idempotency-Key": IDEMPOTENCY_KEY,
             }
             response = await async_client.post(
@@ -286,7 +286,7 @@ class TestSaleOperationPartyGuardHttp:
 
         with patch("backend.core.database.pool", pool):
             headers = {
-                "Authorization": f"Bearer {make_token({'role': 'user'})}",
+                "Authorization": f"Bearer {tenant_token(['owner'])}",
                 "Idempotency-Key": IDEMPOTENCY_KEY + "-neg",
             }
             response = await async_client.post(

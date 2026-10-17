@@ -535,6 +535,8 @@ export interface Sale {
   editLockedReason?: string | null
   /** presupuestos-modulo (OQ-P16): la operación incluye conceptos sin producto (líneas de servicio); el editor de /ventas no las rehidrata. */
   hasServiceLines?: boolean
+  /** multiusuario-operativo tanda B (D9, OQ-4 b): quién cargó la operación (`created_by` del listado). Sólo informativo: decide qué se muestra (`canModifyDocument`); la autoridad es la RPC (P0403). */
+  createdBy?: string | null
 }
 
 export interface Purchase {
@@ -585,6 +587,8 @@ export interface Purchase {
   sourceDeliveryNoteBranchActive?: boolean | null
   /** Motivo por el que la operación no se edita (`delivery_note_purchase_locked`). */
   editLockedReason?: string | null
+  /** multiusuario-operativo tanda B (D9, OQ-4 b): quién cargó la operación (`created_by` del listado). Sólo informativo: decide qué se muestra (`canModifyDocument`); la autoridad es la RPC (P0403). */
+  createdBy?: string | null
 }
 
 export interface UnitOfMeasure {

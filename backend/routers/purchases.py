@@ -54,8 +54,9 @@ async def delete_purchases_by_operation(
     auth: dict = Depends(get_current_user),
     account_id: uuid.UUID = Depends(get_account_id),
     repo: PurchaseRepository = Depends(get_repo),
+    conn: asyncpg.Connection = Depends(get_db_conn),
 ):
-    await purchases_service.delete_purchase_operation(repo, auth, str(account_id), operation_id)
+    await purchases_service.delete_purchase_operation(repo, auth, str(account_id), operation_id, conn=conn)
 
 
 @router.delete("/{purchase_id}", status_code=204)
@@ -64,8 +65,9 @@ async def delete_purchase(
     auth: dict = Depends(get_current_user),
     account_id: uuid.UUID = Depends(get_account_id),
     repo: PurchaseRepository = Depends(get_repo),
+    conn: asyncpg.Connection = Depends(get_db_conn),
 ):
-    await purchases_service.delete_purchase(repo, auth, str(account_id), purchase_id)
+    await purchases_service.delete_purchase(repo, auth, str(account_id), purchase_id, conn=conn)
 
 
 @router.post("", response_model=PurchaseOperationOut, status_code=201)
@@ -75,10 +77,11 @@ async def create_purchase(
     auth: dict = Depends(get_current_user),
     account_id: uuid.UUID = Depends(get_account_id),
     repo: PurchaseRepository = Depends(get_repo),
+    conn: asyncpg.Connection = Depends(get_db_conn),
 ):
     # v3-api-standards §3.3: Idempotency-Key por header, con fallback al body.
     payload.idempotency_key = await require_idempotency_key(request, payload.idempotency_key)
-    return await purchases_service.create_purchase_operation(repo, auth, str(account_id), payload)
+    return await purchases_service.create_purchase_operation(repo, auth, str(account_id), payload, conn=conn)
 
 
 @router.put("/operation")
@@ -86,6 +89,7 @@ async def update_purchase_operation(
     payload: PurchaseOperationUpdateIn,
     auth: dict = Depends(get_current_user),
     repo: PurchaseRepository = Depends(get_repo),
+    conn: asyncpg.Connection = Depends(get_db_conn),
 ):
     """Edita una operación de compra: reemplaza sus ítems vía
     rpc_atomic_update_purchase_operation (REVERSE + APPLY de stock, atómico)."""
@@ -108,5 +112,6 @@ async def update_purchase_operation(
         branch_provided,
         supplier_provided,
         cost_center_provided,
+        conn=conn,
     )
     return {"ok": True}

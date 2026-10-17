@@ -1,0 +1,5 @@
+PASS: R3a por la UI: el vendedor vendió «Cinta métrica» (producto del dueño) desde /ventas (0 -> 1 ventas suyas de ese producto)
+PASS:    el stock bajó 1 (196 -> 195) y la venta quedó en el negocio, con el vendedor como autor
+PASS: R3e por la UI: el dueño eliminó desde /ventas la venta que cargó el vendedor
+
+RESULTADO: TODO PASS

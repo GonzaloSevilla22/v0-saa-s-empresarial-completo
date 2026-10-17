@@ -1,0 +1,392 @@
+........................................................................ [  1%]
+........................................................................ [  3%]
+........................................................................ [  4%]
+........................................................................ [  6%]
+........................................................................ [  8%]
+........................................................................ [  9%]
+........................................................................ [ 11%]
+........................................................................ [ 13%]
+........................................................................ [ 14%]
+........................................................................ [ 16%]
+........................................................................ [ 18%]
+........................................................................ [ 19%]
+........................................................................ [ 21%]
+........................................................................ [ 23%]
+........................................................................ [ 24%]
+........................................................................ [ 26%]
+........................................................................ [ 28%]
+........................................................................ [ 29%]
+........................................................................ [ 31%]
+........................................................................ [ 33%]
+........................................................................ [ 34%]
+........................................................................ [ 36%]
+........................................................................ [ 38%]
+........................................................................ [ 39%]
+........................................................................ [ 41%]
+........................................................................ [ 43%]
+........................................................................ [ 44%]
+........................................................................ [ 46%]
+........................................................................ [ 48%]
+........................................................................ [ 49%]
+........................................................................ [ 51%]
+........................................................................ [ 53%]
+........................................................................ [ 54%]
+........................................................................ [ 56%]
+........................................................................ [ 58%]
+........................................................................ [ 59%]
+........................................................................ [ 61%]
+........................................................................ [ 63%]
+......................................................................FF [ 64%]
+FFFF.............................F.....................s................ [ 66%]
+........................................................................ [ 68%]
+........................................................................ [ 69%]
+........................................................................ [ 71%]
+........................................................................ [ 73%]
+........................................................................ [ 74%]
+........................................................................ [ 76%]
+........................................................................ [ 78%]
+........................................................................ [ 79%]
+........................................................................ [ 81%]
+........................................................................ [ 83%]
+........................................................................ [ 84%]
+........................................................................ [ 86%]
+........................................................................ [ 88%]
+........................................................................ [ 89%]
+........................................................................ [ 91%]
+........................................................................ [ 93%]
+........................................................................ [ 94%]
+........................................................................ [ 96%]
+........................................................................ [ 98%]
+........................................................................ [ 99%]
+.......                                                                  [100%]
+================================== FAILURES ===================================
+_ TestSinMarcaLaFacturaQuedaComoHoy.test_el_render_sin_marca_conserva_texto_y_posiciones[sumar_1_linea] _
+
+self = <backend.tests.test_invoice_pdf.TestSinMarcaLaFacturaQuedaComoHoy object at 0x0000025DE27C6FD0>
+name = 'sumar_1_linea'
+
+    @pytest.mark.parametrize("name", list(_GOLDEN_LAYOUT))
+    def test_el_render_sin_marca_conserva_texto_y_posiciones(self, name):
+>       assert _same_layout(_layout(_render(_golden_views()[name])), _GOLDEN_LAYOUT[name])
+E       AssertionError: assert False
+E        +  where False = _same_layout([[['ORIGINAL', 270.75, 794.65, 11.0], ['C', 289.7, 765.84, 22.0], ['COD. 011', 283.19, 752.07, 6.5], ['Sumar', 42.52, 765.11, 15.0], ['PEREZ MARIA LAURA', 42.52, 750.61, 9.0], ['Av. San Martín 1234, Mendoza', 42.52, 738.43, 8.5], ...]], [[['ORIGINAL', 270.75, 794.65, 11.0], ['C', 289.7, 765.84, 22.0], ['COD. 011', 283.19, 752.07, 6.5], ['Sumar', 42.52, 765.11, 15.0], ['PEREZ MARIA LAURA', 42.52, 750.61, 9.0], ['Av. San Martín 1234, Mendoza', 42.52, 738.43, 8.5], ...]])
+E        +    where [[['ORIGINAL', 270.75, 794.65, 11.0], ['C', 289.7, 765.84, 22.0], ['COD. 011', 283.19, 752.07, 6.5], ['Sumar', 42.52, 765.11, 15.0], ['PEREZ MARIA LAURA', 42.52, 750.61, 9.0], ['Av. San Martín 1234, Mendoza', 42.52, 738.43, 8.5], ...]] = _layout(b'%PDF-1.3\n%\xe9\xeb\xf1\xbf\n1 0 obj\n<<\n/Count 1\n/Kids [3 0 R]\n/MediaBox [0 0 595.28 841.89]\n/Type /Pages\n>>\n...n/Info 8 0 R\n/ID [<97B70D98690560C3CE393DB26F415DB8><97B70D98690560C3CE393DB26F415DB8>]\n>>\nstartxref\n7244\n%%EOF\n')
+E        +      where b'%PDF-1.3\n%\xe9\xeb\xf1\xbf\n1 0 obj\n<<\n/Count 1\n/Kids [3 0 R]\n/MediaBox [0 0 595.28 841.89]\n/Type /Pages\n>>\n...n/Info 8 0 R\n/ID [<97B70D98690560C3CE393DB26F415DB8><97B70D98690560C3CE393DB26F415DB8>]\n>>\nstartxref\n7244\n%%EOF\n' = _render(InvoiceView(copy_label='ORIGINAL', title='FACTURA', letter='C', code='011', is_homologacion=False, issuer_display_name...sIm5yb0RvY1JlYyI6MCwidGlwb0NvZEF1dCI6IkUiLCJjb2RBdXQiOjcxMjM0NTY3ODkwMTIzfQ==', filename='factura-C-0003-00000501.pdf'))
+
+backend\tests\test_invoice_pdf.py:757: AssertionError
+_ TestSinMarcaLaFacturaQuedaComoHoy.test_el_render_sin_marca_conserva_texto_y_posiciones[sumar_homologacion_duplicado] _
+
+self = <backend.tests.test_invoice_pdf.TestSinMarcaLaFacturaQuedaComoHoy object at 0x0000025DE27C7110>
+name = 'sumar_homologacion_duplicado'
+
+    @pytest.mark.parametrize("name", list(_GOLDEN_LAYOUT))
+    def test_el_render_sin_marca_conserva_texto_y_posiciones(self, name):
+>       assert _same_layout(_layout(_render(_golden_views()[name])), _GOLDEN_LAYOUT[name])
+E       AssertionError: assert False
+E        +  where False = _same_layout([[['COMPROBANTE DE PRUEBA - SIN VALIDEZ FISCAL', -3.71, 409.49, 24.0], ['DUPLICADO', 264.95, 794.65, 11.0], ['C', 289....0], ['COD. 011', 283.19, 752.07, 6.5], ['Sumar', 42.52, 765.11, 15.0], ['PEREZ MARIA LAURA', 42.52, 750.61, 9.0], ...]], [[['COMPROBANTE DE PRUEBA - SIN VALIDEZ FISCAL', -3.71, 409.49, 24.0], ['DUPLICADO', 264.95, 794.65, 11.0], ['C', 289....0], ['COD. 011', 283.19, 752.07, 6.5], ['Sumar', 42.52, 765.11, 15.0], ['PEREZ MARIA LAURA', 42.52, 750.61, 9.0], ...]])
+E        +    where [[['COMPROBANTE DE PRUEBA - SIN VALIDEZ FISCAL', -3.71, 409.49, 24.0], ['DUPLICADO', 264.95, 794.65, 11.0], ['C', 289....0], ['COD. 011', 283.19, 752.07, 6.5], ['Sumar', 42.52, 765.11, 15.0], ['PEREZ MARIA LAURA', 42.52, 750.61, 9.0], ...]] = _layout(b'%PDF-1.3\n%\xe9\xeb\xf1\xbf\n1 0 obj\n<<\n/Count 1\n/Kids [3 0 R]\n/MediaBox [0 0 595.28 841.89]\n/Type /Pages\n>>\n...n/Info 8 0 R\n/ID [<E1D663FA9450362BC297F54880757D8E><E1D663FA9450362BC297F54880757D8E>]\n>>\nstartxref\n7391\n%%EOF\n')
+E        +      where b'%PDF-1.3\n%\xe9\xeb\xf1\xbf\n1 0 obj\n<<\n/Count 1\n/Kids [3 0 R]\n/MediaBox [0 0 595.28 841.89]\n/Type /Pages\n>>\n...n/Info 8 0 R\n/ID [<E1D663FA9450362BC297F54880757D8E><E1D663FA9450362BC297F54880757D8E>]\n>>\nstartxref\n7391\n%%EOF\n' = _render(InvoiceView(copy_label='DUPLICADO', title='FACTURA', letter='C', code='011', is_homologacion=True, issuer_display_name...sIm5yb0RvY1JlYyI6MCwidGlwb0NvZEF1dCI6IkUiLCJjb2RBdXQiOjcxMjM0NTY3ODkwMTIzfQ==', filename='factura-C-0003-00000501.pdf'))
+
+backend\tests\test_invoice_pdf.py:757: AssertionError
+_ TestSinMarcaLaFacturaQuedaComoHoy.test_el_render_sin_marca_conserva_texto_y_posiciones[sumar_sin_fantasia_55_lineas] _
+
+self = <backend.tests.test_invoice_pdf.TestSinMarcaLaFacturaQuedaComoHoy object at 0x0000025DE2AB1CD0>
+name = 'sumar_sin_fantasia_55_lineas'
+
+    @pytest.mark.parametrize("name", list(_GOLDEN_LAYOUT))
+    def test_el_render_sin_marca_conserva_texto_y_posiciones(self, name):
+>       assert _same_layout(_layout(_render(_golden_views()[name])), _GOLDEN_LAYOUT[name])
+E       AssertionError: assert False
+E        +  where False = _same_layout([[['ORIGINAL', 270.75, 794.65, 11.0], ['C', 289.7, 765.84, 22.0], ['COD. 011', 283.19, 752.07, 6.5], ['Sumar', 42.52, ..., 765.11, 15.0], ['PEREZ MARIA LAURA', 42.52, 750.61, 9.0], ['Av. San Martín 1234, Mendoza', 42.52, 738.43, 8.5], ...]], [[['ORIGINAL', 270.75, 794.65, 11.0], ['C', 289.7, 765.84, 22.0], ['COD. 011', 283.19, 752.07, 6.5], ['Sumar', 42.52, ..., 765.11, 15.0], ['PEREZ MARIA LAURA', 42.52, 750.61, 9.0], ['Av. San Martín 1234, Mendoza', 42.52, 738.43, 8.5], ...]])
+E        +    where [[['ORIGINAL', 270.75, 794.65, 11.0], ['C', 289.7, 765.84, 22.0], ['COD. 011', 283.19, 752.07, 6.5], ['Sumar', 42.52, ..., 765.11, 15.0], ['PEREZ MARIA LAURA', 42.52, 750.61, 9.0], ['Av. San Martín 1234, Mendoza', 42.52, 738.43, 8.5], ...]] = _layout(b'%PDF-1.3\n%\xe9\xeb\xf1\xbf\n1 0 obj\n<<\n/Count 3\n/Kids [3 0 R\n5 0 R\n7 0 R]\n/MediaBox [0 0 595.28 841.89]\n/Typ...Info 14 0 R\n/ID [<0ED3111A9EAF51149994F23D26978B6A><0ED3111A9EAF51149994F23D26978B6A>]\n>>\nstartxref\n10802\n%%EOF\n')
+E        +      where b'%PDF-1.3\n%\xe9\xeb\xf1\xbf\n1 0 obj\n<<\n/Count 3\n/Kids [3 0 R\n5 0 R\n7 0 R]\n/MediaBox [0 0 595.28 841.89]\n/Typ...Info 14 0 R\n/ID [<0ED3111A9EAF51149994F23D26978B6A><0ED3111A9EAF51149994F23D26978B6A>]\n>>\nstartxref\n10802\n%%EOF\n' = _render(InvoiceView(copy_label='ORIGINAL', title='FACTURA', letter='C', code='011', is_homologacion=False, issuer_display_name...sIm5yb0RvY1JlYyI6MCwidGlwb0NvZEF1dCI6IkUiLCJjb2RBdXQiOjcxMjM0NTY3ODkwMTIzfQ==', filename='factura-C-0003-00000501.pdf'))
+
+backend\tests\test_invoice_pdf.py:757: AssertionError
+_ TestSinMarcaLaFacturaQuedaComoHoy.test_una_cuenta_sin_marca_recibe_la_misma_factura[sumar_1_linea] _
+
+self = <backend.tests.test_invoice_pdf.TestSinMarcaLaFacturaQuedaComoHoy object at 0x0000025DE2AB1E00>
+name = 'sumar_1_linea'
+
+    @pytest.mark.parametrize("name", list(_GOLDEN_LAYOUT))
+    def test_una_cuenta_sin_marca_recibe_la_misma_factura(self, name):
+        """La marca que resuelve `resolve_document_branding` para una cuenta que nunca la configuró
+        (Neutro, sin logo, sin contacto) NO cambia nada, ni siquiera con el teléfono del dueño."""
+        branding = _brand(business_name="Almacén Don José", phone="2615550101")
+        pdf = _render(_golden_views()[name], branding)
+    
+>       assert _same_layout(_layout(pdf), _GOLDEN_LAYOUT[name])
+E       AssertionError: assert False
+E        +  where False = _same_layout([[['ORIGINAL', 270.75, 794.65, 11.0], ['C', 289.7, 765.84, 22.0], ['COD. 011', 283.19, 752.07, 6.5], ['Sumar', 42.52, 765.11, 15.0], ['PEREZ MARIA LAURA', 42.52, 750.61, 9.0], ['Av. San Martín 1234, Mendoza', 42.52, 738.43, 8.5], ...]], [[['ORIGINAL', 270.75, 794.65, 11.0], ['C', 289.7, 765.84, 22.0], ['COD. 011', 283.19, 752.07, 6.5], ['Sumar', 42.52, 765.11, 15.0], ['PEREZ MARIA LAURA', 42.52, 750.61, 9.0], ['Av. San Martín 1234, Mendoza', 42.52, 738.43, 8.5], ...]])
+E        +    where [[['ORIGINAL', 270.75, 794.65, 11.0], ['C', 289.7, 765.84, 22.0], ['COD. 011', 283.19, 752.07, 6.5], ['Sumar', 42.52, 765.11, 15.0], ['PEREZ MARIA LAURA', 42.52, 750.61, 9.0], ['Av. San Martín 1234, Mendoza', 42.52, 738.43, 8.5], ...]] = _layout(b'%PDF-1.3\n%\xe9\xeb\xf1\xbf\n1 0 obj\n<<\n/Count 1\n/Kids [3 0 R]\n/MediaBox [0 0 595.28 841.89]\n/Type /Pages\n>>\n...n/Info 8 0 R\n/ID [<C12AE2D3202629CDF71EF8C59352DEF1><C12AE2D3202629CDF71EF8C59352DEF1>]\n>>\nstartxref\n7244\n%%EOF\n')
+
+backend\tests\test_invoice_pdf.py:766: AssertionError
+_ TestSinMarcaLaFacturaQuedaComoHoy.test_una_cuenta_sin_marca_recibe_la_misma_factura[sumar_homologacion_duplicado] _
+
+self = <backend.tests.test_invoice_pdf.TestSinMarcaLaFacturaQuedaComoHoy object at 0x0000025DE27D03B0>
+name = 'sumar_homologacion_duplicado'
+
+    @pytest.mark.parametrize("name", list(_GOLDEN_LAYOUT))
+    def test_una_cuenta_sin_marca_recibe_la_misma_factura(self, name):
+        """La marca que resuelve `resolve_document_branding` para una cuenta que nunca la configuró
+        (Neutro, sin logo, sin contacto) NO cambia nada, ni siquiera con el teléfono del dueño."""
+        branding = _brand(business_name="Almacén Don José", phone="2615550101")
+        pdf = _render(_golden_views()[name], branding)
+    
+>       assert _same_layout(_layout(pdf), _GOLDEN_LAYOUT[name])
+E       AssertionError: assert False
+E        +  where False = _same_layout([[['COMPROBANTE DE PRUEBA - SIN VALIDEZ FISCAL', -3.71, 409.49, 24.0], ['DUPLICADO', 264.95, 794.65, 11.0], ['C', 289....0], ['COD. 011', 283.19, 752.07, 6.5], ['Sumar', 42.52, 765.11, 15.0], ['PEREZ MARIA LAURA', 42.52, 750.61, 9.0], ...]], [[['COMPROBANTE DE PRUEBA - SIN VALIDEZ FISCAL', -3.71, 409.49, 24.0], ['DUPLICADO', 264.95, 794.65, 11.0], ['C', 289....0], ['COD. 011', 283.19, 752.07, 6.5], ['Sumar', 42.52, 765.11, 15.0], ['PEREZ MARIA LAURA', 42.52, 750.61, 9.0], ...]])
+E        +    where [[['COMPROBANTE DE PRUEBA - SIN VALIDEZ FISCAL', -3.71, 409.49, 24.0], ['DUPLICADO', 264.95, 794.65, 11.0], ['C', 289....0], ['COD. 011', 283.19, 752.07, 6.5], ['Sumar', 42.52, 765.11, 15.0], ['PEREZ MARIA LAURA', 42.52, 750.61, 9.0], ...]] = _layout(b'%PDF-1.3\n%\xe9\xeb\xf1\xbf\n1 0 obj\n<<\n/Count 1\n/Kids [3 0 R]\n/MediaBox [0 0 595.28 841.89]\n/Type /Pages\n>>\n...n/Info 8 0 R\n/ID [<5629DEA3755AB729C9415211C72C1C7F><5629DEA3755AB729C9415211C72C1C7F>]\n>>\nstartxref\n7391\n%%EOF\n')
+
+backend\tests\test_invoice_pdf.py:766: AssertionError
+_ TestSinMarcaLaFacturaQuedaComoHoy.test_una_cuenta_sin_marca_recibe_la_misma_factura[sumar_sin_fantasia_55_lineas] _
+
+self = <backend.tests.test_invoice_pdf.TestSinMarcaLaFacturaQuedaComoHoy object at 0x0000025DE293E690>
+name = 'sumar_sin_fantasia_55_lineas'
+
+    @pytest.mark.parametrize("name", list(_GOLDEN_LAYOUT))
+    def test_una_cuenta_sin_marca_recibe_la_misma_factura(self, name):
+        """La marca que resuelve `resolve_document_branding` para una cuenta que nunca la configuró
+        (Neutro, sin logo, sin contacto) NO cambia nada, ni siquiera con el teléfono del dueño."""
+        branding = _brand(business_name="Almacén Don José", phone="2615550101")
+        pdf = _render(_golden_views()[name], branding)
+    
+>       assert _same_layout(_layout(pdf), _GOLDEN_LAYOUT[name])
+E       AssertionError: assert False
+E        +  where False = _same_layout([[['ORIGINAL', 270.75, 794.65, 11.0], ['C', 289.7, 765.84, 22.0], ['COD. 011', 283.19, 752.07, 6.5], ['Sumar', 42.52, ..., 765.11, 15.0], ['PEREZ MARIA LAURA', 42.52, 750.61, 9.0], ['Av. San Martín 1234, Mendoza', 42.52, 738.43, 8.5], ...]], [[['ORIGINAL', 270.75, 794.65, 11.0], ['C', 289.7, 765.84, 22.0], ['COD. 011', 283.19, 752.07, 6.5], ['Sumar', 42.52, ..., 765.11, 15.0], ['PEREZ MARIA LAURA', 42.52, 750.61, 9.0], ['Av. San Martín 1234, Mendoza', 42.52, 738.43, 8.5], ...]])
+E        +    where [[['ORIGINAL', 270.75, 794.65, 11.0], ['C', 289.7, 765.84, 22.0], ['COD. 011', 283.19, 752.07, 6.5], ['Sumar', 42.52, ..., 765.11, 15.0], ['PEREZ MARIA LAURA', 42.52, 750.61, 9.0], ['Av. San Martín 1234, Mendoza', 42.52, 738.43, 8.5], ...]] = _layout(b'%PDF-1.3\n%\xe9\xeb\xf1\xbf\n1 0 obj\n<<\n/Count 3\n/Kids [3 0 R\n5 0 R\n7 0 R]\n/MediaBox [0 0 595.28 841.89]\n/Typ...Info 14 0 R\n/ID [<C8938E7E9AE8ADDB57709E52FBA00BB1><C8938E7E9AE8ADDB57709E52FBA00BB1>]\n>>\nstartxref\n10802\n%%EOF\n')
+
+backend\tests\test_invoice_pdf.py:766: AssertionError
+_ TestLaMarcaSeResuelveDeLaCuentaDelComprobante.test_si_la_marca_no_se_puede_leer_la_factura_sale_igual_sin_marca _
+
+self = <backend.tests.test_invoice_pdf.TestLaMarcaSeResuelveDeLaCuentaDelComprobante object at 0x0000025DE2AB29E0>
+caplog = <_pytest.logging.LogCaptureFixture object at 0x0000025DE8085640>
+
+    async def test_si_la_marca_no_se_puede_leer_la_factura_sale_igual_sin_marca(self, caplog):
+        """Reimprimir una factura autorizada no puede quedar bloqueado por un detalle de presentación."""
+        import logging
+    
+        from backend.services.fiscal.invoice_print_service import get_invoice_pdf
+    
+        doc_repo, profile_repo, branding_repo = self._repos(error=RuntimeError("la base no contesta"))
+        with caplog.at_level(logging.WARNING):
+            pdf, _ = await get_invoice_pdf(doc_repo, profile_repo, branding_repo, account_id=ACCOUNT,
+                                           doc_id=uuid.UUID(sumar_doc()["id"]))
+    
+>       assert _same_layout(_layout(pdf), _GOLDEN_LAYOUT["sumar_1_linea"])
+E       AssertionError: assert False
+E        +  where False = _same_layout([[['ORIGINAL', 270.75, 794.65, 11.0], ['C', 289.7, 765.84, 22.0], ['COD. 011', 283.19, 752.07, 6.5], ['Sumar', 42.52, 765.11, 15.0], ['PEREZ MARIA LAURA', 42.52, 750.61, 9.0], ['Av. San Martín 1234, Mendoza', 42.52, 738.43, 8.5], ...]], [[['ORIGINAL', 270.75, 794.65, 11.0], ['C', 289.7, 765.84, 22.0], ['COD. 011', 283.19, 752.07, 6.5], ['Sumar', 42.52, 765.11, 15.0], ['PEREZ MARIA LAURA', 42.52, 750.61, 9.0], ['Av. San Martín 1234, Mendoza', 42.52, 738.43, 8.5], ...]])
+E        +    where [[['ORIGINAL', 270.75, 794.65, 11.0], ['C', 289.7, 765.84, 22.0], ['COD. 011', 283.19, 752.07, 6.5], ['Sumar', 42.52, 765.11, 15.0], ['PEREZ MARIA LAURA', 42.52, 750.61, 9.0], ['Av. San Martín 1234, Mendoza', 42.52, 738.43, 8.5], ...]] = _layout(b'%PDF-1.3\n%\xe9\xeb\xf1\xbf\n1 0 obj\n<<\n/Count 1\n/Kids [3 0 R]\n/MediaBox [0 0 595.28 841.89]\n/Type /Pages\n>>\n...n/Info 8 0 R\n/ID [<83FF389DCE1DA91DBA7A9EA137220D0C><83FF389DCE1DA91DBA7A9EA137220D0C>]\n>>\nstartxref\n7244\n%%EOF\n')
+
+backend\tests\test_invoice_pdf.py:1094: AssertionError
+------------------------------ Captured log call ------------------------------
+WARNING  backend.services.fiscal.invoice_print_service:invoice_print_service.py:46 factura imprimible: no se pudo leer la marca de la cuenta aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa; se imprime sin marca
+Traceback (most recent call last):
+  File "C:\Users\Usuario\Desktop\EIE\wt-multiusuario-b\backend\services\fiscal\invoice_print_service.py", line 44, in _resolve_branding
+    return await resolve_document_branding(branding_repo, account_id)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Usuario\Desktop\EIE\wt-multiusuario-b\backend\services\commercial_documents\branding.py", line 120, in resolve_document_branding
+    raw = await repo.get_commercial_issuer(account_id)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Usuario\miniconda3\Lib\unittest\mock.py", line 2321, in _execute_mock_call
+    raise effect
+RuntimeError: la base no contesta
+============================== warnings summary ===============================
+tests/test_v22_subscription_payment_invoicing.py::TestEmitSubscriptionPaymentRouter::test_non_admin_gets_403
+  C:\Users\Usuario\Desktop\EIE\v0-saa-s-empresarial-completo\backend\.venv\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=============================== tests coverage ================================
+______________ coverage: platform win32, python 3.13.12-final-0 _______________
+
+Name                                                        Stmts   Miss  Cover
+-------------------------------------------------------------------------------
+backend\__init__.py                                             0      0   100%
+backend\core\__init__.py                                        0      0   100%
+backend\core\auth.py                                           71      0   100%
+backend\core\client_activity.py                                14      0   100%
+backend\core\config.py                                         44      0   100%
+backend\core\cors.py                                           23      0   100%
+backend\core\database.py                                       48      4    92%
+backend\core\deps.py                                           21      0   100%
+backend\core\errors.py                                         61      2    97%
+backend\core\guards.py                                         36      3    92%
+backend\core\idempotency.py                                    11      0   100%
+backend\core\rbac.py                                           17      0   100%
+backend\core\redis_client.py                                   15      7    53%
+backend\core\timezone.py                                       17      0   100%
+backend\main.py                                                82      7    91%
+backend\repositories\__init__.py                                0      0   100%
+backend\repositories\_account_aging_sql.py                      5      0   100%
+backend\repositories\account_charge_repository.py              13      0   100%
+backend\repositories\bank_account_repository.py                45      9    80%
+backend\repositories\bank_reconciliation_repository.py         44      0   100%
+backend\repositories\base.py                                   40      1    98%
+backend\repositories\billing_repository.py                     17      0   100%
+backend\repositories\branch_repository.py                      28      3    89%
+backend\repositories\cash_session_repository.py                43      0   100%
+backend\repositories\cashbox_repository.py                     10      0   100%
+backend\repositories\client_address_repository.py              22      1    95%
+backend\repositories\client_repository.py                      51      1    98%
+backend\repositories\commercial_document_support.py            19      0   100%
+backend\repositories\cost_center_repository.py                 18      0   100%
+backend\repositories\customer_account_repository.py            40      0   100%
+backend\repositories\delivery_note_repository.py               56      0   100%
+backend\repositories\document_branding_repository.py           20      0   100%
+backend\repositories\expense_repository.py                     41      2    95%
+backend\repositories\fiscal_document_repository.py             36      1    97%
+backend\repositories\fiscal_profile_repository.py              12      0   100%
+backend\repositories\journal_entry_repository.py               33      0   100%
+backend\repositories\member_repository.py                      23      0   100%
+backend\repositories\outbox_repository.py                      10      3    70%
+backend\repositories\payment_method_repository.py              31      0   100%
+backend\repositories\plan_limits_repository.py                 18      0   100%
+backend\repositories\point_of_sale_repository.py               28      2    93%
+backend\repositories\product_category_repository.py            23      0   100%
+backend\repositories\product_repository.py                     66      1    98%
+backend\repositories\purchase_repository.py                    57      8    86%
+backend\repositories\quote_repository.py                       40      0   100%
+backend\repositories\sales_order_repository.py                 30      4    87%
+backend\repositories\sales_repository.py                       51      6    88%
+backend\repositories\scale_settings_repository.py              21      1    95%
+backend\repositories\statistics_repository.py                  28      0   100%
+backend\repositories\stock_repository.py                       10      1    90%
+backend\repositories\subscriptions_repository.py               45      1    98%
+backend\repositories\supplier_account_repository.py            39      0   100%
+backend\repositories\supplier_repository.py                    27      0   100%
+backend\routers\__init__.py                                     0      0   100%
+backend\routers\auth.py                                         8      0   100%
+backend\routers\bank_accounts.py                               19      0   100%
+backend\routers\bank_movements.py                              17      0   100%
+backend\routers\bank_reconciliation.py                         57      5    91%
+backend\routers\branches.py                                    34      2    94%
+backend\routers\cash.py                                        46      1    98%
+backend\routers\client_addresses.py                            31      0   100%
+backend\routers\clients.py                                     37      0   100%
+backend\routers\cost_centers.py                                29      0   100%
+backend\routers\customer_accounts.py                           53      0   100%
+backend\routers\delivery_notes.py                              46      1    98%
+backend\routers\document_branding.py                           56      1    98%
+backend\routers\expenses.py                                    35      0   100%
+backend\routers\fiscal.py                                     103      3    97%
+backend\routers\health.py                                       5      0   100%
+backend\routers\journal_entries.py                             17      0   100%
+backend\routers\members.py                                     25      0   100%
+backend\routers\outbox.py                                      13      0   100%
+backend\routers\payment_methods.py                             35      0   100%
+backend\routers\payments.py                                   118      6    95%
+backend\routers\product_categories.py                          34      0   100%
+backend\routers\products.py                                    44      0   100%
+backend\routers\purchases.py                                   35      0   100%
+backend\routers\quotes.py                                      50      1    98%
+backend\routers\sales.py                                       42      0   100%
+backend\routers\sales_orders.py                                31      0   100%
+backend\routers\scale_settings.py                              19      0   100%
+backend\routers\statistics.py                                  30      0   100%
+backend\routers\stock.py                                       22      1    95%
+backend\routers\supplier_accounts.py                           51      0   100%
+backend\routers\suppliers.py                                   28      0   100%
+backend\schemas\__init__.py                                     0      0   100%
+backend\schemas\auth.py                                        13      0   100%
+backend\schemas\bank_accounts.py                               34      0   100%
+backend\schemas\bank_movements.py                              17      0   100%
+backend\schemas\bank_reconciliation.py                        126      0   100%
+backend\schemas\branches.py                                    40      0   100%
+backend\schemas\cash.py                                       110      0   100%
+backend\schemas\client_addresses.py                            32      0   100%
+backend\schemas\clients.py                                     71      0   100%
+backend\schemas\common.py                                       9      0   100%
+backend\schemas\cost_centers.py                                18      0   100%
+backend\schemas\customer_accounts.py                          116      0   100%
+backend\schemas\delivery_notes.py                             215      1    99%
+backend\schemas\document_branding.py                          135      2    99%
+backend\schemas\expenses.py                                    87      0   100%
+backend\schemas\fiscal.py                                     126      0   100%
+backend\schemas\journal_entries.py                             27      0   100%
+backend\schemas\members.py                                     26      0   100%
+backend\schemas\payment_methods.py                             33      0   100%
+backend\schemas\payments.py                                    88      0   100%
+backend\schemas\product_categories.py                          23      0   100%
+backend\schemas\products.py                                   109      0   100%
+backend\schemas\purchases.py                                   78      0   100%
+backend\schemas\quotes.py                                     170      4    98%
+backend\schemas\sales.py                                      121      0   100%
+backend\schemas\sales_orders.py                               148      5    97%
+backend\schemas\scale_settings.py                             118      3    97%
+backend\schemas\statistics.py                                 124      0   100%
+backend\schemas\stock.py                                       13      0   100%
+backend\schemas\supplier_accounts.py                          109      2    98%
+backend\schemas\suppliers.py                                   43      1    98%
+backend\scripts\__init__.py                                     0      0   100%
+backend\scripts\backfill_fecha_comprobante.py                  30      8    73%
+backend\scripts\tenancy_cross_tenant_concurrency_check.py      90     90     0%
+backend\services\__init__.py                                    0      0   100%
+backend\services\account_charges.py                            11      0   100%
+backend\services\bank_accounts.py                              21      9    57%
+backend\services\bank_movements.py                              9      0   100%
+backend\services\bank_reconciliation.py                        37      5    86%
+backend\services\branches.py                                   32      8    75%
+backend\services\cash.py                                       35      2    94%
+backend\services\client_addresses.py                           46      2    96%
+backend\services\clients.py                                    57      5    91%
+backend\services\commercial_documents\__init__.py               0      0   100%
+backend\services\commercial_documents\branding.py              53      0   100%
+backend\services\commercial_documents\header.py               105      1    99%
+backend\services\commercial_documents\issuer.py                53      0   100%
+backend\services\commercial_documents\logo.py                 122      3    98%
+backend\services\commercial_documents\numbering.py             24      0   100%
+backend\services\commercial_documents\palette.py               93      0   100%
+backend\services\commercial_documents\pdf.py                  207      1    99%
+backend\services\commercial_documents\text.py                   3      0   100%
+backend\services\commercial_documents\view.py                  90      0   100%
+backend\services\cost_centers.py                               33      1    97%
+backend\services\customer_accounts.py                          63      1    98%
+backend\services\delivery_notes.py                            130      1    99%
+backend\services\document_branding.py                          83      5    94%
+backend\services\expenses.py                                   61      3    95%
+backend\services\fiscal\__init__.py                             0      0   100%
+backend\services\fiscal\adapter_factory.py                     18      2    89%
+backend\services\fiscal\cae_relay_processor.py                119      2    98%
+backend\services\fiscal\comprobante.py                         31      3    90%
+backend\services\fiscal\fecha_backfill.py                      33      0   100%
+backend\services\fiscal\fiscal_document_port.py                52      0   100%
+backend\services\fiscal\fiscal_profile_service.py             135     13    90%
+backend\services\fiscal\invoice_pdf.py                        433      9    98%
+backend\services\fiscal\invoice_print_service.py               30      0   100%
+backend\services\fiscal\invoice_type_resolver.py               14      0   100%
+backend\services\fiscal\platform_credential_provider.py        32      2    94%
+backend\services\fiscal\ticket_cache_port.py                    8      0   100%
+backend\services\fiscal\wsaa_ticket_cache.py                   47     47     0%
+backend\services\fiscal\wsfe_adapter.py                       312     45    86%
+backend\services\fiscal\wsfe_stub_adapter.py                   40      2    95%
+backend\services\journal_entries.py                             7      0   100%
+backend\services\members.py                                    22      0   100%
+backend\services\payment_methods.py                            59      1    98%
+backend\services\payments.py                                  139     13    91%
+backend\services\product_categories.py                         62      1    98%
+backend\services\products.py                                  198     12    94%
+backend\services\purchases.py                                  49      1    98%
+backend\services\quotes.py                                    110      3    97%
+backend\services\receipts.py                                  187      0   100%
+backend\services\sales.py                                      64      2    97%
+backend\services\sales_orders.py                               50      1    98%
+backend\services\sales_receipt.py                              27      5    81%
+backend\services\scale_settings.py                             19      1    95%
+backend\services\statistics.py                                 87      3    97%
+backend\services\stock.py                                      18      2    89%
+backend\services\subscriptions.py                             282      5    98%
+backend\services\supplier_accounts.py                          59      7    88%
+backend\services\suppliers.py                                  41      1    98%
+-------------------------------------------------------------------------------
+TOTAL                                                        9421    435    95%
+Required test coverage of 87% reached. Total coverage: 95.38%
+=========================== short test summary info ===========================
+FAILED backend\tests\test_invoice_pdf.py::TestSinMarcaLaFacturaQuedaComoHoy::test_el_render_sin_marca_conserva_texto_y_posiciones[sumar_1_linea]
+FAILED backend\tests\test_invoice_pdf.py::TestSinMarcaLaFacturaQuedaComoHoy::test_el_render_sin_marca_conserva_texto_y_posiciones[sumar_homologacion_duplicado]
+FAILED backend\tests\test_invoice_pdf.py::TestSinMarcaLaFacturaQuedaComoHoy::test_el_render_sin_marca_conserva_texto_y_posiciones[sumar_sin_fantasia_55_lineas]
+FAILED backend\tests\test_invoice_pdf.py::TestSinMarcaLaFacturaQuedaComoHoy::test_una_cuenta_sin_marca_recibe_la_misma_factura[sumar_1_linea]
+FAILED backend\tests\test_invoice_pdf.py::TestSinMarcaLaFacturaQuedaComoHoy::test_una_cuenta_sin_marca_recibe_la_misma_factura[sumar_homologacion_duplicado]
+FAILED backend\tests\test_invoice_pdf.py::TestSinMarcaLaFacturaQuedaComoHoy::test_una_cuenta_sin_marca_recibe_la_misma_factura[sumar_sin_fantasia_55_lineas]
+FAILED backend\tests\test_invoice_pdf.py::TestLaMarcaSeResuelveDeLaCuentaDelComprobante::test_si_la_marca_no_se_puede_leer_la_factura_sale_igual_sin_marca
+7 failed, 4319 passed, 1 skipped, 122 deselected, 1 warning in 182.73s (0:03:02)
+EXIT=1

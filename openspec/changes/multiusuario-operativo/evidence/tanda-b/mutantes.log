@@ -1,0 +1,26 @@
+=== mutant-M1-sin-filtro-de-cuenta.sql
+EXIT=3 (3 = el gate FALLÓ, que es lo esperado)
+psql:<stdin>:1266: NOTICE:  FAIL (c) tenencia en el alta: vender un producto de OTRA cuenta (rpc_create_sale_operation) debía dar P0404, dio P0409 Insufficient stock for product 0a7b0f81-230a-4957-a688-6373cd61ad00 [P0001]
+psql:<stdin>:1266: NOTICE:  FAIL (j) candado de cuerpo: rpc_create_sale_operation_v2 toma el producto FOR UPDATE SIN filtrar por la cuenta [P0001]
+psql:<stdin>:1266: ERROR:  GATE MULTIUSUARIO-OPERACIONES FAILED en 2 bloque(s):
+=== mutant-M2-borrado-sin-guard-de-rol.sql
+EXIT=3 (3 = el gate FALLÓ, que es lo esperado)
+psql:<stdin>:1163: NOTICE:  FAIL (a2) observador: el observador borra una venta debía dar P0401, dio P0403 insufficient_role: solo el dueño o un administrador modifican las ventas que cargó otro miembro [P0001]
+psql:<stdin>:1163: NOTICE:  FAIL (e) borrado de venta: observador borra una venta debía dar P0401, dio P0403 insufficient_role: solo el dueño o un administrador modifican las ventas que cargó otro miembro [P0001]
+psql:<stdin>:1163: NOTICE:  FAIL (j) candado de cuerpo: rpc_delete_sale_operation no llama a _account_assert_capability [P0001]
+psql:<stdin>:1163: ERROR:  GATE MULTIUSUARIO-OPERACIONES FAILED en 3 bloque(s):
+=== mutant-M3-borrado-compra-sin-regla-de-autor.sql
+EXIT=3 (3 = el gate FALLÓ, que es lo esperado)
+psql:<stdin>:1147: NOTICE:  FAIL (g) borrado de compra: compras borra la compra del DUEÑO debía dar P0403, dio 00000 (sin error) [P0001]
+psql:<stdin>:1147: ERROR:  GATE MULTIUSUARIO-OPERACIONES FAILED en 1 bloque(s):
+=== mutant-M4-nucleo-sin-filtro-de-cuenta.sql
+EXIT=3 (3 = el gate FALLÓ, que es lo esperado)
+psql:<stdin>:1419: NOTICE:  FAIL (c) tenencia en el alta: comprar un producto de OTRA cuenta debía dar P0404, dio 00000 (sin error) [P0001]
+psql:<stdin>:1419: NOTICE:  FAIL (j) candado de cuerpo: _purchase_operation_core toma el producto FOR UPDATE SIN filtrar por la cuenta [P0001]
+psql:<stdin>:1419: ERROR:  GATE MULTIUSUARIO-OPERACIONES FAILED en 2 bloque(s):
+=== mutant-M5-edicion-lock-por-autor.sql
+EXIT=3 (3 = el gate FALLÓ, que es lo esperado)
+psql:<stdin>:1589: NOTICE:  FAIL (d) edición de venta: R3d: el dueño edita la venta del vendedor debía funcionar, dio P0404 One or more sale IDs not found [P0001]
+psql:<stdin>:1589: NOTICE:  FAIL (e) borrado de venta: el borrado propio debía quitar la venta y reponer 2 (stock era 498.0000, es 499.0000) [P0001]
+psql:<stdin>:1589: NOTICE:  FAIL (j) candado de cuerpo: rpc_atomic_update_sale_operation todavía autoriza por el AUTOR (v_product.user_id / user_id <> v_uid / lock por user_id) [P0001]
+psql:<stdin>:1589: ERROR:  GATE MULTIUSUARIO-OPERACIONES FAILED en 3 bloque(s):

@@ -5,7 +5,8 @@ import datetime
 import asyncpg
 from fastapi import HTTPException
 
-from backend.core.guards import require_role
+from backend.core.guards import require_account_role, require_role
+from backend.core.rbac import CAN_SELL
 from backend.repositories.sales_repository import SalesRepository
 from backend.schemas.sales import SaleOperationIn, SaleOperationUpdateIn
 
@@ -30,18 +31,23 @@ async def list_sales_paginated(
 
 
 async def delete_sale(
-    repo: SalesRepository, auth: dict, account_id: str, sale_id: str
+    repo: SalesRepository, auth: dict, account_id: str, sale_id: str, *, conn
 ) -> None:
     require_role(auth, ["user", "admin"])
+    # multiusuario-operativo tanda B (D9): borrar una venta exige la capacidad de VENTA de la cuenta
+    # activa (CAN_SELL). Sobre la venta de OTRO miembro sólo puede el dueño o el administrador: esa
+    # regla de autor la decide la base (P0403), que es la autoridad; acá se corta antes de la RPC.
+    await require_account_role(conn, auth, CAN_SELL)
     found = await repo.delete_by_id(sale_id, account_id)
     if not found:
         raise HTTPException(status_code=404, detail="Venta no encontrada")
 
 
 async def delete_sale_operation(
-    repo: SalesRepository, auth: dict, account_id: str, operation_id: str
+    repo: SalesRepository, auth: dict, account_id: str, operation_id: str, *, conn
 ) -> None:
     require_role(auth, ["user", "admin"])
+    await require_account_role(conn, auth, CAN_SELL)  # multiusuario-operativo tanda B (D9)
     found = await repo.delete_by_operation(operation_id, account_id)
     if not found:
         raise HTTPException(status_code=404, detail="Operación no encontrada")
@@ -54,11 +60,18 @@ async def update_sale_operation(
     payment_method_provided: bool = False,
     branch_provided: bool = False,
     canal_provided: bool = False,
+    *,
+    conn,
 ) -> dict[str, object]:
     """venta-editable-sin-cae: devuelve el jsonb de la RPC tal cual (incluido
     `voided_fiscal_document`). Sin lógica nueva acá — el guard fiscal y la
-    anulación viven en la RPC, que es donde la transacción es atómica."""
+    anulación viven en la RPC, que es donde la transacción es atómica.
+
+    multiusuario-operativo tanda B (D9): editar exige CAN_SELL; la regla de autor (dueño y
+    administrador sobre lo ajeno, el resto lo propio) y la tenencia de la venta y de los
+    productos (P0404) las decide la RPC."""
     require_role(auth, ["user", "admin"])
+    await require_account_role(conn, auth, CAN_SELL)
     items = [item.model_dump() for item in payload.items]
     payment_method_id = (
         str(payload.payment_method_id) if payload.payment_method_id is not None else None
@@ -125,9 +138,13 @@ def _map_postgres_error(exc: asyncpg.PostgresError) -> None:
 
 
 async def create_sale_operation(
-    repo: SalesRepository, auth: dict, account_id: str, payload: SaleOperationIn
+    repo: SalesRepository, auth: dict, account_id: str, payload: SaleOperationIn, *, conn
 ) -> dict:
     require_role(auth, ["user", "admin"])
+    # multiusuario-operativo tanda B (D9, OQ-3 b): el alta por formulario exige CAN_SELL (dueño,
+    # administrador, vendedor o cajero). La base lo exige también en la RPC (defensa en dos capas);
+    # acá se evita ir hasta ella con un rol que va a rechazar.
+    await require_account_role(conn, auth, CAN_SELL)
     items = [item.model_dump() for item in payload.items]
     payment_method_id = (
         str(payload.payment_method_id) if payload.payment_method_id is not None else None

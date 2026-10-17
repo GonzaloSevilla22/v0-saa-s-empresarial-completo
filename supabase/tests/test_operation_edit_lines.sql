@@ -451,13 +451,16 @@ BEGIN
       ARRAY[v_sale_3], v_client_a, CURRENT_DATE, 'ARS',
       jsonb_build_array(jsonb_build_object('product_id', v_product_foreign, 'amount', 20.00, 'quantity', 1))
     );
-    v_failures := array_append(v_failures, 'FAIL (1.9/P0403): editar referenciando un producto ajeno debería lanzar excepción');
+    v_failures := array_append(v_failures, 'FAIL (1.9/P0404): editar referenciando un producto ajeno debería lanzar excepción');
   EXCEPTION WHEN OTHERS THEN
     GET STACKED DIAGNOSTICS v_sqlstate = RETURNED_SQLSTATE;
-    IF v_sqlstate <> 'P0403' THEN
-      v_failures := array_append(v_failures, format('FAIL (1.9/P0403): esperaba SQLSTATE P0403, fue %s (%s)', v_sqlstate, SQLERRM));
+    -- multiusuario-operativo (tanda B, D8): el producto se toma con el filtro de la CUENTA ACTIVA dentro del
+    -- SELECT … FOR UPDATE, así que un producto de otra cuenta es P0404 (indistinguible de uno inexistente) y ya
+    -- no P0403 "Permission denied to product" (que lo decidía el autor). El rechazo se conserva; cambia el código.
+    IF v_sqlstate <> 'P0404' THEN
+      v_failures := array_append(v_failures, format('FAIL (1.9/P0404): esperaba SQLSTATE P0404, fue %s (%s)', v_sqlstate, SQLERRM));
     ELSE
-      RAISE NOTICE 'PASS (1.9/P0403): producto ajeno sigue rechazado en la edición';
+      RAISE NOTICE 'PASS (1.9/P0404): producto de otra cuenta sigue rechazado en la edición (como inexistente)';
     END IF;
   END;
 

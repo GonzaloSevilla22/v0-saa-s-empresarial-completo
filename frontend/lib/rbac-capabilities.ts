@@ -82,6 +82,26 @@ export const CAN_CONVERT_PURCHASE_DELIVERY_NOTE: readonly OrgRole[] = ["owner", 
 export const CAN_STOCK: readonly OrgRole[] = ["owner", "admin", "stock"]
 
 /**
+ * multiusuario-operativo tanda B (D9, OQ-3 b) — comprar: el alta de una compra con factura y la
+ * edición y el borrado de una compra. Espejo de `CAN_PURCHASE` de `backend/core/rbac.py` y de los
+ * `ARRAY[...]` que las cuatro RPCs de compra pasan a `_account_assert_capability` (migración
+ * 20261083000001): un test (`__tests__/lib/rbac-capabilities-ventas-compras.test.ts`) lee los dos
+ * y falla si divergen. El depósito (`stock`) NO compra: recibe mercadería por remito
+ * (`CAN_RECEIVE_PURCHASE`) y, si tiene la factura en la mano, la convierte
+ * (`CAN_CONVERT_PURCHASE_DELIVERY_NOTE`).
+ */
+export const CAN_PURCHASE: readonly OrgRole[] = ["owner", "admin", "purchases"]
+
+/**
+ * multiusuario-operativo tanda B (D9, OQ-4 b) — la regla de AUTOR: sobre una venta o una compra de
+ * OTRO miembro sólo el dueño y el administrador pueden editar y eliminar; el resto modifica lo que
+ * cargó él. Espejo de `CAN_MODIFY_ANY_DOCUMENT` de `backend/core/rbac.py` y del `ARRAY['owner',
+ * 'admin']` de `_account_assert_document_authority`. La decide la BASE (P0403); acá sólo se decide
+ * qué mostrar.
+ */
+export const CAN_MODIFY_ANY_DOCUMENT: readonly OrgRole[] = ["owner", "admin"]
+
+/**
  * ¿Alguno de los roles activos del usuario habilita la capacidad?
  *
  * Mientras el conjunto no resolvió (`rolesResolved === false`) responde `true`:
@@ -97,4 +117,31 @@ export function hasCapability(
 ): boolean {
   if (!rolesResolved) return true
   return roles.some((role) => capability.includes(role))
+}
+
+/**
+ * multiusuario-operativo tanda B (D9) — ¿se ofrece "Editar" / "Eliminar" sobre esta operación?
+ *
+ * Exige la capacidad del DOMINIO (`CAN_SELL` para una venta, `CAN_PURCHASE` para una compra) y,
+ * salvo dueño y administrador (`CAN_MODIFY_ANY_DOCUMENT`), que la operación sea del propio usuario.
+ *
+ * Es sólo informativo, igual que `hasCapability`: la barrera real es la RPC (`P0403`) y
+ * `require_account_role` del backend. Por eso es optimista cuando falta un dato —conjunto de roles sin
+ * resolver, o autor desconocido (una fila anterior a la columna)—: ocultar de más le quita al usuario una
+ * acción legítima, y mostrar de más sólo le cuesta un mensaje claro de la base.
+ */
+export function canModifyDocument(args: {
+  roles: readonly OrgRole[]
+  rolesResolved: boolean
+  capability: readonly OrgRole[]
+  /** Quién cargó la operación (`created_by`); null/undefined = desconocido. */
+  authorId: string | null | undefined
+  /** El usuario actual. */
+  userId: string | null | undefined
+}): boolean {
+  const { roles, rolesResolved, capability, authorId, userId } = args
+  if (!hasCapability(roles, capability, rolesResolved)) return false
+  if (hasCapability(roles, CAN_MODIFY_ANY_DOCUMENT, rolesResolved)) return true
+  if (!authorId || !userId) return true
+  return authorId === userId
 }

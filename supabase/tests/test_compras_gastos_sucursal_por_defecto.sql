@@ -254,9 +254,12 @@ DECLARE
   --     la resolución de la principal de 20261076000001).
   -- rpc_update_expense sigue siendo el de 20261076000001. Son los md5 que fija la
   -- introspección de la migración de la tanda B (y el `v_rewritten` del preflight de aquélla).
-  v_md5_core          constant text := '7ad5c56ea845bcb188f69d8a2ce96ddb';
-  v_md5_wrapper       constant text := '98e045e69109fe903aedd7ca2d78e448';
-  v_md5_edit_purchase constant text := '170fc4693bf217b77c20cc4fb4602271';
+  -- multiusuario-operativo (tanda B, 20261083000001) reescribió estas tres desde el vivo: suma el guard de rol
+  -- (el wrapper y la edición) y el filtro de cuenta del producto (el núcleo y la edición), sin tocar la sucursal
+  -- resuelta que fija este gate. Son los md5 de ESA migración; quien las redefina después rebasa estos valores.
+  v_md5_core          constant text := '12d47cda44f3497817cdc2219d886526';
+  v_md5_wrapper       constant text := '9a3b868b883d2f59b3ae1a6908288ea1';
+  v_md5_edit_purchase constant text := '691d0a01893439e39e7cda93ddcbcc6f';
   v_md5_edit_expense  constant text := 'bb8e7d02f737937fdd120804722a3151';
 
   -- Cuenta A (principal A0 + B): bloques (1), (6), (7), (8), (9), (10).

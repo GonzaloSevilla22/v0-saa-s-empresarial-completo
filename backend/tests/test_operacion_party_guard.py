@@ -87,7 +87,7 @@ import pytest
 import asyncpg
 from fastapi import HTTPException
 
-from backend.tests.conftest import make_token, TEST_ACCOUNT_ID
+from backend.tests.conftest import make_token, TEST_ACCOUNT_ID, tenant_token
 
 # ── Workaround fpdf2 (pre-existing issue, mismo molde que
 #    backend/tests/test_cuenta_corriente_party_guard.py) ──────────────────────
@@ -232,7 +232,7 @@ class TestPurchaseOperationPartyGuardHttp:
 
         with patch("backend.core.database.pool", pool):
             headers = {
-                "Authorization": f"Bearer {make_token({'role': 'user'})}",
+                "Authorization": f"Bearer {tenant_token(['owner'])}",
                 "Idempotency-Key": IDEMPOTENCY_KEY,
             }
             response = await async_client.post(
@@ -259,7 +259,7 @@ class TestPurchaseOperationPartyGuardHttp:
 
         with patch("backend.core.database.pool", pool):
             headers = {
-                "Authorization": f"Bearer {make_token({'role': 'user'})}",
+                "Authorization": f"Bearer {tenant_token(['owner'])}",
                 "Idempotency-Key": IDEMPOTENCY_KEY + "-neg",
             }
             response = await async_client.post(
@@ -308,7 +308,7 @@ class TestUpdateSaleOperationPartyGuardHttp:
         conn.fetchval = AsyncMock(side_effect=_pg_error("P0404", CLIENT_NOT_FOUND_MSG))
 
         with patch("backend.core.database.pool", pool):
-            headers = {"Authorization": f"Bearer {make_token({'role': 'user'})}"}
+            headers = {"Authorization": f"Bearer {tenant_token(['owner'])}"}
             response = await async_client.put(
                 "/sales/operation", json=self._payload(), headers=headers
             )
@@ -334,7 +334,7 @@ class TestUpdateSaleOperationPartyGuardHttp:
         )
 
         with patch("backend.core.database.pool", pool):
-            headers = {"Authorization": f"Bearer {make_token({'role': 'user'})}"}
+            headers = {"Authorization": f"Bearer {tenant_token(['owner'])}"}
             response = await async_client.put(
                 "/sales/operation", json=self._payload(), headers=headers
             )

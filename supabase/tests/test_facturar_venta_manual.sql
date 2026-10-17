@@ -832,7 +832,9 @@ BEGIN
   INTO   v_def
   FROM   pg_proc WHERE oid = to_regprocedure('public.rpc_atomic_update_sale_operation(uuid[], uuid, date, text, jsonb, uuid, boolean, uuid, boolean, text, boolean)');
   v_def   := COALESCE(v_def, '');
-  v_lock  := position('where s.id = any(p_sale_ids) and s.user_id = v_uid order by s.id for update ) l; if v_locked <> array_length(p_sale_ids, 1) then raise exception' in v_def);
+  -- multiusuario-operativo (tanda B, D8): el lock de la edición filtra por la CUENTA ACTIVA (s.account_id = v_account_id),
+  -- ya no por el autor (s.user_id = v_uid): un administrador edita la venta del vendedor. El orden de locks no cambia.
+  v_lock  := position('where s.id = any(p_sale_ids) and s.account_id = v_account_id order by s.id for update ) l; if v_locked <> array_length(p_sale_ids, 1) then raise exception' in v_def);
   v_first := LEAST(NULLIF(position('sales_orders' in v_def), 0), NULLIF(position('fiscal_documents' in v_def), 0),
                    NULLIF(position('_fiscal_void_pending_for_sale_edit(' in v_def), 0));
   IF v_lock = 0 THEN

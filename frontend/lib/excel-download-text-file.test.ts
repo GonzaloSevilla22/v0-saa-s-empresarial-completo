@@ -70,3 +70,49 @@ describe("exportToCSV — sigue en verde tras la extracción (REFACTOR)", () => 
     expect(text).toContain('"Tomate"')
   })
 })
+
+/**
+ * Temporizador de limpieza (CI del PR #654, 2026-10-17): la limpieza diferida
+ * (`revokeObjectURL` + sacar el <a>) corre 150 ms después del click. En vitest ese
+ * temporizador puede dispararse cuando el test que descargó ya terminó y su jsdom se
+ * desmontó: un `document.body.removeChild` ahí tumbaba la corrida ENTERA con
+ * «Unhandled Error: document is not defined» aunque los 577 archivos pasaran
+ * (`__tests__/pages/stock-export-sku.test.tsx`). La limpieza no debe depender de
+ * `document`: el enlace se saca por su propia referencia.
+ */
+describe("downloadTextFile — la limpieza diferida", () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.spyOn(URL, "createObjectURL").mockImplementation(() => "blob:mock-cleanup")
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {})
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {})
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+  })
+
+  it("150 ms después del click revoca la URL y saca el <a> del DOM; antes, el enlace sigue montado", () => {
+    downloadTextFile("a;b\r\n", "x.csv", "text/csv")
+    const link = document.body.querySelector<HTMLAnchorElement>('a[download="x.csv"]')
+    expect(link).not.toBeNull()
+    expect(URL.revokeObjectURL).not.toHaveBeenCalled()
+
+    vi.advanceTimersByTime(149)
+    expect(link!.isConnected).toBe(true)
+
+    vi.advanceTimersByTime(1)
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:mock-cleanup")
+    expect(link!.isConnected).toBe(false)
+  })
+
+  it("no toca `document`: si el entorno se desmontó antes de los 150 ms, el temporizador no lanza", () => {
+    downloadTextFile("a;b\r\n", "y.csv", "text/csv")
+    // Simula el teardown de jsdom entre el click y la limpieza diferida.
+    vi.stubGlobal("document", undefined)
+    expect(() => vi.runAllTimers()).not.toThrow()
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:mock-cleanup")
+  })
+})

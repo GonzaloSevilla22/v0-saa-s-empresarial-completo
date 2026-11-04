@@ -67,6 +67,16 @@ class PurchaseRepository(BaseRepository):
               GROUP BY COALESCE(operation_id::text, id::text)
               ORDER BY MAX(date) DESC
               LIMIT $6 OFFSET $7
+            ),
+            op_fp AS (
+              -- edicion-operaciones-con-dinero (tanda A, 1.5): la huella NETA de cada operación de la página, UNA
+              -- vez por operación. Misma función que usan el borrado y la edición (D3).
+              SELECT op_page.op_key, fp.has_account_charge, fp.has_cash_movement,
+                     fp.has_bank_movement, fp.is_delete_blocked
+              FROM op_page
+              LEFT JOIN LATERAL public.op_money_footprint_flags(
+                $1::uuid, 'purchase', ARRAY[op_page.op_key::uuid]
+              ) fp ON TRUE
             )
             SELECT p.id, p.date, p.operation_id, p.description,
                    COALESCE(pi2.product_id, p.product_id) AS product_id,
@@ -131,32 +141,15 @@ class PurchaseRepository(BaseRepository):
                    -- el MISMO EXISTS que precede al P0426 de
                    -- rpc_delete_purchase_operation: hay movimiento de caja Y
                    -- no hay sesión abierta en esa caja.
-                   EXISTS (
-                     SELECT 1 FROM supplier_account_movements sam
-                     WHERE sam.reference_id = p.operation_id
-                   ) AS has_account_charge,
-                   EXISTS (
-                     SELECT 1 FROM bank_movements bm
-                     WHERE bm.source_doc_type = 'purchase' AND bm.source_doc_ref = p.operation_id
-                   ) AS has_bank_movement,
-                   EXISTS (
-                     SELECT 1 FROM cash_movements cm
-                     WHERE cm.movement_type = 'purchase_payment' AND cm.reference_id = p.operation_id
-                   ) AS has_cash_movement,
-                   -- Mismo molde que _EXPENSE_PROJECTION.is_delete_blocked
-                   -- (backend/repositories/expense_repository.py): hay
-                   -- movimiento de caja de esta compra Y no hay sesión
-                   -- abierta en ESA MISMA caja donde compensar.
-                   EXISTS (
-                     SELECT 1
-                     FROM cash_movements cm
-                     JOIN cash_sessions cs ON cs.id = cm.session_id
-                     WHERE cm.reference_id = p.operation_id AND cm.movement_type = 'purchase_payment'
-                       AND NOT EXISTS (
-                         SELECT 1 FROM cash_sessions os
-                         WHERE os.cashbox_id = cs.cashbox_id AND os.status = 'open'
-                       )
-                   ) AS is_delete_blocked,
+                   -- edicion-operaciones-con-dinero (tanda A, 1.5): los cuatro derivados salen de la huella NETA
+                   -- (CTE op_fp de arriba, función op_money_footprint_flags), no de un EXISTS por tipo de movimiento.
+                   -- is_delete_blocked: hay neto de caja de esta compra Y no hay sesión abierta en ESA MISMA caja
+                   -- donde compensar (el mismo par de condiciones que precede al P0426 del borrado).
+                   -- is_payment_locked (el OR de los EXISTS) NO se toca acá: lo retira la tanda B.
+                   COALESCE(fp.has_account_charge, FALSE) AS has_account_charge,
+                   COALESCE(fp.has_bank_movement,  FALSE) AS has_bank_movement,
+                   COALESCE(fp.has_cash_movement,  FALSE) AS has_cash_movement,
+                   COALESCE(fp.is_delete_blocked,  FALSE) AS is_delete_blocked,
                    (
                      EXISTS (
                        SELECT 1 FROM supplier_account_movements sam
@@ -173,6 +166,7 @@ class PurchaseRepository(BaseRepository):
                    ) AS is_payment_locked
             FROM purchases p
             JOIN op_page ON COALESCE(p.operation_id::text, p.id::text) = op_page.op_key
+            LEFT JOIN op_fp fp ON fp.op_key = op_page.op_key
             LEFT JOIN purchase_items pi2 ON pi2.purchase_id = p.id AND pi2.product_id IS NOT NULL
             LEFT JOIN products pr ON COALESCE(pi2.product_id, p.product_id) = pr.id
             LEFT JOIN cost_centers cc ON cc.id = p.cost_center_id

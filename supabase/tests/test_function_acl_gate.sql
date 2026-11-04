@@ -310,7 +310,21 @@ DECLARE
     -- Candado de comportamiento: bloques (z), (n) y (pg) de
     -- supabase/tests/test_remito_a_compra.sql.
     'public._purchase_operation_core(uuid, text, date, text, jsonb, uuid, uuid, uuid, uuid, uuid, uuid, date, uuid)',
-    'public.trg_purchases_guard_delivery_note_source()'
+    'public.trg_purchases_guard_delivery_note_source()',
+    -- edicion-operaciones-con-dinero tanda A (20261088000001): las tres piezas internas del consumidor contable y del
+    -- aging. Las tres son SECURITY INVOKER (las invocan sólo funciones DEFINER ya autorizadas): el barrido (4) —que
+    -- mira SECURITY DEFINER— no las alcanza, este (3) es su candado nominal. NUNCA otorgar.
+    --   · _customer_open_items / _supplier_open_items: el importe ABIERTO de cada cargo de TODA una cuenta (o de todas:
+    --     p_account_id NULL, para el aviso diario). Con EXECUTE para `authenticated` y una RLS que las filtrara, seguiría
+    --     siendo la lectura de la cartera de cualquier cuenta si una policy se aflojara; el aviso diario las llama con
+    --     NULL, o sea cross-tenant por diseño.
+    --   · _journal_purchase_lines: INSERTA líneas del libro diario en un asiento que se le pasa por parámetro.
+    -- Las funciones públicas de la tanda A son op_money_footprint / op_money_footprint_flags (SECURITY INVOKER,
+    -- authenticated sí, anon nunca: la RLS filtra al que consulta). Candado de comportamiento: introspección al final de
+    -- la propia migración y supabase/tests/test_aging_reversal_pairing.sql (H6) / test_op_money_footprint.sql (F9, F10).
+    'public._customer_open_items(uuid, uuid)',
+    'public._supplier_open_items(uuid, uuid)',
+    'public._journal_purchase_lines(uuid, uuid, numeric, text, numeric, numeric, uuid)'
   ];
   -- Allowlist del chequeo (4) — helpers internos que HOY siguen expuestos a
   -- `authenticated`. Cada entrada necesita su justificación.
@@ -403,7 +417,12 @@ DECLARE
     -- expuesta: SÍ, y es LEGÍTIMO (ver v_cross_tenant_event_exposed_ok).
     -- asiento-contable-gastos (D7): mismo predicado de lectura que la de
     -- arriba, antes del borrado físico del gasto.
-    'public.rpc_delete_expense(p_expense_id uuid)'
+    'public.rpc_delete_expense(p_expense_id uuid)',
+    -- expuesta: SÍ, y es LEGÍTIMO (ver v_cross_tenant_event_exposed_ok).
+    -- edicion-operaciones-con-dinero (tanda A, D10): la edición de una compra emite PurchaseAdjusted sólo si existe el
+    -- alta contable de ESA operación, así que lee el outbox con un SELECT 1 ... WHERE aggregate_id = <operación> AND
+    -- account_id = v_account_id, la misma forma que rpc_update_expense.
+    'public.rpc_atomic_update_purchase_operation(p_purchase_ids uuid[], p_date date, p_description text, p_items jsonb, p_payment_method_id uuid, p_payment_method_provided boolean, p_branch_id uuid, p_branch_provided boolean, p_supplier_id uuid, p_supplier_provided boolean, p_cost_center_id uuid, p_cost_center_provided boolean)'
   ];
   -- Subconjunto del anterior que SÍ puede estar expuesto a `authenticated`.
   -- Una entrada acá es una excepción con nombre y apellido, no una categoría.
@@ -428,7 +447,13 @@ DECLARE
     -- event_id por parámetro ni recorre el outbox de otro tenant: exactamente
     -- la misma forma que rpc_atomic_update_sale_operation.
     'public.rpc_update_expense(p_expense_id uuid, p_category text, p_amount numeric, p_date date, p_description text, p_payment_method_id uuid, p_payment_method_provided boolean, p_branch_id uuid, p_branch_provided boolean, p_cost_center_id uuid, p_cost_center_provided boolean)',
-    'public.rpc_delete_expense(p_expense_id uuid)'
+    'public.rpc_delete_expense(p_expense_id uuid)',
+    -- edicion-operaciones-con-dinero (tanda A, D10): rpc_atomic_update_purchase_operation es la RPC de EDICIÓN de una
+    -- compra, API pública real. Su único acceso al outbox es un SELECT 1 FROM public.events WHERE event_type IN
+    -- ('PurchaseCreated','PurchaseAdjusted') AND aggregate_id = <operación que la RPC ya validó> AND account_id =
+    -- v_account_id — la compra y la cuenta están resueltas y bloqueadas (FOR UPDATE) ANTES de esa lectura. No acepta un
+    -- event_id por parámetro ni recorre el outbox de otro tenant: la misma forma que rpc_update_expense.
+    'public.rpc_atomic_update_purchase_operation(p_purchase_ids uuid[], p_date date, p_description text, p_items jsonb, p_payment_method_id uuid, p_payment_method_provided boolean, p_branch_id uuid, p_branch_provided boolean, p_supplier_id uuid, p_supplier_provided boolean, p_cost_center_id uuid, p_cost_center_provided boolean)'
   ];
 BEGIN
   -- Entorno sin roles de Supabase (p.ej. postgres pelado): no hay nada que gatear

@@ -301,6 +301,7 @@ class TestCustomerAccountRepository:
             account_column="customer_account_id",
             movements_table="customer_account_movements",
             charge_type="sale",
+            reversal_type="credit_note",
             outer_alias="cam",
         )
         mock_conn.fetch.return_value = []
@@ -477,6 +478,7 @@ class TestSupplierAccountRepository:
             account_column="supplier_account_id",
             movements_table="supplier_account_movements",
             charge_type="purchase",
+            reversal_type="debit_note",
             outer_alias="sam",
         )
         mock_conn.fetch.return_value = []
@@ -522,12 +524,14 @@ class TestSupplierAccountRepository:
             account_column="customer_account_id",
             movements_table="customer_account_movements",
             charge_type="sale",
+            reversal_type="credit_note",
             outer_alias="cam",
         )
         supplier_open, supplier_due = build_aging_cte(
             account_column="supplier_account_id",
             movements_table="supplier_account_movements",
             charge_type="purchase",
+            reversal_type="debit_note",
             outer_alias="sam",
         )
 
@@ -540,6 +544,8 @@ class TestSupplierAccountRepository:
                 .replace("supplier_account_movements", "MOVEMENTS_TABLE")
                 .replace("'sale'", "'CHARGE_TYPE'")
                 .replace("'purchase'", "'CHARGE_TYPE'")
+                .replace("'credit_note'", "'REVERSAL_TYPE'")
+                .replace("'debit_note'", "'REVERSAL_TYPE'")
                 .replace("cam.", "ALIAS.")
                 .replace("sam.", "ALIAS.")
             )

@@ -76,6 +76,7 @@ BANK_ACCOUNT_ID    = "13131313-1313-1313-1313-131313131313"
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 MIGRATION = _REPO_ROOT / "supabase" / "migrations" / "20261015000001_gastos_forma_pago.sql"
 SQL_GATE = _REPO_ROOT / "supabase" / "tests" / "test_gastos_forma_pago.sql"
+TANDA_A_MIGRATION = _REPO_ROOT / "supabase" / "migrations" / "20261088000001_edicion_operaciones_cimientos.sql"
 
 EXPENSE_ROW = {
     "id": EXPENSE_ID,
@@ -572,15 +573,30 @@ class TestDerivedFlagsMatchServerGuards:
 
     def test_delete_block_predicate_is_the_p0426_guard(self, migration_sql, repo_sql, gate_sql):
         """El bloqueo de borrado combina los DOS fragmentos que evalúa
-        rpc_delete_expense antes del P0426: los movimientos de caja del gasto
-        y la ausencia de sesión abierta en ESA caja."""
-        movements = "reference_id = <EXP> AND movement_type = 'expense'"
+        rpc_delete_expense antes del P0426: el neto de caja del gasto y la
+        ausencia de sesión abierta en ESA caja.
+
+        edicion-operaciones-con-dinero (tanda A, 1.5): el neto sale de la huella
+        NETA (`op_money_footprint`), no de un `EXISTS` por tipo de movimiento.
+        El guard vivo (migración de la tanda A) y el derivado de lectura
+        (`op_money_footprint_flags`) tienen que usar el MISMO par de condiciones;
+        el derivado del repositorio delega en esa función. La migración original
+        de gastos-forma-pago conserva el predicado histórico; el gate SQL de
+        gastos lo sigue evaluando contra el comportamiento real."""
         open_session = "cashbox_id = <CASHBOX> AND status = 'open'"
-        assert movements in migration_sql
+        new_migration = _norm(TANDA_A_MIGRATION.read_text(encoding="utf-8"))
+        # guard del borrado: itera la huella de caja y busca la sesión abierta de ESA caja
+        assert "op_money_footprint(v_account_id, 'expense', ARRAY[<EXP>]) f WHERE f.book = 'cash'" in new_migration
+        assert "cashbox_id = v_fp.ledger_id AND status = 'open'" in new_migration
+        # derivado de lectura: el mismo par de condiciones, en la función de indicadores
+        assert "book = 'cash' AND NOT EXISTS" in new_migration
+        assert "cashbox_id = f.ledger_id AND status = 'open'" in new_migration
+        # el repositorio delega en la función, no re-escribe el predicado
+        assert "op_money_footprint_flags(account_id, 'expense', ARRAY[<EXP>])" in repo_sql
+        assert "fp.is_delete_blocked" in repo_sql
+        # predicado histórico (migración original + gate SQL de gastos)
+        assert "reference_id = <EXP> AND movement_type = 'expense'" in migration_sql
         assert open_session in migration_sql
-        assert movements in repo_sql
-        assert open_session in repo_sql
-        assert movements in gate_sql
         assert open_session in gate_sql
 
 

@@ -59,6 +59,21 @@ class SalesRepository(CommercialIssuerMixin, BaseRepository):
               GROUP BY COALESCE(operation_id::text, id::text)
               ORDER BY MAX(date) DESC
               LIMIT $5 OFFSET $6
+            ),
+            op_fp AS (
+              -- edicion-operaciones-con-dinero (tanda A, 1.5): la huella NETA de cada operación de la página,
+              -- UNA vez por operación (no por fila de línea). Referencias: el operation_id (formulario) y el id
+              -- de su orden (POS / presupuesto). Es la misma función que usan el borrado y la edición (D3).
+              SELECT op_page.op_key, fp.has_account_charge, fp.has_cash_movement, fp.has_bank_movement
+              FROM op_page
+              LEFT JOIN LATERAL public.op_money_footprint_flags(
+                $1::uuid, 'sale',
+                ARRAY_REMOVE(ARRAY[
+                  op_page.op_key::uuid,
+                  (SELECT so2.id FROM sales_orders so2
+                    WHERE so2.sale_operation_id = op_page.op_key::uuid AND so2.account_id = $1::uuid)
+                ], NULL)
+              ) fp ON TRUE
             )
             SELECT s.id, s.date, s.client_id, s.operation_id, s.currency,
                    COALESCE(si.product_id, s.product_id) AS product_id,
@@ -168,18 +183,13 @@ class SalesRepository(CommercialIssuerMixin, BaseRepository):
                    -- de borrado enumere específicamente qué libro compensaría
                    -- — is_payment_locked (el OR de los tres) se preserva tal
                    -- cual para no romper el badge de lock de edición existente.
-                   (
-                     EXISTS (SELECT 1 FROM customer_account_movements cam WHERE cam.reference_id = s.operation_id)
-                     OR (so.id IS NOT NULL AND EXISTS (SELECT 1 FROM customer_account_movements cam WHERE cam.reference_id = so.id))
-                   ) AS has_account_charge,
-                   (
-                     EXISTS (SELECT 1 FROM cash_movements cm WHERE cm.reference_id = s.operation_id)
-                     OR (so.id IS NOT NULL AND EXISTS (SELECT 1 FROM cash_movements cm WHERE cm.reference_id = so.id))
-                   ) AS has_cash_movement,
-                   (
-                     EXISTS (SELECT 1 FROM bank_movements bm WHERE bm.source_doc_type = 'sale' AND bm.source_doc_ref = s.operation_id)
-                     OR (so.id IS NOT NULL AND EXISTS (SELECT 1 FROM bank_movements bm WHERE bm.source_doc_type = 'sale' AND bm.source_doc_ref = so.id))
-                   ) AS has_bank_movement,
+                   -- edicion-operaciones-con-dinero (tanda A, 1.5): los tres indicadores salen de la huella NETA
+                   -- (función op_money_footprint_flags, CTE op_fp de arriba), no de un EXISTS sobre el tipo de
+                   -- movimiento: una operación editada acumula original + compensación + nuevo bajo la misma
+                   -- referencia. is_payment_locked (el OR de los EXISTS) NO se toca acá: lo retira la tanda B.
+                   COALESCE(fp.has_account_charge, FALSE) AS has_account_charge,
+                   COALESCE(fp.has_cash_movement,  FALSE) AS has_cash_movement,
+                   COALESCE(fp.has_bank_movement,  FALSE) AS has_bank_movement,
                    (
                      EXISTS (SELECT 1 FROM customer_account_movements cam WHERE cam.reference_id = s.operation_id)
                      OR (so.id IS NOT NULL AND EXISTS (SELECT 1 FROM customer_account_movements cam WHERE cam.reference_id = so.id))
@@ -224,6 +234,7 @@ class SalesRepository(CommercialIssuerMixin, BaseRepository):
             LEFT JOIN clients cl ON s.client_id = cl.id
             LEFT JOIN payment_methods pm ON pm.id = s.payment_method_id
             LEFT JOIN sales_orders so ON so.sale_operation_id = s.operation_id
+            LEFT JOIN op_fp fp ON fp.op_key = COALESCE(s.operation_id::text, s.id::text)
             LEFT JOIN payment_methods pos_pm
                    ON pos_pm.id          = so.payment_method_id
                   AND pos_pm.deleted_at IS NULL

@@ -9,8 +9,13 @@ nombre de tabla/columna de cuenta, el `movement_type` que cuenta como cargo
 ('sale' vs 'purchase') y el alias de la tabla en la query externa ('cam' vs
 'sam'). `build_aging_cte()` es la ÚNICA definición; los 4 sitios la consumen.
 
-Fuera de este refactor (ver deviations del ítem): `rpc_receivables_report`
-(SQL, no Python) tiene su propia copia del mismo cálculo — no se toca.
+edicion-operaciones-con-dinero (tanda A, D9) — EMPAREJAMIENTO de la reversión de un cargo: el crédito de una
+reversión (`credit_note` del cliente, `debit_note` del proveedor) cancela PRIMERO los cargos de su misma referencia
+y de la misma cuenta corriente, en el orden de la línea de flotación de esos cargos; sólo el remanente va al pozo
+general. Sin esto, revertir el cargo de una venta editada o borrada cancelaba el cargo más viejo de la cuenta y no
+el propio. Esta definición y la función SQL `_customer_open_items` / `_supplier_open_items` (que alimentan
+`rpc_receivables_report`, `rpc_payables_report`, el aviso diario y las dos RPC de cambio de vencimiento) aplican
+LA MISMA regla: un gate (`test_aging_reversal_pairing`) las compara sobre el mismo ledger.
 """
 from __future__ import annotations
 
@@ -20,6 +25,7 @@ def build_aging_cte(
     account_column: str,
     movements_table: str,
     charge_type: str,
+    reversal_type: str,
     outer_alias: str,
 ) -> tuple[str, str]:
     """Arma los dos fragmentos de SQL de aging para una "parte" (cliente o
@@ -32,6 +38,8 @@ def build_aging_cte(
             'customer_account_movements' | 'supplier_account_movements'.
         charge_type: `movement_type` que cuenta como cargo (además de
             `adjustment` positivo) — 'sale' | 'purchase'.
+        reversal_type: `movement_type` de la reversión de un cargo (cuyo crédito se
+            empareja con los cargos de su misma referencia) — 'credit_note' | 'debit_note'.
         outer_alias: alias de la tabla de movimientos en la query EXTERNA
             (fuera de este CTE) — 'cam' | 'sam'. Sólo lo usa
             `due_derivatives`, que referencia `{outer_alias}.due_date`.
@@ -54,18 +62,47 @@ def build_aging_cte(
               FROM public.{movements_table} m
               WHERE m.{account_column} = $1::uuid AND m.account_id = $2::uuid
                 AND NOT (m.movement_type = '{charge_type}' OR (m.movement_type = 'adjustment' AND m.amount > 0))
+                AND NOT (m.movement_type = '{reversal_type}' AND m.reference_id IS NOT NULL)
             ),
-            open_items AS (
-              SELECT m.id,
-                     LEAST(m.amount, GREATEST(0::numeric,
-                       SUM(m.amount) OVER (
-                         ORDER BY COALESCE(m.due_date, (m.created_at AT TIME ZONE 'America/Argentina/Mendoza')::date),
-                                  m.created_at, m.id
-                       ) - (SELECT credit FROM pool)
-                     )) AS open_amount
+            rev AS (
+              SELECT m.reference_id, SUM(-m.amount) AS credit
+              FROM public.{movements_table} m
+              WHERE m.{account_column} = $1::uuid AND m.account_id = $2::uuid
+                AND m.movement_type = '{reversal_type}' AND m.reference_id IS NOT NULL
+              GROUP BY m.reference_id
+            ),
+            charges AS (
+              SELECT m.id, m.amount, m.due_date, m.created_at, m.reference_id,
+                     SUM(m.amount) OVER (
+                       PARTITION BY m.reference_id
+                       ORDER BY COALESCE(m.due_date, (m.created_at AT TIME ZONE 'America/Argentina/Mendoza')::date),
+                                m.created_at, m.id
+                     ) AS cum_ref
               FROM public.{movements_table} m
               WHERE m.{account_column} = $1::uuid AND m.account_id = $2::uuid
                 AND (m.movement_type = '{charge_type}' OR (m.movement_type = 'adjustment' AND m.amount > 0))
+            ),
+            net AS (
+              SELECT ch.id, ch.due_date, ch.created_at,
+                     LEAST(ch.amount, GREATEST(0::numeric, ch.cum_ref - COALESCE(r.credit, 0))) AS net_amount
+              FROM charges ch
+              LEFT JOIN rev r ON r.reference_id = ch.reference_id
+            ),
+            remainder AS (
+              SELECT COALESCE(SUM(GREATEST(0::numeric, r.credit - COALESCE(t.total, 0))), 0) AS rem
+              FROM rev r
+              LEFT JOIN (SELECT reference_id, SUM(amount) AS total FROM charges GROUP BY reference_id) t
+                     ON t.reference_id = r.reference_id
+            ),
+            open_items AS (
+              SELECT n.id,
+                     LEAST(n.net_amount, GREATEST(0::numeric,
+                       SUM(n.net_amount) OVER (
+                         ORDER BY COALESCE(n.due_date, (n.created_at AT TIME ZONE 'America/Argentina/Mendoza')::date),
+                                  n.created_at, n.id
+                       ) - (SELECT credit FROM pool) - (SELECT rem FROM remainder)
+                     )) AS open_amount
+              FROM net n
             )
     """
     due_derivatives = f"""

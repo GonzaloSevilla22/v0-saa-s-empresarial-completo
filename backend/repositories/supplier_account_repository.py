@@ -50,6 +50,7 @@ class SupplierAccountRepository(BaseRepository):
         account_column="supplier_account_id",
         movements_table="supplier_account_movements",
         charge_type="purchase",
+        reversal_type="debit_note",
         outer_alias="sam",
     )
 

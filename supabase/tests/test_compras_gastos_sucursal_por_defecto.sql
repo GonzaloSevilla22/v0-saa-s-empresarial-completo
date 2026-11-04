@@ -264,8 +264,13 @@ DECLARE
   -- migración (antes 691d0a01893439e39e7cda93ddcbcc6f, el de 20261083000001). La resolución de la
   -- principal de este change y el P0423 del remito siguen en el cuerpo (las aserciones de contenido
   -- de abajo lo verifican).
-  v_md5_edit_purchase constant text := 'd934a7d3ee8e35b3969aa3203353f3e1';
-  v_md5_edit_expense  constant text := 'bb8e7d02f737937fdd120804722a3151';
+  -- edicion-operaciones-con-dinero (tanda A, 20261088000001) los redefine otra vez desde el cuerpo vivo, SIN tocar la
+  -- sucursal resuelta que fija este gate: la edición de compra gana el lock de filas ascendente + recuento y emite
+  -- PurchaseAdjusted (antes d934a7d3ee8e35b3969aa3203353f3e1, el de 20261087000001); la edición de gasto lee la fila
+  -- FOR UPDATE (antes bb8e7d02f737937fdd120804722a3151). Son los md5 de ESA migración; quien las redefina después
+  -- rebasa estos valores.
+  v_md5_edit_purchase constant text := '6693bb7f02c748193dccdbf234fb883e';
+  v_md5_edit_expense  constant text := '2eba5db62637d5597acce12c4ac390fa';
 
   -- Cuenta A (principal A0 + B): bloques (1), (6), (7), (8), (9), (10).
   r_a jsonb; v_user_a uuid; v_acc_a uuid; v_a0 uuid; v_b uuid;

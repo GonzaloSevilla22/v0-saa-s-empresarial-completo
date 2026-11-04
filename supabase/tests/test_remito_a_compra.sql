@@ -1588,9 +1588,13 @@ BEGIN
   IF v_pos_dn = 0 OR position('FOR SHARE' IN v_src) = 0 OR position('delivery_note_purchase_delete_forbidden' IN v_src) = 0
      OR position('IF v_source_dn IS NULL THEN' IN v_src) = 0 OR position('delivery_note_branch_inactive' IN v_src) = 0 THEN
     v_bad := v_bad || '(u) el borrado no tiene el lock del remito, el rol de anular, la sucursal viva o el salto de la reversa de stock'::text;
-  ELSIF v_pos_dn > position('_pay_reverse_party_charge(' IN v_src)
+  -- edicion-operaciones-con-dinero (tanda A): las compensaciones salen de la HUELLA NETA (op_money_footprint): el
+  -- marcador del banco es el escritor del espejo (_register_bank_movement), ya no la lectura de bank_movements, y la
+  -- primera lectura de la huella (la de cuenta corriente) también va después del lock del remito.
+  ELSIF v_pos_dn > position('op_money_footprint(' IN v_src)
+        OR v_pos_dn > position('_pay_reverse_party_charge(' IN v_src)
         OR v_pos_dn > position('c28_register_cash_movement(' IN v_src)
-        OR v_pos_dn > position('FROM public.bank_movements' IN v_src)
+        OR v_pos_dn > position('_register_bank_movement(' IN v_src)
         OR v_pos_dn > position('rpc_reverse_stock_movement(' IN v_src) THEN
     v_bad := v_bad || '(u) el borrado toma el lock del remito DESPUÉS de una compensación (orden remito -> dinero)'::text;
   END IF;

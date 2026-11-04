@@ -14,8 +14,10 @@
 --       la sucursal default con el stock del CSV, product_attributes escrito,
 --   (2) Variante por parent_name → resuelta,
 --   (3) Variante por parent_id explícito → resuelta,
---   (4) reimportar el mismo SKU con otro stock → updated (no inserted),
---       branch_stock reemplazado (set absoluto).
+--   (4) reimportar el mismo SKU con otro stock → updated (no inserted); el
+--       stock NO se reemplaza (importador-productos-stock-apertura: el stock del
+--       archivo es de apertura y sólo aplica al producto que el lote crea; el
+--       resto de los campos sí se actualiza).
 -- Lo nuevo (5.3):
 --   (5) categoría desconocida → se crea en la cuenta e imputa (category_id +
 --       espejo TEXT),
@@ -128,7 +130,7 @@ BEGIN
       END IF;
       RAISE NOTICE 'PASS (3): variante por parent_id explícito resuelta.';
 
-      -- ── (4): reimportar = update, stock reemplazado ─────────────────────────
+      -- ── (4): reimportar = update; el stock vivo se conserva ────────────────
       v_res := public.rpc_bulk_upsert_products(jsonb_build_array(
         jsonb_build_object('name','Gate Zapatillas 41','sku','GZAP-41','sku_parent','GZAP','category','Ropa','price',120,'cost',50,'stock',9,'min_stock',1,'barcode',NULL,'parent_id',NULL,'is_variant',true,'stock_control_type','tracked','attributes','[]'::jsonb)
       ), v_user_a);
@@ -136,10 +138,15 @@ BEGIN
         RAISE EXCEPTION 'GATE BULK-UPSERT-CATEGORIES FAILED (4a): reimportar GZAP-41 esperaba updated=1/inserted=0, dio %.', v_res;
       END IF;
       SELECT quantity INTO v_qty FROM public.branch_stock WHERE product_id = v_child_id AND branch_id = v_branch_a;
-      IF v_qty IS DISTINCT FROM 9 THEN
-        RAISE EXCEPTION 'GATE BULK-UPSERT-CATEGORIES FAILED (4b): branch_stock esperaba 9 tras la reimportación, dio %.', v_qty;
+      -- importador-productos-stock-apertura (D2): ANTES esperaba 9 (set absoluto
+      -- que pisaba el saldo vivo); ahora el saldo del producto existente queda en 5.
+      IF v_qty IS DISTINCT FROM 5 THEN
+        RAISE EXCEPTION 'GATE BULK-UPSERT-CATEGORIES FAILED (4b): branch_stock esperaba 5 (el stock vivo se conserva) tras la reimportación con stock 9, dio %.', v_qty;
       END IF;
-      RAISE NOTICE 'PASS (4): reimportar por SKU actualiza (no duplica) y reemplaza el stock.';
+      IF (SELECT price FROM public.products WHERE id = v_child_id) IS DISTINCT FROM 120 THEN
+        RAISE EXCEPTION 'GATE BULK-UPSERT-CATEGORIES FAILED (4c): la reimportación debía seguir actualizando el precio (120).';
+      END IF;
+      RAISE NOTICE 'PASS (4): reimportar por SKU actualiza (no duplica) y conserva el stock vivo.';
 
       -- ── (5): categoría desconocida se crea e imputa ────────────────────────
       SELECT COUNT(*) INTO v_cats_before FROM public.product_categories WHERE account_id = v_account_a AND deleted_at IS NULL;
@@ -297,6 +304,9 @@ BEGIN
   END IF;
 
   -- Cleanup hijo→padre.
+  -- importador-productos-stock-apertura: el alta con stock deja un movimiento de apertura
+  -- (FK a la cuenta, sin cascada): se limpia antes de borrar las cuentas.
+  DELETE FROM public.stock_movements WHERE account_id = v_account_a;
   DELETE FROM public.branch_stock WHERE product_id IN (SELECT id FROM public.products WHERE account_id = v_account_a);
   DELETE FROM public.product_attributes WHERE product_id IN (SELECT id FROM public.products WHERE account_id = v_account_a);
   DELETE FROM public.products           WHERE account_id = v_account_a;
@@ -322,6 +332,7 @@ BEGIN
 EXCEPTION
   WHEN OTHERS THEN
     BEGIN
+      DELETE FROM public.stock_movements WHERE account_id = v_account_a;
       DELETE FROM public.branch_stock WHERE product_id IN (SELECT id FROM public.products WHERE account_id = v_account_a);
       DELETE FROM public.product_attributes WHERE product_id IN (SELECT id FROM public.products WHERE account_id = v_account_a);
       DELETE FROM public.products           WHERE account_id = v_account_a;

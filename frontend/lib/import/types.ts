@@ -87,7 +87,12 @@ export interface ValidatedImportRow {
   skuParent:     string | null
   /** Explicit parent reference by name (optional). */
   nameParent:    string | null
-  price:         number
+  /**
+   * importador-productos-stock-apertura: `null` = celda vacía (alta: el servidor
+   * imputa 0; edición por SKU: conserva el precio vigente); un número (incluido
+   * `0`) es un precio declarado. Una fila Padre no lee esta celda: siempre `null`.
+   */
+  price:         number | null
   /**
    * productos-costo-nullable: `null` = celda vacía (alta sin costo, o
    * edición que conserva el costo existente); un número (incluido `0`) es
@@ -102,8 +107,19 @@ export interface ValidatedImportRow {
   category:      string
   /** true = no existe en el catálogo del tenant y el servidor la va a crear. */
   categoryIsNew: boolean
-  stock:         number
-  minStock:      number
+  /**
+   * importador-productos-stock-apertura: `null` = celda vacía (o fila Padre, que no
+   * tiene stock propio); un número (incluido `0`) es un stock declarado. El stock
+   * del archivo es de APERTURA: el servidor lo aplica sólo al producto que el lote
+   * CREA (con su movimiento «Stock inicial (importación)»); un producto que ya
+   * existe conserva el suyo.
+   */
+  stock:         number | null
+  /**
+   * `null` = celda vacía (alta: sin umbral; edición: conserva el vigente); `0` es
+   * «sin umbral de alerta» declarado.
+   */
+  minStock:      number | null
   barcode:       string | null
   /** balanza-etiquetas-pos (D14): `null` = celda vacía (ausente, conserva). */
   scalePlu:      number | null

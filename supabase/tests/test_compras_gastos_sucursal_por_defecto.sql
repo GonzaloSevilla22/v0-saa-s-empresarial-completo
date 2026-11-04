@@ -259,7 +259,12 @@ DECLARE
   -- resuelta que fija este gate. Son los md5 de ESA migración; quien las redefina después rebasa estos valores.
   v_md5_core          constant text := '12d47cda44f3497817cdc2219d886526';
   v_md5_wrapper       constant text := '9a3b868b883d2f59b3ae1a6908288ea1';
-  v_md5_edit_purchase constant text := '691d0a01893439e39e7cda93ddcbcc6f';
+  -- stock-edicion-sucursal-piso (20261087000001) redefine la EDICIÓN de compra (chequeo previo de la
+  -- reversa) desde el cuerpo de multiusuario-operativo: su md5 pasa a ser el `v_rewritten` de ESA
+  -- migración (antes 691d0a01893439e39e7cda93ddcbcc6f, el de 20261083000001). La resolución de la
+  -- principal de este change y el P0423 del remito siguen en el cuerpo (las aserciones de contenido
+  -- de abajo lo verifican).
+  v_md5_edit_purchase constant text := 'd934a7d3ee8e35b3969aa3203353f3e1';
   v_md5_edit_expense  constant text := 'bb8e7d02f737937fdd120804722a3151';
 
   -- Cuenta A (principal A0 + B): bloques (1), (6), (7), (8), (9), (10).

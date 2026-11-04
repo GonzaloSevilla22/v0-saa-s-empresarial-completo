@@ -1372,3 +1372,38 @@ def test_update_schema_branch_id_documents_that_null_no_longer_unassigns():
 
     description = PurchaseOperationUpdateIn.model_json_schema()["properties"]["branch_id"].get("description", "")
     assert "null" in description and "desimputa" in description, description
+
+
+# ── stock-edicion-sucursal-piso (R2): editar una compra ya vendida es un 409 legible ─────────────
+
+
+async def test_update_purchase_operation_stock_consumed_is_409_with_the_literal(async_client, mock_pool):
+    """rpc_atomic_update_purchase_operation resta (REVERSE) lo que la compra había sumado; si la
+    mercadería ya se vendió, antes explotaba con 23514 → 422 genérico. Ahora el chequeo previo
+    rechaza con P0409 `purchase_edit_stock_consumed: de <producto> en la sucursal quedan X y la
+    edición necesita restar Y`: 409 problem+json con el literal en `detail` (lib/operation-errors.ts
+    lo traduce) y el sqlstate como `code`."""
+    pool, conn = mock_pool
+    owner_token = make_token({"role": "user"})
+    message = (
+        "purchase_edit_stock_consumed: de Yerba mate 1kg en la sucursal quedan 2.0000 "
+        "y la edición necesita restar 4.0000"
+    )
+
+    class _FakePgError(asyncpg.PostgresError):
+        def __init__(self, message, sqlstate):
+            super().__init__(message)
+            self.sqlstate = sqlstate
+
+    conn.execute = AsyncMock(side_effect=_FakePgError(message, "P0409"))
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.put(
+            "/purchases/operation",
+            json=UPDATE_PAYLOAD,
+            headers={"Authorization": f"Bearer {owner_token}"},
+        )
+    assert resp.status_code == 409
+    assert resp.headers["content-type"].startswith("application/problem+json")
+    body = resp.json()
+    assert body["code"] == "P0409"
+    assert body["detail"] == message

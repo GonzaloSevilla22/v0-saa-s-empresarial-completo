@@ -634,10 +634,20 @@ BEGIN
       IF pg_temp.slr_stock(v_pq, v_xa) <> 0 THEN
         PERFORM pg_temp.slr_fail(format('(e4) el borrado de la compra ya vendida debía dejar el saldo en 0 (piso) y es %s', pg_temp.slr_stock(v_pq, v_xa)));
       END IF;
+      -- stock-edicion-sucursal-piso (D3): ANTES se exigía 1 ajuste floor_on_purchase_delete de -2 ADEMÁS del
+      -- contramovimiento (los dos con el mismo delta: un cambio de saldo registrado dos veces, el libro no
+      -- reconciliaba). Ahora el piso deja UN movimiento — el contramovimiento purchase_return, que lleva la
+      -- traza del piso en su metadata — y ningún ajuste aparte.
       SELECT count(*) INTO v_n FROM public.stock_movements
-       WHERE product_id = v_pq AND type = 'adjustment' AND reason = 'floor_on_purchase_delete' AND quantity_delta = -2;
+       WHERE product_id = v_pq AND type = 'adjustment' AND reason = 'floor_on_purchase_delete';
+      IF v_n <> 0 THEN
+        PERFORM pg_temp.slr_fail(format('(e4) el piso en cero no debía dejar un ajuste floor_on_purchase_delete aparte (duplica el cambio de saldo) y hay %s', v_n));
+      END IF;
+      SELECT count(*) INTO v_n FROM public.stock_movements
+       WHERE product_id = v_pq AND type = 'purchase_return' AND reference_type = 'purchase_reversal' AND quantity_delta = -2
+         AND (metadata->>'floored')::boolean IS TRUE;
       IF v_n <> 1 THEN
-        PERFORM pg_temp.slr_fail(format('(e4) debía quedar 1 ajuste trazable floor_on_purchase_delete de -2 y hay %s', v_n));
+        PERFORM pg_temp.slr_fail(format('(e4) debía quedar 1 contramovimiento purchase_return de -2 con la traza del piso (floored) y hay %s', v_n));
       END IF;
     END IF;
   END IF;
@@ -1483,26 +1493,30 @@ BEGIN
       PERFORM pg_temp.slr_fail(format('(l3) la venta de 3 sobre la compra falló: %s', v_r2));
     ELSE
       v_r2 := pg_temp.slr_rpc(v_owner_a, format('SELECT to_jsonb(public.rpc_delete_purchase_operation(NULL, %L, %L))', v_op, 'gate slr l3'));
-      SELECT * INTO v_mv FROM public.stock_movements
+      -- stock-edicion-sucursal-piso (D3): ANTES se exigía además un ajuste de piso -2 (2 -> 0) sellado con
+      -- cuenta/sucursal/autor — el mismo cambio de saldo registrado dos veces. Ahora el piso NO deja ajuste
+      -- aparte y el contramovimiento (el único movimiento) lleva ese sello y la traza del piso.
+      SELECT count(*) INTO v_n FROM public.stock_movements
        WHERE product_id = v_pl3 AND type = 'adjustment' AND reason = 'floor_on_purchase_delete';
       IF v_r2 IS DISTINCT FROM 'true'::jsonb OR pg_temp.slr_stock(v_pl3, v_xa) <> 0 THEN
         PERFORM pg_temp.slr_fail(format('(l3) borrar la compra ya vendida debía devolver true y dejar el saldo en 0 (piso) y dio %s / saldo %s', v_r2, pg_temp.slr_stock(v_pl3, v_xa)));
-      ELSIF v_mv.id IS NULL OR v_mv.quantity_delta IS DISTINCT FROM -2 OR v_mv.quantity_before IS DISTINCT FROM 2 OR v_mv.quantity_after IS DISTINCT FROM 0
-            OR v_mv.account_id IS DISTINCT FROM v_acc_a OR v_mv.branch_id IS DISTINCT FROM v_xa
-            OR v_mv.user_id IS DISTINCT FROM v_owner_a OR v_mv.performed_by IS DISTINCT FROM v_owner_a THEN
-        PERFORM pg_temp.slr_fail(format('(l3) el ajuste de piso debía ser -2 (2 -> 0) sellado con cuenta, sucursal y autor: delta=%s before=%s after=%s account=%s branch=%s autor=%s/%s',
-                                        v_mv.quantity_delta, v_mv.quantity_before, v_mv.quantity_after, v_mv.account_id, v_mv.branch_id, v_mv.user_id, v_mv.performed_by));
+      ELSIF v_n <> 0 THEN
+        PERFORM pg_temp.slr_fail(format('(l3) el piso en cero no debía dejar un ajuste floor_on_purchase_delete aparte (duplica el cambio de saldo) y hay %s', v_n));
       END IF;
       SELECT * INTO v_mv FROM public.stock_movements WHERE product_id = v_pl3 AND type = 'purchase_return';
       IF v_mv.id IS NULL OR v_mv.quantity_delta IS DISTINCT FROM -2 OR v_mv.quantity_before IS DISTINCT FROM 2 OR v_mv.quantity_after IS DISTINCT FROM 0
-         OR v_mv.reference_type IS DISTINCT FROM 'purchase_reversal' OR (v_mv.metadata->>'reverses_movement_id') IS NULL THEN
-        -- el contramovimiento registra lo EFECTIVAMENTE aplicado tras el piso (-2), no los -5 de la compra
-        PERFORM pg_temp.slr_fail(format('(l3) el contramovimiento purchase_return de una compra ya vendida registra lo efectivamente aplicado: se esperaba -2 (2 -> 0) y es delta=%s before=%s after=%s', v_mv.quantity_delta, v_mv.quantity_before, v_mv.quantity_after));
+         OR v_mv.reference_type IS DISTINCT FROM 'purchase_reversal' OR (v_mv.metadata->>'reverses_movement_id') IS NULL
+         OR (v_mv.metadata->>'floored')::boolean IS NOT TRUE OR (v_mv.metadata->>'requested_quantity_delta')::numeric IS DISTINCT FROM -5
+         OR v_mv.account_id IS DISTINCT FROM v_acc_a OR v_mv.branch_id IS DISTINCT FROM v_xa
+         OR v_mv.user_id IS DISTINCT FROM v_owner_a OR v_mv.performed_by IS DISTINCT FROM v_owner_a THEN
+        -- el contramovimiento registra lo EFECTIVAMENTE aplicado tras el piso (-2), no los -5 de la compra, con la traza del piso
+        PERFORM pg_temp.slr_fail(format('(l3) el contramovimiento purchase_return de una compra ya vendida registra lo efectivamente aplicado (-2, 2 -> 0), sellado con cuenta/sucursal/autor y con la traza del piso (floored, solicitado -5): delta=%s before=%s after=%s account=%s branch=%s autor=%s/%s metadata=%s',
+                                        v_mv.quantity_delta, v_mv.quantity_before, v_mv.quantity_after, v_mv.account_id, v_mv.branch_id, v_mv.user_id, v_mv.performed_by, v_mv.metadata));
       END IF;
     END IF;
   END IF;
   IF (SELECT count(*) FROM pg_temp.slr_fail) = v_f0 THEN
-    RAISE NOTICE 'PASS (l): borrar venta y compra repone con contramovimiento sellado (cuenta, sucursal, autor, motivo, reverses_movement_id); compra ya vendida => ajuste de piso trazable con motivo.';
+    RAISE NOTICE 'PASS (l): borrar venta y compra repone con contramovimiento sellado (cuenta, sucursal, autor, motivo, reverses_movement_id); compra ya vendida => piso trazable en el UN contramovimiento (sin ajuste aparte).';
   END IF;
 
   -- ═══════════════════════════════════════════════════════════════════════

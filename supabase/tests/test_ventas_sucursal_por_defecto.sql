@@ -219,7 +219,12 @@ DECLARE
   -- migración (el `v_rewritten` de su preflight); quien las redefina después rebasa estos valores.
   v_md5_v2      constant text := '41bfa7554f971d1b386541e01b3cf403';
   v_md5_wrapper constant text := '748c7a7e6cd1c4074bd127ae6e0092ee';
-  v_md5_edit    constant text := 'd95db43c5e737c080661c74208595b93';
+  -- stock-edicion-sucursal-piso (20261087000001) redefine la EDICIÓN (gate de stock por sucursal y
+  -- respaldo de la sucursal desactivada) desde el cuerpo de multiusuario-operativo: su md5 pasa a ser el
+  -- `v_rewritten` de ESA migración (antes d95db43c5e737c080661c74208595b93, el de 20261083000001). La
+  -- lógica de la sucursal por defecto de este change sigue en el cuerpo (las aserciones de contenido de
+  -- abajo lo verifican).
+  v_md5_edit    constant text := 'a1681ab330c3aa83e4ee95a16c1d956c';
 
   -- Cuenta A (principal + B): bloques (1), (2), (5), (6).
   r_a jsonb; v_user_a uuid; v_acc_a uuid; v_a0 uuid; v_b uuid;

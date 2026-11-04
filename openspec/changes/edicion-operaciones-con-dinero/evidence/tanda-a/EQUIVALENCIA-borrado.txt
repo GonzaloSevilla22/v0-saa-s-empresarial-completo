@@ -1,0 +1,9 @@
+NOTICE:  EQUIV expense banco transfer_in 300.00 [Reversión por borrado de gasto: eq-exp] ref_igual=t previo=1 nuevo=1 -> IGUAL
+NOTICE:  EQUIV expense caja expense_reversal 300.00 [eq-exp] ref_igual=t previo=1 nuevo=1 -> IGUAL
+NOTICE:  EQUIV purchase banco transfer_in 600.00 [Reversión por borrado de operación] ref_igual=t previo=1 nuevo=1 -> IGUAL
+NOTICE:  EQUIV purchase caja purchase_payment_reversal 600.00 [Reversión por borrado de compra] ref_igual=t previo=1 nuevo=1 -> IGUAL
+NOTICE:  EQUIV purchase cc debit_note -600.00 [<NULL>] ref_igual=t previo=1 nuevo=1 -> IGUAL
+NOTICE:  EQUIV sale banco transfer_out -1000.00 [Reversión por borrado de operación] ref_igual=t previo=1 nuevo=1 -> IGUAL
+NOTICE:  EQUIV sale caja sale_reversal -1000.00 [<NULL>] ref_igual=t previo=1 nuevo=1 -> IGUAL
+NOTICE:  EQUIV sale cc credit_note -1000.00 [<NULL>] ref_igual=t previo=1 nuevo=1 -> IGUAL
+NOTICE:  EQUIVALENCIA OK: el borrado nuevo y el previo dejan los mismos contra-movimientos sobre datos sin ediciones

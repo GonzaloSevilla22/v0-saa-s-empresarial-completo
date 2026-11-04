@@ -236,7 +236,7 @@ BEGIN
     END IF;
   END LOOP;
   -- Sin parte: todas las cuentas de la cuenta; y la funcion es interna (nunca por PostgREST).
-  IF (SELECT COUNT(DISTINCT o.ca_id) FROM public._customer_open_items(v_acc) o) <> 4 THEN
+  IF (SELECT COUNT(DISTINCT o.party_account_id) FROM public._customer_open_items(v_acc) o) <> 4 THEN
     RAISE EXCEPTION 'GATE AGING-PAIRING FAILED (H5): sin parte debia devolver las cuatro cuentas corrientes';
   END IF;
   IF has_function_privilege('authenticated', 'public._customer_open_items(uuid, uuid)', 'EXECUTE')

@@ -870,3 +870,705 @@ COMMENT ON FUNCTION public.rpc_delete_expense(uuid) IS
   otra función: existe movimiento de caja del gasto => siempre se compensa.
   edicion-operaciones-con-dinero (D3): compensa la HUELLA NETA de caja y banco (op_money_footprint), con la misma referencia que cada fila de huella; toma la fila del gasto FOR UPDATE.
   edicion-operaciones-con-dinero (D3): compensa la HUELLA NETA de caja y banco (op_money_footprint), con la misma referencia que cada fila de huella; toma la fila del gasto FOR UPDATE.$c$;
+
+-- =============================================================================
+-- 5. Emparejamiento de la reversión de un cargo en el aging FIFO (D9)
+-- =============================================================================
+
+
+-- =============================================================================
+-- _customer_open_items: el importe ABIERTO de cada cargo, por línea de flotación, con la reversión emparejada (D9)
+-- =============================================================================
+-- Una sola definición de la derivación FIFO del lado cliente, que consumen rpc_receivables_report, el aviso
+-- diario y la RPC de cambio de vencimiento. Cargo = 'sale' + 'adjustment' positivo. Todo otro movimiento aporta crédito
+-- con su propio signo (un cobro, una anulación de cobro lo RESTA — nunca es un cargo), SALVO la reversión de un cargo
+-- ('credit_note' con referencia): ésta cancela PRIMERO los cargos de su misma referencia y de la misma cuenta corriente, en el
+-- orden de la línea de flotación de esos cargos; sólo el remanente (si lo hubiera) va al pozo general. El invariante
+-- de cierre (suma de lo abierto = saldo) se conserva: el emparejamiento sólo mueve importe entre "cargo neto" y "pozo".
+--   p_account_id : la cuenta (tenant), SIEMPRE filtra por ella; NULL = todas (el aviso diario recorre todas).
+--   p_*_account_id : opcional, acota a UNA cuenta corriente (la RPC de cambio de vencimiento).
+-- Interna (prefijo "_"): sin EXECUTE para anon ni authenticated; la llaman las RPC SECURITY DEFINER.
+CREATE OR REPLACE FUNCTION public._customer_open_items(p_account_id uuid, p_customer_account_id uuid DEFAULT NULL::uuid)
+ RETURNS TABLE(party_account_id uuid, account_id uuid, id uuid, amount numeric, due_date date, open_amount numeric)
+ LANGUAGE sql
+ STABLE
+ SET search_path TO 'public'
+AS $function$
+  WITH mv AS (
+    SELECT m.customer_account_id AS party, m.account_id, m.id, m.amount, m.due_date, m.created_at, m.movement_type, m.reference_id,
+           (m.movement_type = 'sale' OR (m.movement_type = 'adjustment' AND m.amount > 0)) AS is_charge
+    FROM public.customer_account_movements m
+    WHERE (p_account_id IS NULL OR m.account_id = p_account_id)
+      AND (p_customer_account_id IS NULL OR m.customer_account_id = p_customer_account_id)
+  ),
+  rev AS (
+    SELECT mv.party, mv.reference_id, SUM(-mv.amount) AS credit
+    FROM mv
+    WHERE mv.movement_type = 'credit_note' AND mv.reference_id IS NOT NULL
+    GROUP BY mv.party, mv.reference_id
+  ),
+  pool AS (
+    SELECT mv.party, COALESCE(SUM(-mv.amount), 0) AS credit
+    FROM mv
+    WHERE NOT mv.is_charge
+      AND NOT (mv.movement_type = 'credit_note' AND mv.reference_id IS NOT NULL)
+    GROUP BY mv.party
+  ),
+  chg AS (
+    SELECT mv.party, mv.account_id, mv.id, mv.amount, mv.due_date, mv.created_at, mv.reference_id,
+           SUM(mv.amount) OVER (
+             PARTITION BY mv.party, mv.reference_id
+             ORDER BY COALESCE(mv.due_date, (mv.created_at AT TIME ZONE 'America/Argentina/Mendoza')::date),
+                      mv.created_at, mv.id
+           ) AS cum_ref
+    FROM mv
+    WHERE mv.is_charge
+  ),
+  net AS (
+    SELECT c.party, c.account_id, c.id, c.amount, c.due_date, c.created_at,
+           LEAST(c.amount, GREATEST(0::numeric, c.cum_ref - COALESCE(r.credit, 0))) AS net_amount
+    FROM chg c
+    LEFT JOIN rev r ON r.party = c.party AND r.reference_id = c.reference_id
+  ),
+  remainder AS (
+    SELECT r.party, SUM(GREATEST(0::numeric, r.credit - COALESCE(t.total, 0))) AS rem
+    FROM rev r
+    LEFT JOIN (SELECT chg.party, chg.reference_id, SUM(chg.amount) AS total FROM chg GROUP BY chg.party, chg.reference_id) t
+           ON t.party = r.party AND t.reference_id = r.reference_id
+    GROUP BY r.party
+  )
+  SELECT n.party, n.account_id, n.id, n.amount, n.due_date,
+         LEAST(n.net_amount, GREATEST(0::numeric,
+           SUM(n.net_amount) OVER (
+             PARTITION BY n.party
+             ORDER BY COALESCE(n.due_date, (n.created_at AT TIME ZONE 'America/Argentina/Mendoza')::date),
+                      n.created_at, n.id
+           ) - COALESCE(p.credit, 0) - COALESCE(rm.rem, 0)
+         )) AS open_amount
+  FROM net n
+  LEFT JOIN pool p ON p.party = n.party
+  LEFT JOIN remainder rm ON rm.party = n.party;
+$function$;
+
+REVOKE ALL ON FUNCTION public._customer_open_items(uuid, uuid) FROM PUBLIC, anon, authenticated;
+COMMENT ON FUNCTION public._customer_open_items(uuid, uuid) IS
+  $c$edicion-operaciones-con-dinero (D9): importe abierto de cada cargo del lado cliente por línea de flotación, con la reversión de un cargo emparejada con los cargos de su misma referencia. Única definición para el reporte, el aviso diario y el cambio de vencimiento. Interna.$c$;
+
+
+-- =============================================================================
+-- _supplier_open_items: el importe ABIERTO de cada cargo, por línea de flotación, con la reversión emparejada (D9)
+-- =============================================================================
+-- Una sola definición de la derivación FIFO del lado proveedor, que consumen rpc_payables_report, el aviso
+-- diario y la RPC de cambio de vencimiento. Cargo = 'purchase' + 'adjustment' positivo. Todo otro movimiento aporta crédito
+-- con su propio signo (un cobro, una anulación de cobro lo RESTA — nunca es un cargo), SALVO la reversión de un cargo
+-- ('debit_note' con referencia): ésta cancela PRIMERO los cargos de su misma referencia y de la misma cuenta corriente, en el
+-- orden de la línea de flotación de esos cargos; sólo el remanente (si lo hubiera) va al pozo general. El invariante
+-- de cierre (suma de lo abierto = saldo) se conserva: el emparejamiento sólo mueve importe entre "cargo neto" y "pozo".
+--   p_account_id : la cuenta (tenant), SIEMPRE filtra por ella; NULL = todas (el aviso diario recorre todas).
+--   p_*_account_id : opcional, acota a UNA cuenta corriente (la RPC de cambio de vencimiento).
+-- Interna (prefijo "_"): sin EXECUTE para anon ni authenticated; la llaman las RPC SECURITY DEFINER.
+CREATE OR REPLACE FUNCTION public._supplier_open_items(p_account_id uuid, p_supplier_account_id uuid DEFAULT NULL::uuid)
+ RETURNS TABLE(party_account_id uuid, account_id uuid, id uuid, amount numeric, due_date date, open_amount numeric)
+ LANGUAGE sql
+ STABLE
+ SET search_path TO 'public'
+AS $function$
+  WITH mv AS (
+    SELECT m.supplier_account_id AS party, m.account_id, m.id, m.amount, m.due_date, m.created_at, m.movement_type, m.reference_id,
+           (m.movement_type = 'purchase' OR (m.movement_type = 'adjustment' AND m.amount > 0)) AS is_charge
+    FROM public.supplier_account_movements m
+    WHERE (p_account_id IS NULL OR m.account_id = p_account_id)
+      AND (p_supplier_account_id IS NULL OR m.supplier_account_id = p_supplier_account_id)
+  ),
+  rev AS (
+    SELECT mv.party, mv.reference_id, SUM(-mv.amount) AS credit
+    FROM mv
+    WHERE mv.movement_type = 'debit_note' AND mv.reference_id IS NOT NULL
+    GROUP BY mv.party, mv.reference_id
+  ),
+  pool AS (
+    SELECT mv.party, COALESCE(SUM(-mv.amount), 0) AS credit
+    FROM mv
+    WHERE NOT mv.is_charge
+      AND NOT (mv.movement_type = 'debit_note' AND mv.reference_id IS NOT NULL)
+    GROUP BY mv.party
+  ),
+  chg AS (
+    SELECT mv.party, mv.account_id, mv.id, mv.amount, mv.due_date, mv.created_at, mv.reference_id,
+           SUM(mv.amount) OVER (
+             PARTITION BY mv.party, mv.reference_id
+             ORDER BY COALESCE(mv.due_date, (mv.created_at AT TIME ZONE 'America/Argentina/Mendoza')::date),
+                      mv.created_at, mv.id
+           ) AS cum_ref
+    FROM mv
+    WHERE mv.is_charge
+  ),
+  net AS (
+    SELECT c.party, c.account_id, c.id, c.amount, c.due_date, c.created_at,
+           LEAST(c.amount, GREATEST(0::numeric, c.cum_ref - COALESCE(r.credit, 0))) AS net_amount
+    FROM chg c
+    LEFT JOIN rev r ON r.party = c.party AND r.reference_id = c.reference_id
+  ),
+  remainder AS (
+    SELECT r.party, SUM(GREATEST(0::numeric, r.credit - COALESCE(t.total, 0))) AS rem
+    FROM rev r
+    LEFT JOIN (SELECT chg.party, chg.reference_id, SUM(chg.amount) AS total FROM chg GROUP BY chg.party, chg.reference_id) t
+           ON t.party = r.party AND t.reference_id = r.reference_id
+    GROUP BY r.party
+  )
+  SELECT n.party, n.account_id, n.id, n.amount, n.due_date,
+         LEAST(n.net_amount, GREATEST(0::numeric,
+           SUM(n.net_amount) OVER (
+             PARTITION BY n.party
+             ORDER BY COALESCE(n.due_date, (n.created_at AT TIME ZONE 'America/Argentina/Mendoza')::date),
+                      n.created_at, n.id
+           ) - COALESCE(p.credit, 0) - COALESCE(rm.rem, 0)
+         )) AS open_amount
+  FROM net n
+  LEFT JOIN pool p ON p.party = n.party
+  LEFT JOIN remainder rm ON rm.party = n.party;
+$function$;
+
+REVOKE ALL ON FUNCTION public._supplier_open_items(uuid, uuid) FROM PUBLIC, anon, authenticated;
+COMMENT ON FUNCTION public._supplier_open_items(uuid, uuid) IS
+  $c$edicion-operaciones-con-dinero (D9): importe abierto de cada cargo del lado proveedor por línea de flotación, con la reversión de un cargo emparejada con los cargos de su misma referencia. Única definición para el reporte, el aviso diario y el cambio de vencimiento. Interna.$c$;
+
+
+-- =============================================================================
+-- 6. rpc_receivables_report — abierto por cargo desde _customer_open_items. Partida: md5 fbeb101d… (vivo, sin \r).
+-- =============================================================================
+CREATE OR REPLACE FUNCTION public.rpc_receivables_report(p_account_id uuid)
+ RETURNS TABLE(client_id uuid, client_name text, client_phone text, balance numeric, days_since_last_charge integer, days_since_last_payment integer, last_payment_date date, overdue_total numeric, amount_current numeric, amount_overdue_1_30 numeric, amount_overdue_31_60 numeric, amount_overdue_60_plus numeric, amount_no_due_date numeric, oldest_due_date date, days_overdue_max integer)
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+/*
+  cobranzas-panel (Etapa A) + cobranzas-vencimientos (Etapa B, D4/D5/D6):
+  una fila por cliente deudor con el reparto de su saldo en cinco tramos,
+  derivado FIFO por línea de flotación SIN materializar imputaciones
+  (edicion-operaciones-con-dinero D9: con la reversión de un cargo emparejada, ver _customer_open_items):
+    - cargos = movement_type 'sale' + 'adjustment' positivo, ordenados por
+      (vencimiento o fecha local del posteo, created_at, id);
+    - crédito disponible = suma NEGADA, con su propio signo, de todo lo demás
+      (un cobro/nota suma crédito; una anulación de cobro lo RESTA — jamás es
+      un cargo: rejuvenecería la mora);
+    - abierto del cargo i = clamp(acumulado_i - crédito, 0, importe_i).
+  Invariante de cierre: la suma de los 5 tramos = balance materializado.
+  Clasificación (regla SEPARADA de la imputación, D5): sólo un cargo con
+  vencimiento puede estar vencido; sin vencimiento = tramo propio, NUNCA se
+  pliega a "al día". Día calendario argentino vía reporting_local_today().
+*/
+BEGIN
+  -- Guard de membresía (D1 Etapa A): primera sentencia, antes de leer dato alguno.
+  IF NOT EXISTS (
+    SELECT 1 FROM public.account_members
+    WHERE account_id = p_account_id
+      AND user_id    = auth.uid()
+  ) THEN
+    RAISE EXCEPTION 'unauthorized'
+      USING ERRCODE = 'P0401';
+  END IF;
+
+  RETURN QUERY
+  WITH today AS (
+    SELECT public.reporting_local_today() AS d
+  ),
+  last_moves AS (
+    -- D4 Etapa A: el cargo es EXCLUSIVAMENTE movement_type = 'sale' para las
+    -- antigüedades; el cobro es EXCLUSIVAMENTE 'payment_received'.
+    SELECT
+      m.customer_account_id                                                 AS ca_id,
+      MAX(m.created_at) FILTER (WHERE m.movement_type = 'sale')             AS last_charge_at,
+      MAX(m.created_at) FILTER (WHERE m.movement_type = 'payment_received') AS last_payment_at
+    FROM public.customer_account_movements m
+    WHERE m.account_id = p_account_id
+    GROUP BY m.customer_account_id
+  ),
+  open_items AS (
+    -- edicion-operaciones-con-dinero (D9): el abierto de cada cargo sale de la derivación ÚNICA
+    -- (_customer_open_items), con la reversión de un cargo emparejada con los cargos de su referencia.
+    SELECT oi.party_account_id AS ca_id, oi.due_date, oi.open_amount
+    FROM public._customer_open_items(p_account_id) oi
+  ),
+  aging AS (
+    SELECT oi.ca_id,
+      COALESCE(SUM(oi.open_amount) FILTER (WHERE oi.due_date IS NOT NULL AND oi.due_date <  t.d), 0) AS agg_overdue_total,
+      COALESCE(SUM(oi.open_amount) FILTER (WHERE oi.due_date IS NOT NULL AND oi.due_date >= t.d), 0) AS agg_current,
+      COALESCE(SUM(oi.open_amount) FILTER (WHERE oi.due_date IS NOT NULL AND (t.d - oi.due_date) BETWEEN 1 AND 30), 0)  AS agg_1_30,
+      COALESCE(SUM(oi.open_amount) FILTER (WHERE oi.due_date IS NOT NULL AND (t.d - oi.due_date) BETWEEN 31 AND 60), 0) AS agg_31_60,
+      COALESCE(SUM(oi.open_amount) FILTER (WHERE oi.due_date IS NOT NULL AND (t.d - oi.due_date) > 60), 0)              AS agg_60_plus,
+      COALESCE(SUM(oi.open_amount) FILTER (WHERE oi.due_date IS NULL), 0)                                               AS agg_no_due,
+      MIN(oi.due_date) FILTER (WHERE oi.open_amount > 0)                                    AS agg_oldest_due,
+      MAX(t.d - oi.due_date) FILTER (WHERE oi.open_amount > 0 AND oi.due_date < t.d)        AS agg_days_max
+    FROM open_items oi
+    CROSS JOIN today t
+    GROUP BY oi.ca_id
+  )
+  SELECT
+    c.id       AS client_id,
+    c.name     AS client_name,
+    -- cobranzas-vencimientos (D12): el recordatorio de WhatsApp de /cobranzas
+    -- necesita el telefono del deudor — mismo dato que ya expone /clientes.
+    c.phone    AS client_phone,
+    ca.balance AS balance,
+    (t.d - (lm.last_charge_at  AT TIME ZONE 'America/Argentina/Mendoza')::date)::integer AS days_since_last_charge,
+    (t.d - (lm.last_payment_at AT TIME ZONE 'America/Argentina/Mendoza')::date)::integer AS days_since_last_payment,
+    (lm.last_payment_at AT TIME ZONE 'America/Argentina/Mendoza')::date                  AS last_payment_date,
+    COALESCE(ag.agg_overdue_total, 0) AS overdue_total,
+    COALESCE(ag.agg_current, 0)       AS amount_current,
+    COALESCE(ag.agg_1_30, 0)          AS amount_overdue_1_30,
+    COALESCE(ag.agg_31_60, 0)         AS amount_overdue_31_60,
+    COALESCE(ag.agg_60_plus, 0)       AS amount_overdue_60_plus,
+    COALESCE(ag.agg_no_due, 0)        AS amount_no_due_date,
+    ag.agg_oldest_due                 AS oldest_due_date,
+    ag.agg_days_max::integer          AS days_overdue_max
+  FROM public.customer_accounts ca
+  JOIN public.clients c ON c.id = ca.client_id
+  LEFT JOIN last_moves lm ON lm.ca_id = ca.id
+  LEFT JOIN aging ag ON ag.ca_id = ca.id
+  CROSS JOIN today t
+  -- D5 Etapa A: sólo deuda viva y clientes vigentes (mismo criterio que /clientes).
+  WHERE ca.account_id = p_account_id
+    AND ca.balance > 0
+    AND c.deleted_at IS NULL
+  ORDER BY ca.balance DESC;
+END;
+$function$;
+
+
+REVOKE ALL ON FUNCTION public.rpc_receivables_report(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.rpc_receivables_report(uuid) TO authenticated;
+COMMENT ON FUNCTION public.rpc_receivables_report(uuid) IS
+  $c$cobranzas-panel + cobranzas-vencimientos: read-model agregado de cuentas por cobrar con aging FIFO por línea de flotación (D4) — 5 tramos que suman el balance (invariante de cierre), sin materializar imputaciones. Sólo cargos con vencimiento pueden estar vencidos (D5); sin vencimiento es tramo propio. Día argentino via reporting_local_today(). Excluye balance = 0 y clientes con deleted_at. Guard P0401 primera sentencia. edicion-operaciones-con-dinero (D9): el abierto por cargo sale de _customer_open_items (la reversión de un cargo cancela primero los cargos de su misma referencia).$c$;
+
+
+-- =============================================================================
+-- 7. rpc_payables_report — abierto por cargo desde _supplier_open_items. Partida: md5 30404ab9… (vivo, sin \r).
+-- =============================================================================
+CREATE OR REPLACE FUNCTION public.rpc_payables_report(p_account_id uuid)
+ RETURNS TABLE(supplier_id uuid, supplier_name text, balance numeric, days_since_last_charge integer, days_since_last_payment integer, last_payment_date date, overdue_total numeric, amount_current numeric, amount_overdue_1_30 numeric, amount_overdue_31_60 numeric, amount_overdue_60_plus numeric, amount_no_due_date numeric, oldest_due_date date, days_overdue_max integer)
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+/*
+  cobranzas-vencimientos (D6): espejo TEXTUAL de rpc_receivables_report sobre
+  supplier_accounts/suppliers — cargo = 'purchase' + 'adjustment' positivo;
+  crédito = pagos/notas de débito/anulaciones con su signo. Mismas garantías:
+  guard P0401 primera sentencia, invariante de cierre, día argentino,
+  exclusión de balance = 0 y proveedores con deleted_at.
+*/
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM public.account_members
+    WHERE account_id = p_account_id
+      AND user_id    = auth.uid()
+  ) THEN
+    RAISE EXCEPTION 'unauthorized'
+      USING ERRCODE = 'P0401';
+  END IF;
+
+  RETURN QUERY
+  WITH today AS (
+    SELECT public.reporting_local_today() AS d
+  ),
+  last_moves AS (
+    SELECT
+      m.supplier_account_id                                             AS sa_id,
+      MAX(m.created_at) FILTER (WHERE m.movement_type = 'purchase')     AS last_charge_at,
+      MAX(m.created_at) FILTER (WHERE m.movement_type = 'payment_made') AS last_payment_at
+    FROM public.supplier_account_movements m
+    WHERE m.account_id = p_account_id
+    GROUP BY m.supplier_account_id
+  ),
+  open_items AS (
+    -- edicion-operaciones-con-dinero (D9): el abierto de cada cargo sale de la derivación ÚNICA
+    -- (_supplier_open_items), con la reversión de un cargo emparejada con los cargos de su referencia.
+    SELECT oi.party_account_id AS sa_id, oi.due_date, oi.open_amount
+    FROM public._supplier_open_items(p_account_id) oi
+  ),
+  aging AS (
+    SELECT oi.sa_id,
+      COALESCE(SUM(oi.open_amount) FILTER (WHERE oi.due_date IS NOT NULL AND oi.due_date <  t.d), 0) AS agg_overdue_total,
+      COALESCE(SUM(oi.open_amount) FILTER (WHERE oi.due_date IS NOT NULL AND oi.due_date >= t.d), 0) AS agg_current,
+      COALESCE(SUM(oi.open_amount) FILTER (WHERE oi.due_date IS NOT NULL AND (t.d - oi.due_date) BETWEEN 1 AND 30), 0)  AS agg_1_30,
+      COALESCE(SUM(oi.open_amount) FILTER (WHERE oi.due_date IS NOT NULL AND (t.d - oi.due_date) BETWEEN 31 AND 60), 0) AS agg_31_60,
+      COALESCE(SUM(oi.open_amount) FILTER (WHERE oi.due_date IS NOT NULL AND (t.d - oi.due_date) > 60), 0)              AS agg_60_plus,
+      COALESCE(SUM(oi.open_amount) FILTER (WHERE oi.due_date IS NULL), 0)                                               AS agg_no_due,
+      MIN(oi.due_date) FILTER (WHERE oi.open_amount > 0)                                    AS agg_oldest_due,
+      MAX(t.d - oi.due_date) FILTER (WHERE oi.open_amount > 0 AND oi.due_date < t.d)        AS agg_days_max
+    FROM open_items oi
+    CROSS JOIN today t
+    GROUP BY oi.sa_id
+  )
+  SELECT
+    s.id       AS supplier_id,
+    s.name     AS supplier_name,
+    sa.balance AS balance,
+    (t.d - (lm.last_charge_at  AT TIME ZONE 'America/Argentina/Mendoza')::date)::integer AS days_since_last_charge,
+    (t.d - (lm.last_payment_at AT TIME ZONE 'America/Argentina/Mendoza')::date)::integer AS days_since_last_payment,
+    (lm.last_payment_at AT TIME ZONE 'America/Argentina/Mendoza')::date                  AS last_payment_date,
+    COALESCE(ag.agg_overdue_total, 0) AS overdue_total,
+    COALESCE(ag.agg_current, 0)       AS amount_current,
+    COALESCE(ag.agg_1_30, 0)          AS amount_overdue_1_30,
+    COALESCE(ag.agg_31_60, 0)         AS amount_overdue_31_60,
+    COALESCE(ag.agg_60_plus, 0)       AS amount_overdue_60_plus,
+    COALESCE(ag.agg_no_due, 0)        AS amount_no_due_date,
+    ag.agg_oldest_due                 AS oldest_due_date,
+    ag.agg_days_max::integer          AS days_overdue_max
+  FROM public.supplier_accounts sa
+  JOIN public.suppliers s ON s.id = sa.supplier_id
+  LEFT JOIN last_moves lm ON lm.sa_id = sa.id
+  LEFT JOIN aging ag ON ag.sa_id = sa.id
+  CROSS JOIN today t
+  WHERE sa.account_id = p_account_id
+    AND sa.balance > 0
+    AND s.deleted_at IS NULL
+  ORDER BY sa.balance DESC;
+END;
+$function$;
+
+
+REVOKE ALL ON FUNCTION public.rpc_payables_report(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.rpc_payables_report(uuid) TO authenticated;
+COMMENT ON FUNCTION public.rpc_payables_report(uuid) IS
+  $c$cobranzas-vencimientos (D6): read-model de cuentas por pagar — espejo textual de rpc_receivables_report sobre supplier_accounts. Mismos tramos, mismo invariante de cierre, mismas garantías de tenencia. edicion-operaciones-con-dinero (D9): el abierto por cargo sale de _supplier_open_items.$c$;
+
+
+-- =============================================================================
+-- 8. _produce_receivables_overdue_digest — abierto por cargo desde las funciones únicas. Partida: md5 1e30cc2d… (vivo, sin \r).
+-- =============================================================================
+CREATE OR REPLACE FUNCTION public._produce_receivables_overdue_digest()
+ RETURNS integer
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+/*
+  cobranzas-vencimientos (D8/D9): UN aviso resumido por cuenta, por lado y
+  por día calendario argentino, SOLO sobre lo VENCIDO (overdue_total > 0).
+  La derivación FIFO es la misma línea de flotación de los read-models (D4);
+  OQ-2 firmada: clientes/proveedores dados de baja EXCLUIDOS (mismo D5 de la
+  Etapa A — el aviso no nombra partes que la aplicación no lista).
+  Destinatario: el propietario de la cuenta (precedente PlanLimitExceeded).
+  Solo lectura sobre los libros: no toca saldos, movimientos ni asientos.
+*/
+DECLARE
+  n_recv  integer := 0;
+  n_pay   integer := 0;
+  v_today date := public.reporting_local_today();
+BEGIN
+  -- ── Lado POR COBRAR ────────────────────────────────────────────────────────
+  WITH open_overdue AS (
+    -- edicion-operaciones-con-dinero (D9): abierto por cargo desde la derivación ÚNICA (_customer_open_items,
+    -- todas las cuentas: p_account_id NULL), con la reversión de un cargo emparejada con los de su referencia.
+    SELECT oi.account_id, oi.party_account_id AS ca_id, oi.open_amount
+    FROM public._customer_open_items(NULL) oi
+    WHERE oi.due_date IS NOT NULL AND oi.due_date < v_today
+  ),
+  per_account AS (
+    SELECT oo.account_id,
+           COUNT(DISTINCT ca.client_id) FILTER (WHERE oo.open_amount > 0) AS party_count,
+           SUM(oo.open_amount) AS overdue_total
+    FROM open_overdue oo
+    JOIN public.customer_accounts ca ON ca.id = oo.ca_id
+    JOIN public.clients c ON c.id = ca.client_id
+    WHERE ca.balance > 0 AND c.deleted_at IS NULL
+    GROUP BY oo.account_id
+    HAVING SUM(oo.open_amount) > 0
+  ),
+  candidates AS (
+    SELECT pa.account_id, a.owner_user_id AS user_id, au.email AS recipient,
+           pa.party_count, pa.overdue_total
+    FROM per_account pa
+    JOIN public.accounts a ON a.id = pa.account_id
+    JOIN auth.users au ON au.id = a.owner_user_id
+    WHERE NOT EXISTS (  -- D8 capa 2: dedup por día argentino, aunque cambien los importes
+      SELECT 1 FROM public.email_logs el
+      WHERE el.user_id = a.owner_user_id
+        AND el.event_type = 'receivables_overdue_digest'
+        AND el.metadata->>'as_of' = v_today::text
+        AND (el.metadata->>'account_id')::uuid = pa.account_id
+    )
+  ),
+  ins_email AS (
+    INSERT INTO public.email_logs (user_id, event_type, recipient, subject, metadata)
+    SELECT user_id, 'receivables_overdue_digest', recipient,
+           'Tenés deuda vencida por cobrar — ALIADATA',
+           jsonb_build_object('account_id', account_id, 'as_of', v_today::text,
+                              'party_count', party_count, 'overdue_total', overdue_total)
+    FROM candidates
+    ON CONFLICT (user_id, event_type, metadata) DO NOTHING
+    RETURNING (metadata->>'account_id')::uuid AS account_id
+  ),
+  ins_event AS (
+    INSERT INTO public.events (account_id, event_type, aggregate_type, aggregate_id, payload, occurred_at)
+    SELECT c.account_id, 'ReceivablesOverdueDigest', 'ReceivablesDigest', c.account_id,
+           jsonb_build_object('account_id', c.account_id, 'as_of', v_today::text,
+                              'party_count', c.party_count, 'overdue_total', c.overdue_total),
+           now()
+    FROM candidates c
+    JOIN ins_email e ON e.account_id = c.account_id
+    RETURNING 1
+  )
+  SELECT count(*) INTO n_recv FROM ins_email;
+
+  -- ── Lado POR PAGAR (espejo) ────────────────────────────────────────────────
+  WITH open_overdue AS (
+    -- edicion-operaciones-con-dinero (D9): espejo — _supplier_open_items.
+    SELECT oi.account_id, oi.party_account_id AS sa_id, oi.open_amount
+    FROM public._supplier_open_items(NULL) oi
+    WHERE oi.due_date IS NOT NULL AND oi.due_date < v_today
+  ),
+  per_account AS (
+    SELECT oo.account_id,
+           COUNT(DISTINCT sa.supplier_id) FILTER (WHERE oo.open_amount > 0) AS party_count,
+           SUM(oo.open_amount) AS overdue_total
+    FROM open_overdue oo
+    JOIN public.supplier_accounts sa ON sa.id = oo.sa_id
+    JOIN public.suppliers s ON s.id = sa.supplier_id
+    WHERE sa.balance > 0 AND s.deleted_at IS NULL
+    GROUP BY oo.account_id
+    HAVING SUM(oo.open_amount) > 0
+  ),
+  candidates AS (
+    SELECT pa.account_id, a.owner_user_id AS user_id, au.email AS recipient,
+           pa.party_count, pa.overdue_total
+    FROM per_account pa
+    JOIN public.accounts a ON a.id = pa.account_id
+    JOIN auth.users au ON au.id = a.owner_user_id
+    WHERE NOT EXISTS (
+      SELECT 1 FROM public.email_logs el
+      WHERE el.user_id = a.owner_user_id
+        AND el.event_type = 'payables_overdue_digest'
+        AND el.metadata->>'as_of' = v_today::text
+        AND (el.metadata->>'account_id')::uuid = pa.account_id
+    )
+  ),
+  ins_email AS (
+    INSERT INTO public.email_logs (user_id, event_type, recipient, subject, metadata)
+    SELECT user_id, 'payables_overdue_digest', recipient,
+           'Tenés deuda vencida con proveedores — ALIADATA',
+           jsonb_build_object('account_id', account_id, 'as_of', v_today::text,
+                              'party_count', party_count, 'overdue_total', overdue_total)
+    FROM candidates
+    ON CONFLICT (user_id, event_type, metadata) DO NOTHING
+    RETURNING (metadata->>'account_id')::uuid AS account_id
+  ),
+  ins_event AS (
+    INSERT INTO public.events (account_id, event_type, aggregate_type, aggregate_id, payload, occurred_at)
+    SELECT c.account_id, 'PayablesOverdueDigest', 'PayablesDigest', c.account_id,
+           jsonb_build_object('account_id', c.account_id, 'as_of', v_today::text,
+                              'party_count', c.party_count, 'overdue_total', c.overdue_total),
+           now()
+    FROM candidates c
+    JOIN ins_email e ON e.account_id = c.account_id
+    RETURNING 1
+  )
+  SELECT count(*) INTO n_pay FROM ins_email;
+
+  RETURN n_recv + n_pay;
+END;
+$function$;
+
+
+REVOKE ALL ON FUNCTION public._produce_receivables_overdue_digest() FROM PUBLIC, anon, authenticated;
+COMMENT ON FUNCTION public._produce_receivables_overdue_digest() IS
+  $c$cobranzas-vencimientos (D8/D9): barrido diario — UN resumen de deuda vencida por cuenta, por lado (cobrar/pagar) y por día argentino, por los dos canales (email_logs + evento al outbox para la campana) con UN solo dedup: el evento se crea SOLO para las filas que el INSERT de email realmente insertó. Capa 2 de dedup por metadata->as_of (los importes viajan en metadata y cambiarían el conflicto de la capa 1). Excluye partes dadas de baja (OQ-2) y solo cuenta lo vencido (D9). edicion-operaciones-con-dinero (D9): el abierto por cargo sale de _customer_open_items / _supplier_open_items.$c$;
+
+
+-- =============================================================================
+-- 9. rpc_update_customer_charge_due_date — abierto desde _customer_open_items. Partida: md5 3caedef0… (vivo, sin \r).
+-- =============================================================================
+CREATE OR REPLACE FUNCTION public.rpc_update_customer_charge_due_date(p_movement_id uuid, p_due_date date, p_reason text DEFAULT NULL::text)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_uid              uuid;
+  v_account_id       uuid;
+  v_movement         public.customer_account_movements%ROWTYPE;
+  v_open_amount       numeric(15,2);
+  v_due_date_before   date;
+BEGIN
+  v_uid := auth.uid();
+  IF v_uid IS NULL THEN
+    RAISE EXCEPTION 'Not authenticated' USING ERRCODE = 'insufficient_privilege';
+  END IF;
+
+  SELECT cai INTO v_account_id
+  FROM public.current_account_ids() AS cai
+  LIMIT 1;
+
+  IF v_account_id IS NULL THEN
+    RAISE EXCEPTION 'sin_cuenta_activa' USING ERRCODE = 'P0403';
+  END IF;
+
+  IF NOT public.is_account_writer(v_account_id) THEN
+    RAISE EXCEPTION 'unauthorized' USING ERRCODE = 'P0401';
+  END IF;
+
+  -- Tenencia: id + account_id — nunca revela si el cargo existe en OTRA cuenta.
+  SELECT * INTO v_movement
+  FROM public.customer_account_movements
+  WHERE id = p_movement_id AND account_id = v_account_id;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'charge_not_found: %', p_movement_id USING ERRCODE = 'P0404';
+  END IF;
+
+  -- Mismo vocabulario FIFO que rpc_receivables_report: sólo sale + adjustment
+  -- positivo son CARGO. Un cobro/nota/reversa no tiene vencimiento propio que
+  -- editar (D7 de cobranzas-vencimientos: due_date sólo existe en la fila del
+  -- cargo — un no-cargo con due_date sería un estado nunca producido).
+  IF NOT (v_movement.movement_type = 'sale'
+          OR (v_movement.movement_type = 'adjustment' AND v_movement.amount > 0)) THEN
+    RAISE EXCEPTION 'not_a_charge: movement_type=%, amount=%', v_movement.movement_type, v_movement.amount
+      USING ERRCODE = 'P0400';
+  END IF;
+
+  -- open_amount del cargo (ANTES del cambio) — misma derivación FIFO que
+  -- rpc_receivables_report, acotada al customer_account_id de este cargo.
+  -- edicion-operaciones-con-dinero (D9): MISMA derivación que los reportes (_customer_open_items, con la reversión
+  -- de un cargo emparejada con los cargos de su referencia), acotada a la cuenta corriente de este cargo.
+  SELECT oi.open_amount
+  INTO v_open_amount
+  FROM public._customer_open_items(v_account_id, v_movement.customer_account_id) oi
+  WHERE oi.id = p_movement_id;
+
+  IF COALESCE(v_open_amount, 0) <= 0 THEN
+    RAISE EXCEPTION 'charge_fully_settled: el cargo % no tiene saldo abierto', p_movement_id
+      USING ERRCODE = 'P0400';
+  END IF;
+
+  v_due_date_before := v_movement.due_date;
+
+  -- ÚNICA mutación de este ledger append-only: SOLO due_date, scoped por
+  -- id + account_id (defensa en profundidad, ya validado arriba).
+  UPDATE public.customer_account_movements
+  SET due_date = p_due_date
+  WHERE id = p_movement_id AND account_id = v_account_id;
+
+  INSERT INTO public.audit_logs
+    (account_id, user_id, action, entity_type, entity_id, metadata, created_at)
+  VALUES (
+    v_account_id, v_uid, 'customer_charge.due_date_changed', 'customer_account_movement', p_movement_id,
+    jsonb_build_object(
+      'due_date_before', v_due_date_before,
+      'due_date_after',  p_due_date,
+      'reason',          p_reason,
+      'movement_type',   v_movement.movement_type,
+      'amount',          v_movement.amount
+    ),
+    now()
+  );
+
+  RETURN jsonb_build_object(
+    'movement_id',       p_movement_id,
+    'due_date',          p_due_date,
+    'previous_due_date', v_due_date_before
+  );
+END;
+$function$;
+
+
+REVOKE ALL ON FUNCTION public.rpc_update_customer_charge_due_date(uuid, date, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.rpc_update_customer_charge_due_date(uuid, date, text) TO authenticated;
+COMMENT ON FUNCTION public.rpc_update_customer_charge_due_date(uuid, date, text) IS
+  $c$cobranzas-vencimientos OQ-1: corrige el vencimiento de un cargo (sale/adjustment>0) abierto de customer_account_movements. Guard is_account_writer (owner/admin, P0401); P0403 sin cuenta activa; P0404 cargo de otra cuenta; P0400 no-cargo o cargo saldado. p_due_date NULL limpia el vencimiento. Única mutación permitida sobre este ledger append-only — auditada en audit_logs (customer_charge.due_date_changed) con before/after. edicion-operaciones-con-dinero (D9): el abierto del cargo sale de _customer_open_items.$c$;
+
+
+-- =============================================================================
+-- 10. rpc_update_supplier_charge_due_date — abierto desde _supplier_open_items. Partida: md5 6e00eaf7… (vivo, sin \r).
+-- =============================================================================
+CREATE OR REPLACE FUNCTION public.rpc_update_supplier_charge_due_date(p_movement_id uuid, p_due_date date, p_reason text DEFAULT NULL::text)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_uid              uuid;
+  v_account_id       uuid;
+  v_movement         public.supplier_account_movements%ROWTYPE;
+  v_open_amount       numeric(15,2);
+  v_due_date_before   date;
+BEGIN
+  v_uid := auth.uid();
+  IF v_uid IS NULL THEN
+    RAISE EXCEPTION 'Not authenticated' USING ERRCODE = 'insufficient_privilege';
+  END IF;
+
+  SELECT cai INTO v_account_id
+  FROM public.current_account_ids() AS cai
+  LIMIT 1;
+
+  IF v_account_id IS NULL THEN
+    RAISE EXCEPTION 'sin_cuenta_activa' USING ERRCODE = 'P0403';
+  END IF;
+
+  IF NOT public.is_account_writer(v_account_id) THEN
+    RAISE EXCEPTION 'unauthorized' USING ERRCODE = 'P0401';
+  END IF;
+
+  SELECT * INTO v_movement
+  FROM public.supplier_account_movements
+  WHERE id = p_movement_id AND account_id = v_account_id;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'charge_not_found: %', p_movement_id USING ERRCODE = 'P0404';
+  END IF;
+
+  IF NOT (v_movement.movement_type = 'purchase'
+          OR (v_movement.movement_type = 'adjustment' AND v_movement.amount > 0)) THEN
+    RAISE EXCEPTION 'not_a_charge: movement_type=%, amount=%', v_movement.movement_type, v_movement.amount
+      USING ERRCODE = 'P0400';
+  END IF;
+
+  -- edicion-operaciones-con-dinero (D9): espejo — _supplier_open_items, acotada a la cuenta corriente de este cargo.
+  SELECT oi.open_amount
+  INTO v_open_amount
+  FROM public._supplier_open_items(v_account_id, v_movement.supplier_account_id) oi
+  WHERE oi.id = p_movement_id;
+
+  IF COALESCE(v_open_amount, 0) <= 0 THEN
+    RAISE EXCEPTION 'charge_fully_settled: el cargo % no tiene saldo abierto', p_movement_id
+      USING ERRCODE = 'P0400';
+  END IF;
+
+  v_due_date_before := v_movement.due_date;
+
+  UPDATE public.supplier_account_movements
+  SET due_date = p_due_date
+  WHERE id = p_movement_id AND account_id = v_account_id;
+
+  INSERT INTO public.audit_logs
+    (account_id, user_id, action, entity_type, entity_id, metadata, created_at)
+  VALUES (
+    v_account_id, v_uid, 'supplier_charge.due_date_changed', 'supplier_account_movement', p_movement_id,
+    jsonb_build_object(
+      'due_date_before', v_due_date_before,
+      'due_date_after',  p_due_date,
+      'reason',          p_reason,
+      'movement_type',   v_movement.movement_type,
+      'amount',          v_movement.amount
+    ),
+    now()
+  );
+
+  RETURN jsonb_build_object(
+    'movement_id',       p_movement_id,
+    'due_date',          p_due_date,
+    'previous_due_date', v_due_date_before
+  );
+END;
+$function$;
+
+
+REVOKE ALL ON FUNCTION public.rpc_update_supplier_charge_due_date(uuid, date, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.rpc_update_supplier_charge_due_date(uuid, date, text) TO authenticated;
+COMMENT ON FUNCTION public.rpc_update_supplier_charge_due_date(uuid, date, text) IS
+  $c$cobranzas-vencimientos OQ-1: espejo de rpc_update_customer_charge_due_date sobre supplier_account_movements (purchase/adjustment>0 es cargo). Guard is_account_writer (owner/admin, P0401); P0403 sin cuenta activa; P0404 cargo de otra cuenta; P0400 no-cargo o cargo saldado. p_due_date NULL limpia el vencimiento. Auditado en audit_logs (supplier_charge.due_date_changed). edicion-operaciones-con-dinero (D9): el abierto del cargo sale de _supplier_open_items.$c$;

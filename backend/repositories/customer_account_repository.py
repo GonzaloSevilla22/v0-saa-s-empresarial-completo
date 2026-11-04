@@ -58,6 +58,7 @@ class CustomerAccountRepository(BaseRepository):
         account_column="customer_account_id",
         movements_table="customer_account_movements",
         charge_type="sale",
+        reversal_type="credit_note",
         outer_alias="cam",
     )
 

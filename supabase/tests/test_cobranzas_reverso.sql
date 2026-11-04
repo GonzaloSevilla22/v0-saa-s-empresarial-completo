@@ -55,7 +55,7 @@
 --   (11) INVARIANTE D13 — los dos filtros de event_type (el de
 --        _journal_post_from_event y el del Consumer 3 de
 --        rpc_process_outbox_dispatch) listan EXACTAMENTE el mismo conjunto
---        de 14 tipos (asiento-contable-gastos suma los tres de gasto), extraídos de los cuerpos VIVOS — no de este archivo.
+--        de 15 tipos (asiento-contable-gastos suma los tres de gasto; edicion-operaciones-con-dinero suma PurchaseAdjusted), extraídos de los cuerpos VIVOS — no de este archivo.
 --        Matriz de evasión ejecutada: el mismo comparador se corre además
 --        contra dos textos sintéticos con una divergencia plantada, para
 --        probar que SÍ la detecta (lección de tenancy-guard-caja-outbox: un
@@ -870,10 +870,11 @@ DECLARE
   v_dispatch_set    text[];
   -- asiento-contable-gastos (D8, 2026-09-10): suma ExpenseCreated/
   -- ExpenseAdjusted/ExpenseDeleted — el conjunto canónico pasa de 11 a 14.
+  -- edicion-operaciones-con-dinero (tanda A, 3.4): suma PurchaseAdjusted — 14 a 15.
   v_expected        text[] := ARRAY[
     'CreditNoteIssued','ExpenseAdjusted','ExpenseCreated','ExpenseDeleted',
     'PaymentMade','PaymentMadeReversed','PaymentReceived',
-    'PaymentReceivedReversed','PurchaseCreated','PurchaseDeleted','SaleConfirmed',
+    'PaymentReceivedReversed','PurchaseAdjusted','PurchaseCreated','PurchaseDeleted','SaleConfirmed',
     'SaleOperationAdjusted','SaleOperationCreated','SaleOperationDeleted'
   ];
 BEGIN
@@ -917,10 +918,10 @@ BEGIN
   END IF;
 
   IF v_journal_set IS DISTINCT FROM v_expected THEN
-    RAISE EXCEPTION 'GATE COBRANZAS-REVERSO FAILED (11): el conjunto vivo es % y esperaba los 14 tipos canónicos %.', v_journal_set, v_expected;
+    RAISE EXCEPTION 'GATE COBRANZAS-REVERSO FAILED (11): el conjunto vivo es % y esperaba los 15 tipos canónicos %.', v_journal_set, v_expected;
   END IF;
 
-  RAISE NOTICE 'PASS (11a): los dos filtros de event_type coinciden EXACTO — 14 tipos: %', v_journal_set;
+  RAISE NOTICE 'PASS (11a): los dos filtros de event_type coinciden EXACTO — 15 tipos: %', v_journal_set;
 
   -- ── Matriz de evasión ejecutada: el MISMO extractor+comparador, corrido
   -- contra dos textos SINTÉTICOS con una divergencia plantada, tiene que
@@ -950,6 +951,22 @@ BEGIN
     END IF;
 
     RAISE NOTICE 'PASS (11b — matriz de evasión): el mismo comparador SÍ detecta una divergencia plantada (% vs %) — el gate (11a) es un detector real.', v_synth_a_set, v_synth_b_set;
+  END;
+
+  -- edicion-operaciones-con-dinero (tanda A, 3.4) — segunda evasión: el modo de falla real de este change es que
+  -- se agregue el tipo nuevo en UN solo filtro. Un filtro con 15 tipos contra otro con 14 (PurchaseAdjusted ausente
+  -- del despachador) tiene que detectarse.
+  DECLARE
+    v_full    text[] := v_expected;
+    v_missing text[] := array_remove(v_expected, 'PurchaseAdjusted');
+  BEGIN
+    IF NOT (v_full IS DISTINCT FROM v_missing) THEN
+      RAISE EXCEPTION 'GATE COBRANZAS-REVERSO FAILED (11c — MATRIZ DE EVASIÓN): el comparador no detectó PurchaseAdjusted ausente de uno de los dos filtros.';
+    END IF;
+    IF array_length(v_full, 1) <> 15 THEN
+      RAISE EXCEPTION 'GATE COBRANZAS-REVERSO FAILED (11c): el conjunto canónico debe tener 15 tipos y tiene %.', array_length(v_full, 1);
+    END IF;
+    RAISE NOTICE 'PASS (11c — matriz de evasión): el comparador detecta PurchaseAdjusted ausente de un solo filtro (15 vs 14).';
   END;
 END $$;
 

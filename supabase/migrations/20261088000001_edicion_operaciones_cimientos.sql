@@ -1572,3 +1572,1493 @@ REVOKE ALL ON FUNCTION public.rpc_update_supplier_charge_due_date(uuid, date, te
 GRANT EXECUTE ON FUNCTION public.rpc_update_supplier_charge_due_date(uuid, date, text) TO authenticated;
 COMMENT ON FUNCTION public.rpc_update_supplier_charge_due_date(uuid, date, text) IS
   $c$cobranzas-vencimientos OQ-1: espejo de rpc_update_customer_charge_due_date sobre supplier_account_movements (purchase/adjustment>0 es cargo). Guard is_account_writer (owner/admin, P0401); P0403 sin cuenta activa; P0404 cargo de otra cuenta; P0400 no-cargo o cargo saldado. p_due_date NULL limpia el vencimiento. Auditado en audit_logs (supplier_charge.due_date_changed). edicion-operaciones-con-dinero (D9): el abierto del cargo sale de _supplier_open_items.$c$;
+
+-- =============================================================================
+-- 11. _journal_purchase_lines — la resolución de cuentas de una compra, UNA sola vez
+-- =============================================================================
+-- PurchaseCreated (asiento de alta) y PurchaseAdjusted (asiento de reemplazo de una edición) postean las líneas con
+-- ESTA función: así las dos ramas no pueden divergir. Débito: 5100 CMV (con el centro de costo) + 5200 IVA crédito
+-- fiscal, o 5100 único por el total si no hay desglose. Crédito: 1100 Caja si la compra fue en efectivo; todo lo
+-- demás (crédito, transferencia, billetera, ...) a 2100 Proveedores — el mapeo vigente de PurchaseCreated, sin cambios.
+-- Devuelve las sumas de débito y crédito para el ASSERT de balance del llamador (P0450). SECURITY INVOKER: la llama
+-- sólo _journal_post_from_event (SECURITY DEFINER), nunca la aplicación.
+CREATE OR REPLACE FUNCTION public._journal_purchase_lines(p_entry_id uuid, p_account_id uuid, p_total numeric, p_payment_method text, p_neto numeric, p_iva numeric, p_cost_center_id uuid, OUT o_debit numeric, OUT o_credit numeric)
+ LANGUAGE plpgsql
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+    v_line_no int := 1;
+BEGIN
+    o_debit  := 0;
+    o_credit := 0;
+
+    -- Debit: 5100 CMV [neto + cost_center] + 5200 IVA CF [iva, cc=NULL] o bien 5100 único [total] si no hay desglose
+    IF p_neto IS NOT NULL AND p_iva IS NOT NULL THEN
+        INSERT INTO public.journal_lines
+            (entry_id, account_id, account_code, side, amount, line_no, cost_center_id)
+        VALUES (p_entry_id, p_account_id, '5100', 'debit', p_neto, v_line_no, p_cost_center_id);
+        o_debit := o_debit + p_neto;
+
+        v_line_no := v_line_no + 1;
+        INSERT INTO public.journal_lines
+            (entry_id, account_id, account_code, side, amount, line_no, cost_center_id)
+        VALUES (p_entry_id, p_account_id, '5200', 'debit', p_iva, v_line_no, NULL);
+        o_debit := o_debit + p_iva;
+    ELSE
+        INSERT INTO public.journal_lines
+            (entry_id, account_id, account_code, side, amount, line_no, cost_center_id)
+        VALUES (p_entry_id, p_account_id, '5100', 'debit', p_total, v_line_no, p_cost_center_id);
+        o_debit := o_debit + p_total;
+    END IF;
+
+    -- Credit: 2100 Proveedores (credit) o 1100 Caja (cash)
+    v_line_no := v_line_no + 1;
+    IF p_payment_method = 'cash' THEN
+        INSERT INTO public.journal_lines
+            (entry_id, account_id, account_code, side, amount, line_no, cost_center_id)
+        VALUES (p_entry_id, p_account_id, '1100', 'credit', p_total, v_line_no, NULL);
+    ELSE
+        INSERT INTO public.journal_lines
+            (entry_id, account_id, account_code, side, amount, line_no, cost_center_id)
+        VALUES (p_entry_id, p_account_id, '2100', 'credit', p_total, v_line_no, NULL);
+    END IF;
+    o_credit := o_credit + p_total;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public._journal_purchase_lines(uuid, uuid, numeric, text, numeric, numeric, uuid) FROM PUBLIC, anon, authenticated;
+COMMENT ON FUNCTION public._journal_purchase_lines(uuid, uuid, numeric, text, numeric, numeric, uuid) IS
+  $c$edicion-operaciones-con-dinero (D10): líneas del asiento de una compra (5100 [+5200] / 1100 o 2100), compartidas por PurchaseCreated y PurchaseAdjusted. Interna: sólo la llama _journal_post_from_event.$c$;
+
+
+-- =============================================================================
+-- 12. _journal_post_from_event — asiento vigente (reversal_of IS NULL), dos convenciones y PurchaseAdjusted (15 tipos).
+--     Partida: md5 d7bfbb92… (vivo, sin \r).
+-- =============================================================================
+CREATE OR REPLACE FUNCTION public._journal_post_from_event(p_event events)
+ RETURNS void
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+/*
+  journal-entry-outbox Consumer 3 — Helper de posting de asientos de partida doble.
+  bank-payment-routing C2: agrega ruteo 1110 Banco (bancario) vs 1100 Caja (cash/other)
+  en SaleConfirmed/PaymentReceived/PaymentMade, leído del payment_method del payload.
+  pagos-cableados-restantes (D7/OQ-1): 'wallet' se suma al vocabulario
+  bancario en esas tres ramas — antes caía en 1100 Caja por omisión, ahora
+  rutea a 1110 Banco como transfer/card/check (recomendación fundada, OQ-1
+  del design.md — reversible con un one-liner si el PO decide otra cosa).
+
+  asiento-venta-formulario (2026-08-20): agrega DOS ramas operation-level,
+  moldeadas sobre PurchaseCreated: SaleOperationCreated / SaleOperationAdjusted.
+
+  delete-guard-ledgers (2026-08-22): agrega DOS ramas de contra-asiento por
+  borrado, calcadas de la PRIMERA MITAD de SaleOperationAdjusted (localizar +
+  revertir, SIN la segunda mitad de asiento-de-reemplazo — el borrado no
+  reemplaza, solo revierte):
+    - SaleOperationDeleted: resuelve el asiento vigente probando las DOS
+      convenciones en orden — (SaleOperation, operation_id) primero
+      (formulario), luego (SalesOrder, sales_order_id) (POS) — mismo
+      predicado de dos convenciones que gobierna todo el change
+      (operation-delete-compensation D2).
+    - PurchaseDeleted: única convención (Purchase, operation_id) — las
+      compras no tienen el concepto de doble referencia de la venta.
+    Ambas ramas: la contra-entry es la ÚNICA entry del evento (a diferencia
+    de SaleOperationAdjusted) → SÍ lleva su propio source_event_id —
+    trazabilidad evento→asiento completa (ventaja documentada en design §D7).
+    El ASSERT de balance común del final de la función las cubre sin código
+    adicional (mismo mecanismo que ya usan las 7 ramas preexistentes).
+
+  cobranzas-reverso (2026-09-02): agrega DOS ramas de contra-asiento por
+  ANULACIÓN de un cobro/pago, mismo molde que SaleOperationDeleted/
+  PurchaseDeleted (localizar + revertir, la contra-entry es la única entry
+  del evento). Única convención de referencia en los dos casos — el cobro y
+  el pago, a diferencia de la venta, tienen un solo camino de alta:
+    - PaymentReceivedReversed: localiza por (CustomerAccount, payment_id).
+    - PaymentMadeReversed: localiza por (SupplierAccount, payment_id).
+  D5: diferir esta reversión NO era una opción — a diferencia del gasto y la
+  compra en efectivo (cuyos asientos no existían cuando se cablearon sus
+  libros de dinero), las ramas PaymentReceived/PaymentMade YA estaban vivas y
+  el 100% de los pagos históricos tenía asiento posted.
+
+  asiento-contable-gastos (2026-09-10): agrega TRES ramas de gasto — el
+  último documento operativo que movía dinero sin dejar rastro contable
+  (D10 de gastos-forma-pago). Débito único a 5300 Gastos con el
+  cost_center_id de la línea (mismo trato que 5100 en PurchaseCreated);
+  crédito por _journal_expense_credit_account(kind), espejo de
+  _journal_sale_debit_account menos el caso credit (D4):
+    - ExpenseCreated: asiento nuevo, fechado por la fecha de negocio del
+      gasto (D5, mismo idioma que SaleOperationCreated).
+    - ExpenseAdjusted: molde BYTE A BYTE de SaleOperationAdjusted — localizar
+      + revertir + volver a postear con los valores editados.
+    - ExpenseDeleted: molde de SaleOperationDeleted/PurchaseDeleted — SOLO
+      revertir, la contra-entry es la única entry del evento. La
+      localización NO lee public.expenses: el borrado del gasto es físico y
+      la fila ya no existe cuando el relay corre.
+  D7 (en las tres RPC de gasto, no acá): el productor de ExpenseAdjusted y
+  ExpenseDeleted sólo emite si existe un ExpenseCreated previo — evita el
+  evento envenenado de un gasto histórico sin backfill (OQ-3).
+  El conjunto canónico pasa de 11 a 14 tipos (D8) — invariante verificado por
+  supabase/tests/test_cobranzas_reverso.sql bloque (11), cableado a CI en
+  este mismo PR.
+
+  edicion-operaciones-con-dinero (tanda A, D2/D10): con el identificador de operación ESTABLE una misma referencia
+  acumula el asiento original (reversed), su contra-asiento (posted, reversal_of <> NULL) y el asiento nuevo (posted):
+  toda búsqueda del asiento VIGENTE excluye los contra-asientos (`reversal_of IS NULL`, la más reciente primero), el
+  patrón que ExpenseAdjusted ya usaba. Cambia sólo la localización del asiento a revertir:
+    - SaleOperationAdjusted: resuelve las DOS convenciones (SaleOperation por old_operation_id; SalesOrder por el
+      sales_order_id del payload) y su contra-asiento conserva el tipo y la referencia del asiento que revierte.
+    - SaleOperationDeleted y PurchaseDeleted: asiento vigente, no cualquiera 'posted'.
+    - CreditNoteIssued: SalesOrder primero y, si no hay, (SaleOperation, sales_orders.sale_operation_id): una venta
+      del POS editada y facturada tiene su asiento vigente como SaleOperation.
+    - PurchaseAdjusted (15° tipo): revierte el asiento vigente de la compra (old_operation_id, como PurchaseDeleted) y
+      postea el de reemplazo con las mismas líneas que PurchaseCreated (_journal_purchase_lines, resolución única).
+  El conjunto canónico pasa de 14 a 15 tipos (este filtro y el del Consumer 3 de rpc_process_outbox_dispatch).
+
+  Responsabilidades:
+    1. Filtrar por event_type (15 tipos en-scope; no-op para el resto).
+    2. Reclamar slot de idempotencia (event_id, 'JournalEntry') en operation_idempotency.
+    3. Calcular las líneas de débito/crédito según el mapeo hardcodeado (D1, D4 del
+       change journal-entry-outbox) + ruteo bancario (C2 D3, extendido por
+       pagos-cableados-restantes D7) + mapeo de gasto (asiento-contable-gastos D4).
+    4. Validar Σdébito = Σcrédito (ASSERT — D5, ERRCODE P0450).
+    5. INSERT journal_entries + journal_lines.
+
+  Codigos de cuenta hardcodeados (D1 journal-entry-outbox — plan mínimo PYME AR):
+    1100 Caja / 1110 Banco (C2: wireado — antes reservado) / 1300 Deudores por Ventas
+    2100 Proveedores / 4100 Ventas / 4200 IVA Débito Fiscal
+    5100 CMV/Compras / 5200 IVA Crédito Fiscal / 5300 Gastos (asiento-contable-gastos: EN USO)
+
+  Ruteo bancario (C2 D3, extendido pagos-cableados-restantes D7): "es método
+  bancario" = payment_method IN ('transfer','card','check','wallet').
+  SaleConfirmed:    credit→1300; bancario→1110; cash/other/NULL→1100 (débito).
+  PaymentReceived:  bancario→1110; cash/NULL→1100 (débito).
+  PaymentMade:      bancario→1110; cash/NULL→1100 (crédito).
+  PurchaseCreated:  SIN CAMBIOS — cash→1100; todo lo demás (incl. wallet)→2100
+                     Proveedores (no tiene predicado v_is_bank — D8 original).
+  SaleOperationCreated / SaleOperationAdjusted (nuevo entry): mismo mapeo
+                     que SaleConfirmed pero vía _journal_sale_debit_account(kind),
+                     y el sin-imputar (NULL) rutea a 1100 (D3, deliberadamente
+                     distinto del default 'credit' de PurchaseCreated).
+  ExpenseCreated / ExpenseAdjusted (nuevo entry): _journal_expense_credit_account(kind)
+                     — bancario→1110; cash/other/sin-imputar→1100; SIN rama credit.
+
+  Notas de diseño:
+    - El balance falla → RAISE EXCEPTION USING ERRCODE = 'P0450' → el event queda
+      pending para retry; el batch NO aborta (BEGIN/EXCEPTION en rpc_process_outbox_dispatch).
+    - account_id denormalizado en journal_lines (D7 — RLS sin subquery por fila).
+    - SaleConfirmed: lookup JOIN sales_orders → fiscal_documents para neto/iva (D3/D9).
+    - PurchaseCreated: neto/iva del payload (productor enriquecido en migración 2) — SIN CAMBIOS.
+    - CreditNoteIssued: reversión del asiento original (D10) — SIN CAMBIOS.
+    - SECURITY DEFINER + SET search_path: patrón C-25.
+
+  ERRCODE custom:
+    P0450 — balance falla (libre en espacio P04xx del proyecto).
+    P0451 — asiento original no encontrado para NC / SaleOperationAdjusted /
+            SaleOperationDeleted / PurchaseDeleted / PurchaseAdjusted / PaymentReceivedReversed /
+            PaymentMadeReversed / ExpenseAdjusted / ExpenseDeleted (retry).
+*/
+DECLARE
+    v_account_id      uuid;
+    v_entry_id        uuid;
+    v_payload         jsonb;
+    v_event_type      text;
+
+    -- Lookup fields
+    v_total           numeric(14,2);
+    v_payment_method  text;
+    v_is_bank         boolean;
+    v_neto            numeric(14,2);
+    v_iva             numeric(14,2);
+    v_comp_type       text;
+    v_cost_center_id  uuid;
+    v_operation_id    uuid;
+    -- cobranzas-reverso: identificador del cobro/pago anulado, source_doc_ref
+    -- de las dos ramas nuevas.
+    v_payment_id      uuid;
+    -- asiento-contable-gastos: identificador del gasto, source_doc_ref de
+    -- las tres ramas nuevas.
+    v_expense_id      uuid;
+
+    -- Reversal
+    v_original_id     uuid;
+    v_orig_entry_id   uuid;
+    v_sales_order_id  uuid;   -- edicion-operaciones-con-dinero: orden del POS (segunda convención)
+    v_sums            record;  -- edicion-operaciones-con-dinero: sumas de _journal_purchase_lines
+
+    -- Balance tracking
+    v_sum_debit       numeric(14,2) := 0;
+    v_sum_credit      numeric(14,2) := 0;
+    v_line_no         int := 0;
+
+    -- Idempotency
+    v_claimed         bool;
+
+    -- asiento-venta-formulario: posted_at por D5 (fecha de la venta, no el
+    -- instante del relay) para SaleOperationCreated / la mitad "nueva" de
+    -- SaleOperationAdjusted. asiento-contable-gastos reutiliza la misma
+    -- variable para el mismo propósito en las ramas de gasto.
+    v_posted_at       timestamptz;
+BEGIN
+    v_account_id := p_event.account_id;
+    v_payload     := p_event.payload;
+    v_event_type  := p_event.event_type;
+
+    -- ── Filtro: solo los 15 tipos en-scope ───────────────────────────────────
+    -- asiento-contable-gastos: suma ExpenseCreated / ExpenseAdjusted /
+    -- ExpenseDeleted (11→14). Este filtro y el de rpc_process_outbox_dispatch
+    -- DEBEN listar el mismo conjunto (invariante documentado desde
+    -- journal-entry-outbox, verificado por gate desde cobranzas-reverso — D13,
+    -- ampliado a 14 por D8 de este change; edicion-operaciones-con-dinero suma PurchaseAdjusted: 15).
+    IF v_event_type NOT IN (
+        'SaleConfirmed', 'PurchaseCreated', 'SaleOperationCreated',
+        'SaleOperationAdjusted', 'PaymentReceived', 'PaymentMade',
+        'CreditNoteIssued', 'SaleOperationDeleted', 'PurchaseDeleted',
+        'PaymentReceivedReversed', 'PaymentMadeReversed',
+        'ExpenseCreated', 'ExpenseAdjusted', 'ExpenseDeleted',
+        'PurchaseAdjusted'
+    ) THEN
+        RETURN;  -- no-op para eventos fuera de alcance
+    END IF;
+
+    -- ── Idempotencia: reclamar slot (event_id, 'JournalEntry') ───────────────
+    INSERT INTO public.operation_idempotency
+        (user_id, idempotency_key, operation_kind, event_id, consumer_type)
+    VALUES (
+        '00000000-0000-0000-0000-000000000000'::uuid,
+        p_event.id::text || ':JournalEntry',
+        'event_consumer',
+        p_event.id,
+        'JournalEntry'
+    )
+    ON CONFLICT (event_id, consumer_type)
+    WHERE event_id IS NOT NULL
+    DO NOTHING;
+
+    GET DIAGNOSTICS v_claimed = ROW_COUNT;
+
+    IF NOT v_claimed THEN
+        -- Slot ya existía → skip idempotente (el asiento ya fue posteado)
+        RETURN;
+    END IF;
+
+    -- ── Dispatch por event_type ───────────────────────────────────────────────
+
+    IF v_event_type = 'SaleConfirmed' THEN
+        -- ──────────────────────────────────────────────────────────────────────
+        -- SaleConfirmed: 1100/1110/1300 → 4100 + 4200 (D3, D4 journal-entry-outbox;
+        -- C2 D3: ruteo bancario del débito por payment_method; D7
+        -- pagos-cableados-restantes: wallet se suma al vocabulario bancario)
+        -- Lookup JOIN para comprobante_type/neto/iva_amount (D9 — no modificamos C-29)
+        -- SIN CAMBIOS (delete-guard-ledgers): byte a byte.
+        -- ──────────────────────────────────────────────────────────────────────
+        v_total          := (v_payload->>'total')::numeric(14,2);
+        v_payment_method := v_payload->>'payment_method';
+        v_is_bank        := v_payment_method IN ('transfer', 'card', 'check', 'wallet');
+
+        -- Lookup fiscal_documents via sales_orders.fiscal_document_id
+        SELECT
+            fd.comprobante_type,
+            fd.neto,
+            fd.iva_amount
+        INTO
+            v_comp_type,
+            v_neto,
+            v_iva
+        FROM public.sales_orders so
+        LEFT JOIN public.fiscal_documents fd ON fd.id = so.fiscal_document_id
+        WHERE so.id = (v_payload->>'sales_order_id')::uuid;
+
+        -- INSERT entry header
+        INSERT INTO public.journal_entries
+            (account_id, posted_at, source_event_id, source_doc_type,
+             source_doc_ref, status)
+        VALUES (
+            v_account_id, now(), p_event.id, 'SalesOrder',
+            (v_payload->>'sales_order_id')::uuid, 'posted'
+        )
+        RETURNING id INTO v_entry_id;
+
+        -- Debit: 1300 Deudores (credit) o 1110 Banco (bancario) o 1100 Caja (cash/other)
+        v_line_no := 1;
+        IF v_payment_method = 'credit' THEN
+            INSERT INTO public.journal_lines
+                (entry_id, account_id, account_code, side, amount, line_no, cost_center_id)
+            VALUES (v_entry_id, v_account_id, '1300', 'debit', v_total, v_line_no, NULL);
+        ELSIF v_is_bank THEN
+            INSERT INTO public.journal_lines
+                (entry_id, account_id, account_code, side, amount, line_no, cost_center_id)
+            VALUES (v_entry_id, v_account_id, '1110', 'debit', v_total, v_line_no, NULL);
+        ELSE
+            INSERT INTO public.journal_lines
+                (entry_id, account_id, account_code, side, amount, line_no, cost_center_id)
+            VALUES (v_entry_id, v_account_id, '1100', 'debit', v_total, v_line_no, NULL);
+        END IF;
+        v_sum_debit := v_sum_debit + v_total;
+
+        -- Credit: 4100 + 4200 (Factura A/B con desglose) o 4100 solo (C/sin doc) — SIN CAMBIOS
+        IF v_comp_type IN ('factura_a', 'factura_b')
+           AND v_neto IS NOT NULL
+           AND v_iva IS NOT NULL
+        THEN
+            -- Factura A/B: crédito 4100 Ventas [neto] + 4200 IVA DF [iva]
+            v_line_no := v_line_no + 1;
+            INSERT INTO public.journal_lines
+                (entry_id, account_id, account_code, side, amount, line_no, cost_center_id)
+            VALUES (v_entry_id, v_account_id, '4100', 'credit', v_neto, v_line_no, NULL);
+            v_sum_credit := v_sum_credit + v_neto;
+
+            v_line_no := v_line_no + 1;
+            INSERT INTO public.journal_lines
+                (entry_id, account_id, account_code, side, amount, line_no, cost_center_id)
+            VALUES (v_entry_id, v_account_id, '4200', 'credit', v_iva, v_line_no, NULL);
+            v_sum_credit := v_sum_credit + v_iva;
+        ELSE
+            -- Factura C / sin comprobante / sin desglose: crédito único 4100 [total]
+            v_line_no := v_line_no + 1;
+            INSERT INTO public.journal_lines
+                (entry_id, account_id, account_code, side, amount, line_no, cost_center_id)
+            VALUES (v_entry_id, v_account_id, '4100', 'credit', v_total, v_line_no, NULL);
+            v_sum_credit := v_sum_credit + v_total;
+        END IF;
+
+    ELSIF v_event_type = 'PurchaseCreated' THEN
+        -- ──────────────────────────────────────────────────────────────────────
+        -- PurchaseCreated: 5100 + 5200 → 2100/1100 (D4, D8 journal-entry-outbox) — SIN CAMBIOS
+        -- ──────────────────────────────────────────────────────────────────────
+        v_total          := (v_payload->>'total')::numeric(14,2);
+        v_payment_method := COALESCE(v_payload->>'payment_method', 'credit');
+        v_neto           := (v_payload->>'neto')::numeric(14,2);
+        v_iva            := (v_payload->>'iva_amount')::numeric(14,2);
+        v_cost_center_id := (v_payload->>'cost_center_id')::uuid;
+        v_operation_id   := (v_payload->>'operation_id')::uuid;
+
+        -- Si no hay cost_center_id en el payload, intentar lookup a purchases
+        IF v_cost_center_id IS NULL AND v_operation_id IS NOT NULL THEN
+            SELECT cost_center_id INTO v_cost_center_id
+            FROM public.purchases
+            WHERE operation_id = v_operation_id
+            LIMIT 1;
+        END IF;
+
+        -- INSERT entry header
+        INSERT INTO public.journal_entries
+            (account_id, posted_at, source_event_id, source_doc_type,
+             source_doc_ref, status)
+        VALUES (
+            v_account_id, now(), p_event.id, 'Purchase',
+            v_operation_id, 'posted'
+        )
+        RETURNING id INTO v_entry_id;
+
+        -- Líneas (débito 5100 [+5200] / crédito 1100 o 2100): resolución ÚNICA compartida con PurchaseAdjusted
+        -- (edicion-operaciones-con-dinero, D10) — mismo mapeo de siempre.
+        SELECT * INTO v_sums FROM public._journal_purchase_lines(
+            v_entry_id, v_account_id, v_total, v_payment_method, v_neto, v_iva, v_cost_center_id);
+        v_sum_debit  := v_sum_debit  + v_sums.o_debit;
+        v_sum_credit := v_sum_credit + v_sums.o_credit;
+
+    ELSIF v_event_type = 'SaleOperationCreated' THEN
+        -- ──────────────────────────────────────────────────────────────────────
+        -- asiento-venta-formulario (D1-D6): molde operation-level de
+        -- PurchaseCreated. SIN CAMBIOS (delete-guard-ledgers): byte a byte.
+        -- ──────────────────────────────────────────────────────────────────────
+        v_total          := (v_payload->>'total')::numeric(14,2);
+        v_payment_method := v_payload->>'payment_method';  -- crudo, puede ser NULL (D6 productor)
+        v_operation_id   := (v_payload->>'operation_id')::uuid;
+
+        IF v_payload->>'sale_date' IS NOT NULL THEN
+            v_posted_at := ((v_payload->>'sale_date')::date + TIME '12:00:00')
+                           AT TIME ZONE 'America/Argentina/Mendoza';
+        ELSE
+            v_posted_at := now();
+        END IF;
+
+        INSERT INTO public.journal_entries
+            (account_id, posted_at, source_event_id, source_doc_type,
+             source_doc_ref, status)
+        VALUES (
+            v_account_id, v_posted_at, p_event.id, 'SaleOperation',
+            v_operation_id, 'posted'
+        )
+        RETURNING id INTO v_entry_id;
+
+        v_line_no := 1;
+        INSERT INTO public.journal_lines
+            (entry_id, account_id, account_code, side, amount, line_no, cost_center_id)
+        VALUES (v_entry_id, v_account_id,
+                public._journal_sale_debit_account(v_payment_method),
+                'debit', v_total, v_line_no, NULL);
+        v_sum_debit := v_sum_debit + v_total;
+
+        v_line_no := 2;
+        INSERT INTO public.journal_lines
+            (entry_id, account_id, account_code, side, amount, line_no, cost_center_id)
+        VALUES (v_entry_id, v_account_id, '4100', 'credit', v_total, v_line_no, NULL);
+        v_sum_credit := v_sum_credit + v_total;
+
+    ELSIF v_event_type = 'SaleOperationAdjusted' THEN
+        -- ──────────────────────────────────────────────────────────────────────
+        -- asiento-venta-formulario (D7, override del PO): edición sobre una
+        -- operación cuyo asiento ya fue posteado. SIN CAMBIOS (delete-guard-
+        -- ledgers): byte a byte.
+        -- ──────────────────────────────────────────────────────────────────────
+        v_original_id := (v_payload->>'old_operation_id')::uuid;
+
+        -- edicion-operaciones-con-dinero (D2/D10): asiento VIGENTE (sin contra-asientos, el más reciente) y las
+        -- DOS convenciones: (SaleOperation, old_operation_id) primero; (SalesOrder, sales_order_id) si el payload
+        -- la trae (venta del POS o presupuestada).
+        SELECT id INTO v_orig_entry_id
+        FROM public.journal_entries
+        WHERE source_doc_type = 'SaleOperation'
+          AND source_doc_ref  = v_original_id
+          AND status          = 'posted'
+          AND reversal_of     IS NULL
+          AND account_id      = v_account_id
+        ORDER BY posted_at DESC, created_at DESC
+        LIMIT 1;
+
+        IF v_orig_entry_id IS NULL AND v_payload->>'sales_order_id' IS NOT NULL THEN
+            SELECT id INTO v_orig_entry_id
+            FROM public.journal_entries
+            WHERE source_doc_type = 'SalesOrder'
+              AND source_doc_ref  = (v_payload->>'sales_order_id')::uuid
+              AND status          = 'posted'
+              AND reversal_of     IS NULL
+              AND account_id      = v_account_id
+            ORDER BY posted_at DESC, created_at DESC
+            LIMIT 1;
+        END IF;
+
+        IF v_orig_entry_id IS NULL THEN
+            RAISE EXCEPTION
+                'journal_entry_original_not_found: no se encontró el asiento vigente '
+                'para SaleOperation % (SaleOperationAdjusted %). El evento quedará pending for retry.',
+                v_original_id, p_event.id
+                USING ERRCODE = 'P0451';
+        END IF;
+
+        -- Contra-entry: reversión exacta (mismo patrón de copia con lados
+        -- invertidos que ya usa CreditNoteIssued). posted_at=now(): la
+        -- reversión data la corrección, no la venta original.
+        -- El contra-asiento conserva el tipo y la referencia del asiento que revierte (cualquiera de las dos
+        -- convenciones): para la convención de formulario es 'SaleOperation' + old_operation_id, como siempre.
+        INSERT INTO public.journal_entries
+            (account_id, posted_at, source_event_id, source_doc_type,
+             source_doc_ref, status, reversal_of)
+        SELECT
+            v_account_id, now(), NULL, source_doc_type,
+            source_doc_ref, 'posted', v_orig_entry_id
+        FROM public.journal_entries
+        WHERE id = v_orig_entry_id
+        RETURNING id INTO v_entry_id;
+
+        INSERT INTO public.journal_lines
+            (entry_id, account_id, account_code, side, amount, line_no, cost_center_id)
+        SELECT
+            v_entry_id,
+            v_account_id,
+            account_code,
+            CASE side WHEN 'debit' THEN 'credit' ELSE 'debit' END,
+            amount,
+            line_no,
+            cost_center_id
+        FROM public.journal_lines
+        WHERE entry_id = v_orig_entry_id;
+
+        -- Balance de la contra-entry, validado individualmente (además del
+        -- ASSERT común al final, que valida el asiento NUEVO).
+        SELECT
+            COALESCE(SUM(CASE WHEN side = 'debit'  THEN amount END), 0),
+            COALESCE(SUM(CASE WHEN side = 'credit' THEN amount END), 0)
+        INTO v_sum_debit, v_sum_credit
+        FROM public.journal_lines
+        WHERE entry_id = v_entry_id;
+
+        IF v_sum_debit <> v_sum_credit THEN
+            RAISE EXCEPTION
+                'journal_balance_assertion_failed: la contra-entry de SaleOperationAdjusted % no balancea (ERRCODE P0450).',
+                p_event.id
+                USING ERRCODE = 'P0450';
+        END IF;
+
+        -- El asiento vigente queda revertido.
+        UPDATE public.journal_entries
+        SET status = 'reversed'
+        WHERE id = v_orig_entry_id;
+
+        -- Asiento nuevo: valores editados, mismo ruteo por kind que
+        -- SaleOperationCreated vía el helper compartido (D3/D4).
+        v_sum_debit  := 0;
+        v_sum_credit := 0;
+
+        v_total          := (v_payload->>'total')::numeric(14,2);
+        v_payment_method := v_payload->>'payment_method';
+        v_operation_id   := (v_payload->>'new_operation_id')::uuid;
+
+        IF v_payload->>'sale_date' IS NOT NULL THEN
+            v_posted_at := ((v_payload->>'sale_date')::date + TIME '12:00:00')
+                           AT TIME ZONE 'America/Argentina/Mendoza';
+        ELSE
+            v_posted_at := now();
+        END IF;
+
+        INSERT INTO public.journal_entries
+            (account_id, posted_at, source_event_id, source_doc_type,
+             source_doc_ref, status)
+        VALUES (
+            v_account_id, v_posted_at, p_event.id, 'SaleOperation',
+            v_operation_id, 'posted'
+        )
+        RETURNING id INTO v_entry_id;
+
+        v_line_no := 1;
+        INSERT INTO public.journal_lines
+            (entry_id, account_id, account_code, side, amount, line_no, cost_center_id)
+        VALUES (v_entry_id, v_account_id,
+                public._journal_sale_debit_account(v_payment_method),
+                'debit', v_total, v_line_no, NULL);
+        v_sum_debit := v_sum_debit + v_total;
+
+        v_line_no := 2;
+        INSERT INTO public.journal_lines
+            (entry_id, account_id, account_code, side, amount, line_no, cost_center_id)
+        VALUES (v_entry_id, v_account_id, '4100', 'credit', v_total, v_line_no, NULL);
+        v_sum_credit := v_sum_credit + v_total;
+
+    ELSIF v_event_type = 'PaymentReceived' THEN
+        -- ──────────────────────────────────────────────────────────────────────
+        -- PaymentReceived: SIN CAMBIOS (delete-guard-ledgers): byte a byte.
+        -- ──────────────────────────────────────────────────────────────────────
+        v_total          := (v_payload->>'amount')::numeric(14,2);
+        v_payment_method := v_payload->>'payment_method';
+        v_is_bank        := v_payment_method IN ('transfer', 'card', 'check', 'wallet');
+
+        INSERT INTO public.journal_entries
+            (account_id, posted_at, source_event_id, source_doc_type,
+             source_doc_ref, status)
+        VALUES (
+            v_account_id, now(), p_event.id, 'CustomerAccount',
+            (v_payload->>'payment_id')::uuid, 'posted'
+        )
+        RETURNING id INTO v_entry_id;
+
+        v_line_no := 1;
+        IF v_is_bank THEN
+            INSERT INTO public.journal_lines
+                (entry_id, account_id, account_code, side, amount, line_no, cost_center_id)
+            VALUES (v_entry_id, v_account_id, '1110', 'debit', v_total, v_line_no, NULL);
+        ELSE
+            INSERT INTO public.journal_lines
+                (entry_id, account_id, account_code, side, amount, line_no, cost_center_id)
+            VALUES (v_entry_id, v_account_id, '1100', 'debit', v_total, v_line_no, NULL);
+        END IF;
+        v_sum_debit := v_sum_debit + v_total;
+
+        v_line_no := 2;
+        INSERT INTO public.journal_lines
+            (entry_id, account_id, account_code, side, amount, line_no, cost_center_id)
+        VALUES (v_entry_id, v_account_id, '1300', 'credit', v_total, v_line_no, NULL);
+        v_sum_credit := v_sum_credit + v_total;
+
+    ELSIF v_event_type = 'PaymentMade' THEN
+        -- ──────────────────────────────────────────────────────────────────────
+        -- PaymentMade: SIN CAMBIOS (delete-guard-ledgers): byte a byte.
+        -- ──────────────────────────────────────────────────────────────────────
+        v_total          := (v_payload->>'amount')::numeric(14,2);
+        v_payment_method := v_payload->>'payment_method';
+        v_is_bank        := v_payment_method IN ('transfer', 'card', 'check', 'wallet');
+
+        INSERT INTO public.journal_entries
+            (account_id, posted_at, source_event_id, source_doc_type,
+             source_doc_ref, status)
+        VALUES (
+            v_account_id, now(), p_event.id, 'SupplierAccount',
+            (v_payload->>'payment_id')::uuid, 'posted'
+        )
+        RETURNING id INTO v_entry_id;
+
+        v_line_no := 1;
+        INSERT INTO public.journal_lines
+            (entry_id, account_id, account_code, side, amount, line_no, cost_center_id)
+        VALUES (v_entry_id, v_account_id, '2100', 'debit', v_total, v_line_no, NULL);
+        v_sum_debit := v_sum_debit + v_total;
+
+        v_line_no := 2;
+        IF v_is_bank THEN
+            INSERT INTO public.journal_lines
+                (entry_id, account_id, account_code, side, amount, line_no, cost_center_id)
+            VALUES (v_entry_id, v_account_id, '1110', 'credit', v_total, v_line_no, NULL);
+        ELSE
+            INSERT INTO public.journal_lines
+                (entry_id, account_id, account_code, side, amount, line_no, cost_center_id)
+            VALUES (v_entry_id, v_account_id, '1100', 'credit', v_total, v_line_no, NULL);
+        END IF;
+        v_sum_credit := v_sum_credit + v_total;
+
+    ELSIF v_event_type = 'CreditNoteIssued' THEN
+        -- ──────────────────────────────────────────────────────────────────────
+        -- CreditNoteIssued: SIN CAMBIOS (delete-guard-ledgers): byte a byte.
+        -- ──────────────────────────────────────────────────────────────────────
+        v_original_id := (v_payload->>'source_sales_order_id')::uuid;
+
+        -- Buscar el asiento original posteado (edicion-operaciones-con-dinero: el VIGENTE, sin contra-asientos).
+        SELECT id INTO v_orig_entry_id
+        FROM public.journal_entries
+        WHERE source_doc_type = 'SalesOrder'
+          AND source_doc_ref  = v_original_id
+          AND status          = 'posted'
+          AND reversal_of     IS NULL
+          AND account_id      = v_account_id
+        ORDER BY posted_at DESC, created_at DESC
+        LIMIT 1;
+
+        -- Segunda convención: la venta del POS editada o promovida tiene su asiento vigente como SaleOperation, por
+        -- el operation_id de la orden. Sin esto la nota de crédito reintentaba P0451 para siempre.
+        IF v_orig_entry_id IS NULL THEN
+            SELECT je.id INTO v_orig_entry_id
+            FROM public.journal_entries je
+            JOIN public.sales_orders so ON so.sale_operation_id = je.source_doc_ref
+            WHERE so.id             = v_original_id
+              AND so.account_id     = v_account_id
+              AND je.source_doc_type = 'SaleOperation'
+              AND je.status          = 'posted'
+              AND je.reversal_of     IS NULL
+              AND je.account_id      = v_account_id
+            ORDER BY je.posted_at DESC, je.created_at DESC
+            LIMIT 1;
+        END IF;
+
+        IF v_orig_entry_id IS NULL THEN
+            RAISE EXCEPTION
+                'journal_entry_original_not_found: no se encontró el asiento original '
+                'para SalesOrder % (CreditNoteIssued %). El evento quedará pending for retry.',
+                v_original_id, p_event.id
+                USING ERRCODE = 'P0451';
+        END IF;
+
+        -- INSERT asiento espejo (reversal)
+        INSERT INTO public.journal_entries
+            (account_id, posted_at, source_event_id, source_doc_type,
+             source_doc_ref, status, reversal_of)
+        VALUES (
+            v_account_id, now(), p_event.id, 'CreditNote',
+            (v_payload->>'source_fiscal_document_id')::uuid, 'posted', v_orig_entry_id
+        )
+        RETURNING id INTO v_entry_id;
+
+        -- Copiar líneas del original con lados invertidos (debit↔credit)
+        INSERT INTO public.journal_lines
+            (entry_id, account_id, account_code, side, amount, line_no, cost_center_id)
+        SELECT
+            v_entry_id,
+            v_account_id,
+            account_code,
+            CASE side WHEN 'debit' THEN 'credit' ELSE 'debit' END,
+            amount,
+            line_no,
+            cost_center_id
+        FROM public.journal_lines
+        WHERE entry_id = v_orig_entry_id;
+
+        -- Sumar balance del asiento espejo para validación
+        SELECT
+            COALESCE(SUM(CASE WHEN side = 'debit'  THEN amount END), 0),
+            COALESCE(SUM(CASE WHEN side = 'credit' THEN amount END), 0)
+        INTO v_sum_debit, v_sum_credit
+        FROM public.journal_lines
+        WHERE entry_id = v_entry_id;
+
+        -- Marcar el original como reversed
+        UPDATE public.journal_entries
+        SET status = 'reversed'
+        WHERE id = v_orig_entry_id;
+
+    ELSIF v_event_type = 'SaleOperationDeleted' THEN
+        -- ──────────────────────────────────────────────────────────────────────
+        -- delete-guard-ledgers (operation-delete-compensation / journal-entry):
+        -- contra-asiento por borrado — SOLO la mitad "revertir" de
+        -- SaleOperationAdjusted, sin asiento de reemplazo. Resuelve el asiento
+        -- vigente probando las DOS convenciones en orden: (SaleOperation,
+        -- operation_id) primero (formulario), luego (SalesOrder,
+        -- sales_order_id) (POS, D2). La contra-entry es la ÚNICA entry del
+        -- evento → lleva su propio source_event_id (ventaja sobre Adjusted,
+        -- §D7). El ASSERT de balance común del final la valida — sin código
+        -- adicional (misma mecánica que las 7 ramas preexistentes).
+        -- ──────────────────────────────────────────────────────────────────────
+        v_operation_id := (v_payload->>'operation_id')::uuid;
+
+        -- edicion-operaciones-con-dinero (D2): el asiento VIGENTE (sin contra-asientos, el más reciente) en las dos
+        -- convenciones.
+        SELECT id INTO v_orig_entry_id
+        FROM public.journal_entries
+        WHERE source_doc_type = 'SaleOperation'
+          AND source_doc_ref  = v_operation_id
+          AND status          = 'posted'
+          AND reversal_of     IS NULL
+          AND account_id      = v_account_id
+        ORDER BY posted_at DESC, created_at DESC
+        LIMIT 1;
+
+        IF v_orig_entry_id IS NULL AND v_payload->>'sales_order_id' IS NOT NULL THEN
+            SELECT id INTO v_orig_entry_id
+            FROM public.journal_entries
+            WHERE source_doc_type = 'SalesOrder'
+              AND source_doc_ref  = (v_payload->>'sales_order_id')::uuid
+              AND status          = 'posted'
+              AND reversal_of     IS NULL
+              AND account_id      = v_account_id
+            ORDER BY posted_at DESC, created_at DESC
+            LIMIT 1;
+        END IF;
+
+        IF v_orig_entry_id IS NULL THEN
+            RAISE EXCEPTION
+                'journal_entry_original_not_found: no se encontró el asiento vigente '
+                'para la venta borrada (SaleOperationDeleted %). El evento quedará pending for retry.',
+                p_event.id
+                USING ERRCODE = 'P0451';
+        END IF;
+
+        -- Contra-entry: copia source_doc_type/source_doc_ref del asiento
+        -- original (cualquiera de las dos convenciones que haya resuelto) —
+        -- es una REVERSIÓN, no un documento fiscal nuevo (a diferencia de
+        -- CreditNoteIssued, que sí es su propio 'CreditNote').
+        INSERT INTO public.journal_entries
+            (account_id, posted_at, source_event_id, source_doc_type,
+             source_doc_ref, status, reversal_of)
+        SELECT
+            v_account_id, now(), p_event.id, source_doc_type, source_doc_ref,
+            'posted', v_orig_entry_id
+        FROM public.journal_entries
+        WHERE id = v_orig_entry_id
+        RETURNING id INTO v_entry_id;
+
+        INSERT INTO public.journal_lines
+            (entry_id, account_id, account_code, side, amount, line_no, cost_center_id)
+        SELECT
+            v_entry_id,
+            v_account_id,
+            account_code,
+            CASE side WHEN 'debit' THEN 'credit' ELSE 'debit' END,
+            amount,
+            line_no,
+            cost_center_id
+        FROM public.journal_lines
+        WHERE entry_id = v_orig_entry_id;
+
+        UPDATE public.journal_entries
+        SET status = 'reversed'
+        WHERE id = v_orig_entry_id;
+
+    ELSIF v_event_type = 'PurchaseDeleted' THEN
+        -- ──────────────────────────────────────────────────────────────────────
+        -- delete-guard-ledgers: mismo molde que SaleOperationDeleted, única
+        -- convención (Purchase, operation_id) — las compras no tienen el
+        -- concepto de doble referencia de la venta. cost_center_id por línea
+        -- se preserva automáticamente: se copia igual que el resto de la fila.
+        -- ──────────────────────────────────────────────────────────────────────
+        v_operation_id := (v_payload->>'operation_id')::uuid;
+
+        -- edicion-operaciones-con-dinero (D2): el asiento VIGENTE (sin contra-asientos, el más reciente).
+        SELECT id INTO v_orig_entry_id
+        FROM public.journal_entries
+        WHERE source_doc_type = 'Purchase'
+          AND source_doc_ref  = v_operation_id
+          AND status          = 'posted'
+          AND reversal_of     IS NULL
+          AND account_id      = v_account_id
+        ORDER BY posted_at DESC, created_at DESC
+        LIMIT 1;
+
+        IF v_orig_entry_id IS NULL THEN
+            RAISE EXCEPTION
+                'journal_entry_original_not_found: no se encontró el asiento vigente '
+                'para la compra borrada (PurchaseDeleted %). El evento quedará pending for retry.',
+                p_event.id
+                USING ERRCODE = 'P0451';
+        END IF;
+
+        INSERT INTO public.journal_entries
+            (account_id, posted_at, source_event_id, source_doc_type,
+             source_doc_ref, status, reversal_of)
+        SELECT
+            v_account_id, now(), p_event.id, source_doc_type, source_doc_ref,
+            'posted', v_orig_entry_id
+        FROM public.journal_entries
+        WHERE id = v_orig_entry_id
+        RETURNING id INTO v_entry_id;
+
+        INSERT INTO public.journal_lines
+            (entry_id, account_id, account_code, side, amount, line_no, cost_center_id)
+        SELECT
+            v_entry_id,
+            v_account_id,
+            account_code,
+            CASE side WHEN 'debit' THEN 'credit' ELSE 'debit' END,
+            amount,
+            line_no,
+            cost_center_id
+        FROM public.journal_lines
+        WHERE entry_id = v_orig_entry_id;
+
+        UPDATE public.journal_entries
+        SET status = 'reversed'
+        WHERE id = v_orig_entry_id;
+
+    ELSIF v_event_type = 'PurchaseAdjusted' THEN
+        -- ──────────────────────────────────────────────────────────────────────
+        -- edicion-operaciones-con-dinero (D10): edición de una compra. Mitad "revertir" de PurchaseDeleted (asiento
+        -- vigente de old_operation_id) + mitad "postear" de PurchaseCreated (mismas líneas, vía
+        -- _journal_purchase_lines). El productor sólo lo emite si existe PurchaseCreated para la operación (evita el
+        -- evento envenenado de una compra histórica sin asiento). Con el id estable (tanda B) old = new.
+        -- P0451 si el asiento vigente todavía no existe (PurchaseAdjusted procesado antes que el alta: reintenta);
+        -- P0450 si el asiento nuevo no balancea.
+        -- ──────────────────────────────────────────────────────────────────────
+        v_original_id := (v_payload->>'old_operation_id')::uuid;
+
+        SELECT id INTO v_orig_entry_id
+        FROM public.journal_entries
+        WHERE source_doc_type = 'Purchase'
+          AND source_doc_ref  = v_original_id
+          AND status          = 'posted'
+          AND reversal_of     IS NULL
+          AND account_id      = v_account_id
+        ORDER BY posted_at DESC, created_at DESC
+        LIMIT 1;
+
+        IF v_orig_entry_id IS NULL THEN
+            RAISE EXCEPTION
+                'journal_entry_original_not_found: no se encontró el asiento vigente '
+                'para la compra % (PurchaseAdjusted %). El evento quedará pending for retry.',
+                v_original_id, p_event.id
+                USING ERRCODE = 'P0451';
+        END IF;
+
+        -- Contra-entry: reversión exacta del asiento vigente, conservando su tipo y referencia. La entry del
+        -- evento es el asiento NUEVO (lleva el source_event_id), como en SaleOperationAdjusted.
+        INSERT INTO public.journal_entries
+            (account_id, posted_at, source_event_id, source_doc_type,
+             source_doc_ref, status, reversal_of)
+        SELECT
+            v_account_id, now(), NULL, source_doc_type,
+            source_doc_ref, 'posted', v_orig_entry_id
+        FROM public.journal_entries
+        WHERE id = v_orig_entry_id
+        RETURNING id INTO v_entry_id;
+
+        INSERT INTO public.journal_lines
+            (entry_id, account_id, account_code, side, amount, line_no, cost_center_id)
+        SELECT
+            v_entry_id,
+            v_account_id,
+            account_code,
+            CASE side WHEN 'debit' THEN 'credit' ELSE 'debit' END,
+            amount,
+            line_no,
+            cost_center_id
+        FROM public.journal_lines
+        WHERE entry_id = v_orig_entry_id;
+
+        SELECT
+            COALESCE(SUM(CASE WHEN side = 'debit'  THEN amount END), 0),
+            COALESCE(SUM(CASE WHEN side = 'credit' THEN amount END), 0)
+        INTO v_sum_debit, v_sum_credit
+        FROM public.journal_lines
+        WHERE entry_id = v_entry_id;
+
+        IF v_sum_debit <> v_sum_credit THEN
+            RAISE EXCEPTION
+                'journal_balance_assertion_failed: la contra-entry de PurchaseAdjusted % no balancea (ERRCODE P0450).',
+                p_event.id
+                USING ERRCODE = 'P0450';
+        END IF;
+
+        -- El asiento vigente queda revertido.
+        UPDATE public.journal_entries
+        SET status = 'reversed'
+        WHERE id = v_orig_entry_id;
+
+        -- Asiento nuevo: valores editados, mismas líneas que PurchaseCreated.
+        v_sum_debit  := 0;
+        v_sum_credit := 0;
+
+        v_total          := (v_payload->>'total')::numeric(14,2);
+        v_payment_method := COALESCE(v_payload->>'payment_method', 'credit');
+        v_neto           := (v_payload->>'neto')::numeric(14,2);
+        v_iva            := (v_payload->>'iva_amount')::numeric(14,2);
+        v_cost_center_id := (v_payload->>'cost_center_id')::uuid;
+        v_operation_id   := COALESCE((v_payload->>'new_operation_id')::uuid, v_original_id);
+
+        INSERT INTO public.journal_entries
+            (account_id, posted_at, source_event_id, source_doc_type,
+             source_doc_ref, status)
+        VALUES (
+            v_account_id, now(), p_event.id, 'Purchase',
+            v_operation_id, 'posted'
+        )
+        RETURNING id INTO v_entry_id;
+
+        SELECT * INTO v_sums FROM public._journal_purchase_lines(
+            v_entry_id, v_account_id, v_total, v_payment_method, v_neto, v_iva, v_cost_center_id);
+        v_sum_debit  := v_sum_debit  + v_sums.o_debit;
+        v_sum_credit := v_sum_credit + v_sums.o_credit;
+
+    ELSIF v_event_type = 'PaymentReceivedReversed' THEN
+        -- ──────────────────────────────────────────────────────────────────────
+        -- cobranzas-reverso (D5/D13): contra-asiento por anulación de un
+        -- cobro. Mismo molde que PurchaseDeleted — única convención de
+        -- referencia (CustomerAccount, payment_id): el cobro tiene un solo
+        -- camino de alta, no dos como la venta.
+        -- ──────────────────────────────────────────────────────────────────────
+        v_payment_id := (v_payload->>'payment_id')::uuid;
+
+        SELECT id INTO v_orig_entry_id
+        FROM public.journal_entries
+        WHERE source_doc_type = 'CustomerAccount'
+          AND source_doc_ref  = v_payment_id
+          AND status          = 'posted'
+          AND account_id      = v_account_id
+        LIMIT 1;
+
+        IF v_orig_entry_id IS NULL THEN
+            RAISE EXCEPTION
+                'journal_entry_original_not_found: no se encontró el asiento vigente '
+                'para el cobro anulado (PaymentReceivedReversed %). El evento quedará pending for retry.',
+                p_event.id
+                USING ERRCODE = 'P0451';
+        END IF;
+
+        INSERT INTO public.journal_entries
+            (account_id, posted_at, source_event_id, source_doc_type,
+             source_doc_ref, status, reversal_of)
+        SELECT
+            v_account_id, now(), p_event.id, source_doc_type, source_doc_ref,
+            'posted', v_orig_entry_id
+        FROM public.journal_entries
+        WHERE id = v_orig_entry_id
+        RETURNING id INTO v_entry_id;
+
+        INSERT INTO public.journal_lines
+            (entry_id, account_id, account_code, side, amount, line_no, cost_center_id)
+        SELECT
+            v_entry_id,
+            v_account_id,
+            account_code,
+            CASE side WHEN 'debit' THEN 'credit' ELSE 'debit' END,
+            amount,
+            line_no,
+            cost_center_id
+        FROM public.journal_lines
+        WHERE entry_id = v_orig_entry_id;
+
+        UPDATE public.journal_entries
+        SET status = 'reversed'
+        WHERE id = v_orig_entry_id;
+
+    ELSIF v_event_type = 'PaymentMadeReversed' THEN
+        -- ──────────────────────────────────────────────────────────────────────
+        -- cobranzas-reverso: espejo exacto para el pago a proveedor —
+        -- (SupplierAccount, payment_id).
+        -- ──────────────────────────────────────────────────────────────────────
+        v_payment_id := (v_payload->>'payment_id')::uuid;
+
+        SELECT id INTO v_orig_entry_id
+        FROM public.journal_entries
+        WHERE source_doc_type = 'SupplierAccount'
+          AND source_doc_ref  = v_payment_id
+          AND status          = 'posted'
+          AND account_id      = v_account_id
+        LIMIT 1;
+
+        IF v_orig_entry_id IS NULL THEN
+            RAISE EXCEPTION
+                'journal_entry_original_not_found: no se encontró el asiento vigente '
+                'para el pago anulado (PaymentMadeReversed %). El evento quedará pending for retry.',
+                p_event.id
+                USING ERRCODE = 'P0451';
+        END IF;
+
+        INSERT INTO public.journal_entries
+            (account_id, posted_at, source_event_id, source_doc_type,
+             source_doc_ref, status, reversal_of)
+        SELECT
+            v_account_id, now(), p_event.id, source_doc_type, source_doc_ref,
+            'posted', v_orig_entry_id
+        FROM public.journal_entries
+        WHERE id = v_orig_entry_id
+        RETURNING id INTO v_entry_id;
+
+        INSERT INTO public.journal_lines
+            (entry_id, account_id, account_code, side, amount, line_no, cost_center_id)
+        SELECT
+            v_entry_id,
+            v_account_id,
+            account_code,
+            CASE side WHEN 'debit' THEN 'credit' ELSE 'debit' END,
+            amount,
+            line_no,
+            cost_center_id
+        FROM public.journal_lines
+        WHERE entry_id = v_orig_entry_id;
+
+        UPDATE public.journal_entries
+        SET status = 'reversed'
+        WHERE id = v_orig_entry_id;
+
+    ELSIF v_event_type = 'ExpenseCreated' THEN
+        -- ──────────────────────────────────────────────────────────────────────
+        -- asiento-contable-gastos (D3/D4/D5): asiento nuevo — débito único a
+        -- 5300 Gastos con el cost_center_id del gasto (mismo trato que 5100
+        -- en PurchaseCreated), crédito por _journal_expense_credit_account
+        -- (espejo de _journal_sale_debit_account, sin la rama credit).
+        -- Fechado por la fecha de negocio del gasto (D5, mismo idioma que
+        -- SaleOperationCreated) — NUNCA por el instante del relay.
+        -- ──────────────────────────────────────────────────────────────────────
+        v_total          := (v_payload->>'amount')::numeric(14,2);
+        v_payment_method := v_payload->>'kind';  -- crudo, puede ser NULL (sin imputar)
+        v_cost_center_id := (v_payload->>'cost_center_id')::uuid;
+        v_expense_id     := (v_payload->>'expense_id')::uuid;
+
+        IF v_payload->>'expense_date' IS NOT NULL THEN
+            v_posted_at := ((v_payload->>'expense_date')::date + TIME '12:00:00')
+                           AT TIME ZONE 'America/Argentina/Mendoza';
+        ELSE
+            v_posted_at := now();
+        END IF;
+
+        INSERT INTO public.journal_entries
+            (account_id, posted_at, source_event_id, source_doc_type,
+             source_doc_ref, status)
+        VALUES (
+            v_account_id, v_posted_at, p_event.id, 'Expense',
+            v_expense_id, 'posted'
+        )
+        RETURNING id INTO v_entry_id;
+
+        v_line_no := 1;
+        INSERT INTO public.journal_lines
+            (entry_id, account_id, account_code, side, amount, line_no, cost_center_id)
+        VALUES (v_entry_id, v_account_id, '5300', 'debit', v_total, v_line_no, v_cost_center_id);
+        v_sum_debit := v_sum_debit + v_total;
+
+        v_line_no := 2;
+        INSERT INTO public.journal_lines
+            (entry_id, account_id, account_code, side, amount, line_no, cost_center_id)
+        VALUES (v_entry_id, v_account_id,
+                public._journal_expense_credit_account(v_payment_method),
+                'credit', v_total, v_line_no, NULL);
+        v_sum_credit := v_sum_credit + v_total;
+
+    ELSIF v_event_type = 'ExpenseAdjusted' THEN
+        -- ──────────────────────────────────────────────────────────────────────
+        -- asiento-contable-gastos (D6): molde BYTE A BYTE de
+        -- SaleOperationAdjusted — localizar + revertir + volver a postear con
+        -- los valores editados. El asiento posteado NO vuelve inmutable al
+        -- gasto (D6): este productor sólo se emite si existe ExpenseCreated
+        -- (D7, garantizado por el caller, no acá).
+        -- ──────────────────────────────────────────────────────────────────────
+        v_expense_id := (v_payload->>'expense_id')::uuid;
+
+        -- Corrección de findings (revisor, ronda 1, blocker): excluir
+        -- contra-asientos (reversal_of IS NOT NULL) del lookup del "vigente".
+        -- Sin este filtro, a partir de la SEGUNDA edición hay DOS filas
+        -- status='posted' para el mismo source_doc_ref (el asiento nuevo Y el
+        -- contra-asiento de la edición anterior) y LIMIT 1 elige una
+        -- arbitraria — revirtiendo el contra-asiento en vez del vigente.
+        -- ORDER BY por robustez: aun con el filtro, si alguna vez hubiera más
+        -- de una fila válida, quedarse con la más reciente.
+        SELECT id INTO v_orig_entry_id
+        FROM public.journal_entries
+        WHERE source_doc_type = 'Expense'
+          AND source_doc_ref  = v_expense_id
+          AND status          = 'posted'
+          AND reversal_of     IS NULL
+          AND account_id      = v_account_id
+        ORDER BY posted_at DESC, created_at DESC
+        LIMIT 1;
+
+        IF v_orig_entry_id IS NULL THEN
+            RAISE EXCEPTION
+                'journal_entry_original_not_found: no se encontró el asiento vigente '
+                'para el gasto % (ExpenseAdjusted %). El evento quedará pending for retry.',
+                v_expense_id, p_event.id
+                USING ERRCODE = 'P0451';
+        END IF;
+
+        -- Contra-entry: reversión exacta, lados invertidos. posted_at=now():
+        -- la corrección data la corrección, no el gasto original.
+        INSERT INTO public.journal_entries
+            (account_id, posted_at, source_event_id, source_doc_type,
+             source_doc_ref, status, reversal_of)
+        VALUES (
+            v_account_id, now(), NULL, 'Expense',
+            v_expense_id, 'posted', v_orig_entry_id
+        )
+        RETURNING id INTO v_entry_id;
+
+        INSERT INTO public.journal_lines
+            (entry_id, account_id, account_code, side, amount, line_no, cost_center_id)
+        SELECT
+            v_entry_id,
+            v_account_id,
+            account_code,
+            CASE side WHEN 'debit' THEN 'credit' ELSE 'debit' END,
+            amount,
+            line_no,
+            cost_center_id
+        FROM public.journal_lines
+        WHERE entry_id = v_orig_entry_id;
+
+        -- Balance de la contra-entry, validado individualmente (además del
+        -- ASSERT común al final, que valida el asiento NUEVO).
+        SELECT
+            COALESCE(SUM(CASE WHEN side = 'debit'  THEN amount END), 0),
+            COALESCE(SUM(CASE WHEN side = 'credit' THEN amount END), 0)
+        INTO v_sum_debit, v_sum_credit
+        FROM public.journal_lines
+        WHERE entry_id = v_entry_id;
+
+        IF v_sum_debit <> v_sum_credit THEN
+            RAISE EXCEPTION
+                'journal_balance_assertion_failed: la contra-entry de ExpenseAdjusted % no balancea (ERRCODE P0450).',
+                p_event.id
+                USING ERRCODE = 'P0450';
+        END IF;
+
+        -- El asiento vigente queda revertido.
+        UPDATE public.journal_entries
+        SET status = 'reversed'
+        WHERE id = v_orig_entry_id;
+
+        -- Asiento nuevo: valores editados, mismo mapeo que ExpenseCreated.
+        v_sum_debit  := 0;
+        v_sum_credit := 0;
+
+        v_total          := (v_payload->>'amount')::numeric(14,2);
+        v_payment_method := v_payload->>'kind';
+        v_cost_center_id := (v_payload->>'cost_center_id')::uuid;
+
+        IF v_payload->>'expense_date' IS NOT NULL THEN
+            v_posted_at := ((v_payload->>'expense_date')::date + TIME '12:00:00')
+                           AT TIME ZONE 'America/Argentina/Mendoza';
+        ELSE
+            v_posted_at := now();
+        END IF;
+
+        INSERT INTO public.journal_entries
+            (account_id, posted_at, source_event_id, source_doc_type,
+             source_doc_ref, status)
+        VALUES (
+            v_account_id, v_posted_at, p_event.id, 'Expense',
+            v_expense_id, 'posted'
+        )
+        RETURNING id INTO v_entry_id;
+
+        v_line_no := 1;
+        INSERT INTO public.journal_lines
+            (entry_id, account_id, account_code, side, amount, line_no, cost_center_id)
+        VALUES (v_entry_id, v_account_id, '5300', 'debit', v_total, v_line_no, v_cost_center_id);
+        v_sum_debit := v_sum_debit + v_total;
+
+        v_line_no := 2;
+        INSERT INTO public.journal_lines
+            (entry_id, account_id, account_code, side, amount, line_no, cost_center_id)
+        VALUES (v_entry_id, v_account_id,
+                public._journal_expense_credit_account(v_payment_method),
+                'credit', v_total, v_line_no, NULL);
+        v_sum_credit := v_sum_credit + v_total;
+
+    ELSIF v_event_type = 'ExpenseDeleted' THEN
+        -- ──────────────────────────────────────────────────────────────────────
+        -- asiento-contable-gastos: molde de SaleOperationDeleted/PurchaseDeleted
+        -- — SOLO revertir, la contra-entry es la ÚNICA entry del evento → lleva
+        -- su propio source_event_id. La localización NO lee public.expenses:
+        -- el borrado del gasto es físico y la fila ya no existe cuando el
+        -- relay corre — el evento ya trae todo lo necesario (D7, emitido sólo
+        -- si existe ExpenseCreated, garantizado por el caller).
+        -- ──────────────────────────────────────────────────────────────────────
+        v_expense_id := (v_payload->>'expense_id')::uuid;
+
+        -- Corrección de findings (revisor, ronda 1, blocker): mismo fix que
+        -- ExpenseAdjusted arriba — excluir contra-asientos del lookup del
+        -- "vigente" para no revertir el contra-asiento de una edición previa
+        -- en vez del asiento que refleja el estado real del gasto.
+        SELECT id INTO v_orig_entry_id
+        FROM public.journal_entries
+        WHERE source_doc_type = 'Expense'
+          AND source_doc_ref  = v_expense_id
+          AND status          = 'posted'
+          AND reversal_of     IS NULL
+          AND account_id      = v_account_id
+        ORDER BY posted_at DESC, created_at DESC
+        LIMIT 1;
+
+        IF v_orig_entry_id IS NULL THEN
+            RAISE EXCEPTION
+                'journal_entry_original_not_found: no se encontró el asiento vigente '
+                'para el gasto borrado (ExpenseDeleted %). El evento quedará pending for retry.',
+                p_event.id
+                USING ERRCODE = 'P0451';
+        END IF;
+
+        INSERT INTO public.journal_entries
+            (account_id, posted_at, source_event_id, source_doc_type,
+             source_doc_ref, status, reversal_of)
+        SELECT
+            v_account_id, now(), p_event.id, source_doc_type, source_doc_ref,
+            'posted', v_orig_entry_id
+        FROM public.journal_entries
+        WHERE id = v_orig_entry_id
+        RETURNING id INTO v_entry_id;
+
+        INSERT INTO public.journal_lines
+            (entry_id, account_id, account_code, side, amount, line_no, cost_center_id)
+        SELECT
+            v_entry_id,
+            v_account_id,
+            account_code,
+            CASE side WHEN 'debit' THEN 'credit' ELSE 'debit' END,
+            amount,
+            line_no,
+            cost_center_id
+        FROM public.journal_lines
+        WHERE entry_id = v_orig_entry_id;
+
+        UPDATE public.journal_entries
+        SET status = 'reversed'
+        WHERE id = v_orig_entry_id;
+
+    END IF;
+
+    -- ── ASSERT de balance: Σdébito = Σcrédito (D5 journal-entry-outbox) — SIN CAMBIOS ──
+    -- Solo validar para eventos que crean líneas directamente (no para no-op)
+    IF v_entry_id IS NOT NULL THEN
+        -- Para los tipos que no son reversal puro (CreditNoteIssued ya
+        -- calculó su propio balance del espejo arriba), recalcular de la
+        -- tabla contra v_entry_id — que en SaleOperationAdjusted/ExpenseAdjusted
+        -- apunta al asiento NUEVO (la contra-entry ya se validó individualmente
+        -- más arriba, antes de marcarse reversed el original). SaleOperationDeleted
+        -- / PurchaseDeleted / PaymentReceivedReversed / PaymentMadeReversed /
+        -- ExpenseDeleted quedan cubiertas por esta misma rama genérica:
+        -- v_entry_id apunta a SU contra-entry (única entry del evento).
+        IF v_event_type != 'CreditNoteIssued' THEN
+            SELECT
+                COALESCE(SUM(CASE WHEN side = 'debit'  THEN amount END), 0),
+                COALESCE(SUM(CASE WHEN side = 'credit' THEN amount END), 0)
+            INTO v_sum_debit, v_sum_credit
+            FROM public.journal_lines
+            WHERE entry_id = v_entry_id;
+        END IF;
+
+        IF v_sum_debit <> v_sum_credit THEN
+            RAISE EXCEPTION
+                'journal_balance_assertion_failed: Σdébito=% ≠ Σcrédito=% para evento % (ERRCODE P0450). '
+                'El asiento no balancea — evento quedará pending for retry.',
+                v_sum_debit, v_sum_credit, p_event.id
+                USING ERRCODE = 'P0450';
+        END IF;
+    END IF;
+
+END;
+$function$;
+
+
+REVOKE ALL ON FUNCTION public._journal_post_from_event(events) FROM PUBLIC, anon, authenticated;
+COMMENT ON FUNCTION public._journal_post_from_event(events) IS
+  $c$journal-entry-outbox (journal-entry): Consumer 3 — postea la partida doble de un evento del outbox. SIN GRANT — NO AGREGAR UNO. Recibe una fila de events COMPLETA (composite; PostgREST acepta un objeto JSON), así que expuesta a `authenticated` permite forjar un evento con cualquier account_id y postear un asiento arbitrario en otro tenant (verificado en local). Único caller: rpc_process_outbox_dispatch (SECURITY DEFINER), disparado por el job de pg_cron `relay-process-outbox`. Perdió su REVOKE original en 20261001000001 L1914; lo restauró el hotfix 20261010000001_revoke_internal_money_helpers.sql (PR #454) y los chequeos (3) y (4) de supabase/tests/test_function_acl_gate.sql impiden que vuelva a perderse.
+  edicion-operaciones-con-dinero (tanda A): el asiento vigente se busca con reversal_of IS NULL; SaleOperationAdjusted y CreditNoteIssued resuelven las dos convenciones; rama nueva PurchaseAdjusted (15 tipos).$c$;
+
+
+-- =============================================================================
+-- 13. rpc_process_outbox_dispatch — el Consumer 3 lista los mismos 15 tipos. Partida: md5 fd8392d1… (vivo, sin \r).
+-- =============================================================================
+CREATE OR REPLACE FUNCTION public.rpc_process_outbox_dispatch(p_batch_limit integer DEFAULT 100)
+ RETURNS integer
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+/*
+  C-25 + journal-entry-outbox + v3-notifications-realtime pure-SQL relay dispatch.
+
+  Consumer order (per-event):
+    1. AuditLog  (mandatory first — audit domain invariant)
+    2. EmailNotification (sale_created/stock_adjusted/plan_changed)
+    3. JournalEntry (SaleConfirmed/PurchaseCreated/SaleOperationCreated/
+       SaleOperationAdjusted/PaymentReceived/PaymentMade/CreditNoteIssued/
+       SaleOperationDeleted/PurchaseDeleted/PaymentReceivedReversed/
+       PaymentMadeReversed/ExpenseCreated/ExpenseAdjusted/ExpenseDeleted/
+       PurchaseAdjusted)
+    4. Notification (CashSessionClosed/StockBelowMinimum/FiscalDocumentRejected/
+       QuoteAccepted/TransferDispatched) — v3-notifications-realtime.
+
+  processed_at se escribe SOLO si todos los consumers activos del evento tienen
+  éxito. Un consumer fallido deja processed_at NULL → retry en el próximo tick.
+  Cada consumer está idempotency-guarded por (event_id, consumer_type).
+
+  Per-event isolation: BEGIN/EXCEPTION/END por evento.
+  SECURITY DEFINER: cross-account sin debilitar RLS. REVOCADO de anon/PUBLIC.
+
+  delete-guard-ledgers (2026-08-22): agrega SaleOperationDeleted y
+  PurchaseDeleted al filtro del Consumer 3 — mismo invariante ya documentado
+  por asiento-venta-formulario: el filtro del dispatcher y el de
+  _journal_post_from_event deben listar el mismo conjunto.
+
+  cobranzas-reverso (2026-09-02, D13): agrega PaymentReceivedReversed y
+  PaymentMadeReversed (9→11) — mismo invariante, ahora sostenido además por
+  un gate automático (supabase/tests/test_cobranzas_reverso.sql) que compara
+  los dos conjuntos extraídos de los cuerpos vivos, no sólo por este
+  comentario.
+
+  asiento-contable-gastos (2026-09-10, D8): agrega ExpenseCreated,
+  ExpenseAdjusted y ExpenseDeleted (11→14) — mismo invariante; el gate de
+  test_cobranzas_reverso.sql bloque (11) pasa a esperar los 14 tipos y se
+  cablea a KPI_Validation.yml en este mismo PR (nunca había corrido en CI).
+
+  edicion-operaciones-con-dinero (2026-11-04, tanda A, 3.4): agrega PurchaseAdjusted (14->15) al filtro de este
+  consumidor — mismo invariante; el gate de test_cobranzas_reverso.sql bloque (11) pasa a esperar los 15 tipos y a
+  detectar PurchaseAdjusted ausente de uno solo de los dos filtros.
+*/
+DECLARE
+  v_event           public.events%ROWTYPE;
+  v_processed_count int := 0;
+  v_audit_claimed   bool;
+  v_email_claimed   bool;
+  v_subject         text;
+  v_recipient       text;
+BEGIN
+  FOR v_event IN
+    SELECT *
+    FROM public.events
+    WHERE processed_at IS NULL
+    ORDER BY occurred_at
+    LIMIT p_batch_limit
+    FOR UPDATE SKIP LOCKED
+  LOOP
+    BEGIN
+
+      -- ── Consumer 1: AuditLog (mandatory first) ────────────────────────────
+      INSERT INTO public.operation_idempotency
+        (user_id, idempotency_key, operation_kind, event_id, consumer_type)
+      VALUES (
+        '00000000-0000-0000-0000-000000000000'::uuid,
+        v_event.id::text || ':AuditLog',
+        'event_consumer',
+        v_event.id,
+        'AuditLog'
+      )
+      ON CONFLICT (event_id, consumer_type)
+      WHERE event_id IS NOT NULL
+      DO NOTHING;
+
+      GET DIAGNOSTICS v_audit_claimed = ROW_COUNT;
+
+      IF v_audit_claimed THEN
+        INSERT INTO public.audit_logs (account_id, action, created_at)
+        VALUES (v_event.account_id, v_event.event_type, now());
+      END IF;
+
+      -- ── Consumer 2: EmailNotification ─────────────────────────────────────
+      IF v_event.event_type IN ('sale_created', 'stock_adjusted', 'plan_changed') THEN
+
+        INSERT INTO public.operation_idempotency
+          (user_id, idempotency_key, operation_kind, event_id, consumer_type)
+        VALUES (
+          '00000000-0000-0000-0000-000000000000'::uuid,
+          v_event.id::text || ':EmailNotification',
+          'event_consumer',
+          v_event.id,
+          'EmailNotification'
+        )
+        ON CONFLICT (event_id, consumer_type)
+        WHERE event_id IS NOT NULL
+        DO NOTHING;
+
+        GET DIAGNOSTICS v_email_claimed = ROW_COUNT;
+
+        IF v_email_claimed THEN
+          v_subject := CASE v_event.event_type
+            WHEN 'sale_created'    THEN 'Nueva venta registrada'
+            WHEN 'stock_adjusted'  THEN 'Ajuste de stock realizado'
+            WHEN 'plan_changed'    THEN 'Tu plan ha sido actualizado'
+            ELSE 'Evento: ' || v_event.event_type
+          END;
+
+          v_recipient := COALESCE(
+            v_event.payload->>'email',
+            'account:' || v_event.account_id::text
+          );
+
+          INSERT INTO public.email_logs
+            (event_type, recipient, subject, status, metadata)
+          VALUES (
+            v_event.event_type,
+            v_recipient,
+            v_subject,
+            'pending',
+            jsonb_build_object(
+              'event_id',   v_event.id::text,
+              'account_id', v_event.account_id::text
+            )
+          )
+          ON CONFLICT DO NOTHING;
+        END IF;
+
+      END IF;
+
+      -- ── Consumer 3: JournalEntry (journal-entry-outbox) ───────────────────
+      -- Solo para los 15 tipos en-scope; _journal_post_from_event hace no-op
+      -- para el resto. La idempotencia (event_id, 'JournalEntry') se gestiona
+      -- dentro del helper. Un fallo en el posting (balance, NC sin original,
+      -- reverso sin original) deja el evento pending para retry — el
+      -- EXCEPTION del sub-bloque lo captura sin abortar el batch.
+      IF v_event.event_type IN (
+          'SaleConfirmed', 'PurchaseCreated', 'SaleOperationCreated',
+          'SaleOperationAdjusted', 'PaymentReceived', 'PaymentMade',
+          'CreditNoteIssued', 'SaleOperationDeleted', 'PurchaseDeleted',
+          'PaymentReceivedReversed', 'PaymentMadeReversed',
+          'ExpenseCreated', 'ExpenseAdjusted', 'ExpenseDeleted',
+          'PurchaseAdjusted'
+      ) THEN
+        PERFORM public._journal_post_from_event(v_event);
+      END IF;
+
+      -- ── Consumer 4: Notification (v3-notifications-realtime) ─────────────
+      -- Solo para los 5 tipos en-scope; _notification_from_event hace no-op
+      -- para el resto (incluyendo CashSessionClosed con difference=0 y
+      -- audiencia vacía). La idempotencia (event_id, 'Notification') se
+      -- gestiona dentro del helper, igual que el Consumer 3.
+      IF v_event.event_type IN (
+          'CashSessionClosed', 'StockBelowMinimum', 'FiscalDocumentRejected',
+          'QuoteAccepted', 'TransferDispatched'
+      ) THEN
+        PERFORM public._notification_from_event(v_event);
+      END IF;
+
+      -- ── Mark processed (todos los consumers activos tuvieron éxito) ─────────
+      UPDATE public.events
+      SET processed_at = now()
+      WHERE id = v_event.id;
+
+      v_processed_count := v_processed_count + 1;
+
+    EXCEPTION
+      WHEN OTHERS THEN
+        RAISE WARNING
+          'rpc_process_outbox_dispatch: fallo en evento % (type=%): %',
+          v_event.id, v_event.event_type, SQLERRM;
+    END;
+
+  END LOOP;
+
+  RETURN v_processed_count;
+END;
+$function$;
+
+
+REVOKE ALL ON FUNCTION public.rpc_process_outbox_dispatch(integer) FROM PUBLIC, anon, authenticated;
+COMMENT ON FUNCTION public.rpc_process_outbox_dispatch(integer) IS
+  $c$C-25 + journal-entry-outbox + v3-notifications-realtime: dispatch in-DB del outbox transaccional. Consumer 1: AuditLog (mandatory first). Consumer 2: EmailNotification (sale_created/stock_adjusted/plan_changed). Consumer 3: JournalEntry (SaleConfirmed/PurchaseCreated/PaymentReceived/PaymentMade/CreditNoteIssued) — llama a _journal_post_from_event (SECURITY DEFINER). Consumer 4: Notification (CashSessionClosed/StockBelowMinimum/FiscalDocumentRejected/QuoteAccepted/TransferDispatched) — llama a _notification_from_event (SECURITY DEFINER). processed_at SOLO tras éxito de todos los consumers activos. Per-event isolation: BEGIN/EXCEPTION/END. REVOCADO de anon/PUBLIC.
+  edicion-operaciones-con-dinero (tanda A): el Consumer 3 lista los 15 tipos (suma PurchaseAdjusted), el mismo conjunto que _journal_post_from_event.$c$;

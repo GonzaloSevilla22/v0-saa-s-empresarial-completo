@@ -4,6 +4,7 @@
   "private": true,
   "packageManager": "pnpm@10.33.4",
   "devDependencies": {
-    "next": "16.1.6"
+    "next": "16.1.6",
+    "supabase": "2.105.0"
   }
 }

@@ -64,6 +64,16 @@ export interface SessionTokenRefreshedMessage {
 }
 
 /**
+ * multiusuario-operativo (tanda A, D5): el usuario cambió de cuenta activa en otra
+ * pestaña. Las cookies de sesión son compartidas, así que el token ya describe la
+ * cuenta nueva; esta pestaña sigue MOSTRANDO la anterior hasta resincronizarse.
+ * Como toda señal del bus, no lleva el token.
+ */
+export interface SessionAccountSwitchedMessage {
+  type: "account:switched"
+}
+
+/**
  * Mensajes del bus de sesión. **Nunca** llevan el access token: el canal cae a
  * `localStorage` cuando `BroadcastChannel` no existe, y escribir el token ahí
  * anularía el motivo del cambio entero (la credencial vive sólo en memoria).
@@ -73,6 +83,7 @@ export type SessionMessage =
   | SessionSignedInMessage
   | SessionSignedOutMessage
   | SessionTokenRefreshedMessage
+  | SessionAccountSwitchedMessage
 
 /** Todo lo que puede viajar por el canal compartido. */
 export type TabMessage = IdleMessage | SessionMessage

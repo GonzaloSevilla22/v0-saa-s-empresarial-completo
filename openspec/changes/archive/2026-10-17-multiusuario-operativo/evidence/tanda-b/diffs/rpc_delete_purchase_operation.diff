@@ -1,0 +1,24 @@
+--- vivo/rpc_delete_purchase_operation
++++ nuevo/rpc_delete_purchase_operation
+@@ -37,4 +37,8 @@
+   END IF;
+ 
++  -- multiusuario-operativo (tanda B, D9): el ROL decide, antes de cualquier escritura. El observador
++  -- (sin rol de escritura) da P0401; un rol de escritura sin la capacidad del dominio, P0403.
++  PERFORM public._account_assert_capability(v_account_id, ARRAY['owner', 'admin', 'purchases'], 'tu rol no permite eliminar compras (requiere compras, administrador o dueño)');
++
+   IF p_purchase_id IS NULL AND p_operation_id IS NULL THEN
+     RAISE EXCEPTION 'rpc_delete_purchase_operation: se requiere p_purchase_id o p_operation_id'
+@@ -69,4 +73,12 @@
+     RETURN false;
+   END IF;
++
++  -- multiusuario-operativo (tanda B, D9, OQ-4 b): borrar la compra de OTRO miembro es del dueño o de un administrador; el
++  -- resto borra lo propio (P0403). Antes de tomar el remito de origen y de cualquier compensación. Una compra de otra
++  -- cuenta nunca llega acá: las filas se resuelven por la cuenta activa.
++  PERFORM public._account_assert_document_authority(
++    v_account_id,
++    (SELECT array_agg(DISTINCT p.user_id) FROM public.purchases p WHERE p.id = ANY(v_purchase_ids)),
++    'solo el dueño o un administrador modifican las compras que cargó otro miembro');
+ 
+   -- ── remitos-compra (D9): compra nacida de un remito ─────────────────────────

@@ -75,9 +75,34 @@ date_format     TEXT        DEFAULT 'DD/MM/YYYY' -- DD/MM/YYYY | MM/DD/YYYY | YY
 language        TEXT        DEFAULT 'es'
 insights_used   INTEGER     DEFAULT 0
 insights_reset_at TIMESTAMP DEFAULT NOW()
+active_account_id UUID      NULL REFERENCES accounts(id) ON DELETE SET NULL
+                            -- multiusuario-operativo (2026-10-16): la cuenta que el usuario eligió como ACTIVA.
+                            -- NULL = sin elección (rige la membresía más antigua). Columna de PRIVILEGIO: NO es
+                            -- escribible por PostgREST; sólo la escriben rpc_set_active_account (valida la
+                            -- membresía) y la aceptación de una invitación.
 created_at      TIMESTAMP   DEFAULT NOW()
 updated_at      TIMESTAMP   -- auto-update via trigger
 ```
+
+> **Cuenta activa (multiusuario-operativo, tanda A)**: `current_account_ids()` (`SETOF uuid`, mismo nombre y firma de siempre) devuelve **0 o 1 fila** —la cuenta activa del caller—, no todas sus membresías: es el punto por el que pasan las ~45 RPCs que resuelven la cuenta y las ~90 policies de RLS que la usan. Resolución en `resolve_active_account(uuid)` (interna: sólo `supabase_auth_admin`). Quien necesite **todas** las membresías usa `get_account_ids_for_user(auth.uid())` o la policy `self_select` de `account_members`. Funciones del selector: `rpc_set_active_account(uuid)` y `rpc_my_accounts()` (una fila por membresía, con la activa marcada y los campos crudos del nombre).
+
+---
+
+### `account_invitations` — Invitaciones a una cuenta (`multiusuario-operativo`, tanda C, 2026-10-17)
+```sql
+id                   UUID     PK
+account_id           UUID     FK accounts ON DELETE CASCADE
+email                TEXT     -- minúsculas; lo valida rpc_invite_member (P0400 invalid_email)
+token                TEXT     UNIQUE   -- hex de 64 caracteres; se ROTA al reenviar; nunca se lista
+status               TEXT     -- pending|accepted|expired|revoked   (CHECK; 'revoked' agregado en la tanda C)
+roles                TEXT[]   -- conjunto de códigos de account_role_catalog (NULL = fila legacy: deriva de role)
+role                 TEXT     -- legacy: owner|admin|member
+invited_by           UUID     FK auth.users ON DELETE RESTRICT
+created_at / expires_at       -- vence a los 7 días; reenviar renueva
+account_display_name TEXT     -- snapshot del nombre visible del negocio al ENVIAR (≤ 120): lo necesita la vista previa
+revoked_at / revoked_by       -- autoría de la revocación (sin FK dura)
+```
+RLS: `account_invitations_owner_all` sólo deja ver y escribir las filas al **dueño** de la cuenta; el listado para dueño **y** administrador sale de `rpc_list_account_invitations` (`SECURITY DEFINER`, sin token). La escritura y la lectura de la aplicación van por las RPCs `rpc_invite_member`, `rpc_send_invitation_email`, `rpc_revoke_invitation`, `rpc_invitation_preview` y `rpc_accept_invitation` (ninguna ejecutable por `anon`). El envío se cuenta sobre `email_logs` (índice parcial por cuenta para `org_invite`): `email_logs.metadata` lleva `invitation_id`, `account_id`, `token`, `account_name`, `inviter_name`, `role_labels`, `expires_at` y `sent_at`.
 
 ---
 
@@ -140,7 +165,9 @@ description     TEXT
 unit_id         UUID    FK units_of_measure(id)
 date            DATE
 created_at      TIMESTAMP
+source_delivery_note_id UUID NULL FK delivery_notes(id) ON DELETE NO ACTION  -- remitos-compra tanda B: el remito de compra del que nació la fila (NULL = compra directa)
 ```
+> `source_delivery_note_id` se repite en **cada fila** de la operación (hay una fila por línea) y sólo lo escribe `_purchase_operation_core` al convertir un remito. `trg_purchases_guard_delivery_note_source` impide a `anon`/`authenticated` forjarlo, limpiarlo, cambiarlo, insertarlo, tocar cualquier columna de una fila con origen (partir la operación), llevar filas a la operación convertida (mezclar) o borrar filas con origen (`P0403 delivery_note_source_protected`). No hay índice único: "1 remito -> 1 compra" la garantiza el estado del remito bajo `FOR UPDATE`.
 
 ### `suppliers` — Proveedores (columnas documentadas 2026-08-23, `compras-proveedor-cuenta-corriente`)
 ```sql
@@ -298,9 +325,9 @@ quantity_base NUMERIC(15,4) > 0    -- cantidad en unidad base: lo que el remito 
 - **Tanda B (2026-10-03)**: `sales_orders.source_delivery_note_id uuid NULL` (FK `NO ACTION` a `delivery_notes`) + índice único parcial `sales_orders_source_delivery_note_id_uq` (una sola orden viva por remito; una orden cancelada no impide reconvertir). Sin política de escritura nueva: sólo la escribe `rpc_convert_delivery_note_to_sale`. El catálogo `delivery_note_sale` suma `issued -> converted` y `converted -> issued` (4 filas; la vuelta sólo la dispara el borrado de la venta). Migración `20261070000001_remitos_venta_conversion.sql`.
 - Lo que el remito retiene se lee de `quantity_base` de sus líneas (escrita sólo por sus RPCs), nunca sumando el ledger, que los roles de aplicación pueden insertar por PostgREST.
 - **Sentido compra (`remitos-compra`, tanda A, 2026-10-03, migración `20261071000001_remitos_compra.sql`)**: `direction = 'purchase'` usa las mismas tablas sin `ALTER TABLE`. `supplier_id` obligatorio (y `client_id` nulo, por el `CHECK` de contraparte), `supplier_reference` = número del remito del proveedor (opcional, <= 100), `branch_id` = sucursal de **destino** (a la que entra la mercadería), `delivery_address` siempre nulo. En las líneas, `price` es el precio de compra por unidad de la línea (admite 0 al recibir) y `unit_cost_snapshot` es el costo de catálogo; `subtotal` y `total` los calcula el servidor (`round(price x quantity, 2)`).
-- Numeración `RC-00000001`, correlativa por cuenta con secuencia propia (`internal_document_sequences.document_type = 'delivery_note_purchase'`). FSM `delivery_note_purchase`: `NULL -> issued` (stock/admin/owner) e `issued -> canceled` (admin/owner, motivo obligatorio, terminal); `issued -> converted` y su vuelta llegan con la tanda B. `operation_idempotency.operation_kind` suma `delivery_note_purchase`.
+- Numeración `RC-00000001`, correlativa por cuenta con secuencia propia (`internal_document_sequences.document_type = 'delivery_note_purchase'`). FSM `delivery_note_purchase`: `NULL -> issued` (stock/admin/owner) e `issued -> canceled` (admin/owner, motivo obligatorio, terminal); `issued -> converted` (`purchases`/`stock`/`admin`/`owner`) y su vuelta `converted -> issued` (sin rol: sólo la dispara el borrado de la compra) los suma la tanda B. `operation_idempotency.operation_kind` suma `delivery_note_purchase`.
 - Stock: la recepción escribe movimientos `type = 'purchase'` con `reference_type = 'delivery_note'` (la edición, `delivery_note_update`; la anulación, `purchase_return` con `delivery_note_reversal`). Escritura sólo por `rpc_create_purchase_delivery_note`, `rpc_update_purchase_delivery_note` y `rpc_cancel_delivery_note` (esta última sirve a los dos sentidos); los helpers `_delivery_note_*` leen el sentido de la fila del remito.
-- Tanda B (pendiente): `purchases.source_delivery_note_id`, puente remito -> compra en cada fila de la operación.
+- **Tanda B (`remitos-compra`, migración `20261081000001_remitos_compra_conversion.sql`)**: `purchases.source_delivery_note_id` (puente remito -> compra en cada fila de la operación, ver `purchases`) con su índice parcial y su disparador de integridad (`SECURITY INVOKER` a propósito: tiene que ver quién escribe). `_purchase_operation_core` (sin `EXECUTE` para `anon`/`authenticated`) es el cuerpo de la compra extraído del vivo: `rpc_create_purchase_operation` queda como wrapper de la misma firma, y `rpc_convert_delivery_note_to_purchase` lo llama en **modo remito** (lee las líneas del remito bajo bloqueo, no toma el lock del producto, **no suma stock ni escribe movimientos**, toma los snapshots del remito y deja el remito `converted` con su historial en la misma transacción). `rpc_delete_purchase_operation` y `rpc_atomic_update_purchase_operation` se reescriben desde el cuerpo vivo; `_delivery_note_payload` completa `converted_operation_id` en el sentido compra. Orden de locks: la conversión toma `delivery_notes` primero; el borrado de la compra toma el remito antes de cualquier compensación.
 
 ---
 
@@ -517,7 +544,7 @@ created_at  TIMESTAMP
 ```sql
 id              UUID    PK
 user_id         UUID    NULLABLE    FK auth.users
-event_type      TEXT    -- welcome|meeting_notice|pool_notice|low_stock_alert|low_margin_alert
+event_type      TEXT    -- welcome|meeting_notice|pool_notice|low_stock_alert|low_margin_alert|org_invite|...
 recipient       TEXT    -- email address o 'all_users'
 subject         TEXT
 status          TEXT    -- pending|sent|failed|partial

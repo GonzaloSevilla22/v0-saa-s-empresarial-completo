@@ -1,0 +1,57 @@
+BEGIN
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+psql:<stdin>:951: NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=2437d286-4f24-4fa5-ac77-e6440163c4e1
+psql:<stdin>:951: NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=885f1661-a556-42ff-b35b-d422ba685b4f
+psql:<stdin>:951: NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=327ded69-cd88-4010-980d-8b43a8bbde26
+psql:<stdin>:951: NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=5a06cfc9-72a0-4046-bbb5-79da817cdbdb
+psql:<stdin>:951: NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=747e0054-9d2a-463d-9d7e-415e56e1e47c
+psql:<stdin>:951: NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=7386edcb-833b-4409-b957-2bd335c48d6e
+psql:<stdin>:951: NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=00e0411f-96b4-4ada-acfa-9699babc47a1
+psql:<stdin>:951: NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=83778bc8-2f82-40e7-beb2-93d47a17d884
+psql:<stdin>:951: NOTICE:  PASS (a): el usuario de una sola cuenta ve exactamente su cuenta, con y sin claim.
+psql:<stdin>:951: NOTICE:  FAIL (b): U2 sin preferencia debía ver sólo su cuenta más antigua b4a7aa41-1aa2-4446-8790-09ed23352dc0, vio 570c27ad-c81b-4080-8735-cd3cb83937d7,b4a7aa41-1aa2-4446-8790-09ed23352dc0 [P0001]
+psql:<stdin>:951: NOTICE:  FAIL (c): rpc_set_active_account(A) debía funcionar, dio 42883 function public.rpc_set_active_account(uuid) does not exist [P0001]
+psql:<stdin>:951: NOTICE:  FAIL (d): sin preferencia y con el claim de A debía ver sólo A (570c27ad-c81b-4080-8735-cd3cb83937d7), vio 570c27ad-c81b-4080-8735-cd3cb83937d7,b4a7aa41-1aa2-4446-8790-09ed23352dc0 [P0001]
+psql:<stdin>:951: NOTICE:  FAIL (e): el claim de una cuenta ajena (Z) debía devolver 0 filas, devolvió 570c27ad-c81b-4080-8735-cd3cb83937d7,b4a7aa41-1aa2-4446-8790-09ed23352dc0 [P0001]
+psql:<stdin>:951: NOTICE:  FAIL (f): U2 sin preferencia: el hook debía emitir account_id=b4a7aa41-1aa2-4446-8790-09ed23352dc0 , emitió <NULL> [P0001]
+psql:<stdin>:951: NOTICE:  FAIL (g): U2 con el claim de A debía ver sólo la venta de A (6161d807-5ac9-43c4-8f11-4d05960dfc73), vio [{"id": "5b71a23c-ee0c-47f6-a249-6f1043dd309f"}, {"id": "6161d807-5ac9-43c4-8f11-4d05960dfc73"}] [P0001]
+psql:<stdin>:951: NOTICE:  FAIL (h): get_dashboard_financials con A activa debía sumar sólo los 1000 de A, sumó [{"total_income": 1100}] [P0001]
+psql:<stdin>:951: NOTICE:  FAIL (i): R3j (claim A): el POS sobre un producto de A debía funcionar, dio P0409 stock_insuficiente para producto 391ade03-5495-4de4-8b81-7d50197c74a0: disponible 0.0000, solicitado 1.0000 [P0001]
+psql:<stdin>:951: NOTICE:  FAIL (j): el gasto con A activa debía quedar en A (570c27ad-c81b-4080-8735-cd3cb83937d7), quedó en b4a7aa41-1aa2-4446-8790-09ed23352dc0 [P0001]
+psql:<stdin>:951: NOTICE:  FAIL (k): rpc_import_products sigue rechazando al usuario de dos cuentas con cuenta_ambigua: cuenta_ambigua: la importación en lote requiere que el usuario pertenezca a una única cuenta activa (tiene 2) [P0001]
+psql:<stdin>:951: NOTICE:  FAIL (l): con el claim de A los roles debían ser ["seller"], fueron [{"roles": ["owner"]}] [P0001]
+psql:<stdin>:951: NOTICE:  FAIL (m): con el claim de A el plan debía ser avanzado, fue [{"plan": "inicial"}] [P0001]
+psql:<stdin>:951: NOTICE:  FAIL (n): column "active_account_id" of relation "profiles" does not exist [42703]
+psql:<stdin>:951: NOTICE:  FAIL (o): function public.rpc_my_accounts() does not exist [42883]
+psql:<stdin>:951: NOTICE:  PASS (p): quien necesite todas las membresías sigue teniendo get_account_ids_for_user.
+psql:<stdin>:951: NOTICE:  FAIL (s1) ACL de resolve_active_account: public.resolve_active_account(uuid) no existe [P0001]
+psql:<stdin>:951: NOTICE:  FAIL (s2) RPCs nuevas: faltan rpc_set_active_account(uuid) y/o rpc_my_accounts() [P0001]
+psql:<stdin>:951: NOTICE:  FAIL (s3) profiles.active_account_id: falta la columna profiles.active_account_id uuid [P0001]
+psql:<stdin>:951: NOTICE:  FAIL (s4) barrido por convención: funciones con su PROPIO criterio de cuenta activa (account_members … user_id = … LIMIT 1): custom_access_token_hook, rpc_atomic_log_ai_insight, rpc_my_active_account_roles, rpc_my_effective_plan, set_insight_account_id. Usá current_account_ids() / resolve_active_account(). [P0001]
+psql:<stdin>:951: ERROR:  GATE MULTIUSUARIO-CUENTA-ACTIVA FAILED en 18 bloque(s):
+  - (b) U2 sin preferencia debía ver sólo su cuenta más antigua b4a7aa41-1aa2-4446-8790-09ed23352dc0, vio 570c27ad-c81b-4080-8735-cd3cb83937d7,b4a7aa41-1aa2-4446-8790-09ed23352dc0 [P0001]
+  - (c) rpc_set_active_account(A) debía funcionar, dio 42883 function public.rpc_set_active_account(uuid) does not exist [P0001]
+  - (d) sin preferencia y con el claim de A debía ver sólo A (570c27ad-c81b-4080-8735-cd3cb83937d7), vio 570c27ad-c81b-4080-8735-cd3cb83937d7,b4a7aa41-1aa2-4446-8790-09ed23352dc0 [P0001]
+  - (e) el claim de una cuenta ajena (Z) debía devolver 0 filas, devolvió 570c27ad-c81b-4080-8735-cd3cb83937d7,b4a7aa41-1aa2-4446-8790-09ed23352dc0 [P0001]
+  - (f) U2 sin preferencia: el hook debía emitir account_id=b4a7aa41-1aa2-4446-8790-09ed23352dc0 , emitió <NULL> [P0001]
+  - (g) U2 con el claim de A debía ver sólo la venta de A (6161d807-5ac9-43c4-8f11-4d05960dfc73), vio [{"id": "5b71a23c-ee0c-47f6-a249-6f1043dd309f"}, {"id": "6161d807-5ac9-43c4-8f11-4d05960dfc73"}] [P0001]
+  - (h) get_dashboard_financials con A activa debía sumar sólo los 1000 de A, sumó [{"total_income": 1100}] [P0001]
+  - (i) R3j (claim A): el POS sobre un producto de A debía funcionar, dio P0409 stock_insuficiente para producto 391ade03-5495-4de4-8b81-7d50197c74a0: disponible 0.0000, solicitado 1.0000 [P0001]
+  - (j) el gasto con A activa debía quedar en A (570c27ad-c81b-4080-8735-cd3cb83937d7), quedó en b4a7aa41-1aa2-4446-8790-09ed23352dc0 [P0001]
+  - (k) rpc_import_products sigue rechazando al usuario de dos cuentas con cuenta_ambigua: cuenta_ambigua: la importación en lote requiere que el usuario pertenezca a una única cuenta activa (tiene 2) [P0001]
+  - (l) con el claim de A los roles debían ser ["seller"], fueron [{"roles": ["owner"]}] [P0001]
+  - (m) con el claim de A el plan debía ser avanzado, fue [{"plan": "inicial"}] [P0001]
+  - (n) column "active_account_id" of relation "profiles" does not exist [42703]
+  - (o) function public.rpc_my_accounts() does not exist [42883]
+  - (s1) ACL de resolve_active_account public.resolve_active_account(uuid) no existe [P0001]
+  - (s2) RPCs nuevas faltan rpc_set_active_account(uuid) y/o rpc_my_accounts() [P0001]
+  - (s3) profiles.active_account_id falta la columna profiles.active_account_id uuid [P0001]
+  - (s4) barrido por convención funciones con su PROPIO criterio de cuenta activa (account_members … user_id = … LIMIT 1): custom_access_token_hook, rpc_atomic_log_ai_insight, rpc_my_active_account_roles, rpc_my_effective_plan, set_insight_account_id. Usá current_account_ids() / resolve_active_account(). [P0001]
+CONTEXT:  PL/pgSQL function inline_code_block line 791 at RAISE
+EXIT=3

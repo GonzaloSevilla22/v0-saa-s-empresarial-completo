@@ -1,0 +1,82 @@
+--- vivo/rpc_atomic_update_sale_operation
++++ nuevo/rpc_atomic_update_sale_operation
+@@ -7,4 +7,5 @@
+ DECLARE
+   v_uid            uuid;
++  v_author         uuid;   -- multiusuario-operativo (tanda B): autor de la operación que se edita
+   v_account_id     uuid;
+   v_old_sale       RECORD;
+@@ -65,20 +66,28 @@
+   END IF;
+ 
++  -- multiusuario-operativo (tanda B, D9): el ROL decide, antes de cualquier escritura. El observador
++  -- (sin rol de escritura) da P0401; un rol de escritura sin la capacidad del dominio, P0403.
++  PERFORM public._account_assert_capability(v_account_id, ARRAY['owner', 'admin', 'seller', 'cashier'], 'tu rol no permite editar ventas (requiere vendedor, cajero, administrador o dueño)');
++
+   IF array_length(p_sale_ids, 1) IS NULL OR array_length(p_sale_ids, 1) = 0 THEN
+     RAISE EXCEPTION 'No sale IDs provided' USING ERRCODE = 'P0400';
+   END IF;
+ 
+-  IF EXISTS (
+-    SELECT 1 FROM public.sales
+-    WHERE id = ANY(p_sale_ids) AND user_id != v_uid
+-  ) THEN
+-    RAISE EXCEPTION 'Permission denied: sale belongs to another user' USING ERRCODE = 'P0403';
+-  END IF;
+-
+-  IF (SELECT COUNT(*) FROM public.sales WHERE id = ANY(p_sale_ids))
++  -- multiusuario-operativo (tanda B, D8): el documento tiene que ser de la CUENTA ACTIVA, no del caller. Una venta de
++  -- otra cuenta es indistinguible de una inexistente (P0404, mismo texto): no se revela que existe en otra cuenta.
++  IF (SELECT COUNT(*) FROM public.sales WHERE id = ANY(p_sale_ids) AND account_id = v_account_id)
+       != array_length(p_sale_ids, 1)
+   THEN
+     RAISE EXCEPTION 'One or more sale IDs not found' USING ERRCODE = 'P0404';
+   END IF;
++
++  -- multiusuario-operativo (tanda B, D9, OQ-4 b): sobre una venta de OTRO miembro sólo puede el dueño o un administrador;
++  -- el resto corrige lo propio (P0403). La autoría se CONSERVA en las filas nuevas (v_author): la edición reemplaza las
++  -- líneas, pero quien la cargó sigue siendo su autor.
++  PERFORM public._account_assert_document_authority(
++    v_account_id,
++    (SELECT array_agg(DISTINCT s.user_id) FROM public.sales s WHERE s.id = ANY(p_sale_ids)),
++    'solo el dueño o un administrador modifican las ventas que cargó otro miembro');
++  SELECT s.user_id INTO v_author FROM public.sales s WHERE s.id = ANY(p_sale_ids) ORDER BY s.id LIMIT 1;
+ 
+   -- venta-editable-vs-promocion-legacy (N1): EXCLUSIÓN contra la promoción.
+@@ -98,5 +107,5 @@
+     FROM   public.sales s
+     WHERE  s.id = ANY(p_sale_ids)
+-      AND  s.user_id = v_uid
++      AND  s.account_id = v_account_id
+     ORDER  BY s.id
+     FOR UPDATE
+@@ -479,4 +488,5 @@
+       FROM public.products
+       WHERE id = v_item.product_id
++        AND account_id = v_account_id
+       FOR UPDATE;
+ 
+@@ -485,7 +495,6 @@
+       END IF;
+ 
+-      IF v_product.user_id != v_uid THEN
+-        RAISE EXCEPTION 'Permission denied to product: %', v_item.product_id USING ERRCODE = 'P0403';
+-      END IF;
++      -- multiusuario-operativo (tanda B, D8): la tenencia del producto la decide la CUENTA (filtro del SELECT … FOR UPDATE
++      -- de arriba: un producto de otra cuenta es indistinguible de uno inexistente, P0404), nunca quién lo cargó.
+ 
+       IF NOT v_product.is_variant THEN
+@@ -516,5 +525,5 @@
+         (user_id, account_id, client_id, product_id, amount, quantity, unit_id, total, currency, date, operation_id, branch_id, canal, payment_method_id)
+       VALUES
+-        (v_uid, v_account_id, p_client_id, v_item.product_id,
++        (COALESCE(v_author, v_uid), v_account_id, p_client_id, v_item.product_id,
+          v_item.amount, v_item.quantity, v_item.unit_id, v_item.amount * v_item.quantity,
+          p_currency, p_date, v_new_op_id, v_final_branch_id, v_final_canal, v_final_payment_method_id)
+@@ -571,5 +580,5 @@
+         (user_id, account_id, client_id, product_id, amount, quantity, unit_id, total, currency, date, operation_id, branch_id, canal, payment_method_id)
+       VALUES
+-        (v_uid, v_account_id, p_client_id, NULL,
++        (COALESCE(v_author, v_uid), v_account_id, p_client_id, NULL,
+          v_item.amount, v_item.quantity, v_item.unit_id, v_item.amount * v_item.quantity,
+          p_currency, p_date, v_new_op_id, v_final_branch_id, v_final_canal, v_final_payment_method_id)

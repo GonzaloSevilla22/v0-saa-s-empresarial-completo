@@ -204,7 +204,7 @@ Deno.serve(async (req) => {
       // dispara TS2589 ("Type instantiation is excessively deep") en `deno
       // check` al compararse contra el tipo real, muy genérico, de
       // supabase-js.
-      const accountId = await resolveActiveAccountId(supabase as unknown as AccountResolutionClient, user.id)
+      const accountId = await resolveActiveAccountId(supabase as unknown as AccountResolutionClient)
       if (!accountId) throw new Error('no_active_account')
 
       const ranked = await fetchTopProducts(supabase, accountId, {

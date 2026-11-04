@@ -517,3 +517,44 @@ El listado de ventas SHALL exponer el estado del comprobante —incluido el anul
 - **WHEN** se borra la venta
 - **THEN** el borrado espera, ve la orden y la cancela en la misma transacción
 
+### Requirement: La venta nacida de un remito es inmutable
+El sistema SHALL rechazar con `P0423 delivery_note_sale_locked` toda edición de una venta cuya orden nació de un remito.
+
+El rechazo SHALL evaluarse inmediatamente después de tomar las filas de la operación y antes de cualquier otro efecto: la anulación de un comprobante pendiente, la reversa o la aplicación de stock, y los libros. El bloqueo SHALL alcanzar a la operación entera, también a la cabecera, porque la edición de ventas reemplaza siempre las líneas y volvería a descontar stock.
+
+El listado de ventas SHALL exponer el motivo para que la interfaz deshabilite "Editar" con la explicación: eliminar la venta, corregir el remito y volver a convertirlo.
+
+#### Scenario: Edición rechazada sin efectos
+- **GIVEN** una venta nacida de un remito, con un comprobante fiscal pendiente que todavía no salió hacia ARCA
+- **WHEN** se intenta editarla
+- **THEN** la operación falla con `P0423 delivery_note_sale_locked`, el comprobante sigue pendiente y el stock, la caja y las líneas no cambian
+
+#### Scenario: Botón deshabilitado con motivo
+- **WHEN** el listado de ventas muestra una venta nacida de un remito
+- **THEN** "Editar" aparece deshabilitado con el motivo y el número del remito
+
+### Requirement: La compra nacida de un remito es inmutable
+El sistema SHALL rechazar la edición de una compra nacida de un remito de compra con `P0423 delivery_note_purchase_locked`, antes de los bloqueos por dinero posteado y antes de cualquier reversa o escritura, sin anular nada ni mover stock. El listado de compras SHALL exponerlo y deshabilitar "Editar" con el motivo: para corregirla, se borra la compra, se edita el remito y se vuelve a convertir.
+
+#### Scenario: Editar la compra de un remito
+- **GIVEN** una compra a crédito nacida de un remito de compra
+- **WHEN** se intenta editar su cabecera o sus líneas
+- **THEN** la operación falla con `P0423 delivery_note_purchase_locked`, y ni el stock, ni el ledger, ni la cuenta corriente del proveedor cambian
+
+#### Scenario: Editar deshabilitado en el listado
+- **WHEN** el usuario ve una compra nacida de un remito en `/compras`
+- **THEN** la acción "Editar" está deshabilitada con el motivo de que la compra nació del remito
+
+### Requirement: El listado de compras expone la borrabilidad de la compra nacida de un remito
+El listado de compras SHALL exponer, para cada compra nacida de un remito, su remito de origen y si la sucursal del remito está activa, derivado en el servidor con el mismo predicado que evalúa el borrado. La interfaz SHALL deshabilitar "Eliminar" con su motivo cuando el usuario no tiene el permiso de anular remitos de compra o cuando la sucursal del remito está inactiva, y el motivo de remito de "Editar" SHALL tener precedencia sobre el bloqueo por dinero posteado.
+
+#### Scenario: Eliminar deshabilitado para el rol de compras
+- **GIVEN** una compra nacida de un remito y un usuario con rol `purchases`
+- **WHEN** abre `/compras`
+- **THEN** "Eliminar" está deshabilitado con el motivo de que borrarla reabre el remito y requiere administrador o dueño
+
+#### Scenario: Eliminar deshabilitado con la sucursal del remito inactiva
+- **GIVEN** una compra nacida de un remito cuya sucursal se desactivó
+- **WHEN** un administrador abre `/compras`
+- **THEN** "Eliminar" está deshabilitado con el motivo de reactivar la sucursal del remito
+

@@ -1,0 +1,37 @@
+
+══ desktop / dark
+shot b-detalle-pendiente-desktop-dark docOverflow=0 elementOverflow=0
+shot b-dialogo-vacio-desktop-dark dialogOverflow=0 docOverflow=0
+PASS  b-dialogo-vacio (desktop/dark): sin desborde propio dentro del diálogo ni del documento  -> []
+PASS  (desktop/dark) diálogo vacío: "Registrar compra" deshabilitado y el motivo es su descripción accesible
+PASS  (desktop/dark) efectivo con caja abierta: "Registrar en caja" pre-marcado
+PASS  (desktop/dark) el texto de apoyo de efectivo habla de la caja abierta y no dice "No genera ningún movimiento de caja"
+shot b-dialogo-efectivo-caja-desktop-dark dialogOverflow=0 docOverflow=0
+PASS  b-dialogo-efectivo-caja (desktop/dark): sin desborde propio dentro del diálogo ni del documento  -> []
+shot b-dialogo-transferencia-desktop-dark dialogOverflow=0 docOverflow=0
+PASS  b-dialogo-transferencia (desktop/dark): sin desborde propio dentro del diálogo ni del documento  -> []
+shot b-dialogo-credito-desktop-dark dialogOverflow=0 docOverflow=0
+PASS  b-dialogo-credito (desktop/dark): sin desborde propio dentro del diálogo ni del documento  -> []
+PASS  (desktop/dark) crédito: saldo actual, saldo proyectado y vencimiento del plazo del proveedor
+PASS  (desktop/dark) al abrir el diálogo el foco queda DENTRO del diálogo
+PASS  (desktop/dark) 24 Tab y 6 Shift+Tab: el foco no escapa del diálogo  -> escapes 0
+PASS  (desktop/dark) «el remito cambió»: aviso en role=alert y el diálogo sigue abierto
+shot b-dialogo-remito-cambio-desktop-dark dialogOverflow=0 docOverflow=0
+PASS  b-dialogo-remito-cambio (desktop/dark): sin desborde propio dentro del diálogo ni del documento  -> []
+PASS  (desktop/dark) éxito: "Compra registrada" recibe el foco
+shot b-dialogo-exito-desktop-dark dialogOverflow=0 docOverflow=0
+PASS  b-dialogo-exito (desktop/dark): sin desborde propio dentro del diálogo ni del documento  -> []
+shot b-detalle-convertido-desktop-dark docOverflow=0 elementOverflow=0
+shot b-compras-badge-editar-bloqueado-desktop-dark docOverflow=0 elementOverflow=0
+shot b-compras-borrado-dialogo-desktop-dark dialogOverflow=0 docOverflow=0
+PASS  b-compras-borrado-dialogo (desktop/dark): sin desborde propio dentro del diálogo ni del documento  -> []
+PASS  (desktop/dark) el diálogo de borrado dice que el remito vuelve a pendiente y que el stock NO vuelve (no promete reponerlo)  -> ¿Eliminar esta operación (2 ítems)?  Esta acción no se puede deshacer.  El stock no vuelve: la mercadería quedó recibida con el remito RC-00000056, que vuelve a quedar pendiente. Para sacarla del stoc
+shot b-detalle-sin-precio-desktop-dark docOverflow=0 elementOverflow=0
+PASS  (desktop/dark) efectivo sin caja en la sucursal: avisa el motivo y NO bloquea
+shot b-dialogo-efectivo-sin-caja-desktop-dark dialogOverflow=0 docOverflow=0
+PASS  b-dialogo-efectivo-sin-caja (desktop/dark): sin desborde propio dentro del diálogo ni del documento  -> []
+shot b-compras-aviso-doble-suma-desktop-dark dialogOverflow=0 docOverflow=0
+PASS  b-compras-aviso-doble-suma (desktop/dark): sin desborde propio dentro del diálogo ni del documento  -> []
+PASS  (desktop/dark) la consola no tiene errores propios  -> Failed to load resource: the server responded with a status of 409 (Conflict)
+
+══ 20/20 PASS

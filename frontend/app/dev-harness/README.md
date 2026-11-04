@@ -85,3 +85,13 @@ layout ni scroll ante `wheel`/`touchmove` (RED de `tasks.md` 1.1/2.1).
   listener de captura (next/link respeta `defaultPrevented`); y hay que esperar
   a que termine la animación/transición del desplegable antes de capturar (los
   ítems llevan `transition-colors` y el cambio de tema sale a mitad de color).
+- `/dev-harness/cash-optin?theme=light|dark` — caja-optin-carga: el `CashOptinBlock`
+  REAL en sus tres estados (cargando la sesión → «Verificando la caja…» con
+  spinner y el botón de confirmar deshabilitado; sesión abierta → casilla
+  pre-marcada; sin caja → el motivo, botón habilitado), para la pasada visual de
+  las 4 combinaciones (1366 / 375 × claro / oscuro) sin sesión ni backend. Los
+  formularios reales (compra, gasto, cobro, pago, venta y los diálogos de
+  conversión) necesitan sesión, cajas y datos; el bloque es presentacional, así
+  que el arnés lo monta con estados sintéticos. Spec:
+  `e2e/harness/cash-optin-carga.spec.ts` (guarda las capturas en
+  `CASH_OPTIN_SHOT_DIR`, por defecto `test-results/cash-optin-carga`).

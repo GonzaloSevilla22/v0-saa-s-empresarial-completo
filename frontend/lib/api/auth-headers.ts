@@ -25,6 +25,7 @@
  * había que cambiar, y por eso la Parte B lo centralizó primero: con los ocho
  * transportes armando su propio Bearer, este cambio habría sido ocho cambios.
  */
+import { getDisplayedAccountId } from "@/lib/auth/active-account-store"
 import { resolveAccessToken } from "@/lib/auth/access-token-store"
 
 /**
@@ -95,6 +96,46 @@ export async function getAuthHeaders(
     ...(extraHeaders ?? {}),
     ...(probe.status === "active" ? { Authorization: `Bearer ${probe.token}` } : {}),
   }
+}
+
+/**
+ * Encabezado con el que el cliente declara la cuenta que la pantalla está mostrando.
+ * Lo compara `get_account_id` (backend/core/deps.py) contra la cuenta activa del token.
+ */
+export const ACCOUNT_ID_HEADER = "X-Account-Id"
+
+/**
+ * Encabezados para una llamada al backend FastAPI: los de `getAuthHeaders` más la cuenta
+ * que la pantalla muestra (`X-Account-Id`).
+ *
+ * multiusuario-operativo (tanda A, D6). El token es el mismo para todas las pestañas del
+ * navegador: al cambiar de cuenta en una, las otras siguen mostrando la anterior pero sus
+ * requests ya salen con el token nuevo. Sin esta declaración, un alta sin entidad (un
+ * gasto, una venta de servicio) escrita desde la pestaña vieja caería en la cuenta nueva
+ * EN SILENCIO; con ella el backend responde `409 account_switched` y la pantalla se
+ * resincroniza.
+ *
+ * **Es una función aparte y no un cambio de `getAuthHeaders` a propósito.** Esa la usan
+ * también los transportes hacia las Edge Functions de Supabase (`ai-*`,
+ * `generate-export`), cuyo `Access-Control-Allow-Headers` es
+ * `authorization, x-client-info, apikey, content-type`: agregarles `X-Account-Id` rompe el
+ * preflight de TODAS las funciones de IA. Sólo los transportes que hablan con FastAPI
+ * (`python-client` y los `fetch` a mano contra `NEXT_PUBLIC_BACKEND_URL`) usan ésta.
+ *
+ * Sin cuenta declarada (sesión nueva, transición de cuenta) NO se manda el encabezado y el
+ * backend no compara. Como el Bearer, se aplica ÚLTIMO: un caller no puede forzarlo.
+ */
+export async function getBackendHeaders(
+  extraHeaders?: Record<string, string>,
+): Promise<Record<string, string>> {
+  const headers = await getAuthHeaders(extraHeaders)
+  const accountId = getDisplayedAccountId()
+  if (accountId) {
+    headers[ACCOUNT_ID_HEADER] = accountId
+  } else {
+    delete headers[ACCOUNT_ID_HEADER]
+  }
+  return headers
 }
 
 /** Prefijo del esquema de autorización. El formato vive sólo en este módulo. */

@@ -1,0 +1,151 @@
+[
+ {
+  "name": "b-detalle-pendiente",
+  "viewport": "mobile",
+  "theme": "dark",
+  "docOverflow": 0,
+  "overflowCount": 0,
+  "issues": []
+ },
+ {
+  "name": "b-dialogo-vacio",
+  "viewport": "mobile",
+  "theme": "dark",
+  "dialog": {
+   "found": true,
+   "dialogWidth": 375,
+   "vw": 375,
+   "issues": [],
+   "count": 0
+  },
+  "docOverflow": 0
+ },
+ {
+  "name": "b-dialogo-efectivo-caja",
+  "viewport": "mobile",
+  "theme": "dark",
+  "dialog": {
+   "found": true,
+   "dialogWidth": 375,
+   "vw": 375,
+   "issues": [],
+   "count": 0
+  },
+  "docOverflow": 0
+ },
+ {
+  "name": "b-dialogo-transferencia",
+  "viewport": "mobile",
+  "theme": "dark",
+  "dialog": {
+   "found": true,
+   "dialogWidth": 375,
+   "vw": 375,
+   "issues": [],
+   "count": 0
+  },
+  "docOverflow": 0
+ },
+ {
+  "name": "b-dialogo-credito",
+  "viewport": "mobile",
+  "theme": "dark",
+  "dialog": {
+   "found": true,
+   "dialogWidth": 375,
+   "vw": 375,
+   "issues": [],
+   "count": 0
+  },
+  "docOverflow": 0
+ },
+ {
+  "name": "b-dialogo-remito-cambio",
+  "viewport": "mobile",
+  "theme": "dark",
+  "dialog": {
+   "found": true,
+   "dialogWidth": 375,
+   "vw": 375,
+   "issues": [],
+   "count": 0
+  },
+  "docOverflow": 0
+ },
+ {
+  "name": "b-dialogo-exito",
+  "viewport": "mobile",
+  "theme": "dark",
+  "dialog": {
+   "found": true,
+   "dialogWidth": 375,
+   "vw": 375,
+   "issues": [],
+   "count": 0
+  },
+  "docOverflow": 0
+ },
+ {
+  "name": "b-detalle-convertido",
+  "viewport": "mobile",
+  "theme": "dark",
+  "docOverflow": 0,
+  "overflowCount": 0,
+  "issues": []
+ },
+ {
+  "name": "b-compras-badge-editar-bloqueado",
+  "viewport": "mobile",
+  "theme": "dark",
+  "docOverflow": 0,
+  "overflowCount": 0,
+  "issues": []
+ },
+ {
+  "name": "b-compras-borrado-dialogo",
+  "viewport": "mobile",
+  "theme": "dark",
+  "dialog": {
+   "found": true,
+   "dialogWidth": 375,
+   "vw": 375,
+   "issues": [],
+   "count": 0
+  },
+  "docOverflow": 0
+ },
+ {
+  "name": "b-detalle-sin-precio",
+  "viewport": "mobile",
+  "theme": "dark",
+  "docOverflow": 0,
+  "overflowCount": 0,
+  "issues": []
+ },
+ {
+  "name": "b-dialogo-efectivo-sin-caja",
+  "viewport": "mobile",
+  "theme": "dark",
+  "dialog": {
+   "found": true,
+   "dialogWidth": 375,
+   "vw": 375,
+   "issues": [],
+   "count": 0
+  },
+  "docOverflow": 0
+ },
+ {
+  "name": "b-compras-aviso-doble-suma",
+  "viewport": "mobile",
+  "theme": "dark",
+  "dialog": {
+   "found": true,
+   "dialogWidth": 375,
+   "vw": 375,
+   "issues": [],
+   "count": 0
+  },
+  "docOverflow": 0
+ }
+]

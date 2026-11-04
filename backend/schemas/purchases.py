@@ -141,6 +141,9 @@ class PurchaseItemOut(BaseModel):
     # prefillear el form de edición (espejo de SaleItemOut).
     branch_id: uuid.UUID | None = None
     unit_id: uuid.UUID | None = None
+    # multiusuario-operativo tanda B (D9, OQ-4 b): quién cargó la operación (`purchases.user_id`).
+    # Sólo informativo; la autoridad al editar y borrar es la RPC (P0403).
+    created_by: uuid.UUID | None = None
     # compras-proveedor-cuenta-corriente (task 9.2): supplier_id + nombre
     # (LEFT JOIN suppliers), para el badge del listado y el prefill del
     # selector de edición — reemplaza el comentario D11 que decía "supplier_id
@@ -169,6 +172,19 @@ class PurchaseItemOut(BaseModel):
     # EXISTS que precede al P0426 de rpc_delete_purchase_operation).
     has_cash_movement: bool = False
     is_delete_blocked: bool = False
+    # remitos-compra (tanda B, D11/D13): el remito de compra que originó la compra
+    # (`purchases.source_delivery_note_id → delivery_notes`, derivado de lectura)
+    # para el indicador "Desde remito RC-NNNNNNNN" de /compras. El número es el del
+    # remito; la etiqueta la arma la interfaz. `source_delivery_note_branch_active`
+    # es el predicado del borrado (sucursal del remito activa y no cerrada); None
+    # en una compra directa. Tienen que DECLARARSE acá o Pydantic los descarta.
+    source_delivery_note_id: uuid.UUID | None = None
+    source_delivery_note_number: int | None = None
+    source_delivery_note_branch_active: bool | None = None
+    # Motivo por el que la operación no se edita (hoy un único token:
+    # `delivery_note_purchase_locked`). Derivado de lectura, sin columna: la
+    # autoridad al editar sigue siendo la RPC (P0423).
+    edit_locked_reason: str | None = None
 
     @field_validator("date", mode="before")
     @classmethod

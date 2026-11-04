@@ -1,0 +1,9 @@
+
+ RUN  v4.1.8 C:/Users/Usuario/Desktop/EIE/wt-remitos-compra-b/frontend
+
+
+ Test Files  93 passed (93)
+      Tests  1220 passed (1220)
+   Start at  11:03:59
+   Duration  194.25s (transform 52.42s, setup 79.80s, import 284.20s, tests 206.58s, environment 737.11s)
+

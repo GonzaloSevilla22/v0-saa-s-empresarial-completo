@@ -30,6 +30,8 @@ import type { QuoteApiRow, QuoteConvertResult } from "@/lib/quote-types"
 const mocks = vi.hoisted(() => ({
   convert: vi.fn(),
   session: null as { id: string } | null,
+  // caja-optin-carga: mientras es true, las cajas están sin resolver.
+  cashLoading: false,
   customerBalance: 0,
   emitProps: vi.fn(),
   bankSelectProps: vi.fn(),
@@ -53,7 +55,10 @@ vi.mock("@/hooks/data/use-branches", () => ({
   useBranches: () => ({ branches: mocks.branches }),
 }))
 vi.mock("@/hooks/data/use-cashboxes", () => ({
-  useCashboxes: (branchId: string | null) => ({ data: branchId ? [{ id: `cb-${branchId}` }] : undefined }),
+  useCashboxes: (branchId: string | null) =>
+    mocks.cashLoading
+      ? { data: undefined, isLoading: true }
+      : { data: branchId ? [{ id: `cb-${branchId}` }] : undefined, isLoading: false },
 }))
 vi.mock("@/hooks/data/use-cash-session", () => ({
   useCurrentSession: (cashboxId: string | null) => ({ data: cashboxId ? mocks.session ?? undefined : undefined }),
@@ -169,12 +174,13 @@ let queryClient: QueryClient
 let invalidateSpy: ReturnType<typeof vi.spyOn>
 
 function renderDialog(q: QuoteApiRow = quote(), onOpenChange: (open: boolean) => void = vi.fn()) {
-  const view = render(
+  const tree = () => (
     <QueryClientProvider client={queryClient}>
       <ConvertQuoteDialog quote={q} open onOpenChange={onOpenChange} />
-    </QueryClientProvider>,
+    </QueryClientProvider>
   )
-  return { ...view, onOpenChange }
+  const view = render(tree())
+  return { ...view, onOpenChange, rerenderDialog: () => view.rerender(tree()) }
 }
 
 function pickPayment(id: string) {
@@ -187,6 +193,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   window.sessionStorage.clear()
   mocks.session = { id: "cs-1" }
+  mocks.cashLoading = false
   mocks.customerBalance = 0
   mocks.branches = [{ id: "b-1", name: "Central", isActive: true }, { id: "b-2", name: "Norte", isActive: true }]
   mocks.convert.mockResolvedValue(RESULT)
@@ -594,5 +601,66 @@ describe("ConvertQuoteDialog — la clave de idempotencia es por presupuesto", (
     await waitFor(() => expect(mocks.convert).toHaveBeenCalledTimes(2))
 
     expect(keyOf(1)).not.toBe(keyA)
+  })
+})
+
+// caja-optin-carga — mientras se averigua la sesión de caja, «Registrar venta» espera
+// con su propio motivo («Verificando la caja…»). Antes el bloqueo existía (la sesión
+// llegaba `undefined`) pero decía «Abrí la caja…» y mandaba a /caja, cuando en
+// realidad sólo faltaba esperar un instante.
+describe("ConvertQuoteDialog — caja cargando (caja-optin-carga)", () => {
+  it("efectivo con la caja cargando: deshabilitada y el motivo es «Verificando la caja…», NO «Abrí la caja»", () => {
+    mocks.cashLoading = true
+    renderDialog()
+    pickPayment("pm-cash")
+
+    expect(saleButton()).toBeDisabled()
+    expect(screen.getByRole("status")).toHaveTextContent("Verificando la caja…")
+    expect(saleButton()).toHaveAccessibleDescription(/verificando la caja/i)
+    expect(screen.queryByText(/abrí la caja de esta sucursal/i)).not.toBeInTheDocument()
+    expect(screen.queryByRole("link", { name: /ir a caja/i })).not.toBeInTheDocument()
+    fireEvent.click(saleButton())
+    expect(mocks.convert).not.toHaveBeenCalled()
+  })
+
+  it("al resolver CON sesión: se habilita y manda la sesión", async () => {
+    mocks.cashLoading = true
+    const { rerenderDialog } = renderDialog()
+    pickPayment("pm-cash")
+    expect(saleButton()).toBeDisabled()
+
+    mocks.cashLoading = false
+    rerenderDialog()
+
+    expect(saleButton()).toBeEnabled()
+    expect(screen.queryByText(/verificando la caja/i)).not.toBeInTheDocument()
+    fireEvent.click(saleButton())
+    await waitFor(() => expect(mocks.convert).toHaveBeenCalledTimes(1))
+    expect(mocks.convert.mock.calls[0][0].payload).toMatchObject({ payment_method_id: "pm-cash", cash_session_id: "cs-1" })
+  })
+
+  it("al resolver SIN sesión: vuelve el motivo de siempre («Abrí la caja…», con el enlace a /caja)", () => {
+    mocks.cashLoading = true
+    mocks.session = null
+    const { rerenderDialog } = renderDialog()
+    pickPayment("pm-cash")
+    expect(screen.getByText(/verificando la caja/i)).toBeInTheDocument()
+
+    mocks.cashLoading = false
+    rerenderDialog()
+
+    expect(saleButton()).toBeDisabled()
+    expect(screen.getByText(/abrí la caja de esta sucursal para cobrar en efectivo/i)).toBeInTheDocument()
+    expect(screen.getByRole("link", { name: /ir a caja/i })).toHaveAttribute("href", "/caja")
+    expect(screen.queryByText(/verificando la caja/i)).not.toBeInTheDocument()
+  })
+
+  it("otra forma de pago: no hay espera de caja aunque las consultas estén cargando", async () => {
+    mocks.cashLoading = true
+    renderDialog()
+    pickPayment("pm-transfer")
+
+    expect(saleButton()).toBeEnabled()
+    expect(screen.queryByText(/verificando la caja/i)).not.toBeInTheDocument()
   })
 })

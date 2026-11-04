@@ -296,7 +296,21 @@ DECLARE
     -- sea nombrado, no sólo detectado por la regla general. NUNCA otorgar.
     -- Candado de comportamiento: bloque (a) de
     -- supabase/tests/test_documentos_marca_empresa.sql.
-    'public.account_branding_guard_owner_admin()'
+    'public.account_branding_guard_owner_admin()',
+    -- remitos-compra tanda B (20261081000001): el NÚCLEO de la compra, extraído de
+    -- rpc_create_purchase_operation. SECURITY DEFINER, recibe la cuenta (y el
+    -- origen de remito) POR PARÁMETRO y mueve stock, caja, banco y la cuenta
+    -- corriente del proveedor: con EXECUTE para `authenticated` sería la primitiva
+    -- para registrar una compra en CUALQUIER cuenta y, con un origen de remito,
+    -- para pedir "no sumes stock". Lo sostiene también el barrido (4) por
+    -- convención de nombre (`_` + SECURITY DEFINER, sin entrada en su allowlist);
+    -- acá además tiene candado nominal, sin excepción posible. Y la función del
+    -- disparador que protege purchases.source_delivery_note_id (SECURITY INVOKER:
+    -- no la alcanza el (4); la cubre el (1) sólo si fuera DEFINER). NUNCA otorgar.
+    -- Candado de comportamiento: bloques (z), (n) y (pg) de
+    -- supabase/tests/test_remito_a_compra.sql.
+    'public._purchase_operation_core(uuid, text, date, text, jsonb, uuid, uuid, uuid, uuid, uuid, uuid, date, uuid)',
+    'public.trg_purchases_guard_delivery_note_source()'
   ];
   -- Allowlist del chequeo (4) — helpers internos que HOY siguen expuestos a
   -- `authenticated`. Cada entrada necesita su justificación.

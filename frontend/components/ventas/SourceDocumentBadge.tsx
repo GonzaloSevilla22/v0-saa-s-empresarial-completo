@@ -5,11 +5,16 @@
  * con enlace al documento de origen de una venta (presupuestos-modulo D10 y
  * remitos-venta D13, task 7.6).
  *
- * Un solo componente para los dos orígenes (sin un badge gemelo por documento):
+ * Un solo componente para todos los orígenes (sin un badge gemelo por documento):
  * el tipo decide la palabra, el número y el destino del enlace. El número se
  * formatea con la definición única de `lib/internal-document-number`
  * (`formatInternalDocumentNumber` / `formatDeliveryNoteNumber`); un documento
  * anterior al módulo no tiene número: el badge enlaza igual y no inventa uno.
+ *
+ * remitos-compra (tanda B, 7.7): `purchase_delivery_note` es el remito de COMPRA
+ * que originó una compra de /compras. Dice «remito» y enlaza al mismo detalle
+ * (`/remitos/<id>` sirve a los dos sentidos), pero se rotula con el prefijo `RC`:
+ * el número de un remito de compra nunca se imprime con la `R` de venta.
  *
  * Vive dentro de una fila clickeable (expande/colapsa el detalle): el enlace
  * frena el evento para que seguirlo no abra ni cierre la fila.
@@ -20,7 +25,7 @@ import { FileText, PackageCheck } from "lucide-react"
 import { formatDeliveryNoteNumber, formatInternalDocumentNumber } from "@/lib/internal-document-number"
 import { cn } from "@/lib/utils"
 
-export type SourceDocumentKind = "quote" | "delivery_note"
+export type SourceDocumentKind = "quote" | "delivery_note" | "purchase_delivery_note"
 
 interface SourceDocumentBadgeProps {
   kind: SourceDocumentKind
@@ -44,6 +49,12 @@ const KIND_META: Record<
     href: (id) => `/remitos/${id}`,
     format: (n) => formatDeliveryNoteNumber("sale", n),
     // PackageCheck: el ícono de Remitos en todas sus superficies (D11); Truck es el de Proveedores.
+    Icon: PackageCheck,
+  },
+  purchase_delivery_note: {
+    word: "remito",
+    href: (id) => `/remitos/${id}`,
+    format: (n) => formatDeliveryNoteNumber("purchase", n),
     Icon: PackageCheck,
   },
 }

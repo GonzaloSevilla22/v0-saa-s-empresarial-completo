@@ -53,6 +53,8 @@ vi.mock("@/lib/auth/access-token-store", () => ({
 // y deja al efecto del contexto reconsultando sin parar — un lazo del arnés que
 // volvería vacua cualquier aserción sobre "se volvió a resolver la identidad".
 const clienteDoble = {
+  // multiusuario-operativo (tanda A): el contexto lee las cuentas con `rpc_my_accounts()`.
+  rpc: () => Promise.resolve({ data: [], error: null }),
   from: () => ({
     select: () => ({
       eq: () => ({
@@ -67,8 +69,10 @@ vi.mock("@/lib/supabase/client", () => ({
   createClient: () => clienteDoble,
 }))
 
+// Router ESTABLE entre renders (el real conserva su identidad y el contexto depende de ella).
+const routerDoble = { push: pushMock, replace: vi.fn() }
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: pushMock }),
+  useRouter: () => routerDoble,
 }))
 
 vi.stubGlobal("BroadcastChannel", FakeBroadcastChannel)

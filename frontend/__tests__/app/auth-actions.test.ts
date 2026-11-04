@@ -417,3 +417,40 @@ describe("el intercambio del código PKCE (18.7)", () => {
     }
   })
 })
+
+// ── multiusuario-operativo tanda C (17.2, D12): retorno a la invitación ──────
+describe("signUpAction — volver a la invitación tras registrarse", () => {
+  const TOKEN = "0123456789abcdef".repeat(4)
+  const profile = { name: "Susana" }
+  const base = { email: "susana@test.local", password: "Passw0rd!", profile }
+
+  it("con next = /invitacion/<token> el enlace de verificación vuelve a esa invitación", async () => {
+    await signUpAction({ ...base, next: `/invitacion/${TOKEN}` })
+
+    expect(signUp.mock.calls[0][0].options.emailRedirectTo).toBe(`${SITE}/auth/callback?next=/invitacion/${TOKEN}`)
+  })
+
+  it("sin next el registro sigue como siempre (no-regresión)", async () => {
+    await signUpAction(base)
+
+    expect(signUp.mock.calls[0][0].options.emailRedirectTo).toBe(`${SITE}/auth/callback`)
+  })
+
+  // El cliente NO es de fiar: la acción de servidor re-valida contra la allow-list, aunque la
+  // pantalla ya lo haya hecho. Cualquier otro destino se descarta EN SILENCIO (sin next).
+  it.each([
+    "/dashboard",
+    "/auth/reset-password",
+    `//evil.example/invitacion/${TOKEN}`,
+    `https://evil.example/invitacion/${TOKEN}`,
+    "/invitacion/corto",
+    `/invitacion/${TOKEN}/extra`,
+    `/invitacion/${TOKEN}?x=1`,
+    "/invitacion/../dashboard",
+    "",
+  ])("descarta el destino %s", async (next) => {
+    await signUpAction({ ...base, next })
+
+    expect(signUp.mock.calls[0][0].options.emailRedirectTo).toBe(`${SITE}/auth/callback`)
+  })
+})

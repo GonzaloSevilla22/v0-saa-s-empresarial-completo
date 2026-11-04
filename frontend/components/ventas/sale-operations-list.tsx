@@ -51,6 +51,7 @@ import {
   Receipt, Lock,
 } from "lucide-react"
 import { toast } from "sonner"
+import { humanizeOperationError } from "@/lib/operation-errors"
 // facturar-venta-manual: nueva ruta fiscal vía promote → emit
 import { EmitInvoiceButton } from "@/components/fiscal/EmitInvoiceButton"
 import { FiscalInvoiceSummary } from "@/components/fiscal/FiscalInvoiceSummary"
@@ -174,6 +175,14 @@ interface SaleOperationsListProps {
   onEditOperation?: (op: SaleOperation) => void
   onRefetch:       () => void
   /**
+   * multiusuario-operativo tanda B (D9, OQ-4 b): ¿se ofrece «Editar» y «Eliminar» sobre esta operación? La
+   * página lo decide con la capacidad del dominio y la regla de autor (`canModifyDocument`): sin la
+   * capacidad, o sobre lo de otro miembro sin ser dueño ni administrador, las dos acciones NO se ofrecen
+   * (no quedan deshabilitadas: no hay nada que explicar, el usuario no puede hacerlas). Es sólo informativo
+   * —la autoridad es la RPC (P0403)—. Default: todas, para que sin la prop nada cambie.
+   */
+  canModifyOperation?: (op: SaleOperation) => boolean
+  /**
    * ventas-unidades-conversion (cuarta revisión, D-F′): unidades de medida por
    * id, para mostrar la cantidad con el símbolo de SU línea ("450 g") y
    * exportarlo en el CSV. La página lo pasa desde useUnitsOfMeasure (el
@@ -200,6 +209,7 @@ export function SaleOperationsList({
   paymentMethodId, setPaymentMethodId, clearFilters,
   onPageChange, onPageSizeChange,
   clients, onAdd, onDeleteOperation, onEditOperation, onRefetch,
+  canModifyOperation,
   unitsById,
 }: SaleOperationsListProps) {
   const clientMap    = useMemo(() => new Map(clients.map((c) => [c.id, c])), [clients])
@@ -276,7 +286,9 @@ export function SaleOperationsList({
         toast.success(op.isGrouped ? `${op.items.length} registros eliminados` : "Venta eliminada")
         onRefetch()
       } catch (err: any) {
-        toast.error(err.message || "Error al eliminar")
+        // multiusuario-operativo tanda B (D9): el rechazo de rol / autor de la base (P0401, P0403) se traduce a lo que el
+        // usuario puede hacer, no se muestra el token crudo. Lo que el mapa no reconoce pasa tal cual.
+        toast.error(humanizeOperationError(err.message || "Error al eliminar").message)
       } finally {
         setDeletingKey(null)
       }
@@ -491,6 +503,8 @@ export function SaleOperationsList({
             (op.isPaymentLocked ? PAYMENT_LOCKED_REASON : null) ??
             (op.hasServiceLines ? SERVICE_LINES_REASON : null)
           const voidHint = voidableEditHint(op.fiscal)
+          // multiusuario-operativo tanda B (D9): sin la capacidad de venta, o sobre lo ajeno sin ser dueño ni administrador, no se ofrece ni Editar ni Eliminar.
+          const canModify = canModifyOperation ? canModifyOperation(op) : true
           // venta-editable-vs-promocion-legacy: "Emitir comprobante" sólo
           // mientras la venta está preparada y todavía SIN comprobante vivo.
           // Cuando la fila refrescada ya trae uno (pending_cae/authorized),
@@ -526,7 +540,7 @@ export function SaleOperationsList({
                           <ShoppingCart className="h-2.5 w-2.5 mr-1" />{op.items.length}
                         </Badge>
                       )}
-                      {onEditOperation && (
+                      {onEditOperation && canModify && (
                         editBlockedReason ? (
                           <Button type="button" variant="ghost" size="icon" disabled
                             title={editBlockedReason} aria-label={editBlockedReason}
@@ -543,13 +557,15 @@ export function SaleOperationsList({
                           </Button>
                         )
                       )}
-                      <DeleteOperationDialog
-                        label={op.isGrouped ? `esta operación (${op.items.length} ítems)` : "esta venta"}
-                        info={deleteInfo}
-                        onConfirm={() => handleDelete(op)}
-                        isDeleting={deletingKey === op.key}
-                        onTriggerClick={(e) => e.stopPropagation()}
-                      />
+                      {canModify && (
+                        <DeleteOperationDialog
+                          label={op.isGrouped ? `esta operación (${op.items.length} ítems)` : "esta venta"}
+                          info={deleteInfo}
+                          onConfirm={() => handleDelete(op)}
+                          isDeleting={deletingKey === op.key}
+                          onTriggerClick={(e) => e.stopPropagation()}
+                        />
+                      )}
                     </div>
                   </div>
                   <div className="flex items-center gap-2 min-w-0">
@@ -601,7 +617,7 @@ export function SaleOperationsList({
                   <span className="text-right text-sm font-bold text-success tabular-nums">
                     {formatMoney(op.total, op.currency)}
                   </span>
-                  {onEditOperation
+                  {onEditOperation && canModify
                     ? editBlockedReason
                       ? <Button type="button" variant="ghost" size="icon" disabled
                           title={editBlockedReason} aria-label={editBlockedReason}
@@ -617,13 +633,15 @@ export function SaleOperationsList({
                         </Button>
                     : <span />
                   }
-                  <DeleteOperationDialog
-                    label={op.isGrouped ? `esta operación (${op.items.length} ítems)` : "esta venta"}
-                    info={deleteInfo}
-                    onConfirm={() => handleDelete(op)}
-                    isDeleting={deletingKey === op.key}
-                    onTriggerClick={(e) => e.stopPropagation()}
-                  />
+                  {canModify ? (
+                    <DeleteOperationDialog
+                      label={op.isGrouped ? `esta operación (${op.items.length} ítems)` : "esta venta"}
+                      info={deleteInfo}
+                      onConfirm={() => handleDelete(op)}
+                      isDeleting={deletingKey === op.key}
+                      onTriggerClick={(e) => e.stopPropagation()}
+                    />
+                  ) : <span />}
                 </div>
               </div>
 

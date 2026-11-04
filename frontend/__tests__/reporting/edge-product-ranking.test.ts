@@ -78,38 +78,39 @@ describe("fetchTopProducts (Deno, cliente inyectado)", () => {
 })
 
 describe("resolveActiveAccountId (Deno, cliente inyectado)", () => {
-  function makeChain(result: { data: Array<{ account_id: string }> | null; error: { message: string } | null }) {
-    const order2 = vi.fn().mockReturnValue({ limit: vi.fn().mockResolvedValue(result) })
-    const order1 = vi.fn().mockReturnValue({ order: order2 })
-    const eq = vi.fn().mockReturnValue({ order: order1 })
-    const select = vi.fn().mockReturnValue({ eq })
-    const from = vi.fn().mockReturnValue({ select })
-    return { from, eq, order1 }
-  }
+  // multiusuario-operativo tanda A (D4): la cuenta activa se pide a la base
+  // (`current_account_ids()`, la MISMA función que ven las RPCs y la RLS), no se
+  // reconstruye ordenando `account_members` por cuenta propia.
+  it("pide la cuenta activa a la base con la RPC canónica y devuelve su id", async () => {
+    const rpc = vi.fn().mockResolvedValue({ data: ["acc-1"], error: null })
+    const from = vi.fn()
+    const client = { rpc, from } as unknown as Parameters<typeof resolveActiveAccountId>[0]
 
-  it("devuelve la membresía más antigua (created_at asc, id asc)", async () => {
-    const { from, eq, order1 } = makeChain({ data: [{ account_id: "acc-1" }], error: null })
-    const client = { from } as unknown as Parameters<typeof resolveActiveAccountId>[0]
+    const result = await resolveActiveAccountId(client)
 
-    const result = await resolveActiveAccountId(client, "user-1")
-
-    expect(from).toHaveBeenCalledWith("account_members")
-    expect(eq).toHaveBeenCalledWith("user_id", "user-1")
-    expect(order1).toHaveBeenCalledWith("created_at", { ascending: true })
+    expect(rpc).toHaveBeenCalledWith("current_account_ids")
+    expect(from).not.toHaveBeenCalled()
     expect(result).toBe("acc-1")
   })
 
-  it("sin membresías -> null", async () => {
-    const { from } = makeChain({ data: [], error: null })
-    const client = { from } as unknown as Parameters<typeof resolveActiveAccountId>[0]
+  it("acepta también un escalar (algunos clientes devuelven el único valor sin arreglo)", async () => {
+    const rpc = vi.fn().mockResolvedValue({ data: "acc-2", error: null })
+    const client = { rpc } as unknown as Parameters<typeof resolveActiveAccountId>[0]
 
-    expect(await resolveActiveAccountId(client, "user-1")).toBeNull()
+    expect(await resolveActiveAccountId(client)).toBe("acc-2")
+  })
+
+  it("sin cuenta activa (0 filas: sin membresía, o claim de una cuenta revocada) -> null", async () => {
+    const rpc = vi.fn().mockResolvedValue({ data: [], error: null })
+    const client = { rpc } as unknown as Parameters<typeof resolveActiveAccountId>[0]
+
+    expect(await resolveActiveAccountId(client)).toBeNull()
   })
 
   it("error -> null (no lanza; el caller degrada omitiendo el bloque)", async () => {
-    const { from } = makeChain({ data: null, error: { message: "boom" } })
-    const client = { from } as unknown as Parameters<typeof resolveActiveAccountId>[0]
+    const rpc = vi.fn().mockResolvedValue({ data: null, error: { message: "boom" } })
+    const client = { rpc } as unknown as Parameters<typeof resolveActiveAccountId>[0]
 
-    expect(await resolveActiveAccountId(client, "user-1")).toBeNull()
+    expect(await resolveActiveAccountId(client)).toBeNull()
   })
 })

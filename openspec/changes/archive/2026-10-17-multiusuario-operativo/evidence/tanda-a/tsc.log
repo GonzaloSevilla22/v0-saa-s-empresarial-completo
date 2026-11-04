@@ -1,0 +1,18 @@
+__tests__/components/LedgerMovementsPanel.test.tsx(47,5): error TS2322: Type 'Mock<Procedure | Constructable>' is not assignable to type '(params: LedgerFetchParams) => Promise<Page<FakeRow>>'.
+  Type 'MockInstance<Procedure | Constructable> & (new (...args: any[]) => any) & {}' is not assignable to type '(params: LedgerFetchParams) => Promise<Page<FakeRow>>'.
+    Type 'MockInstance<Procedure | Constructable> & (new (...args: any[]) => any) & {}' provides no match for the signature '(params: LedgerFetchParams): Promise<Page<FakeRow>>'.
+__tests__/components/purchase-operations-list-payment-lock.test.tsx(15,41): error TS2322: Type '20' is not assignable to type '10 | 100 | 50 | 25'.
+__tests__/hooks/use-critical-stock.test.ts(69,16): error TS2322: Type 'string' is not assignable to type 'null'.
+__tests__/pos-payment-methods.test.tsx(24,29): error TS2322: Type '{ id: string; accountId: string; name: string; kind: "transfer"; isActive: boolean; sortOrder: number; createdAt: string; }' is not assignable to type '{ id: string; accountId: string; name: string; kind: "cash"; isActive: boolean; sortOrder: number; createdAt: string; }'.
+  Types of property 'kind' are incompatible.
+    Type '"transfer"' is not assignable to type '"cash"'.
+__tests__/pos-payment-methods.test.tsx(24,42): error TS2322: Type '{ id: string; accountId: string; name: string; kind: "credit"; isActive: boolean; sortOrder: number; createdAt: string; }' is not assignable to type '{ id: string; accountId: string; name: string; kind: "cash"; isActive: boolean; sortOrder: number; createdAt: string; }'.
+  Types of property 'kind' are incompatible.
+    Type '"credit"' is not assignable to type '"cash"'.
+__tests__/pos-payment-methods.test.tsx(103,57): error TS2322: Type '{ id: string; accountId: string; name: string; kind: "transfer"; isActive: boolean; sortOrder: number; createdAt: string; }' is not assignable to type '{ id: string; accountId: string; name: string; kind: "cash"; isActive: boolean; sortOrder: number; createdAt: string; }'.
+  Types of property 'kind' are incompatible.
+    Type '"transfer"' is not assignable to type '"cash"'.
+__tests__/pos-payment-methods.test.tsx(103,70): error TS2322: Type '{ id: string; accountId: string; name: string; kind: "credit"; isActive: boolean; sortOrder: number; createdAt: string; }' is not assignable to type '{ id: string; accountId: string; name: string; kind: "cash"; isActive: boolean; sortOrder: number; createdAt: string; }'.
+  Types of property 'kind' are incompatible.
+    Type '"credit"' is not assignable to type '"cash"'.
+__tests__/reporting/revenue-canon.test.ts(21,49): error TS2353: Object literal may only specify known properties, and 'quantity' does not exist in type 'SaleRevenueRow'.

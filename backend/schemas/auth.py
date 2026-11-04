@@ -20,6 +20,13 @@ class ClaimsStatusOut(BaseModel):
     account_roles_claim_present: bool = Field(
         ..., description="True si app_metadata.account_roles (conjunto) viajó en el JWT."
     )
+    account_id_claim_present: bool = Field(
+        ...,
+        description=(
+            "True si app_metadata.account_id (la cuenta activa a la que corresponden los claims de rol "
+            "y de plan) viajó en el JWT. multiusuario-operativo (D4): sólo la presencia, nunca el valor."
+        ),
+    )
     plan_claim_present: bool = Field(
         ..., description="True si app_metadata.plan viajó en el JWT."
     )

@@ -1,0 +1,12 @@
+      1 ⎯⎯⎯⎯⎯⎯ Failed Tests 43 ⎯⎯⎯⎯⎯⎯⎯
+      1  Test Files  4 failed (4)
+      1  FAIL  __tests__/pages/ventas-compras-capacidades.test.tsx > /ventas — Nueva venta, Editar y Eliminar según el rol (CAN_SELL) y el autor > viewer (escritor: false): ni «Nueva venta» ni Editar ni Eliminar
+      1  FAIL  __tests__/pages/ventas-compras-capacidades.test.tsx > /ventas — Nueva venta, Editar y Eliminar según el rol (CAN_SELL) y el autor > un multirol (vendedor + compras) vende y modifica lo propio
+      1  FAIL  __tests__/pages/ventas-compras-capacidades.test.tsx > /ventas — Nueva venta, Editar y Eliminar según el rol (CAN_SELL) y el autor > stock (escritor: true): ni «Nueva venta» ni Editar ni Eliminar
+      1  FAIL  __tests__/pages/ventas-compras-capacidades.test.tsx > /ventas — Nueva venta, Editar y Eliminar según el rol (CAN_SELL) y el autor > seller: ve «Nueva venta» y modifica sólo la propia
+      1  FAIL  __tests__/pages/ventas-compras-capacidades.test.tsx > /ventas — Nueva venta, Editar y Eliminar según el rol (CAN_SELL) y el autor > purchases (escritor: true): ni «Nueva venta» ni Editar ni Eliminar
+      1  FAIL  __tests__/pages/ventas-compras-capacidades.test.tsx > /ventas — Nueva venta, Editar y Eliminar según el rol (CAN_SELL) y el autor > cashier: ve «Nueva venta» y modifica sólo la propia
+      1  FAIL  __tests__/pages/ventas-compras-capacidades.test.tsx > /ventas — Nueva venta, Editar y Eliminar según el rol (CAN_SELL) y el autor > accountant (escritor: true): ni «Nueva venta» ni Editar ni Eliminar
+      1  FAIL  __tests__/pages/ventas-compras-capacidades.test.tsx > /compras — Nueva compra, Editar y Eliminar según el rol (CAN_PURCHASE) y el autor > viewer (escritor: false): ni «Nueva compra» ni Editar ni Eliminar
+      1  FAIL  __tests__/pages/ventas-compras-capacidades.test.tsx > /compras — Nueva compra, Editar y Eliminar según el rol (CAN_PURCHASE) y el autor > stock (escritor: true): ni «Nueva compra» ni Editar ni Eliminar
+      1  FAIL  __tests__/pages/ventas-compras-capacidades.test.tsx > /compras — Nueva compra, Editar y Eliminar según el rol (CAN_PURCHASE) y el autor > seller (escritor: true): ni «Nueva compra» ni Editar ni Eliminar

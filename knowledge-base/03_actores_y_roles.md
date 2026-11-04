@@ -61,6 +61,51 @@ plan  TEXT  DEFAULT 'pro'    -- valores: 'free' | 'pro'
                               -- (default fue 'free', migration 20260424000001 lo cambió a 'pro' para beta)
 ```
 
+## Cuenta activa (multiusuario-operativo, tanda A — 2026-10-16)
+
+Un usuario puede pertenecer a **más de una cuenta**: su cuenta personal (la crea `handle_new_user` al registrarse) y los negocios a los que lo invitan. **Opera siempre sobre UNA — la cuenta activa — y es la misma en la base, en el token, en FastAPI, en las Edge Functions y en el frontend.**
+
+- **Cómo se resuelve** (un único criterio, en la base: `current_account_ids()` → `resolve_active_account`): 1) la cuenta que declara el token (`app_metadata.account_id`), siempre que el usuario siga siendo miembro; 2) si el token no declara ninguna, la que el usuario eligió (`profiles.active_account_id`), mientras siga siendo una membresía; 3) si no, la membresía más antigua por `created_at` (a igual instante, la cuenta propia; luego `id`). **Un token que declara una cuenta de la que el usuario ya no es miembro NO cae en silencio a otra: no hay cuenta activa** (403 "No active account found").
+- **Cómo se cambia**: selector en el encabezado del menú lateral (escritorio y drawer móvil), visible sólo con dos o más cuentas; muestra el nombre del negocio (la cascada de los documentos comerciales) y el rol propio en cada uno. Cambiar persiste la elección (`rpc_set_active_account`), renueva el token **ante el proveedor** (`refreshSessionAction`: releer el token vigente no alcanza, porque el hook sólo emite el claim al emitir; el hook emite `account_id`, roles y plan de la cuenta nueva), descarta la caché y lleva al Tablero. Las demás pestañas abiertas se resincronizan solas (señal `account:switched` del bus de sesión, sin token en el mensaje).
+- **Pestaña desfasada**: el cliente declara en cada request a FastAPI la cuenta que muestra (`X-Account-Id`); si no coincide con la del token, `409 account_switched` y la pantalla se resincroniza — una escritura sin entidad (un gasto, una venta de servicio) nunca cae en la cuenta equivocada en silencio.
+- **Lo que NO cambia para quien tiene una sola cuenta** (los 41 de hoy): el resultado es idéntico; el selector no se muestra.
+- **Quién puede operar (tanda B, 2026-10-17)**: ver la sección siguiente. **Cómo se suma alguien a un negocio (tanda C, 2026-10-17)**: ver «Invitar a un negocio» más abajo.
+
+## Quién puede vender, comprar, editar y borrar (multiusuario-operativo, tanda B — 2026-10-17)
+
+Las ocho operaciones del camino del dinero de ventas y compras (alta, edición y borrado de una venta y de una compra) se autorizan por **pertenencia a la cuenta activa y por rol**, nunca por quién cargó el producto o el documento. Hasta la tanda B un invitado no podía vender ni comprar un producto que cargó el dueño, y el dueño no podía corregir la venta del vendedor; y un observador con un producto propio vendía, compraba y borraba, porque las ocho no tenían ningún guard de rol en la base.
+
+| Operación | Quién | Rechazo |
+|---|---|---|
+| Alta de una **venta** por formulario | `CAN_SELL`: dueño, administrador, vendedor, cajero | observador: `P0401`; contador, depósito, compras: `P0403 insufficient_role` |
+| Alta de una **compra** con factura | `CAN_PURCHASE`: dueño, administrador, compras | observador: `P0401`; vendedor, cajero, **depósito** (recibe mercadería por remito), contador: `P0403` |
+| **Editar o borrar** una venta / una compra **propia** | la capacidad del dominio (`CAN_SELL` / `CAN_PURCHASE`) | — |
+| **Editar o borrar** una venta / una compra **de otro miembro** | sólo **dueño y administrador** (`CAN_MODIFY_ANY_DOCUMENT`) | el resto: `P0403 insufficient_role` |
+| Un producto o un documento **de otra cuenta** (o de la cuenta no activa) | nadie | `P0404`, **indistinguible** de un id inexistente (no revela que existe en otra cuenta); borrar un documento ajeno responde `false`, como uno inexistente |
+
+- **La base es la autoridad.** Cada RPC verifica la cuenta dentro de su propio `SELECT … FOR UPDATE` y el rol con `_account_assert_capability` antes de cualquier escritura; FastAPI repite la capacidad (`require_account_role`) y la interfaz oculta lo que el rol no habilita (la acción no se ofrece, no queda deshabilitada). Los conjuntos de roles se declaran una vez por capa y un test falla si divergen (`CAN_SELL`, `CAN_PURCHASE`, `CAN_MODIFY_ANY_DOCUMENT`).
+- **La autoría se conserva.** `sales.user_id` / `purchases.user_id` se siguen escribiendo y **no se usan para autorizar**. Cuando el dueño o un administrador corrige lo que cargó otro miembro, las filas nuevas llevan al autor original (la edición reemplaza las líneas): el vendedor no pierde su venta.
+- **Fuera de alcance de esta tanda**: el POS, los gastos, los cobros y pagos, el banco y el stock siguen con `is_account_writer` (su capacidad fina es un candidato: `pos-capacidad-venta`).
+
+## Invitar a un negocio (multiusuario-operativo, tanda C — 2026-10-17)
+
+Una persona se suma a un negocio por **invitación**: el dueño o un administrador la invita por email con un **conjunto de roles**, le llega un email con un link y, al aceptar, queda trabajando en el negocio. Hasta la tanda C no había forma de hacerlo: la invitación creaba una fila con un token que nadie enviaba y no existía la pantalla de aceptación.
+
+- **Quién invita**: el dueño (con cualquier rol del catálogo) y el administrador (nunca con propietario ni administrador). Se hace desde **Configuración → Equipo** (invitación rápida) o **Invitar miembro** (`/organizacion/invitar`, que además lista las invitaciones, con **Reenviar** y **Revocar**). Las dos declaran el conjunto de roles; sin roles se incorpora como Observador (solo lectura). El cupo de usuarios del plan se evalúa al invitar y **otra vez al aceptar**.
+- **El email**: lo encola la base en la misma transacción que crea o renueva la invitación, con el destinatario y el token **de la fila de la invitación** (nunca de un parámetro). Nombra a quien invita, al negocio, los roles y el vencimiento (7 días) y lleva un único botón a `/invitacion/<token>`; todo dato del usuario sale escapado y el enlace se arma con la URL fija de la aplicación.
+- **La pantalla de aceptación `/invitacion/[token]`** (pública, sin `Referer`, sin indexar) se comporta según **quién la abre**:
+
+| Quien abre el link | Ve |
+|---|---|
+| Sin sesión | Un mensaje genérico —**sin el nombre del negocio ni el de quien invita**— con «Ingresar» y «Crear cuenta», que al completarse **vuelven a esa invitación** (también la verificación de email). |
+| Con sesión y **el email invitado** | El negocio, quién lo invita, los roles y el vencimiento, con **Aceptar** / «Ahora no». |
+| Con sesión y **otro email**, o la invitación vencida, revocada, ya usada o inexistente | **Un solo mensaje**, indistinguible entre esos casos (no confirma que el token exista), con «Cerrar sesión e ingresar con otro email». |
+| Con sesión y ya es miembro | «Ya sos parte de {negocio}» con «Cambiar a esa cuenta». |
+
+- **Aceptar** crea la membresía con el conjunto de roles, **deja el negocio como cuenta activa del invitado en la misma transacción**, renueva el token y lo lleva al Tablero del negocio con un aviso de bienvenida. El invitado **conserva su cuenta propia** (la que se le creó al registrarse): el selector de cuenta muestra las dos.
+- **Reenviar** rota el token (el link del email anterior deja de servir), renueva el vencimiento y manda un email nuevo; también revive una invitación vencida. **Revocar** deja la invitación inutilizable. «Copiar link» queda como opción secundaria (la aceptación sigue ligada al email invitado: reenviar el link no le da acceso a otra persona).
+- **Topes contra el abuso**: una invitación se envía **1 vez cada 10 minutos** y una cuenta puede mandar **20 emails de invitación por día** (429, `P0439`).
+
 ## Planes Comerciales (4 planes — fuente: tabla_resumen_planes_aliadata.docx)
 
 | Límite | Gratis | Inicial | Avanzado ⭐ | PRO |

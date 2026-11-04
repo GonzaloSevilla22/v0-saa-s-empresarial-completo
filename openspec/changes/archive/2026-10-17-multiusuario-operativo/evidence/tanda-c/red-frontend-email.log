@@ -1,0 +1,40 @@
++   <div style="margin:0;padding:0;background:#f3f4f6;">
++     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6;padding:24px 0;font-family:Arial,Helvetica,sans-serif;">
++       <tr><td align="center">
++         <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,0.12);">
++           <tr><td style="background:#0f172a;padding:22px 32px;text-align:center;border-bottom:3px solid #10b981;">
++             <img src="https://www.aliadata.com.ar/aliadata-logo.png" width="40" height="40" alt="ALIADATA" style="display:inline-block;vertical-align:middle;border:0;" />
++             <span style="display:inline-block;vertical-align:middle;margin-left:10px;font-size:21px;font-weight:bold;letter-spacing:3px;color:#ffffff;">ALIADATA</span>
++           </td></tr>
++           <tr><td style="padding:32px;color:#334155;font-size:15px;line-height:1.6;">
++             <h1 style="margin:0 0 16px;font-size:22px;color:#0f172a;">Notificación de ALIADATA</h1>
++             <p style="margin:0 0 16px;">Recibiste un nuevo aviso: org_invite.</p>
++             
++             
++           </td></tr>
++           <tr><td style="background:#0f172a;padding:22px 32px;text-align:center;">
++             <p style="margin:0 0 4px;font-size:13px;font-weight:bold;letter-spacing:2px;color:#10b981;">ALIADATA</p>
++             <p style="margin:0;font-size:11px;color:#94a3b8;">Gestión inteligente para tu negocio</p>
++             <p style="margin:10px 0 0;font-size:11px;color:#64748b;">© 2026 ALIADATA · Mendoza, Argentina</p>
++           </td></tr>
++         </table>
++       </td></tr>
++     </table>
++   </div>
+
+ ❯ __tests__/send-email-templates.test.ts:425:18
+    423|   it("sin nombre de quien invita ni del negocio igual sale un correo l…
+    424|     const html = renderEmailHtml("org_invite", { token: TOKEN })
+    425|     expect(html).toContain("Alguien de tu equipo te invitó a sumarte a…
+       |                  ^
+    426|     expect(hrefsOf(html)).toEqual([`${APP_URL}/invitacion/${TOKEN}`])
+    427|   })
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/9]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  9 failed | 53 passed (62)
+   Start at  04:16:21
+   Duration  20.25s (transform 225ms, setup 544ms, import 296ms, tests 495ms, environment 3.37s)
+

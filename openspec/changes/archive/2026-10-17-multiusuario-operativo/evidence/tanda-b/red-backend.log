@@ -1,0 +1,4 @@
+FAILED backend\tests\test_ventas_compras_capacidades.py::TestRoleMatrix::test_compra_con_can_purchase_llega_a_la_rpc[POST /purchases-owner]
+FAILED backend\tests\test_ventas_compras_capacidades.py::TestRoleMatrix::test_compra_con_can_purchase_llega_a_la_rpc[POST /purchases-purchases]
+FAILED backend\tests\test_ventas_compras_capacidades.py::TestOldToken::test_token_viejo_con_claim_de_vendedor_pero_viewer_en_la_base_es_403
+44 failed, 43 passed in 7.63s

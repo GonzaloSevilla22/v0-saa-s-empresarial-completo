@@ -74,3 +74,40 @@ El sistema SHALL mostrar el número interno con un prefijo por tipo de documento
 - **WHEN** los dos lenguajes formatean los casos del archivo compartido
 - **THEN** producen exactamente las salidas esperadas por ese archivo
 
+### Requirement: Numeración del remito de venta por cuenta y por sentido
+El sistema SHALL numerar los remitos de venta con el tipo de secuencia interna `delivery_note_sale`, que se suma de forma aditiva al conjunto cerrado de tipos. Su prefijo visible es `R` (`R-00000012`), y la numeración es correlativa por cuenta, sin huecos ni repetidos e independiente de la de presupuestos.
+
+El número SHALL asignarlo la función genérica de numeración, enganchada a la tabla de remitos con un disparador condicionado al sentido `sale`. Así, cada sentido de remito numera con su propia secuencia sin copiar la lógica de asignación.
+
+La unicidad del número SHALL ser por cuenta y sentido, porque la misma tabla aloja los dos sentidos. El remito de compra SHALL sumar su propio tipo y su propio disparador condicionado, sin cambiar los del remito de venta.
+
+#### Scenario: Primer remito de una cuenta
+- **GIVEN** una cuenta con presupuestos numerados hasta `P-00000007` y sin remitos
+- **WHEN** emite su primer remito de venta
+- **THEN** el remito recibe el número 1, que se muestra `R-00000001`, y la secuencia de presupuestos no cambia
+
+#### Scenario: Remito fallido no consume número
+- **GIVEN** una cuenta cuyo último remito es el 4
+- **WHEN** falla la emisión de un remito por stock insuficiente y luego se emite otro con éxito
+- **THEN** el remito emitido recibe el número 5
+
+#### Scenario: Disparador genérico condicionado al sentido
+- **WHEN** se inspeccionan los disparadores de la tabla de remitos
+- **THEN** la numeración de los remitos de venta la asigna la función genérica con el tipo `delivery_note_sale` como argumento, sólo para filas de sentido `sale`
+
+#### Scenario: Formato compartido
+- **WHEN** backend y frontend formatean el número 12 de un remito de venta con los casos del archivo compartido
+- **THEN** los dos producen `R-00000012`, y la búsqueda acepta `R-12`, `12` y `00000012`
+
+### Requirement: Numeración del remito de compra por cuenta y por sentido
+El sistema SHALL numerar los remitos de compra con el tipo de secuencia interna `delivery_note_purchase`, correlativo por cuenta desde 1, asignado por el disparador genérico de numeración sólo para las filas con sentido compra, con las mismas garantías que los demás tipos (sin huecos, sin repetidos, un alta revertida no consume número). SHALL mostrarse con el prefijo `RC` y 8 dígitos (`RC-00000012`) en la única definición de formato de cada lenguaje, ningún remito de compra SHALL mostrarse con el prefijo `R` de los remitos de venta, y la búsqueda del listado de remitos de compra SHALL aceptar `RC-12`, `12` o `00000012`.
+
+#### Scenario: Secuencias independientes por sentido
+- **GIVEN** una cuenta con 3 remitos de venta y ningún remito de compra
+- **WHEN** emite su primer remito de compra
+- **THEN** recibe el número `1`, se muestra como `RC-00000001` y el próximo remito de venta sigue con el `4`
+
+#### Scenario: Alta revertida no consume número
+- **WHEN** la emisión de un remito de compra falla por un producto dado de baja
+- **THEN** el próximo remito de compra de la cuenta recibe el número que habría recibido el fallido
+

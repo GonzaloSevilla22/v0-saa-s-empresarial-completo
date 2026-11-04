@@ -4,7 +4,7 @@
 
 ## Purpose
 
-Migrar del modelo de usuario individual al modelo de cuenta compartida: cada usuario pertenece a una o más cuentas, puede invitar otros usuarios a su cuenta, y todos los datos de negocio se scopean por `account_id` en lugar de `user_id`. Soporta equipos pequeños (1-10 miembros por plan). C-06 añadió el rol `admin`; `v3-rbac-multirole` (2026-09-12) reemplazó el rol único de la membresía por un conjunto de roles con autoría y vigencia (capability `account-membership-roles`, ver ese spec para el detalle), disponibles en todos los planes — el gating comercial es sólo por cantidad de usuarios.
+Migrar del modelo de usuario individual al modelo de cuenta compartida: cada usuario pertenece a una o más cuentas, puede invitar otros usuarios a su cuenta, y todos los datos de negocio se scopean por `account_id` en lugar de `user_id`. Soporta equipos pequeños (1-10 miembros por plan). C-06 añadió el rol `admin`; `v3-rbac-multirole` (2026-09-12) reemplazó el rol único de la membresía por un conjunto de roles con autoría y vigencia (capability `account-membership-roles`, ver ese spec para el detalle), disponibles en todos los planes — el gating comercial es sólo por cantidad de usuarios. `multiusuario-operativo` (2026-10-17) hizo que un usuario de varias cuentas opere siempre sobre **una única cuenta activa** (capability `active-account`), que las RPCs de operaciones sellen esa cuenta y validen que cada entidad referenciada le pertenezca, que la autorización de ventas y compras salga de la pertenencia y de los roles y nunca del autor de la entidad (capability `operation-member-authorization`), y que la invitación funcione de punta a punta —email, aceptación, reenvío y revocación— (capability `account-invitation-flow`).
 
 ## Requirements
 
@@ -142,16 +142,21 @@ El sistema SHALL permitir invitar miembros a una cuenta hasta el límite `plan_l
 
 ### Requirement: RPCs de operaciones sellan la cuenta
 
-El sistema SHALL hacer que las RPCs de creación de operaciones (ventas, compras, movimientos de stock) sellen el `account_id` de la cuenta activa del caller y validen su pertenencia.
+El sistema SHALL hacer que las RPCs de creación de operaciones (ventas, compras, gastos, movimientos de stock, cobros y pagos) sellen el `account_id` de la **cuenta activa** del caller, y que toda entidad que la operación referencia —producto, cliente, proveedor, sucursal, documento— pertenezca a esa misma cuenta.
 
-#### Scenario: Una venta nueva queda asociada a la cuenta
-- **GIVEN** un miembro de la cuenta A creando una venta vía `rpc_create_operation_aggregate`
+#### Scenario: Una venta nueva queda asociada a la cuenta activa
+- **GIVEN** un miembro de la cuenta A, con A como cuenta activa, creando una venta por el formulario o por el POS
 - **WHEN** la RPC inserta las filas
 - **THEN** las filas de `sales` y `stock_movements` tienen `account_id` de la cuenta A
 
-#### Scenario: La RPC rechaza una cuenta ajena
-- **WHEN** un caller pasa un `account_id` al que no pertenece
-- **THEN** la RPC rechaza la operación
+#### Scenario: Un usuario de dos cuentas opera sobre la activa
+- **GIVEN** un usuario miembro de su cuenta personal y de la cuenta del negocio, con el negocio como cuenta activa
+- **WHEN** crea una venta, con o sin producto
+- **THEN** las filas quedan en la cuenta del negocio, nunca en la personal
+
+#### Scenario: La RPC rechaza una entidad de una cuenta ajena
+- **WHEN** un caller referencia un producto, cliente, proveedor o documento de una cuenta que no es su cuenta activa
+- **THEN** la RPC rechaza la operación sin registrar filas, con el mismo error que una entidad inexistente
 
 ### Requirement: El aislamiento entre cuentas está respaldado por la base, no sólo por la aplicación
 
@@ -191,3 +196,4 @@ Un endpoint de usuario final NOT SHALL usar el camino de máquina para eludir el
 
 - **WHEN** se revisan los endpoints que atienden a usuarios autenticados
 - **THEN** ninguno obtiene su conexión por el camino de máquina
+

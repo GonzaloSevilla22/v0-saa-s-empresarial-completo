@@ -66,13 +66,14 @@ def problem_response(
     field: str | None = None,
     headers: dict[str, str] | None = None,
     extensions: dict | None = None,
+    type_: str = "about:blank",
 ) -> JSONResponse:
     """Envuelve `problem_detail` en un `JSONResponse` con el media type 7807."""
     return JSONResponse(
         status_code=status,
         content=problem_detail(
             status=status, detail=detail, code=code, title=title, field=field,
-            extensions=extensions,
+            extensions=extensions, type_=type_,
         ),
         headers=headers,
         media_type=PROBLEM_JSON_MEDIA_TYPE,
@@ -222,6 +223,14 @@ _BUSINESS_ERRCODE_STATUS = {
     # perfectamente válido y el problema es el CUIT cargado en la otra cuenta.
     # El mensaje del RAISE ya nombra las dos salidas.
     "P0435": 409,
+    # multiusuario-operativo tanda C (D13, OQ-8): topes del envío del email de invitación —
+    # `invitation_cooldown` (1 envío por invitación cada 10 minutos) e `invitation_daily_cap` (20
+    # por cuenta en 24 horas). 429 "demasiadas solicitudes": no es una falta de autoridad (403) ni un
+    # conflicto de estado (409): es una cuota de frecuencia que se libera sola con el paso del tiempo.
+    # Es el primer código libre por encima de los usados (medido sobre supabase/migrations) y NO
+    # `P0429`, que ya es la señal interna de rollback del lote de `rpc_import_expenses`. El `detail`
+    # del RAISE ya nombra el tope y qué esperar.
+    "P0439": 429,
 }
 
 # banco-caja-historial-ajustes (task 6.4): errcodes cuyo 7807 debe llevar
@@ -282,12 +291,16 @@ class ProblemHTTPException(HTTPException):
         field: str | None = None,
         headers: dict[str, str] | None = None,
         extensions: dict | None = None,
+        type_: str | None = None,
     ) -> None:
         super().__init__(status_code=status_code, detail=detail, headers=headers)
         self.code = code
         self.field = field
         # factura-fiscal-imprimible: miembros de extensión RFC 7807 extra.
         self.extensions = extensions
+        # multiusuario-operativo (D6): `type` propio del problema (el 409
+        # `account_switched`); None = "about:blank", como el resto.
+        self.type_ = type_
 
 
 # presupuestos-modulo (D12): los RAISE de las RPCs de negocio escriben el

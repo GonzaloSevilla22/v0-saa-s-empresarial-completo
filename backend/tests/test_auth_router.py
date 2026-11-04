@@ -91,6 +91,7 @@ async def test_claims_status_endpoint_without_app_metadata_reports_false(async_c
     assert data["role_claim_present"] is False
     assert data["account_role_claim_present"] is False
     assert data["account_roles_claim_present"] is False
+    assert data["account_id_claim_present"] is False
     assert data["plan_claim_present"] is False
     assert data["effective_role"] == "user"
     assert data["effective_account_role"] is None
@@ -110,7 +111,7 @@ async def test_claims_status_endpoint_without_token_returns_401(async_client, mo
 async def test_claims_status_endpoint_response_never_contains_token_or_other_users(async_client, mock_pool):
     """TRIANGULATE (7.3c): la respuesta NO contiene el token, ni el payload
     crudo, ni el identificador de ningún otro usuario — describe únicamente
-    la sesión del propio llamante. Contrato exacto: 9 claves nada más (bug
+    la sesión del propio llamante. Contrato exacto: 10 claves nada más (bug
     fix humo v3-rbac-multirole 2026-09-12: eran 7 antes de que
     ClaimsStatusOut declarara account_roles_claim_present/
     effective_account_roles — este mismo test, con el conjunto viejo de 7,
@@ -128,6 +129,7 @@ async def test_claims_status_endpoint_response_never_contains_token_or_other_use
         "role_claim_present",
         "account_role_claim_present",
         "account_roles_claim_present",
+        "account_id_claim_present",
         "plan_claim_present",
         "effective_role",
         "effective_account_role",

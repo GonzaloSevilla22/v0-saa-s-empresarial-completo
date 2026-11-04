@@ -283,3 +283,34 @@ def test_the_origin_regex_is_fully_anchored():
     `lookalike` de arriba pasarían."""
     assert CORS_ORIGIN_REGEX.startswith("^")
     assert CORS_ORIGIN_REGEX.endswith("$")
+
+
+# ── multiusuario-operativo tanda A (D6) — X-Account-Id ──────────────────────
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("origin", [PROD_ORIGIN, VERCEL_ALIAS])
+async def test_preflight_allows_the_x_account_id_header(origin):
+    """D6: el cliente manda `X-Account-Id` en cada request a FastAPI. Es una
+    cabecera NO simple, así que dispara preflight: si el preflight no la admite,
+    el navegador bloquea TODOS los requests del frontend (no sólo los que
+    cambiaron de cuenta). Candado contra un futuro endurecimiento de
+    `allow_headers` que olvide la cabecera nueva."""
+    from backend.main import app
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.options(
+            "/expenses",
+            headers={
+                "Origin": origin,
+                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": "authorization,content-type,x-account-id",
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.headers.get("access-control-allow-origin") == origin
+    allowed = response.headers.get("access-control-allow-headers", "").lower()
+    assert "x-account-id" in allowed

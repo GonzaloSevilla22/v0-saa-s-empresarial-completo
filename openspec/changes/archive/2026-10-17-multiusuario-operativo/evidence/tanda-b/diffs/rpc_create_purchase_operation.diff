@@ -1,0 +1,11 @@
+--- vivo/rpc_create_purchase_operation
++++ nuevo/rpc_create_purchase_operation
+@@ -23,4 +23,8 @@
+     END IF;
+ 
++    -- multiusuario-operativo (tanda B, D9): el ROL decide, antes de cualquier escritura. El observador
++    -- (sin rol de escritura) da P0401; un rol de escritura sin la capacidad del dominio, P0403.
++    PERFORM public._account_assert_capability(v_account_id, ARRAY['owner', 'admin', 'purchases'], 'tu rol no permite registrar compras (requiere compras, administrador o dueño)');
++
+     -- remitos-compra (D8): wrapper de la misma firma, ACL y rechazo sin sesión. TODA la lógica
+     -- vive en _purchase_operation_core; acá NO hay ningún parámetro de origen de remito.

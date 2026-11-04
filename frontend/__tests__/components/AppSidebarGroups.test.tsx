@@ -25,6 +25,9 @@ const h = vi.hoisted(() => ({
   auth: {
     user: { name: "gonzalo sevilla", role: "user" } as { name: string; role: string },
     logout: async () => {},
+    // multiusuario-operativo: una sola cuenta -> el selector de cuenta no se muestra.
+    accounts: [] as unknown[],
+    switchAccount: async () => {},
     isAdmin: false,
     effectivePlan: "gratis" as Plan,
   },

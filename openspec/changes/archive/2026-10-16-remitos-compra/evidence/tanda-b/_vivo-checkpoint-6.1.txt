@@ -1,0 +1,11 @@
+_delivery_note_payload(uuid) | 56e740cd5e76a6d4a833a307c2212892 | 65beae249868546789656f7975631046 | {postgres=X/postgres,service_role=X/postgres} | remitos-venta: fila de delivery_notes + document_type, nombres de cliente y sucursal, líneas en orden de carga (con símbolo de unidad y si el producto fue dado de baja) e historial de estados. converted_sales_order_id/converted_operation_id: la orden VIVA (no cancelada) nacida del remito (tanda B), NULL si no está convertido. Interna. remitos-compra (D7): suma supplier_name, supplier_phone y supplier_deleted (proveedor filtrado por la cuenta del remito) y missing_price_count (líneas con price = 0).
+rpc_atomic_update_purchase_operation(uuid[],date,text,jsonb,uuid,boolean,uuid,boolean,uuid,boolean,uuid,boolean) | 2d4c92f6fd3dbfd52d2225edb0a82827 | ead2f1db289e605d15b9f424db7bf1df | {postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres} | caja-compras-cobranzas (D8): el guard P0423 suma un tercer EXISTS contra
+  cash_movements (movement_type=purchase_payment) — una compra con caja
+  posteada también pasa a ser inmutable. Mismo predicado en el derivado de
+  lectura del listado (backend/repositories/purchase_repository.py).
+rpc_create_purchase_operation(text,date,text,jsonb,uuid,uuid,uuid,uuid,uuid,uuid,date) | 361a1ffc0c3e31ee2bb1b677cfab2394 | 6ae6a95d3b2812e2c16c792f16091b01 | {postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres} | <sin COMMENT>
+rpc_delete_purchase_operation(uuid,uuid,text) | 368120a0d7c5453b32fbd39f095bc9c3 | 4da7dfce6087d288662ef47dc7a3598b | {postgres=X/postgres,service_role=X/postgres,authenticated=X/postgres} | caja-compras-cobranzas (D7): suma la pata de caja como segunda compensación
+  (después de cuenta corriente, antes de banco) — contra-movimiento
+  purchase_payment_reversal por existencia (no por signo), P0426 si no hay
+  sesión abierta en esa caja. Orden final: cta cte → caja → banco → stock →
+  evento → DELETE.

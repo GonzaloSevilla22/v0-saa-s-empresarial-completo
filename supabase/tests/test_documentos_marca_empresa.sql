@@ -301,9 +301,18 @@ BEGIN
 
   v_claims_a  := json_build_object('sub', v_owner_a::text, 'role', 'authenticated')::text;
   v_claims_b  := json_build_object('sub', v_owner_b::text, 'role', 'authenticated')::text;
-  v_claims_ad := json_build_object('sub', v_admin::text,   'role', 'authenticated')::text;
-  v_claims_s  := json_build_object('sub', v_seller::text,  'role', 'authenticated')::text;
-  v_claims_v  := json_build_object('sub', v_viewer::text,  'role', 'authenticated')::text;
+  -- AJUSTE A PROPÓSITO (multiusuario-operativo, tanda A, D1): el admin, el seller y el viewer
+  -- tienen DOS membresías (su cuenta personal, que crea handle_new_user, y la A donde son
+  -- miembros), y la RLS / el guard de la marca resuelven la cuenta con `current_account_ids()`,
+  -- que ahora devuelve la cuenta ACTIVA: sin declararla rige la personal (la más antigua) y la
+  -- marca de A sería invisible para ellos. Para trabajar en A su token DECLARA la cuenta A
+  -- (app_metadata.account_id — lo que emite el hook cuando A es su cuenta activa).
+  v_claims_ad := json_build_object('sub', v_admin::text,   'role', 'authenticated',
+                                   'app_metadata', json_build_object('account_id', v_account_a::text))::text;
+  v_claims_s  := json_build_object('sub', v_seller::text,  'role', 'authenticated',
+                                   'app_metadata', json_build_object('account_id', v_account_a::text))::text;
+  v_claims_v  := json_build_object('sub', v_viewer::text,  'role', 'authenticated',
+                                   'app_metadata', json_build_object('account_id', v_account_a::text))::text;
 
   -- ═══ (b) Matriz de CHECKs (capa de CHECK aislada con replica) ═══
   BEGIN

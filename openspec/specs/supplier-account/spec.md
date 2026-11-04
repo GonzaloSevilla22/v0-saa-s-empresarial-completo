@@ -447,13 +447,25 @@ Un movimiento que no es un cargo SHALL exponer sus derivados de vencimiento como
 - **WHEN** se recuperan los movimientos de una cuenta corriente de proveedor por cualquiera de las consultas que alimentan el historial
 - **THEN** todas devuelven el vencimiento, el estado de vencimiento, los días de atraso y el importe abierto
 
+### Requirement: La compra a crédito nacida de un remito postea su cargo como cualquier compra a crédito
+El sistema SHALL postear el cargo en la cuenta corriente del proveedor del remito cuando un remito de compra se convierte con una forma de pago de cuenta corriente, con el helper compartido de cargo, el total de la compra, la fecha de la compra como fecha del cargo y el vencimiento resuelto por la cascada del plazo del proveedor (o el vencimiento indicado al convertir), en la misma transacción que la compra. Emitir, editar o anular el remito de compra SHALL NOT tocar la cuenta corriente del proveedor.
+
+#### Scenario: Cargo al convertir, no al recibir
+- **GIVEN** un proveedor con plazo de 15 días y un remito de compra pendiente de $10.000
+- **WHEN** se convierte con forma de pago de cuenta corriente y fecha 2026-10-10
+- **THEN** la cuenta corriente del proveedor recibe un cargo de $10.000 con vencimiento 2026-10-25, y antes de la conversión el saldo del proveedor no había cambiado
+
+#### Scenario: Borrar la compra revierte el cargo
+- **WHEN** se borra la compra a crédito nacida del remito
+- **THEN** el cargo se compensa en la cuenta corriente del proveedor y el remito vuelve a pendiente
+
 ## Implementation Notes
 
 - **Tablas**: `supplier_accounts`, `supplier_account_movements`, `payments_made` (migración `20260720000001_c30_customer_supplier_accounts.sql`)
 - **Helpers**: `c30_register_supplier_account_movement` (REVOKE de PUBLIC), `c30_get_or_create_supplier_account` (lazy auto-create idempotente), `_register_bank_movement` (invocado desde `rpc_register_payment_made` para métodos bancarios, C2 `bank-payment-routing`)
 - **RPCs**: `rpc_create_supplier_account`, `rpc_register_payment_made` (extendida en C2 con `p_payment_method`/`p_bank_account_id`), `rpc_register_supplier_charge` — todos SECURITY DEFINER
 - **RLS**: solo política SELECT en las 3 tablas (`account_id IN (SELECT current_account_ids())`); escritura solo vía RPC definer
-- **Decisión OQ-3**: integración con compras de stock es MANUAL (opción B) — `rpc_create_purchase_operation` no toca la cta cte automáticamente
+- **Decisión OQ-3 (derogada)**: C-30 dejó la integración con compras de stock como MANUAL (opción B). La derogó `compras-proveedor-cuenta-corriente` (2026-08-23, migración `20261009000001_compras_proveedor_cuenta_corriente.sql`): una compra imputada a una forma de pago de `kind = 'credit'` postea el cargo en la cuenta corriente del proveedor en la misma transacción, vía el helper compartido `_pay_register_party_charge(..., 'supplier', ...)` que invoca `rpc_create_purchase_operation`. Ver el requirement de cargo automático de más arriba y las specs `purchase-operation` y `party-account-charge`.
 - **Backend**: `backend/schemas/supplier_accounts.py`, `backend/repositories/supplier_account_repository.py`, `backend/services/supplier_accounts.py`, `backend/routers/supplier_accounts.py`
 - **Frontend**: `frontend/app/(dashboard)/proveedores/[id]/cuenta/page.tsx` (árbol `proveedores/` greenfield)
 - **Smoke prod**: 2026-06-20 — migración `20260720000001` + hotfix `20260720000002` LIVE; 7/7 smoke cases OK

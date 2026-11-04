@@ -1,0 +1,24 @@
+--- vivo/rpc_delete_sale_operation
++++ nuevo/rpc_delete_sale_operation
+@@ -39,4 +39,8 @@
+   END IF;
+ 
++  -- multiusuario-operativo (tanda B, D9): el ROL decide, antes de cualquier escritura. El observador
++  -- (sin rol de escritura) da P0401; un rol de escritura sin la capacidad del dominio, P0403.
++  PERFORM public._account_assert_capability(v_account_id, ARRAY['owner', 'admin', 'seller', 'cashier'], 'tu rol no permite eliminar ventas (requiere vendedor, cajero, administrador o dueño)');
++
+   IF p_sale_id IS NULL AND p_operation_id IS NULL THEN
+     RAISE EXCEPTION 'rpc_delete_sale_operation: se requiere p_sale_id o p_operation_id'
+@@ -94,4 +98,12 @@
+   END IF;
+ 
++  -- multiusuario-operativo (tanda B, D9, OQ-4 b): borrar la venta de OTRO miembro es del dueño o de un administrador; el
++  -- resto borra lo propio (P0403). Va sobre las filas YA tomadas con FOR UPDATE (la autoría no cambia) y antes de cualquier
++  -- compensación o escritura. Una venta de otra cuenta nunca llega acá: las filas se resuelven por la cuenta activa.
++  PERFORM public._account_assert_document_authority(
++    v_account_id,
++    (SELECT array_agg(DISTINCT s.user_id) FROM public.sales s WHERE s.id = ANY(v_sale_ids)),
++    'solo el dueño o un administrador modifican las ventas que cargó otro miembro');
++
+   -- sales_order asociada (camino POS) — misma convención que el guard P0423.
+   SELECT id, status INTO v_sales_order_id, v_so_status

@@ -45,6 +45,7 @@ DECLARE
   v_def       text;
   v_missing   text[];
   v_req       text;
+  v_n_def     bigint;
 BEGIN
   -- ── (1) _c29_confirm_order_core: llama al helper, NO tiene el bloque C-30 inline ──
   SELECT pg_get_functiondef(p.oid) INTO v_def
@@ -150,13 +151,17 @@ BEGIN
   RAISE NOTICE 'PASS (3): rpc_create_sale_operation_v2 postea el cargo de crédito vía el helper compartido, con el mismo guard credit_requires_client que el POS.';
 
   -- ── (4) rpc_create_purchase_operation: SIN el literal hardcodeado ─────────
-  SELECT pg_get_functiondef(p.oid) INTO v_def
+  -- remitos-compra tanda B (D8): la lógica de la compra vive en _purchase_operation_core y
+  -- rpc_create_purchase_operation es su wrapper. Con el wrapper solo este bloque pasaría
+  -- VACUAMENTE (el literal nunca estuvo en el wrapper): se inspecciona la unión wrapper + núcleo
+  -- y se exige que existan las DOS definiciones.
+  SELECT string_agg(pg_get_functiondef(p.oid), ' '), count(*) INTO v_def, v_n_def
   FROM pg_proc p
   JOIN pg_namespace n ON n.oid = p.pronamespace
-  WHERE n.nspname = 'public' AND p.proname = 'rpc_create_purchase_operation';
+  WHERE n.nspname = 'public' AND p.proname IN ('rpc_create_purchase_operation', '_purchase_operation_core');
 
-  IF v_def IS NULL THEN
-    RAISE EXCEPTION 'GATE CONFIRM-CORE-INTEGRITY FAILED (4): public.rpc_create_purchase_operation no existe.';
+  IF v_def IS NULL OR v_n_def <> 2 THEN
+    RAISE EXCEPTION 'GATE CONFIRM-CORE-INTEGRITY FAILED (4): public.rpc_create_purchase_operation y/o su núcleo _purchase_operation_core no existen (% definiciones, se esperaban 2).', v_n_def;
   END IF;
 
   IF position($lit$'payment_method', 'credit'$lit$ IN v_def) > 0 THEN
@@ -177,7 +182,8 @@ BEGIN
   FOREACH v_req IN ARRAY ARRAY[
     '_c29_confirm_order_core',
     'rpc_create_sale_operation_v2',
-    'rpc_create_purchase_operation'
+    -- remitos-compra tanda B (D8): el escritor bancario de la compra vive en el núcleo.
+    '_purchase_operation_core'
   ]
   LOOP
     SELECT pg_get_functiondef(p.oid) INTO v_def
@@ -194,7 +200,7 @@ BEGIN
     END IF;
   END LOOP;
 
-  RAISE NOTICE 'PASS (5a): _c29_confirm_order_core, rpc_create_sale_operation_v2 y rpc_create_purchase_operation llaman a _pay_register_operation_bank_movement.';
+  RAISE NOTICE 'PASS (5a): _c29_confirm_order_core, rpc_create_sale_operation_v2 y _purchase_operation_core (el núcleo de rpc_create_purchase_operation) llaman a _pay_register_operation_bank_movement.';
 
   SELECT pg_get_functiondef(p.oid) INTO v_def
   FROM pg_proc p

@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, patch
 import asyncpg
 import pytest
 
-from backend.tests.conftest import make_token
+from backend.tests.conftest import make_token, tenant_token
 
 PURCHASE_ID = "22222222-2222-2222-2222-222222222222"
 OPERATION_ID = "33333333-3333-3333-3333-333333333333"
@@ -21,7 +21,7 @@ UPDATE_PAYLOAD = {
 async def test_update_purchase_operation_ok(async_client, mock_pool):
     """PUT /purchases/operation invoca rpc_atomic_update_purchase_operation → 200."""
     pool, conn = mock_pool
-    owner_token = make_token({"role": "user"})
+    owner_token = tenant_token(["owner"])
     captured: dict = {}
 
     async def execute_side_effect(query, *args):
@@ -54,7 +54,7 @@ async def test_create_purchase_passes_payment_method_id_to_rpc(async_client, moc
     """El payment_method_id del payload llega como argumento del RPC
     rpc_create_purchase_operation (mismo patrón que cost_center_id)."""
     pool, conn = mock_pool
-    owner_token = make_token({"role": "user"})
+    owner_token = tenant_token(["owner"])
     captured: dict = {}
 
     async def fetchrow_side_effect(query, *args):
@@ -85,7 +85,7 @@ async def test_create_purchase_without_payment_method_passes_none(async_client, 
     cash_session_id se suma TRAILING (10º) — 9 -> 10 args. Los índices
     negativos se corren: ahora son -6 (branch_id) .. -1 (cash_session_id)."""
     pool, conn = mock_pool
-    owner_token = make_token({"role": "user"})
+    owner_token = tenant_token(["owner"])
     captured: dict = {}
 
     async def fetchrow_side_effect(query, *args):
@@ -115,7 +115,7 @@ async def test_create_purchase_passes_bank_account_id_to_rpc(async_client, mock_
     override del destino) llega como argumento trailing del RPC
     rpc_create_purchase_operation."""
     pool, conn = mock_pool
-    owner_token = make_token({"role": "user"})
+    owner_token = tenant_token(["owner"])
     captured: dict = {}
     bank_account_id = "99999999-9999-9999-9999-999999999999"
 
@@ -152,7 +152,7 @@ async def test_create_purchase_passes_supplier_id_to_rpc(async_client, mock_pool
     cash_session_id se suma trailing DESPUÉS (10º arg), así que supplier_id
     pasa a ser args[-2]."""
     pool, conn = mock_pool
-    owner_token = make_token({"role": "user"})
+    owner_token = tenant_token(["owner"])
     captured: dict = {}
 
     async def fetchrow_side_effect(query, *args):
@@ -177,7 +177,7 @@ async def test_create_purchase_passes_supplier_id_to_rpc(async_client, mock_pool
 
 async def test_create_purchase_without_supplier_passes_none(async_client, mock_pool):
     pool, conn = mock_pool
-    owner_token = make_token({"role": "user"})
+    owner_token = tenant_token(["owner"])
     captured: dict = {}
 
     async def fetchrow_side_effect(query, *args):
@@ -209,7 +209,7 @@ async def test_create_purchase_passes_branch_id_to_rpc(async_client, mock_pool):
     descartaba (el 5º argumento de la RPC llegaba NULL literal, bug medido:
     0 de 507 compras con branch_id)."""
     pool, conn = mock_pool
-    owner_token = make_token({"role": "user"})
+    owner_token = tenant_token(["owner"])
     captured: dict = {}
 
     async def fetchrow_side_effect(query, *args):
@@ -235,7 +235,7 @@ async def test_create_purchase_passes_cash_session_id_to_rpc(async_client, mock_
     """D2: cash_session_id del payload llega al RPC como el argumento
     TRAILING (10º) — la RPC valida las tres condiciones y decide."""
     pool, conn = mock_pool
-    owner_token = make_token({"role": "user"})
+    owner_token = tenant_token(["owner"])
     captured: dict = {}
 
     async def fetchrow_side_effect(query, *args):
@@ -261,7 +261,7 @@ async def test_create_purchase_without_cash_session_id_is_noop(async_client, moc
     """Ausencia de cash_session_id = NO-OP: el RPC recibe NULL en el
     trailing y no bloquea el alta (la compra se registra igual)."""
     pool, conn = mock_pool
-    owner_token = make_token({"role": "user"})
+    owner_token = tenant_token(["owner"])
     captured: dict = {}
 
     async def fetchrow_side_effect(query, *args):
@@ -289,7 +289,7 @@ async def test_create_purchase_credit_requires_supplier_returns_400(async_client
     por el group 3 de este mismo change) sale como 400 RFC 7807 con code y
     detail legibles — mismo tratamiento que credit_requires_client."""
     pool, conn = mock_pool
-    owner_token = make_token({"role": "user"})
+    owner_token = tenant_token(["owner"])
     err = asyncpg.exceptions.RaiseError("credit_requires_supplier: ...")
     err.sqlstate = "P0400"
     conn.fetchrow = AsyncMock(side_effect=err)
@@ -309,7 +309,7 @@ async def test_create_purchase_invalid_supplier_returns_404(async_client, mock_p
     """P0404: supplier_id inexistente, ajeno o borrado — mismo ERRCODE que el
     resto de los guards de pertenencia (sin acuñar uno nuevo, D6)."""
     pool, conn = mock_pool
-    owner_token = make_token({"role": "user"})
+    owner_token = tenant_token(["owner"])
     err = asyncpg.exceptions.RaiseError("supplier_not_found: ...")
     err.sqlstate = "P0404"
     conn.fetchrow = AsyncMock(side_effect=err)
@@ -336,7 +336,7 @@ async def test_update_purchase_operation_without_field_preserves(async_client, m
     args[-4]/args[-3] a args[-8]/args[-7].
     """
     pool, conn = mock_pool
-    owner_token = make_token({"role": "user"})
+    owner_token = tenant_token(["owner"])
     captured: dict = {}
 
     async def execute_side_effect(query, *args):
@@ -360,7 +360,7 @@ async def test_update_purchase_operation_with_explicit_null_clears(async_client,
     """payment_method_id: null EXPLÍCITO en el JSON (sentinel "Sin especificar")
     — desimputa, distinto de ausente (provided=true)."""
     pool, conn = mock_pool
-    owner_token = make_token({"role": "user"})
+    owner_token = tenant_token(["owner"])
     captured: dict = {}
 
     async def execute_side_effect(query, *args):
@@ -381,7 +381,7 @@ async def test_update_purchase_operation_with_explicit_null_clears(async_client,
 
 async def test_update_purchase_operation_with_payment_method_reimputes(async_client, mock_pool):
     pool, conn = mock_pool
-    owner_token = make_token({"role": "user"})
+    owner_token = tenant_token(["owner"])
     captured: dict = {}
 
     async def execute_side_effect(query, *args):
@@ -412,7 +412,7 @@ async def test_update_purchase_operation_without_branch_preserves(async_client, 
     de args[-2]/args[-1] a args[-6]/args[-5] (supplier_id/cost_center_id se
     agregaron trailing, después)."""
     pool, conn = mock_pool
-    owner_token = make_token({"role": "user"})
+    owner_token = tenant_token(["owner"])
     captured: dict = {}
 
     async def execute_side_effect(query, *args):
@@ -434,7 +434,7 @@ async def test_update_purchase_operation_without_branch_preserves(async_client, 
 async def test_update_purchase_operation_with_branch_id_reimputes(async_client, mock_pool):
     """Con branch_id explícito → branch_provided=true, el uuid viaja al RPC."""
     pool, conn = mock_pool
-    owner_token = make_token({"role": "user"})
+    owner_token = tenant_token(["owner"])
     captured: dict = {}
 
     async def execute_side_effect(query, *args):
@@ -461,7 +461,7 @@ async def test_update_purchase_operation_without_supplier_preserves(async_client
     """Sin supplier_id en el JSON → supplier_provided=false; el RPC preserva
     el vigente (capturado antes del DELETE de las filas viejas, D7)."""
     pool, conn = mock_pool
-    owner_token = make_token({"role": "user"})
+    owner_token = tenant_token(["owner"])
     captured: dict = {}
 
     async def execute_side_effect(query, *args):
@@ -483,7 +483,7 @@ async def test_update_purchase_operation_without_supplier_preserves(async_client
 async def test_update_purchase_operation_with_explicit_null_supplier_clears(async_client, mock_pool):
     """supplier_id: null EXPLÍCITO — desimputa, distinto de ausente."""
     pool, conn = mock_pool
-    owner_token = make_token({"role": "user"})
+    owner_token = tenant_token(["owner"])
     captured: dict = {}
 
     async def execute_side_effect(query, *args):
@@ -505,7 +505,7 @@ async def test_update_purchase_operation_with_explicit_null_supplier_clears(asyn
 async def test_update_purchase_operation_with_supplier_id_reimputes(async_client, mock_pool):
     """Con supplier_id explícito → supplier_provided=true, el uuid viaja al RPC."""
     pool, conn = mock_pool
-    owner_token = make_token({"role": "user"})
+    owner_token = tenant_token(["owner"])
     captured: dict = {}
 
     async def execute_side_effect(query, *args):
@@ -528,7 +528,7 @@ async def test_update_purchase_operation_without_cost_center_preserves(async_cli
     """9.7 [OQ-5 opción A]: mismo contrato tri-estado para cost_center_id —
     ausente preserva el vigente."""
     pool, conn = mock_pool
-    owner_token = make_token({"role": "user"})
+    owner_token = tenant_token(["owner"])
     captured: dict = {}
 
     async def execute_side_effect(query, *args):
@@ -549,7 +549,7 @@ async def test_update_purchase_operation_without_cost_center_preserves(async_cli
 
 async def test_update_purchase_operation_with_explicit_null_cost_center_clears(async_client, mock_pool):
     pool, conn = mock_pool
-    owner_token = make_token({"role": "user"})
+    owner_token = tenant_token(["owner"])
     captured: dict = {}
 
     async def execute_side_effect(query, *args):
@@ -570,7 +570,7 @@ async def test_update_purchase_operation_with_explicit_null_cost_center_clears(a
 
 async def test_update_purchase_operation_with_cost_center_id_reimputes(async_client, mock_pool):
     pool, conn = mock_pool
-    owner_token = make_token({"role": "user"})
+    owner_token = tenant_token(["owner"])
     captured: dict = {}
 
     async def execute_side_effect(query, *args):
@@ -603,7 +603,7 @@ async def test_update_purchase_operation_with_cost_center_id_reimputes(async_cli
 
 async def test_update_purchase_credit_requires_supplier_returns_400(async_client, mock_pool):
     pool, conn = mock_pool
-    owner_token = make_token({"role": "user"})
+    owner_token = tenant_token(["owner"])
     err = asyncpg.exceptions.RaiseError("credit_requires_supplier: ...")
     err.sqlstate = "P0400"
     conn.execute = AsyncMock(side_effect=err)
@@ -624,7 +624,7 @@ async def test_update_purchase_credit_transition_not_allowed_returns_400(async_c
     api-standards exige preservar el detail del RAISE tal cual, texto seguro
     porque lo escribe nuestro propio SQL."""
     pool, conn = mock_pool
-    owner_token = make_token({"role": "user"})
+    owner_token = tenant_token(["owner"])
     msg = (
         "credit_transition_not_allowed: la edición no postea cargos en "
         "cuenta corriente — borrá esta compra y volvé a cargarla como "
@@ -687,7 +687,7 @@ async def test_delete_purchases_by_operation_member_forbidden(async_client, mock
 async def test_delete_purchase_ok(async_client, mock_pool):
     """DELETE /purchases/{id} → 204."""
     pool, conn = mock_pool
-    owner_token = make_token({"role": "user"})
+    owner_token = tenant_token(["owner"])
     conn.fetchrow = AsyncMock(return_value={"result": True})
     with patch("backend.core.database.pool", pool):
         resp = await async_client.delete(
@@ -699,7 +699,7 @@ async def test_delete_purchase_ok(async_client, mock_pool):
 
 async def test_delete_purchase_not_found(async_client, mock_pool):
     pool, conn = mock_pool
-    owner_token = make_token({"role": "user"})
+    owner_token = tenant_token(["owner"])
     conn.fetchrow = AsyncMock(return_value={"result": False})
     with patch("backend.core.database.pool", pool):
         resp = await async_client.delete(
@@ -711,7 +711,7 @@ async def test_delete_purchase_not_found(async_client, mock_pool):
 
 async def test_delete_purchases_by_operation_ok(async_client, mock_pool):
     pool, conn = mock_pool
-    owner_token = make_token({"role": "user"})
+    owner_token = tenant_token(["owner"])
     conn.fetchrow = AsyncMock(return_value={"result": True})
     with patch("backend.core.database.pool", pool):
         resp = await async_client.delete(
@@ -723,7 +723,7 @@ async def test_delete_purchases_by_operation_ok(async_client, mock_pool):
 
 async def test_delete_purchases_by_operation_not_found(async_client, mock_pool):
     pool, conn = mock_pool
-    owner_token = make_token({"role": "user"})
+    owner_token = tenant_token(["owner"])
     conn.fetchrow = AsyncMock(return_value={"result": False})
     with patch("backend.core.database.pool", pool):
         resp = await async_client.delete(
@@ -744,7 +744,7 @@ async def test_delete_purchase_calls_rpc_exactly_once(async_client, mock_pool):
     CONTRATO del repositorio: una única llamada, sin ninguna otra query de
     escritura."""
     pool, conn = mock_pool
-    owner_token = make_token({"role": "user"})
+    owner_token = tenant_token(["owner"])
     calls: list = []
 
     async def fetchrow_side_effect(query, *args):
@@ -770,7 +770,7 @@ async def test_delete_purchases_by_operation_calls_rpc_exactly_once(async_client
     """Espejo de test_delete_purchase_calls_rpc_exactly_once para
     delete_by_operation — UNA llamada con p_operation_id."""
     pool, conn = mock_pool
-    owner_token = make_token({"role": "user"})
+    owner_token = tenant_token(["owner"])
     calls: list = []
 
     async def fetchrow_side_effect(query, *args):

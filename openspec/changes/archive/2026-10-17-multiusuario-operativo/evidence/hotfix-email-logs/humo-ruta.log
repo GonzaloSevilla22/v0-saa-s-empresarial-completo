@@ -1,0 +1,16 @@
+### Humo local de la RUTA Next POST /api/billing/cancel (next dev --webpack :3101, GoTrue + PostgREST + base locales; sesión armada con la cookie de @supabase/ssr). Usuario @test.local descartable, borrado al final.
+cuenta del titular: plan=pro/active  email_logs de plan_downgraded previos: 0
+--- POST /api/billing/cancel sin sesión (esperado 401)
+{"ok":false,"error":"No autorizado"}
+HTTP 401
+--- POST /api/billing/cancel con la sesión del titular (cookie de @supabase/ssr)
+{"ok":true,"expiresAt":"2026-11-16T06:18:42.587185+00:00"}
+HTTP 200
+estado de la cuenta: cancelling hasta 2026-11-16
+correo encolado por la RPC (no por la ruta):
+plan_downgraded|humo-ruta-emaillogs@test.local|pending|pro|user_requested|Tu suscripción fue cancelada — Aliadata
+--- segundo POST (esperado 400 'La cancelación ya está programada' y sin correo nuevo)
+{"ok":false,"error":"La cancelación ya está programada"}
+HTTP 400
+plan_downgraded del titular (esperado 1): 1
+limpieza hecha

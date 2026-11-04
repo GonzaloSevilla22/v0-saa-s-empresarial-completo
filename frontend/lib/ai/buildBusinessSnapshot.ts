@@ -240,7 +240,7 @@ export async function buildBusinessSnapshot(
   try {
     if (!userId) throw new Error('no_authenticated_user')
 
-    const accountId = await resolveActiveAccountId(supabase, userId)
+    const accountId = await resolveActiveAccountId(supabase)
     if (!accountId) throw new Error('no_active_account')
 
     const ranked = await fetchTopProducts(supabase, accountId, {

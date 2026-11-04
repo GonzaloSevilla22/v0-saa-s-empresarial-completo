@@ -1,0 +1,67 @@
+BEGIN
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+psql:<stdin>:868: NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=05021b79-c03a-48e8-8d29-483146e984ff
+psql:<stdin>:868: NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=27ba39dd-3fbb-40ca-8121-707004571ef0
+psql:<stdin>:868: NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=926504a9-e4ac-403e-a0cf-ff2a5ff1712f
+psql:<stdin>:868: NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=30b48fc6-a2d4-4d4b-9c8b-b11a193b8304
+psql:<stdin>:868: NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=c085929e-98fa-42a9-a816-9bbd0d7dc3cf
+psql:<stdin>:868: NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=3e33755f-273a-4e94-b62d-023c8a8c6777
+psql:<stdin>:868: NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=f344f7ec-2b28-4ca4-bddd-e5554328ab11
+psql:<stdin>:868: NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=61381528-48c2-43a7-b03b-215bd7d8cb08
+psql:<stdin>:868: NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=104c7504-de00-4a44-9294-41eb7cea3ccb
+psql:<stdin>:868: NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=58e52222-fcc7-4c9c-a037-572b4ea8f9e8
+psql:<stdin>:868: NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=bc444b90-767c-42b0-856f-1200140d45ec
+psql:<stdin>:868: NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=1859ca9b-2777-4df9-9a49-d635099b2c0a
+psql:<stdin>:868: NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=00be6f92-ed4b-4c5e-8326-ba8ce4563a81
+psql:<stdin>:868: NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=f01dec90-6690-4c2c-9d0b-49399906d6cb
+psql:<stdin>:868: NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=78556ba9-f147-44de-9d6e-dd8a2820bb4c
+psql:<stdin>:868: NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=6f9f92ec-314d-482a-aeb7-16aea401f6e2
+psql:<stdin>:868: NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=918681c8-46b2-4f1b-92a3-f0e02c375d9b
+psql:<stdin>:868: NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=b52ca454-4db2-4bcc-a8f4-d9b5f3fd3861
+psql:<stdin>:868: NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=72f1040c-2579-45f4-901c-4ca87c01ef49
+psql:<stdin>:868: NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=4ec66c31-3456-41a9-8f7b-bbcfd0fd17ca
+psql:<stdin>:868: NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=aef4ccd5-b09f-4971-bfa1-9398ab57bc89
+psql:<stdin>:868: NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=45fc0cab-973e-4266-b523-7fc82ccf75f3
+psql:<stdin>:868: NOTICE:  FAIL (a) alta de venta: admin (169dce6a-8631-4ac6-8383-8bf120275ab3) vende un producto DEL DUEÑO por rpc_create_sale_operation debía funcionar, dio P0403 Permission denied to product: 0dc9e9dc-6f15-4c40-81f7-27c6d22bbebb [P0001]
+psql:<stdin>:868: NOTICE:  FAIL (b) alta de compra: admin (169dce6a-8631-4ac6-8383-8bf120275ab3) compra un producto DEL DUEÑO debía funcionar, dio P0403 Permission denied to product: 0dc9e9dc-6f15-4c40-81f7-27c6d22bbebb [P0001]
+psql:<stdin>:868: NOTICE:  FAIL (c) tenencia en el alta: vender un producto de OTRA cuenta (rpc_create_sale_operation) debía dar P0404, dio P0403 Permission denied to product: 328843ad-58a8-47b1-9799-0b59bd331239 [P0001]
+psql:<stdin>:868: NOTICE:  FAIL (a2) observador: el observador vende un producto PROPIO debía dar P0401, dio 00000 (sin error) [P0001]
+psql:<stdin>:868: NOTICE:  FAIL (d) edición de venta: R3d: el dueño edita la venta del vendedor debía funcionar, dio P0403 Permission denied: sale belongs to another user [P0001]
+psql:<stdin>:868: NOTICE:  FAIL (e) borrado de venta: el vendedor borra la venta del DUEÑO debía dar P0403, dio 00000 (sin error) [P0001]
+psql:<stdin>:868: NOTICE:  FAIL (f) edición de compra: el dueño edita la compra de compras debía funcionar, dio P0403 Permission denied: purchase belongs to another user [P0001]
+psql:<stdin>:868: NOTICE:  FAIL (g) borrado de compra: compras borra la compra del DUEÑO debía dar P0403, dio 00000 (sin error) [P0001]
+psql:<stdin>:868: NOTICE:  FAIL (h) rama legacy: rama legacy: el vendedor vende un producto del dueño debía funcionar, dio P0403 Permission denied to product: 0dc9e9dc-6f15-4c40-81f7-27c6d22bbebb [P0001]
+psql:<stdin>:868: NOTICE:  FAIL (i) compra v2: compra v2: el vendedor dio P0403 pero el mensaje Permission denied to product: 0dc9e9dc-6f15-4c40-81f7-27c6d22bbebb no contiene insufficient_role [P0001]
+psql:<stdin>:868: NOTICE:  FAIL (j) candado de cuerpo: _purchase_operation_core todavía autoriza por el AUTOR (v_product.user_id / user_id <> v_uid / lock por user_id) [P0001]
+psql:<stdin>:868: NOTICE:  FAIL (k) estructural: no existe el helper public._account_assert_capability(uuid, text[], text) [P0001]
+psql:<stdin>:868: ERROR:  GATE MULTIUSUARIO-OPERACIONES FAILED en 12 bloque(s):
+  - (a) alta de venta admin (169dce6a-8631-4ac6-8383-8bf120275ab3) vende un producto DEL DUEÑO por rpc_create_sale_operation debía funcionar, dio P0403 Permission denied to product: 0dc9e9dc-6f15-4c40-81f7-27c6d22bbebb [P0001]
+  - (b) alta de compra admin (169dce6a-8631-4ac6-8383-8bf120275ab3) compra un producto DEL DUEÑO debía funcionar, dio P0403 Permission denied to product: 0dc9e9dc-6f15-4c40-81f7-27c6d22bbebb [P0001]
+  - (c) tenencia en el alta vender un producto de OTRA cuenta (rpc_create_sale_operation) debía dar P0404, dio P0403 Permission denied to product: 328843ad-58a8-47b1-9799-0b59bd331239 [P0001]
+  - (a2) observador el observador vende un producto PROPIO debía dar P0401, dio 00000 (sin error) [P0001]
+  - (d) edición de venta R3d: el dueño edita la venta del vendedor debía funcionar, dio P0403 Permission denied: sale belongs to another user [P0001]
+  - (e) borrado de venta el vendedor borra la venta del DUEÑO debía dar P0403, dio 00000 (sin error) [P0001]
+  - (f) edición de compra el dueño edita la compra de compras debía funcionar, dio P0403 Permission denied: purchase belongs to another user [P0001]
+  - (g) borrado de compra compras borra la compra del DUEÑO debía dar P0403, dio 00000 (sin error) [P0001]
+  - (h) rama legacy rama legacy: el vendedor vende un producto del dueño debía funcionar, dio P0403 Permission denied to product: 0dc9e9dc-6f15-4c40-81f7-27c6d22bbebb [P0001]
+  - (i) compra v2 compra v2: el vendedor dio P0403 pero el mensaje Permission denied to product: 0dc9e9dc-6f15-4c40-81f7-27c6d22bbebb no contiene insufficient_role [P0001]
+  - (j) candado de cuerpo _purchase_operation_core todavía autoriza por el AUTOR (v_product.user_id / user_id <> v_uid / lock por user_id) [P0001]
+  - (k) estructural no existe el helper public._account_assert_capability(uuid, text[], text) [P0001]
+CONTEXT:  PL/pgSQL function inline_code_block line 674 at RAISE
+EXIT=3

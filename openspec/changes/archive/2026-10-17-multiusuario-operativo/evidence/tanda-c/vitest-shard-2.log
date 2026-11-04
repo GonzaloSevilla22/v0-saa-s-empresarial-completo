@@ -1,0 +1,10 @@
+
+ RUN  v4.1.8 C:/Users/Usuario/Desktop/EIE/wt-multiusuario-c/frontend
+
+Not implemented: navigation to another Document
+
+ Test Files  96 passed (96)
+      Tests  1130 passed (1130)
+   Start at  06:07:33
+   Duration  212.47s (transform 81.62s, setup 96.52s, import 320.23s, tests 168.20s, environment 882.27s)
+

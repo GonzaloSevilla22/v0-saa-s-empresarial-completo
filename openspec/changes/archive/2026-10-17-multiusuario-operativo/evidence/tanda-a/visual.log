@@ -1,0 +1,28 @@
+[light/desktop/una cuenta(s)] selector visible en DOM: 0
+captura: visual-una-cuenta-desktop-light.png
+[light/mobile/una cuenta(s)] selector visible en DOM: 0
+captura: visual-una-cuenta-mobile-light.png
+[light/desktop/dos cuenta(s)] selector visible en DOM: 1
+captura: visual-dos-cuenta-desktop-light.png
+[light/desktop] alto táctil del selector: 44 px, ancho 223 px
+[light/desktop] ítems de la lista: 2, alturas 48,48 px
+captura: visual-dos-cuentas-lista-desktop-light.png
+[light/mobile/dos cuenta(s)] selector visible en DOM: 0
+captura: visual-dos-cuenta-mobile-light.png
+[light/mobile] alto táctil del selector: 44 px, ancho 255 px
+[light/mobile] ítems de la lista: 2, alturas 48,48 px
+captura: visual-dos-cuentas-lista-mobile-light.png
+[dark/desktop/una cuenta(s)] selector visible en DOM: 0
+captura: visual-una-cuenta-desktop-dark.png
+[dark/mobile/una cuenta(s)] selector visible en DOM: 0
+captura: visual-una-cuenta-mobile-dark.png
+[dark/desktop/dos cuenta(s)] selector visible en DOM: 1
+captura: visual-dos-cuenta-desktop-dark.png
+[dark/desktop] alto táctil del selector: 44 px, ancho 223 px
+[dark/desktop] ítems de la lista: 2, alturas 48,48 px
+captura: visual-dos-cuentas-lista-desktop-dark.png
+[dark/mobile/dos cuenta(s)] selector visible en DOM: 0
+captura: visual-dos-cuenta-mobile-dark.png
+[dark/mobile] alto táctil del selector: 44 px, ancho 255 px
+[dark/mobile] ítems de la lista: 2, alturas 48,48 px
+captura: visual-dos-cuentas-lista-mobile-dark.png

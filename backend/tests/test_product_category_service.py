@@ -343,11 +343,12 @@ class TestProductCategoryServiceDefault:
     async def test_set_default_owner_ok(self):
         """F5 (revisor adversarial tanda candidatos-db-backend): el service
         RELEE con repo.get_default_category_id(account_id) después de escribir
-        y devuelve ESE valor — no el category_id recibido optimistamente. Para
-        un usuario miembro de más de una cuenta, la escritura resuelve su
-        destino con current_account_ids() LIMIT 1 en la RPC, que puede no
-        coincidir con el account_id de la dependencia de lectura; releer hace
-        que la respuesta del PATCH sea siempre lo que el GET siguiente informa."""
+        y devuelve ESE valor — no el category_id recibido optimistamente.
+        multiusuario-operativo (tanda A): la divergencia que motivó la relectura
+        (la RPC resolvía su destino con `current_account_ids() LIMIT 1` y la
+        lectura con otra cuenta) quedó cerrada por construcción — ambas leen la
+        cuenta ACTIVA —, pero la relectura se conserva: la respuesta del PATCH es
+        siempre lo que el GET siguiente informa."""
         from backend.services.product_categories import set_default_product_category
 
         repo = _make_repo(default_category_id=CAT_ID)

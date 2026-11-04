@@ -1,0 +1,45 @@
+PASS: el hook emite la cuenta del negocio como activa para los invitados (seller roles=["seller"], viewer roles=["viewer"])
+PASS: R3a: el VENDEDOR vende por formulario un producto del dueño -> 201
+PASS:    la venta quedó en el negocio, con el vendedor como autor, y el stock bajó 2 (206 -> 204)
+PASS: R3b: el ADMINISTRADOR vende por formulario un producto del dueño -> 201
+PASS: el DUEÑO vende su propio producto (no regresión) -> 201
+PASS: R3g: COMPRAS carga una compra de un producto del dueño -> 201
+PASS:    la compra quedó en el negocio, con compras como autor, y el stock subió 3 (203 -> 206)
+PASS: el ADMINISTRADOR compra -> 201
+PASS: R3d: el DUEÑO edita la venta del vendedor -> 200
+PASS:    la edición del dueño CONSERVA al vendedor como autor de la venta (sí)
+PASS: el VENDEDOR edita su propia venta (tras la corrección del dueño) -> 200
+PASS: el VENDEDOR NO edita la venta del dueño -> 403 application/problem+json ("insufficient_role: solo el dueño o un administrador modifican las ventas que cargó otro m)
+PASS: el VENDEDOR NO borra la venta del dueño -> 403
+PASS:    la venta del dueño sigue intacta
+PASS: R3f: el ADMINISTRADOR edita la venta del dueño -> 200
+PASS: el VENDEDOR borra su propia venta -> 204
+PASS: R3e: el DUEÑO borra una venta del vendedor -> 204
+PASS: el ADMINISTRADOR edita la compra de compras -> 200
+PASS: COMPRAS NO borra la compra del dueño -> 403
+PASS: el DUEÑO borra su propia compra -> 204
+PASS: el OBSERVADOR no vende por FastAPI -> 403
+PASS: el OBSERVADOR no compra por FastAPI -> 403
+PASS: el DEPÓSITO no vende por el formulario -> 403
+PASS: el DEPÓSITO no compra (recibe por remito) -> 403
+PASS: el VENDEDOR no compra -> 403
+PASS: PostgREST directo: el OBSERVADOR vende -> 500 {"code":"P0401","details":null,"hint":null,"message":"unauthorized"}
+PASS: PostgREST directo: el DEPÓSITO compra -> 500 {"code":"P0403","details":null,"hint":null,"message":"insufficient_role: tu rol no permite registrar compras (
+PASS: PostgREST directo: el OBSERVADOR borra una venta -> 500 {"code":"P0401","details":null,"hint":null,"message":"unauth y la venta sigue
+PASS: R3h (esperado): el vendedor no ajusta stock a mano -> 500 {"code":"P0403","details":null,"hint":null,"message":"insufficient_role: tu rol no permite
+PASS: R3j: el POS del vendedor sobre un producto del negocio -> 200 (cuenta negocio)
+   (la venta de servicio por FastAPI exige product_id; se verifica por PostgREST, como el formulario)
+PASS: R3l: la venta de servicio del vendedor quedó en el NEGOCIO (correcto)
+PASS: producto de OTRA cuenta -> 404, indistinguible de uno inexistente (404): "Product not found: <id>"
+PASS:    el stock de la cuenta ajena no se movió (498 -> 498)
+PASS: compra de un producto de OTRA cuenta -> 404
+PASS: (fixture) la dueña de la OTRA cuenta vende lo suyo -> 201
+PASS: el DUEÑO de A edita una venta de B -> 404 y B no cambia
+PASS: el DUEÑO de A borra una venta de B -> 404 y B no cambia
+PASS: (fixture) el vendedor cambió a su cuenta PERSONAL (personal)
+PASS: con la PERSONAL activa, vender un producto del negocio (cuenta no activa) -> 404
+PASS: (fixture) el vendedor vuelve al negocio y el token declara la cuenta A
+PASS: CLAIM REVOCADO: el token vigente de un miembro quitado -> 403 "No active account found"
+PASS: CLAIM REVOCADO por PostgREST directo -> 500 {"code":"P0403","details":null,"hint":null,"message":"Usuario sin cuenta activa — no se pu
+
+RESULTADO: TODO PASS

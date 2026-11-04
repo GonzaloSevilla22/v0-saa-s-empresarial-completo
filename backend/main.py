@@ -30,6 +30,7 @@ from backend.routers import (
     expenses,
     fiscal,
     health,
+    invitations,
     journal_entries,
     members,
     outbox,
@@ -78,6 +79,13 @@ app = FastAPI(title="Aliadata Backend", version="0.1.0", lifespan=lifespan)
 # El criterio de origen permitido vive en `backend/core/cors.py`, compartido
 # con `cors_error_headers` — los cuerpos de problema salen por fuera de este
 # middleware y antes replicaban la reflexión a mano.
+#
+# multiusuario-operativo (tanda A, D6): `allow_headers=["*"]` devuelve en el
+# preflight los encabezados que el navegador pide, así que `X-Account-Id` (la
+# cuenta que muestra la pantalla, que el cliente manda en cada request) pasa sin
+# listarlo. Candado: `test_cors_allowlist.py::test_preflight_allows_the_x_account_id_header`
+# — si algún día `allow_headers` se vuelve una lista explícita, ese test falla
+# antes de que el navegador bloquee TODOS los requests del frontend.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins(),
@@ -147,6 +155,7 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> JSONRe
         field=getattr(exc, "field", None),
         headers={**cors_error_headers(request), **(exc.headers or {})},
         extensions=getattr(exc, "extensions", None),
+        type_=getattr(exc, "type_", None) or "about:blank",
     )
 
 
@@ -221,6 +230,11 @@ app.include_router(bank_accounts.router)
 app.include_router(bank_reconciliation.router)
 # banco-caja-historial-ajustes (D3) — historial paginado de movimientos bancarios
 app.include_router(bank_movements.router)
+# multiusuario-operativo tanda C (grupo 15): la invitación de punta a punta. Las rutas literales de
+# /members/invitations se registran ANTES que el router de /members; ninguna de ellas la puede capturar un
+# `/members/{user_id}`. `token_router` (/invitations/{token}) es del invitado: ya autenticado, sin rol ni cuenta.
+app.include_router(invitations.router)
+app.include_router(invitations.token_router)
 # v3-rbac-multirole Parte C (grupo 14): administración de miembros y sus roles
 app.include_router(members.router)
 # balanza-etiquetas-pos (D13): configuración de la balanza etiquetadora por cuenta

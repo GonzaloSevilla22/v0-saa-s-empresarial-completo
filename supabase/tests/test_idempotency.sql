@@ -159,12 +159,21 @@ BEGIN
   RAISE NOTICE 'PASS: rpc_create_sale_operation has amount > 0 guard';
 
   -- ── 8. amount > 0 guard presente en rpc_create_purchase_operation ────────────
+  -- remitos-compra tanda B (D8): la lógica de la compra vive en _purchase_operation_core y
+  -- rpc_create_purchase_operation es su wrapper: el guard se busca en el NÚCLEO, y el wrapper
+  -- tiene que delegar en él (sin esto el literal del núcleo no prueba nada de la RPC pública).
   SELECT EXISTS (
     SELECT 1 FROM pg_proc p
     JOIN pg_namespace n ON p.pronamespace = n.oid
     WHERE n.nspname = 'public'
-      AND p.proname = 'rpc_create_purchase_operation'
+      AND p.proname = '_purchase_operation_core'
       AND p.prosrc LIKE '%Amount must be greater than zero%'
+  ) AND EXISTS (
+    SELECT 1 FROM pg_proc p
+    JOIN pg_namespace n ON p.pronamespace = n.oid
+    WHERE n.nspname = 'public'
+      AND p.proname = 'rpc_create_purchase_operation'
+      AND p.prosrc LIKE '%_purchase_operation_core(%'
   ) INTO v_ok;
 
   IF NOT v_ok THEN
@@ -173,12 +182,13 @@ BEGIN
   RAISE NOTICE 'PASS: rpc_create_purchase_operation has amount > 0 guard';
 
   -- ── 9. Array cap (500 items) presente en ambos RPCs ──────────────────────────
+  -- (la compra: en el núcleo que el wrapper llama; ver 8)
   SELECT bool_and(p.prosrc LIKE '%Too many items in a single operation%')
   INTO v_ok
   FROM pg_proc p
   JOIN pg_namespace n ON p.pronamespace = n.oid
   WHERE n.nspname = 'public'
-    AND p.proname IN ('rpc_create_sale_operation', 'rpc_create_purchase_operation');
+    AND p.proname IN ('rpc_create_sale_operation', '_purchase_operation_core');
 
   IF NOT COALESCE(v_ok, false) THEN
     RAISE EXCEPTION 'FAIL: one or both RPCs missing 500-item cap guard';
@@ -200,11 +210,12 @@ BEGIN
   RAISE NOTICE 'PASS: rpc_create_sale_operation replay filters by operation_kind = sale';
 
   -- ── 11. Replay SELECT filtra por operation_kind = purchase ───────────────────
+  -- (en el núcleo de la compra, ver 8)
   SELECT EXISTS (
     SELECT 1 FROM pg_proc p
     JOIN pg_namespace n ON p.pronamespace = n.oid
     WHERE n.nspname = 'public'
-      AND p.proname = 'rpc_create_purchase_operation'
+      AND p.proname = '_purchase_operation_core'
       AND p.prosrc LIKE '%operation_kind = ''purchase''%'
   ) INTO v_ok;
 
@@ -221,7 +232,7 @@ BEGIN
   FROM pg_proc p
   JOIN pg_namespace n ON p.pronamespace = n.oid
   WHERE n.nspname = 'public'
-    AND p.proname IN ('rpc_create_sale_operation', 'rpc_create_purchase_operation');
+    AND p.proname IN ('rpc_create_sale_operation', '_purchase_operation_core');
 
   IF NOT COALESCE(v_ok, false) THEN
     RAISE EXCEPTION 'FAIL: one or both RPCs still using old 2-column ON CONFLICT target';

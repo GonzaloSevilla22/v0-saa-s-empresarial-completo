@@ -439,3 +439,67 @@ describe("D21 — los transportes no arman el Bearer a mano", () => {
     expect(/status === 401.*await handleUnauthorized\(\)/.test(ofensivo)).toBe(true)
   })
 })
+
+
+// ── multiusuario-operativo tanda A (D6) — X-Account-Id ───────────────────────
+//
+// `getBackendHeaders` = `getAuthHeaders` + la cuenta que la pantalla está mostrando.
+// Es una función APARTE y no un cambio de `getAuthHeaders` a propósito: ocho
+// transportes usan `getAuthHeaders` para llamar a las Edge Functions de Supabase
+// (ai-*, generate-export), cuyo `Access-Control-Allow-Headers` NO incluye
+// `x-account-id` — mandarla ahí rompería el preflight de TODAS las funciones de IA.
+describe("getBackendHeaders — declara la cuenta que muestra la pantalla", () => {
+  it("suma X-Account-Id cuando la pantalla muestra una cuenta, y el Bearer sigue último", async () => {
+    const { getBackendHeaders } = await import("@/lib/api/auth-headers")
+    const { setDisplayedAccountId, resetActiveAccountStore } = await import("@/lib/auth/active-account-store")
+    resetActiveAccountStore()
+    withSession("tok-1")
+    setDisplayedAccountId("acc-A")
+
+    const headers = await getBackendHeaders({ "Content-Type": "application/json", Authorization: "Bearer hostil" })
+
+    expect(headers).toMatchObject({
+      Authorization: "Bearer tok-1",
+      "Content-Type": "application/json",
+      "X-Account-Id": "acc-A",
+    })
+    resetActiveAccountStore()
+  })
+
+  it("sin cuenta declarada NO manda el encabezado (el backend entonces no compara)", async () => {
+    const { getBackendHeaders } = await import("@/lib/api/auth-headers")
+    const { resetActiveAccountStore } = await import("@/lib/auth/active-account-store")
+    resetActiveAccountStore()
+    withSession("tok-1")
+
+    const headers = await getBackendHeaders()
+
+    expect(Object.keys(headers)).not.toContain("X-Account-Id")
+    expect(headers.Authorization).toBe("Bearer tok-1")
+  })
+
+  it("un caller no puede forzar X-Account-Id: el encabezado lo pone el módulo, no el call site", async () => {
+    const { getBackendHeaders } = await import("@/lib/api/auth-headers")
+    const { setDisplayedAccountId, resetActiveAccountStore } = await import("@/lib/auth/active-account-store")
+    resetActiveAccountStore()
+    withSession("tok-1")
+    setDisplayedAccountId("acc-A")
+
+    const headers = await getBackendHeaders({ "X-Account-Id": "acc-HOSTIL" })
+
+    expect(headers["X-Account-Id"]).toBe("acc-A")
+    resetActiveAccountStore()
+  })
+
+  it("getAuthHeaders NO cambia: jamás agrega X-Account-Id (las Edge Functions no lo admiten en el preflight)", async () => {
+    const { setDisplayedAccountId, resetActiveAccountStore } = await import("@/lib/auth/active-account-store")
+    resetActiveAccountStore()
+    withSession("tok-1")
+    setDisplayedAccountId("acc-A")
+
+    const headers = await getAuthHeaders({ "Content-Type": "application/json" })
+
+    expect(Object.keys(headers)).not.toContain("X-Account-Id")
+    resetActiveAccountStore()
+  })
+})

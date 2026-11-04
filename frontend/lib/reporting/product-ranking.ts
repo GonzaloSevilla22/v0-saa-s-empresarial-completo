@@ -62,31 +62,21 @@ const num = (v: string | number | null | undefined): number | null =>
 
 // ─── Account resolution ────────────────────────────────────────────────────────
 
-interface AccountMembershipRow {
-  account_id: string
-}
-
 /**
- * Resuelve la cuenta activa del usuario con el mismo criterio determinístico
- * que `backend/core/deps.py:get_account_id` y `generate-export/index.ts`
- * (Regla de Tres: ya son 3 los consumidores de este criterio) — la
- * membresía con `created_at` más antiguo, desempatada por `id`. `null` si el
- * usuario no tiene ninguna cuenta activa; el caller decide si degrada.
+ * Resuelve la cuenta activa del usuario pidiéndosela a la base: la RPC
+ * `current_account_ids()` —la MISMA función que ven las RPCs de negocio, la RLS y
+ * `backend/core/deps.py:get_account_id`—, ejecutada con el JWT del usuario.
+ * multiusuario-operativo (tanda A, D4): antes ordenaba `account_members` por
+ * `(created_at, id)`, un criterio propio que con la cuenta activa elegible dejaba de poder
+ * coincidir con el del token. `null` si no hay cuenta activa; el caller decide si degrada.
+ *
+ * No recibe el usuario: la cuenta sale de la SESIÓN del cliente, nunca de un parámetro.
  */
-export async function resolveActiveAccountId(
-  supabase: SupabaseClient,
-  userId: string,
-): Promise<string | null> {
-  const { data, error } = await supabase
-    .from("account_members")
-    .select("account_id")
-    .eq("user_id", userId)
-    .order("created_at", { ascending: true })
-    .order("id", { ascending: true })
-    .limit(1)
-
-  if (error || !data || data.length === 0) return null
-  return (data[0] as AccountMembershipRow).account_id
+export async function resolveActiveAccountId(supabase: SupabaseClient): Promise<string | null> {
+  const { data, error } = await supabase.rpc("current_account_ids")
+  if (error || data == null) return null
+  const first = Array.isArray(data) ? data[0] : data
+  return typeof first === "string" && first.length > 0 ? first : null
 }
 
 // ─── Access ───────────────────────────────────────────────────────────────────

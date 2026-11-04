@@ -29,6 +29,14 @@ async def require_account_role(conn, auth: AuthContext, allowed: Collection[str]
 
     Orden de resolución (D10, task 10.2 — nunca concede sin ninguna de las
     tres vías):
+      0. multiusuario-operativo (D4): los claims de rol SÓLO valen si el token
+         DECLARA la cuenta que describen (`account_id` en el contexto). Un token
+         sin él —emitido antes del deploy, vive a lo sumo 15 minutos— trae claims
+         de la membresía más antigua, que bajo multi-membresía puede no ser la
+         cuenta sobre la que SQL va a operar: autorizar con ellos sería autorizar
+         sobre una cuenta y escribir en otra. Sin `account_id` se saltean (1) y (2)
+         y se resuelve contra la base (3), cuyo `rpc_my_active_account_roles()` ya
+         devuelve los roles en la cuenta ACTIVA.
       1. Claim del CONJUNTO `account_roles` del JWT (D8) — si la clave está
          PRESENTE (aunque sea `[]`), es la fuente de verdad: un conjunto
          vacío ya resuelto por el hook NO cae al fallback (D9: el claim
@@ -68,7 +76,9 @@ async def require_account_role(conn, auth: AuthContext, allowed: Collection[str]
         _assert_intersects(account_roles, allowed)
         return
 
-    account_roles = auth.get("account_roles")
+    # (0) Los claims de rol sólo describen la cuenta activa si el token la declara.
+    token_declares_account = bool(auth.get("account_id"))
+    account_roles = auth.get("account_roles") if token_declares_account else None
 
     # Ronda 1 adversarial (nit 8): el claim `account_roles` debe ser una
     # LISTA -- un valor con otra forma (dict, str, int) nunca es una fuente
@@ -82,7 +92,7 @@ async def require_account_role(conn, auth: AuthContext, allowed: Collection[str]
     if account_roles is not None and not isinstance(account_roles, list):
         account_roles = None
 
-    if account_roles is None:
+    if account_roles is None and token_declares_account:
         single = auth.get("account_role")
         account_roles = [single] if single is not None else None
 

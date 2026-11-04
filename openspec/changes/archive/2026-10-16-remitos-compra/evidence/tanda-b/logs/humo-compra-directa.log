@@ -1,0 +1,5 @@
+PASS  (compra directa) se registra la compra por el formulario con el proveedor elegido en SupplierSelect  -> 30->31
+PASS  (compra directa) el stock SUBE 1  -> 172->173
+PASS  (compra directa) el movimiento es purchase/purchase (no de remito)  -> purchase/purchase
+console errors: []
+RESUMEN compra directa: 3/3 PASS

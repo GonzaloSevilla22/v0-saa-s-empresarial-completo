@@ -1,0 +1,60 @@
+        from backend.core.errors import _BUSINESS_ERRCODE_STATUS
+    
+>       assert _BUSINESS_ERRCODE_STATUS["P0439"] == 429
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'P0439'
+
+backend\tests\test_invitations.py:627: KeyError
+=========================== short test summary info ===========================
+FAILED backend\tests\test_invitations.py::test_las_seis_rutas_estan_registradas
+FAILED backend\tests\test_invitations.py::TestCrearInvitacion::test_el_dueno_invita_y_se_encola_el_email_en_la_misma_conexion
+FAILED backend\tests\test_invitations.py::TestCrearInvitacion::test_el_administrador_tambien_invita
+FAILED backend\tests\test_invitations.py::TestCrearInvitacion::test_sin_roles_el_conjunto_viaja_vacio_y_la_base_resuelve_a_observador
+FAILED backend\tests\test_invitations.py::TestCrearInvitacion::test_quien_no_es_dueno_ni_administrador_no_invita_y_no_toca_la_base[roles0]
+FAILED backend\tests\test_invitations.py::TestCrearInvitacion::test_quien_no_es_dueno_ni_administrador_no_invita_y_no_toca_la_base[roles1]
+FAILED backend\tests\test_invitations.py::TestCrearInvitacion::test_quien_no_es_dueno_ni_administrador_no_invita_y_no_toca_la_base[roles2]
+FAILED backend\tests\test_invitations.py::TestCrearInvitacion::test_quien_no_es_dueno_ni_administrador_no_invita_y_no_toca_la_base[roles3]
+FAILED backend\tests\test_invitations.py::TestCrearInvitacion::test_sin_sesion_es_401
+FAILED backend\tests\test_invitations.py::TestCrearInvitacion::test_un_payload_invalido_es_422_antes_de_tocar_la_base[payload0]
+FAILED backend\tests\test_invitations.py::TestCrearInvitacion::test_un_payload_invalido_es_422_antes_de_tocar_la_base[payload1]
+FAILED backend\tests\test_invitations.py::TestCrearInvitacion::test_un_payload_invalido_es_422_antes_de_tocar_la_base[payload2]
+FAILED backend\tests\test_invitations.py::TestCrearInvitacion::test_un_payload_invalido_es_422_antes_de_tocar_la_base[payload3]
+FAILED backend\tests\test_invitations.py::TestCrearInvitacion::test_un_payload_invalido_es_422_antes_de_tocar_la_base[payload4]
+FAILED backend\tests\test_invitations.py::TestCrearInvitacion::test_un_payload_invalido_es_422_antes_de_tocar_la_base[payload5]
+FAILED backend\tests\test_invitations.py::TestCrearInvitacion::test_un_payload_invalido_es_422_antes_de_tocar_la_base[payload6]
+FAILED backend\tests\test_invitations.py::TestCrearInvitacion::test_un_payload_invalido_es_422_antes_de_tocar_la_base[payload7]
+FAILED backend\tests\test_invitations.py::TestCrearInvitacion::test_un_payload_invalido_es_422_antes_de_tocar_la_base[payload8]
+FAILED backend\tests\test_invitations.py::TestCrearInvitacion::test_una_pestana_desfasada_recibe_409_account_switched_sin_invitar
+FAILED backend\tests\test_invitations.py::TestCrearInvitacion::test_los_errores_de_la_invitacion_se_traducen_a_rfc_7807[P0402-403]
+FAILED backend\tests\test_invitations.py::TestCrearInvitacion::test_los_errores_de_la_invitacion_se_traducen_a_rfc_7807[P0403-403]
+FAILED backend\tests\test_invitations.py::TestCrearInvitacion::test_los_errores_de_la_invitacion_se_traducen_a_rfc_7807[P0407-409]
+FAILED backend\tests\test_invitations.py::TestCrearInvitacion::test_los_errores_de_la_invitacion_se_traducen_a_rfc_7807[P0400-400]
+FAILED backend\tests\test_invitations.py::TestCrearInvitacion::test_los_errores_de_la_invitacion_se_traducen_a_rfc_7807[P0401-403]
+FAILED backend\tests\test_invitations.py::TestCrearInvitacion::test_el_tope_diario_en_el_envio_es_429_y_la_invitacion_no_queda
+FAILED backend\tests\test_invitations.py::TestListarInvitaciones::test_lista_las_pendientes_y_nunca_expone_el_token
+FAILED backend\tests\test_invitations.py::TestListarInvitaciones::test_el_vendedor_no_las_ve
+FAILED backend\tests\test_invitations.py::TestListarInvitaciones::test_sin_sesion_es_401
+FAILED backend\tests\test_invitations.py::TestReenviarInvitacion::test_reenviar_renueva_y_devuelve_el_token_nuevo
+FAILED backend\tests\test_invitations.py::TestReenviarInvitacion::test_el_vendedor_no_reenvia
+FAILED backend\tests\test_invitations.py::TestReenviarInvitacion::test_los_errores_del_reenvio_se_traducen[P0439-invitation_cooldown: esper\xe1 unos minutos-429]
+FAILED backend\tests\test_invitations.py::TestReenviarInvitacion::test_los_errores_del_reenvio_se_traducen[P0439-invitation_daily_cap: tope diario-429]
+FAILED backend\tests\test_invitations.py::TestReenviarInvitacion::test_los_errores_del_reenvio_se_traducen[P0409-invitation_not_pending: ya fue revocada-409]
+FAILED backend\tests\test_invitations.py::TestReenviarInvitacion::test_los_errores_del_reenvio_se_traducen[P0404-P404: invitation not found-404]
+FAILED backend\tests\test_invitations.py::TestReenviarInvitacion::test_los_errores_del_reenvio_se_traducen[P0403-insufficient_role: solo el due\xf1o-403]
+FAILED backend\tests\test_invitations.py::TestReenviarInvitacion::test_un_id_que_no_es_uuid_es_422
+FAILED backend\tests\test_invitations.py::TestRevocarInvitacion::test_el_dueno_revoca
+FAILED backend\tests\test_invitations.py::TestRevocarInvitacion::test_el_vendedor_no_revoca
+FAILED backend\tests\test_invitations.py::TestRevocarInvitacion::test_una_invitacion_de_otra_cuenta_es_404
+FAILED backend\tests\test_invitations.py::TestVistaPrevia::test_cualquier_usuario_autenticado_previsualiza_con_su_identidad
+FAILED backend\tests\test_invitations.py::TestVistaPrevia::test_la_pestana_desfasada_no_bloquea_la_vista_previa
+FAILED backend\tests\test_invitations.py::TestVistaPrevia::test_otra_identidad_o_token_invalido_es_404_con_el_mensaje_generico
+FAILED backend\tests\test_invitations.py::TestVistaPrevia::test_sin_sesion_es_401
+FAILED backend\tests\test_invitations.py::TestAceptarInvitacion::test_acepta_y_devuelve_la_cuenta_activa
+FAILED backend\tests\test_invitations.py::TestAceptarInvitacion::test_la_pestana_desfasada_no_bloquea_la_aceptacion
+FAILED backend\tests\test_invitations.py::TestAceptarInvitacion::test_los_errores_de_la_aceptacion_se_traducen[P0404-P404: invalid or expired invitation token-404]
+FAILED backend\tests\test_invitations.py::TestAceptarInvitacion::test_los_errores_de_la_aceptacion_se_traducen[P0409-P409: caller is already a member of account x-409]
+FAILED backend\tests\test_invitations.py::TestAceptarInvitacion::test_los_errores_de_la_aceptacion_se_traducen[P0402-P403: member quota reached (2 / 2)-403]
+FAILED backend\tests\test_invitations.py::TestAceptarInvitacion::test_los_errores_de_la_aceptacion_se_traducen[P0401-Not authenticated-403]
+FAILED backend\tests\test_invitations.py::TestAceptarInvitacion::test_sin_sesion_es_401
+FAILED backend\tests\test_invitations.py::test_p0439_se_traduce_a_429_en_el_mapa_global
+51 failed, 4 passed in 6.55s

@@ -53,7 +53,13 @@ from fastapi import HTTPException
 
 from backend.core.errors import ProblemHTTPException, problem_from_pg_error
 from backend.core.guards import require_account_role
-from backend.core.rbac import CAN_DELIVER_SALE, CAN_RECEIVE_PURCHASE, CAN_SELL, CAN_VOID_DELIVERY_NOTE
+from backend.core.rbac import (
+    CAN_CONVERT_PURCHASE_DELIVERY_NOTE,
+    CAN_DELIVER_SALE,
+    CAN_RECEIVE_PURCHASE,
+    CAN_SELL,
+    CAN_VOID_DELIVERY_NOTE,
+)
 from backend.core.timezone import today_in_argentina
 from backend.repositories.delivery_note_repository import DeliveryNoteRepository
 from backend.schemas.delivery_notes import (
@@ -62,6 +68,7 @@ from backend.schemas.delivery_notes import (
     DeliveryNoteCreateBody,
     DeliveryNoteItemIn,
     DeliveryNoteUpdateBody,
+    PurchaseDeliveryNoteConvertIn,
     PurchaseDeliveryNoteCreateIn,
     PurchaseDeliveryNoteUpdateIn,
 )
@@ -342,6 +349,62 @@ async def convert_delivery_note(
         **result,
         "delivery_note_number_label": format_internal_document_number(
             "delivery_note_sale", result.get("delivery_note_number")
+        ),
+    }
+
+
+async def convert_delivery_note_to_purchase(
+    repo: DeliveryNoteRepository,
+    auth: dict,
+    account_id: str,
+    delivery_note_id: str,
+    payload: PurchaseDeliveryNoteConvertIn,
+    idempotency_key: str,
+    *,
+    conn,
+) -> dict:
+    """Convierte el remito de compra en compra, atómicamente
+    (`rpc_convert_delivery_note_to_purchase`, remitos-compra tanda B).
+
+    Guard: `CAN_CONVERT_PURCHASE_DELIVERY_NOTE` (OQ-RC6: `stock` —quien recibe— y
+    `purchases` convierten; el vendedor y el cajero no). La compra NO vuelve a
+    sumar stock (el remito ya lo sumó al recibirse) y eso lo decide la base por el
+    remito que ella misma valida y bloquea, nunca un parámetro de este contrato:
+    no hay origen ni líneas en el request. Todo lo demás lo decide la RPC bajo el
+    lock del remito: tenencia de cada id del payload, estado
+    (`delivery_note_invalid_state`), versión (`delivery_note_changed`), proveedor
+    vivo (`delivery_note_supplier_unavailable`), sucursal del remito activa
+    (`branch_closed`, 422), todos los precios cargados
+    (`delivery_note_price_required`), fecha no anterior a la recepción, caja con
+    sus tres condiciones, forma de pago e idempotencia (`idempotency_key_conflict`
+    si la clave ya creó OTRA operación). Cualquier fallo revierte la compra y la
+    transición: no queda un remito `converted` sin compra. Nada se pre-valida acá
+    para no abrir una ventana entre el chequeo y el lock.
+
+    `idempotency_key` ya llega resuelto por el router (header obligatorio). Un
+    `ValueError` si no llegó es un bug de cableado, no un error del usuario: sin
+    clave la conversión no es reintentable y se corta antes de la base.
+    """
+    if not idempotency_key:
+        raise ValueError("convert_delivery_note_to_purchase: falta la clave de idempotencia resuelta por el router")
+    await _require_capability(conn, auth, CAN_CONVERT_PURCHASE_DELIVERY_NOTE)
+    with _pg_errors_as_problems():
+        result = await repo.convert_to_purchase(
+            delivery_note_id,
+            idempotency_key=idempotency_key,
+            expected_revision=payload.expected_revision,
+            payment_method_id=str(payload.payment_method_id),
+            date=payload.date,
+            cash_session_id=_uid(payload.cash_session_id),
+            bank_account_id=_uid(payload.bank_account_id),
+            cost_center_id=_uid(payload.cost_center_id),
+            due_date=payload.due_date,
+            description=payload.description,
+        )
+    return {
+        **result,
+        "delivery_note_number_label": format_internal_document_number(
+            "delivery_note_purchase", result.get("delivery_note_number")
         ),
     }
 

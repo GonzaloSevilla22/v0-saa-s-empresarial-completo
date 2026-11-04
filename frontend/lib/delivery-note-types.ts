@@ -137,6 +137,41 @@ export interface DeliveryNoteConvertResult {
   replayed: boolean
 }
 
+/**
+ * Conversión del remito de COMPRA en compra (remitos-compra tanda B, D8):
+ * `POST /delivery-notes/{id}/convert-to-purchase`. La clave de idempotencia viaja
+ * por el header `Idempotency-Key`, nunca acá. NO hay `supplier_id`, `branch_id`,
+ * líneas ni origen: la compra se imputa al proveedor y a la sucursal del remito
+ * (la mercadería entró ahí y la deuda es con ese proveedor), las líneas las lee el
+ * servidor del remito que bloquea y la decisión de no volver a SUMAR el stock es
+ * suya, no de este contrato. La forma de pago es obligatoria (OQ-RC4).
+ */
+export interface PurchaseDeliveryNoteConvertInput {
+  /** La revisión que el usuario vio al confirmar (`delivery_note_changed` si cambió). */
+  expected_revision: number
+  payment_method_id: string
+  /** Fecha de la compra (AAAA-MM-DD); null = hoy. No puede ser anterior a la recepción. */
+  date?: string | null
+  /** Con `kind = cash` y las tres condiciones de la caja: la sesión abierta de la sucursal del remito. */
+  cash_session_id?: string | null
+  bank_account_id?: string | null
+  cost_center_id?: string | null
+  /** Vencimiento de la deuda con el proveedor; null = lo resuelve la cascada del plazo. */
+  due_date?: string | null
+  description?: string | null
+}
+
+export interface PurchaseDeliveryNoteConvertResult {
+  delivery_note_id: string
+  delivery_note_number: number | null
+  /** `RC-00000012`, derivada por el servidor. */
+  delivery_note_number_label: string | null
+  operation_id: string
+  total: string | number
+  /** `true` si la clave ya había convertido ESTE remito: se muestra igual. */
+  replayed: boolean
+}
+
 // ── Salida ─────────────────────────────────────────────────────────────────────
 
 export interface DeliveryNoteItemApiRow {

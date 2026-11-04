@@ -55,6 +55,8 @@ def _auth(*roles: str) -> dict:
         "sub": TEST_USER_ID,
         "role": "user",
         "account_roles": list(roles),
+        # multiusuario-operativo (D4): los claims de rol sólo valen si el token declara la cuenta.
+        "account_id": str(ACCOUNT_ID),
     }
 
 

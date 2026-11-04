@@ -18,18 +18,18 @@
 
 ## 0. Sign-off y checkpoints previos (sólo lectura)
 
-- [ ] 0.1 **[PO]** Sign-off de OQ-1..OQ-6 (`design.md` §Open Questions).
+- [x] 0.1 **[PO]** Sign-off de OQ-1..OQ-6 (`design.md` §Open Questions).
   - Registrar la respuesta textual en `design.md` antes de escribir producción.
   - Si el PO elige una alternativa a la recomendada, actualizar en el mismo PR la decisión, las specs y estas tareas.
   - **OQ-4 (rol) se cierra junto con `multiusuario`.** Sin sign-off no hay apply: es governance ALTA.
-- [ ] 0.2 Confirmar que ya están mergeados y en prod: `fix/stock-edicion-sucursal-y-piso`, la tanda B de `remitos-compra` y, antes de la tanda B de este change, `multiusuario`. Anotar los números de migración que ocuparon (`gh pr list --state all`, `MAX(version)` de prod). Si alguno no mergeó, la tanda que depende de él no empieza (la tanda A sólo depende de los dos primeros).
-- [ ] 0.3 **Checkpoint de cuerpo vivo de la tanda en curso.**
+- [x] 0.2 Confirmar que ya están mergeados y en prod: `fix/stock-edicion-sucursal-y-piso`, la tanda B de `remitos-compra` y, antes de la tanda B de este change, `multiusuario`. Anotar los números de migración que ocuparon (`gh pr list --state all`, `MAX(version)` de prod). Si alguno no mergeó, la tanda que depende de él no empieza (la tanda A sólo depende de los dos primeros).
+- [x] 0.3 **Checkpoint de cuerpo vivo de la tanda en curso.**
   - Leer de prod `pg_get_functiondef`, `obj_description` y ACL de cada función que la tanda redefine.
   - Comparar el `md5` (sin `\r`) contra el de `design.md` §Context, tomado el 2026-10-14. Los hermanos cambian varias de estas funciones, así que **se espera divergencia**: partir siempre del vivo y anotar el desvío.
   - Guardar los cuerpos previos en `evidence/<tanda>/` para el rollback.
-- [ ] 0.4 Re-medir en prod (sólo `SELECT`) las cifras de `proposal.md` (bloqueadas por motivo, cajas cerradas, cargos con saldo menor, movimientos en período conciliado, 0 eventos pendientes) y las 6 `credit_note` históricas con su referencia. Si algo cambió, actualizar `design.md` en el mismo PR.
-- [ ] 0.5 **Inventario de CI.** En `.github/workflows/KPI_Validation.yml`, listar los bloques de reaplicación que fijan cuerpos de las funciones que la tanda redefine, y aplicar su "REGLA PARA EL PR SIGUIENTE" en el mismo PR (retirarlos o actualizarlos), igual que `remitos-compra` 1.9.
-- [ ] 0.6 **Safety net**: baseline en verde, registrado.
+- [x] 0.4 Re-medir en prod (sólo `SELECT`) las cifras de `proposal.md` (bloqueadas por motivo, cajas cerradas, cargos con saldo menor, movimientos en período conciliado, 0 eventos pendientes) y las 6 `credit_note` históricas con su referencia. Si algo cambió, actualizar `design.md` en el mismo PR.
+- [x] 0.5 **Inventario de CI.** En `.github/workflows/KPI_Validation.yml`, listar los bloques de reaplicación que fijan cuerpos de las funciones que la tanda redefine, y aplicar su "REGLA PARA EL PR SIGUIENTE" en el mismo PR (retirarlos o actualizarlos), igual que `remitos-compra` 1.9.
+- [x] 0.6 **Safety net**: baseline en verde, registrado.
   - backend `-m "not integration"` + integración;
   - vitest completo y `tsc`;
   - los gates SQL del workflow sobre `db reset` limpio, en especial los 17 que ejecutan las RPCs de edición, `test_delete_guard_ledgers.sql`, `test_gastos_forma_pago.sql`, `test_cobranzas_vencimientos*.sql`, el gate del conjunto canónico del outbox y `test_function_acl_gate.sql`.
@@ -38,64 +38,64 @@
 
 ## 1. Tanda A — Huella neta y borrado sobre la huella
 
-- [ ] 1.1 **RED**: gate `supabase/tests/test_op_money_footprint.sql`, con dos cuentas, fixtures propios y cleanup asertado.
+- [x] 1.1 **RED**: gate `supabase/tests/test_op_money_footprint.sql`, con dos cuentas, fixtures propios y cleanup asertado.
   - Una venta del POS con caja, editada a mano como `postgres` (movimiento original + reversión + nuevo con la misma referencia), se borra.
   - Hoy `rpc_delete_sale_operation` compensa la suma del tipo `sale`, no el neto: ver el doble conteo.
   - Lo mismo para un gasto y para la caja repartida en dos sesiones de la misma caja.
-- [ ] 1.2 Función interna de huella neta (D3), por `(libro, cuenta del libro, referencia)`:
+- [x] 1.2 Función de huella neta (D3), por `(libro, cuenta del libro, referencia)` — **desvío**: una única `op_money_footprint` `SECURITY INVOKER` legible por la aplicación (más `op_money_footprint_flags` para los indicadores), en vez de una interna `_op_money_footprint` + una variante: un INVOKER público no puede llamar a una interna sin EXECUTE, y una sola definición es más fiel a D3:
   - cuenta corriente: `sale`/`credit_note` y `purchase`/`debit_note`;
   - caja: agrupada por caja;
   - banco: agrupado por cuenta y por familia de tipo.
 
   Más su variante legible por la aplicación (`SECURITY INVOKER`, sin `_` inicial). Nombre y ACL compatibles con los chequeos (3) y (4) de `test_function_acl_gate.sql`.
-- [ ] 1.3 Reescribir `rpc_delete_sale_operation`, `rpc_delete_purchase_operation` y `rpc_delete_expense` desde el vivo para que compensen la huella neta, con una compensación por fila de huella y la **misma referencia**. Se conservan el orden de guards, `P0425`, `P0426`, el espejo `unreconciled`, el remito y los eventos.
-- [ ] 1.4 GREEN → **TRIANGULATE**:
+- [x] 1.3 Reescribir `rpc_delete_sale_operation`, `rpc_delete_purchase_operation` y `rpc_delete_expense` desde el vivo para que compensen la huella neta, con una compensación por fila de huella y la **misma referencia**. Se conservan el orden de guards, `P0425`, `P0426`, el espejo `unreconciled`, el remito y los eventos.
+- [x] 1.4 GREEN → **TRIANGULATE**:
   - venta del formulario y del POS, compra, gasto;
   - neto cero sin movimientos;
   - signo invertido plantado (se compensa igual);
   - caja en dos sesiones (una compensación);
   - borrado sobre datos sin ediciones, con los mismos libros e importes que antes (gate de equivalencia contra el cuerpo previo guardado en `evidence/`).
-- [ ] 1.5 Las proyecciones de lectura (`backend/repositories/sales_repository.py`, `purchase_repository.py`, `expense_repository.py`) pasan `has_account_charge`, `has_cash_movement`, `has_bank_movement` e `is_delete_blocked` a la huella neta, consumiendo la función de 1.2 y no un `EXISTS`. `is_payment_locked` todavía **no** se toca (grupo 10). Tests de backend: RED con una operación de huella compensada que hoy reporta `has_cash_movement = true`.
+- [x] 1.5 Las proyecciones de lectura (`backend/repositories/sales_repository.py`, `purchase_repository.py`, `expense_repository.py`) pasan `has_account_charge`, `has_cash_movement`, `has_bank_movement` e `is_delete_blocked` a la huella neta, consumiendo la función de 1.2 y no un `EXISTS`. `is_payment_locked` todavía **no** se toca (grupo 10). Tests de backend: RED con una operación de huella compensada que hoy reporta `has_cash_movement = true`.
 
 ## 2. Tanda A — Emparejamiento de reversiones en el aging FIFO
 
-- [ ] 2.1 **RED**: en `supabase/tests/` y en `backend/tests/` (aging), una cuenta con un cargo A más viejo y un cargo B que se revierte y se vuelve a registrar con la misma referencia. Hoy la reversión cancela A. Agregar también una cadena de dos ediciones y el invariante de cierre con todos los tipos.
-- [ ] 2.2 Aplicar la regla de D9 en `backend/repositories/_account_aging_sql.py`, la única definición Python, con cuatro consumidores.
-- [ ] 2.3 Aplicar la misma regla desde el vivo en `rpc_receivables_report`, `rpc_payables_report`, `_produce_receivables_overdue_digest` y las dos RPCs de cambio de vencimiento de `20261033000001`. Gate que compare, para un mismo ledger sintético, el reparto que dan los siete lugares.
-- [ ] 2.4 Medir en prod antes y después (`SELECT` sobre la definición nueva aplicada a datos vivos, en el stack local con un volcado anónimo o por consulta de sólo lectura) el reparto por tramo de las cuentas con las 6 `credit_note` históricas. Saldo total sin cambios. Informar al PO en el PR.
+- [x] 2.1 **RED**: en `supabase/tests/` y en `backend/tests/` (aging), una cuenta con un cargo A más viejo y un cargo B que se revierte y se vuelve a registrar con la misma referencia. Hoy la reversión cancela A. Agregar también una cadena de dos ediciones y el invariante de cierre con todos los tipos.
+- [x] 2.2 Aplicar la regla de D9 en `backend/repositories/_account_aging_sql.py`, la única definición Python, con cuatro consumidores.
+- [x] 2.3 Aplicar la misma regla desde el vivo en `rpc_receivables_report`, `rpc_payables_report`, `_produce_receivables_overdue_digest` y las dos RPCs de cambio de vencimiento de `20261033000001`. Gate que compare, para un mismo ledger sintético, el reparto que dan los siete lugares.
+- [x] 2.4 Medir en prod antes y después (`SELECT` sobre la definición nueva aplicada a datos vivos, en el stack local con un volcado anónimo o por consulta de sólo lectura) el reparto por tramo de las cuentas con las 6 `credit_note` históricas. Saldo total sin cambios. Informar al PO en el PR.
 
 ## 3. Tanda A — Consumidor contable
 
-- [ ] 3.1 **Checkpoint**: `md5` vivo de `_journal_post_from_event` y del despachador. RED en `supabase/tests/`:
+- [x] 3.1 **Checkpoint**: `md5` vivo de `_journal_post_from_event` y del despachador. RED en `supabase/tests/`:
   - asiento vigente con un contra-asiento de igual referencia: hoy `SaleOperationDeleted` puede elegir el contra-asiento;
   - `CreditNoteIssued` sobre una venta cuyo asiento vigente es `SaleOperation`: hoy reintenta `P0451`.
-- [ ] 3.2 Reescritura desde el vivo:
+- [x] 3.2 Reescritura desde el vivo:
   - `reversal_of IS NULL` y orden descendente en las búsquedas de `SaleOperationAdjusted`, `SaleOperationDeleted`, `PurchaseDeleted` y `CreditNoteIssued`, y en `ExpenseDeleted` si el vivo no lo tiene (`ExpenseAdjusted` ya lo tiene);
   - `SaleOperationAdjusted` con las dos convenciones (`sales_order_id` del payload);
   - `CreditNoteIssued` con las dos convenciones.
 
   Las demás ramas quedan byte a byte, con un gate de no-regresión que postea un evento de cada tipo preexistente y compara el asiento.
-- [ ] 3.3 Rama `PurchaseAdjusted`: reversión como `PurchaseDeleted` + posteo como `PurchaseCreated`, compartiendo la resolución de cuentas con una función o expresión única. `P0451` y `P0450`. RED → GREEN → triangular: efectivo→efectivo, efectivo→crédito, con IVA, adelantado al alta y doble proceso.
-- [ ] 3.4 Conjunto canónico de 15 tipos en el filtro del despachador **y** en el del helper, en el mismo commit. Actualizar el gate del invariante y su matriz de evasión.
+- [x] 3.3 Rama `PurchaseAdjusted`: reversión como `PurchaseDeleted` + posteo como `PurchaseCreated`, compartiendo la resolución de cuentas con una función o expresión única. `P0451` y `P0450`. RED → GREEN → triangular: efectivo→efectivo, efectivo→crédito, con IVA, adelantado al alta y doble proceso.
+- [x] 3.4 Conjunto canónico de 15 tipos en el filtro del despachador **y** en el del helper, en el mismo commit. Actualizar el gate del invariante y su matriz de evasión.
 
 ## 4. Tanda A — Concurrencia y productor de `PurchaseAdjusted`
 
-- [ ] 4.1 **RED**: en un gate de carrera (`*_race.sh`, molde de `test_ventas_unidades_conversion_race.sh`), dos ediciones concurrentes de la misma compra. Hoy las dos aplican.
-- [ ] 4.2 `rpc_atomic_update_purchase_operation` desde el vivo:
+- [x] 4.1 **RED**: en un gate de carrera (`*_race.sh`, molde de `test_ventas_unidades_conversion_race.sh`), dos ediciones concurrentes de la misma compra. Hoy las dos aplican.
+- [x] 4.2 `rpc_atomic_update_purchase_operation` desde el vivo:
   - toma las filas `FOR UPDATE` en orden ascendente y recuenta (`P0404`), como la venta;
   - emite `PurchaseAdjusted` si existe `PurchaseCreated` para la operación. En la tanda A la compra con dinero sigue bloqueada y el `operation_id` todavía se regenera, así que el payload lleva el `operation_id` viejo y el nuevo, y la rama de 3.3 resuelve por el viejo. La tanda B lo vuelve estable.
-- [ ] 4.3 `rpc_update_expense` desde el vivo: `FOR UPDATE` sobre la fila del gasto. Gate de carrera.
-- [ ] 4.4 Gate: compra asentada → editada → borrada termina con todos sus asientos revertidos y 0 eventos con `P0451` (cierra el defecto latente de `design.md` §Context).
+- [x] 4.3 `rpc_update_expense` desde el vivo: `FOR UPDATE` sobre la fila del gasto. Gate de carrera.
+- [x] 4.4 Gate: compra asentada → editada → borrada termina con todos sus asientos revertidos y 0 eventos con `P0451` (cierra el defecto latente de `design.md` §Context).
 
 ## 5. Tanda A — Cierre
 
-- [ ] 5.1 `test_function_acl_gate.sql` con las funciones nuevas. Introspección al final de la migración:
+- [x] 5.1 `test_function_acl_gate.sql` con las funciones nuevas. Introspección al final de la migración:
   - una firma viva por función;
   - ACLs;
   - cuerpos con `reversal_of IS NULL` y los dos filtros con 15 tipos.
 
   Reaplicar la migración dos veces sin error.
-- [ ] 5.2 Cablear los gates nuevos en `KPI_Validation.yml`. Todos los gates del workflow en verde sobre `db reset` limpio. Backend y frontend en verde.
+- [x] 5.2 Cablear los gates nuevos en `KPI_Validation.yml`. Todos los gates del workflow en verde sobre `db reset` limpio. Backend y frontend en verde.
 - [ ] 5.3 Revisión adversarial del diff de la tanda A (un juez). PR `opsx/edicion-operaciones-con-dinero-apply-a`, CI verde, merge.
 - [ ] 5.4 **Verificación post-merge en prod**:
   - `MAX(version)`;
@@ -241,7 +241,22 @@
 
   En cada caso, confirmar el plan mostrado, los libros resultantes y el historial de cambios.
 
-## Evidencia TDD
+### Evidencia TDD — tanda A (apply 2026-11-04)
+
+Safety net (0.6): baseline en verde = la CI de #646 sobre `main` (`1dc70b7c`: pytest, vitest, validate-kpis, playwright). Corridas locales de esta tanda: backend `-m "not integration"` 4385 passed + 7 `test_invoice_pdf.py` (los preexistentes locales); integración de las tres suites nuevas 7 + 5 passed; vitest 580 archivos / 7036 tests passed; cadena de reaplicación de `KPI_Validation.yml` completa (CHAIN_EXIT=0, 20261088000001 idempotente) y los gates SQL del workflow en el orden real.
+
+| Tarea | Test | Capa | Safety net | RED | GREEN | Triangulación | Refactor |
+|-------|------|------|------------|-----|-------|---------------|----------|
+| 1.1–1.4 | `supabase/tests/test_op_money_footprint.sql` (+ `evidence/tanda-a/EQUIVALENCIA-borrado.txt`) | SQL | `test_delete_guard_ledgers`, `test_gastos_forma_pago` en verde | `S1-cc: la huella neta de cuenta corriente debia quedar en 0, es 1200.00` (db4e1319) | S1–S7 + F PASS | 7 escenarios (POS editado en 3 libros, gasto 500→300, caja en 2 sesiones, neto cero, signo invertido, venta sin ediciones, compra) + equivalencia contra el cuerpo previo | — |
+| 1.5 | `backend/tests/test_op_money_footprint_projection.py` | Unit + integración | `test_purchases`, `test_gastos_forma_pago`, `test_delete_compensation_flags_contract` | 3 fallos reales: la huella compensada reportaba `(True, True, True)` | 7 passed | ventas, compras, gastos; `is_payment_locked` fijado | — |
+| 2.1–2.3 | `supabase/tests/test_aging_reversal_pairing.sql`, `backend/tests/test_aging_reversal_pairing.py` | SQL + unit + integración | `test_receivables_overdue_digest`, `test_c30_customer_supplier_accounts` | `1-X: ... trae vencido=0, 1_30=0, vigente=1700` / `TypeError reversal_type` | 5 lugares SQL + CTE de Python | cadena de ediciones, nota huérfana, nota sin referencia, invariante de cierre | `_customer_open_items`/`_supplier_open_items` como única definición |
+| 2.4 | consulta de sólo lectura en prod (`evidence/tanda-a/MEDICION-2.4-aging.md`) | medición | — | — | ningún tramo cambia, saldo intacto | clientes y proveedor | — |
+| 3.1–3.4 | `test_journal_consumer_noregression.sql` (14 tipos, validado contra el cuerpo previo y el nuevo), `test_journal_consumer_edicion.sql`, `test_cobranzas_reverso.sql` bloque 11 | SQL | idem + `test_asiento_contable_gastos`, `test_asiento_venta_formulario`, `test_delete_guard_ledgers` | `B1: esperaba [R:SaleOperation:1300C1200,...] y posteo [...D1000,...]` (contra-asiento revertido) | B1–B7 + 11a/b/c | id estable, POS, nota de crédito, `PurchaseAdjusted` ×6 casos, despachador | `_journal_purchase_lines` compartido por Created y Adjusted |
+| 4.1–4.3 | `test_edicion_locks_race.sh` (dos conexiones) | SQL race | `test_venta_editable_sin_cae_race` | (c) `la segunda edicion ... EDIT_OK`; (e) `lost update: 'desc original\|999'` | (c) y (e) PASS | compra y gasto | — |
+| 4.4 | `test_purchase_edit_journal.sql` | SQL | idem | con el cuerpo previo: falta `PurchaseAdjusted` | PASS | alta → edición ×2 → borrado, histórica sin alta | — |
+| 5.1 | `test_function_acl_gate.sql` (+ introspección de la migración) | SQL | gate verde en `main` | `ACL GATE (5a) FAILED ... rpc_atomic_update_purchase_operation` | PASS | reaplicación doble | — |
+
+## Evidencia TDD (plantilla del plan)
 
 | Tarea | Test | Capa | Safety net | RED | GREEN | Triangulación | Refactor |
 |-------|------|------|------------|-----|-------|---------------|----------|

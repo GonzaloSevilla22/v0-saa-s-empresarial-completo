@@ -443,9 +443,7 @@ $function$;
 REVOKE ALL ON FUNCTION public.rpc_delete_sale_operation(uuid, uuid, text) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.rpc_delete_sale_operation(uuid, uuid, text) TO authenticated;
 COMMENT ON FUNCTION public.rpc_delete_sale_operation(uuid, uuid, text) IS
-  $c$delete-guard-ledgers: RPC atómica de borrado de venta — guard fiscal (P0423), compensa cuenta corriente (P0425), caja (P0426) y banco, revierte stock (#417), emite SaleOperationDeleted, cancela la sales_order del POS. Acepta p_sale_id (delete_by_id) o p_operation_id (delete_by_operation).
-  edicion-operaciones-con-dinero (D3): compensa la HUELLA NETA de cada libro (op_money_footprint), una compensación por fila de huella y con la misma referencia que esa fila; neto 0 = ya compensado, sin sesión abierta ni escritura.
-  edicion-operaciones-con-dinero (D3): compensa la HUELLA NETA de cada libro (op_money_footprint), una compensación por fila de huella y con la misma referencia que esa fila; neto 0 = ya compensado, sin sesión abierta ni escritura.$c$;
+  $c$delete-guard-ledgers: RPC atómica de borrado de venta — guard fiscal (P0423), compensa cuenta corriente (P0425), caja (P0426) y banco, revierte stock (#417), emite SaleOperationDeleted, cancela la sales_order del POS. Acepta p_sale_id (delete_by_id) o p_operation_id (delete_by_operation).$c$;
 
 
 -- =============================================================================
@@ -722,9 +720,7 @@ COMMENT ON FUNCTION public.rpc_delete_purchase_operation(uuid, uuid, text) IS
   purchase_payment_reversal por existencia (no por signo), P0426 si no hay
   sesión abierta en esa caja. Orden final: cta cte → caja → banco → stock →
   evento → DELETE.
-  remitos-compra (D9): con filas de origen de remito, ANTES de cualquier compensación bloquea el remito (cuenta + sentido compra, FOR UPDATE), relee las filas bajo ese lock (si ya no existen termina sin efectos), exige status converted, el rol de anular remitos de compra (admin/owner: P0403 delivery_note_purchase_delete_forbidden) y la sucursal del remito activa y no cerrada (FOR SHARE, P0422 delivery_note_branch_inactive); salta la reversa de stock (el remito ya lo sumó) y devuelve el remito a issued con historial y motivo. Un origen de otra cuenta, de venta o mezclado da P0409 delivery_note_purchase_mismatch.
-  edicion-operaciones-con-dinero (D3): compensa la HUELLA NETA de cada libro (op_money_footprint), una compensación por fila de huella y con la misma referencia que esa fila; neto 0 = ya compensado.
-  edicion-operaciones-con-dinero (D3): compensa la HUELLA NETA de cada libro (op_money_footprint), una compensación por fila de huella y con la misma referencia que esa fila; neto 0 = ya compensado.$c$;
+  remitos-compra (D9): con filas de origen de remito, ANTES de cualquier compensación bloquea el remito (cuenta + sentido compra, FOR UPDATE), relee las filas bajo ese lock (si ya no existen termina sin efectos), exige status converted, el rol de anular remitos de compra (admin/owner: P0403 delivery_note_purchase_delete_forbidden) y la sucursal del remito activa y no cerrada (FOR SHARE, P0422 delivery_note_branch_inactive); salta la reversa de stock (el remito ya lo sumó) y devuelve el remito a issued con historial y motivo. Un origen de otra cuenta, de venta o mezclado da P0409 delivery_note_purchase_mismatch.$c$;
 
 
 -- =============================================================================
@@ -867,9 +863,7 @@ COMMENT ON FUNCTION public.rpc_delete_expense(uuid) IS
   (v_cash_amount > 0): los movimientos de gasto son negativos y el guard
   positivo del original sería falso para todo gasto (D8). Es `<> 0` y no
   `< 0` para que la compensación no dependa de una invariante que vive en
-  otra función: existe movimiento de caja del gasto => siempre se compensa.
-  edicion-operaciones-con-dinero (D3): compensa la HUELLA NETA de caja y banco (op_money_footprint), con la misma referencia que cada fila de huella; toma la fila del gasto FOR UPDATE.
-  edicion-operaciones-con-dinero (D3): compensa la HUELLA NETA de caja y banco (op_money_footprint), con la misma referencia que cada fila de huella; toma la fila del gasto FOR UPDATE.$c$;
+  otra función: existe movimiento de caja del gasto => siempre se compensa.$c$;
 
 -- =============================================================================
 -- 5. Emparejamiento de la reversión de un cargo en el aging FIFO (D9)
@@ -1140,7 +1134,7 @@ $function$;
 REVOKE ALL ON FUNCTION public.rpc_receivables_report(uuid) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.rpc_receivables_report(uuid) TO authenticated;
 COMMENT ON FUNCTION public.rpc_receivables_report(uuid) IS
-  $c$cobranzas-panel + cobranzas-vencimientos: read-model agregado de cuentas por cobrar con aging FIFO por línea de flotación (D4) — 5 tramos que suman el balance (invariante de cierre), sin materializar imputaciones. Sólo cargos con vencimiento pueden estar vencidos (D5); sin vencimiento es tramo propio. Día argentino via reporting_local_today(). Excluye balance = 0 y clientes con deleted_at. Guard P0401 primera sentencia. edicion-operaciones-con-dinero (D9): el abierto por cargo sale de _customer_open_items (la reversión de un cargo cancela primero los cargos de su misma referencia).$c$;
+  $c$cobranzas-panel + cobranzas-vencimientos: read-model agregado de cuentas por cobrar con aging FIFO por línea de flotación (D4) — 5 tramos que suman el balance (invariante de cierre), sin materializar imputaciones. Sólo cargos con vencimiento pueden estar vencidos (D5); sin vencimiento es tramo propio. Día argentino via reporting_local_today(). Excluye balance = 0 y clientes con deleted_at. Guard P0401 primera sentencia.$c$;
 
 
 -- =============================================================================
@@ -1233,7 +1227,7 @@ $function$;
 REVOKE ALL ON FUNCTION public.rpc_payables_report(uuid) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.rpc_payables_report(uuid) TO authenticated;
 COMMENT ON FUNCTION public.rpc_payables_report(uuid) IS
-  $c$cobranzas-vencimientos (D6): read-model de cuentas por pagar — espejo textual de rpc_receivables_report sobre supplier_accounts. Mismos tramos, mismo invariante de cierre, mismas garantías de tenencia. edicion-operaciones-con-dinero (D9): el abierto por cargo sale de _supplier_open_items.$c$;
+  $c$cobranzas-vencimientos (D6): read-model de cuentas por pagar — espejo textual de rpc_receivables_report sobre supplier_accounts. Mismos tramos, mismo invariante de cierre, mismas garantías de tenencia.$c$;
 
 
 -- =============================================================================
@@ -1375,7 +1369,7 @@ $function$;
 
 REVOKE ALL ON FUNCTION public._produce_receivables_overdue_digest() FROM PUBLIC, anon, authenticated;
 COMMENT ON FUNCTION public._produce_receivables_overdue_digest() IS
-  $c$cobranzas-vencimientos (D8/D9): barrido diario — UN resumen de deuda vencida por cuenta, por lado (cobrar/pagar) y por día argentino, por los dos canales (email_logs + evento al outbox para la campana) con UN solo dedup: el evento se crea SOLO para las filas que el INSERT de email realmente insertó. Capa 2 de dedup por metadata->as_of (los importes viajan en metadata y cambiarían el conflicto de la capa 1). Excluye partes dadas de baja (OQ-2) y solo cuenta lo vencido (D9). edicion-operaciones-con-dinero (D9): el abierto por cargo sale de _customer_open_items / _supplier_open_items.$c$;
+  $c$cobranzas-vencimientos (D8/D9): barrido diario — UN resumen de deuda vencida por cuenta, por lado (cobrar/pagar) y por día argentino, por los dos canales (email_logs + evento al outbox para la campana) con UN solo dedup: el evento se crea SOLO para las filas que el INSERT de email realmente insertó. Capa 2 de dedup por metadata->as_of (los importes viajan en metadata y cambiarían el conflicto de la capa 1). Excluye partes dadas de baja (OQ-2) y solo cuenta lo vencido (D9).$c$;
 
 
 -- =============================================================================
@@ -1478,7 +1472,7 @@ $function$;
 REVOKE ALL ON FUNCTION public.rpc_update_customer_charge_due_date(uuid, date, text) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.rpc_update_customer_charge_due_date(uuid, date, text) TO authenticated;
 COMMENT ON FUNCTION public.rpc_update_customer_charge_due_date(uuid, date, text) IS
-  $c$cobranzas-vencimientos OQ-1: corrige el vencimiento de un cargo (sale/adjustment>0) abierto de customer_account_movements. Guard is_account_writer (owner/admin, P0401); P0403 sin cuenta activa; P0404 cargo de otra cuenta; P0400 no-cargo o cargo saldado. p_due_date NULL limpia el vencimiento. Única mutación permitida sobre este ledger append-only — auditada en audit_logs (customer_charge.due_date_changed) con before/after. edicion-operaciones-con-dinero (D9): el abierto del cargo sale de _customer_open_items.$c$;
+  $c$cobranzas-vencimientos OQ-1: corrige el vencimiento de un cargo (sale/adjustment>0) abierto de customer_account_movements. Guard is_account_writer (owner/admin, P0401); P0403 sin cuenta activa; P0404 cargo de otra cuenta; P0400 no-cargo o cargo saldado. p_due_date NULL limpia el vencimiento. Única mutación permitida sobre este ledger append-only — auditada en audit_logs (customer_charge.due_date_changed) con before/after.$c$;
 
 
 -- =============================================================================
@@ -1571,7 +1565,7 @@ $function$;
 REVOKE ALL ON FUNCTION public.rpc_update_supplier_charge_due_date(uuid, date, text) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.rpc_update_supplier_charge_due_date(uuid, date, text) TO authenticated;
 COMMENT ON FUNCTION public.rpc_update_supplier_charge_due_date(uuid, date, text) IS
-  $c$cobranzas-vencimientos OQ-1: espejo de rpc_update_customer_charge_due_date sobre supplier_account_movements (purchase/adjustment>0 es cargo). Guard is_account_writer (owner/admin, P0401); P0403 sin cuenta activa; P0404 cargo de otra cuenta; P0400 no-cargo o cargo saldado. p_due_date NULL limpia el vencimiento. Auditado en audit_logs (supplier_charge.due_date_changed). edicion-operaciones-con-dinero (D9): el abierto del cargo sale de _supplier_open_items.$c$;
+  $c$cobranzas-vencimientos OQ-1: espejo de rpc_update_customer_charge_due_date sobre supplier_account_movements (purchase/adjustment>0 es cargo). Guard is_account_writer (owner/admin, P0401); P0403 sin cuenta activa; P0404 cargo de otra cuenta; P0400 no-cargo o cargo saldado. p_due_date NULL limpia el vencimiento. Auditado en audit_logs (supplier_charge.due_date_changed).$c$;
 
 -- =============================================================================
 -- 11. _journal_purchase_lines — la resolución de cuentas de una compra, UNA sola vez
@@ -2867,8 +2861,7 @@ $function$;
 
 REVOKE ALL ON FUNCTION public._journal_post_from_event(events) FROM PUBLIC, anon, authenticated;
 COMMENT ON FUNCTION public._journal_post_from_event(events) IS
-  $c$journal-entry-outbox (journal-entry): Consumer 3 — postea la partida doble de un evento del outbox. SIN GRANT — NO AGREGAR UNO. Recibe una fila de events COMPLETA (composite; PostgREST acepta un objeto JSON), así que expuesta a `authenticated` permite forjar un evento con cualquier account_id y postear un asiento arbitrario en otro tenant (verificado en local). Único caller: rpc_process_outbox_dispatch (SECURITY DEFINER), disparado por el job de pg_cron `relay-process-outbox`. Perdió su REVOKE original en 20261001000001 L1914; lo restauró el hotfix 20261010000001_revoke_internal_money_helpers.sql (PR #454) y los chequeos (3) y (4) de supabase/tests/test_function_acl_gate.sql impiden que vuelva a perderse.
-  edicion-operaciones-con-dinero (tanda A): el asiento vigente se busca con reversal_of IS NULL; SaleOperationAdjusted y CreditNoteIssued resuelven las dos convenciones; rama nueva PurchaseAdjusted (15 tipos).$c$;
+  $c$journal-entry-outbox (journal-entry): Consumer 3 — postea la partida doble de un evento del outbox. SIN GRANT — NO AGREGAR UNO. Recibe una fila de events COMPLETA (composite; PostgREST acepta un objeto JSON), así que expuesta a `authenticated` permite forjar un evento con cualquier account_id y postear un asiento arbitrario en otro tenant (verificado en local). Único caller: rpc_process_outbox_dispatch (SECURITY DEFINER), disparado por el job de pg_cron `relay-process-outbox`. Perdió su REVOKE original en 20261001000001 L1914; lo restauró el hotfix 20261010000001_revoke_internal_money_helpers.sql (PR #454) y los chequeos (3) y (4) de supabase/tests/test_function_acl_gate.sql impiden que vuelva a perderse.$c$;
 
 
 -- =============================================================================
@@ -3060,8 +3053,7 @@ $function$;
 
 REVOKE ALL ON FUNCTION public.rpc_process_outbox_dispatch(integer) FROM PUBLIC, anon, authenticated;
 COMMENT ON FUNCTION public.rpc_process_outbox_dispatch(integer) IS
-  $c$C-25 + journal-entry-outbox + v3-notifications-realtime: dispatch in-DB del outbox transaccional. Consumer 1: AuditLog (mandatory first). Consumer 2: EmailNotification (sale_created/stock_adjusted/plan_changed). Consumer 3: JournalEntry (SaleConfirmed/PurchaseCreated/PaymentReceived/PaymentMade/CreditNoteIssued) — llama a _journal_post_from_event (SECURITY DEFINER). Consumer 4: Notification (CashSessionClosed/StockBelowMinimum/FiscalDocumentRejected/QuoteAccepted/TransferDispatched) — llama a _notification_from_event (SECURITY DEFINER). processed_at SOLO tras éxito de todos los consumers activos. Per-event isolation: BEGIN/EXCEPTION/END. REVOCADO de anon/PUBLIC.
-  edicion-operaciones-con-dinero (tanda A): el Consumer 3 lista los 15 tipos (suma PurchaseAdjusted), el mismo conjunto que _journal_post_from_event.$c$;
+  $c$C-25 + journal-entry-outbox + v3-notifications-realtime: dispatch in-DB del outbox transaccional. Consumer 1: AuditLog (mandatory first). Consumer 2: EmailNotification (sale_created/stock_adjusted/plan_changed). Consumer 3: JournalEntry (SaleConfirmed/PurchaseCreated/PaymentReceived/PaymentMade/CreditNoteIssued) — llama a _journal_post_from_event (SECURITY DEFINER). Consumer 4: Notification (CashSessionClosed/StockBelowMinimum/FiscalDocumentRejected/QuoteAccepted/TransferDispatched) — llama a _notification_from_event (SECURITY DEFINER). processed_at SOLO tras éxito de todos los consumers activos. Per-event isolation: BEGIN/EXCEPTION/END. REVOCADO de anon/PUBLIC.$c$;
 
 -- =============================================================================
 -- 14. rpc_atomic_update_purchase_operation — lock de filas ascendente + recuento y PurchaseAdjusted.
@@ -3570,8 +3562,7 @@ COMMENT ON FUNCTION public.rpc_atomic_update_purchase_operation(uuid[], date, te
   posteada también pasa a ser inmutable. Mismo predicado en el derivado de
   lectura del listado (backend/repositories/purchase_repository.py).
   remitos-compra (D9): una compra con origen de remito no se edita: P0423 delivery_note_purchase_locked, después de la comprobación de existencia y ANTES de los tres P0423 de dinero (sin tocar stock ni nada).
-  stock-edicion-sucursal-piso (D2): chequeo previo de la pata REVERSE — si la mercadería de la compra ya se vendió, rechaza con P0409 purchase_edit_stock_consumed (cuánto queda y cuánto habría que restar) en vez de 23514.
-  edicion-operaciones-con-dinero (tanda A, D12/D10): toma las filas FOR UPDATE en orden ascendente y recuenta (P0404, como la venta) y emite PurchaseAdjusted (payload con el id viejo y el nuevo) cuando la operación tiene asiento.$c$;
+  stock-edicion-sucursal-piso (D2): chequeo previo de la pata REVERSE — si la mercadería de la compra ya se vendió, rechaza con P0409 purchase_edit_stock_consumed (cuánto queda y cuánto habría que restar) en vez de 23514.$c$;
 
 
 -- =============================================================================
@@ -3828,8 +3819,7 @@ COMMENT ON FUNCTION public.rpc_update_expense(uuid, text, numeric, date, text, u
   cualquier escritura (D11), y aplica el contrato tri-estado
   (p_<campo>, p_<campo>_provided) a forma de pago, sucursal y centro de costo
   (D12). NO postea movimientos: imputar una forma de pago por edición es sólo
-  una etiqueta (D13). compras-gastos-sucursal-por-defecto: un branch_id nulo, vigente o informado, se resuelve a la sucursal por defecto, como en el alta.
-  edicion-operaciones-con-dinero (tanda A, D12): lee y toma la fila del gasto FOR UPDATE antes de resolver los valores vigentes.$c$;
+  una etiqueta (D13). compras-gastos-sucursal-por-defecto: un branch_id nulo, vigente o informado, se resuelve a la sucursal por defecto, como en el alta.$c$;
 
 -- =============================================================================
 -- 16. Introspección: lo que esta migración promete, verificado en la base viva

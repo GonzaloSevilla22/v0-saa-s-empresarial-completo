@@ -3751,3 +3751,46 @@ jobs:
       # categories.sql (4b: el stock vivo se conserva al reimportar).
       - name: Run importador stock apertura gate
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_importador_stock_apertura.sql
+
+      # edicion-operaciones-con-dinero (tanda A, grupo 1): la HUELLA NETA de una operación (op_money_footprint) y el
+      # borrado que compensa sobre ella. EJECUTA las tres RPCs de borrado con ediciones plantadas a mano: venta del POS
+      # editada en los tres libros (compensa 1200, no 2200), gasto editado (300, no 800), caja en dos sesiones de la misma
+      # caja (UNA compensación), neto cero (sin sesión abierta, sin escritura), signo invertido (se compensa igual),
+      # equivalencia con una venta sin ediciones, compra editada y la función (grupos por caja y por familia bancaria,
+      # aislamiento entre cuentas, ACL). Una transacción con ROLLBACK: residuo cero, asertado.
+      - name: Run op money footprint gate (edicion-operaciones-con-dinero A1)
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_op_money_footprint.sql
+
+      # edicion-operaciones-con-dinero (tanda A, grupo 2): la reversión de un cargo (credit_note / debit_note) cancela
+      # primero los cargos de su misma referencia en el aging FIFO. Ejecuta los cinco lugares SQL que derivan la
+      # imputación (reporte de cobranzas, de pagos, aviso diario, cambio de vencimiento de cliente y de proveedor) sobre el
+      # mismo ledger sintético, la cadena de dos ediciones, la nota huérfana y sin referencia (van al pozo) y el
+      # invariante de cierre (suma de lo abierto = saldo). Residuo cero.
+      - name: Run aging reversal pairing gate (edicion-operaciones-con-dinero A2)
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_aging_reversal_pairing.sql
+
+      # edicion-operaciones-con-dinero (tanda A, grupo 3, 3.2): un evento de cada uno de los 14 tipos preexistentes de
+      # _journal_post_from_event y el asiento resultante comparado línea por línea — "las demás ramas quedan byte a byte".
+      # Se validó contra el cuerpo previo (md5 d7bfbb92…) y contra el nuevo. Residuo cero.
+      - name: Run journal consumer no-regression gate (edicion-operaciones-con-dinero A3)
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_journal_consumer_noregression.sql
+
+      # edicion-operaciones-con-dinero (tanda A, grupo 3): el asiento VIGENTE (reversal_of IS NULL) con id estable, las dos
+      # convenciones de SaleOperationAdjusted / CreditNoteIssued, la rama PurchaseAdjusted (efectivo->efectivo, ->crédito,
+      # con IVA, adelantado al alta con P0451, doble proceso, P0450) y el despachador ruteando el tipo nuevo. Residuo cero.
+      - name: Run journal consumer edition gate (edicion-operaciones-con-dinero A3)
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_journal_consumer_edicion.sql
+
+      # edicion-operaciones-con-dinero (tanda A, grupo 4, 4.4): compra asentada -> editada dos veces -> borrada con las RPCs
+      # y el despachador reales: todos los asientos revertidos, libro diario en cero, 0 eventos pendientes (el defecto
+      # latente: PurchaseDeleted con P0451 eterno) y la compra histórica sin PurchaseCreated no emite PurchaseAdjusted.
+      - name: Run purchase edit journal gate (edicion-operaciones-con-dinero A4)
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_purchase_edit_journal.sql
+
+      # edicion-operaciones-con-dinero (tanda A, grupo 4, 4.1/4.3): dos ediciones CONCURRENTES de la misma compra (la
+      # segunda espera, recuenta y levanta P0404: estado final de UNA sola edición) y del mismo gasto (lost update: quedan
+      # las dos modificaciones). Paso APARTE porque necesita DOS conexiones reales (una sesión nunca bloquea contra su
+      # propio lock; dblink no sirve: el rol postgres de Supabase no es superusuario). Sincronización determinística por
+      # advisory lock observable en pg_locks.
+      - name: Run edition locks race gate (dos conexiones) (edicion-operaciones-con-dinero A4)
+        run: DB_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres bash supabase/tests/test_edicion_locks_race.sh

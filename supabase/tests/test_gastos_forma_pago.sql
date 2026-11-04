@@ -1890,8 +1890,16 @@ BEGIN
   -- error. Con `<> 0` la regla es local y completa: existe movimiento de caja
   -- del gasto ⇒ SIEMPRE se compensa. El comportamiento lo ejercita 8.5,
   -- inyectando a mano el estado corrupto.
-  IF position('v_cash_amount <> 0' in v_code) = 0 THEN
-    RAISE EXCEPTION 'GATE GASTOS FAILED (5.7-signo): rpc_delete_expense no contiene el guard `v_cash_amount <> 0`. La compensación no puede depender del signo que le ponga otra función (D8 + hallazgo del apply).';
+  -- edicion-operaciones-con-dinero (tanda A, D3): la compensación sale de la HUELLA NETA (op_money_footprint, que sólo
+  -- devuelve las filas con neto <> 0) y la dispara la EXISTENCIA de esa fila, no su signo: el guard `<> 0` de antes
+  -- vive ahora en el HAVING de la función de huella, y el borrado no compara el neto contra cero ni contra ningún
+  -- signo. El comportamiento (movimiento 'expense' POSITIVO inyectado a mano) lo sigue ejercitando 8.5, y la huella
+  -- neta de caja y su signo invertido, test_op_money_footprint.sql (S5).
+  IF position('op_money_footprint(' in v_code) = 0 OR position('f.book = ''cash''' in v_code) = 0 THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (5.7-signo): rpc_delete_expense no compensa la caja desde la huella neta (op_money_footprint, libro cash). La compensación no puede depender del signo que le ponga otra función (D8 + hallazgo del apply).';
+  END IF;
+  IF position('v_fp.net > 0' in v_code) > 0 OR position('v_fp.net < 0' in v_code) > 0 THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (5.7-signo): rpc_delete_expense compara el neto de la huella contra un signo. El disparo es por EXISTENCIA de la fila de huella, nunca por su signo.';
   END IF;
   IF position('v_cash_amount > 0' in v_code) > 0 THEN
     RAISE EXCEPTION 'GATE GASTOS FAILED (5.7-signo): rpc_delete_expense contiene el guard `v_cash_amount > 0` copiado verbatim de rpc_delete_sale_operation. Los movimientos de gasto son NEGATIVOS: ese guard es falso para todo gasto y desactiva la compensación entera —sin levantar un solo error—.';

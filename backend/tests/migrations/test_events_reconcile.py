@@ -65,10 +65,14 @@ MIGRATION_FILE = MIGRATIONS_DIR / "20260718000001_c25_events_outbox_reconcile.sq
 # REAL vive en supabase/tests/test_outbox_single_dispatcher.sql, que sí corre
 # con Postgres.
 #
+# edicion-operaciones-con-dinero (tanda A, 2026-11-04): el puntero pasa a 20261088000001, cuyo
+# único diff contra el cuerpo vivo (md5 fd8392d1…, sin CR) es el filtro del Consumer 3 (14→15 tipos,
+# suma PurchaseAdjusted) y su comentario; el cuerpo de evidence/tanda-a/ conserva el previo.
+#
 # Que este puntero no vuelva a envejecer lo sostiene
 # TestDispatcherMigrationPointer, abajo: si alguien agrega una migración más
 # nueva que redefine la función y no mueve esta constante, falla.
-DISPATCHER_MIGRATION_FILE = MIGRATIONS_DIR / "20261043000001_asiento_contable_gastos.sql"
+DISPATCHER_MIGRATION_FILE = MIGRATIONS_DIR / "20261088000001_edicion_operaciones_cimientos.sql"
 
 _DISPATCH_DEF_RE = re.compile(
     r"CREATE\s+OR\s+REPLACE\s+FUNCTION\s+public\.rpc_process_outbox_dispatch",

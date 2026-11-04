@@ -1,0 +1,61 @@
+BEGIN
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=4e0aa55a-775b-49b4-886c-285bfbff4ca8
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=25dc6db9-aa79-405a-af90-cdf4864e41cc
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=597db985-fab7-456c-aa6a-0d8d44967a2f
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=08232275-3cf2-4422-96d0-2e201ebea738
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=b38d31c5-6ca5-48c5-8194-2a0e7f2981d6
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=551922f0-7949-46ab-8c7a-f4bfa87e9a7d
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=08521e8b-dde6-4a8f-9d34-dd6b85dcd81b
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=d8abd878-8cf0-4a08-94eb-82db8b52f86f
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=02538f4f-ecb7-41eb-92b9-217253e2fb16
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=d2e776dc-5185-4145-859f-c7c96ca6f9f4
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=6caea05b-570b-40e3-9189-c6e93f42cf18
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=a50f7d84-ab41-4bdf-b6ed-03a3771d2f6b
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=7d4ab11b-be36-461f-8853-00e81adfc1a5
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=29f36ada-0ba1-411c-a29e-b4a0581f4f48
+NOTICE:  FAIL (a) el envío encola el email desde la fila: el dueño envía el email debía funcionar, dio 42883 function public.rpc_send_invitation_email(uuid, unknown, boolean) does not exist [P0001]
+NOTICE:  FAIL (b) autoridad: el vendedor reenvía debía dar P0403, dio 42883 function public.rpc_send_invitation_email(uuid, unknown, boolean) does not exist [P0001]
+NOTICE:  FAIL (c) enfriamiento y reenvío con token nuevo: reenviar enseguida debía dar P0439, dio 42883 function public.rpc_send_invitation_email(uuid, unknown, boolean) does not exist [P0001]
+NOTICE:  FAIL (d) tope diario de la cuenta: el envío 21 del día debía dar P0439, dio 42883 function public.rpc_send_invitation_email(uuid, unknown, boolean) does not exist [P0001]
+NOTICE:  FAIL (e) revocar: el vendedor revoca debía dar P0403, dio 42883 function public.rpc_revoke_invitation(uuid) does not exist [P0001]
+NOTICE:  FAIL (f) listar: el dueño lista debía funcionar, dio 42883 function public.rpc_list_account_invitations(uuid) does not exist [P0001]
+NOTICE:  FAIL (g) vista previa ligada a la identidad: column "account_display_name" of relation "account_invitations" does not exist [42703]
+NOTICE:  FAIL (h) aceptar activa el negocio: I acepta debía funcionar, dio P0404 P404: invalid or expired invitation token [P0001]
+NOTICE:  FAIL (h2) el invitado ve dos cuentas y su primera venta cae en el negocio: el selector debía mostrar 2 cuentas, mostró 1 [P0001]
+NOTICE:  FAIL (i) email válido y P0401: invitar a un email inválido debía dar P0400, dio 00000 (sin error) [P0001]
+NOTICE:  FAIL (j) estructura: rpc_invite_member(text, uuid) debía haberse retirado (D14) [P0001]
+ERROR:  GATE MULTIUSUARIO-INVITACIONES FAILED en 11 bloque(s):
+  - (a) el envío encola el email desde la fila el dueño envía el email debía funcionar, dio 42883 function public.rpc_send_invitation_email(uuid, unknown, boolean) does not exist [P0001]
+  - (b) autoridad el vendedor reenvía debía dar P0403, dio 42883 function public.rpc_send_invitation_email(uuid, unknown, boolean) does not exist [P0001]
+  - (c) enfriamiento y reenvío con token nuevo reenviar enseguida debía dar P0439, dio 42883 function public.rpc_send_invitation_email(uuid, unknown, boolean) does not exist [P0001]
+  - (d) tope diario de la cuenta el envío 21 del día debía dar P0439, dio 42883 function public.rpc_send_invitation_email(uuid, unknown, boolean) does not exist [P0001]
+  - (e) revocar el vendedor revoca debía dar P0403, dio 42883 function public.rpc_revoke_invitation(uuid) does not exist [P0001]
+  - (f) listar el dueño lista debía funcionar, dio 42883 function public.rpc_list_account_invitations(uuid) does not exist [P0001]
+  - (g) vista previa ligada a la identidad column "account_display_name" of relation "account_invitations" does not exist [42703]
+  - (h) aceptar activa el negocio I acepta debía funcionar, dio P0404 P404: invalid or expired invitation token [P0001]
+  - (h2) el invitado ve dos cuentas y su primera venta cae en el negocio el selector debía mostrar 2 cuentas, mostró 1 [P0001]
+  - (i) email válido y P0401 invitar a un email inválido debía dar P0400, dio 00000 (sin error) [P0001]
+  - (j) estructura rpc_invite_member(text, uuid) debía haberse retirado (D14) [P0001]
+CONTEXT:  PL/pgSQL function inline_code_block line 603 at RAISE
+EXIT=3
+=== test_invite_member_roles_and_plan_gate (RED, antes de la migración) ===
+ERROR:  GATE FAILED (16): rpc_invite_member(2-arg) revivió -- multiusuario-operativo tanda C lo retiró (D14).
+=== test_accept_invitation_binding (RED, antes de la migración) ===
+ERROR:  GATE ACCEPT-INVITATION-BINDING FAILED (2): aceptar no dejó la cuenta del negocio como cuenta activa (profiles.active_account_id = <NULL>, esperaba 112b5844-1f44-4548-9d27-dc3506cc22c4).
+EXIT=3

@@ -834,3 +834,94 @@ async def test_get_db_conn_role_check_absent_when_step2_off(mock_pool, tx_scope,
             conn_mock.fetchval.assert_not_awaited()
     finally:
         db_module.pool = None
+
+
+# ── multiusuario-operativo tanda A (D4) — el token transporta la cuenta ──────
+#
+# El claim `app_metadata.account_id` del JWT tiene que llegar a SQL por FastAPI
+# igual que llega por PostgREST: `current_account_ids()` lo lee de
+# `request.jwt.claims` y lo valida contra la membresía viva. Si `get_db_conn` lo
+# olvidara, SQL caería a la PREFERENCIA guardada mientras FastAPI autoriza con
+# los claims de rol DEL TOKEN: dos fuentes de verdad (design.md §Risks,
+# "Claims mínimos de FastAPI").
+
+ACCOUNT_ID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+
+
+def _expected_claims_with_account(user: dict, account_id: str) -> str:
+    return json.dumps(
+        {
+            "sub": user["user_id"],
+            "role": "authenticated",
+            "app_metadata": {"account_id": account_id},
+        }
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tx_scope", [True, False], ids=["tx-scope-on", "legacy-off"])
+async def test_get_db_conn_pushes_account_id_claim_when_context_carries_it(mock_pool, tx_scope):
+    """RED (3.1): con el contexto trayendo `account_id`, el JSON empujado a
+    `request.jwt.claims` lo incluye bajo `app_metadata` — en el camino
+    transaccional Y en el legacy (la palanca apagada no puede divergir)."""
+    pool_mock, conn_mock = mock_pool
+
+    import backend.core.database as db_module
+
+    db_module.pool = pool_mock
+    user = {**TEST_USER, "account_id": ACCOUNT_ID}
+
+    try:
+        with patch("backend.core.database.settings") as mock_settings:
+            mock_settings.tenancy_tx_scope_enabled = tx_scope
+            mock_settings.tenancy_tx_idle_timeout = "30s"
+            mock_settings.tenancy_rls_role_enabled = False
+
+            from backend.core.database import get_db_conn
+
+            gen = get_db_conn(user)
+            await gen.__anext__()
+
+            args = conn_mock.execute.call_args[0]
+            pushed = [a for a in args[1:] if isinstance(a, str) and a.startswith("{")]
+            assert _expected_claims_with_account(user, ACCOUNT_ID) in pushed, (
+                f"request.jwt.claims debe llevar app_metadata.account_id. Empujado: {pushed!r}"
+            )
+    finally:
+        db_module.pool = None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tx_scope", [True, False], ids=["tx-scope-on", "legacy-off"])
+@pytest.mark.parametrize(
+    "user",
+    [TEST_USER, {**TEST_USER, "account_id": None}],
+    ids=["sin-clave", "clave-None"],
+)
+async def test_get_db_conn_does_not_invent_account_id_when_context_lacks_it(mock_pool, tx_scope, user):
+    """TRIANGULATE (3.1): token viejo (sin el claim) => el JSON empujado queda
+    EXACTAMENTE como antes del change: ni una clave `app_metadata` vacía ni un
+    `account_id` null. SQL cae entonces a la preferencia / membresía más antigua."""
+    pool_mock, conn_mock = mock_pool
+
+    import backend.core.database as db_module
+
+    db_module.pool = pool_mock
+
+    try:
+        with patch("backend.core.database.settings") as mock_settings:
+            mock_settings.tenancy_tx_scope_enabled = tx_scope
+            mock_settings.tenancy_tx_idle_timeout = "30s"
+            mock_settings.tenancy_rls_role_enabled = False
+
+            from backend.core.database import get_db_conn
+
+            gen = get_db_conn(user)
+            await gen.__anext__()
+
+            args = conn_mock.execute.call_args[0]
+            pushed = [a for a in args[1:] if isinstance(a, str) and a.startswith("{")]
+            assert _expected_request_claims(TEST_USER) in pushed
+            assert not any("app_metadata" in p for p in pushed if '"sub"' in p)
+    finally:
+        db_module.pool = None

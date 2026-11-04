@@ -187,29 +187,18 @@ export interface ProductRankingClient {
   ): PromiseLike<{ data: ProductRankingRpcRow[] | null; error: { message: string } | null }>
 }
 
-interface AccountMembershipRow {
-  account_id: string
-}
-
-/** Forma estructural mínima del cliente para resolver la cuenta activa
- *  (mismo criterio que `backend/core/deps.py:get_account_id` y
- *  `generate-export/index.ts` — Regla de Tres: ya son 3 los consumidores de
- *  este criterio, de ahí la extracción). */
+/** Forma estructural mínima del cliente para resolver la cuenta activa: la RPC
+ *  canónica de la base (`current_account_ids()`, `SETOF uuid`, 0 o 1 fila).
+ *
+ *  multiusuario-operativo (tanda A, D4): antes era una consulta a `account_members`
+ *  ordenada por `(created_at, id)` — "la membresía más antigua" —, uno de los cuatro
+ *  criterios de cuenta activa que convivían. Con la cuenta activa elegible, ese criterio
+ *  dejaba de poder coincidir con el del token y el de las RPCs. */
 export interface AccountResolutionClient {
-  from(table: "account_members"): {
-    select(columns: string): {
-      eq(column: string, value: string): {
-        order(column: string, opts: { ascending: boolean }): {
-          order(
-            column: string,
-            opts: { ascending: boolean },
-          ): {
-            limit(n: number): PromiseLike<{ data: AccountMembershipRow[] | null; error: { message: string } | null }>
-          }
-        }
-      }
-    }
-  }
+  rpc(fn: "current_account_ids"): PromiseLike<{
+    data: string[] | string | null
+    error: { message: string } | null
+  }>
 }
 
 // ─── Pure helpers (gemelas de frontend/lib/reporting/revenue-canon.ts) ────────
@@ -385,25 +374,20 @@ export async function fetchDashboardFinancials(
 }
 
 /**
- * Resuelve la cuenta activa del usuario con el mismo criterio determinístico
- * que `backend/core/deps.py:get_account_id` y `generate-export/index.ts`: la
- * membresía con `created_at` más antiguo, desempatada por `id`. `null` si no
- * tiene ninguna cuenta activa — el caller decide si degrada.
+ * Resuelve la cuenta activa del usuario pidiéndosela a la base: la RPC
+ * `current_account_ids()` —la MISMA función que ven las RPCs de negocio, la RLS y
+ * `backend/core/deps.py:get_account_id`—, ejecutada con el JWT del usuario (el claim
+ * `app_metadata.account_id` del token, o la preferencia / la membresía más antigua si el
+ * token no lo trae). `null` si no hay cuenta activa (sin membresía, o un token que declara
+ * una cuenta de la que ya no es miembro) — el caller decide si degrada.
+ *
+ * No recibe el usuario: la cuenta sale de la SESIÓN del cliente, nunca de un parámetro.
  */
-export async function resolveActiveAccountId(
-  client: AccountResolutionClient,
-  userId: string,
-): Promise<string | null> {
-  const { data, error } = await client
-    .from("account_members")
-    .select("account_id")
-    .eq("user_id", userId)
-    .order("created_at", { ascending: true })
-    .order("id", { ascending: true })
-    .limit(1)
-
-  if (error || !data || data.length === 0) return null
-  return data[0].account_id
+export async function resolveActiveAccountId(client: AccountResolutionClient): Promise<string | null> {
+  const { data, error } = await client.rpc("current_account_ids")
+  if (error || data == null) return null
+  const first = Array.isArray(data) ? data[0] : data
+  return typeof first === "string" && first.length > 0 ? first : null
 }
 
 /**

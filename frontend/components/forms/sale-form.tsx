@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo, useCallback, useEffect, useRef } from "react"
+import { useState, useMemo, useCallback, useRef } from "react"
 import type { ScanFeedback } from "@/hooks/use-barcode-scanner"
 import { useScaleSettings } from "@/hooks/data/use-scale-settings"
 import { resolveScan } from "@/lib/scan-resolution"
@@ -13,13 +13,12 @@ import { CartItemList } from "@/components/shared/cart-item-list"
 import { BarcodeScannerInput } from "@/components/shared/barcode-scanner-input"
 import { useProducts } from "@/hooks/data/use-products"
 import { useClients } from "@/hooks/data/use-clients"
-import { useCollectionSettings } from "@/hooks/data/use-collection-settings"
+import { useDueDateCascade } from "@/hooks/use-due-date-cascade"
 import { useSales } from "@/hooks/data/use-sales"
 import { useQueryClient } from "@tanstack/react-query"
 import { useAuth } from "@/contexts/auth-context"
 import { useUnitsOfMeasure } from "@/hooks/use-units-of-measure"
 import { formatMoney, CURRENCIES, type Currency } from "@/lib/format"
-import { addDaysToIsoDate } from "@/lib/receivables-aging"
 import { SALE_CHANNELS } from "@/lib/kpi-format"
 import type { SaleOperation } from "@/lib/group-operations"
 import { unitInputStep, unitInputMin, resolveUnit } from "@/lib/unit-utils"
@@ -41,7 +40,6 @@ import { Plus, UserPlus, ShoppingCart, CalendarIcon, AlertCircle } from "lucide-
 import { toast } from "sonner"
 import { BranchSelect } from "@/components/branches/BranchSelect"
 import { PaymentMethodSelect, BankAccountDestinationSelect } from "@/components/payment-methods/PaymentMethodSelect"
-import { Checkbox } from "@/components/ui/checkbox"
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -52,6 +50,7 @@ import { humanizeOperationError } from "@/lib/operation-errors"
 import { useRouter } from "next/navigation"
 import { useCustomerAccount } from "@/hooks/data/use-customer-account"
 import { useBranches } from "@/hooks/data/use-branches"
+import { CashOptinBlock } from "@/components/cash/CashOptinBlock"
 import { useCashOptin } from "@/hooks/use-cash-optin"
 
 interface SaleFormProps {
@@ -203,18 +202,16 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
   // usuario lo TOCÓ — sin tocar, va null y la cascada AUTORITATIVA se
   // resuelve en _pay_register_party_charge (nunca acá). El POS no tiene este
   // campo: usa la cascada sin UI extra (D11).
-  const { data: collectionSettings } = useCollectionSettings()
-  const [dueDate, setDueDate] = useState("")
-  const [dueDateTouched, setDueDateTouched] = useState(false)
-  const effectiveTermsDays =
-    selectedClient?.paymentTermsDays ??
-    collectionSettings?.defaultPaymentTermsDays ??
-    null
-  const resolvedDueDate =
-    effectiveTermsDays !== null && date ? addDaysToIsoDate(date, effectiveTermsDays) : ""
-  useEffect(() => {
-    if (!dueDateTouched) setDueDate(resolvedDueDate)
-  }, [resolvedDueDate, dueDateTouched])
+  // remitos-compra (tanda B, 7.3): la cascada vive en `useDueDateCascade`
+  // (hooks/use-due-date-cascade.ts), compartida con el diálogo que convierte un
+  // remito de compra: una sola definición, sin copiarla.
+  const {
+    dueDate,
+    touched: dueDateTouched,
+    setDueDate: handleDueDateChange,
+    effectiveTermsDays,
+    valueForServer: dueDateForServer,
+  } = useDueDateCascade({ date, entityTermsDays: selectedClient?.paymentTermsDays })
 
   // ── pagos-cableados-restantes (OQ-C): opt-in de caja ────────────────────────
   // La sucursal EFECTIVA es la elegida en el form, o la primera activa de la
@@ -259,7 +256,9 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
   // silencio).
   const currentSession = cashOptin.session
   const cashOptinEligible = cashOptin.eligible
-  const cashOptinReason = cashOptin.reason
+  // caja-optin-carga: en el alta en efectivo, no se confirma mientras se averigua
+  // la sesión. En la edición no se ofrece caja, así que no se espera.
+  const cashPending = !isEdit && isCashSelected && cashOptin.isLoading
 
   const cartTotal = useMemo(() => calcCartTotal(cartItems), [cartItems])
 
@@ -400,6 +399,10 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
   /** El submit real, sin el paso de confirmación (lo comparten el submit
    * directo y el botón "Guardar y anular" del AlertDialog). */
   async function submitOperation() {
+    // caja-optin-carga: defensa en profundidad — el botón ya está deshabilitado
+    // mientras se averigua la sesión, pero un submit por otra vía (Enter) no
+    // puede registrar la venta en efectivo a ciegas.
+    if (cashPending) return
     if (cartItems.length === 0) {
       toast.error("Agregá al menos un producto al carrito")
       return
@@ -488,7 +491,7 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
           // cobranzas-vencimientos (D3): SOLO viaja el override que el
           // usuario tocó — sin tocar, null y la cascada se resuelve en el
           // servidor (una sola definición del vencimiento).
-          dueDate: isCreditSelected && dueDateTouched && dueDate ? dueDate : null,
+          dueDate: isCreditSelected ? dueDateForServer : null,
           // pos-banco-movimientos (D2): override opcional del destino —
           // null cuando el selector no está montado (kind no bancario) o
           // el usuario dejó "usar el destino configurado".
@@ -613,7 +616,7 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
               type="submit"
               ref={submitButtonRef}
               className="w-full"
-              disabled={submitting || cartItems.length === 0 || isFiscallyLocked}
+              disabled={submitting || cartItems.length === 0 || isFiscallyLocked || cashPending}
               aria-disabled={isFiscallyLocked}
               aria-describedby={
                 isFiscallyLocked
@@ -824,10 +827,7 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
                       type="date"
                       value={dueDate}
                       min={date}
-                      onChange={(e) => {
-                        setDueDate(e.target.value)
-                        setDueDateTouched(true)
-                      }}
+                      onChange={(e) => handleDueDateChange(e.target.value)}
                       className="h-7 w-auto bg-background border-border text-foreground text-xs"
                     />
                   </div>
@@ -849,26 +849,14 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
               El checkbox SÓLO aparece cuando las tres condiciones de
               servidor se cumplen (kind=cash + sesión abierta en la sucursal
               efectiva + fecha=hoy) — si no, se explica el motivo (D4: nunca
-              se oculta en silencio, y nunca se marca solo). */}
+              se oculta en silencio, y nunca se marca solo). Mientras se averigua
+              la sesión (caja-optin-carga) se avisa y «Confirmar» espera. */}
           {!isEdit && isCashSelected && (
-            <div className="flex flex-col gap-1.5 rounded-md border border-border bg-accent/20 px-3 py-2 text-xs">
-              {cashOptinEligible ? (
-                <label className="flex items-center gap-2 cursor-pointer text-foreground">
-                  <Checkbox
-                    checked={registerInCash}
-                    onCheckedChange={(v) => setRegisterInCash(v === true)}
-                  />
-                  <span>
-                    Registrar en caja — sesión {currentSession?.id.slice(0, 8)}…
-                  </span>
-                </label>
-              ) : (
-                <div className="flex items-center gap-2 text-muted-foreground">
-                  <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-                  <span>{cashOptinReason}</span>
-                </div>
-              )}
-            </div>
+            <CashOptinBlock
+              cash={cashOptin}
+              registerInCash={registerInCash}
+              onRegisterInCashChange={setRegisterInCash}
+            />
           )}
         </div>
 

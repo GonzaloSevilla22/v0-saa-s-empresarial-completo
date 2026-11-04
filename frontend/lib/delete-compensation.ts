@@ -74,6 +74,14 @@ export interface DeletableOperationFlags {
   sourceDeliveryNoteId?: string | null
   /** Etiqueta del remito de origen (`R-00000007`), o null si es anterior a la numeración. */
   sourceDeliveryNoteLabel?: string | null
+  /**
+   * remitos-compra (tanda B, D9): motivo por el que NO se puede borrar la compra
+   * nacida de un remito (el usuario no puede anular el remito —borrar la compra lo
+   * reabre y lo deja anulable— o la sucursal del remito está desactivada o
+   * cerrada). Lo arma el listado, que tiene el rol y el derivado del servidor. Va
+   * antes que el bloqueo por caja cerrada: es el orden de los guards de la RPC.
+   */
+  sourceDeliveryNoteDeleteBlockedReason?: string | null
 }
 
 export interface DeleteCompensationInfo {
@@ -128,6 +136,11 @@ export function getDeleteCompensation(
       blockedReason: flags.fiscalBlockedReason || FISCAL_BLOCKED_REASON,
       compensations: [],
     }
+  }
+  // remitos-compra (D9): el rol de anular el remito y la sucursal viva se evalúan en el servidor
+  // antes que cualquier compensación (lock del remito → rol → sucursal → dinero).
+  if (flags.sourceDeliveryNoteDeleteBlockedReason) {
+    return { deletable: false, blockedReason: flags.sourceDeliveryNoteDeleteBlockedReason, compensations: [] }
   }
   if (flags.isDeleteBlocked) {
     return { deletable: false, blockedReason: NO_OPEN_SESSION_BLOCKED_REASON[document], compensations: [] }
@@ -196,11 +209,15 @@ export function getDeleteCompensation(
 
   // remitos-venta (D9): el remito vuelve a pendiente y el stock NO se repone — la
   // mercadería ya salió con el remito. Redacción fija (D9); sin número no se inventa uno.
+  // remitos-compra (D9): en la COMPRA es el espejo — la mercadería ya ENTRÓ con el remito, así
+  // que borrar la compra tampoco toca el stock; para sacarla se anula el remito.
   const notes: string[] = []
   if (flags.sourceDeliveryNoteId) {
     const remito = flags.sourceDeliveryNoteLabel ? `el remito ${flags.sourceDeliveryNoteLabel}` : "el remito"
     notes.push(
-      `El stock no vuelve: la mercadería quedó entregada con ${remito}, que vuelve a quedar pendiente. Para devolverla al stock, anulá el remito.`,
+      document === "compra"
+        ? `El stock no vuelve: la mercadería quedó recibida con ${remito}, que vuelve a quedar pendiente. Para sacarla del stock, anulá el remito.`
+        : `El stock no vuelve: la mercadería quedó entregada con ${remito}, que vuelve a quedar pendiente. Para devolverla al stock, anulá el remito.`,
     )
   }
 

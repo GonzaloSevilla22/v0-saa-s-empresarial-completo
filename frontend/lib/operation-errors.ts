@@ -142,7 +142,19 @@ const QUOTE_CHANGED_ERROR = /quote_changed/
 // El RAISE lleva el nombre congelado del producto detrás de los dos puntos.
 const QUOTE_PRODUCT_UNAVAILABLE_ERROR = /quote_product_unavailable(?::\s*([^\n]+))?/
 const QUOTE_CLIENT_UNAVAILABLE_ERROR = /quote_client_unavailable/
-const PRODUCT_NOT_FOUND_ERROR = /product_not_found/
+// `Product not found: <uuid>` (P0404 de las RPCs de venta y compra) es el mismo caso que `product_not_found`:
+// con el filtro de cuenta dentro del SELECT … FOR UPDATE (multiusuario-operativo tanda B, D8) un producto de OTRA
+// cuenta da el mismo texto que uno inexistente. El uuid nunca se muestra.
+const PRODUCT_NOT_FOUND_ERROR = /product_not_found|Product not found/i
+// multiusuario-operativo tanda B (D9): el rechazo de rol de las RPCs de ventas y compras y la regla de autor
+// traen la frase lista para leer detrás de `insufficient_role:` ("tu rol no permite eliminar compras (requiere
+// compras, administrador o dueño)", "solo el dueño o un administrador modifican las ventas que cargó otro
+// miembro"). Se muestra esa frase —nombra el rol que hace falta— en vez del genérico "rol de vendedor", que para
+// una compra sería mentira.
+const OPERATION_ROLE_REASON_ERROR =
+  /insufficient_role:\s*((?:tu rol no permite (?:registrar|editar|eliminar) (?:ventas|compras)|solo el dueño o un administrador modifican las (?:ventas|compras) que cargó otro miembro)[^\n]*)/i
+// El observador (sin rol de escritura) recibe P0401 `unauthorized` de la propia RPC.
+const UNAUTHORIZED_ERROR = /^\s*(?:P0401\s*)?unauthorized\s*$/i
 const PRODUCT_IS_PARENT_ERROR = /product_is_parent/
 // P0403 de la RPC (`insufficient_role`) y el 403 de `require_account_role`
 // ("Rol de cuenta insuficiente: se requiere …", sin `code`): un solo texto.
@@ -223,6 +235,12 @@ const DELIVERY_NOTE_PURCHASE_LOCKED_ERROR = /delivery_note_purchase_locked/
 const DELIVERY_NOTE_PURCHASE_MISMATCH_ERROR = /delivery_note_purchase_mismatch/
 const DELIVERY_NOTE_PURCHASE_DATE_BEFORE_RECEIPT_ERROR = /delivery_note_purchase_date_before_receipt/
 const DELIVERY_NOTE_ITEMS_FROM_SOURCE_ERROR = /delivery_note_items_from_source/
+// remitos-compra (tanda B, 7.7): lo que emite el borrado de la compra nacida de un
+// remito (`delivery_note_purchase_delete_forbidden`, P0403) y la protección del
+// puente `purchases.source_delivery_note_id` (`delivery_note_source_protected`,
+// P0403). Llegan por los endpoints de /compras, sin contexto de remito.
+const DELIVERY_NOTE_PURCHASE_DELETE_FORBIDDEN_ERROR = /delivery_note_purchase_delete_forbidden/
+const DELIVERY_NOTE_SOURCE_PROTECTED_ERROR = /delivery_note_source_protected/
 const UUID_ONLY = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 // stock-ledger-solo-rpc (tanda B, task 11.2): literales del núcleo único de ajuste
@@ -671,6 +689,22 @@ export function humanizeOperationError(
     }
   }
 
+  if (DELIVERY_NOTE_PURCHASE_DELETE_FORBIDDEN_ERROR.test(message)) {
+    return {
+      message:
+        "Borrar una compra que nació de un remito reabre el remito y lo deja anulable: requiere administrador o dueño. " +
+        "No se eliminó nada.",
+    }
+  }
+
+  if (DELIVERY_NOTE_SOURCE_PROTECTED_ERROR.test(message)) {
+    return {
+      message:
+        "Esta compra está vinculada a un remito y no se modifica a mano: el vínculo lo escribe sólo la conversión del remito. " +
+        "Para corregirla, eliminá la compra, corregí el remito y volvé a convertir el remito. No se guardó nada.",
+    }
+  }
+
   if (DELIVERY_NOTE_PURCHASE_LOCKED_ERROR.test(message)) {
     return {
       message:
@@ -712,6 +746,24 @@ export function humanizeOperationError(
     return {
       message:
         "Uno de los productos no existe o no pertenece a esta cuenta. Quitalo o reemplazalo y volvé a intentar.",
+    }
+  }
+
+  const roleReason = OPERATION_ROLE_REASON_ERROR.exec(message)
+  if (roleReason && !isRemito && !isStockAdjustment) {
+    const phrase = roleReason[1].trim().replace(/[.\s]+$/, "")
+    return {
+      message:
+        `${phrase.charAt(0).toUpperCase()}${phrase.slice(1)}. ` +
+        "Pedile al dueño o a un administrador de la cuenta que te asigne el rol que corresponde.",
+    }
+  }
+
+  if (UNAUTHORIZED_ERROR.test(message)) {
+    return {
+      message:
+        "Tu usuario sólo puede ver la información de esta cuenta: no puede registrar, editar ni eliminar ventas ni compras. " +
+        "Pedile al dueño o a un administrador que te asigne un rol de escritura.",
     }
   }
 

@@ -231,7 +231,7 @@ DECLARE
 
   -- Cuerpo que deja 20261077000001: md5(replace(prosrc, E'\r', '')), medido en el
   -- stack local después de aplicarla. Es el `v_rewritten` de su preflight.
-  -- stock-edicion-sucursal-piso (20261080000001) redefine la reversa (el contramovimiento lleva la
+  -- stock-edicion-sucursal-piso (20261087000001) redefine la reversa (el contramovimiento lleva la
   -- traza del piso): su md5 pasa a ser el `v_rewritten` de ESA migración (antes
   -- ae1ec5de1a6faedf3246013b6dc7f2fd, el de 20261077000001). El respaldo a la principal de este
   -- change sigue en el cuerpo (los bloques (A1)-(A3b) lo ejecutan).

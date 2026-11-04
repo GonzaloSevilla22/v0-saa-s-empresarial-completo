@@ -122,6 +122,9 @@ function membersChain(): MembersChain {
 
 vi.mock("@/lib/supabase/client", () => ({
   createClient: () => ({
+    // multiusuario-operativo (tanda A): el contexto lee las cuentas con `rpc_my_accounts()` (nunca
+    // `account_members`): sin cuentas -> el comportamiento previo (accountId vacío, sin error).
+    rpc: () => Promise.resolve({ data: [], error: null }),
     from: (table: string) => {
       if (table === "profiles") {
         return {

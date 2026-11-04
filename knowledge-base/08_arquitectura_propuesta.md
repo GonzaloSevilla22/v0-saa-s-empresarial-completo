@@ -122,6 +122,15 @@ await supabase.rpc('rpc_atomic_log_ai_insight', {
 6. Storage: RLS en buckets (owner-only para invoices, public read para avatars)
 ```
 
+### Correos transaccionales — `email_logs` sólo se escribe desde el servidor (email-logs-cierre-insert)
+
+`public.email_logs` es la **cola** de los correos: cada fila `pending` dispara el trigger `on_email_log_insert`, que invoca a la Edge Function `send-email`, y ésta manda el correo desde `no-reply@aliadata.com.ar` al `recipient` con el `subject` de la fila. Escribirla equivale entonces a **mandar un correo con la marca de ALIADATA a cualquier destinatario**. Por eso:
+
+- **`authenticated` y `anon` no tienen INSERT, UPDATE, DELETE ni TRUNCATE sobre `email_logs`**, y la tabla **no tiene ninguna policy de escritura** (default-deny de la RLS). `authenticated` conserva sólo `SELECT`, filtrado por la policy de administradores. Un `INSERT` por PostgREST con el token de un usuario da `42501`. Hasta 2026-10-17 existía `email_logs_backend_insert WITH CHECK (true)` (vector de phishing, OQ-7 de `multiusuario-operativo`).
+- **Quién escribe, y sólo así:** (1) funciones SQL **`SECURITY DEFINER`** (triggers, cron y RPCs: corren con el privilegio de su propietario aunque las dispare un `authenticated`); (2) el backend FastAPI por el contexto de servicio (`get_service_conn`, usuario `postgres`), nunca por `get_db_conn`; (3) la Edge Function `send-email` con la service role key, que sólo **actualiza** el estado.
+- **Un correo disparado por un usuario se encola dentro de una RPC `SECURITY DEFINER`**, con el destinatario y el `user_id` derivados de la sesión (`auth.uid()` + `auth.users`) o de la fila que la RPC ya validó, **nunca de un parámetro libre**. Ejemplo: `rpc_request_subscription_cancellation()` encola el `plan_downgraded` al email del titular. Una función nueva que escriba en `email_logs` **tiene que ser `SECURITY DEFINER`** (lo barre el gate `test_email_logs_insert_cerrado.sql`).
+- **Las plantillas no confían en la metadata.** `supabase/functions/_shared/email-templates.ts` escapa (`escapeHtml`) todo dato que no sea una constante, y **ningún enlace sale de la metadata**: todo botón se arma desde `APP_URL` y `layout()` descarta un `ctaUrl` que no esté bajo ella. El nombre del adjunto pasa por `safeFilenamePart`.
+
 ### Variables de Entorno
 ```
 # Públicas (NEXT_PUBLIC_*)
@@ -286,6 +295,33 @@ Ambas palancas se apagan de forma independiente (variable de entorno en Render, 
 ```
 
 **Paso 3 futuro (no implementado)**: un rol de login dedicado sin BYPASSRLS (en vez del cambio de rol por transacción) fallaría *cerrado* si algún camino de código olvidara adoptar el rol — hoy el diseño falla *abierto* (mitigado porque claims y cambio de rol se setean juntos, en el mismo punto). Se planifica sobre un Paso 2 ya estable; ver `CHANGES.md`, ficha `v31-tenancy-pool-rls`, para el criterio de arranque.
+
+### Resolver único de la cuenta activa (multiusuario-operativo, tanda A)
+
+Hasta este change convivían **cuatro** criterios de "cuenta activa" ("la membresía más antigua", cada uno con su desempate): el custom access token hook, `get_account_id` de FastAPI, `resolveActiveAccountId` de las Edge Functions y el `auth-context` del frontend — más los `current_account_ids() … LIMIT 1` sin orden de 45 RPCs. Bajo multi-membresía eligían cuentas distintas (una venta de servicio de un invitado quedaba en su cuenta personal).
+
+Ahora hay **uno solo, en la base**:
+
+```
+claim app_metadata.account_id  ──▶ current_account_ids() ──▶ 0 o 1 fila (validada contra la membresía viva)
+(token / request.jwt.claims)         │
+                                     └─ sin claim ─▶ resolve_active_account(auth.uid())
+                                                      = profiles.active_account_id si sigue siendo membresía,
+                                                        si no la más antigua (created_at; a igual instante, la propia; luego id)
+```
+
+- **El token transporta la cuenta**: el hook emite `app_metadata.account_id` junto con `account_role`, `account_roles` y `plan` **de esa misma cuenta**. `get_db_conn` empuja ese claim a `request.jwt.claims` junto con `sub` y `role`, así SQL resuelve igual por FastAPI y por PostgREST.
+- **Los claims de rol sólo valen si el token declara la cuenta** (`require_account_role`): un token sin `account_id` se resuelve contra la base (`rpc_my_active_account_roles()`, que ya opera sobre la cuenta activa).
+- **FastAPI y las Edge Functions no tienen resolver propio**: `get_account_id` lee `current_account_ids()`; `_shared/reporting-canon.ts::resolveActiveAccountId` invoca la misma RPC con el JWT del usuario.
+- **Guard de pestaña desfasada**: `X-Account-Id` (sólo hacia FastAPI — las Edge Functions no admiten esa cabecera en su preflight) y `409 account_switched` (RFC 7807).
+- **Regla**: ningún componente ordena `account_members` por su cuenta para decidir "la" cuenta. El gate `test_multiusuario_cuenta_activa.sql` lo barre por convención.
+
+### Invitación a una cuenta (multiusuario-operativo, tanda C)
+
+- **El email se encola en SQL, no lo inserta el backend ni el navegador.** `rpc_send_invitation_email` (`SECURITY DEFINER`) escribe en `email_logs` en la misma transacción que crea o renueva la invitación: el destinatario y el token salen de la **fila**, y nada del email depende de la policy de escritura de `email_logs` (cerrada a los usuarios por el hotfix `email-logs-cierre-insert`). La Edge Function `send-email` sólo renderiza (`_shared/email-templates.ts`, todo dato escapado, el link armado con `APP_URL`) y entrega por Resend.
+- **La aceptación y la vista previa van por FastAPI**, no por PostgREST: el `P0404` y el `P0409` llegan como 404 y 409 en vez de un 500. Ninguna de las dos usa `get_account_id` (el invitado todavía no es miembro; el guard de pestaña desfasada no aplica).
+- **La identidad la liga la base**: se resuelve el email contra `auth.users` cuando el claim no lo trae (el backend empuja sólo `sub`, `role` y `app_metadata.account_id`).
+- **La ruta pública `/invitacion/[token]`** está en la allow-list de `route-access.ts`; el middleware la sirve con `Referrer-Policy: no-referrer` y `X-Robots-Tag: noindex` (el token viaja en el path). El registro y la verificación de email aceptan un `next` **sólo** con esa forma (`safeInvitationNext`), re-validada en la acción de servidor.
 
 ### Lo que NO se migra (queda en Supabase)
 | Componente | Razón |

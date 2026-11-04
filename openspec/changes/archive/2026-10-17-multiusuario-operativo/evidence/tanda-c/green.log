@@ -1,0 +1,53 @@
+BEGIN
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=7125d226-311d-4aec-bafb-c6d46b4e069e
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=132d6f07-9fe2-4c77-b766-a1a20444c782
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=58a440ac-fe4d-4f80-a460-65e3d21a2737
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=41952deb-c8f6-410d-92b2-83395e79b15f
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=702cf223-3ea1-4202-8e4e-016534e09910
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=94a5198d-1ee8-46ba-bf54-d6473a25a914
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=609a912e-fe47-4767-97c8-966d3389c987
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=3549c836-cb38-4aaf-b672-ac08844b41cd
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=82977b7e-4431-4752-b8de-a9899524bfa9
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=ff49c476-f153-49ac-ab95-724e3efce301
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=e9b90f4e-c23d-42cc-943e-f47402411cae
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=3628d8fc-097f-4fc6-8539-16640204bfa4
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=eb91f248-6542-4e6f-a21c-9ae748b07e74
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=cb6a3342-83f7-4b52-927f-2489342a4cc8
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=8f43fb1a-55c2-4790-a96b-946101eb1b93
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=34480c15-91bc-4f7f-b8cf-beccd19e6151
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=3e0ce754-6cef-491b-8f68-3538a18f8dd8
+NOTICE:  PASS (a): el envío encola UN org_invite con el recipient y el token de la fila, el invitador, las etiquetas del catálogo y el snapshot; sin parámetros de destino; nombre recortado y sin saltos de línea.
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=0ad6729f-a3e6-4f98-bab7-4df248e5c17a
+NOTICE:  PASS (b): vendedor P0403, observador P0401, otra cuenta P0404 (indistinguible de inexistente), sin sesión P0401; el administrador sí; los rechazos no dejan emails.
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=62b5da8d-94f4-43f0-b481-12356a6af412
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=25e86839-f324-47c0-8831-b212162560e8
+NOTICE:  PASS (c): reenviar enseguida = P0439 sin efectos; pasado el enfriamiento ROTA el token, renueva el vencimiento y encola el email con el token nuevo; el link viejo deja de servir; la vencida revive.
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=f8a58991-92c1-45c9-8b21-e4a4c4016d39
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=496c7d67-9a4c-47c1-8bbf-14853be47d8a
+NOTICE:  PASS (d): con 20 envíos en 24 h el siguiente es P0439 invitation_daily_cap sin efectos; la cuenta B no lo comparte; pasadas 24 h se libera.
+NOTICE:  PASS (e): vendedor P0403, observador P0401, otra cuenta P0404, sin sesión P0401; revocar es un estado idempotente con revoked_at; aceptar y previsualizar fallan IGUAL que un token inexistente; no se reenvía; se puede reinvitar.
+NOTICE:  PASS (f): el dueño y el administrador listan (sin token, con state/send_count/last_sent_at); vendedor P0403, observador P0401, otra cuenta P0404; ventana de 30 días.
+NOTICE:  PASS (g): la identidad invitada ve negocio/invitador/roles/vencimiento (sin token ni email); otra identidad, vencida, inexistente y revocada = el MISMO error; sin sesión P0401; ya-miembro lo informa.
+NOTICE:  PASS (h): aceptar crea la membresía con los roles, deja profiles.active_account_id = A, la cuenta personal se conserva, el selector lista 2, la primera venta (con y sin claim) cae en el NEGOCIO; el token no se canjea dos veces.
+NOTICE:  PASS (i): email inválido / con salto de línea / all_users = P0400; "Not authenticated" = P0401 en invitar y en aceptar.
+NOTICE:  PASS (j): overload de 2 args retirado, una definición viva por función, CHECK con revoked, columnas nuevas, ACLs (sin anon ni PUBLIC), COMMENT, candado de cuerpo, email_logs cerrada.
+NOTICE:  GATE MULTIUSUARIO-INVITACIONES OK: la invitación se envía, se reenvía con token nuevo, se revoca y se lista; la vista previa está ligada a la identidad; aceptar activa el negocio (a-j).
+DO
+ROLLBACK
+EXIT=0

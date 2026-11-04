@@ -260,3 +260,105 @@ describe("RegisterPaymentMadeForm (pago a proveedor) — opt-in de caja (espejo)
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument()
   })
 })
+
+// ── caja-optin-carga ─────────────────────────────────────────────────────────
+// Caso real (humo de remitos-compra tanda B, 2026-10-16): confirmar en efectivo
+// ANTES de que carguen las cajas y la sesión mandaba cashSessionId=null y el
+// cobro/pago se registraba SIN movimiento de caja, en silencio. Mientras se
+// averigua la sesión el botón de confirmar queda deshabilitado con el aviso
+// «Verificando la caja…»; con la sesión resuelta (haya o no) se habilita.
+function mockCashLoading() {
+  useCashboxesMock.mockReturnValue({ data: undefined, isLoading: true })
+  useCurrentSessionMock.mockReturnValue({ data: undefined, isLoading: false })
+}
+
+function mockCashResolved(session: { id: string } | null) {
+  useCashboxesMock.mockReturnValue({ data: [{ id: "cashbox-1" }], isLoading: false })
+  useCurrentSessionMock.mockReturnValue({ data: session, isLoading: false })
+}
+
+describe.each([
+  {
+    nombre: "RegisterPaymentForm (cobro)",
+    boton: /registrar cobro/i,
+    mutation: registerPaymentMock,
+    ui: () => <RegisterPaymentForm clientId="client-1" />,
+  },
+  {
+    nombre: "RegisterPaymentMadeForm (pago a proveedor)",
+    boton: /registrar pago/i,
+    mutation: registerPaymentMadeMock,
+    ui: () => <RegisterPaymentMadeForm supplierId="supplier-1" />,
+  },
+])("$nombre — caja cargando (caja-optin-carga)", ({ boton, mutation, ui }) => {
+  it("efectivo con la caja cargando: avisa «Verificando la caja…» y NO deja confirmar", async () => {
+    mockCashLoading()
+    const user = userEvent.setup()
+    render(ui())
+    await selectCash(user)
+
+    expect(screen.getByRole("status")).toHaveTextContent("Verificando la caja…")
+    expect(screen.getByRole("button", { name: boton })).toBeDisabled()
+    // No se afirma «no hay caja» mientras no se sabe.
+    expect(screen.queryByText(/no hay caja abierta/i)).not.toBeInTheDocument()
+  })
+
+  it("aunque el submit llegue igual (Enter, test), NO se registra sin caja mientras carga", async () => {
+    mockCashLoading()
+    const user = userEvent.setup()
+    const { container } = render(ui())
+    await selectCash(user)
+    await fillAmount(user)
+
+    fireEvent.submit(container.querySelector("form") as HTMLFormElement)
+
+    await new Promise((r) => setTimeout(r, 50))
+    expect(mutation).not.toHaveBeenCalled()
+  })
+
+  it("al resolver CON sesión: se habilita y el cobro sale con la sesión pre-marcada", async () => {
+    mockCashLoading()
+    const user = userEvent.setup()
+    const { rerender } = render(ui())
+    await selectCash(user)
+    await fillAmount(user)
+    expect(screen.getByRole("button", { name: boton })).toBeDisabled()
+
+    mockCashResolved({ id: "session-resuelta-1" })
+    rerender(ui())
+
+    expect(screen.queryByRole("status")).not.toBeInTheDocument()
+    expect(screen.getByRole("checkbox")).toHaveAttribute("data-state", "checked")
+    await user.click(screen.getByRole("button", { name: boton }))
+    await waitFor(() => expect(mutation).toHaveBeenCalledTimes(1))
+    expect(mutation.mock.calls[0][0].cashSessionId).toBe("session-resuelta-1")
+  })
+
+  it("al resolver SIN sesión: se habilita (no bloquea para siempre), con el motivo de caja cerrada", async () => {
+    mockCashLoading()
+    const user = userEvent.setup()
+    const { rerender } = render(ui())
+    await selectCash(user)
+    await fillAmount(user)
+    expect(screen.getByRole("button", { name: boton })).toBeDisabled()
+
+    mockCashResolved(null)
+    rerender(ui())
+
+    expect(screen.getByText(/no hay caja abierta/i)).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: boton })).toBeEnabled()
+    await user.click(screen.getByRole("button", { name: boton }))
+    await waitFor(() => expect(mutation).toHaveBeenCalledTimes(1))
+    expect(mutation.mock.calls[0][0].cashSessionId).toBeNull()
+  })
+
+  it("forma de pago bancaria: no hay espera de caja aunque las consultas estén cargando", async () => {
+    mockCashLoading()
+    const user = userEvent.setup()
+    render(ui())
+    await selectTransfer(user)
+
+    expect(screen.queryByRole("status")).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: boton })).toBeEnabled()
+  })
+})

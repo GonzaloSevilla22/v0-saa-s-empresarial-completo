@@ -161,29 +161,14 @@ Deno.serve(async (req) => {
 
     // Resolve account_id for tenancy-aware queries (C-19). billing-edge-
     // effective-plan (task 5.4): reemplaza el `.single()` que lanzaba si el
-    // usuario pertenecía a 2+ cuentas por una regla determinista de
-    // membresía más antigua. No hay una vía autorizada para pedirle el
-    // account_id resuelto a `rpc_my_effective_plan()` (deliberado, D1: el RPC
-    // solo devuelve el plan, nunca el identificador de cuenta), así que esta
-    // función resuelve la cuenta por su cuenta, sobre la misma tabla
-    // (account_members), para el mismo usuario.
+    // usuario pertenecía a 2+ cuentas.
     //
-    // fix 3 (revisión adversarial, reutilización antes que repetición): deja
-    // de reimplementar la resolución localmente (`resolveAccountId`,
-    // desempate por `account_id`) y migra a la MISMA `resolveActiveAccountId`
-    // de `_shared/reporting-canon.ts` que ya usan generate-export/ai-insights
-    // (Regla de Tres) — desempate por `id` (la PK de `account_members`),
-    // igual que `backend/core/deps.py:get_account_id`.
-    //
-    // Único cambio de comportamiento real: `rpc_my_effective_plan()`'s D2
-    // desempata por `account_id` ASC, no por `id`; con 2+ membresías que
-    // comparten el MISMO `created_at` exacto (0 usuarios hoy — tenancy es de
-    // una sola cuenta, OQ-2), esta función y el gate de plan más abajo
-    // podrían en teoría resolver cuentas distintas. Mismo tipo de divergencia
-    // ya documentada entre `rpc_my_effective_plan()` y
-    // `backend/core/deps.py:get_account_id` (v31-authz-token-hook, D4) — no
-    // introducida por este fix, sólo migrada al mismo lado del desempate que
-    // el resto del módulo de reporting.
+    // multiusuario-operativo (tanda A, D4): la cuenta se la pide a la base con la
+    // MISMA `resolveActiveAccountId` de `_shared/reporting-canon.ts` que usan
+    // generate-export / ai-insights / ai-estadisticas (Regla de Tres) — es la RPC
+    // canónica `current_account_ids()`, la misma que ve `rpc_my_effective_plan()` y
+    // `backend/core/deps.py:get_account_id`. Antes cada uno resolvía "la membresía más
+    // antigua" por su cuenta, con desempates distintos (`id` vs `account_id`).
     //
     // Cast acotado (no `any`): `SupabaseClient` real satisface la forma
     // estructural de `AccountResolutionClient` en runtime, pero su tipo
@@ -191,7 +176,7 @@ Deno.serve(async (req) => {
     // TS2589 (profundidad de instanciación excesiva) al compararlo contra
     // una interfaz angosta — mismo patrón que `checkAiQuota`/`incrementAiUsage`
     // en ai-insights/ai-resumen (`_shared/ai-quota.ts`).
-    const accountId = await resolveActiveAccountId(supabase as unknown as AccountResolutionClient, user.id)
+    const accountId = await resolveActiveAccountId(supabase as unknown as AccountResolutionClient)
 
     if (!accountId) {
       console.error('[ai-precio] No active account for user:', user.id)

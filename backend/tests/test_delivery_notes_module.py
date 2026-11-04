@@ -60,6 +60,8 @@ def _auth(*roles: str) -> dict:
         "sub": TEST_USER_ID,
         "role": "user",
         "account_roles": list(roles),
+        # multiusuario-operativo (D4): los claims de rol sólo valen si el token declara la cuenta.
+        "account_id": str(ACCOUNT_ID),
     }
 
 
@@ -1648,13 +1650,16 @@ class TestPurchaseProblemMapping:
         assert message in str(problem.detail)
 
     def test_every_literal_of_the_purchase_migration_has_a_case(self):
-        """Completitud: cada literal estable que la migración de compra levanta
-        para las RPCs públicas aparece en esta tabla o en la de venta (si SQL
-        suma uno nuevo, este test obliga a mapearlo)."""
+        """Completitud: cada literal estable que la migración de compra de la
+        TANDA A levanta para las RPCs públicas aparece en esta tabla o en la de
+        venta (si SQL suma uno nuevo, este test obliga a mapearlo). Los literales
+        de la tanda B (conversión, núcleo, borrado y edición de la compra nacida
+        de un remito) tienen su propio control de completitud en
+        `test_delivery_note_purchase_convert.py`."""
         raised = set(
             re.findall(
                 r"RAISE EXCEPTION '((?:delivery_note|supplier|branch|idempotency_key)_[a-z_]+)[:'%\s]",
-                _purchase_migrations_sql(),
+                (REPO_ROOT / "supabase/migrations/20261071000001_remitos_compra.sql").read_text(encoding="utf-8"),
             )
         )
         raised -= _PURCHASE_INTERNAL_LITERALS

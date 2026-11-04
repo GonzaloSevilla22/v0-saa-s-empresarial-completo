@@ -1,0 +1,7 @@
+PASS  (k) formulario de venta: se registra la venta y baja el stock 1  -> sales 1->2 stock 168->167
+PASS  (k) el movimiento de la venta sigue siendo sale/sale (no es de remito)  -> sale/sale
+PASS  (k) POS: se registra la venta y baja el stock 1  -> stock 167->166
+PASS  (k) presupuesto: se crea (201)  -> 201
+PASS  (k) presupuesto: se comparte (descarga del PDF con nombre de presupuesto)  -> presupuesto-P-00000004.pdf
+console errors: ["Failed to load resource: the server responded with a status of 404 (Not Found)","Failed to load resource: the server responded with a status of 404 (Not Found)"]
+RESUMEN humo: 5/5 PASS

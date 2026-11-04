@@ -1,0 +1,102 @@
+PASS  (a) el diálogo dice que el stock YA se sumó al recibir el remito, con su número  -> Pasar a compra
+
+RC-00000078 · Proveedor Demo QA
+
+Ingresa a: Casa Central
+
+Harina 000 (por kg)× 2,5 kg
+$ 1.750
+Alfajor artesanal× 4
+$ 1.000
+Total de la compra
+$ 2.750
+
+El stock ya se sumó al recibir el remito RC-00000078:
+PASS  (a) proveedor y sucursal fijos: sin selector de sucursal ni de proveedor  -> Pasar a compra
+
+RC-00000078 · Proveedor Demo QA
+
+Ingresa a: Casa Central
+
+Harina 000 (por kg)× 2,5 kg
+$ 1.750
+Alfajor artesanal× 4
+$ 1.000
+Total de la compra
+$ 
+PASS  (a) muestra el total del remito (2.750), no el costo de catálogo remarcado
+PASS  (a) "Registrar compra" deshabilitada hasta elegir la forma de pago (obligatoria, sin "Sin especificar")
+PASS  (a) el selector de forma de pago NO ofrece "Sin especificar"
+PASS  (a) con efectivo y caja abierta, "Registrar en caja" aparece PRE-MARCADO
+shot humo-b-dialogo-efectivo-desktop-light docOverflow=0 elementOverflow=0
+shot humo-b-exito-desktop-light docOverflow=0 elementOverflow=0
+PASS  (a) el stock NO cambia (harina ni alfajor): la compra no vuelve a sumarlo  -> h 161.5->161.5 a 297->297
+PASS  (a) cero movimientos de stock nuevos en toda la cuenta  -> 162->162
+PASS  (a) los movimientos del remito siguen siendo los 2 de la recepción (purchase/delivery_note)  -> purchase/delivery_note:2.5 purchase/delivery_note:4
+PASS  (a) UNA sola compra con los datos del remito (2 líneas, proveedor y sucursal del remito)  -> ops 1 filas 2
+PASS  (a) la compra cobra el precio del remito (2.750), no el costo de catálogo (9.999)  -> 2750
+PASS  (a) aparece UN movimiento de caja (purchase_payment) por el total  -> purchase_payment:-2750
+PASS  (a) el costo de catálogo NO se actualiza con la compra
+PASS  (a) remito converted, con el historial issued > converted  -> ->issued issued>converted
+PASS  (a) el detalle del remito convertido muestra "Ver compra"  -> /compras
+PASS  (a) el detalle ya no ofrece Compra, Editar ni Anular
+shot humo-b-detalle-convertido-desktop-light docOverflow=0 elementOverflow=0
+PASS  (a) /compras muestra "Desde remito RC-…" con el número del remito  -> 17/10/2026
+Alfajor artesanal · +1 más
+Efectivo
+Proveedor Demo QA
+2
+$ 2.750
+Desde
+PASS  (a) "Editar" está deshabilitado con el motivo del remito (precedencia sobre el de dinero)  -> No editable: la compra nació del remito RC-00000078. Para corregirla, eliminá la compra, editá el remito y volvé a convertirlo.
+shot humo-b-compras-badge-desktop-light docOverflow=0 elementOverflow=0
+PASS  (b) a crédito muestra el saldo actual y el saldo después de esta compra  -> sta forma de pago carga la compra a la cuenta corriente del proveedor al confirmarla — requiere elegir un proveedor.  Saldo actual: $ 0 Después de esta compra: $ 2.750 Vencimiento  Resuelto por el plazo del proveedor (15 días).  Cancelar Registrar compra Close
+PASS  (b) el vencimiento se pre-carga con el plazo del PROVEEDOR (15 días)  -> 2026-10-31 vs 2026-10-31
+shot humo-b-dialogo-credito-desktop-light docOverflow=0 elementOverflow=0
+PASS  (b) el stock NO cambia y no hay movimiento de caja ni de banco  -> [164,164,16,16]
+PASS  (b) un cargo en la cuenta corriente del proveedor por el total, con el vencimiento del plazo  -> purchase:2750@2026-10-31 purchase:2750@2026-10-31 debit_note:-2750 purchase:2750@2026-10-31 purchase:2750@2026-10-31 debit_note:-2750 purchase:2750@2026-10-31 purchase:2750@2026-10-31 purchase:2750@2026-10-31 debit_note:-2750 purchase:2750@2026-10-31 saldo 11000->13750
+PASS  (b) la cuenta corriente del proveedor muestra el saldo con la compra  -> Toggle Sidebar Cuenta 1 Notificaciones Proveedor Demo QA  Cuenta corriente — saldo y movimientos  Ver remitos Nuevo remito Registrar pago  Saldo a pagar  $ 13.750,00  El negocio debe al proveedor  HIS
+shot humo-b-cuenta-proveedor-desktop-light docOverflow=0 elementOverflow=0
+PASS  (c) con una forma de pago bancaria se ofrece la cuenta bancaria destino
+PASS  (c) stock sin cambios, UN movimiento de banco y ninguno de caja ni de cuenta corriente  -> bank 50->51
+PASS  (c) el movimiento de banco es el egreso por el total de la compra  -> -2750.00
+shot humo-b-dialogo-borrado-desktop-light docOverflow=0 elementOverflow=0
+PASS  (d) el diálogo de borrado dice que el remito vuelve a pendiente, que el stock NO vuelve (ya entró con el remito) y la compensación de caja  -> ¿Eliminar esta operación (2 ítems)?  Esta acción no se puede deshacer.  El stock no vuelve: la mercadería quedó recibida con el remito RC-00000081, que vuelve a quedar pendiente. Para sacarla del stock, anulá el remito.  Se va a compensar:  Se registrará el ingreso correspondiente en la caja abierta
+PASS  (d) el remito vuelve a pendiente (issued) y no queda ninguna compra suya  -> issued filas 0
+PASS  (d) el stock NO se toca al borrar (ni resta ni repone) y no hay movimientos nuevos  -> h 169->169 mov 168->168
+PASS  (d) la caja se compensa: contra-movimiento purchase_payment_reversal por el total  -> purchase_payment:-2750 purchase_payment_reversal:2750
+PASS  (d) el historial del remito: issued > converted > issued, y la revisión no cambia  -> ->issued issued>converted converted>issued rev 1->1
+PASS  (d) el detalle del remito vuelve a ofrecer "Compra", "Editar" y "Anular"
+shot humo-b-detalle-reabierto-desktop-light docOverflow=0 elementOverflow=0
+PASS  (e) a crédito: el saldo del proveedor sube por el total  -> 13750->16500
+PASS  (e) borrar la compra a crédito compensa la cuenta corriente (saldo vuelve) y no toca el stock  -> saldo 13750 (esperado 13750); issued
+PASS  (e) reconvertir crea OTRA compra (operation_id distinto) y el stock sigue idéntico  -> 2139d69e-d5ad-4693-b829-61ae10ee3ed7 -> 9d591158-e975-4dd6-9eff-9bf56e550558
+PASS  (f) PUT /purchases/operation sobre la compra de un remito: rechazado con delivery_note_purchase_locked  -> 409 {"type":"about:blank","title":"Conflicto","status":409,"detail":"delivery_note_purchase_locked: la compra nació del remito RC-00000083: para corregirla, eliminá
+PASS  (f) sin efectos: ni stock, ni compra, ni dinero
+PASS  (g) con una línea sin precio "Compra" queda deshabilitada y explica por qué
+shot humo-b-compra-sin-precio-desktop-light docOverflow=0 elementOverflow=0
+PASS  (g) cargar el precio faltante (edición del remito)  -> 200
+PASS  (g) con todos los precios "Compra" se habilita
+PASS  (h) seller: botón "Compra" oculto
+PASS  (h) cashier: botón "Compra" oculto
+PASS  (h) stock: botón "Compra" visible
+PASS  (h) purchases: botón "Compra" visible
+PASS  (h) purchases convierte el remito (control positivo)
+PASS  (h) purchases NO puede borrar la compra de un remito: botón deshabilitado con el motivo  -> Borrar esta compra reabre el remito RC-00000085: requiere administrador o dueño.
+PASS  (h) y el servidor lo rechaza igual (delivery_note_purchase_delete_forbidden), sin efectos  -> 403 {"type":"about:blank","title":"Prohibido","status":403,"detail":"delivery_note_purchase_delete_forbidden: borrar esta compra reabre el remit
+shot humo-b-compras-borrado-bloqueado-desktop-light docOverflow=0 elementOverflow=0
+PASS  (i) elegir un proveedor con remitos de compra pendientes muestra el aviso contra la doble suma  -> Este proveedor tiene 32 remitos de compra pendientes. Si esta factura es de uno de ellos, convertilo desde el remito para no sumar el stock dos veces.  Ver remitos pendientes
+PASS  (i) el enlace lleva a la pestaña De compra, pendientes, de ese proveedor  -> /remitos?sentido=compra&estado=pendientes&proveedor=c7a4d276-de16-4b3c-a267-fdf282eaa5f9
+shot humo-b-aviso-doble-suma-desktop-light docOverflow=0 elementOverflow=0
+PASS  (j) compra directa por la API: 201  -> 201 {"operation_id":"f3effd6c-e7c9-425e-b5c1-192b1b847507","operation_kind":"purchase"}
+PASS  (j) la compra DIRECTA suma el stock (+5) con movimiento purchase/purchase  -> 40->45
+PASS  (j) la compra directa no lleva remito de origen
+PASS  (k) preparación: el remito se convierte por la API (200)  -> 200
+PASS  (k) editar un remito convertido por la API se rechaza (delivery_note_locked_converted)  -> 409 {"type":"about:blank","title":"Conflicto","status":409,"detail":"delivery_note_locked_converted: el remito ya se convirtió en compra: para c
+PASS  (k) anular un remito convertido por la API se rechaza (delivery_note_locked_converted)  -> 409 {"type":"about:blank","title":"Conflicto","status":409,"detail":"delivery_note_locked_converted: el remito ya se convirtió en compra: para a
+PASS  (k) sin efectos: remito converted, misma revisión e historial, stock y dinero intactos  -> converted rev 1->1
+PASS  (k) la pantalla de edición de un remito convertido no ofrece guardar (o redirige / explica)  -> Toggle Sidebar Editar remito 1 Notificaciones Editar RC-00000087  Los cambios reemplazan el contenido del remito y ajustan el stock sólo donde cambia.  Este rem @ http://localhost:3000/remitos/87f658b4-1e90-4e50-84ee-6ca8de760909/editar
+shot humo-b-editar-convertido-desktop-light docOverflow=0 elementOverflow=0
+
+══ resumen: errores de consola: 0 [] 404: []
+══ 57/57 PASS

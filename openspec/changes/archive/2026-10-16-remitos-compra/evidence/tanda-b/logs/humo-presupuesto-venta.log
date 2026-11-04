@@ -1,0 +1,6 @@
+PASS  (presupuesto) se crea (201)  -> 201 {"id":"a3596b05-acce-44f7-98c9-4d325e020fa8","account_id":"bb6f3657-0172-44b0-803e-e1a072b3455d","branch_id":null,"clien
+PASS  (presupuesto) presupuesto -> Venta: el stock BAJA 3 (el flujo de venta sigue descontando)  -> 171->168
+PASS  (presupuesto) existe la venta nacida del presupuesto  -> 9451171e-f7d8-4129-9c46-6302bd7156ab
+PASS  (presupuesto) el movimiento de stock es sale/sale y hay uno nuevo por línea  -> sale/sale movs 44->45
+console errors: []
+RESUMEN presupuesto -> venta: 4/4 PASS

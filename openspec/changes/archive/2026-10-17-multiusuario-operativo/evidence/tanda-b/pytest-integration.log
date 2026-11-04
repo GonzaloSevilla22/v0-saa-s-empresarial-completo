@@ -1,0 +1,38 @@
+ss...............................F...................................... [ 59%]
+..s...............................................                       [100%]
+================================== FAILURES ===================================
+__ test_editing_the_purchase_is_locked_and_changes_neither_stock_nor_ledger ___
+
+conn = <asyncpg.connection.Connection object at 0x000002933DDE33E0>
+pworld = <backend.tests.test_delivery_notes_module_integration.World object at 0x000002933DDB0E50>
+
+    async def test_editing_the_purchase_is_locked_and_changes_neither_stock_nor_ledger(conn, pworld: World):
+        w = pworld
+        dn = await _receive(conn, w, [_line(w.product_a, "3", "100", "300")])
+        pm = await _payment_method(conn, w.account_a, "other")  # sin dinero posteado: ningún guard de dinero frena
+        result = await _convert(conn, w, dn, _convert_payload(dn, pm), "integ-rcb-edit")
+        purchase_ids = [r["id"] for r in await conn.fetch(
+            "SELECT id FROM public.purchases WHERE operation_id = $1", uuid.UUID(result["operation_id"]))]
+        before = await _effects(conn, w)
+    
+        with pytest.raises(asyncpg.PostgresError) as info:
+            # quien convirtió (`stock`): la edición de una compra ajena corta antes, con P0403 (el chequeo por
+            # usuario de la compra, preexistente), así que el P0423 del remito se prueba con el mismo usuario.
+            async with _as(conn, w.stocker, authenticated_role=True):
+                await PurchaseRepository(conn).update_operation(
+                    [str(i) for i in purchase_ids], datetime.date.today(), None,
+                    [{"product_id": str(w.product_a), "quantity": "1", "amount": "100"}])
+    
+>       assert info.value.sqlstate == "P0423" and "delivery_note_purchase_locked" in str(info.value)
+E       AssertionError: assert ('P0403' == 'P0423'
+E         
+E         - P0423
+E         ?    ^
+E         + P0403
+E         ?    ^)
+
+backend\tests\test_delivery_note_purchase_convert_integration.py:517: AssertionError
+=========================== short test summary info ===========================
+FAILED backend\tests\test_delivery_note_purchase_convert_integration.py::test_editing_the_purchase_is_locked_and_changes_neither_stock_nor_ledger
+1 failed, 118 passed, 3 skipped, 4327 deselected in 225.87s (0:03:45)
+EXIT=1

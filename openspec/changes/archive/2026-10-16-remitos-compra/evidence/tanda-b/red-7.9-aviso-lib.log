@@ -1,0 +1,182 @@
+
+ RUN  v4.1.8 C:/Users/Usuario/Desktop/EIE/wt-remitos-compra-b/frontend
+
+ ❯ __tests__/lib/delivery-note-pending-notice.test.ts (13 tests | 9 failed) 22ms
+     × un remito pendiente: singular, y la factura 'es de ese remito' 10ms
+     × varios remitos pendientes: plural, y la factura 'es de uno de ellos' 1ms
+     × el conteo se escribe con el formato es-AR cuando pasa de mil 2ms
+     × un remito pendiente en la cuenta: singular 1ms
+     × varios remitos pendientes en la cuenta: plural 1ms
+     × con proveedor: la pestaña De compra, pendientes, filtrada por ese proveedor 2ms
+     × sin proveedor: la pestaña De compra filtrada por pendientes 1ms
+     × el id del proveedor se escapa (no puede romper la query) 1ms
+     × es el rótulo del enlace a los pendientes 1ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 9 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  __tests__/lib/delivery-note-pending-notice.test.ts > pendingPurchaseNotesNotice — con proveedor elegido (formulario de compra) > un remito pendiente: singular, y la factura 'es de ese remito'
+AssertionError: expected null to be 'Este proveedor tiene 1 remito de comp…' // Object.is equality
+
+- Expected:
+"Este proveedor tiene 1 remito de compra pendiente. Si esta factura es de ese remito, convertilo desde el remito para no sumar el stock dos veces."
+
++ Received:
+null
+
+ ❯ __tests__/lib/delivery-note-pending-notice.test.ts:20:55
+     18| describe("pendingPurchaseNotesNotice — con proveedor elegido (formular…
+     19|   it("un remito pendiente: singular, y la factura 'es de ese remito'",…
+     20|     expect(pendingPurchaseNotesNotice(1, "supplier")).toBe(
+       |                                                       ^
+     21|       "Este proveedor tiene 1 remito de compra pendiente. Si esta fact…
+     22|     )
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/9]⎯
+
+ FAIL  __tests__/lib/delivery-note-pending-notice.test.ts > pendingPurchaseNotesNotice — con proveedor elegido (formulario de compra) > varios remitos pendientes: plural, y la factura 'es de uno de ellos'
+AssertionError: expected null to be 'Este proveedor tiene 3 remitos de com…' // Object.is equality
+
+- Expected:
+"Este proveedor tiene 3 remitos de compra pendientes. Si esta factura es de uno de ellos, convertilo desde el remito para no sumar el stock dos veces."
+
++ Received:
+null
+
+ ❯ __tests__/lib/delivery-note-pending-notice.test.ts:26:55
+     24|
+     25|   it("varios remitos pendientes: plural, y la factura 'es de uno de el…
+     26|     expect(pendingPurchaseNotesNotice(3, "supplier")).toBe(
+       |                                                       ^
+     27|       "Este proveedor tiene 3 remitos de compra pendientes. Si esta fa…
+     28|     )
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/9]⎯
+
+ FAIL  __tests__/lib/delivery-note-pending-notice.test.ts > pendingPurchaseNotesNotice — con proveedor elegido (formulario de compra) > el conteo se escribe con el formato es-AR cuando pasa de mil
+AssertionError: the given combination of arguments (null and string) is invalid for this assertion. You can use an array, a map, an object, a set, a string, or a weakset instead of a string
+ ❯ __tests__/lib/delivery-note-pending-notice.test.ts:32:58
+     30|
+     31|   it("el conteo se escribe con el formato es-AR cuando pasa de mil", (…
+     32|     expect(pendingPurchaseNotesNotice(1200, "supplier")).toContain("1.…
+       |                                                          ^
+     33|   })
+     34|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/9]⎯
+
+ FAIL  __tests__/lib/delivery-note-pending-notice.test.ts > pendingPurchaseNotesNotice — sin proveedor identificado (Factura IA) > un remito pendiente en la cuenta: singular
+AssertionError: expected null to be 'Tenés 1 remito de compra pendiente. S…' // Object.is equality
+
+- Expected:
+"Tenés 1 remito de compra pendiente. Si esta factura es de ese remito, convertilo desde el remito para no sumar el stock dos veces."
+
++ Received:
+null
+
+ ❯ __tests__/lib/delivery-note-pending-notice.test.ts:42:54
+     40| describe("pendingPurchaseNotesNotice — sin proveedor identificado (Fac…
+     41|   it("un remito pendiente en la cuenta: singular", () => {
+     42|     expect(pendingPurchaseNotesNotice(1, "account")).toBe(
+       |                                                      ^
+     43|       "Tenés 1 remito de compra pendiente. Si esta factura es de ese r…
+     44|     )
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/9]⎯
+
+ FAIL  __tests__/lib/delivery-note-pending-notice.test.ts > pendingPurchaseNotesNotice — sin proveedor identificado (Factura IA) > varios remitos pendientes en la cuenta: plural
+AssertionError: expected null to be 'Tenés 4 remitos de compra pendientes.…' // Object.is equality
+
+- Expected:
+"Tenés 4 remitos de compra pendientes. Si esta factura es de uno de ellos, convertilo desde el remito para no sumar el stock dos veces."
+
++ Received:
+null
+
+ ❯ __tests__/lib/delivery-note-pending-notice.test.ts:48:54
+     46|
+     47|   it("varios remitos pendientes en la cuenta: plural", () => {
+     48|     expect(pendingPurchaseNotesNotice(4, "account")).toBe(
+       |                                                      ^
+     49|       "Tenés 4 remitos de compra pendientes. Si esta factura es de uno…
+     50|     )
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/9]⎯
+
+ FAIL  __tests__/lib/delivery-note-pending-notice.test.ts > pendingPurchaseNotesHref > con proveedor: la pestaña De compra, pendientes, filtrada por ese proveedor
+AssertionError: expected '' to be '/remitos?sentido=compra&estado=pendie…' // Object.is equality
+
+- Expected
++ Received
+
+- /remitos?sentido=compra&estado=pendientes&proveedor=sup-1
+
+ ❯ __tests__/lib/delivery-note-pending-notice.test.ts:60:47
+     58| describe("pendingPurchaseNotesHref", () => {
+     59|   it("con proveedor: la pestaña De compra, pendientes, filtrada por es…
+     60|     expect(pendingPurchaseNotesHref("sup-1")).toBe("/remitos?sentido=c…
+       |                                               ^
+     61|   })
+     62|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/9]⎯
+
+ FAIL  __tests__/lib/delivery-note-pending-notice.test.ts > pendingPurchaseNotesHref > sin proveedor: la pestaña De compra filtrada por pendientes
+AssertionError: expected '' to be '/remitos?sentido=compra&estado=pendie…' // Object.is equality
+
+- Expected
++ Received
+
+- /remitos?sentido=compra&estado=pendientes
+
+ ❯ __tests__/lib/delivery-note-pending-notice.test.ts:64:40
+     62|
+     63|   it("sin proveedor: la pestaña De compra filtrada por pendientes", ()…
+     64|     expect(pendingPurchaseNotesHref()).toBe("/remitos?sentido=compra&e…
+       |                                        ^
+     65|     expect(pendingPurchaseNotesHref(null)).toBe("/remitos?sentido=comp…
+     66|   })
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/9]⎯
+
+ FAIL  __tests__/lib/delivery-note-pending-notice.test.ts > pendingPurchaseNotesHref > el id del proveedor se escapa (no puede romper la query)
+AssertionError: expected '' to be '/remitos?sentido=compra&estado=pendie…' // Object.is equality
+
+- Expected
++ Received
+
+- /remitos?sentido=compra&estado=pendientes&proveedor=a%26b%3Dc
+
+ ❯ __tests__/lib/delivery-note-pending-notice.test.ts:69:47
+     67|
+     68|   it("el id del proveedor se escapa (no puede romper la query)", () =>…
+     69|     expect(pendingPurchaseNotesHref("a&b=c")).toBe("/remitos?sentido=c…
+       |                                               ^
+     70|   })
+     71| })
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/9]⎯
+
+ FAIL  __tests__/lib/delivery-note-pending-notice.test.ts > PENDING_PURCHASE_NOTES_LINK_LABEL > es el rótulo del enlace a los pendientes
+AssertionError: expected '' to be 'Ver remitos pendientes' // Object.is equality
+
+- Expected
++ Received
+
+- Ver remitos pendientes
+
+ ❯ __tests__/lib/delivery-note-pending-notice.test.ts:75:47
+     73| describe("PENDING_PURCHASE_NOTES_LINK_LABEL", () => {
+     74|   it("es el rótulo del enlace a los pendientes", () => {
+     75|     expect(PENDING_PURCHASE_NOTES_LINK_LABEL).toBe("Ver remitos pendie…
+       |                                               ^
+     76|   })
+     77| })
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/9]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  9 failed | 4 passed (13)
+   Start at  10:53:12
+   Duration  5.14s (transform 74ms, setup 396ms, import 88ms, tests 22ms, environment 3.86s)
+

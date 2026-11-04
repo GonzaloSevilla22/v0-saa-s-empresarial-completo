@@ -5,11 +5,10 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { NumericInput } from "@/components/ui/numeric-input"
 import { Label } from "@/components/ui/label"
-import { Checkbox } from "@/components/ui/checkbox"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useAddExpense, useUpdateExpense } from "@/hooks/data/use-expenses-query"
 import { EXPENSE_CATEGORIES } from "@/lib/constants"
-import { AlertCircle, CalendarIcon } from "lucide-react"
+import { CalendarIcon } from "lucide-react"
 import { toast } from "sonner"
 import { bankAccountForKind, isBankPaymentKind, type Expense } from "@/lib/types"
 import { BranchSelect } from "@/components/branches/BranchSelect"
@@ -20,6 +19,7 @@ import {
 } from "@/components/payment-methods/PaymentMethodSelect"
 import { usePaymentMethods } from "@/hooks/data/use-payment-methods"
 import { useBankAccounts } from "@/hooks/data/use-bank-accounts"
+import { CashOptinBlock } from "@/components/cash/CashOptinBlock"
 import { useCashOptin } from "@/hooks/use-cash-optin"
 import { argentinaToday } from "@/lib/date-range"
 
@@ -69,9 +69,16 @@ export function ExpenseForm({ onSuccess, initialData }: ExpenseFormProps) {
   // reescriben, se reusan.
   const cashOptin = useCashOptin({ kind: resolvedKind, branchId, date, document: "gasto" })
   const showCashBlock = !isEdit && cashOptin.isCashSelected
+  // caja-optin-carga: en el alta en efectivo, no se confirma mientras se averigua
+  // la sesión (el opt-in nace PRE-MARCADO: confirmar ahora registraría el gasto
+  // sin caja, en silencio). En la edición no se ofrece caja, así que no se espera.
+  const cashPending = showCashBlock && cashOptin.isLoading
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+    // Defensa en profundidad: el botón ya está deshabilitado, pero un submit por
+    // otra vía (Enter) no puede registrar el gasto sin caja a ciegas.
+    if (cashPending) return
     if (!category || !description) {
       toast.error("Completá todos los campos")
       return
@@ -205,26 +212,15 @@ export function ExpenseForm({ onSuccess, initialData }: ExpenseFormProps) {
       {/* ── Opt-in de caja (D1, pre-marcado — OQ-1) ────────────────
           Las tres condiciones las verifica el servidor; acá se muestran para
           que el usuario no descubra el bloqueo con un error. Cuando no
-          aplican, el motivo se muestra: nunca se oculta en silencio. */}
+          aplican, el motivo se muestra: nunca se oculta en silencio. Mientras
+          se averigua la sesión (caja-optin-carga) se avisa y el botón de
+          registrar espera. */}
       {showCashBlock && (
-        <div className="flex flex-col gap-1.5 rounded-md border border-border bg-accent/20 px-3 py-2 text-xs">
-          {cashOptin.eligible ? (
-            <label className="flex items-center gap-2 cursor-pointer text-foreground">
-              <Checkbox
-                checked={registerInCash}
-                onCheckedChange={(v) => setRegisterInCash(v === true)}
-              />
-              <span>
-                Registrar en caja — sesión {cashOptin.session?.id.slice(0, 8)}…
-              </span>
-            </label>
-          ) : (
-            <div role="note" className="flex items-center gap-2 text-muted-foreground">
-              <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-              <span>{cashOptin.reason}</span>
-            </div>
-          )}
-        </div>
+        <CashOptinBlock
+          cash={cashOptin}
+          registerInCash={registerInCash}
+          onRegisterInCashChange={setRegisterInCash}
+        />
       )}
 
       {/* ── Sucursal (solo plan PRO) ───────────────────────────────── */}
@@ -249,7 +245,7 @@ export function ExpenseForm({ onSuccess, initialData }: ExpenseFormProps) {
         className="bg-background border-border text-foreground text-sm"
       />
 
-      <Button type="submit" className="w-full">
+      <Button type="submit" className="w-full" disabled={cashPending}>
         {isEdit ? "Guardar cambios" : "Registrar gasto"}
       </Button>
     </form>

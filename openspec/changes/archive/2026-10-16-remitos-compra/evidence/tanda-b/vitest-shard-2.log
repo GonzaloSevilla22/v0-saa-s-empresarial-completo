@@ -1,0 +1,10 @@
+
+ RUN  v4.1.8 C:/Users/Usuario/Desktop/EIE/wt-remitos-compra-b/frontend
+
+Not implemented: navigation to another Document
+
+ Test Files  93 passed (93)
+      Tests  1021 passed (1021)
+   Start at  11:07:16
+   Duration  215.10s (transform 71.77s, setup 91.25s, import 411.29s, tests 132.13s, environment 826.98s)
+

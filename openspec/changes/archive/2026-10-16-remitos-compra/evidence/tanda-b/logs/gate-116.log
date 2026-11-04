@@ -1,0 +1,6 @@
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=08176db1-8f7d-4ab9-813b-0239a9a0e9c6
+NOTICE:  send_email_log_webhook: Vault secrets not configured (send_email_webhook_secret / edge_functions_base_url) — skipping HTTP call for email_logs.id=de28b7ce-ac3e-4cd0-ba4d-30a19a41829b
+fixture: account=ae7d7715-2eed-41a2-b11a-d3332eaafb78, 20 sesiones, tipo delivery_note_purchase
+las 20 sesiones esperan juntas — se suelta el portero
+PASS (delivery_note_purchase): 20 altas concurrentes del primer documento de una cuenta sin fila de secuencia recibieron 1..20, sin huecos ni repetidos; la secuencia quedó en 20.
+GATE INTERNAL-DOCUMENT-NUMBERING-RACE PASSED (residuo cero).

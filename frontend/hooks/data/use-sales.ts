@@ -62,6 +62,8 @@ interface SaleApiRow extends FiscalReadModelRow {
   source_delivery_note_number?: number | null
   edit_locked_reason?: string | null
   has_service_lines?: boolean
+  // multiusuario-operativo tanda B (D9, OQ-4 b): quién cargó la operación.
+  created_by?: string | null
 }
 
 interface SalesPageResponse {
@@ -140,6 +142,7 @@ function mapSale(s: SaleApiRow): Sale {
     sourceDeliveryNoteNumber: s.source_delivery_note_number ?? null,
     editLockedReason:         s.edit_locked_reason ?? null,
     hasServiceLines:   s.has_service_lines ?? false,
+    createdBy:         s.created_by ?? null,
   }
 }
 

@@ -1,0 +1,26 @@
+PASS  (desktop/light) Factura IA: la revisión muestra el aviso con los remitos de compra pendientes de la cuenta  -> Tenés 25 remitos de compra pendientes. Si esta factura es de uno de ellos, convertilo desde el remito para no sumar el stock dos veces.  Ver remitos pendientes
+PASS  (desktop/light) el enlace lleva a los pendientes de COMPRA de toda la cuenta (sin proveedor)  -> /remitos?sentido=compra&estado=pendientes
+PASS  (desktop/light) es un aviso, no un bloqueo: el botón de confirmar sigue habilitado
+shot b-factura-ia-aviso-desktop-light dialogOverflow=0 docOverflow=0
+PASS  (desktop/light) Factura IA: sin desborde propio dentro del diálogo ni del documento  -> []
+PASS  (desktop/light) la consola no tiene errores propios
+PASS  (desktop/dark) Factura IA: la revisión muestra el aviso con los remitos de compra pendientes de la cuenta  -> Tenés 25 remitos de compra pendientes. Si esta factura es de uno de ellos, convertilo desde el remito para no sumar el stock dos veces.  Ver remitos pendientes
+PASS  (desktop/dark) el enlace lleva a los pendientes de COMPRA de toda la cuenta (sin proveedor)  -> /remitos?sentido=compra&estado=pendientes
+PASS  (desktop/dark) es un aviso, no un bloqueo: el botón de confirmar sigue habilitado
+shot b-factura-ia-aviso-desktop-dark dialogOverflow=0 docOverflow=0
+PASS  (desktop/dark) Factura IA: sin desborde propio dentro del diálogo ni del documento  -> []
+PASS  (desktop/dark) la consola no tiene errores propios
+PASS  (mobile/light) Factura IA: la revisión muestra el aviso con los remitos de compra pendientes de la cuenta  -> Tenés 25 remitos de compra pendientes. Si esta factura es de uno de ellos, convertilo desde el remito para no sumar el stock dos veces.  Ver remitos pendientes
+PASS  (mobile/light) el enlace lleva a los pendientes de COMPRA de toda la cuenta (sin proveedor)  -> /remitos?sentido=compra&estado=pendientes
+PASS  (mobile/light) es un aviso, no un bloqueo: el botón de confirmar sigue habilitado
+shot b-factura-ia-aviso-mobile-light dialogOverflow=0 docOverflow=0
+PASS  (mobile/light) Factura IA: sin desborde propio dentro del diálogo ni del documento  -> []
+PASS  (mobile/light) la consola no tiene errores propios
+PASS  (mobile/dark) Factura IA: la revisión muestra el aviso con los remitos de compra pendientes de la cuenta  -> Tenés 25 remitos de compra pendientes. Si esta factura es de uno de ellos, convertilo desde el remito para no sumar el stock dos veces.  Ver remitos pendientes
+PASS  (mobile/dark) el enlace lleva a los pendientes de COMPRA de toda la cuenta (sin proveedor)  -> /remitos?sentido=compra&estado=pendientes
+PASS  (mobile/dark) es un aviso, no un bloqueo: el botón de confirmar sigue habilitado
+shot b-factura-ia-aviso-mobile-dark dialogOverflow=0 docOverflow=0
+PASS  (mobile/dark) Factura IA: sin desborde propio dentro del diálogo ni del documento  -> []
+PASS  (mobile/dark) la consola no tiene errores propios
+
+== 20/20 PASS

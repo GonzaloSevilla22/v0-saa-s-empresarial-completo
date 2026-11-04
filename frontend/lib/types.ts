@@ -535,6 +535,8 @@ export interface Sale {
   editLockedReason?: string | null
   /** presupuestos-modulo (OQ-P16): la operación incluye conceptos sin producto (líneas de servicio); el editor de /ventas no las rehidrata. */
   hasServiceLines?: boolean
+  /** multiusuario-operativo tanda B (D9, OQ-4 b): quién cargó la operación (`created_by` del listado). Sólo informativo: decide qué se muestra (`canModifyDocument`); la autoridad es la RPC (P0403). */
+  createdBy?: string | null
 }
 
 export interface Purchase {
@@ -576,6 +578,17 @@ export interface Purchase {
   /** compras-proveedor-cuenta-corriente (task 9.2): nombre resuelto por el
    * listado (LEFT JOIN suppliers), para el badge. */
   supplierName?: string | null
+  /** remitos-compra (tanda B, D11): el remito de compra del que nació la compra
+   * (derivado de lectura). null = compra directa. */
+  sourceDeliveryNoteId?: string | null
+  sourceDeliveryNoteNumber?: number | null
+  /** La sucursal del remito está activa y no cerrada (mismo predicado que el
+   * borrado). null en una compra directa; false → "Eliminar" se deshabilita. */
+  sourceDeliveryNoteBranchActive?: boolean | null
+  /** Motivo por el que la operación no se edita (`delivery_note_purchase_locked`). */
+  editLockedReason?: string | null
+  /** multiusuario-operativo tanda B (D9, OQ-4 b): quién cargó la operación (`created_by` del listado). Sólo informativo: decide qué se muestra (`canModifyDocument`); la autoridad es la RPC (P0403). */
+  createdBy?: string | null
 }
 
 export interface UnitOfMeasure {

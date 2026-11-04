@@ -79,6 +79,10 @@ class SalesRepository(CommercialIssuerMixin, BaseRepository):
                    -- fallback legacy).
                    s.branch_id,
                    s.canal,
+                   -- multiusuario-operativo tanda B (D9, OQ-4 b): el AUTOR de la operación, para que la
+                   -- interfaz oculte "Editar"/"Eliminar" sobre lo ajeno cuando el rol no es dueño ni
+                   -- administrador. Es sólo informativo: la autoridad es la RPC (P0403).
+                   s.user_id AS created_by,
                    COALESCE(si.unit_id, s.unit_id) AS unit_id,
                    -- metodos-pago-operaciones (D7) + limpiezas-pagos-admin
                    -- (G1b, D3): la imputación explícita gana; si no hay, se

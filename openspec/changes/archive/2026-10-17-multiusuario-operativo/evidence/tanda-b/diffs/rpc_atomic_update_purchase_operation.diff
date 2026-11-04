@@ -1,0 +1,74 @@
+--- vivo/rpc_atomic_update_purchase_operation
++++ nuevo/rpc_atomic_update_purchase_operation
+@@ -7,4 +7,5 @@
+ DECLARE
+   v_uid             uuid;
++  v_author          uuid;   -- multiusuario-operativo (tanda B): autor de la operación que se edita
+   v_account_id      uuid;
+   v_old_purchase    RECORD;
+@@ -49,20 +50,27 @@
+   END IF;
+ 
++  -- multiusuario-operativo (tanda B, D9): el ROL decide, antes de cualquier escritura. El observador
++  -- (sin rol de escritura) da P0401; un rol de escritura sin la capacidad del dominio, P0403.
++  PERFORM public._account_assert_capability(v_account_id, ARRAY['owner', 'admin', 'purchases'], 'tu rol no permite editar compras (requiere compras, administrador o dueño)');
++
+   IF array_length(p_purchase_ids, 1) IS NULL OR array_length(p_purchase_ids, 1) = 0 THEN
+     RAISE EXCEPTION 'No purchase IDs provided' USING ERRCODE = 'P0400';
+   END IF;
+ 
+-  IF EXISTS (
+-    SELECT 1 FROM public.purchases
+-    WHERE id = ANY(p_purchase_ids) AND user_id != v_uid
+-  ) THEN
+-    RAISE EXCEPTION 'Permission denied: purchase belongs to another user' USING ERRCODE = 'P0403';
+-  END IF;
+-
+-  IF (SELECT COUNT(*) FROM public.purchases WHERE id = ANY(p_purchase_ids))
++  -- multiusuario-operativo (tanda B, D8): el documento tiene que ser de la CUENTA ACTIVA, no del caller. Una compra de
++  -- otra cuenta es indistinguible de una inexistente (P0404, mismo texto).
++  IF (SELECT COUNT(*) FROM public.purchases WHERE id = ANY(p_purchase_ids) AND account_id = v_account_id)
+       != array_length(p_purchase_ids, 1)
+   THEN
+     RAISE EXCEPTION 'One or more purchase IDs not found' USING ERRCODE = 'P0404';
+   END IF;
++
++  -- multiusuario-operativo (tanda B, D9, OQ-4 b): sobre una compra de OTRO miembro sólo puede el dueño o un administrador;
++  -- el resto corrige lo propio (P0403). La autoría se CONSERVA en las filas nuevas (v_author).
++  PERFORM public._account_assert_document_authority(
++    v_account_id,
++    (SELECT array_agg(DISTINCT p.user_id) FROM public.purchases p WHERE p.id = ANY(p_purchase_ids)),
++    'solo el dueño o un administrador modifican las compras que cargó otro miembro');
++  SELECT p.user_id INTO v_author FROM public.purchases p WHERE p.id = ANY(p_purchase_ids) ORDER BY p.id LIMIT 1;
+ 
+   -- remitos-compra (D9): una compra nacida de un remito NO se edita. El editor siempre reemplaza
+@@ -324,4 +332,5 @@
+       FROM public.products
+       WHERE id = v_item.product_id
++        AND account_id = v_account_id
+       FOR UPDATE;
+ 
+@@ -330,7 +339,6 @@
+       END IF;
+ 
+-      IF v_product.user_id != v_uid THEN
+-        RAISE EXCEPTION 'Permission denied to product: %', v_item.product_id USING ERRCODE = 'P0403';
+-      END IF;
++      -- multiusuario-operativo (tanda B, D8): la tenencia del producto la decide la CUENTA (filtro del SELECT … FOR UPDATE
++      -- de arriba: un producto de otra cuenta es indistinguible de uno inexistente, P0404), nunca quién lo cargó.
+ 
+       IF NOT v_product.is_variant THEN
+@@ -353,5 +361,5 @@
+          name_snapshot, sku_snapshot, unit_cost_snapshot, iva_rate_snapshot)
+       VALUES
+-        (v_uid, v_account_id, v_item.product_id,
++        (COALESCE(v_author, v_uid), v_account_id, v_item.product_id,
+          v_item.amount, v_item.quantity, v_item.unit_id, v_item.amount * v_item.quantity,
+          p_description, p_date, v_new_op_id,
+@@ -390,5 +398,5 @@
+          branch_id, supplier_id, cost_center_id, payment_method_id)
+       VALUES
+-        (v_uid, v_account_id, NULL,
++        (COALESCE(v_author, v_uid), v_account_id, NULL,
+          v_item.amount, v_item.quantity, v_item.unit_id, v_item.amount * v_item.quantity,
+          p_description, p_date, v_new_op_id,

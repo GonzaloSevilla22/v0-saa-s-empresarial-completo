@@ -7,8 +7,7 @@ import { z } from "zod"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Checkbox } from "@/components/ui/checkbox"
-import { AlertCircle, Loader2 } from "lucide-react"
+import { Loader2 } from "lucide-react"
 import { toast } from "sonner"
 import { useRegisterPaymentMade } from "@/hooks/data/use-supplier-account"
 import {
@@ -16,6 +15,7 @@ import {
   BankAccountDestinationSelect,
 } from "@/components/payment-methods/PaymentMethodSelect"
 import { usePaymentMethods } from "@/hooks/data/use-payment-methods"
+import { CashOptinBlock } from "@/components/cash/CashOptinBlock"
 import { useCashOptin } from "@/hooks/use-cash-optin"
 import { argentinaToday } from "@/lib/date-range"
 import { isBankPaymentKind } from "@/lib/types"
@@ -73,6 +73,10 @@ export function RegisterPaymentMadeForm({ supplierId, onSuccess }: RegisterPayme
   })
 
   async function onSubmit(values: FormValues) {
+    // caja-optin-carga: defensa en profundidad — el botón ya está deshabilitado
+    // mientras se averigua la sesión, pero un submit por otra vía (Enter) no
+    // puede registrar el pago sin caja a ciegas.
+    if (cashOptin.isLoading) return
     if (isBankPaymentKind(resolvedKind) && !bankAccountId) {
       toast.error("Elegí la cuenta bancaria de la que sale el dinero")
       return
@@ -149,31 +153,20 @@ export function RegisterPaymentMadeForm({ supplierId, onSuccess }: RegisterPayme
         />
       )}
 
-      {/* ── Opt-in de caja (caja-compras-cobranzas D4, pre-marcado) ─────── */}
+      {/* ── Opt-in de caja (caja-compras-cobranzas D4, pre-marcado) ───────
+          Mientras se averigua la sesión (caja-optin-carga) se avisa y el botón
+          de abajo espera. */}
       {cashOptin.isCashSelected && (
-        <div className="flex flex-col gap-1.5 rounded-md border border-border bg-accent/20 px-3 py-2 text-xs">
-          {cashOptin.eligible ? (
-            <label className="flex items-center gap-2 cursor-pointer text-foreground">
-              <Checkbox
-                checked={registerInCash}
-                onCheckedChange={(v) => setRegisterInCash(v === true)}
-              />
-              <span>
-                Registrar en caja — sesión {cashOptin.session?.id.slice(0, 8)}…
-              </span>
-            </label>
-          ) : (
-            <div role="note" className="flex items-center gap-2 text-muted-foreground">
-              <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-              <span>{cashOptin.reason}</span>
-            </div>
-          )}
-        </div>
+        <CashOptinBlock
+          cash={cashOptin}
+          registerInCash={registerInCash}
+          onRegisterInCashChange={setRegisterInCash}
+        />
       )}
 
       <Button
         type="submit"
-        disabled={submitting}
+        disabled={submitting || cashOptin.isLoading}
         className="w-full"
         size="sm"
       >

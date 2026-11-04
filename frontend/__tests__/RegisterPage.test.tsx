@@ -46,8 +46,13 @@ vi.mock("@/contexts/auth-context", () => ({
   useAuth: () => ({ register: registerMock }),
 }))
 
+// multiusuario-operativo tanda C (17.2): la pantalla lee `?next=` para volver a la invitación; el doble
+// del `useSearchParams` es configurable por test (por defecto, sin parámetros).
+const searchParamsState = vi.hoisted(() => ({ current: new URLSearchParams() }))
+
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: pushMock }),
+  useSearchParams: () => searchParamsState.current,
 }))
 
 vi.mock("next/link", () => ({
@@ -87,6 +92,7 @@ vi.mock("@/components/auth/CaptchaWidget", () => ({
 }))
 
 beforeEach(() => {
+  searchParamsState.current = new URLSearchParams()
   registerMock.mockReset()
   pushMock.mockReset()
   toastErrorMock.mockReset()
@@ -374,5 +380,74 @@ describe("RegisterPage — estado de renovación del captcha (change captcha-ren
       VALID_PASSWORD,
       expect.objectContaining({ captchaToken: "captcha-token" }),
     )
+  })
+})
+
+// ── multiusuario-operativo tanda C (17.2, D12): registrarse desde un link de invitación ─────────
+describe("RegisterPage — volver a la invitación tras crear la cuenta", () => {
+  const TOKEN = "0123456789abcdef".repeat(4)
+
+  async function registerNow() {
+    registerMock.mockResolvedValue(undefined)
+    render(<RegisterPage />)
+    fillValidFields()
+    acceptTerms()
+    solveCaptcha()
+    submit()
+    await waitFor(() => expect(registerMock).toHaveBeenCalled())
+  }
+
+  it("con ?next=/invitacion/<token> lo pasa al registro y la pantalla de verificación recuerda la invitación", async () => {
+    searchParamsState.current = new URLSearchParams({ next: `/invitacion/${TOKEN}` })
+
+    await registerNow()
+
+    expect(registerMock).toHaveBeenCalledWith(
+      "Susana",
+      "susana@test.com",
+      VALID_PASSWORD,
+      expect.objectContaining({ next: `/invitacion/${TOKEN}` }),
+    )
+    await waitFor(() => expect(pushMock).toHaveBeenCalled())
+    const target = new URL(pushMock.mock.calls[0][0] as string, "http://localhost")
+    expect(target.pathname).toBe("/auth/verify-email")
+    expect(target.searchParams.get("email")).toBe("susana@test.com")
+    expect(target.searchParams.get("next")).toBe(`/invitacion/${TOKEN}`)
+  })
+
+  it("«Iniciá sesión» conserva la invitación (el link vuelve a la misma pantalla)", () => {
+    searchParamsState.current = new URLSearchParams({ next: `/invitacion/${TOKEN}` })
+    render(<RegisterPage />)
+
+    const login = screen.getByRole("link", { name: /iniciá sesión/i })
+    expect(login.getAttribute("href")).toBe(`/auth/login?next=${encodeURIComponent(`/invitacion/${TOKEN}`)}`)
+  })
+
+  it.each([
+    "/dashboard",
+    "/auth/reset-password",
+    `//evil.example/invitacion/${TOKEN}`,
+    `https://evil.example/invitacion/${TOKEN}`,
+    "/invitacion/corto",
+    `/invitacion/${TOKEN}/extra`,
+  ])("descarta cualquier otro destino (%s): el registro sigue como siempre", async (next) => {
+    searchParamsState.current = new URLSearchParams({ next })
+
+    await registerNow()
+
+    const extras = registerMock.mock.calls[0][3] as Record<string, unknown>
+    expect(extras.next).toBeUndefined()
+    await waitFor(() => expect(pushMock).toHaveBeenCalled())
+    const target = new URL(pushMock.mock.calls[0][0] as string, "http://localhost")
+    expect(target.searchParams.get("next")).toBeNull()
+  })
+
+  it("sin ?next= no cambia nada (no-regresión)", async () => {
+    await registerNow()
+
+    const extras = registerMock.mock.calls[0][3] as Record<string, unknown>
+    expect(extras.next).toBeUndefined()
+    expect(pushMock).toHaveBeenCalledWith("/auth/verify-email?email=susana%40test.com")
+    expect(screen.getByRole("link", { name: /iniciá sesión/i }).getAttribute("href")).toBe("/auth/login")
   })
 })

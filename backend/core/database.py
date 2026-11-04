@@ -15,6 +15,27 @@ logger = logging.getLogger(__name__)
 pool: asyncpg.Pool | None = None
 
 
+def _request_claims(user: dict) -> dict:
+    """Claims que se empujan a `request.jwt.claims` para este request.
+
+    multiusuario-operativo (D4): además de `sub` y `role`, la cuenta activa que
+    declara el token (`app_metadata.account_id`) — la MISMA forma en que PostgREST
+    ve el JWT —, para que `current_account_ids()` resuelva en SQL la cuenta que
+    describen los claims de rol y de plan con los que FastAPI autoriza. Si el
+    empujón se omitiera, SQL caería a la preferencia guardada mientras FastAPI
+    autoriza con el token: dos fuentes de verdad.
+
+    Un token sin el claim (emitido antes del deploy, o usuario sin membresía) NO
+    inventa uno: el JSON queda exactamente como antes y SQL resuelve con la
+    preferencia / la membresía más antigua.
+    """
+    claims: dict = {"sub": user["user_id"], "role": "authenticated"}
+    account_id = user.get("account_id")
+    if account_id:
+        claims["app_metadata"] = {"account_id": account_id}
+    return claims
+
+
 async def init_pool() -> None:
     global pool
     if not settings.database_url:
@@ -113,7 +134,7 @@ async def get_db_conn(
                         set_config('request.jwt.claims', $1, true),
                         set_config('idle_in_transaction_session_timeout', $2, true)
                     """,
-                    json.dumps({"sub": user["user_id"], "role": "authenticated"}),
+                    json.dumps(_request_claims(user)),
                     settings.tenancy_tx_idle_timeout,
                 )
                 if settings.tenancy_rls_role_enabled:
@@ -171,7 +192,7 @@ async def get_db_conn(
                     set_config('request.jwt.claims', $2, false)
                 """,
                 json.dumps(user),
-                json.dumps({"sub": user["user_id"], "role": "authenticated"}),
+                json.dumps(_request_claims(user)),
             )
             yield conn
 

@@ -1,0 +1,16 @@
+### GREEN: el gate (versión final) contra la base CON la migración 20261084000001 (ON_ERROR_STOP=1)
+BEGIN
+NOTICE:  PASS (a): email_logs sin policy ni privilegio de escritura para authenticated/anon; SELECT de administradores y service_role intactos.
+DO
+NOTICE:  PASS (b): las 11 funciones que escriben en email_logs son todas SECURITY DEFINER.
+DO
+NOTICE:  PASS (c0): fixture creada (cuenta=77dae116-b77b-4e15-bf82-558292f416b3); el alta de usuario encoló su correo welcome pending vía handle_new_user (SECURITY DEFINER).
+DO
+DO
+NOTICE:  PASS (d): INSERT (plano, ON CONFLICT, all_users, INSERT…SELECT), UPDATE, DELETE y TRUNCATE rechazados por la capa de PRIVILEGIO para miembro, titular y anon; ninguna fila llegó al tercero.
+NOTICE:  PASS (e): trigger SECURITY DEFINER disparado por authenticated sigue encolando; administrador lee, no administrador no; service_role y propietario escriben; trigger de envío intacto.
+DO
+NOTICE:  PASS (f): la cancelación encola 1 correo con destinatario y user_id de la sesión; no titular → P0403 sin correo; sin parámetros; reintento → P0409 sin correo; sin plan pago → P0400 sin correo.
+DO
+ROLLBACK
+exit=0

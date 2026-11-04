@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from backend.tests.conftest import make_token
+from backend.tests.conftest import make_token, tenant_token
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Helpers / fixtures
@@ -187,7 +187,7 @@ async def test_create_sale_v2_flag_on_inserts_sale_item(async_client, mock_pool)
     Test validates the backend path: correct RPC call made when flag would be on.
     """
     pool, conn = mock_pool
-    owner_token = make_token({"role": "user"})
+    owner_token = tenant_token(["owner"])
     captured: dict = {}
 
     async def fetchrow_side_effect(query, *args):
@@ -216,7 +216,7 @@ async def test_create_sale_idempotency_preserved_with_v2(async_client, mock_pool
     The RPC (v2 or legacy) must honor operation_idempotency.
     """
     pool, conn = mock_pool
-    owner_token = make_token({"role": "user"})
+    owner_token = tenant_token(["owner"])
     # Simulate: first fetchrow (idempotency check) returns existing row
     conn.fetchrow = AsyncMock(return_value=OPERATION_ROW)
     with patch("backend.core.database.pool", pool):
@@ -238,7 +238,7 @@ async def test_create_sale_flag_off_legacy_path(async_client, mock_pool):
     The important thing: the endpoint works correctly and returns 201.
     """
     pool, conn = mock_pool
-    owner_token = make_token({"role": "user"})
+    owner_token = tenant_token(["owner"])
     captured: dict = {}
 
     async def fetchrow_side_effect(query, *args):
@@ -283,7 +283,7 @@ async def test_create_purchase_v2_flag_on_inserts_purchase_item(async_client, mo
     Backend path: correct RPC call made.
     """
     pool, conn = mock_pool
-    owner_token = make_token({"role": "user"})
+    owner_token = tenant_token(["owner"])
     captured: dict = {}
 
     async def fetchrow_side_effect(query, *args):
@@ -309,7 +309,7 @@ async def test_create_purchase_idempotency_preserved_with_v2(async_client, mock_
     4.2: purchase idempotency honored in v2 path.
     """
     pool, conn = mock_pool
-    owner_token = make_token({"role": "user"})
+    owner_token = tenant_token(["owner"])
     conn.fetchrow = AsyncMock(return_value=PURCHASE_OPERATION_ROW)
     with patch("backend.core.database.pool", pool):
         resp = await async_client.post(
@@ -365,7 +365,7 @@ async def test_list_sales_paginated_returns_items_with_product_fields(async_clie
     After Group 6 migration, the SELECT reads from JOIN sale_items.
     """
     pool, conn = mock_pool
-    owner_token = make_token({"role": "user"})
+    owner_token = tenant_token(["owner"])
 
     import datetime
     import uuid
@@ -405,7 +405,7 @@ async def test_list_purchases_paginated_returns_items_with_product_fields(async_
     6.3: list paginated purchases returns product_id, quantity, amount from the JOIN.
     """
     pool, conn = mock_pool
-    owner_token = make_token({"role": "user"})
+    owner_token = tenant_token(["owner"])
 
     conn.fetchval = AsyncMock(return_value=0)
     conn.fetch = AsyncMock(return_value=[])
@@ -428,7 +428,7 @@ async def test_list_sales_query_falls_back_to_header_for_rows_without_items(asyn
     al header flat (poblado por la doble escritura) hasta el DROP (Grupo 10).
     """
     pool, conn = mock_pool
-    owner_token = make_token({"role": "user"})
+    owner_token = tenant_token(["owner"])
 
     import datetime
     import uuid
@@ -473,7 +473,7 @@ async def test_list_purchases_query_falls_back_to_header_for_rows_without_items(
     Regresión incidente 2026-06-10 (espejo compras): ver test de ventas.
     """
     pool, conn = mock_pool
-    owner_token = make_token({"role": "user"})
+    owner_token = tenant_token(["owner"])
 
     import datetime
     import uuid
@@ -522,7 +522,7 @@ async def test_list_purchases_query_falls_back_to_header_for_rows_without_items(
 async def test_list_sales_serializes_timestamp_date_with_time_component(async_client, mock_pool):
     """Una venta con date=timestamptz 16:33:40 debe devolver 200 y date='2026-04-06'."""
     pool, conn = mock_pool
-    owner_token = make_token({"role": "user"})
+    owner_token = tenant_token(["owner"])
 
     import datetime
     import uuid
@@ -555,7 +555,7 @@ async def test_list_sales_serializes_timestamp_date_with_time_component(async_cl
 async def test_list_purchases_serializes_timestamp_date_with_time_component(async_client, mock_pool):
     """Espejo compras: purchases.date timestamptz con hora ≠ 00:00 → 200 y date='2026-04-06'."""
     pool, conn = mock_pool
-    owner_token = make_token({"role": "user"})
+    owner_token = tenant_token(["owner"])
 
     import datetime
     import uuid
@@ -657,7 +657,7 @@ async def test_delete_purchase_by_id_reads_reversal_from_stock_movements(async_c
     contrato: se llama exactamente una vez, con (purchase_id, reason).
     """
     pool, conn = mock_pool
-    owner_token = make_token({"role": "user"})
+    owner_token = tenant_token(["owner"])
     calls: list = []
 
     async def fetchrow_side_effect(query, *args):
@@ -687,7 +687,7 @@ async def test_delete_purchase_by_operation_reverts_each_movement(async_client, 
     las filas de la operación y revierte el stock de cada una internamente
     (ya no itera fila por fila desde Python)."""
     pool, conn = mock_pool
-    owner_token = make_token({"role": "user"})
+    owner_token = tenant_token(["owner"])
     calls: list = []
 
     async def fetchrow_side_effect(query, *args):
@@ -718,7 +718,7 @@ async def test_delete_purchase_by_id_missing_purchase_skips_stock_reversal(async
     comportamientos distintos que vale la pena distinguir en el test).
     """
     pool, conn = mock_pool
-    owner_token = make_token({"role": "user"})
+    owner_token = tenant_token(["owner"])
     reversal_calls: list = []
 
     async def fetchrow_side_effect(query, *args):

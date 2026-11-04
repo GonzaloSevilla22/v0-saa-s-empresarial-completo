@@ -340,3 +340,79 @@ describe("session-bus — no_second_cross_tab_transport", () => {
     expect(source).not.toContain('addEventListener("storage"')
   })
 })
+
+
+// ── multiusuario-operativo tanda A (D5) — account:switched ───────────────────
+//
+// Cambiar de cuenta en una pestaña hace que las otras queden mostrando la cuenta
+// anterior (las cookies de sesión son compartidas, así que su token ya describe
+// la cuenta nueva). El aviso viaja por el MISMO bus —ningún segundo canal— y,
+// como toda señal del bus, NO lleva el token.
+
+describe("session-bus — account:switched", () => {
+  beforeEach(() => {
+    vi.stubGlobal("BroadcastChannel", FakeBroadcastChannel)
+    FakeBroadcastChannel.reset()
+    store.clearAccessToken.mockClear()
+    store.refreshAccessToken.mockClear()
+    store.listeners.clear()
+  })
+
+  afterEach(() => {
+    closeSessionBus()
+    FakeBroadcastChannel.reset()
+  })
+
+  it("el anuncio local sale por el transporte compartido hacia las otras pestañas, sin token", async () => {
+    const { announceAccountSwitched } = await import("@/lib/auth/session-bus")
+    const peer = openPeerTab()
+
+    announceAccountSwitched()
+
+    expect(peer.received).toEqual([{ type: "account:switched" }])
+    expect(JSON.stringify(peer.received)).not.toMatch(/token|jwt|bearer/i)
+    peer.transport.close()
+  })
+
+  it("una cuenta cambiada en otra pestaña se adopta (token nuevo) y se avisa a los suscriptores", async () => {
+    const seen: SessionEvent[] = []
+    subscribeToSessionEvents((event) => seen.push(event))
+
+    const peer = openPeerTab()
+    peer.transport.post({ type: "account:switched" })
+    await flush()
+
+    expect(seen).toEqual(["account:switched"])
+    // La cookie compartida ya tiene el token de la cuenta nueva: se le pide al
+    // manejador (no se recibe por el canal) y NO se borra el de esta pestaña.
+    expect(store.refreshAccessToken).toHaveBeenCalledTimes(1)
+    expect(store.clearAccessToken).not.toHaveBeenCalled()
+    peer.transport.close()
+  })
+
+  it("lo adoptado no se reanuncia (el eco entre dos pestañas sería un lazo infinito)", async () => {
+    subscribeToSessionEvents(() => {})
+    const peer = openPeerTab()
+
+    peer.transport.post({ type: "account:switched" })
+    await flush()
+
+    expect(peer.received.filter((m) => m.type === "account:switched")).toEqual([])
+    peer.transport.close()
+  })
+
+  it("no es un cierre por inactividad ni un cierre de sesión", async () => {
+    const { announceAccountSwitched } = await import("@/lib/auth/session-bus")
+    const peer = openPeerTab()
+    let idleLogoutsSeen = 0
+    peer.transport.onMessage((msg) => {
+      if (msg.type === "logout") idleLogoutsSeen += 1
+    })
+
+    announceAccountSwitched()
+
+    expect(idleLogoutsSeen).toBe(0)
+    expect(peer.received.map((m) => m.type)).not.toContain("session:signed-out")
+    peer.transport.close()
+  })
+})

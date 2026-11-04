@@ -45,6 +45,12 @@ export const PUBLIC_PREFIXES = [
   "/auth",
   "/legal",
   "/landing",
+  // multiusuario-operativo tanda C (D12): la pantalla de aceptación de una invitación (`/invitacion/[token]`).
+  // Es PÚBLICA a propósito: el invitado que abre el link del email puede no tener sesión todavía, y la propia
+  // pantalla decide qué mostrarle (un mensaje genérico con «Ingresar» / «Crear cuenta» que vuelven acá). Un
+  // redirect del middleware al login perdería la invitación. El token va en el path: ver `isInvitationPath`
+  // y `lib/supabase/middleware.ts` (sin `Referer`, sin indexar).
+  "/invitacion",
   "/dev-harness",
   "/_next",
 ] as const
@@ -148,6 +154,17 @@ const API_AUTH_PREFIX = "/api/auth"
  */
 export function isApiAuthPath(pathname: string): boolean {
   return pathname === API_AUTH_PREFIX || pathname.startsWith(`${API_AUTH_PREFIX}/`)
+}
+
+/**
+ * ¿Es la pantalla de aceptación de una invitación (`/invitacion/<token>`)?
+ *
+ * El token viaja en el PATH, así que esa ruta —y sólo esa— sale con `Referrer-Policy: no-referrer` y
+ * `X-Robots-Tag: noindex` (`lib/supabase/middleware.ts`). Exige el segmento del token: `/invitacion`
+ * a secas no lleva ninguno, y un prefijo parecido (`/invitaciones/...`) no es esta ruta.
+ */
+export function isInvitationPath(pathname: string): boolean {
+  return pathname.startsWith("/invitacion/") && pathname.length > "/invitacion/".length
 }
 
 /** ¿Está la ruta en la allow-list pública? */

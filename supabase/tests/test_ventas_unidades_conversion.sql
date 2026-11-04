@@ -721,8 +721,10 @@ BEGIN
   -- ═══════════════════════════════════════════════════════════════════════
   v_fail_before := COALESCE(array_length(v_failures, 1), 0);
 
+  -- remitos-compra tanda B (D8): la compra directa vive en _purchase_operation_core
+  -- (rpc_create_purchase_operation es su wrapper): los literales se buscan en el núcleo.
   FOREACH v_fn IN ARRAY ARRAY[
-    '_c29_confirm_order_core', 'rpc_create_sale_operation_v2', 'rpc_create_purchase_operation',
+    '_c29_confirm_order_core', 'rpc_create_sale_operation_v2', '_purchase_operation_core',
     'rpc_atomic_update_sale_operation', 'rpc_atomic_update_purchase_operation',
     'rpc_create_sale_operation'
   ] LOOP
@@ -823,8 +825,10 @@ BEGIN
   --     commiteada mientras un cambio de unidad base seguía abierto, y la
   --     compra escribía 2 kg que se leían 2 u (reproducido con dos conexiones;
   --     el arnés de carrera lo fija de punta a punta).
+  -- remitos-compra tanda B (D8): la compra directa vive en _purchase_operation_core
+  -- (rpc_create_purchase_operation es su wrapper): los literales se buscan en el núcleo.
   FOREACH v_fn IN ARRAY ARRAY[
-    '_c29_confirm_order_core', 'rpc_create_sale_operation_v2', 'rpc_create_purchase_operation',
+    '_c29_confirm_order_core', 'rpc_create_sale_operation_v2', '_purchase_operation_core',
     'rpc_atomic_update_sale_operation', 'rpc_atomic_update_purchase_operation',
     'rpc_create_sale_operation'
   ] LOOP
@@ -832,7 +836,9 @@ BEGIN
     WHERE n.nspname = 'public' AND p.proname = v_fn;
     -- Cuarta revisión: posiciones por regexp_instr (tolerante a espacios y
     -- saltos de línea), no por strpos del primer texto literal.
-    v_pos1 := regexp_instr(v_src, 'FROM\s+public\.products\s+WHERE\s+id\s*=\s*v_item\.product_id\s+FOR\s+UPDATE');
+    -- multiusuario-operativo (tanda B, D8): el SELECT … FOR UPDATE del producto lleva el filtro de cuenta
+    -- (AND account_id = v_account_id) dentro del mismo statement; el orden respecto de la normalización no cambia.
+    v_pos1 := regexp_instr(v_src, 'FROM\s+public\.products\s+WHERE\s+id\s*=\s*v_item\.product_id(\s+AND\s+account_id\s*=\s*v_account_id)?\s+FOR\s+UPDATE');
     v_pos2 := regexp_instr(v_src, '_uom_normalize_quantity\s*\(\s*v_item\.product_id');
     IF v_pos1 = 0 OR v_pos2 = 0 OR v_pos2 < v_pos1 THEN
       v_failures := v_failures || format('E %s: normaliza la cantidad antes de tomar el producto FOR UPDATE (lock en %s, helper en %s)', v_fn, v_pos1, v_pos2);
@@ -892,7 +898,7 @@ BEGIN
   -- (g) el total de dinero se redondea una vez (sin acumulador numeric(15,2))
   --     en los cuatro cuerpos que lo acumulan línea a línea.
   FOREACH v_fn IN ARRAY ARRAY[
-    'rpc_create_sale_operation_v2', 'rpc_create_purchase_operation',
+    'rpc_create_sale_operation_v2', '_purchase_operation_core',
     'rpc_atomic_update_sale_operation', 'rpc_create_sale_operation'
   ] LOOP
     SELECT replace(p.prosrc, E'\r', '') INTO v_src FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace

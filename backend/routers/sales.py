@@ -75,10 +75,11 @@ async def create_sale(
     auth: dict = Depends(get_current_user),
     account_id: uuid.UUID = Depends(get_account_id),
     repo: SalesRepository = Depends(get_repo),
+    conn: asyncpg.Connection = Depends(get_db_conn),
 ):
     # v3-api-standards §3.3: Idempotency-Key por header, con fallback al body.
     payload.idempotency_key = await require_idempotency_key(request, payload.idempotency_key)
-    return await sales_service.create_sale_operation(repo, auth, str(account_id), payload)
+    return await sales_service.create_sale_operation(repo, auth, str(account_id), payload, conn=conn)
 
 
 @router.put("/operation", response_model=SaleOperationUpdateOut)
@@ -86,6 +87,7 @@ async def update_sale_operation(
     payload: SaleOperationUpdateIn,
     auth: dict = Depends(get_current_user),
     repo: SalesRepository = Depends(get_repo),
+    conn: asyncpg.Connection = Depends(get_db_conn),
 ):
     """Edita una operación de venta: reemplaza sus ítems vía
     rpc_atomic_update_sale_operation (REVERSE + APPLY de stock, atómico).
@@ -105,7 +107,7 @@ async def update_sale_operation(
     branch_provided = "branch_id" in payload.model_fields_set
     canal_provided = "canal" in payload.model_fields_set
     result = await sales_service.update_sale_operation(
-        repo, auth, payload, payment_method_provided, branch_provided, canal_provided
+        repo, auth, payload, payment_method_provided, branch_provided, canal_provided, conn=conn
     )
     return {"ok": True, **result}
 
@@ -116,8 +118,9 @@ async def delete_sales_by_operation(
     auth: dict = Depends(get_current_user),
     account_id: uuid.UUID = Depends(get_account_id),
     repo: SalesRepository = Depends(get_repo),
+    conn: asyncpg.Connection = Depends(get_db_conn),
 ):
-    await sales_service.delete_sale_operation(repo, auth, str(account_id), operation_id)
+    await sales_service.delete_sale_operation(repo, auth, str(account_id), operation_id, conn=conn)
 
 
 @router.post("/{operation_id}/promote-to-order", response_model=PromoteToOrderOut)
@@ -148,5 +151,6 @@ async def delete_sale(
     auth: dict = Depends(get_current_user),
     account_id: uuid.UUID = Depends(get_account_id),
     repo: SalesRepository = Depends(get_repo),
+    conn: asyncpg.Connection = Depends(get_db_conn),
 ):
-    await sales_service.delete_sale(repo, auth, str(account_id), sale_id)
+    await sales_service.delete_sale(repo, auth, str(account_id), sale_id, conn=conn)

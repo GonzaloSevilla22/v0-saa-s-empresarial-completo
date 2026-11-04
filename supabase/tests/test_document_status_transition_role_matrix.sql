@@ -27,6 +27,12 @@
 --       NULL->issued {stock,admin,owner} e issued->canceled {admin,owner}
 --       (D3): 26/19 pasó a 28/21. Las 7 NULL no cambian (la vuelta
 --       converted->issued sin rol de compra es de la tanda B).
+--       remitos-compra tanda B (20261081000001) sumó delivery_note_purchase:
+--       issued->converted {purchases,stock,admin,owner} (la produce el núcleo
+--       de compra en modo remito) y converted->issued con allowed_role NULL
+--       (sistema: la dispara sólo el borrado de la compra, que ya exige
+--       admin/owner antes de cualquier efecto, D9): 28/21 pasó a 30/22 y las
+--       filas NULL pasan de 7 a 8.
 --   (2) segregación de funciones (11.2, RN-A4): un cashier CONFIRMA una
 --       venta (sales_order draft→confirmed) pero NO la ANULA
 --       (confirmed→canceled, requiere admin/owner); un stock completa una
@@ -86,8 +92,8 @@ BEGIN
   SELECT count(*), count(allowed_role) INTO v_total, v_populated
   FROM public.document_status_transitions;
 
-  IF v_total <> 28 OR v_populated <> 21 THEN
-    RAISE EXCEPTION 'GATE FAILED (1): se esperaban 28 filas / 21 pobladas, hay % / %', v_total, v_populated;
+  IF v_total <> 30 OR v_populated <> 22 THEN
+    RAISE EXCEPTION 'GATE FAILED (1): se esperaban 30 filas / 22 pobladas, hay % / %', v_total, v_populated;
   END IF;
 
   SELECT array_agg(document_type || ':' || COALESCE(from_status, 'NULL') || '->' || to_status ORDER BY document_type, from_status NULLS FIRST, to_status)
@@ -95,6 +101,11 @@ BEGIN
   FROM public.document_status_transitions WHERE allowed_role IS NULL;
 
   IF v_null_set <> ARRAY[
+    -- remitos-compra tanda B (D3/D9): la vuelta del remito de compra a pendiente
+    -- al borrar la compra. Sin rol propio (misma exención que la de venta): el
+    -- borrado ya exigió administrador o dueño ANTES de cualquier efecto
+    -- (delivery_note_purchase_delete_forbidden).
+    'delivery_note_purchase:converted->issued',
     -- remitos-venta tanda B (D3): la vuelta del remito a pendiente al borrar
     -- la venta. Sin rol propio (tercera exención de record_status_transition):
     -- el borrado ya registró sales_order confirmed->canceled ({admin,owner}).
@@ -109,10 +120,10 @@ BEGIN
     'quote:draft->expired',
     'quote:sent->expired'
   ] THEN
-    RAISE EXCEPTION 'GATE FAILED (1): el conjunto EXACTO de las 7 filas NULL no coincide: %', v_null_set;
+    RAISE EXCEPTION 'GATE FAILED (1): el conjunto EXACTO de las 8 filas NULL no coincide: %', v_null_set;
   END IF;
 
-  RAISE NOTICE 'PASS (1): allowed_role es text[], 21/28 pobladas, las 7 NULL son exactamente delivery_note_sale:converted->issued + fiscal_document(x4) + quote->expired(x2).';
+  RAISE NOTICE 'PASS (1): allowed_role es text[], 22/30 pobladas, las 8 NULL son exactamente delivery_note_purchase:converted->issued + delivery_note_sale:converted->issued + fiscal_document(x4) + quote->expired(x2).';
 END $$;
 
 
@@ -345,7 +356,13 @@ DECLARE
     -- con TG_ARGV = delivery_note_purchase, y rpc_cancel_delivery_note (ya
     -- llamador) pasa a producir también la anulación de compra.
     'delivery_note_purchase:NULL->issued',    -- trg_delivery_note_record_creation('delivery_note_purchase')
-    'delivery_note_purchase:issued->canceled' -- rpc_cancel_delivery_note (sentido compra)
+    'delivery_note_purchase:issued->canceled', -- rpc_cancel_delivery_note (sentido compra)
+    -- remitos-compra tanda B (20261081000001): los 2 llamadores nuevos (5b).
+    -- _purchase_operation_core (modo remito) deja el remito converted en la misma
+    -- transacción que crea la compra; rpc_delete_purchase_operation lo devuelve a
+    -- issued al borrar la compra nacida de él (el borrado ya exigió admin/owner).
+    'delivery_note_purchase:issued->converted', -- _purchase_operation_core (compra con origen de remito)
+    'delivery_note_purchase:converted->issued'  -- rpc_delete_purchase_operation (compra nacida de remito)
   ];
   v_existing_triples text[];
   v_missing text[];
@@ -363,11 +380,11 @@ BEGIN
   END LOOP;
 
   IF array_length(v_missing, 1) > 0 THEN
-    RAISE EXCEPTION 'GATE FAILED (5): % de los pares (document_type,from,to) que producen los 19 llamadores vivos de record_status_transition NO están catalogados en document_status_transitions: % -- una creación no catalogada hoy pasa SIN chequeo de rol (D17/11.7, exención conservadora), así que un caller nuevo/modificado que produzca uno de estos pares debe agregarlo a la matriz.',
+    RAISE EXCEPTION 'GATE FAILED (5): % de los pares (document_type,from,to) que producen los 21 llamadores vivos de record_status_transition NO están catalogados en document_status_transitions: % -- una creación no catalogada hoy pasa SIN chequeo de rol (D17/11.7, exención conservadora), así que un caller nuevo/modificado que produzca uno de estos pares debe agregarlo a la matriz.',
       array_length(v_missing, 1), v_missing;
   END IF;
 
-  RAISE NOTICE 'PASS (5): las % triples (document_type,from,to) que producen los 19 llamadores vivos de record_status_transition están TODAS catalogadas en document_status_transitions.', array_length(v_expected_triples, 1);
+  RAISE NOTICE 'PASS (5): las % triples (document_type,from,to) que producen los 21 llamadores vivos de record_status_transition están TODAS catalogadas en document_status_transitions.', array_length(v_expected_triples, 1);
 END $$;
 
 
@@ -432,7 +449,15 @@ DECLARE
     -- remitos-venta tanda B (20261070000001): 19o llamador. Produce
     -- sales_order:NULL->draft; el par delivery_note_sale:issued->converted lo
     -- produce _c29_confirm_order_core (revisión 8.5, RB-02), ya llamador.
-    'rpc_convert_delivery_note_to_sale'
+    'rpc_convert_delivery_note_to_sale',
+    -- remitos-compra tanda B (20261081000001): 20o-21o llamadores. El núcleo de
+    -- compra (modo remito) produce delivery_note_purchase:issued->converted y el
+    -- borrado de la compra nacida de un remito produce converted->issued. La
+    -- conversión (rpc_convert_delivery_note_to_purchase) NO llama al helper
+    -- directo: delega en el núcleo, igual que la de venta delega en
+    -- _c29_confirm_order_core.
+    '_purchase_operation_core',
+    'rpc_delete_purchase_operation'
   ];
   v_actual_callers   text[];
   v_missing_callers  text[];
@@ -486,5 +511,5 @@ BEGIN
       array_length(v_new_callers, 1), v_new_callers;
   END IF;
 
-  RAISE NOTICE 'PASS (5b): el conjunto de % funciones que invocan record_status_transition sigue siendo EXACTAMENTE el de los 19 llamadores conocidos -- sin altas ni bajas sin revisar.', array_length(v_expected_callers, 1);
+  RAISE NOTICE 'PASS (5b): el conjunto de % funciones que invocan record_status_transition sigue siendo EXACTAMENTE el de los 21 llamadores conocidos -- sin altas ni bajas sin revisar.', array_length(v_expected_callers, 1);
 END $$;

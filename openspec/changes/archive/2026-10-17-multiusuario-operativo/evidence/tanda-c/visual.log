@@ -1,0 +1,26 @@
+PASS: invitacion-anonimo [desktop/light]: contenido visible=true, desborde horizontal=0px, tema claro
+PASS: invitacion-anonimo [desktop/dark]: contenido visible=true, desborde horizontal=0px, tema oscuro
+PASS: invitacion-anonimo [mobile/light]: contenido visible=true, desborde horizontal=0px, tema claro
+PASS: invitacion-anonimo [mobile/dark]: contenido visible=true, desborde horizontal=0px, tema oscuro
+PASS: invitacion-vista-previa [desktop/light]: contenido visible=true, desborde horizontal=0px, tema claro
+PASS: invitacion-vista-previa [desktop/dark]: contenido visible=true, desborde horizontal=0px, tema oscuro
+PASS: invitacion-vista-previa [mobile/light]: contenido visible=true, desborde horizontal=0px, tema claro
+PASS: invitacion-vista-previa [mobile/dark]: contenido visible=true, desborde horizontal=0px, tema oscuro
+PASS: invitacion-no-disponible [desktop/light]: contenido visible=true, desborde horizontal=0px, tema claro
+PASS: invitacion-no-disponible [desktop/dark]: contenido visible=true, desborde horizontal=0px, tema oscuro
+PASS: invitacion-no-disponible [mobile/light]: contenido visible=true, desborde horizontal=0px, tema claro
+PASS: invitacion-no-disponible [mobile/dark]: contenido visible=true, desborde horizontal=0px, tema oscuro
+PASS: invitacion-ya-es-miembro [desktop/light]: contenido visible=true, desborde horizontal=0px, tema claro
+PASS: invitacion-ya-es-miembro [desktop/dark]: contenido visible=true, desborde horizontal=0px, tema oscuro
+PASS: invitacion-ya-es-miembro [mobile/light]: contenido visible=true, desborde horizontal=0px, tema claro
+PASS: invitacion-ya-es-miembro [mobile/dark]: contenido visible=true, desborde horizontal=0px, tema oscuro
+PASS: invitar-con-pendientes [desktop/light]: contenido visible=true, desborde horizontal=0px, tema claro
+PASS: invitar-con-pendientes [desktop/dark]: contenido visible=true, desborde horizontal=0px, tema oscuro
+PASS: invitar-con-pendientes [mobile/light]: contenido visible=true, desborde horizontal=0px, tema claro
+PASS: invitar-con-pendientes [mobile/dark]: contenido visible=true, desborde horizontal=0px, tema oscuro
+PASS: invitar-vacia [desktop/light]: contenido visible=true, desborde horizontal=0px, tema claro
+PASS: invitar-vacia [desktop/dark]: contenido visible=true, desborde horizontal=0px, tema oscuro
+PASS: invitar-vacia [mobile/light]: contenido visible=true, desborde horizontal=0px, tema claro
+PASS: invitar-vacia [mobile/dark]: contenido visible=true, desborde horizontal=0px, tema oscuro
+
+RESULTADO: TODO PASS

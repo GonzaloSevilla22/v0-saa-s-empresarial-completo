@@ -1,0 +1,22 @@
+MATADO    M1  send sin guard de autoridad  -> ERROR:  GATE MULTIUSUARIO-INVITACIONES FAILED en 4 bloque(s):
+MATADO    M2  send sin lock de la fila  -> ERROR:  GATE MULTIUSUARIO-INVITACIONES FAILED en 1 bloque(s):
+MATADO    M3  send sin enfriamiento  -> ERROR:  GATE MULTIUSUARIO-INVITACIONES FAILED en 1 bloque(s):
+MATADO    M4  send sin tope diario  -> ERROR:  GATE MULTIUSUARIO-INVITACIONES FAILED en 1 bloque(s):
+MATADO    M5  reenvío sin rotar el token  -> ERROR:  GATE MULTIUSUARIO-INVITACIONES FAILED en 1 bloque(s):
+MATADO    M6  send sin filtro de cuenta activa  -> ERROR:  GATE MULTIUSUARIO-INVITACIONES FAILED en 3 bloque(s):
+MATADO    M7  send no renueva el vencimiento  -> ERROR:  GATE MULTIUSUARIO-INVITACIONES FAILED en 1 bloque(s):
+MATADO    M8  send acepta revocadas  -> ERROR:  GATE MULTIUSUARIO-INVITACIONES FAILED en 2 bloque(s):
+MATADO    M9  list sin guard de autoridad  -> ERROR:  GATE MULTIUSUARIO-INVITACIONES FAILED en 1 bloque(s):
+MATADO    M10 list sin filtro de cuenta activa  -> ERROR:  GATE MULTIUSUARIO-INVITACIONES FAILED en 1 bloque(s):
+MATADO    M11 revoke sin guard de autoridad  -> ERROR:  GATE MULTIUSUARIO-INVITACIONES FAILED en 2 bloque(s):
+MATADO    M12 revoke no idempotente  -> ERROR:  GATE MULTIUSUARIO-INVITACIONES FAILED en 2 bloque(s):
+MATADO    M13 revoke sin revoked_at  -> ERROR:  GATE MULTIUSUARIO-INVITACIONES FAILED en 2 bloque(s):
+MATADO    M14 preview sin ligar a la identidad  -> ERROR:  GATE MULTIUSUARIO-INVITACIONES FAILED en 1 bloque(s):
+MATADO    M15 preview ve token vencido  -> ERROR:  GATE MULTIUSUARIO-INVITACIONES FAILED en 1 bloque(s):
+MATADO    M16 accept sin ligar a la identidad  -> ERROR:  GATE MULTIUSUARIO-INVITACIONES FAILED en 2 bloque(s):
+MATADO    M17 accept no activa el negocio  -> ERROR:  GATE MULTIUSUARIO-INVITACIONES FAILED en 2 bloque(s):
+MATADO    M18 accept sin P0401  -> ERROR:  GATE MULTIUSUARIO-INVITACIONES FAILED en 1 bloque(s):
+MATADO    M20 invite sin P0401  -> ERROR:  GATE MULTIUSUARIO-INVITACIONES FAILED en 1 bloque(s):
+MATADO    M21 send con destinatario del parámetro  -> ERROR:  GATE MULTIUSUARIO-INVITACIONES FAILED en 8 bloque(s):
+MATADO    M19 invite sin la validación de formato del email (el M19 original, `IF false AND …`, era un no-mutante por precedencia de operadores)  -> ERROR:  GATE MULTIUSUARIO-INVITACIONES FAILED en 1 bloque(s):
+RESUMEN: 21 mutantes, 21 matados (M19 corregido). Cada mutante cambia UNA línea del cuerpo vivo, corre test_multiusuario_invitaciones.sql y restaura el original.

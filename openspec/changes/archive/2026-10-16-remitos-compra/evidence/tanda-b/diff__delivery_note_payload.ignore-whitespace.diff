@@ -1,0 +1,22 @@
+--- vivo/_delivery_note_payload
++++ 20261081000001/_delivery_note_payload
+@@ -19,10 +19,18 @@
+                                            WHERE so.source_delivery_note_id = dn.id
+                                              AND so.account_id = dn.account_id
+                                              AND so.status <> 'canceled'),
+-              'converted_operation_id',   (SELECT so.sale_operation_id FROM public.sales_orders so
++              -- remitos-compra tanda B (D7): en el sentido compra, la operación de compra generada
++              -- (todas las filas comparten operation_id); la venta y la compra son excluyentes por
++              -- sentido, así que el campo genérico se completa con la que corresponda.
++              'converted_operation_id',   COALESCE(
++                                           (SELECT so.sale_operation_id FROM public.sales_orders so
+                                            WHERE so.source_delivery_note_id = dn.id
+                                              AND so.account_id = dn.account_id
+                                              AND so.status <> 'canceled'),
++                                           (SELECT pu.operation_id FROM public.purchases pu
++                                            WHERE pu.source_delivery_note_id = dn.id
++                                              AND pu.account_id = dn.account_id
++                                            LIMIT 1)),
+               'items', COALESCE((
+                 SELECT jsonb_agg(to_jsonb(i)
+                                  || jsonb_build_object(

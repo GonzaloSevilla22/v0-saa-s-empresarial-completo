@@ -1,0 +1,3 @@
+095|rc=0|1522.1s|Run facturar venta manual race gate (dos conexiones)
+TOTAL 1 pasos, 0 con rc != 0
+done

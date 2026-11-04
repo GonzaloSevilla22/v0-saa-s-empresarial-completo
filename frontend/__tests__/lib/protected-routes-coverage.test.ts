@@ -181,8 +181,11 @@ function listNonDashboardRouteTrees(dir: string): string[] {
 describe("D4 — candado simétrico: ningún árbol público nace gateado", () => {
   it("lee los árboles reales de app/ que no son el área autenticada", () => {
     const trees = listNonDashboardRouteTrees(APP_DIR)
-    // Los cuatro de hoy: auth, dev-harness, landing, legal.
-    expect(trees).toEqual(["auth", "dev-harness", "landing", "legal"])
+    // Los cinco de hoy: auth, dev-harness, invitacion, landing, legal.
+    // `invitacion` (multiusuario-operativo tanda C, D12): la pantalla pública de aceptación de una invitación
+    // (`/invitacion/[token]`). Se declara en PUBLIC_PREFIXES —lo asserta el caso de abajo— porque el invitado que
+    // abre el link del email puede no tener sesión todavía.
+    expect(trees).toEqual(["auth", "dev-harness", "invitacion", "landing", "legal"])
   })
 
   it("todos están declarados en la allow-list pública", () => {

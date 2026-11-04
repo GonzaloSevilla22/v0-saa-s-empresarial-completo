@@ -37,15 +37,15 @@ export default async function PlanesPage() {
   // planes-suscribirse-plan-vigente (task 5.1): suma `plan_expires_at` —
   // ya estaba en el select de /facturacion, faltaba acá. Necesario para la
   // línea de contexto D5 ("plan pago con vencimiento").
-  const { data: memberRow } = await supabase
-    .from("account_members")
-    .select(
-      "account_id, accounts(billing_plan, billing_status, trial_plan, trial_expires_at, plan_expires_at, billing_exempt)",
-    )
-    .eq("user_id", user.id)
+  // multiusuario-operativo (tanda A, D1): la cuenta ACTIVA — `accounts` sólo muestra, por RLS
+  // (accounts_member_select -> current_account_ids()), la fila de la cuenta activa. Ver
+  // /facturacion: leer por `account_members` + `.maybeSingle()` falla bajo multi-membresía.
+  const { data: accountRow } = await supabase
+    .from("accounts")
+    .select("id, billing_plan, billing_status, trial_plan, trial_expires_at, plan_expires_at, billing_exempt")
     .maybeSingle()
 
-  const accountData = memberRow?.accounts as unknown as {
+  const accountData = accountRow as unknown as {
     billing_plan: Plan
     billing_status: string
     trial_plan: Plan | null
@@ -73,7 +73,7 @@ export default async function PlanesPage() {
   // consulta. Nunca lanza: sin fila / error de Postgrest / accountId
   // ausente degradan a "sin suscripción viva" y el comparativo se
   // renderiza igual (task 5.3).
-  const accountId = memberRow?.account_id as string | undefined
+  const accountId = (accountRow as { id?: string } | null)?.id
   const liveSubscription = await getLiveSubscription(supabase, accountId)
   const liveSubscriptionPlan: Plan | null = (liveSubscription?.plan as Plan | undefined) ?? null
 

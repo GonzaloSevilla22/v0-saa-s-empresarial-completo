@@ -1,0 +1,1186 @@
+
+ RUN  v4.1.8 C:/Users/Usuario/Desktop/EIE/wt-remitos-compra-b/frontend
+
+ ❯ __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx (52 tests | 52 failed) 367ms
+     × muestra las líneas y el total en sólo lectura, con el número, el proveedor y el remito del proveedor 168ms
+     × dice que el stock ya se sumó al recibir el remito y que la compra no lo vuelve a sumar 8ms
+     × un remito sin número (fila anterior) y sin número del proveedor no inventa ninguno 3ms
+     × muestra el proveedor y la sucursal de destino del remito y NO ofrece ningún selector de ellos 7ms
+     × el payload no lleva supplier_id, branch_id ni líneas: la compra sale del remito 6ms
+     × la caja se resuelve SIEMPRE en la sucursal del remito (nunca en otra) 3ms
+     × el saldo del proveedor se consulta para el proveedor del remito, y sólo a crédito 3ms
+     × el selector se pide como obligatorio, en el contexto de compra, sin 'Sin especificar' 5ms
+     × 'Registrar compra' queda deshabilitada hasta elegir la forma de pago, y lo explica 7ms
+     × la cuenta bancaria sólo se ofrece con una forma de pago bancaria y se manda si se elige 3ms
+     × cambiar de forma de pago descarta la cuenta bancaria elegida para la anterior 2ms
+     × efectivo CON caja abierta y fecha de hoy: checkbox pre-marcado y manda la sesión 2ms
+     × destildar el opt-in registra la compra SIN sesión de caja 2ms
+     × efectivo SIN caja abierta: avisa el motivo, NO bloquea y no manda sesión 2ms
+     × efectivo con la compra fechada otro día: avisa que la caja sólo registra una compra de hoy y no manda sesión 3ms
+     × con otra forma de pago no hay bloque de caja y no se manda sesión 2ms
+     × con credit muestra el saldo actual del proveedor y el saldo después de esta compra 2ms
+     × con otra forma de pago no muestra el saldo ni el vencimiento 1ms
+     × el vencimiento se pre-carga con el plazo del PROVEEDOR y lo dice 2ms
+     × sin plazo propio, el proveedor usa el de la cuenta; sin ninguno, el cargo nace sin vencimiento 2ms
+     × el plazo se cuenta desde la fecha de la compra: cambiar la fecha recalcula el vencimiento 10ms
+     × sin tocar el vencimiento NO viaja: la cascada autoritativa es del servidor 5ms
+     × un vencimiento elegido por el usuario viaja, y no se pisa al cambiar la fecha 4ms
+     × un vencimiento elegido y luego pasar a una forma de pago que no es crédito NO viaja 2ms
+     × la fecha arranca en hoy, no puede ser anterior a la recepción ni posterior a hoy 15ms
+     × una fecha anterior a la recepción del remito deshabilita la confirmación y lo dice 2ms
+     × el payload lleva la fecha elegida, el centro de costo y el remito 2ms
+     × sin centro de costo manda null, y con hoy como fecha manda hoy 2ms
+     × pasa a 'Compra registrada' con el foco en el título y 'Ver en Compras' 2ms
+     × el replay (replayed: true) se muestra igual, avisando que ya estaba registrada 2ms
+     × sigue mostrando 'Compra registrada' aunque el remito de la pantalla ya cambie a convertido 2ms
+     × delivery_note_changed: avisa, recarga el detalle del remito y NO cierra 3ms
+     × tras recargar, la confirmación siguiente usa la revisión vigente y el total que se ve 2ms
+     × delivery_note_invalid_state (otro usuario lo convirtió o anuló): recarga el detalle y habla de compra 13ms
+     × un error que no es de versión NO recarga el detalle 2ms
+     × con el remito recargado en converted: avisa el estado y sólo deja Cerrar 9ms
+     × con el remito recargado en canceled: avisa el estado y sólo deja Cerrar 7ms
+     × un remito pendiente (issued) sigue mostrando el formulario completo 11ms
+     × proveedor dado de baja: dice que hay que editar el remito y elegir uno vigente, sin el token 3ms
+     × falta un precio: manda a editar el remito y cargarlos 3ms
+     × fecha anterior a la recepción (rechazo del servidor): pide elegir la fecha del remito o una posterior 3ms
+     × sucursal del remito cerrada o desactivada: NO manda a 'elegir otra' (es fija), manda a reactivarla 3ms
+     × la caja se cerró mientras se confirmaba: mensaje accionable con enlace a /caja y recarga de las sesiones 2ms
+     × interbloqueo (concurrent_update_retry): pide reintentar y el reintento usa LA MISMA clave 2ms
+     × idempotency_key_conflict: el reintento usa una clave NUEVA (si no, chocaría con el mismo conflicto) 2ms
+     × el aviso de un intento se limpia al reintentar 2ms
+     × dos clics seguidos producen UNA sola request 2ms
+     × la conversión de A y la de B usan claves distintas, y la de A se resetea tras el éxito 2ms
+     × la clave nace con el alcance del remito de COMPRA (no el de venta) 2ms
+     × una respuesta perdida de A (sin éxito) no contamina a B 2ms
+     × consulta el proveedor del remito (useSupplier) para resolver el plazo, sin pedir otra cosa 2ms
+     × un remito sin proveedor no consulta ninguno y a crédito no se puede confirmar 2ms
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 52 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx > ConvertPurchaseDeliveryNoteDialog — resumen > muestra las líneas y el total en sólo lectura, con el número, el proveedor y el remito del proveedor
+TestingLibraryElementError: Unable to find an accessible element with the role "dialog"
+
+There are no accessible roles. But there might be some inaccessible roles. If you wish to access them, then set the `hidden` option to `true`. Learn more about this here: https://testing-library.com/docs/dom-testing-library/api-queries#byrole
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div />[39m
+[36m</body>[39m
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:238:27
+    236|   it("muestra las líneas y el total en sólo lectura, con el número, el…
+    237|     renderDialog()
+    238|     const dialog = screen.getByRole("dialog")
+       |                           ^
+    239|
+    240|     expect(within(dialog).getByRole("heading", { name: /pasar a compra…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/52]⎯
+
+ FAIL  __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx > ConvertPurchaseDeliveryNoteDialog — resumen > dice que el stock ya se sumó al recibir el remito y que la compra no lo vuelve a sumar
+TestingLibraryElementError: Unable to find an element with the text: /el stock ya se sumó al recibir el remito RC-00000012: esta compra no lo vuelve a sumar/i. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div />[39m
+[36m</body>[39m
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:253:14
+    251|     renderDialog()
+    252|     expect(
+    253|       screen.getByText(/el stock ya se sumó al recibir el remito RC-00…
+       |              ^
+    254|     ).toBeInTheDocument()
+    255|   })
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/52]⎯
+
+ FAIL  __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx > ConvertPurchaseDeliveryNoteDialog — resumen > un remito sin número (fila anterior) y sin número del proveedor no inventa ninguno
+TestingLibraryElementError: Unable to find an element with the text: /el stock ya se sumó al recibir el remito: esta compra no lo vuelve a sumar/i. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div />[39m
+[36m</body>[39m
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:260:19
+    258|     renderDialog(note({ number: null, number_label: null, supplier_ref…
+    259|
+    260|     expect(screen.getByText(/el stock ya se sumó al recibir el remito:…
+       |                   ^
+    261|     expect(screen.queryByText(/remito del proveedor n°/i)).not.toBeInT…
+    262|   })
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/52]⎯
+
+ FAIL  __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx > ConvertPurchaseDeliveryNoteDialog — proveedor y sucursal fijos (D8) > muestra el proveedor y la sucursal de destino del remito y NO ofrece ningún selector de ellos
+TestingLibraryElementError: Unable to find an accessible element with the role "dialog"
+
+There are no accessible roles. But there might be some inaccessible roles. If you wish to access them, then set the `hidden` option to `true`. Learn more about this here: https://testing-library.com/docs/dom-testing-library/api-queries#byrole
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div />[39m
+[36m</body>[39m
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:268:27
+    266|   it("muestra el proveedor y la sucursal de destino del remito y NO of…
+    267|     renderDialog()
+    268|     const dialog = screen.getByRole("dialog")
+       |                           ^
+    269|
+    270|     expect(within(dialog).getByText(/ingresa a/i)).toHaveTextContent(/…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/52]⎯
+
+ FAIL  __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx > ConvertPurchaseDeliveryNoteDialog — proveedor y sucursal fijos (D8) > el payload no lleva supplier_id, branch_id ni líneas: la compra sale del remito
+TestingLibraryElementError: Unable to find a label with the text of: Forma de pago
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div />[39m
+[36m</body>[39m
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ getAllByLabelText ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/queries/label-text.js:111:38
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ pickPayment __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:216:27
+    214|
+    215| function pickPayment(id: string) {
+    216|   fireEvent.change(screen.getByLabelText("Forma de pago"), { target: {…
+       |                           ^
+    217| }
+    218|
+ ❯ __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:279:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/52]⎯
+
+ FAIL  __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx > ConvertPurchaseDeliveryNoteDialog — proveedor y sucursal fijos (D8) > la caja se resuelve SIEMPRE en la sucursal del remito (nunca en otra)
+TestingLibraryElementError: Unable to find a label with the text of: Forma de pago
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div />[39m
+[36m</body>[39m
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ getAllByLabelText ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/queries/label-text.js:111:38
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ pickPayment __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:216:27
+    214|
+    215| function pickPayment(id: string) {
+    216|   fireEvent.change(screen.getByLabelText("Forma de pago"), { target: {…
+       |                           ^
+    217| }
+    218|
+ ❯ __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:291:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/52]⎯
+
+ FAIL  __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx > ConvertPurchaseDeliveryNoteDialog — proveedor y sucursal fijos (D8) > el saldo del proveedor se consulta para el proveedor del remito, y sólo a crédito
+TestingLibraryElementError: Unable to find a label with the text of: Forma de pago
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div />[39m
+[36m</body>[39m
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ getAllByLabelText ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/queries/label-text.js:111:38
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ pickPayment __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:216:27
+    214|
+    215| function pickPayment(id: string) {
+    216|   fireEvent.change(screen.getByLabelText("Forma de pago"), { target: {…
+       |                           ^
+    217| }
+    218|
+ ❯ __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:301:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/52]⎯
+
+ FAIL  __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx > ConvertPurchaseDeliveryNoteDialog — forma de pago obligatoria y banco (OQ-RC4) > el selector se pide como obligatorio, en el contexto de compra, sin 'Sin especificar'
+AssertionError: expected "vi.fn()" to be called with arguments: [ ObjectContaining{…} ]
+
+Number of calls: 0
+
+ ❯ __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:313:44
+    311|     renderDialog()
+    312|
+    313|     expect(mocks.paymentMethodSelectProps).toHaveBeenCalledWith(
+       |                                            ^
+    314|       expect.objectContaining({ context: "purchase", required: true }),
+    315|     )
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/52]⎯
+
+ FAIL  __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx > ConvertPurchaseDeliveryNoteDialog — forma de pago obligatoria y banco (OQ-RC4) > 'Registrar compra' queda deshabilitada hasta elegir la forma de pago, y lo explica
+TestingLibraryElementError: Unable to find an accessible element with the role "button" and name `/^registrar compra$/i`
+
+There are no accessible roles. But there might be some inaccessible roles. If you wish to access them, then set the `hidden` option to `true`. Learn more about this here: https://testing-library.com/docs/dom-testing-library/api-queries#byrole
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div />[39m
+[36m</body>[39m
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ purchaseButton __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:219:37
+    217| }
+    218|
+    219| const purchaseButton = () => screen.getByRole("button", { name: /^regi…
+       |                                     ^
+    220| const dateInput = () => screen.getByLabelText("Fecha") as HTMLInputEle…
+    221| const dueDateInput = () => screen.getByLabelText("Vencimiento") as HTM…
+ ❯ __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:322:12
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/52]⎯
+
+ FAIL  __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx > ConvertPurchaseDeliveryNoteDialog — forma de pago obligatoria y banco (OQ-RC4) > la cuenta bancaria sólo se ofrece con una forma de pago bancaria y se manda si se elige
+TestingLibraryElementError: Unable to find a label with the text of: Forma de pago
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div />[39m
+[36m</body>[39m
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ getAllByLabelText ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/queries/label-text.js:111:38
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ pickPayment __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:216:27
+    214|
+    215| function pickPayment(id: string) {
+    216|   fireEvent.change(screen.getByLabelText("Forma de pago"), { target: {…
+       |                           ^
+    217| }
+    218|
+ ❯ __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:331:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/52]⎯
+
+ FAIL  __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx > ConvertPurchaseDeliveryNoteDialog — forma de pago obligatoria y banco (OQ-RC4) > cambiar de forma de pago descarta la cuenta bancaria elegida para la anterior
+TestingLibraryElementError: Unable to find a label with the text of: Forma de pago
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div />[39m
+[36m</body>[39m
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ getAllByLabelText ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/queries/label-text.js:111:38
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ pickPayment __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:216:27
+    214|
+    215| function pickPayment(id: string) {
+    216|   fireEvent.change(screen.getByLabelText("Forma de pago"), { target: {…
+       |                           ^
+    217| }
+    218|
+ ❯ __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:348:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/52]⎯
+
+ FAIL  __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx > ConvertPurchaseDeliveryNoteDialog — caja como opt-in de la compra > efectivo CON caja abierta y fecha de hoy: checkbox pre-marcado y manda la sesión
+TestingLibraryElementError: Unable to find a label with the text of: Forma de pago
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div />[39m
+[36m</body>[39m
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ getAllByLabelText ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/queries/label-text.js:111:38
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ pickPayment __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:216:27
+    214|
+    215| function pickPayment(id: string) {
+    216|   fireEvent.change(screen.getByLabelText("Forma de pago"), { target: {…
+       |                           ^
+    217| }
+    218|
+ ❯ __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:361:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[12/52]⎯
+
+ FAIL  __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx > ConvertPurchaseDeliveryNoteDialog — caja como opt-in de la compra > destildar el opt-in registra la compra SIN sesión de caja
+TestingLibraryElementError: Unable to find a label with the text of: Forma de pago
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div />[39m
+[36m</body>[39m
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ getAllByLabelText ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/queries/label-text.js:111:38
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ pickPayment __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:216:27
+    214|
+    215| function pickPayment(id: string) {
+    216|   fireEvent.change(screen.getByLabelText("Forma de pago"), { target: {…
+       |                           ^
+    217| }
+    218|
+ ❯ __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:374:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[13/52]⎯
+
+ FAIL  __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx > ConvertPurchaseDeliveryNoteDialog — caja como opt-in de la compra > efectivo SIN caja abierta: avisa el motivo, NO bloquea y no manda sesión
+TestingLibraryElementError: Unable to find a label with the text of: Forma de pago
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div />[39m
+[36m</body>[39m
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ getAllByLabelText ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/queries/label-text.js:111:38
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ pickPayment __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:216:27
+    214|
+    215| function pickPayment(id: string) {
+    216|   fireEvent.change(screen.getByLabelText("Forma de pago"), { target: {…
+       |                           ^
+    217| }
+    218|
+ ❯ __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:385:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[14/52]⎯
+
+ FAIL  __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx > ConvertPurchaseDeliveryNoteDialog — caja como opt-in de la compra > efectivo con la compra fechada otro día: avisa que la caja sólo registra una compra de hoy y no manda sesión
+TestingLibraryElementError: Unable to find a label with the text of: Forma de pago
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div />[39m
+[36m</body>[39m
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ getAllByLabelText ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/queries/label-text.js:111:38
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ pickPayment __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:216:27
+    214|
+    215| function pickPayment(id: string) {
+    216|   fireEvent.change(screen.getByLabelText("Forma de pago"), { target: {…
+       |                           ^
+    217| }
+    218|
+ ❯ __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:398:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[15/52]⎯
+
+ FAIL  __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx > ConvertPurchaseDeliveryNoteDialog — caja como opt-in de la compra > con otra forma de pago no hay bloque de caja y no se manda sesión
+TestingLibraryElementError: Unable to find a label with the text of: Forma de pago
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div />[39m
+[36m</body>[39m
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ getAllByLabelText ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/queries/label-text.js:111:38
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ pickPayment __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:216:27
+    214|
+    215| function pickPayment(id: string) {
+    216|   fireEvent.change(screen.getByLabelText("Forma de pago"), { target: {…
+       |                           ^
+    217| }
+    218|
+ ❯ __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:410:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[16/52]⎯
+
+ FAIL  __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx > ConvertPurchaseDeliveryNoteDialog — cuenta corriente y vencimiento > con credit muestra el saldo actual del proveedor y el saldo después de esta compra
+TestingLibraryElementError: Unable to find a label with the text of: Forma de pago
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div />[39m
+[36m</body>[39m
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ getAllByLabelText ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/queries/label-text.js:111:38
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ pickPayment __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:216:27
+    214|
+    215| function pickPayment(id: string) {
+    216|   fireEvent.change(screen.getByLabelText("Forma de pago"), { target: {…
+       |                           ^
+    217| }
+    218|
+ ❯ __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:425:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[17/52]⎯
+
+ FAIL  __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx > ConvertPurchaseDeliveryNoteDialog — cuenta corriente y vencimiento > con otra forma de pago no muestra el saldo ni el vencimiento
+TestingLibraryElementError: Unable to find a label with the text of: Forma de pago
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div />[39m
+[36m</body>[39m
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ getAllByLabelText ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/queries/label-text.js:111:38
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ pickPayment __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:216:27
+    214|
+    215| function pickPayment(id: string) {
+    216|   fireEvent.change(screen.getByLabelText("Forma de pago"), { target: {…
+       |                           ^
+    217| }
+    218|
+ ❯ __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:433:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[18/52]⎯
+
+ FAIL  __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx > ConvertPurchaseDeliveryNoteDialog — cuenta corriente y vencimiento > el vencimiento se pre-carga con el plazo del PROVEEDOR y lo dice
+TestingLibraryElementError: Unable to find a label with the text of: Forma de pago
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div />[39m
+[36m</body>[39m
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ getAllByLabelText ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/queries/label-text.js:111:38
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ pickPayment __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:216:27
+    214|
+    215| function pickPayment(id: string) {
+    216|   fireEvent.change(screen.getByLabelText("Forma de pago"), { target: {…
+       |                           ^
+    217| }
+    218|
+ ❯ __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:443:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[19/52]⎯
+
+ FAIL  __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx > ConvertPurchaseDeliveryNoteDialog — cuenta corriente y vencimiento > sin plazo propio, el proveedor usa el de la cuenta; sin ninguno, el cargo nace sin vencimiento
+TestingLibraryElementError: Unable to find a label with the text of: Forma de pago
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div />[39m
+[36m</body>[39m
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ getAllByLabelText ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/queries/label-text.js:111:38
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ pickPayment __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:216:27
+    214|
+    215| function pickPayment(id: string) {
+    216|   fireEvent.change(screen.getByLabelText("Forma de pago"), { target: {…
+       |                           ^
+    217| }
+    218|
+ ❯ __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:453:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[20/52]⎯
+
+ FAIL  __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx > ConvertPurchaseDeliveryNoteDialog — cuenta corriente y vencimiento > el plazo se cuenta desde la fecha de la compra: cambiar la fecha recalcula el vencimiento
+TestingLibraryElementError: Unable to find a label with the text of: Forma de pago
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div />[39m
+[36m</body>[39m
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ getAllByLabelText ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/queries/label-text.js:111:38
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ pickPayment __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:216:27
+    214|
+    215| function pickPayment(id: string) {
+    216|   fireEvent.change(screen.getByLabelText("Forma de pago"), { target: {…
+       |                           ^
+    217| }
+    218|
+ ❯ __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:468:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[21/52]⎯
+
+ FAIL  __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx > ConvertPurchaseDeliveryNoteDialog — cuenta corriente y vencimiento > sin tocar el vencimiento NO viaja: la cascada autoritativa es del servidor
+TestingLibraryElementError: Unable to find a label with the text of: Forma de pago
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div />[39m
+[36m</body>[39m
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ getAllByLabelText ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/queries/label-text.js:111:38
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ pickPayment __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:216:27
+    214|
+    215| function pickPayment(id: string) {
+    216|   fireEvent.change(screen.getByLabelText("Forma de pago"), { target: {…
+       |                           ^
+    217| }
+    218|
+ ❯ __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:479:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[22/52]⎯
+
+ FAIL  __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx > ConvertPurchaseDeliveryNoteDialog — cuenta corriente y vencimiento > un vencimiento elegido por el usuario viaja, y no se pisa al cambiar la fecha
+TestingLibraryElementError: Unable to find a label with the text of: Forma de pago
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div />[39m
+[36m</body>[39m
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ getAllByLabelText ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/queries/label-text.js:111:38
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ pickPayment __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:216:27
+    214|
+    215| function pickPayment(id: string) {
+    216|   fireEvent.change(screen.getByLabelText("Forma de pago"), { target: {…
+       |                           ^
+    217| }
+    218|
+ ❯ __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:489:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[23/52]⎯
+
+ FAIL  __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx > ConvertPurchaseDeliveryNoteDialog — cuenta corriente y vencimiento > un vencimiento elegido y luego pasar a una forma de pago que no es crédito NO viaja
+TestingLibraryElementError: Unable to find a label with the text of: Forma de pago
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div />[39m
+[36m</body>[39m
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ getAllByLabelText ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/queries/label-text.js:111:38
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ pickPayment __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:216:27
+    214|
+    215| function pickPayment(id: string) {
+    216|   fireEvent.change(screen.getByLabelText("Forma de pago"), { target: {…
+       |                           ^
+    217| }
+    218|
+ ❯ __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:502:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[24/52]⎯
+
+ FAIL  __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx > ConvertPurchaseDeliveryNoteDialog — fecha y centro de costo > la fecha arranca en hoy, no puede ser anterior a la recepción ni posterior a hoy
+TestingLibraryElementError: Unable to find a label with the text of: Fecha
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div />[39m
+[36m</body>[39m
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ getAllByLabelText ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/queries/label-text.js:111:38
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ dateInput __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:220:32
+    218|
+    219| const purchaseButton = () => screen.getByRole("button", { name: /^regi…
+    220| const dateInput = () => screen.getByLabelText("Fecha") as HTMLInputEle…
+       |                                ^
+    221| const dueDateInput = () => screen.getByLabelText("Vencimiento") as HTM…
+    222|
+ ❯ __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:516:12
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[25/52]⎯
+
+ FAIL  __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx > ConvertPurchaseDeliveryNoteDialog — fecha y centro de costo > una fecha anterior a la recepción del remito deshabilita la confirmación y lo dice
+TestingLibraryElementError: Unable to find a label with the text of: Forma de pago
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div />[39m
+[36m</body>[39m
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ getAllByLabelText ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/queries/label-text.js:111:38
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ pickPayment __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:216:27
+    214|
+    215| function pickPayment(id: string) {
+    216|   fireEvent.change(screen.getByLabelText("Forma de pago"), { target: {…
+       |                           ^
+    217| }
+    218|
+ ❯ __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:523:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[26/52]⎯
+
+ FAIL  __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx > ConvertPurchaseDeliveryNoteDialog — fecha y centro de costo > el payload lleva la fecha elegida, el centro de costo y el remito
+TestingLibraryElementError: Unable to find a label with the text of: Forma de pago
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div />[39m
+[36m</body>[39m
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ getAllByLabelText ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/queries/label-text.js:111:38
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ pickPayment __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:216:27
+    214|
+    215| function pickPayment(id: string) {
+    216|   fireEvent.change(screen.getByLabelText("Forma de pago"), { target: {…
+       |                           ^
+    217| }
+    218|
+ ❯ __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:538:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[27/52]⎯
+
+ FAIL  __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx > ConvertPurchaseDeliveryNoteDialog — fecha y centro de costo > sin centro de costo manda null, y con hoy como fecha manda hoy
+TestingLibraryElementError: Unable to find a label with the text of: Forma de pago
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div />[39m
+[36m</body>[39m
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ getAllByLabelText ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/queries/label-text.js:111:38
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ pickPayment __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:216:27
+    214|
+    215| function pickPayment(id: string) {
+    216|   fireEvent.change(screen.getByLabelText("Forma de pago"), { target: {…
+       |                           ^
+    217| }
+    218|
+ ❯ __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:556:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[28/52]⎯
+
+ FAIL  __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx > ConvertPurchaseDeliveryNoteDialog — éxito > pasa a 'Compra registrada' con el foco en el título y 'Ver en Compras'
+TestingLibraryElementError: Unable to find a label with the text of: Forma de pago
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div />[39m
+[36m</body>[39m
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ getAllByLabelText ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/queries/label-text.js:111:38
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ pickPayment __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:216:27
+    214|
+    215| function pickPayment(id: string) {
+    216|   fireEvent.change(screen.getByLabelText("Forma de pago"), { target: {…
+       |                           ^
+    217| }
+    218|
+ ❯ __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:567:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[29/52]⎯
+
+ FAIL  __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx > ConvertPurchaseDeliveryNoteDialog — éxito > el replay (replayed: true) se muestra igual, avisando que ya estaba registrada
+TestingLibraryElementError: Unable to find a label with the text of: Forma de pago
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div />[39m
+[36m</body>[39m
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ getAllByLabelText ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/queries/label-text.js:111:38
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ pickPayment __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:216:27
+    214|
+    215| function pickPayment(id: string) {
+    216|   fireEvent.change(screen.getByLabelText("Forma de pago"), { target: {…
+       |                           ^
+    217| }
+    218|
+ ❯ __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:584:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[30/52]⎯
+
+ FAIL  __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx > ConvertPurchaseDeliveryNoteDialog — éxito > sigue mostrando 'Compra registrada' aunque el remito de la pantalla ya cambie a convertido
+TestingLibraryElementError: Unable to find a label with the text of: Forma de pago
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div />[39m
+[36m</body>[39m
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ getAllByLabelText ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/queries/label-text.js:111:38
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ pickPayment __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:216:27
+    214|
+    215| function pickPayment(id: string) {
+    216|   fireEvent.change(screen.getByLabelText("Forma de pago"), { target: {…
+       |                           ^
+    217| }
+    218|
+ ❯ __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:594:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[31/52]⎯
+
+ FAIL  __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx > ConvertPurchaseDeliveryNoteDialog — el remito cambió (recarga sin cerrar) > delivery_note_changed: avisa, recarga el detalle del remito y NO cierra
+TestingLibraryElementError: Unable to find a label with the text of: Forma de pago
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div />[39m
+[36m</body>[39m
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ getAllByLabelText ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/queries/label-text.js:111:38
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ pickPayment __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:216:27
+    214|
+    215| function pickPayment(id: string) {
+    216|   fireEvent.change(screen.getByLabelText("Forma de pago"), { target: {…
+       |                           ^
+    217| }
+    218|
+ ❯ submitWith __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:608:5
+ ❯ __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:615:43
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[32/52]⎯
+
+ FAIL  __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx > ConvertPurchaseDeliveryNoteDialog — el remito cambió (recarga sin cerrar) > tras recargar, la confirmación siguiente usa la revisión vigente y el total que se ve
+TestingLibraryElementError: Unable to find a label with the text of: Forma de pago
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div />[39m
+[36m</body>[39m
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ getAllByLabelText ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/queries/label-text.js:111:38
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ pickPayment __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:216:27
+    214|
+    215| function pickPayment(id: string) {
+    216|   fireEvent.change(screen.getByLabelText("Forma de pago"), { target: {…
+       |                           ^
+    217| }
+    218|
+ ❯ __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:628:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[33/52]⎯
+
+ FAIL  __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx > ConvertPurchaseDeliveryNoteDialog — el remito cambió (recarga sin cerrar) > delivery_note_invalid_state (otro usuario lo convirtió o anuló): recarga el detalle y habla de compra
+TestingLibraryElementError: Unable to find a label with the text of: Forma de pago
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div />[39m
+[36m</body>[39m
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ getAllByLabelText ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/queries/label-text.js:111:38
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ pickPayment __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:216:27
+    214|
+    215| function pickPayment(id: string) {
+    216|   fireEvent.change(screen.getByLabelText("Forma de pago"), { target: {…
+       |                           ^
+    217| }
+    218|
+ ❯ submitWith __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:608:5
+ ❯ __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:642:43
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[34/52]⎯
+
+ FAIL  __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx > ConvertPurchaseDeliveryNoteDialog — el remito cambió (recarga sin cerrar) > un error que no es de versión NO recarga el detalle
+TestingLibraryElementError: Unable to find a label with the text of: Forma de pago
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div />[39m
+[36m</body>[39m
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ getAllByLabelText ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/queries/label-text.js:111:38
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ pickPayment __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:216:27
+    214|
+    215| function pickPayment(id: string) {
+    216|   fireEvent.change(screen.getByLabelText("Forma de pago"), { target: {…
+       |                           ^
+    217| }
+    218|
+ ❯ submitWith __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:608:5
+ ❯ __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:653:11
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[35/52]⎯
+
+ FAIL  __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx > ConvertPurchaseDeliveryNoteDialog — el remito cambió (recarga sin cerrar) > con el remito recargado en converted: avisa el estado y sólo deja Cerrar
+ FAIL  __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx > ConvertPurchaseDeliveryNoteDialog — el remito cambió (recarga sin cerrar) > con el remito recargado en canceled: avisa el estado y sólo deja Cerrar
+TestingLibraryElementError: Unable to find a label with the text of: Forma de pago
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div />[39m
+[36m</body>[39m
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ getAllByLabelText ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/queries/label-text.js:111:38
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ pickPayment __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:216:27
+    214|
+    215| function pickPayment(id: string) {
+    216|   fireEvent.change(screen.getByLabelText("Forma de pago"), { target: {…
+       |                           ^
+    217| }
+    218|
+ ❯ submitWith __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:608:5
+ ❯ __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:663:52
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[36/52]⎯
+
+ FAIL  __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx > ConvertPurchaseDeliveryNoteDialog — el remito cambió (recarga sin cerrar) > un remito pendiente (issued) sigue mostrando el formulario completo
+TestingLibraryElementError: Unable to find an accessible element with the role "button" and name `/^registrar compra$/i`
+
+There are no accessible roles. But there might be some inaccessible roles. If you wish to access them, then set the `hidden` option to `true`. Learn more about this here: https://testing-library.com/docs/dom-testing-library/api-queries#byrole
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div />[39m
+[36m</body>[39m
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:680:19
+    678|   it("un remito pendiente (issued) sigue mostrando el formulario compl…
+    679|     renderDialog(note({ status: "issued" }))
+    680|     expect(screen.getByRole("button", { name: /^registrar compra$/i })…
+       |                   ^
+    681|     expect(screen.queryByText(/ya fue (convertido|anulado)/i)).not.toB…
+    682|   })
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[37/52]⎯
+
+ FAIL  __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx > ConvertPurchaseDeliveryNoteDialog — errores accionables (el diálogo no se cierra) > proveedor dado de baja: dice que hay que editar el remito y elegir uno vigente, sin el token
+TestingLibraryElementError: Unable to find a label with the text of: Forma de pago
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div />[39m
+[36m</body>[39m
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ getAllByLabelText ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/queries/label-text.js:111:38
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ pickPayment __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:216:27
+    214|
+    215| function pickPayment(id: string) {
+    216|   fireEvent.change(screen.getByLabelText("Forma de pago"), { target: {…
+       |                           ^
+    217| }
+    218|
+ ❯ submitWith __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:689:5
+ ❯ __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:696:43
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[38/52]⎯
+
+ FAIL  __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx > ConvertPurchaseDeliveryNoteDialog — errores accionables (el diálogo no se cierra) > falta un precio: manda a editar el remito y cargarlos
+TestingLibraryElementError: Unable to find a label with the text of: Forma de pago
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div />[39m
+[36m</body>[39m
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ getAllByLabelText ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/queries/label-text.js:111:38
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ pickPayment __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:216:27
+    214|
+    215| function pickPayment(id: string) {
+    216|   fireEvent.change(screen.getByLabelText("Forma de pago"), { target: {…
+       |                           ^
+    217| }
+    218|
+ ❯ submitWith __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:689:5
+ ❯ __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:707:29
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[39/52]⎯
+
+ FAIL  __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx > ConvertPurchaseDeliveryNoteDialog — errores accionables (el diálogo no se cierra) > fecha anterior a la recepción (rechazo del servidor): pide elegir la fecha del remito o una posterior
+TestingLibraryElementError: Unable to find a label with the text of: Forma de pago
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div />[39m
+[36m</body>[39m
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ getAllByLabelText ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/queries/label-text.js:111:38
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ pickPayment __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:216:27
+    214|
+    215| function pickPayment(id: string) {
+    216|   fireEvent.change(screen.getByLabelText("Forma de pago"), { target: {…
+       |                           ^
+    217| }
+    218|
+ ❯ submitWith __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:689:5
+ ❯ __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:715:29
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[40/52]⎯
+
+ FAIL  __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx > ConvertPurchaseDeliveryNoteDialog — errores accionables (el diálogo no se cierra) > sucursal del remito cerrada o desactivada: NO manda a 'elegir otra' (es fija), manda a reactivarla
+TestingLibraryElementError: Unable to find a label with the text of: Forma de pago
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div />[39m
+[36m</body>[39m
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ getAllByLabelText ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/queries/label-text.js:111:38
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ pickPayment __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:216:27
+    214|
+    215| function pickPayment(id: string) {
+    216|   fireEvent.change(screen.getByLabelText("Forma de pago"), { target: {…
+       |                           ^
+    217| }
+    218|
+ ❯ submitWith __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:689:5
+ ❯ __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:723:29
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[41/52]⎯
+
+ FAIL  __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx > ConvertPurchaseDeliveryNoteDialog — errores accionables (el diálogo no se cierra) > la caja se cerró mientras se confirmaba: mensaje accionable con enlace a /caja y recarga de las sesiones
+TestingLibraryElementError: Unable to find a label with the text of: Forma de pago
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div />[39m
+[36m</body>[39m
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ getAllByLabelText ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/queries/label-text.js:111:38
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ pickPayment __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:216:27
+    214|
+    215| function pickPayment(id: string) {
+    216|   fireEvent.change(screen.getByLabelText("Forma de pago"), { target: {…
+       |                           ^
+    217| }
+    218|
+ ❯ submitWith __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:689:5
+ ❯ __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:732:29
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[42/52]⎯
+
+ FAIL  __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx > ConvertPurchaseDeliveryNoteDialog — errores accionables (el diálogo no se cierra) > interbloqueo (concurrent_update_retry): pide reintentar y el reintento usa LA MISMA clave
+TestingLibraryElementError: Unable to find a label with the text of: Forma de pago
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div />[39m
+[36m</body>[39m
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ getAllByLabelText ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/queries/label-text.js:111:38
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ pickPayment __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:216:27
+    214|
+    215| function pickPayment(id: string) {
+    216|   fireEvent.change(screen.getByLabelText("Forma de pago"), { target: {…
+       |                           ^
+    217| }
+    218|
+ ❯ __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:747:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[43/52]⎯
+
+ FAIL  __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx > ConvertPurchaseDeliveryNoteDialog — errores accionables (el diálogo no se cierra) > idempotency_key_conflict: el reintento usa una clave NUEVA (si no, chocaría con el mismo conflicto)
+TestingLibraryElementError: Unable to find a label with the text of: Forma de pago
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div />[39m
+[36m</body>[39m
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ getAllByLabelText ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/queries/label-text.js:111:38
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ pickPayment __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:216:27
+    214|
+    215| function pickPayment(id: string) {
+    216|   fireEvent.change(screen.getByLabelText("Forma de pago"), { target: {…
+       |                           ^
+    217| }
+    218|
+ ❯ __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:760:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[44/52]⎯
+
+ FAIL  __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx > ConvertPurchaseDeliveryNoteDialog — errores accionables (el diálogo no se cierra) > el aviso de un intento se limpia al reintentar
+TestingLibraryElementError: Unable to find a label with the text of: Forma de pago
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div />[39m
+[36m</body>[39m
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ getAllByLabelText ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/queries/label-text.js:111:38
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ pickPayment __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:216:27
+    214|
+    215| function pickPayment(id: string) {
+    216|   fireEvent.change(screen.getByLabelText("Forma de pago"), { target: {…
+       |                           ^
+    217| }
+    218|
+ ❯ __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:772:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[45/52]⎯
+
+ FAIL  __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx > ConvertPurchaseDeliveryNoteDialog — doble clic > dos clics seguidos producen UNA sola request
+TestingLibraryElementError: Unable to find a label with the text of: Forma de pago
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div />[39m
+[36m</body>[39m
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ getAllByLabelText ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/queries/label-text.js:111:38
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ pickPayment __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:216:27
+    214|
+    215| function pickPayment(id: string) {
+    216|   fireEvent.change(screen.getByLabelText("Forma de pago"), { target: {…
+       |                           ^
+    217| }
+    218|
+ ❯ __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:787:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[46/52]⎯
+
+ FAIL  __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx > ConvertPurchaseDeliveryNoteDialog — la clave de idempotencia es por remito > la conversión de A y la de B usan claves distintas, y la de A se resetea tras el éxito
+TestingLibraryElementError: Unable to find a label with the text of: Forma de pago
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div />[39m
+[36m</body>[39m
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ getAllByLabelText ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/queries/label-text.js:111:38
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ pickPayment __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:216:27
+    214|
+    215| function pickPayment(id: string) {
+    216|   fireEvent.change(screen.getByLabelText("Forma de pago"), { target: {…
+       |                           ^
+    217| }
+    218|
+ ❯ __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:807:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[47/52]⎯
+
+ FAIL  __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx > ConvertPurchaseDeliveryNoteDialog — la clave de idempotencia es por remito > la clave nace con el alcance del remito de COMPRA (no el de venta)
+TestingLibraryElementError: Unable to find a label with the text of: Forma de pago
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div />[39m
+[36m</body>[39m
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ getAllByLabelText ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/queries/label-text.js:111:38
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ pickPayment __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:216:27
+    214|
+    215| function pickPayment(id: string) {
+    216|   fireEvent.change(screen.getByLabelText("Forma de pago"), { target: {…
+       |                           ^
+    217| }
+    218|
+ ❯ __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:825:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[48/52]⎯
+
+ FAIL  __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx > ConvertPurchaseDeliveryNoteDialog — la clave de idempotencia es por remito > una respuesta perdida de A (sin éxito) no contamina a B
+TestingLibraryElementError: Unable to find a label with the text of: Forma de pago
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div />[39m
+[36m</body>[39m
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ getAllByLabelText ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/queries/label-text.js:111:38
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ pickPayment __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:216:27
+    214|
+    215| function pickPayment(id: string) {
+    216|   fireEvent.change(screen.getByLabelText("Forma de pago"), { target: {…
+       |                           ^
+    217| }
+    218|
+ ❯ __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:835:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[49/52]⎯
+
+ FAIL  __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx > ConvertPurchaseDeliveryNoteDialog — el plazo del proveedor > consulta el proveedor del remito (useSupplier) para resolver el plazo, sin pedir otra cosa
+AssertionError: expected "vi.fn()" to be called with arguments: [ 's-1' ]
+
+Number of calls: 0
+
+ ❯ __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:853:31
+    851|   it("consulta el proveedor del remito (useSupplier) para resolver el …
+    852|     renderDialog()
+    853|     expect(mocks.supplierFor).toHaveBeenCalledWith("s-1")
+       |                               ^
+    854|   })
+    855|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[50/52]⎯
+
+ FAIL  __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx > ConvertPurchaseDeliveryNoteDialog — el plazo del proveedor > un remito sin proveedor no consulta ninguno y a crédito no se puede confirmar
+TestingLibraryElementError: Unable to find a label with the text of: Forma de pago
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div />[39m
+[36m</body>[39m
+ ❯ Object.getElementError ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ getAllByLabelText ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/queries/label-text.js:111:38
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ pickPayment __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:216:27
+    214|
+    215| function pickPayment(id: string) {
+    216|   fireEvent.change(screen.getByLabelText("Forma de pago"), { target: {…
+       |                           ^
+    217| }
+    218|
+ ❯ __tests__/components/ConvertPurchaseDeliveryNoteDialog.test.tsx:858:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[51/52]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  52 failed (52)
+   Start at  10:45:00
+   Duration  5.72s (transform 227ms, setup 373ms, import 1.07s, tests 367ms, environment 3.20s)
+

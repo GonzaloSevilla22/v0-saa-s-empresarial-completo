@@ -142,6 +142,11 @@ describe("Accesibilidad — SearchableSelect con aria-label (D10, selector de pr
 //    purchase-form.tsx efectivamente cablea aria-label="Proveedor". ────────
 
 const PRODUCT = { id: "prod-1", name: "Insumo Test", cost: 10, baseUnitId: "" }
+// remitos-compra (tanda B, 7.9): purchase-form monta el aviso contra la doble suma
+// (consulta remitos de compra pendientes por react-query + python-client, que exige
+// NEXT_PUBLIC_BACKEND_URL). Este archivo prueba la accesibilidad del selector de
+// proveedor, no ese aviso (lo cubre purchase-form-pending-delivery-notes.test.tsx).
+vi.mock("@/components/delivery-notes/PendingPurchaseNotesNotice", () => ({ PendingPurchaseNotesNotice: () => null }))
 vi.mock("@/hooks/data/use-products", () => ({ useProducts: () => ({ products: [PRODUCT], addProduct: vi.fn() }) }))
 vi.mock("@/hooks/data/use-purchases", () => ({
   usePurchases: () => ({ addPurchaseOperation: vi.fn(), updatePurchaseOperation: vi.fn() }),

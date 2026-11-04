@@ -1,7 +1,7 @@
 "use server"
 
 /**
- * actions.ts — las siete operaciones que crean, modifican o destruyen la sesión,
+ * actions.ts — las operaciones que crean, modifican, renuevan o destruyen la sesión,
  * corriendo en el servidor.
  *
  * auth-hardening-jwt-cookies (Parte C, D1, tasks 18.3 y 18.4a-g). Hasta este
@@ -32,6 +32,7 @@ import { headers } from "next/headers"
 import { createClient } from "@/lib/supabase/server"
 import type { AuthActionResult } from "@/lib/auth/auth-result"
 import { isLocalOrigin, resolveSiteUrl } from "@/lib/auth/site-url"
+import { safeInvitationNext } from "@/lib/auth/invitation-next"
 
 // ── Contexto de la petición ─────────────────────────────────────────────────
 
@@ -108,12 +109,21 @@ export async function signInWithPasswordAction(input: {
   return toResult("signInWithPassword", error)
 }
 
-/** 18.4a — registro. */
+/**
+ * 18.4a — registro.
+ *
+ * multiusuario-operativo (tanda C, D12): `next` es OPCIONAL y admite una sola cosa —la ruta de una
+ * invitación (`/invitacion/<token>`)—, para que quien se registra desde el link del email VUELVA a esa
+ * invitación al confirmar. El cliente no es de fiar: se RE-VALIDA acá contra la allow-list estrecha
+ * `safeInvitationNext` y cualquier otro destino se descarta en silencio (el enlace de verificación
+ * queda como siempre). Abrir un `next` general sería el open redirect que auth-hardening-jwt-cookies D5 cerró.
+ */
 export async function signUpAction(input: {
   email: string
   password: string
   captchaToken?: string
   profile: SignUpProfile
+  next?: string
 }): Promise<AuthActionResult> {
   const supabase = createClient()
   const { profile } = input
@@ -136,7 +146,7 @@ export async function signUpAction(input: {
         // de la columna).
         email_notifications_opt_in: profile.emailOptIn ?? false,
       },
-      emailRedirectTo: await callbackUrl(),
+      emailRedirectTo: await callbackUrl(safeInvitationNext(input.next) ?? undefined),
       captchaToken: input.captchaToken,
     },
   })
@@ -235,4 +245,27 @@ export async function signOutAction(input?: {
   const supabase = createClient()
   const { error } = await supabase.auth.signOut({ scope: input?.scope ?? "local" })
   return toResult(`signOut(${input?.scope ?? "local"})`, error)
+}
+
+/**
+ * multiusuario-operativo (tanda A, D4) — renovación FORZADA de la sesión.
+ *
+ * El token handler (`GET /api/auth/token`) renueva el access token sólo cuando está por
+ * vencer: `getSession()` no llama al proveedor antes. Pero el claim
+ * `app_metadata.account_id` —la cuenta activa— lo emite el HOOK, y el hook corre cuando el
+ * proveedor EMITE un token. Sin forzar la renovación, elegir otra cuenta no cambiaba nada
+ * del token vigente hasta una hora después (lo atrapó el humo con el build de producción:
+ * el selector persistía la preferencia y la pantalla seguía mostrando la cuenta vieja).
+ *
+ * Corre en el servidor por la misma razón que las demás: el refresh token rotado queda en la
+ * cookie `HttpOnly` y nunca pasa por JavaScript del navegador. Devuelve `ok` sólo si el
+ * proveedor entregó una sesión nueva; un token que no se pudo renovar no se da por renovado.
+ */
+export async function refreshSessionAction(): Promise<AuthActionResult> {
+  const supabase = createClient()
+  const { data, error } = await supabase.auth.refreshSession()
+  if (!error && !data?.session) {
+    return toResult("refreshSession", { message: "El proveedor no devolvió una sesión renovada" })
+  }
+  return toResult("refreshSession", error)
 }

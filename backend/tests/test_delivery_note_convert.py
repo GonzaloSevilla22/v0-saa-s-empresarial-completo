@@ -27,7 +27,7 @@ import pytest
 from fastapi import HTTPException
 from pydantic import ValidationError
 
-from backend.tests.conftest import account_roles_fetchval, effective_routes, make_token
+from backend.tests.conftest import account_roles_fetchval, effective_routes, make_token, tenant_token
 from backend.tests.test_delivery_notes_module import (
     ACCOUNT_ID,
     BRANCH_ID,
@@ -755,7 +755,7 @@ class TestSaleSideErrorsOverHttp:
         with patch("backend.core.database.pool", pool):
             resp = await async_client.put(
                 "/sales/operation", json=UPDATE_PAYLOAD,
-                headers={"Authorization": f"Bearer {make_token({'role': 'user'})}"})
+                headers={"Authorization": f"Bearer {tenant_token(['owner'])}"})
 
         assert resp.status_code == status
         assert resp.headers["content-type"].startswith("application/problem+json")
@@ -770,7 +770,7 @@ class TestSaleSideErrorsOverHttp:
         with patch("backend.core.database.pool", pool):
             resp = await async_client.delete(
                 f"/sales?operation_id={uuid.uuid4()}",
-                headers={"Authorization": f"Bearer {make_token({'role': 'user'})}"})
+                headers={"Authorization": f"Bearer {tenant_token(['owner'])}"})
 
         assert resp.status_code == 422
         assert resp.headers["content-type"].startswith("application/problem+json")

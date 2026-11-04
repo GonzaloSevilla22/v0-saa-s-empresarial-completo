@@ -1,0 +1,25 @@
+datos: 16 ventas y 8 compras en el negocio (vendedor: 7 ventas propias; compras: 4 compras propias)
+PASS: viewer en /ventas: «Nueva» 0/0, Editar 0/0, Eliminar 0/0 (obtenido/esperado)
+PASS: viewer en /compras: «Nueva» 0/0, Editar 0/0, Eliminar 0/0 (obtenido/esperado)
+PASS: seller en /ventas: «Nueva» 1/1, Editar 7/7, Eliminar 7/7 (obtenido/esperado)
+PASS: seller en /compras: «Nueva» 0/0, Editar 0/0, Eliminar 0/0 (obtenido/esperado)
+PASS: purchases en /ventas: «Nueva» 0/0, Editar 0/0, Eliminar 0/0 (obtenido/esperado)
+PASS: purchases en /compras: «Nueva» 1/1, Editar 4/4, Eliminar 4/4 (obtenido/esperado)
+PASS: stock en /ventas: «Nueva» 0/0, Editar 0/0, Eliminar 0/0 (obtenido/esperado)
+PASS: stock en /compras: «Nueva» 0/0, Editar 0/0, Eliminar 0/0 (obtenido/esperado)
+PASS: owner en /ventas: «Nueva» 1/1, Editar 16/16, Eliminar 16/16 (obtenido/esperado)
+PASS: owner en /compras: «Nueva» 1/1, Editar 8/8, Eliminar 8/8 (obtenido/esperado)
+PASS: [desktop/dark] viewer en /ventas: «Nueva» 0, Editar 0, Eliminar 0
+PASS: [desktop/dark] viewer en /compras: «Nueva» 0, Editar 0, Eliminar 0
+PASS: [mobile/light] viewer en /ventas: «Nueva» 0, Editar 0, Eliminar 0
+PASS: [mobile/light] viewer en /compras: «Nueva» 0, Editar 0, Eliminar 0
+PASS: [mobile/dark] viewer en /ventas: «Nueva» 0, Editar 0, Eliminar 0
+PASS: [mobile/dark] viewer en /compras: «Nueva» 0, Editar 0, Eliminar 0
+PASS: [desktop/dark] seller en /ventas: «Nueva» 1, Editar 7, Eliminar 7
+PASS: [desktop/dark] seller en /compras: «Nueva» 0, Editar 0, Eliminar 0
+PASS: [mobile/light] seller en /ventas: «Nueva» 1, Editar 7, Eliminar 7
+PASS: [mobile/light] seller en /compras: «Nueva» 0, Editar 0, Eliminar 0
+PASS: [mobile/dark] seller en /ventas: «Nueva» 1, Editar 7, Eliminar 7
+PASS: [mobile/dark] seller en /compras: «Nueva» 0, Editar 0, Eliminar 0
+
+RESULTADO: TODO PASS

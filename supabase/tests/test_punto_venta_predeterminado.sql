@@ -737,7 +737,13 @@ BEGIN
   VALUES (v_fp, v_account, 9999, true) RETURNING id INTO v_pv2;
 
   v_claims_owner  := json_build_object('sub', v_owner::text,  'role', 'authenticated')::text;
-  v_claims_seller := json_build_object('sub', v_seller::text, 'role', 'authenticated')::text;
+  -- multiusuario-operativo (tanda A): el vendedor tiene DOS membresías (su cuenta personal, que crea
+  -- handle_new_user, y la cuenta del owner ancla), creadas en la MISMA transacción: sin declarar la
+  -- cuenta, "la más antigua" se desempata por un uuid al azar y el gate pasaba o fallaba según la
+  -- suerte (con la personal activa, el UPDATE no ve la fila ajena y no rechaza nada). Su token declara
+  -- la cuenta donde opera —lo que emite el hook cuando esa es su cuenta activa—.
+  v_claims_seller := json_build_object('sub', v_seller::text, 'role', 'authenticated',
+                                       'app_metadata', json_build_object('account_id', v_account::text))::text;
 
   -- (i-a) el seller NO puede marcar un PV como predeterminado por PostgREST.
   PERFORM set_config('request.jwt.claims', v_claims_seller, true);

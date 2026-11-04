@@ -189,8 +189,12 @@ BEGIN
 
   -- D4: v_member_id es MIEMBRO (no owner) de la cuenta de v_owner_id — nunca
   -- fue dueño de los productos (products.user_id sigue siendo v_owner_id).
-  INSERT INTO public.account_members (account_id, user_id, role)
-  VALUES (v_account_id, v_member_id, 'member')
+  -- multiusuario-operativo (tanda A): la membresía de A se fecha DESPUÉS de la personal que crea
+  -- handle_new_user en esta misma transacción. Con el mismo `created_at` (now() es constante dentro
+  -- de la transacción), "la más antigua" se desempata por un uuid al azar y el control 4.5a-bis
+  -- pasaba o fallaba según la suerte.
+  INSERT INTO public.account_members (account_id, user_id, role, created_at)
+  VALUES (v_account_id, v_member_id, 'member', now() + interval '1 second')
   ON CONFLICT DO NOTHING;
 
   -- ── Sucursales ────────────────────────────────────────────────────────────
@@ -259,7 +263,16 @@ BEGIN
   RAISE NOTICE 'PASS 4.1: min_stock=0 (p_zero) queda fuera de ambos conteos (verificado por exclusión en 2.3/2.4)';
 
   -- ── 4.5a — un MIEMBRO (no owner de los productos) ve el mismo KPI ───────────
-  PERFORM set_config('request.jwt.claims', json_build_object('sub', v_member_id::text)::text, true);
+  -- AJUSTE A PROPÓSITO (multiusuario-operativo, tanda A, D1): este usuario tiene DOS membresías —su
+  -- cuenta personal, que crea handle_new_user, y la cuenta A donde es 'member'—, y antes
+  -- `current_account_ids()` devolvía las dos, así que el agregado SUMABA ambas y el miembro "veía
+  -- los 4" sin estar parado en A. Ese era justamente el defecto que el change cierra (los
+  -- agregados mezclaban cuentas): ahora opera sobre UNA, la activa. Para que "el miembro ve el
+  -- mismo KPI que el owner" siga siendo cierto, su token DECLARA la cuenta A
+  -- (app_metadata.account_id — lo que emite el hook cuando A es su cuenta activa); sin esa
+  -- declaración rige su cuenta personal y ve 0 (control 4.5a-bis).
+  PERFORM set_config('request.jwt.claims',
+    json_build_object('sub', v_member_id::text, 'app_metadata', json_build_object('account_id', v_account_id::text))::text, true);
   PERFORM set_config('request.jwt.claim.sub', v_member_id::text, true);
 
   SELECT public.get_dashboard_critical_stock(v_branch_a) INTO v_count;
@@ -267,6 +280,15 @@ BEGIN
     RAISE EXCEPTION 'FAIL 4.5a: member ve % en branch_a, esperado 4 (mismo que el owner — D4 scope por cuenta)', v_count;
   END IF;
   RAISE NOTICE 'PASS 4.5a: member de la cuenta ve el mismo KPI que el owner (scope account_id, no products.user_id)';
+
+  -- 4.5a-bis — CONTROL: el mismo miembro SIN declarar A opera sobre su cuenta personal (la más
+  -- antigua): el agregado ya NO mezcla las dos cuentas.
+  PERFORM set_config('request.jwt.claims', json_build_object('sub', v_member_id::text)::text, true);
+  SELECT public.get_dashboard_critical_stock(v_branch_a) INTO v_count;
+  IF v_count <> 0 THEN
+    RAISE EXCEPTION 'FAIL 4.5a-bis: el miembro sin declarar la cuenta A ve % en branch_a, esperado 0 (opera sobre SU cuenta personal; el agregado no mezcla cuentas)', v_count;
+  END IF;
+  RAISE NOTICE 'PASS 4.5a-bis: sin declarar A, el miembro ve 0 — el agregado no suma la otra cuenta';
 
   -- ── 4.5b — sucursal de OTRA cuenta no filtra datos ajenos ───────────────────
   PERFORM set_config('request.jwt.claims', json_build_object('sub', v_owner_id::text)::text, true);

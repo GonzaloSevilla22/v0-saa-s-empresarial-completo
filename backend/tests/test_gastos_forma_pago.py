@@ -592,7 +592,7 @@ class TestDerivedFlagsMatchServerGuards:
         assert "book = 'cash' AND NOT EXISTS" in new_migration
         assert "cashbox_id = f.ledger_id AND status = 'open'" in new_migration
         # el repositorio delega en la función, no re-escribe el predicado
-        assert "op_money_footprint_flags(e.account_id, 'expense', ARRAY[<EXP>])" in repo_sql
+        assert "op_money_footprint_flags(account_id, 'expense', ARRAY[<EXP>])" in repo_sql
         assert "fp.is_delete_blocked" in repo_sql
         # predicado histórico (migración original + gate SQL de gastos)
         assert "reference_id = <EXP> AND movement_type = 'expense'" in migration_sql

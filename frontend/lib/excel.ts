@@ -40,7 +40,12 @@ export function downloadTextFile(content: string, filename: string, mime: string
 
   setTimeout(() => {
     URL.revokeObjectURL(url)
-    document.body.removeChild(link)
+    // El enlace se saca por su PROPIA referencia, sin pasar por `document`: en vitest este
+    // temporizador puede dispararse después de que el test que descargó terminó y su jsdom se
+    // desmontó, y un `document.body.removeChild` ahí tumbaba la corrida entera con
+    // «Unhandled Error: document is not defined» aunque todos los tests pasaran (CI del PR #654).
+    // Sobre un nodo ya desmontado `remove()` no hace nada.
+    link.remove()
   }, 150)
 }
 

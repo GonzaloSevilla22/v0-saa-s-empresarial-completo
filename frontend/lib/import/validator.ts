@@ -24,8 +24,13 @@
  *   - nombre missing
  *   - precio invalid (non-numeric, negative) on Variante / Producto rows
  *
+ * Empty cells (importador-productos-stock-apertura): Precio, Stock and Stock mínimo
+ * left EMPTY travel as `null`, never as 0 — on an UPDATE by SKU the server keeps
+ * the current value (same null-preserving contract `cost` already had), and on a
+ * CREATE it imputes price 0 / no stock. A written "0" is a declared 0. A Padre row
+ * does not read its price/stock cells (they count as empty).
+ *
  * Warnings (row imported with caveats):
- *   - precio missing on Variante / Producto → defaults to 0
  *   - costo / stock invalid → defaults to 0
  *   - stock ambiguo (punto único con grupos de 3 dígitos, p.ej. "1.500") →
  *     se interpreta como decimal pero se avisa que también podría ser miles
@@ -149,7 +154,7 @@ function validateRow(
   const nameParent = raw.producto_padre.trim()   || null
 
   // ── Price ──────────────────────────────────────────────────────────────────
-  let price = 0
+  let price: number | null = null
   if (rowType !== "Padre") {
     if (raw.precio.trim()) {
       const parsed = parseAmount(raw.precio)
@@ -161,7 +166,8 @@ function validateRow(
         if (ambiguity) warnings.push(ambiguity)
       }
     }
-    // Missing price on non-parent rows is NOT an error — defaults to 0 silently.
+    // Missing price on non-parent rows is NOT an error — stays null (importador-
+    // productos-stock-apertura): alta → 0, edición → conserva el precio vigente.
   }
 
   // ── Cost ───────────────────────────────────────────────────────────────────
@@ -192,11 +198,13 @@ function validateRow(
   // Reglas (2+ puntos sin coma inválido, agrupación de miles ambigua avisada,
   // redondeo a 4 decimales) centralizadas en el helper canónico compartido
   // con el importador de ajustes de stock — ver `parseQuantity` en lib/excel.
-  let stock = 0
+  let stock: number | null = null
   if (rowType !== "Padre" && raw.stock.trim()) {
     const { value, warnings: stockWarnings } = parseQuantity(raw.stock, { label: "Stock", maxDecimals: 4 })
     warnings.push(...stockWarnings)
-    if (value !== null) stock = value
+    // Una celda ESCRITA pero inválida cae a 0 con aviso (como siempre); sólo la celda
+    // vacía queda en null.
+    stock = value ?? 0
   }
 
   // ── Min stock ──────────────────────────────────────────────────────────────
@@ -208,14 +216,15 @@ function validateRow(
   // redondearía en silencio: lanza 22P02 y aborta el lote completo. Por eso
   // acá SIEMPRE se entrega un entero (helper canónico, `integer: true`).
   // Mínimo decimal por CSV = candidato aparte (Non-Goal del change).
-  let minStock = 0
+  let minStock: number | null = null
   if (raw.stock_minimo.trim()) {
     const { value, warnings: minStockWarnings } = parseQuantity(raw.stock_minimo, {
       label: "Stock mínimo",
       integer: true,
     })
     warnings.push(...minStockWarnings)
-    if (value !== null) minStock = value
+    // Idem: escrita e inválida → 0 con aviso («sin umbral de alerta»); vacía → null.
+    minStock = value ?? 0
   }
 
   // ── Category — contra el catálogo del tenant (productos-categorias-sku D6) ─

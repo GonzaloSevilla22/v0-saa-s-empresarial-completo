@@ -127,9 +127,11 @@ describe("validateImportRows — stock (cantidad física, admite decimales)", ()
     ])
   })
 
-  it("fila Padre ignora el stock (comportamiento actual, sin cambios)", () => {
+  // importador-productos-stock-apertura: el Padre no lee su stock; antes viajaba
+  // como 0 y ahora como null (sin stock propio: ni fila de saldo ni movimiento).
+  it("fila Padre ignora el stock (null: no tiene stock propio)", () => {
     const { rows } = validateImportRows([raw({ lineNumber: 2, tipo: "Padre", stock: "1,5" })])
-    expect(rows[0].stock).toBe(0)
+    expect(rows[0].stock).toBeNull()
     expect(rows[0].warnings).toEqual([])
   })
 })
@@ -180,9 +182,13 @@ describe("validateImportRows — stock mínimo (entero, con aviso)", () => {
     ])
   })
 
-  it("vacío → 0 sin warning", () => {
+  // importador-productos-stock-apertura: una celda vacía deja de viajar como 0
+  // (que en una edición por SKU apagaba el umbral de alerta vigente) y pasa a
+  // null = «conservá el que hay». El 0 declarado se cubre en
+  // import-validator-empty-cells.test.ts.
+  it("vacío → null sin warning (conserva en una edición)", () => {
     const { rows } = validateImportRows([raw({ lineNumber: 2, stock_minimo: "" })])
-    expect(rows[0].minStock).toBe(0)
+    expect(rows[0].minStock).toBeNull()
     expect(rows[0].warnings).toEqual([])
   })
 })

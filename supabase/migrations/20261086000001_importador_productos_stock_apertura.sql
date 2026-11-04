@@ -1,5 +1,5 @@
 -- =============================================================================
--- MIGRATION: 20261079000001_importador_productos_stock_apertura.sql
+-- MIGRATION: 20261086000001_importador_productos_stock_apertura.sql
 -- FIX AD-HOC: importador-productos-stock-apertura (2026-10-14) — governance MEDIA con
 --         un tramo ALTO: reescribe la función que escribe el ledger de stock del
 --         importador de productos. Pedido directo del PO tras la auditoría del

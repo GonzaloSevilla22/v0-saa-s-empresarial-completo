@@ -947,8 +947,11 @@ BEGIN
          OR (SELECT count(*) FROM public.stock_movements WHERE account_id = v_account_a) <> v_sm THEN
         v_failures := v_failures || 'FAIL (o): borrar la venta nacida del remito tocó el stock'::text;
       END IF;
+      -- edicion-operaciones-con-dinero (tanda A): la compensación lleva LA MISMA referencia que la fila de huella que
+      -- compensa. La venta nacida de un remito tiene su orden (el movimiento original referencia sales_orders.id), así que
+      -- la reversión referencia la orden; antes referenciaba siempre el operation_id.
       IF NOT EXISTS (SELECT 1 FROM public.cash_movements WHERE session_id = v_session_x
-                       AND reference_id = v_op_cash AND movement_type = 'sale_reversal' AND amount = -2800) THEN
+                       AND reference_id IN (v_op_cash, v_order_cash) AND movement_type = 'sale_reversal' AND amount = -2800) THEN
         v_failures := v_failures || 'FAIL (o): falta la compensación de caja'::text;
       END IF;
       IF (SELECT status FROM public.sales_orders WHERE id = v_order_cash) <> 'canceled'

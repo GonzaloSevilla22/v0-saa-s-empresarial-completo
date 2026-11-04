@@ -52,11 +52,13 @@ Se completa a medida que se mergea cada PR. Orden pactado: changes de a uno, sie
 
 | Hora (UTC) | Qué | PR | Estado |
 |---|---|---|---|
-| 17:40 | Fix: el temporizador de descarga de `lib/excel.ts` no sobrevive a jsdom (flake de vitest en la CI de #654) | #656 | en CI |
 | 17:48 | Propose `edicion-operaciones-con-dinero` mergeado (las 6 OQs se resuelven por su opción recomendada, según tu indicación) | #644 | mergeado |
-| — | Rebase y merge de `fix/importador-productos-stock-apertura` (R1 de la auditoría de stock) | #645 | pendiente |
-| — | Rebase y merge de `fix/stock-edicion-sucursal-y-piso` (R2/R4/R5; va antes del change por diseño) | #646 | pendiente |
-| — | `edicion-operaciones-con-dinero` tanda A (huella neta, aging, consumidor contable) | — | pendiente |
+| 18:25 | Pin de la CLI de Supabase a 2.105.0 (la 3.0.0 rechaza `[inbucket]` y rompió playwright y el deploy) | #658 | mergeado |
+| 18:25 | Este documento vivo de pendientes manuales | #657 | mergeado |
+| 18:35 | Fix: el temporizador de descarga de `lib/excel.ts` no sobrevive a jsdom (flake de vitest en la CI de #654) | #656 | mergeado |
+| 18:43 | `fix/importador-productos-stock-apertura`: el stock del archivo es de apertura, no pisa el saldo vivo (R1 de la auditoría de stock; migración `20261086000001`) | #645 | mergeado |
+| 18:58 | `fix/stock-edicion-sucursal-y-piso`: editar valida el stock por sucursal, el piso deja un solo movimiento (R2/R4/R5; migración `20261087000001`; va antes del change por diseño) | #646 | mergeado |
+| — | `edicion-operaciones-con-dinero` tanda A (huella neta, aging, consumidor contable; migración `20261088000001`; sin superficie: nada que probar a mano) | #__PR__ | en revisión |
 | — | `edicion-operaciones-con-dinero` tanda B (edición con dinero) | — | pendiente |
 | — | `edicion-operaciones-con-dinero` tanda C (superficie) | — | pendiente |
 | — | Archive `edicion-operaciones-con-dinero` | — | pendiente |

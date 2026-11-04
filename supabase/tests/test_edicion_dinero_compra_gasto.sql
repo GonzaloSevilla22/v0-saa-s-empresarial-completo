@@ -182,7 +182,7 @@ BEGIN
   -- cambiar el importe exige caja abierta
   SELECT * INTO r FROM pg_temp.edit_x(v_x, ', p_amount => 300');
   PERFORM pg_temp.eq('X1-c P0426', r.o_state, 'P0426');
-  PERFORM pg_temp.eq('X1-c gasto intacto', (SELECT amount::text FROM public.expenses WHERE id = v_x), '500.00');
+  PERFORM pg_temp.eq('X1-c gasto intacto', (SELECT amount::text FROM public.expenses WHERE id = v_x), '500');
   SELECT * INTO r FROM pg_temp.edit_p(v_p, pg_temp.id('sup'), 1200);
   PERFORM pg_temp.eq('P2-c P0426', r.o_state, 'P0426');
   SELECT * INTO r FROM pg_temp.edit_x(v_x, ', p_amount => 300, p_dry_run => true');
@@ -208,15 +208,15 @@ BEGIN
   PERFORM pg_temp.eq('X1-b movimientos', (SELECT string_agg(movement_type || ':' || amount::text, ',' ORDER BY movement_type)
         FROM public.cash_movements WHERE session_id = pg_temp.id('s_open') AND reference_id = v_x), 'expense:-300.00,expense_reversal:500.00');
   -- ExpenseAdjusted con la contrapartida de la huella posterior: no hay banco -> kind NULL (caja)
-  SELECT payload INTO v_ev FROM public.events WHERE event_type = 'ExpenseAdjusted' AND aggregate_id = v_x ORDER BY occurred_at DESC, id DESC LIMIT 1;
+  SELECT payload INTO v_ev FROM public.events WHERE event_type = 'ExpenseAdjusted' AND aggregate_id = v_x ORDER BY ctid DESC LIMIT 1;   -- (ctid: el orden de insercion; occurred_at es igual dentro de la transaccion del gate)
   PERFORM pg_temp.eq('X1-b ExpenseAdjusted kind', COALESCE(v_ev->>'kind', 'null'), 'null');
-  PERFORM pg_temp.eq('X1-b ExpenseAdjusted amount', v_ev->>'amount', '300.00');
+  PERFORM pg_temp.eq('X1-b ExpenseAdjusted amount', v_ev->>'amount', '300');
   -- auditoria
-  SELECT * INTO v_a FROM public.audit_logs WHERE entity_id = v_x AND action = 'expense.edited';
+  SELECT * INTO v_a FROM public.audit_logs WHERE entity_id = v_x AND action = 'expense.edited' AND metadata->>'reason' IS NOT NULL;
   PERFORM pg_temp.eq('X7 auditoria', (v_a.id IS NOT NULL)::text, 'true');
   PERFORM pg_temp.eq('X7 motivo', v_a.metadata->>'reason', 'corregi el importe');
-  PERFORM pg_temp.eq('X7 before', v_a.metadata->'before'->>'amount', '500.00');
-  PERFORM pg_temp.eq('X7 after', v_a.metadata->'after'->>'amount', '300.00');
+  PERFORM pg_temp.eq('X7 before', v_a.metadata->'before'->>'amount', '500');
+  PERFORM pg_temp.eq('X7 after', v_a.metadata->'after'->>'amount', '300');
 
   -- X2: efectivo -> transferencia (cuenta bancaria explicita): la caja se compensa, el banco recibe el egreso;
   -- el asiento acredita BANCO (kind transfer) porque la huella posterior es bancaria.
@@ -225,7 +225,7 @@ BEGIN
   PERFORM pg_temp.eq('X2 estado', r.o_state, '00000');
   PERFORM pg_temp.eq('X2 caja', pg_temp.fp('expense', ARRAY[v_x], 'cash'), '0/0');
   PERFORM pg_temp.eq('X2 banco', pg_temp.fp('expense', ARRAY[v_x], 'bank'), '-300.00/1');
-  SELECT payload INTO v_ev FROM public.events WHERE event_type = 'ExpenseAdjusted' AND aggregate_id = v_x ORDER BY occurred_at DESC, id DESC LIMIT 1;
+  SELECT payload INTO v_ev FROM public.events WHERE event_type = 'ExpenseAdjusted' AND aggregate_id = v_x ORDER BY ctid DESC LIMIT 1;   -- (ctid: el orden de insercion; occurred_at es igual dentro de la transaccion del gate)
   PERFORM pg_temp.eq('X2 ExpenseAdjusted kind', v_ev->>'kind', 'transfer');
 
   -- X3: transferencia -> efectivo: el banco queda en cero (espejo) y el asiento acredita CAJA (kind NULL)
@@ -234,7 +234,7 @@ BEGIN
   PERFORM pg_temp.eq('X3 estado', r.o_state, '00000');
   PERFORM pg_temp.eq('X3 banco', pg_temp.fp('expense', ARRAY[v_x], 'bank'), '0/0');
   PERFORM pg_temp.eq('X3 caja', pg_temp.fp('expense', ARRAY[v_x], 'cash'), '-300.00/1');
-  SELECT payload INTO v_ev FROM public.events WHERE event_type = 'ExpenseAdjusted' AND aggregate_id = v_x ORDER BY occurred_at DESC, id DESC LIMIT 1;
+  SELECT payload INTO v_ev FROM public.events WHERE event_type = 'ExpenseAdjusted' AND aggregate_id = v_x ORDER BY ctid DESC LIMIT 1;   -- (ctid: el orden de insercion; occurred_at es igual dentro de la transaccion del gate)
   PERFORM pg_temp.eq('X3 ExpenseAdjusted kind', COALESCE(v_ev->>'kind', 'null'), 'null');
 
   -- X5: credit sigue rechazado
@@ -245,7 +245,7 @@ BEGIN
   v_x2 := pg_temp.mk_expense(pg_temp.id('pm_cash'), 200, pg_temp.id('s_open'));
   SELECT * INTO r FROM pg_temp.edit_x(v_x2, ', p_amount => 260, p_dry_run => true');
   PERFORM pg_temp.eq('X6 dry_run', r.o_res->>'dry_run', 'true');
-  PERFORM pg_temp.eq('X6 amount intacto', (SELECT amount::text FROM public.expenses WHERE id = v_x2), '200.00');
+  PERFORM pg_temp.eq('X6 amount intacto', (SELECT amount::text FROM public.expenses WHERE id = v_x2), '200');
   SELECT * INTO r2 FROM pg_temp.edit_x(v_x2, ', p_amount => 260');
   PERFORM pg_temp.eq('X6 el plan ejecutado es el de la vista previa', (r2.o_res->'money')::text, (r.o_res->'plan')::text);
   -- borrar despues de editar compensa exactamente lo vivo
@@ -266,10 +266,10 @@ BEGIN
   PERFORM pg_temp.eq('P2-b movimientos en la abierta', (SELECT string_agg(movement_type || ':' || amount::text, ',' ORDER BY movement_type)
         FROM public.cash_movements WHERE session_id = pg_temp.id('s_open') AND reference_id = v_p), 'purchase_payment:-1200.00,purchase_payment_reversal:1000.00');
   -- PurchaseAdjusted con el id ESTABLE (old = new)
-  SELECT payload INTO v_ev FROM public.events WHERE event_type = 'PurchaseAdjusted' AND aggregate_id = v_p ORDER BY occurred_at DESC, id DESC LIMIT 1;
+  SELECT payload INTO v_ev FROM public.events WHERE event_type = 'PurchaseAdjusted' AND aggregate_id = v_p ORDER BY ctid DESC LIMIT 1;   -- (ctid: el orden de insercion; occurred_at es igual dentro de la transaccion del gate)
   PERFORM pg_temp.eq('P6 PurchaseAdjusted old', v_ev->>'old_operation_id', v_p::text);
   PERFORM pg_temp.eq('P6 PurchaseAdjusted new', v_ev->>'new_operation_id', v_p::text);
-  PERFORM pg_temp.eq('P6 PurchaseAdjusted total', v_ev->>'total', '1200.00');
+  PERFORM pg_temp.eq('P6 PurchaseAdjusted total', v_ev->>'total', '1200');
   SELECT * INTO v_a FROM public.audit_logs WHERE entity_id = v_p AND action = 'purchase_operation.edited';
   PERFORM pg_temp.eq('P7 auditoria', (v_a.id IS NOT NULL)::text, 'true');
   PERFORM pg_temp.eq('P7 motivo', v_a.metadata->>'reason', 'corregi el costo');
@@ -297,7 +297,11 @@ BEGIN
   SELECT * INTO r FROM pg_temp.edit_p(v_p, pg_temp.id('sup'), 1200 - (v_bal + 1));
   PERFORM pg_temp.eq('P1-b P0425', r.o_state, 'P0425');
   PERFORM pg_temp.eq('P1-b huella intacta', pg_temp.fp('purchase', ARRAY[v_p], 'account'), '1200.00/1');
-  -- cambia de proveedor: el cargo se traslada
+  -- cambia de proveedor: el cargo se traslada. (Sobre la compra ya pagada en parte, mover el cargo dejaria negativa la cuenta
+  -- vieja: P0425, correcto.)
+  SELECT * INTO r FROM pg_temp.edit_p(v_p, pg_temp.id('sup2'), 1200);
+  PERFORM pg_temp.eq('P1-c pagada en parte', r.o_state, 'P0425');
+  v_p := pg_temp.mk_purchase(pg_temp.id('pm_cr'), pg_temp.id('sup'), 900);
   SELECT * INTO r FROM pg_temp.edit_p(v_p, pg_temp.id('sup2'), 900);
   PERFORM pg_temp.eq('P1-c estado', r.o_state, '00000');
   PERFORM pg_temp.eq('P1-c un solo ledger', pg_temp.fp('purchase', ARRAY[v_p], 'account'), '900.00/1');

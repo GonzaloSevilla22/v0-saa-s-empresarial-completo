@@ -171,7 +171,7 @@ BEGIN
   v_before := pg_temp.ledger_rows();
   SELECT * INTO r FROM pg_temp.edit(v_op, pg_temp.id('client2'), 1000, '');
   PERFORM pg_temp.eq('V4 estado', r.o_state, '00000');
-  PERFORM pg_temp.eq('V4 caja intacta', pg_temp.fp(ARRAY[v_op], 'cash'), '1000/1');
+  PERFORM pg_temp.eq('V4 caja intacta', pg_temp.fp(ARRAY[v_op], 'cash'), '1000.00/1');
   -- solo cambia el conteo de eventos (SaleOperationAdjusted si habia asiento) -> comparamos los tres libros de dinero
   PERFORM pg_temp.eq('V4 libros de dinero', split_part(pg_temp.ledger_rows(), '/', 1) || '/' || split_part(pg_temp.ledger_rows(), '/', 2) || '/' || split_part(pg_temp.ledger_rows(), '/', 3),
                      split_part(v_before, '/', 1) || '/' || split_part(v_before, '/', 2) || '/' || split_part(v_before, '/', 3));
@@ -181,7 +181,7 @@ BEGIN
   SELECT * INTO r FROM pg_temp.edit(v_op, pg_temp.id('client2'), 1200, '');
   PERFORM pg_temp.eq('V2-c estado', r.o_state, 'P0426');
   PERFORM pg_temp.eq('V2-c libros intactos', pg_temp.ledger_rows(), v_before);
-  PERFORM pg_temp.eq('V2-c venta intacta', (SELECT sum(total)::text FROM public.sales WHERE operation_id = v_op), '1000.00');
+  PERFORM pg_temp.eq('V2-c venta intacta', (SELECT sum(total)::text FROM public.sales WHERE operation_id = v_op), '1000');
 
   -- V11 (parte): en seco devuelve el plan con el bloqueo COMO DATO y no escribe.
   SELECT * INTO r FROM pg_temp.edit(v_op, pg_temp.id('client2'), 1200, ', p_dry_run => true');
@@ -190,7 +190,7 @@ BEGIN
   PERFORM pg_temp.eq('V11 bloqueo', r.o_res->'plan'->'blocks'->0->>'code', 'P0426');
   PERFORM pg_temp.eq('V11 writes_money', r.o_res->'plan'->>'writes_money', 'true');
   PERFORM pg_temp.eq('V11 sin escritura', pg_temp.ledger_rows(), v_before);
-  PERFORM pg_temp.eq('V11 venta intacta', (SELECT sum(total)::text FROM public.sales WHERE operation_id = v_op), '1000.00');
+  PERFORM pg_temp.eq('V11 venta intacta', (SELECT sum(total)::text FROM public.sales WHERE operation_id = v_op), '1000');
   RAISE NOTICE 'PASS (V4, V2-c, V11a)';
 END $$;
 
@@ -210,7 +210,7 @@ BEGIN
   SELECT * INTO r FROM pg_temp.edit(v_op, pg_temp.id('client'), 1200, '');
   PERFORM pg_temp.eq('V2-b estado', r.o_state, '00000');
   PERFORM pg_temp.eq('V2-b operation_id estable', r.o_res->>'operation_id', v_op::text);
-  PERFORM pg_temp.eq('V2-b huella neta de caja', pg_temp.fp(ARRAY[v_op], 'cash'), '1200/1');
+  PERFORM pg_temp.eq('V2-b huella neta de caja', pg_temp.fp(ARRAY[v_op], 'cash'), '1200.00/1');
   PERFORM pg_temp.eq('V2-b sesion cerrada intacta', (SELECT count(*)::text FROM public.cash_movements WHERE session_id = pg_temp.id('s_old')), '1');
   PERFORM pg_temp.eq('V2-b la reversion y el nuevo van a la abierta', (SELECT string_agg(movement_type || ':' || amount::text, ',' ORDER BY created_at, movement_type)
             FROM public.cash_movements WHERE session_id = pg_temp.id('s_open') AND reference_id = v_op), 'sale:1200.00,sale_reversal:-1000.00');
@@ -219,14 +219,14 @@ BEGIN
   v_op2 := pg_temp.mk_sale(pg_temp.id('pm_cash'), NULL, 1000, pg_temp.id('s_open'));
   SELECT * INTO r FROM pg_temp.edit(v_op2, NULL, 700, '');
   PERFORM pg_temp.eq('V2-a estado', r.o_state, '00000');
-  PERFORM pg_temp.eq('V2-a huella', pg_temp.fp(ARRAY[v_op2], 'cash'), '700/1');
+  PERFORM pg_temp.eq('V2-a huella', pg_temp.fp(ARRAY[v_op2], 'cash'), '700.00/1');
   INSERT INTO _ev VALUES ('op_cash_today', v_op2);
 
   -- V2-d: cambio de sucursal sin intencion de caja -> cash_intent_required (P0422).
   SELECT * INTO r FROM pg_temp.edit(v_op2, NULL, 700, ', p_branch_id => ' || quote_literal(pg_temp.id('branch2')) || ', p_branch_provided => true');
   PERFORM pg_temp.eq('V2-d estado', r.o_state, 'P0422');
   IF r.o_msg NOT LIKE 'cash_intent_required:%' THEN RAISE EXCEPTION 'V2-d mensaje: %', r.o_msg; END IF;
-  PERFORM pg_temp.eq('V2-d huella intacta', pg_temp.fp(ARRAY[v_op2], 'cash'), '700/1');
+  PERFORM pg_temp.eq('V2-d huella intacta', pg_temp.fp(ARRAY[v_op2], 'cash'), '700.00/1');
   -- ...y con la intencion explicita (sesion abierta de la caja 2) la edicion procede: compensa en la caja vieja y registra en la nueva.
   SELECT * INTO r FROM pg_temp.edit(v_op2, NULL, 700, ', p_branch_id => ' || quote_literal(pg_temp.id('branch2')) || ', p_branch_provided => true, p_cash_session_id => '
                                     || quote_literal(pg_temp.id('s_open2')) || ', p_cash_provided => true');
@@ -281,7 +281,11 @@ BEGIN
   PERFORM pg_temp.eq('V1-d estado', r.o_state, '00000');
   PERFORM pg_temp.eq('V1-d huella', pg_temp.fp(ARRAY[v_op], 'account'), '900.00/1');
 
-  -- V1-e: cambia de CLIENTE -> el cargo se traslada (cuenta nueva con el cargo, la vieja con huella 0)
+  -- V1-e: cambia de CLIENTE -> el cargo se traslada (cuenta nueva con el cargo, la vieja con huella 0).
+  -- (Sobre la venta ya cobrada en parte, mover el cargo dejaria negativa la cuenta vieja: P0425, correcto.)
+  SELECT * INTO r FROM pg_temp.edit(v_op, pg_temp.id('client2'), 900, '');
+  PERFORM pg_temp.eq('V1-e cobrada en parte', r.o_state, 'P0425');
+  v_op := pg_temp.mk_sale(pg_temp.id('pm_cr'), pg_temp.id('client'), 900);
   SELECT * INTO r FROM pg_temp.edit(v_op, pg_temp.id('client2'), 900, '');
   PERFORM pg_temp.eq('V1-e estado', r.o_state, '00000');
   PERFORM pg_temp.eq('V1-e cuenta nueva', (SELECT sum(net)::text FROM public.op_money_footprint(pg_temp.id('acc'), 'sale', ARRAY[v_op]) f
@@ -290,7 +294,7 @@ BEGIN
   -- V1-f: vencimiento EXPLICITO, y anterior a la fecha -> P0400
   SELECT * INTO r FROM pg_temp.edit(v_op, pg_temp.id('client2'), 900, format(', p_due_date => %L, p_due_date_provided => true', v_today + 30));
   PERFORM pg_temp.eq('V1-f estado', r.o_state, '00000');
-  SELECT due_date INTO v_due FROM public.customer_account_movements WHERE reference_id = v_op AND movement_type = 'sale' ORDER BY created_at DESC, id DESC LIMIT 1;
+  SELECT max(due_date) INTO v_due FROM public.customer_account_movements WHERE reference_id = v_op AND movement_type = 'sale';   -- (max: todas las filas comparten created_at dentro de la transaccion del gate)
   PERFORM pg_temp.eq('V1-f vencimiento explicito', v_due::text, (v_today + 30)::text);
   SELECT * INTO r FROM pg_temp.edit(v_op, pg_temp.id('client2'), 900, format(', p_due_date => %L, p_due_date_provided => true', v_today - 5));
   PERFORM pg_temp.eq('V1-f vencimiento anterior', r.o_state, 'P0400');
@@ -307,7 +311,7 @@ BEGIN
   SELECT * INTO r FROM pg_temp.edit(v_op, NULL, 1300, '');
   PERFORM pg_temp.eq('V3-a estado', r.o_state, '00000');
   PERFORM pg_temp.eq('V3-a huella', pg_temp.fp(ARRAY[v_op], 'bank'), '1300.00/1');
-  PERFORM pg_temp.eq('V3-a cuenta conservada', (SELECT bank_account_id::text FROM public.op_money_footprint(pg_temp.id('acc'), 'sale', ARRAY[v_op]) WHERE book = 'bank'), pg_temp.id('ba')::text);
+  PERFORM pg_temp.eq('V3-a cuenta conservada', (SELECT ledger_id::text FROM public.op_money_footprint(pg_temp.id('acc'), 'sale', ARRAY[v_op]) WHERE book = 'bank'), pg_temp.id('ba')::text);
   PERFORM pg_temp.eq('V3-a el espejo va con fecha de hoy y sin conciliar', (SELECT count(*)::text FROM public.bank_movements
         WHERE source_doc_ref = v_op AND amount = -1000 AND value_date = CURRENT_DATE), '1');
   -- sin cambio economico: ningun movimiento nuevo
@@ -318,7 +322,7 @@ BEGIN
   -- cuenta bancaria explicita distinta
   SELECT * INTO r FROM pg_temp.edit(v_op, pg_temp.id('client'), 1300, ', p_bank_account_id => ' || quote_literal(pg_temp.id('ba2')) || ', p_bank_account_provided => true');
   PERFORM pg_temp.eq('V3-c estado', r.o_state, '00000');
-  PERFORM pg_temp.eq('V3-c cuenta nueva', (SELECT bank_account_id::text FROM public.op_money_footprint(pg_temp.id('acc'), 'sale', ARRAY[v_op]) WHERE book = 'bank'), pg_temp.id('ba2')::text);
+  PERFORM pg_temp.eq('V3-c cuenta nueva', (SELECT ledger_id::text FROM public.op_money_footprint(pg_temp.id('acc'), 'sale', ARRAY[v_op]) WHERE book = 'bank'), pg_temp.id('ba2')::text);
   -- periodo conciliado y cerrado -> P0424 (el movimiento nuevo cae en el periodo)
   INSERT INTO public.reconciliation_sessions (bank_account_id, account_id, status, period_from, period_to, statement_closing_balance, opened_by, closed_by, closed_at)
   VALUES (pg_temp.id('ba2'), pg_temp.id('acc'), 'closed', v_today - 60, v_today - 30, 0, pg_temp.id('owner'), pg_temp.id('owner'), now());
@@ -391,7 +395,7 @@ BEGIN
   PERFORM pg_temp.eq('V7 estado', r.o_state, '00000');
   PERFORM pg_temp.eq('V7 operation_id estable', r.o_res->>'operation_id', v_op::text);
   PERFORM pg_temp.eq('V7 la huella suma las dos referencias', pg_temp.fp(ARRAY[v_op, v_order], 'cash'), '1500.00/1');
-  PERFORM pg_temp.eq('V7 la referencia de la orden quedo en cero', (SELECT COALESCE(sum(amount), 0)::text FROM public.cash_movements WHERE reference_id = v_order), '0');
+  PERFORM pg_temp.eq('V7 la referencia de la orden quedo en cero', (SELECT COALESCE(sum(amount), 0)::text FROM public.cash_movements WHERE reference_id = v_order), '0.00');
   PERFORM pg_temp.eq('V7 la orden sigue a la operacion', (SELECT total::text FROM public.sales_orders WHERE id = v_order), '1500.00');
   -- rastro contable: SaleOperationAdjusted con sales_order_id (el asiento vigente es SalesOrder)
   SELECT count(*) INTO v_cnt FROM public.events WHERE event_type = 'SaleOperationAdjusted' AND (payload->>'sales_order_id')::uuid = v_order

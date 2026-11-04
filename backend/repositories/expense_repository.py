@@ -49,13 +49,14 @@ def _uid(value) -> str | None:
 # evalúan los guards del servidor, para que el listado deshabilite el control
 # con el motivo visible antes de que el usuario llegue al 409:
 #
-#   has_cash_movement / has_bank_movement → los dos EXISTS de los guards P0423
-#     de rpc_update_expense (cash_movements.reference_id = <gasto>;
-#     bank_movements.source_doc_type='expense' AND source_doc_ref = <gasto>).
+#   has_cash_movement / has_bank_movement / is_delete_blocked → la huella NETA del gasto
+#     (edicion-operaciones-con-dinero, tanda A, 1.5): función op_money_footprint_flags, la
+#     misma que usan el borrado y la edición (D3). Ya no un EXISTS por tipo de movimiento:
+#     un gasto editado acumula original + compensación + nuevo bajo su propia referencia.
 #   is_payment_locked → el OR de los dos, exactamente como bloquea la edición.
-#   is_delete_blocked → el único bloqueo propio del borrado: hay movimientos de
-#     caja del gasto y NO hay sesión abierta en ESA caja donde compensar — el
-#     mismo par de predicados que rpc_delete_expense evalúa antes del P0426.
+#   is_delete_blocked → el único bloqueo propio del borrado: hay neto de caja del
+#     gasto y NO hay sesión abierta en ESA caja donde compensar — el mismo par de
+#     predicados que rpc_delete_expense evalúa antes del P0426.
 #
 # Se define UNA sola vez y la usan get_by_id, list_paginated y el re-SELECT de
 # las mutaciones: una segunda definición del predicado es una segunda fuente de
@@ -65,14 +66,8 @@ _EXPENSE_PROJECTION = """
     e.date, e.created_at, e.cost_center_id, e.branch_id, e.payment_method_id,
     pm.name AS payment_method_name,
     pm.kind AS payment_method_kind,
-    EXISTS (
-      SELECT 1 FROM public.cash_movements cm
-      WHERE cm.reference_id = e.id
-    ) AS has_cash_movement,
-    EXISTS (
-      SELECT 1 FROM public.bank_movements bm
-      WHERE bm.source_doc_type = 'expense' AND bm.source_doc_ref = e.id
-    ) AS has_bank_movement,
+    COALESCE(fp.has_cash_movement, FALSE) AS has_cash_movement,
+    COALESCE(fp.has_bank_movement, FALSE) AS has_bank_movement,
     (
       EXISTS (
         SELECT 1 FROM public.cash_movements cm
@@ -83,16 +78,7 @@ _EXPENSE_PROJECTION = """
         WHERE bm.source_doc_type = 'expense' AND bm.source_doc_ref = e.id
       )
     ) AS is_payment_locked,
-    EXISTS (
-      SELECT 1
-      FROM public.cash_movements cm
-      JOIN public.cash_sessions cs ON cs.id = cm.session_id
-      WHERE cm.reference_id = e.id AND cm.movement_type = 'expense'
-        AND NOT EXISTS (
-          SELECT 1 FROM public.cash_sessions os
-          WHERE os.cashbox_id = cs.cashbox_id AND os.status = 'open'
-        )
-    ) AS is_delete_blocked,
+    COALESCE(fp.is_delete_blocked, FALSE) AS is_delete_blocked,
     -- asiento-contable-gastos (D11): rastro contable del gasto. Mismo patrón
     -- que los cuatro derivados de arriba — se calcula UNA vez acá y lo heredan
     -- get_by_id, list_paginated y el re-SELECT de las tres mutaciones.
@@ -120,6 +106,11 @@ _EXPENSE_PROJECTION = """
 _EXPENSE_FROM = """
     FROM public.expenses e
     LEFT JOIN public.payment_methods pm ON pm.id = e.payment_method_id
+"""
+
+# Huella neta del gasto, UNA vez por fila. Sólo en los SELECT de filas (el COUNT no la necesita).
+_EXPENSE_FP_JOIN = """
+    LEFT JOIN LATERAL public.op_money_footprint_flags(e.account_id, 'expense', ARRAY[e.id]) fp ON TRUE
 """
 
 
@@ -170,6 +161,7 @@ class ExpenseRepository(BaseRepository):
             f"""
             SELECT {_EXPENSE_PROJECTION}
             {_EXPENSE_FROM}
+            {_EXPENSE_FP_JOIN}
             {filters}
             ORDER BY e.date DESC, e.created_at DESC, e.id
             LIMIT $7 OFFSET $8
@@ -185,6 +177,7 @@ class ExpenseRepository(BaseRepository):
             f"""
             SELECT {_EXPENSE_PROJECTION}
             {_EXPENSE_FROM}
+            {_EXPENSE_FP_JOIN}
             WHERE e.id = $1::uuid AND e.account_id = $2::uuid
             """,
             _uid(expense_id),

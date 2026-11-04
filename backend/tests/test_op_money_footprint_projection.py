@@ -42,10 +42,12 @@ _FLAGS = ("has_account_charge", "has_cash_movement", "has_bank_movement", "is_de
 
 # ═════════════════════════ capa unitaria (CI) ═════════════════════════
 def _expr_before(src: str, alias: str) -> str:
-    """El texto de la expresión SQL que termina en `AS <alias>`."""
-    m = re.search(r"([^,]*?)\bAS\s+" + alias + r"\b", src, flags=re.S)
+    """El texto de la expresión SQL que termina en `AS <alias>`: desde el cierre de la columna anterior
+    (`,` al final de línea) hasta el alias, para incluir expresiones de varias líneas."""
+    pattern = r"(?:^|,\n)((?:(?!,\n).)*?)\bAS\s+" + alias + r"\b"
+    m = re.search(pattern, src, flags=re.S)
     assert m, f"no se encontró la columna {alias}"
-    return m.group(1)
+    return re.sub(r"--[^\n]*", "", m.group(1))  # sin los comentarios SQL: sólo la expresión
 
 
 @pytest.mark.parametrize(

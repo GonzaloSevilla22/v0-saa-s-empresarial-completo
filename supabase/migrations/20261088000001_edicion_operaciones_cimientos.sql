@@ -3830,3 +3830,113 @@ COMMENT ON FUNCTION public.rpc_update_expense(uuid, text, numeric, date, text, u
   (D12). NO postea movimientos: imputar una forma de pago por edición es sólo
   una etiqueta (D13). compras-gastos-sucursal-por-defecto: un branch_id nulo, vigente o informado, se resuelve a la sucursal por defecto, como en el alta.
   edicion-operaciones-con-dinero (tanda A, D12): lee y toma la fila del gasto FOR UPDATE antes de resolver los valores vigentes.$c$;
+
+-- =============================================================================
+-- 16. Introspección: lo que esta migración promete, verificado en la base viva
+-- =============================================================================
+-- Falla la migración (y la reaplicación de CI) si alguna función quedó con más de una definición viva, con la ACL
+-- cambiada, sin la huella neta / el emparejamiento / el asiento vigente, o si los dos filtros del conjunto canónico no
+-- listan los mismos 15 tipos.
+DO $$
+DECLARE
+  v_fn     text;
+  v_n      integer;
+  v_src    text;
+  v_oid    oid;
+  v_set_j  text[];
+  v_set_d  text[];
+BEGIN
+  -- (a) una sola firma viva por función
+  FOR v_fn IN SELECT unnest(ARRAY[
+      'op_money_footprint', 'op_money_footprint_flags', '_customer_open_items', '_supplier_open_items',
+      '_journal_purchase_lines', '_journal_post_from_event', 'rpc_process_outbox_dispatch',
+      'rpc_delete_sale_operation', 'rpc_delete_purchase_operation', 'rpc_delete_expense',
+      'rpc_receivables_report', 'rpc_payables_report', '_produce_receivables_overdue_digest',
+      'rpc_update_customer_charge_due_date', 'rpc_update_supplier_charge_due_date',
+      'rpc_atomic_update_purchase_operation', 'rpc_update_expense'])
+  LOOP
+    SELECT count(*) INTO v_n FROM pg_proc WHERE pronamespace = 'public'::regnamespace AND proname = v_fn;
+    IF v_n <> 1 THEN
+      RAISE EXCEPTION 'edicion-operaciones-con-dinero tanda A (introspección): % tiene % definiciones vivas', v_fn, v_n;
+    END IF;
+  END LOOP;
+
+  -- (b) ACL: ejecutables por authenticated (nunca por anon) las de API; internas sin authenticated ni anon
+  FOR v_fn IN SELECT unnest(ARRAY[
+      'op_money_footprint', 'op_money_footprint_flags', 'rpc_delete_sale_operation', 'rpc_delete_purchase_operation',
+      'rpc_delete_expense', 'rpc_receivables_report', 'rpc_payables_report', 'rpc_update_customer_charge_due_date',
+      'rpc_update_supplier_charge_due_date', 'rpc_atomic_update_purchase_operation', 'rpc_update_expense'])
+  LOOP
+    SELECT oid INTO v_oid FROM pg_proc WHERE pronamespace = 'public'::regnamespace AND proname = v_fn;
+    IF NOT has_function_privilege('authenticated', v_oid, 'EXECUTE') OR has_function_privilege('anon', v_oid, 'EXECUTE') THEN
+      RAISE EXCEPTION 'edicion-operaciones-con-dinero tanda A (introspección): la ACL de % cambió (authenticated sí, anon nunca)', v_fn;
+    END IF;
+  END LOOP;
+  FOR v_fn IN SELECT unnest(ARRAY[
+      '_customer_open_items', '_supplier_open_items', '_journal_purchase_lines', '_journal_post_from_event',
+      'rpc_process_outbox_dispatch', '_produce_receivables_overdue_digest'])
+  LOOP
+    SELECT oid INTO v_oid FROM pg_proc WHERE pronamespace = 'public'::regnamespace AND proname = v_fn;
+    IF has_function_privilege('authenticated', v_oid, 'EXECUTE') OR has_function_privilege('anon', v_oid, 'EXECUTE') THEN
+      RAISE EXCEPTION 'edicion-operaciones-con-dinero tanda A (introspección): % es interna y quedó ejecutable por authenticated o anon', v_fn;
+    END IF;
+  END LOOP;
+
+  -- (c) el borrado consume la huella neta (y ya no suma por tipo original)
+  FOR v_fn IN SELECT unnest(ARRAY['rpc_delete_sale_operation', 'rpc_delete_purchase_operation', 'rpc_delete_expense'])
+  LOOP
+    SELECT prosrc INTO v_src FROM pg_proc WHERE pronamespace = 'public'::regnamespace AND proname = v_fn;
+    IF v_src NOT LIKE '%op_money_footprint(%' THEN
+      RAISE EXCEPTION 'edicion-operaciones-con-dinero tanda A (introspección): % no consume op_money_footprint', v_fn;
+    END IF;
+    IF v_src ~* 'GROUP BY session_id' THEN
+      RAISE EXCEPTION 'edicion-operaciones-con-dinero tanda A (introspección): % todavía agrupa la caja por sesión', v_fn;
+    END IF;
+  END LOOP;
+
+  -- (d) el aging sale de la derivación única, en los cinco lugares SQL
+  FOR v_fn IN SELECT unnest(ARRAY['rpc_receivables_report', '_produce_receivables_overdue_digest', 'rpc_update_customer_charge_due_date'])
+  LOOP
+    SELECT prosrc INTO v_src FROM pg_proc WHERE pronamespace = 'public'::regnamespace AND proname = v_fn;
+    IF v_src NOT LIKE '%_customer_open_items(%' OR v_src ~* 'WITH pool AS|\mcum_amount\M' THEN
+      RAISE EXCEPTION 'edicion-operaciones-con-dinero tanda A (introspección): % no usa _customer_open_items o conserva su propio FIFO', v_fn;
+    END IF;
+  END LOOP;
+  FOR v_fn IN SELECT unnest(ARRAY['rpc_payables_report', '_produce_receivables_overdue_digest', 'rpc_update_supplier_charge_due_date'])
+  LOOP
+    SELECT prosrc INTO v_src FROM pg_proc WHERE pronamespace = 'public'::regnamespace AND proname = v_fn;
+    IF v_src NOT LIKE '%_supplier_open_items(%' OR v_src ~* 'WITH pool AS|\mcum_amount\M' THEN
+      RAISE EXCEPTION 'edicion-operaciones-con-dinero tanda A (introspección): % no usa _supplier_open_items o conserva su propio FIFO', v_fn;
+    END IF;
+  END LOOP;
+
+  -- (e) el consumidor contable: asiento vigente (reversal_of IS NULL) en las cinco búsquedas con riesgo de contra-asiento,
+  --     rama PurchaseAdjusted y los dos filtros con LOS MISMOS 15 tipos
+  SELECT prosrc INTO v_src FROM pg_proc WHERE pronamespace = 'public'::regnamespace AND proname = '_journal_post_from_event';
+  SELECT count(*) INTO v_n FROM regexp_matches(regexp_replace(regexp_replace(v_src, '/\*.*?\*/', '', 'gs'), '--[^\n]*', '', 'g'), 'reversal_of\s+IS NULL', 'g');
+  IF v_n < 10 THEN
+    RAISE EXCEPTION 'edicion-operaciones-con-dinero tanda A (introspección): _journal_post_from_event tiene % búsquedas con reversal_of IS NULL y se esperaban al menos 10', v_n;
+  END IF;
+  IF v_src NOT LIKE '%v_event_type = ''PurchaseAdjusted''%' OR v_src NOT LIKE '%_journal_purchase_lines(%' THEN
+    RAISE EXCEPTION 'edicion-operaciones-con-dinero tanda A (introspección): _journal_post_from_event no tiene la rama PurchaseAdjusted';
+  END IF;
+  SELECT array_agg(DISTINCT m[1] ORDER BY m[1]) INTO v_set_j
+  FROM regexp_matches(substring(pg_get_functiondef('public._journal_post_from_event(events)'::regprocedure) from 'v_event_type NOT IN \(([^)]*)\)'), '''([A-Za-z]+)''', 'g') AS m;
+  SELECT array_agg(DISTINCT m[1] ORDER BY m[1]) INTO v_set_d
+  FROM regexp_matches(substring(pg_get_functiondef('public.rpc_process_outbox_dispatch(integer)'::regprocedure) from 'Consumer 3: JournalEntry.*?IN \(([^)]*)\)'), '''([A-Za-z]+)''', 'g') AS m;
+  IF v_set_j IS DISTINCT FROM v_set_d OR array_length(v_set_j, 1) <> 15 OR NOT ('PurchaseAdjusted' = ANY (v_set_j)) THEN
+    RAISE EXCEPTION 'edicion-operaciones-con-dinero tanda A (introspección): los dos filtros de event_type deben listar los mismos 15 tipos (con PurchaseAdjusted): helper=% despachador=%', v_set_j, v_set_d;
+  END IF;
+
+  -- (f) la edición de compra bloquea las filas y emite PurchaseAdjusted; la de gasto lee FOR UPDATE
+  SELECT prosrc INTO v_src FROM pg_proc WHERE pronamespace = 'public'::regnamespace AND proname = 'rpc_atomic_update_purchase_operation';
+  IF v_src !~* 'ORDER\s+BY\s+p\.id\s+FOR UPDATE' OR v_src NOT LIKE '%''PurchaseAdjusted''%' THEN
+    RAISE EXCEPTION 'edicion-operaciones-con-dinero tanda A (introspección): rpc_atomic_update_purchase_operation sin lock de filas ascendente o sin PurchaseAdjusted';
+  END IF;
+  SELECT prosrc INTO v_src FROM pg_proc WHERE pronamespace = 'public'::regnamespace AND proname = 'rpc_update_expense';
+  IF regexp_replace(v_src, '--[^\n]*', '', 'g') !~* 'account_id = v_account_id\s+FOR UPDATE' THEN
+    RAISE EXCEPTION 'edicion-operaciones-con-dinero tanda A (introspección): rpc_update_expense no lee la fila del gasto FOR UPDATE';
+  END IF;
+
+  RAISE NOTICE 'edicion-operaciones-con-dinero tanda A (introspección) OK: una firma por función, ACLs, huella neta, aging único, asiento vigente, 15 tipos en los dos filtros y locks de edición';
+END $$;

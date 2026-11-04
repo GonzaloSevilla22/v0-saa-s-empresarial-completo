@@ -513,3 +513,16 @@ Numeración de migraciones: se reserva en el apply, después de medir `MAX(versi
 - **(a) Recomendado: rechazar con `P0424`** y sugerir el ajuste manual, igual que el alta. Sólo ocurre cuando el efecto bancario cambia (D1).
 - **(b)** Fechar el movimiento nuevo hoy. Desacoplaría la fecha valor de la operación.
 - Medido: 1 sesión de conciliación cerrada que cubre 12 movimientos de operaciones; 0 movimientos conciliados.
+
+### Sign-off del PO (task 0.1)
+
+**Sign-off del PO 2026-11-04: OQ-1..OQ-6 por su opción recomendada (instrucción general de la corrida autónoma).** El PO firmó por escrito: «continuando con los changes 1 por 1 y que siempre vayas con lo recomendado». Resolución:
+
+- OQ-1 (a): el comprobante en vuelo o congelado sigue bloqueando la edición.
+- OQ-2 (a): un nuevo total menor a lo ya cobrado se rechaza con `P0425`.
+- OQ-3 (a): el efectivo de una sesión cerrada se corrige en la caja abierta de hoy.
+- OQ-4 (a): corregir dinero es del dueño o un administrador (`CAN_CORRECT_MONEY = owner, admin`). `multiusuario-operativo` ya está en prod (tandas A/B/C, migraciones `20261082000001`…`20261085000001`), así que la premisa de pertenencia existe.
+- OQ-5 (a): las ventas nacidas de un remito y las que tienen conceptos de servicio conservan su bloqueo.
+- OQ-6 (a): un movimiento bancario nuevo dentro de un período conciliado y cerrado se rechaza con `P0424`.
+
+Ninguna alternativa distinta de la recomendada: no hay decisión, spec ni task que reescribir.

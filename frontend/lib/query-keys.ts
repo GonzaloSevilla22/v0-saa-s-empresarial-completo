@@ -28,6 +28,11 @@ export const queryKeys = {
     all:   () => ["journal-entries"] as const,
     lists: () => ["journal-entries", "list"] as const,
   },
+  // edicion-operaciones-con-dinero (tanda C, D14): historial de ediciones de una venta, una compra o un gasto.
+  operationEdits: {
+    all:    () => ["operation-edits"] as const,
+    detail: (kind: string, entityId: string) => ["operation-edits", kind, entityId] as const,
+  },
   products: {
     all:    () => ["products"] as const,
     lists:  () => ["products", "list"] as const,

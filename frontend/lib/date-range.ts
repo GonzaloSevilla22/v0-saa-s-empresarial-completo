@@ -21,7 +21,7 @@
  *   `argentinaToday()`.
  */
 
-const ARGENTINA_TIMEZONE = "America/Argentina/Mendoza"
+export const ARGENTINA_TIMEZONE = "America/Argentina/Mendoza"
 
 export interface IsoRange {
   /** Inclusive lower bound, ISO 8601 (UTC). */

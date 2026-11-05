@@ -29,6 +29,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ReconciliationBoard } from "@/components/bank-reconciliation/ReconciliationBoard"
 import { BankAccountFormDialog } from "@/components/bank-accounts/BankAccountFormDialog"
+import { BankAccountBalanceCard } from "@/components/bank-accounts/BankAccountBalanceCard"
 import { LedgerMovementsPanel } from "@/components/ledger/LedgerMovementsPanel"
 import { LedgerAdjustmentDialog } from "@/components/ledger/LedgerAdjustmentDialog"
 import { useBankAccounts } from "@/hooks/data/use-bank-accounts"
@@ -140,6 +141,8 @@ export default function BancoPage() {
           )}
         </CardContent>
       </Card>
+
+      <BankAccountBalanceCard account={selectedAccount} />
 
       <BankAccountFormDialog
         open={newAccountKind !== null}

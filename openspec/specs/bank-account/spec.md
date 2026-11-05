@@ -228,3 +228,17 @@ El sistema SHALL distinguir visualmente banco y billetera virtual mediante ícon
 - **WHEN** se agrega una superficie nueva que necesita mostrar el tipo de una cuenta
 - **THEN** obtiene etiqueta, ícono y variante de badge del módulo canónico, sin redefinir el mapeo localmente
 
+### Requirement: Saldo según libro de la cuenta
+El sistema SHALL exponer, para cada cuenta bancaria o billetera, su saldo según libro: el saldo inicial más la suma de los importes (con signo) de sus movimientos, recalculado sobre los movimientos y nunca tomado del saldo corrido de la última fila. `/banco` SHALL mostrarlo al elegir la cuenta, junto con el saldo inicial, la fecha del último movimiento y la cantidad de movimientos sin conciliar.
+
+#### Scenario: Saldo con movimientos
+- **WHEN** una cuenta tiene saldo inicial 1000 y movimientos +500 y -200
+- **THEN** el saldo según libro es 1300
+
+#### Scenario: Cuenta sin movimientos
+- **WHEN** una cuenta no tiene movimientos
+- **THEN** el saldo según libro es igual a su saldo inicial
+
+#### Scenario: Sin cuenta elegida
+- **WHEN** no hay cuenta elegida en `/banco`
+- **THEN** no se muestra el saldo

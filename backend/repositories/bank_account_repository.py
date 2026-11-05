@@ -24,6 +24,29 @@ def _jsonb(value):
     """
     return json.loads(value) if isinstance(value, str) else value
 
+# banco-saldo-segun-libro: proyección única de una cuenta CON su saldo "según
+# libro" = saldo inicial + SUM(amount) de sus movimientos, recalculado siempre
+# (como el arqueo de caja), nunca el saldo corrido serializado de la última fila.
+# Una sola definición para el listado, el get por pertenencia y el re-SELECT del alta.
+_BANK_ACCOUNT_WITH_BALANCE_SELECT = """
+            SELECT ba.id, ba.account_id, ba.name, ba.bank_name, ba.cbu, ba.alias,
+                   ba.currency, ba.account_kind, ba.is_active,
+                   ba.opening_balance,
+                   ba.opening_balance + COALESCE(m.movements_total, 0) AS current_balance,
+                   m.last_movement_date,
+                   COALESCE(m.pending_reconciliation_count, 0) AS pending_reconciliation_count
+            FROM public.bank_accounts ba
+            LEFT JOIN LATERAL (
+                SELECT SUM(bm.amount) AS movements_total,
+                       MAX(COALESCE(bm.value_date, bm.created_at::date)) AS last_movement_date,
+                       COUNT(*) FILTER (WHERE bm.reconciliation_status = 'unreconciled')
+                           AS pending_reconciliation_count
+                FROM public.bank_movements bm
+                WHERE bm.bank_account_id = ba.id
+                  AND bm.account_id = ba.account_id
+            ) m ON true
+"""
+
 
 class BankAccountRepository(BaseRepository):
     """Repository de bank_accounts — JWT-passthrough via base.py."""
@@ -42,13 +65,12 @@ class BankAccountRepository(BaseRepository):
         real es soft_delete("bank_accounts", ...) del BaseRepository.
         """
         return await self.fetch(
-            """
-            SELECT id, account_id, name, bank_name, cbu, alias, currency, account_kind, is_active
-            FROM public.bank_accounts
-            WHERE account_id = $1
-              AND is_active = true
-              AND deleted_at IS NULL
-            ORDER BY name
+            _BANK_ACCOUNT_WITH_BALANCE_SELECT
+            + """
+            WHERE ba.account_id = $1
+              AND ba.is_active = true
+              AND ba.deleted_at IS NULL
+            ORDER BY ba.name
             """,
             account_id,
         )
@@ -62,10 +84,9 @@ class BankAccountRepository(BaseRepository):
         bank_account_id que llega por path param realmente pertenece a la
         cuenta del caller ANTES de listar sus movimientos (IDOR guard)."""
         record = await self.fetchrow(
-            """
-            SELECT id, account_id, name, bank_name, cbu, alias, currency, account_kind, is_active
-            FROM public.bank_accounts
-            WHERE id = $1 AND account_id = $2
+            _BANK_ACCOUNT_WITH_BALANCE_SELECT
+            + """
+            WHERE ba.id = $1 AND ba.account_id = $2
             """,
             bank_account_id,
             account_id,
@@ -179,10 +200,9 @@ class BankAccountRepository(BaseRepository):
 
     async def _get_by_id(self, bank_account_id) -> dict | None:
         record = await self.fetchrow(
-            """
-            SELECT id, account_id, name, bank_name, cbu, alias, currency, account_kind, is_active
-            FROM public.bank_accounts
-            WHERE id = $1
+            _BANK_ACCOUNT_WITH_BALANCE_SELECT
+            + """
+            WHERE ba.id = $1
             """,
             bank_account_id,
         )

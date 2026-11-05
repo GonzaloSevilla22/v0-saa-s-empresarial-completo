@@ -28,7 +28,7 @@
 #   R4  borrado frenado → promoción: ESPERA y → P0404.
 #   R5  dos promociones de la misma operación: la segunda ESPERA y devuelve
 #       la MISMA orden (replayed=true).
-#   R6  doble "Guardar": dos ediciones de la misma operación. La segunda
+#   R6  doble "Guardar": dos ediciones de la misma operación (id estable). La segunda
 #       ESPERA a la primera sobre las filas de sales y, cuando la primera
 #       commitea, falla con P0404 ANTES de revertir stock: una sola operación
 #       nueva y el stock movido una sola vez (sin el lock temprano, la
@@ -699,8 +699,11 @@ SQL
   grep -q 'EDIT_ERR sqlstate=P0404' "$TMP/b.txt" || { echo "  R6#$i: la segunda edición debía dar P0404 (las filas ya no existen) — $(tr '\n' ' ' < "$TMP/b.txt")"; ok=0; }
   N=$(q "SELECT count(*) FROM public.sales WHERE account_id = '$ACCOUNT_ID' AND created_at >= '$T0'::timestamptz;")
   [ "$N" = "1" ] || { echo "  R6#$i: DUPLICADO — $N filas de venta nuevas después de dos ediciones de la misma operación, esperaba 1"; ok=0; }
+  # edicion-operaciones-con-dinero (tanda B, D2): el operation_id es ESTABLE — la edición
+  # reemplaza las filas pero conserva el identificador, así que la operación tiene que
+  # seguir existiendo con UNA sola fila (la editada), no desaparecer.
   N=$(q "SELECT count(*) FROM public.sales WHERE operation_id = '$OP';")
-  [ "$N" = "0" ] || { echo "  R6#$i: la operación vieja conserva $N filas"; ok=0; }
+  [ "$N" = "1" ] || { echo "  R6#$i: la operación (id estable) debía conservar 1 fila, tiene $N"; ok=0; }
   STK=$(q "SELECT (quantity = $STK0 + 1)::text || '|' || quantity FROM public.branch_stock WHERE product_id = '$F_product' AND branch_id = '$F_branch';")
   [ "${STK%%|*}" = "true" ] || { echo "  R6#$i: el stock quedó en ${STK##*|}, esperaba $STK0 + 1 (500 × 2 → 111 × 1, movido UNA vez)"; ok=0; }
   D=$(( $(damage_count) - D0 )); [ "$D" = "0" ] || { echo "  R6#$i: DAÑO — $D"; ok=0; DAMAGE_TOTAL=$((DAMAGE_TOTAL + D)); }

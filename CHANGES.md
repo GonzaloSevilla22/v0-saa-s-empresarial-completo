@@ -4526,7 +4526,7 @@ El pedido literal (RPC con rol y motivo + quitar `GRANT` y policies) es correcto
 
 **Verificación.** Gates SQL nuevos: `test_op_money_footprint`, `test_aging_reversal_pairing`, `test_journal_consumer_noregression`, `test_journal_consumer_edicion`, `test_purchase_edit_journal`, `test_edicion_locks_race.sh` (carrera con dos conexiones: compra y gasto) — todos con RED medido antes del GREEN; cableados a `KPI_Validation.yml`, que además reaplica `20261088000001` dos veces al final de la cadena. **Rollback**: los cuerpos previos de las 13 funciones están en `openspec/changes/edicion-operaciones-con-dinero/evidence/tanda-a/*.prev.sql`; ningún dato se reescribe. **Pendiente**: revisión adversarial y merge (orquestador), verificación post-merge en prod (`MAX(version)`, una firma por función y su ACL, md5 del vivo == el de la migración, 0 eventos pendientes con `P0451`, invariante de cierre del aging), tanda B, tanda C, humo del PO.
 
-## Change `edicion-operaciones-con-dinero` — TANDA B apply 2026-11-04 (apply B PR en revisión, migración `20261089000001_edicion_operaciones_dinero.sql`; governance **ALTA**: reescribe las funciones que escriben dinero en cuenta corriente, caja y banco)
+## Change `edicion-operaciones-con-dinero` — TANDA B apply 2026-11-04 (apply B PR **#660**, migración `20261089000001_edicion_operaciones_dinero.sql`; governance **ALTA**: reescribe las funciones que escriben dinero en cuenta corriente, caja y banco)
 
 **Qué cambia en prod con la tanda B** (una migración; las tres ediciones **cambian de firma** con `DROP FUNCTION` + `CREATE`, sin overload; nueve funciones nuevas, todas con `REVOKE`/`GRANT`/`COMMENT` re-emitidos):
 

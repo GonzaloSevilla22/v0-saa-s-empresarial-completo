@@ -59,6 +59,6 @@ Se completa a medida que se mergea cada PR. Orden pactado: changes de a uno, sie
 | 18:43 | `fix/importador-productos-stock-apertura`: el stock del archivo es de apertura, no pisa el saldo vivo (R1 de la auditoría de stock; migración `20261086000001`) | #645 | mergeado |
 | 18:58 | `fix/stock-edicion-sucursal-y-piso`: editar valida el stock por sucursal, el piso deja un solo movimiento (R2/R4/R5; migración `20261087000001`; va antes del change por diseño) | #646 | mergeado |
 | 19:40 | `edicion-operaciones-con-dinero` tanda A (huella neta, aging, consumidor contable; migración `20261088000001`; sin superficie: nada que probar a mano) | #659 | mergeado |
-| — | `edicion-operaciones-con-dinero` tanda B (edición con dinero; migración `20261089000001`; sin superficie nueva: la ve la tanda C) | PR_B | en revisión |
+| — | `edicion-operaciones-con-dinero` tanda B (edición con dinero; migración `20261089000001`; sin superficie nueva: la ve la tanda C) | #660 | en revisión |
 | — | `edicion-operaciones-con-dinero` tanda C (superficie) | — | pendiente |
 | — | Archive `edicion-operaciones-con-dinero` | — | pendiente |

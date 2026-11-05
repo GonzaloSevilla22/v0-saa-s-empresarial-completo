@@ -12,6 +12,7 @@ from backend.core.auth import get_current_user
 from backend.core.config import settings
 from backend.core.database import get_db_conn, get_service_conn
 from backend.core.deps import get_account_id
+from backend.core.guards import require_relay_secret
 from backend.repositories.billing_repository import BillingRepository
 from backend.repositories.subscriptions_repository import SubscriptionsRepository
 from backend.schemas.payments import (
@@ -29,6 +30,7 @@ from backend.schemas.payments import (
     SubscriptionCreateIn,
     SubscriptionCreateOut,
     SubscriptionOut,
+    SubscriptionReconcileCronOut,
     WebhookResponse,
 )
 from backend.services.payments import process_payment, verify_mp_signature
@@ -45,6 +47,7 @@ from backend.services.subscriptions import (
     list_recent_subscriptions,
     process_subscription_authorized_payment_notification,
     process_subscription_preapproval_notification,
+    reconcile_due_subscriptions,
     replay_subscription_charges,
     resolve_ambiguous_subscription,
 )
@@ -279,6 +282,26 @@ async def replay_subscription_charges_endpoint(
     fa624f9b-32e5-4b5c-ad0d-fc64e6dc16b1). Ver
     `services.subscriptions.replay_subscription_charges`."""
     return await replay_subscription_charges(str(subscription_id), repo, conn)
+
+
+@router.post(
+    "/subscriptions/reconcile-cron",
+    response_model=SubscriptionReconcileCronOut,
+    dependencies=[Depends(require_relay_secret)],
+)
+async def reconcile_subscriptions_cron(
+    conn: asyncpg.Connection = Depends(get_service_conn),
+) -> dict:
+    """Endpoint de MÁQUINA (mp-cuota-acreditacion-resiliente D5): lo llama
+    `pg_cron` cada hora vía `pg_net` (`rpc_trigger_subscription_reconcile`),
+    autenticado SÓLO por el secreto compartido del relay
+    (`require_relay_secret`, nunca JWT) y sobre la conexión de servicio, como
+    el webhook. Acredita el cobro mensual aunque MercadoPago no notifique la
+    cuota `processed`. La palanca `billing_subscriptions_enabled` la evalúa
+    el servicio (apagada → 200 `skipped`, nunca 503: un 5xx cada hora sería
+    ruido en `net._http_response`). Ver
+    `services.subscriptions.reconcile_due_subscriptions`."""
+    return await reconcile_due_subscriptions(SubscriptionsRepository(conn), conn)
 
 
 @router.post(

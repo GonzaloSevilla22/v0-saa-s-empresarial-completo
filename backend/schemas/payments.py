@@ -136,6 +136,20 @@ class ReplaySubscriptionChargesOut(BaseModel):
     already_applied: list[str]
 
 
+class SubscriptionReconcileCronOut(BaseModel):
+    """mp-cuota-acreditacion-resiliente D5: respuesta de
+    `POST /payments/subscriptions/reconcile-cron` (barrido horario, máquina).
+    Con la palanca apagada: `{"ok": true, "skipped": true}`. Con la palanca
+    encendida: cuántas suscripciones se revisaron, qué cuotas se acreditaron
+    por primera vez y cuántas suscripciones fallaron (reintentan en la
+    corrida siguiente)."""
+    ok: bool
+    skipped: bool | None = None
+    checked: int | None = None
+    applied: list[str] = []
+    errors: int | None = None
+
+
 class DiscardAmbiguousSubscriptionIn(BaseModel):
     """Descartar (residuo (b) de mp-real-subscriptions): motivo opcional,
     en texto libre, para la traza de auditoría."""
@@ -165,6 +179,11 @@ class RecentSubscriptionOut(BaseModel):
     last_payment_status: str | None = None
     retry_state: str
     updated_at: datetime.datetime
+    # mp-cuota-acreditacion-resiliente D9: fin del período pagado de la
+    # cuenta y último cobro mensual acreditado del preapproval (None = sin
+    # cuenta / sin cobros acreditados).
+    plan_expires_at: datetime.datetime | None = None
+    last_charge_credited_at: datetime.datetime | None = None
 
 
 class AccountSearchResultOut(BaseModel):

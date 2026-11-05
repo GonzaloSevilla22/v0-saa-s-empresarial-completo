@@ -2661,3 +2661,131 @@ class TestReconcilePreapprovalCharges:
 
         assert result == {"ok": True, "applied": [], "already_applied": ["7032577415"]}
         assert _expiry_args(conn) == [None]
+
+
+# ── mp-cuota-acreditacion-resiliente D4/D5 — barrido programado
+#    (`reconcile_due_subscriptions`) ───────────────────────────────────────────
+
+class TestReconcileDueSubscriptions:
+    def _sub(self, n: int) -> dict:
+        return {
+            "id": f"sub-{n}", "account_id": ACCOUNT_ID, "preapproval_id": f"pre-{n}", "plan": "inicial",
+        }
+
+    @pytest.mark.asyncio
+    async def test_switch_off_queries_nothing(self):
+        """3.3: con la palanca `billing_subscriptions_enabled` apagada no se
+        consulta la base ni MercadoPago."""
+        from backend.services.subscriptions import reconcile_due_subscriptions
+
+        repo = _mock_repo(find_subscriptions_due_for_reconciliation=AsyncMock(return_value=[self._sub(1)]))
+        with (
+            patch("backend.services.subscriptions.settings.billing_subscriptions_enabled", False),
+            patch("backend.services.subscriptions.reconcile_preapproval_charges", new_callable=AsyncMock) as core,
+        ):
+            result = await reconcile_due_subscriptions(repo, _mock_conn())
+
+        assert result == {"ok": True, "skipped": True}
+        repo.find_subscriptions_due_for_reconciliation.assert_not_awaited()
+        core.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_selects_with_service_constants_and_reconciles_each(self):
+        """3.3: la selección usa las constantes del servicio (gracia,
+        ventana de 30 días, tope por corrida) y el núcleo corre una vez por
+        suscripción; el resumen junta las cuotas acreditadas."""
+        from backend.services.subscriptions import (
+            RECONCILE_BATCH_LIMIT,
+            RECONCILE_LOOKBACK,
+            reconcile_due_subscriptions,
+        )
+
+        subs = [self._sub(1), self._sub(2)]
+        repo = _mock_repo(find_subscriptions_due_for_reconciliation=AsyncMock(return_value=subs))
+        conn = _mock_conn()
+        outcomes = [
+            {"applied": ["7033613241"], "already_applied": ["7032577415"]},
+            {"applied": [], "already_applied": []},
+        ]
+        with (
+            patch("backend.services.subscriptions.settings.billing_subscriptions_enabled", True),
+            patch(
+                "backend.services.subscriptions.reconcile_preapproval_charges",
+                new_callable=AsyncMock, side_effect=outcomes,
+            ) as core,
+        ):
+            result = await reconcile_due_subscriptions(repo, conn)
+
+        assert result == {"ok": True, "checked": 2, "applied": ["7033613241"], "errors": 0}
+        repo.find_subscriptions_due_for_reconciliation.assert_awaited_once_with(
+            grace=GRACE_PERIOD, lookback=RECONCILE_LOOKBACK, limit=RECONCILE_BATCH_LIMIT
+        )
+        assert RECONCILE_LOOKBACK == datetime.timedelta(days=30)
+        assert [c.args[0] for c in core.await_args_list] == subs
+        assert all(c.args[1] is repo and c.args[2] is conn for c in core.await_args_list)
+
+    @pytest.mark.asyncio
+    async def test_mp_failure_on_one_subscription_does_not_stop_the_next(self):
+        """Escenario "Error de MercadoPago en una suscripción no frena al
+        resto": el 502 de la primera se cuenta como error y la segunda se
+        reconcilia igual."""
+        from backend.services.subscriptions import reconcile_due_subscriptions
+
+        subs = [self._sub(1), self._sub(2)]
+        repo = _mock_repo(find_subscriptions_due_for_reconciliation=AsyncMock(return_value=subs))
+        outcomes = [
+            HTTPException(status_code=502, detail="No se pudo consultar MercadoPago"),
+            {"applied": ["7033613241"], "already_applied": []},
+        ]
+        with (
+            patch("backend.services.subscriptions.settings.billing_subscriptions_enabled", True),
+            patch(
+                "backend.services.subscriptions.reconcile_preapproval_charges",
+                new_callable=AsyncMock, side_effect=outcomes,
+            ) as core,
+        ):
+            result = await reconcile_due_subscriptions(repo, _mock_conn())
+
+        assert result == {"ok": True, "checked": 2, "applied": ["7033613241"], "errors": 1}
+        assert core.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_unexpected_error_is_counted_not_raised(self):
+        """TRIANGULATE: un error inesperado (p.ej. de la base) en una
+        suscripción tampoco corta el barrido — su transacción ya se deshizo
+        y vuelve a ser elegible en la corrida siguiente."""
+        from backend.services.subscriptions import reconcile_due_subscriptions
+
+        subs = [self._sub(1), self._sub(2), self._sub(3)]
+        repo = _mock_repo(find_subscriptions_due_for_reconciliation=AsyncMock(return_value=subs))
+        outcomes = [
+            {"applied": [], "already_applied": []},
+            RuntimeError("connection reset"),
+            {"applied": ["a-3"], "already_applied": []},
+        ]
+        with (
+            patch("backend.services.subscriptions.settings.billing_subscriptions_enabled", True),
+            patch(
+                "backend.services.subscriptions.reconcile_preapproval_charges",
+                new_callable=AsyncMock, side_effect=outcomes,
+            ),
+        ):
+            result = await reconcile_due_subscriptions(repo, _mock_conn())
+
+        assert result == {"ok": True, "checked": 3, "applied": ["a-3"], "errors": 1}
+
+    @pytest.mark.asyncio
+    async def test_nothing_due_reports_zero(self):
+        """TRIANGULATE: sin suscripciones vencidas (el estado normal de la
+        mayor parte del mes) el barrido no consulta MercadoPago."""
+        from backend.services.subscriptions import reconcile_due_subscriptions
+
+        repo = _mock_repo(find_subscriptions_due_for_reconciliation=AsyncMock(return_value=[]))
+        with (
+            patch("backend.services.subscriptions.settings.billing_subscriptions_enabled", True),
+            patch("backend.services.subscriptions.reconcile_preapproval_charges", new_callable=AsyncMock) as core,
+        ):
+            result = await reconcile_due_subscriptions(repo, _mock_conn())
+
+        assert result == {"ok": True, "checked": 0, "applied": [], "errors": 0}
+        core.assert_not_awaited()

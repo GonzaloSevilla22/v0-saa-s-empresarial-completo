@@ -27,6 +27,13 @@ logger = logging.getLogger(__name__)
 # (tasks.md 1.3).
 GRACE_PERIOD = datetime.timedelta(days=10)
 
+# mp-cuota-acreditacion-resiliente D4/OQ-3: el barrido horario reconcilia
+# una suscripción mientras su período pagado venció hace menos de 30 días
+# (MercadoPago reintenta un cobro fallido hasta ~10 días; pasado el mes ya
+# no hay cuota que esperar), y como mucho 50 por corrida.
+RECONCILE_LOOKBACK = datetime.timedelta(days=30)
+RECONCILE_BATCH_LIMIT = 50
+
 PAID_PLANS = ("inicial", "avanzado", "pro")
 
 # ── D2bis: el init_point de un preapproval_plan es determinístico a partir
@@ -1217,6 +1224,60 @@ async def replay_subscription_charges(
 
     result = await reconcile_preapproval_charges(subscription, repo, conn)
     return {"ok": True, **result}
+
+
+async def reconcile_due_subscriptions(
+    repo: SubscriptionsRepository,
+    conn: asyncpg.Connection,
+) -> dict:
+    """POST /payments/subscriptions/reconcile-cron (máquina, `pg_cron` cada
+    hora) — mp-cuota-acreditacion-resiliente D4/D5, red principal.
+
+    Reconcilia contra MercadoPago cada suscripción autorizada cuyo período
+    pagado ya alcanzó su fecha de cobro sin que se acreditara el cobro del
+    ciclo, sin depender de que MercadoPago emita la notificación de la cuota
+    `processed` (caso real: noviembre 2026, nunca notificada).
+
+    - Palanca `billing_subscriptions_enabled` apagada → `skipped`, sin
+      consultar nada (ni la base ni MercadoPago).
+    - Un fallo en una suscripción (502 de MercadoPago, corte de red, error
+      de la base) se registra y se cuenta en `errors`; las siguientes se
+      reconcilian igual. Su transacción ya se deshizo y su vencimiento no se
+      movió, así que vuelve a ser elegible en la corrida siguiente.
+
+    Devuelve `{"ok", "checked", "applied", "errors"}` — `applied` son los ids
+    de las cuotas acreditadas por primera vez en esta corrida."""
+    if not settings.billing_subscriptions_enabled:
+        return {"ok": True, "skipped": True}
+
+    due = await repo.find_subscriptions_due_for_reconciliation(
+        grace=GRACE_PERIOD, lookback=RECONCILE_LOOKBACK, limit=RECONCILE_BATCH_LIMIT
+    )
+    applied: list[str] = []
+    errors = 0
+    for subscription in due:
+        try:
+            result = await reconcile_preapproval_charges(subscription, repo, conn)
+        except HTTPException as exc:
+            errors += 1
+            logger.error(
+                "[subscriptions] reconcile-cron: preapproval %s sin reconciliar (HTTP %s): %s",
+                subscription["preapproval_id"], exc.status_code, exc.detail,
+            )
+            continue
+        except Exception:
+            errors += 1
+            logger.exception(
+                "[subscriptions] reconcile-cron: error inesperado reconciliando el preapproval %s",
+                subscription["preapproval_id"],
+            )
+            continue
+        applied.extend(result["applied"])
+
+    logger.info(
+        "[subscriptions] reconcile-cron: checked=%s applied=%s errors=%s", len(due), applied, errors,
+    )
+    return {"ok": True, "checked": len(due), "applied": applied, "errors": errors}
 
 
 # ── Cola de ambiguos — Descartar (residuo (b) de mp-real-subscriptions,

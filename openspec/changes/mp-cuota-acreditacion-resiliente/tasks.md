@@ -24,16 +24,16 @@
 
 ## 3. Barrido programado (D4, D5)
 
-- [ ] 3.1 RED (`test_subscriptions_repository.py`): `find_subscriptions_due_for_reconciliation(limit)` devuelve sólo `status='authorized'` con cuenta y `plan_expires_at` en `(now() - 30 días, now() + 10 días]`, ordenadas por `plan_expires_at`, con `LIMIT`; excluye `ambiguous`, `cancelled`, sin cuenta y `plan_expires_at` nulo. Caso noviembre: vencimiento 2026-11-14 20:54 → seleccionada desde 2026-11-04 20:54.
-- [ ] 3.2 GREEN: implementar el método (consulta parametrizada, filtro explícito; `GRACE_PERIOD` y la ventana como constantes del servicio, nunca literales duplicados).
-- [ ] 3.3 RED (`test_subscriptions_service.py`): `reconcile_due_subscriptions(repo, conn)` llama al núcleo por cada suscripción; un 502 en una no impide la siguiente; devuelve `{checked, applied, errors}`; con la palanca `billing_subscriptions_enabled` apagada no consulta nada.
-- [ ] 3.4 GREEN: implementar `reconcile_due_subscriptions`.
-- [ ] 3.5 RED (`backend/tests/test_core_guards.py` o el archivo de guards existente): `require_relay_secret` → 401 sin secreto configurado, sin header, con secreto erróneo; pasa con el correcto (comparación con `hmac.compare_digest`).
-- [ ] 3.6 GREEN: extraer `require_relay_secret` a `backend/core/guards.py` y migrar `backend/routers/fiscal.py::process_pending_cae_cron` a la dependencia; la suite de fiscal del 0.3 sigue verde.
-- [ ] 3.7 RED (`test_subscriptions_router.py`): `POST /payments/subscriptions/reconcile-cron` 401 sin secreto; 200 `skipped` con la palanca apagada; 200 con el resumen con la palanca encendida; usa `get_service_conn`.
-- [ ] 3.8 GREEN: endpoint en `backend/routers/payments.py` (router sólo valida + DI; lógica en el servicio). Schema Pydantic v2 de la respuesta en `backend/schemas/payments.py`.
-- [ ] 3.9 Migración `supabase/migrations/20261092000001_mp_cuota_reconciliacion_cron.sql`: `rpc_trigger_subscription_reconcile()` `SECURITY DEFINER`, `SET search_path = public, vault`, molde de `rpc_trigger_cae_relay()` (`20260719000001_c27_cae_relay_trigger.sql`, leer su versión VIVA vía `pg_get_functiondef` en local); `RAISE WARNING` y salida limpia si faltan los secretos de Vault; `REVOKE EXECUTE … FROM PUBLIC, anon, authenticated`; `cron.schedule('subscription-reconcile-charges', '7 * * * *', …)` idempotente.
-- [ ] 3.10 Gate SQL `supabase/tests/test_mp_cuota_reconciliacion_cron.sql` que EJECUTE la función (sin secretos de Vault → no falla) y verifique ACLs y el job; cablearlo en `.github/workflows/KPI_Validation.yml`; correrlo contra `supabase db reset` local.
+- [x] 3.1 RED (`test_subscriptions_repository.py`): `find_subscriptions_due_for_reconciliation(limit)` devuelve sólo `status='authorized'` con cuenta y `plan_expires_at` en `(now() - 30 días, now() + 10 días]`, ordenadas por `plan_expires_at`, con `LIMIT`; excluye `ambiguous`, `cancelled`, sin cuenta y `plan_expires_at` nulo. Caso noviembre: vencimiento 2026-11-14 20:54 → seleccionada desde 2026-11-04 20:54.
+- [x] 3.2 GREEN: implementar el método (consulta parametrizada, filtro explícito; `GRACE_PERIOD` y la ventana como constantes del servicio, nunca literales duplicados).
+- [x] 3.3 RED (`test_subscriptions_service.py`): `reconcile_due_subscriptions(repo, conn)` llama al núcleo por cada suscripción; un 502 en una no impide la siguiente; devuelve `{checked, applied, errors}`; con la palanca `billing_subscriptions_enabled` apagada no consulta nada.
+- [x] 3.4 GREEN: implementar `reconcile_due_subscriptions`.
+- [x] 3.5 RED (`backend/tests/test_core_guards.py` o el archivo de guards existente): `require_relay_secret` → 401 sin secreto configurado, sin header, con secreto erróneo; pasa con el correcto (comparación con `hmac.compare_digest`).
+- [x] 3.6 GREEN: extraer `require_relay_secret` a `backend/core/guards.py` y migrar `backend/routers/fiscal.py::process_pending_cae_cron` a la dependencia; la suite de fiscal del 0.3 sigue verde.
+- [x] 3.7 RED (`test_subscriptions_router.py`): `POST /payments/subscriptions/reconcile-cron` 401 sin secreto; 200 `skipped` con la palanca apagada; 200 con el resumen con la palanca encendida; usa `get_service_conn`.
+- [x] 3.8 GREEN: endpoint en `backend/routers/payments.py` (router sólo valida + DI; lógica en el servicio). Schema Pydantic v2 de la respuesta en `backend/schemas/payments.py`.
+- [x] 3.9 Migración `supabase/migrations/20261092000001_mp_cuota_reconciliacion_cron.sql`: `rpc_trigger_subscription_reconcile()` `SECURITY DEFINER`, `SET search_path = public, vault`, molde de `rpc_trigger_cae_relay()` (`20260719000001_c27_cae_relay_trigger.sql`, leer su versión VIVA vía `pg_get_functiondef` en local); `RAISE WARNING` y salida limpia si faltan los secretos de Vault; `REVOKE EXECUTE … FROM PUBLIC, anon, authenticated`; `cron.schedule('subscription-reconcile-charges', '7 * * * *', …)` idempotente.
+- [x] 3.10 Gate SQL `supabase/tests/test_mp_cuota_reconciliacion_cron.sql` que EJECUTE la función (sin secretos de Vault → no falla) y verifique ACLs y el job; cablearlo en `.github/workflows/KPI_Validation.yml`; correrlo contra `supabase db reset` local.
 
 ## 4. Webhook `payment` como acelerador (D6)
 

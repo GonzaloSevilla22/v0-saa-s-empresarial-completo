@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest"
 import { useRef, useState } from "react"
-import { render, screen, fireEvent, waitFor } from "@testing-library/react"
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react"
 import { OperationEditPlanDialog } from "@/components/shared/OperationEditPlanDialog"
 import { planNeedsConfirmation, type EditPreview, type MoneyPlan } from "@/lib/money-plan"
 import { formatMoney } from "@/lib/format"
@@ -196,5 +196,34 @@ describe("OperationEditPlanDialog — cuándo aparece y a dónde vuelve el foco"
     renderDialog({ executing: true })
     const confirm = screen.getByRole("button", { name: /guardando/i })
     expect(confirm).toBeDisabled()
+  })
+})
+
+// ── 16.2 accesibilidad ──────────────────────────────────────────────────────
+
+describe("OperationEditPlanDialog — accesibilidad", () => {
+  it("el diálogo tiene nombre accesible (su título) y descripción", () => {
+    renderDialog()
+    const dialog = screen.getByRole("alertdialog", { name: /¿Guardar los cambios de esta venta\?/i })
+    expect(dialog).toHaveAccessibleDescription(/lo que va a pasar con el dinero/i)
+  })
+
+  it("al abrirse, el foco entra al diálogo (no queda detrás, en la página)", async () => {
+    renderDialog()
+    const dialog = screen.getByRole("alertdialog")
+    await waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true))
+  })
+
+  it("Escape lo cierra sin confirmar (operable por teclado)", () => {
+    const { onConfirm, onOpenChange } = renderDialog()
+    fireEvent.keyDown(screen.getByRole("alertdialog"), { key: "Escape", code: "Escape" })
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+    expect(onConfirm).not.toHaveBeenCalled()
+  })
+
+  it("los bloqueos se anuncian con role=alert y la lista es una lista (un lector de pantalla la recorre ítem por ítem)", () => {
+    renderDialog({ preview: preview({ ...SALE_CASH_UP, blocks: [BLOCK_NO_SESSION] }) })
+    const alert = screen.getByRole("alert")
+    expect(within(alert).getAllByRole("listitem")).toHaveLength(1)
   })
 })

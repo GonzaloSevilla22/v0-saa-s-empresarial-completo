@@ -32,6 +32,12 @@ const data = vi.hoisted(() => ({ sales: [] as unknown[], purchases: [] as unknow
 vi.mock("@/hooks/data/use-operation-edit", () => ({
   useOperationEditHistory: () => ({ data: [], isLoading: false, isError: false, refetch: vi.fn() }),
 }))
+// clientes-historial-fecha-enlace: la página lee `useSearchParams`/`useRouter`
+// (deep link `?operation_id=`); sin app router montado hay que mockearlos.
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
+  useSearchParams: () => new URLSearchParams(),
+}))
 vi.mock("@/hooks/useOrgRole", () => ({ useOrgRole: () => org.value }))
 vi.mock("@/contexts/auth-context", () => ({ useAuth: () => ({ isAdmin: false, user: { id: "me", accountId: "acc" } }) }))
 vi.mock("@/hooks/data/use-clients", () => ({ useClients: () => ({ clients: [] }) }))

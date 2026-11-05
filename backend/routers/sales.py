@@ -64,6 +64,9 @@ async def list_sales(
     payment_method_id: uuid.UUID | None = Query(
         None, description="metodos-pago-operaciones: filtra por forma de pago de la operación"
     ),
+    operation_id: uuid.UUID | None = Query(
+        None, description="clientes-historial-fecha-enlace: filtra el listado a una sola operación de venta"
+    ),
     auth: dict = Depends(get_current_user),
     account_id: uuid.UUID = Depends(get_account_id),
     repo: SalesRepository = Depends(get_repo),
@@ -71,6 +74,7 @@ async def list_sales(
     return await sales_service.list_sales_paginated(
         repo, str(account_id), page, page_size, date_from, date_to,
         str(payment_method_id) if payment_method_id else None,
+        str(operation_id) if operation_id else None,
     )
 
 

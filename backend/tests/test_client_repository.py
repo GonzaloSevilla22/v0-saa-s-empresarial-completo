@@ -360,7 +360,8 @@ class TestListPurchasesPage:
         await repo.list_purchases_page(CLIENT_ID, ACCOUNT_ID, page=0, size=25)
 
         sql = conn.fetch.call_args.args[0]
-        assert "(s.date AT TIME ZONE 'America/Argentina/Mendoza')::date" in sql
+        assert "s.date::date AS op_day" in sql
+        assert "AT TIME ZONE" not in sql
         assert "MAX(op_day)" in sql
 
 
@@ -380,7 +381,10 @@ class TestArgentinianCalendarDay:
         await repo.list_activity_page(ACCOUNT_ID, today=TODAY, page=0, size=25)
 
         sql = conn.fetch.call_args.args[0]
-        assert "(s.date AT TIME ZONE 'America/Argentina/Mendoza')::date" in sql
+        # `sales.date` es fecha de negocio (medianoche UTC): convertirla de zona la
+        # corre al dia anterior. El dia se toma pelado, sin AT TIME ZONE.
+        assert "MAX(s.date::date) AS op_day" in sql
+        assert "AT TIME ZONE" not in sql
 
     @pytest.mark.asyncio
     async def test_days_since_last_purchase_anchored_to_reference_day_parameter(self, client_repo):

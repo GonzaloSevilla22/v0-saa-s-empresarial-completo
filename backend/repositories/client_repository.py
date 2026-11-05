@@ -140,7 +140,7 @@ class ClientRepository(BaseRepository):
                 FROM (
                     SELECT
                         {self._OP_KEY_EXPR} AS op_key,
-                        MAX((s.date AT TIME ZONE 'America/Argentina/Mendoza')::date) AS op_day,
+                        MAX(s.date::date) AS op_day,
                         SUM({self._LINE_AMOUNT_EXPR}) AS op_total
                     FROM sales s
                     LEFT JOIN sale_items si ON si.sale_id = s.id AND si.variant_id IS NULL
@@ -286,12 +286,12 @@ class ClientRepository(BaseRepository):
                 SELECT
                     s.id,
                     {self._OP_KEY_EXPR} AS op_key,
-                    -- client-activity §"Días y ventanas en día calendario
-                    -- argentino": la fecha de la operación es un DÍA
-                    -- CALENDARIO, no el timestamptz crudo — sin el ::date acá
-                    -- Pydantic rechaza el datetime con hora no-cero que
-                    -- devuelve MAX() sobre una columna timestamptz.
-                    (s.date AT TIME ZONE 'America/Argentina/Mendoza')::date AS op_day,
+                    -- `sales.date` es una FECHA DE NEGOCIO guardada a medianoche
+                    -- UTC: se toma el día pelado (`::date`). Convertirla con
+                    -- una conversion de zona la corre al día anterior (21:00 ART). El
+                    -- ::date además evita que Pydantic rechace el datetime con
+                    -- hora que devuelve MAX() sobre un timestamptz.
+                    s.date::date AS op_day,
                     {self._LINE_AMOUNT_EXPR} AS line_amount
                 FROM sales s
                 LEFT JOIN sale_items si ON si.sale_id = s.id AND si.variant_id IS NULL

@@ -226,7 +226,16 @@ function mapSale(s: SaleApiRow): Sale {
 
 // ── Hook ─────────────────────────────────────────────────────────────────────
 
-export function useSales() {
+export interface UseSalesOptions {
+  /**
+   * clientes-historial-fecha-enlace: deep link `/ventas?operation_id=` — acota
+   * el listado a UNA operación. Lo gobierna la URL (la página lo lee del
+   * query string), no el estado interno: quitarlo es navegar a `/ventas`.
+   */
+  operationId?: string | null
+}
+
+export function useSales({ operationId = null }: UseSalesOptions = {}) {
   const queryClient = useQueryClient()
 
   // ── Pagination & filter state ─────────────────────────────────────────────
@@ -264,8 +273,9 @@ export function useSales() {
     if (dateFrom) p.date_from = dateFrom
     if (dateTo)   p.date_to   = dateTo
     if (paymentMethodId) p.payment_method_id = paymentMethodId
+    if (operationId) p.operation_id = operationId
     return p
-  }, [page, pageSize, dateFrom, dateTo, paymentMethodId])
+  }, [page, pageSize, dateFrom, dateTo, paymentMethodId, operationId])
 
   const query = useQuery({
     queryKey: [...queryKeys.sales.lists(), queryParams],

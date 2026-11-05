@@ -21,11 +21,13 @@ async def list_sales_paginated(
     date_from: str | None,
     date_to: str | None,
     payment_method_id: str | None = None,
+    operation_id: str | None = None,
 ) -> dict:
     df = datetime.date.fromisoformat(date_from) if date_from else None
     dt = datetime.date.fromisoformat(date_to) if date_to else None
     rows, total = await repo.list_paginated_by_operation(
         account_id, page, page_size, df, dt, payment_method_id,
+        operation_id=operation_id,
     )
     # v3-api-standards §2: envelope estándar {items,total,page,pages}
     pages = -(-total // page_size) if total > 0 else 0

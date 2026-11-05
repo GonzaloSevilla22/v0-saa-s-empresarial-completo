@@ -39,6 +39,12 @@ class BankAccountOut(BaseModel):
     currency:        str
     account_kind:    AccountKind = "bank"
     is_active:       bool
+    # banco-saldo-segun-libro: saldo inicial + SUM(movimientos), recalculado (no
+    # el saldo corrido serializado). Lectura pura, calculado en el repository.
+    opening_balance: Decimal = Decimal("0")
+    current_balance: Decimal = Decimal("0")
+    last_movement_date: date | None = None
+    pending_reconciliation_count: int = 0
 
 
 class BankAccountCreate(BaseModel):

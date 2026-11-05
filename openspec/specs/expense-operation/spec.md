@@ -313,52 +313,6 @@ El helper SHALL NOT modificarse: su comportamiento vigente para venta y compra S
 - **THEN** la operación completa es rechazada
 - **AND** no queda ni el gasto ni el movimiento
 
-### Requirement: El gasto con dinero posteado es inmutable
-
-El sistema SHALL rechazar con el código de error `P0423` la edición de un gasto que tenga un movimiento de caja o un movimiento bancario asociado, evaluando los guards **antes** de cualquier escritura, con los mismos predicados de localización que usa el borrado y con el mismo criterio uniforme que ya rige para ventas y compras.
-
-El mensaje de error SHALL distinguir cuál de los dos libros produjo el bloqueo.
-
-El camino de corrección SHALL ser borrar y volver a cargar, que este mismo cambio vuelve seguro al dotar al borrado de compensación.
-
-Un gasto sin movimientos asociados SHALL seguir siendo plenamente editable.
-
-La existencia de un **asiento contable** SHALL NOT sumarse a los predicados de bloqueo. La inmutabilidad de un gasto la determinan sus movimientos de dinero, y sólo ellos: un gasto con asiento posteado pero sin movimiento de caja ni bancario SHALL seguir siendo plenamente editable, y su edición SHALL corregir el asiento por el par contra-asiento más asiento nuevo en lugar de impedirse. Es el mismo criterio ya vigente para la operación de venta, y lo contrario volvería inmutable a todo gasto en cuanto el rastro contable se ponga en marcha, rompiendo dos escenarios normativos de este mismo requirement.
-
-#### Scenario: Editar un gasto con movimiento de caja
-
-- **GIVEN** un gasto en efectivo que registró su egreso de caja
-- **WHEN** un usuario intenta editar su importe
-- **THEN** la operación es rechazada con `P0423`
-- **AND** el mensaje indica que el bloqueo proviene del movimiento de caja
-- **AND** ni el gasto ni el movimiento cambian
-
-#### Scenario: Editar un gasto con movimiento bancario
-
-- **GIVEN** un gasto por transferencia que registró su egreso bancario
-- **WHEN** un usuario intenta editar su importe
-- **THEN** la operación es rechazada con `P0423`
-- **AND** el mensaje indica que el bloqueo proviene del movimiento bancario
-
-#### Scenario: Editar un gasto sin dinero posteado
-
-- **GIVEN** un gasto sin forma de pago imputada
-- **WHEN** un usuario edita su importe, su categoría o su centro de costo
-- **THEN** la edición procede normalmente
-
-#### Scenario: Los gastos históricos siguen siendo editables
-
-- **GIVEN** un gasto anterior a este cambio, sin forma de pago ni movimientos
-- **WHEN** un usuario lo edita
-- **THEN** la edición procede normalmente
-
-#### Scenario: El asiento no bloquea la edición
-
-- **GIVEN** un gasto sin movimiento de caja ni bancario cuyo asiento contable ya fue posteado
-- **WHEN** un usuario edita su importe
-- **THEN** la edición procede normalmente
-- **AND** se emite el evento que corrige el asiento, sin ningún rechazo por `P0423`
-
 ### Requirement: La edición de un gasto preserva su contexto mediante contrato tri-estado
 
 El sistema SHALL aplicar a la edición de un gasto el contrato tri-estado de edición de operaciones (capability `operation-edit-context`): la **ausencia** de una clave en la petición conserva el valor vigente, un **nulo explícito** desimputa, y un identificador **reimputa**. El contrato SHALL aplicarse a la forma de pago, la sucursal y el centro de costo.
@@ -486,40 +440,48 @@ Toda la superficie SHALL verificarse en escritorio y en móvil, y en tema claro 
 
 ### Requirement: El estado de bloqueo del gasto es visible antes de intentar la acción
 
-La interfaz SHALL exponer, para cada gasto del listado, si está bloqueado para edición por tener dinero posteado y si su borrado está bloqueado por no haber sesión de caja abierta donde compensar, derivando los dos estados de los **mismos predicados** que evalúan los guards del servidor, y SHALL deshabilitar cada control mostrando la razón, en lugar de dejar que el usuario descubra el bloqueo recién al recibir el error.
+La interfaz SHALL exponer, para cada gasto del listado:
 
-Los dos estados, más la distinción de qué libro produjo el bloqueo, SHALL viajar como **campos derivados de la lectura del gasto**, calculados en el servidor con los mismos predicados de existencia de movimientos que usan los guards, con el mismo mecanismo con el que ya viajan los estados de bloqueo de una venta. El predicado SHALL NOT reimplementarse en el cliente ni derivarse de consultas sueltas por fila.
+- si su edición está bloqueada y por qué, como un motivo calculado por el servidor;
+- si su borrado está bloqueado por no haber sesión de caja abierta donde compensar;
+- qué libros tiene afectados según su huella neta.
 
-Para que esos derivados lleguen a la pantalla, el listado de gastos SHALL leerse por el camino de lectura del servidor de la aplicación, paginado y con sus filtros resueltos en el servidor, con el mismo contrato de paginación que ya usa el listado de ventas. El estado de bloqueo SHALL NOT depender de una lectura directa de la tabla de gastos, que sólo expone sus propias columnas y por lo tanto no puede exponer un derivado de los libros.
+Estos estados SHALL derivarse de los **mismos predicados** que evalúan los guards del servidor. La interfaz SHALL deshabilitar cada control mostrando la razón, en lugar de dejar que el usuario descubra el bloqueo recién al recibir el error.
+
+El dinero registrado SHALL NOT bloquear la edición del gasto (capability `operation-money-edit`). El plan de la edición, con sus posibles bloqueos (caja sin sesión abierta, período bancario conciliado, permiso), se presenta antes de confirmar.
+
+Estos estados SHALL viajar como **campos derivados de la lectura del gasto**, calculados en el servidor con la misma huella neta que usan la edición y el borrado, con el mismo mecanismo con el que ya viajan los estados de una venta. El predicado SHALL NOT reimplementarse en el cliente ni derivarse de consultas sueltas por fila.
+
+Para que esos derivados lleguen a la pantalla, el listado de gastos SHALL leerse por el camino de lectura del servidor de la aplicación, paginado y con sus filtros resueltos en el servidor, con el mismo contrato de paginación que ya usa el listado de ventas. El estado SHALL NOT depender de una lectura directa de la tabla de gastos, que sólo expone sus propias columnas y por lo tanto no puede exponer un derivado de los libros.
 
 El diálogo de borrado SHALL enumerar qué se va a compensar en cada libro antes de pedir confirmación, usando esos mismos derivados.
 
 #### Scenario: Gasto con movimiento de caja en el listado
 
 - **WHEN** un usuario ve en el listado un gasto que descontó de la caja
-- **THEN** el control de edición aparece deshabilitado
-- **AND** la razón del bloqueo es visible
+- **THEN** el control de edición está habilitado
+- **AND** el listado indica que el gasto tiene dinero registrado en la caja
 
-#### Scenario: Gasto sin dinero posteado en el listado
+#### Scenario: Gasto sin dinero registrado en el listado
 
 - **WHEN** un usuario ve en el listado un gasto sin forma de pago imputada
 - **THEN** el control de edición está habilitado
 
-#### Scenario: El listado recibe el estado de bloqueo del servidor
+#### Scenario: El listado recibe el estado del servidor
 
 - **WHEN** se lista una página de gastos
-- **THEN** cada fila llega con su estado de bloqueo de edición, su estado de bloqueo de borrado y la indicación de qué libros tiene afectados
-- **AND** esos valores provienen de los mismos predicados que evalúan los guards de la edición y del borrado
+- **THEN** cada fila llega con su motivo de bloqueo de edición (si lo hay), su estado de bloqueo de borrado y la indicación de qué libros tiene afectados
+- **AND** esos valores provienen de la misma huella neta que evalúan la edición y el borrado
 
 #### Scenario: Borrado deshabilitado con la caja cerrada
 
-- **WHEN** un usuario ve en el listado un gasto que descontó de la caja mientras no hay ninguna sesión abierta en esa caja
+- **WHEN** un usuario ve en el listado un gasto con huella neta de caja mientras no hay ninguna sesión abierta en esa caja
 - **THEN** el control de borrado aparece deshabilitado
 - **AND** la razón del bloqueo es visible antes de intentar la acción
 
-#### Scenario: Diálogo de borrado de un gasto con dinero posteado
+#### Scenario: Diálogo de borrado de un gasto con dinero registrado
 
-- **WHEN** un usuario abre el diálogo de borrado de un gasto que descontó de caja y registró un egreso bancario
+- **WHEN** un usuario abre el diálogo de borrado de un gasto que descontó de la caja y registró un egreso bancario
 - **THEN** el diálogo enumera la reversión del movimiento de caja y la del movimiento bancario antes de pedir confirmación
 
 ### Requirement: Las mutaciones de gasto refrescan todas las superficies que el gasto altera
@@ -564,4 +526,28 @@ El sistema SHALL registrar la descripción del gasto como motivo (`description`)
 - **GIVEN** movimientos de caja o banco generados por gastos antes de este change, con motivo vacío
 - **WHEN** se aplica la migración
 - **THEN** esos movimientos quedan con la descripción de su gasto como motivo, mediante un bloque idempotente que no toca movimientos con motivo ya presente
+
+### Requirement: La edición de un gasto con dinero ajusta caja y banco
+El sistema SHALL editar un gasto con movimiento de caja o bancario aplicando el contrato de la capability `operation-money-edit` sobre sus dos libros —caja y banco— y ningún otro: un gasto no tiene cuenta corriente.
+
+- El gasto conserva su identificador, que es la referencia de su huella.
+- La edición SHALL bloquear la fila del gasto antes de calcular el plan.
+- La edición SHALL seguir rechazando una forma de pago de cuenta corriente.
+- Cambiar sólo la categoría, la descripción o el centro de costo SHALL NOT escribir en ningún libro.
+- Cambiar el importe, la forma de pago, la caja o la cuenta bancaria SHALL compensar la huella y registrar el efecto nuevo en la misma transacción que el `UPDATE` del gasto.
+
+#### Scenario: Corregir el importe de un gasto en efectivo del día
+- **GIVEN** un gasto en efectivo de 500 registrado hoy en la sesión abierta
+- **WHEN** se edita a 300
+- **THEN** la sesión recibe un `expense_reversal` de +500 y un `expense` de −300
+
+#### Scenario: Pasar un gasto de efectivo a transferencia
+- **GIVEN** un gasto en efectivo con movimiento de caja, una sesión abierta en esa caja y una cuenta bancaria activa
+- **WHEN** se edita a transferencia con esa cuenta bancaria
+- **THEN** la caja recibe el `expense_reversal` y el banco el egreso nuevo, y el asiento de la edición acredita banco
+
+#### Scenario: Corregir la categoría de un gasto con caja cerrada
+- **GIVEN** un gasto en efectivo cuya sesión de caja ya cerró y ninguna sesión abierta
+- **WHEN** se edita sólo su categoría
+- **THEN** la edición se aplica sin movimientos de caja y sin exigir sesión abierta
 

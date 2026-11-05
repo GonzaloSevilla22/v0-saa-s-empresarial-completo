@@ -3,7 +3,6 @@
 ## Purpose
 
 Comportamiento operativo propio de la compra que no encaja en ninguna capability compartida: la persistencia de su sucursal y el descuento de caja en efectivo por opt-in explícito, con las mismas tres condiciones verificadas en servidor que ya rigen para la venta y el gasto (forma de pago `cash`, sesión de caja abierta en la sucursal efectiva de la operación, fecha de hoy en `America/Argentina/Mendoza`). Nace de `caja-compras-cobranzas` (2026-09-02): pese a que el tipo `purchase_payment` del `CHECK` de `cash_movements`, la meta de presentación en `/caja` y el helper compartido de opt-in ya existían, ninguna de las RPCs de compra los usaba, así que una compra en efectivo no dejaba rastro alguno en el libro de caja. De paso cierra un hallazgo lateral load-bearing para esa misma verificación de sucursal: el 100% de las compras históricas tenía `branch_id` nulo por un descarte silencioso en cuatro eslabones de la cadena (formulario, hook, schema del payload y repository).
-
 ## Requirements
 ### Requirement: La compra persiste su sucursal
 
@@ -153,7 +152,12 @@ La interfaz de alta de compra SHALL ofrecer la afirmación del descuento de caja
 
 El valor inicial marcado es deliberado y SHALL alinearse con el del gasto y no con el de la venta: la venta arranca sin marcar porque su formulario se usa masivamente para carga retroactiva de administración, mientras que una compra imputada a efectivo y fechada hoy describe casi siempre plata que salió del cajón. Con la verificación de fecha ya filtrando lo retroactivo, un valor inicial sin marcar reproduciría el estado previo al cambio —la caja sigue sin ver la plata salvo que alguien se acuerde de marcarlo.
 
-La afirmación SHALL ofrecerse **sólo en el alta**: la compra con movimiento de caja posteado es inmutable, de modo que no existe un camino de edición en el que la afirmación tenga sentido.
+La interfaz de **edición** de compra SHALL ofrecer el mismo bloque, con el estado vigente de la operación:
+
+- **Compra que ya descontó de una caja**: la afirmación aparece marcada, nombrando la caja. Desmarcarla saca la compra de la caja, y la edición compensa el egreso.
+- **Compra sin movimiento de caja**: se ofrece con las mismas tres condiciones que el alta, y arranca sin marcar, porque la edición no debe agregar en silencio un egreso que la compra nunca tuvo.
+
+Las reglas de cuándo la edición escribe en la caja SHALL ser las de las capabilities `operation-money-edit` y `cash-movement`.
 
 La interfaz SHALL reutilizar la resolución de condiciones compartida que ya emplean el formulario de venta y el de gasto, en vez de reimplementarla; la autoridad sobre la decisión SHALL seguir siendo el servidor.
 
@@ -175,10 +179,17 @@ La interfaz SHALL reutilizar la resolución de condiciones compartida que ya emp
 - **WHEN** el usuario desmarca la afirmación y confirma
 - **THEN** la compra se registra sin movimiento de caja
 
-#### Scenario: La edición no ofrece la afirmación
+#### Scenario: La edición muestra el estado de caja vigente
 
-- **WHEN** el usuario edita una compra existente
-- **THEN** el formulario no ofrece la afirmación de descuento de caja
+- **GIVEN** una compra en efectivo que descontó de la caja
+- **WHEN** el usuario la edita
+- **THEN** el bloque de caja aparece marcado nombrando la caja, y desmarcarlo anticipa en la confirmación que el egreso se va a revertir
+
+#### Scenario: La edición de una compra sin caja no la agrega sola
+
+- **GIVEN** una compra en efectivo de hoy sin movimiento de caja y una sesión abierta en su sucursal
+- **WHEN** el usuario la edita
+- **THEN** la afirmación de descuento de caja aparece disponible pero sin marcar
 
 #### Scenario: Presentación responsive y por tema
 

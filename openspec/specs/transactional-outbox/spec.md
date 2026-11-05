@@ -182,17 +182,29 @@ Ejecutarlo sobre el contexto de conexión de servicio SHALL ser parte del contra
 
 ### Requirement: Editing a form sale adjusts its accounting trail instead of being blocked
 
-`rpc_atomic_update_sale_operation` regenerates `operation_id` on every edit (reverse the old rows, delete them, apply new rows under a new `operation_id`) and SHALL NOT gain any new rejection guard for having an accounting event or entry (override of 2026-08-20 — see the `operation-edit-context` capability for the guards that remain unchanged). Instead, in the same transaction as the edit, the system SHALL resolve the accounting trail of the operation's old `operation_id` into exactly one of three cases and act accordingly: (1) no event was ever emitted for it — no accounting action is taken; (2) a `SaleOperationCreated` or `SaleOperationAdjusted` event for it is still pending (`processed_at IS NULL`) — the system SHALL lock that event row with `SELECT ... FOR UPDATE` (not `SKIP LOCKED`, so the edit waits for the relay's batch transaction rather than racing it), SHALL re-check `processed_at` after acquiring the lock in case the relay finished while the edit waited, and, only if still pending, SHALL update that event's payload and aggregate reference in place to the new operation's values rather than emitting a second event; (3) a `journal_entries` row for it is already `posted` — the system SHALL emit a new `SaleOperationAdjusted` event carrying both the old and the new `operation_id`, as a plain `INSERT` with no exception handler for the same reason the original producer has none (D6): swallowing the failure would silently reproduce the defect this change fixes.
+`rpc_atomic_update_sale_operation` keeps the operation's `operation_id` on every edit: it reverses the old rows, deletes them and applies the new rows under the same `operation_id`, except for a legacy operation without one, which receives one. It SHALL NOT gain any rejection guard for having an accounting event or entry (override of 2026-08-20). In the same transaction as the edit, the system SHALL resolve the operation's accounting trail into exactly one of three cases and act accordingly:
+
+1. **No creation event was ever emitted** for the operation (neither a `SaleOperationCreated` for its `operation_id` nor a `SaleConfirmed` for its sales order): no accounting action is taken.
+2. **A `SaleOperationCreated` or `SaleOperationAdjusted` event for it is still pending** (`processed_at IS NULL`). The system SHALL:
+   - lock that event row with `SELECT ... FOR UPDATE` (not `SKIP LOCKED`, so the edit waits for the relay's batch transaction rather than racing it);
+   - re-check `processed_at` after acquiring the lock, in case the relay finished while the edit waited;
+   - only if still pending, update that event's payload in place to the edited values rather than emitting a second event.
+3. **Otherwise** — a form sale whose entry is already posted, or a sale born in the POS or converted from a quote, whose `SaleConfirmed` exists whether processed or not — the system SHALL emit a new `SaleOperationAdjusted` event carrying `old_operation_id` and `new_operation_id` (normally equal) and, for a sale with a sales order, its `sales_order_id`. The emission SHALL be a plain `INSERT` with no exception handler, for the same reason the original producer has none (D6): swallowing the failure would silently reproduce the defect this change fixes.
 
 #### Scenario: Editing before the relay processes replaces the pending event in place
 
 - **WHEN** a form sale is edited while its `SaleOperationCreated` event is still `processed_at IS NULL`
-- **THEN** no second event is inserted; the existing event's `aggregate_id` and payload are updated to the edited operation's values, and once the relay processes it exactly one journal entry exists, referencing the new `operation_id`
+- **THEN** no second event is inserted; the existing event's payload is updated to the edited operation's values, and once the relay processes it exactly one journal entry exists for the operation
 
 #### Scenario: Editing after the relay processes emits an adjustment event
 
 - **WHEN** a form sale is edited after its entry has been posted
-- **THEN** a `SaleOperationAdjusted` event is inserted in the same transaction as the edit, carrying `old_operation_id` (the entry to reverse) and `new_operation_id` (the entry to create), and no existing event is mutated
+- **THEN** a `SaleOperationAdjusted` event is inserted in the same transaction as the edit, carrying the operation's identifier as both `old_operation_id` and `new_operation_id`, and no existing event is mutated
+
+#### Scenario: Editing a POS sale emits an adjustment event with its sales order
+
+- **WHEN** a sale confirmed through the POS is edited
+- **THEN** a `SaleOperationAdjusted` event carrying its `sales_order_id` is inserted in the same transaction, so the consumer can resolve and reverse its `SalesOrder` entry
 
 #### Scenario: A concurrent relay run does not race the in-place replace
 
@@ -202,11 +214,17 @@ Ejecutarlo sobre el contexto de conexión de servicio SHALL ser parte del contra
 #### Scenario: A chained edit before the relay processes collapses into one adjustment event
 
 - **WHEN** an already-adjusted-but-still-pending operation (its `SaleOperationAdjusted` event not yet processed) is edited again
-- **THEN** that pending event's target operation and edited values are updated in place, its original `old_operation_id` (the entry to reverse) is preserved unchanged, and no additional event is inserted for the second edit
+- **THEN** that pending event's edited values are updated in place, its `old_operation_id` is preserved unchanged, and no additional event is inserted for the second edit
 
 ### Requirement: JournalEntry consumer (Consumer 3)
 
-The relay `rpc_process_outbox_dispatch` SHALL include a third consumer, JournalEntry, that posts a double-entry accounting record for in-scope events. It SHALL run inside the same per-event `BEGIN/EXCEPTION/END` isolation block as the AuditLog and EmailNotification consumers, after them, so a posting failure for one event does not abort the batch. It SHALL run only for events of type `SaleConfirmed`, `PurchaseCreated`, `SaleOperationCreated`, `SaleOperationAdjusted`, `PaymentReceived`, `PaymentMade`, `CreditNoteIssued`, `SaleOperationDeleted`, `PurchaseDeleted`, `PaymentReceivedReversed`, `PaymentMadeReversed`, `ExpenseCreated`, `ExpenseAdjusted`, or `ExpenseDeleted` — the fourteen canonical types (see "El conjunto de eventos en alcance del consumidor contable es único y está verificado por un gate" below) — and SHALL be a no-op for all other event types. It SHALL be idempotent, keyed by `(event_id, 'JournalEntry')` in `operation_idempotency` (`INSERT ... ON CONFLICT DO NOTHING`) reinforced by a partial unique index on `journal_entries.source_event_id`. The mapping logic SHALL live in a helper function `_journal_post_from_event(event_row)` (`SECURITY DEFINER`, `SET search_path = public`). The consumer SHALL NOT use `service_role` and SHALL NOT make HTTP/`pg_net` calls.
+The relay `rpc_process_outbox_dispatch` SHALL include a third consumer, JournalEntry, that posts a double-entry accounting record for in-scope events.
+
+- **Isolation.** It SHALL run inside the same per-event `BEGIN/EXCEPTION/END` isolation block as the AuditLog and EmailNotification consumers, after them, so a posting failure for one event does not abort the batch.
+- **Scope.** It SHALL run only for events of type `SaleConfirmed`, `PurchaseCreated`, `SaleOperationCreated`, `SaleOperationAdjusted`, `PaymentReceived`, `PaymentMade`, `CreditNoteIssued`, `SaleOperationDeleted`, `PurchaseDeleted`, `PurchaseAdjusted`, `PaymentReceivedReversed`, `PaymentMadeReversed`, `ExpenseCreated`, `ExpenseAdjusted`, or `ExpenseDeleted` — the fifteen canonical types (see "El conjunto de eventos en alcance del consumidor contable es único y está verificado por un gate" below) — and SHALL be a no-op for all other event types.
+- **Idempotency.** It SHALL be idempotent, keyed by `(event_id, 'JournalEntry')` in `operation_idempotency` (`INSERT ... ON CONFLICT DO NOTHING`), reinforced by a partial unique index on `journal_entries.source_event_id`.
+- **Helper.** The mapping logic SHALL live in a helper function `_journal_post_from_event(event_row)` (`SECURITY DEFINER`, `SET search_path = public`).
+- **Restrictions.** The consumer SHALL NOT use `service_role` and SHALL NOT make HTTP/`pg_net` calls.
 
 #### Scenario: In-scope event posts an entry through Consumer 3
 
@@ -215,7 +233,7 @@ The relay `rpc_process_outbox_dispatch` SHALL include a third consumer, JournalE
 
 #### Scenario: Out-of-scope event is skipped by Consumer 3
 
-- **WHEN** the relay processes an event whose type is not in the fourteen canonical types
+- **WHEN** the relay processes an event whose type is not in the fifteen canonical types
 - **THEN** Consumer 3 does nothing for that event while Consumers 1 and 2 still run normally
 
 #### Scenario: The form-sale event reaches the consumer through both filters
@@ -226,6 +244,11 @@ The relay `rpc_process_outbox_dispatch` SHALL include a third consumer, JournalE
 #### Scenario: The form-sale adjustment event reaches the consumer through both filters
 
 - **WHEN** the relay processes a `SaleOperationAdjusted` event
+- **THEN** the dispatch filter routes it to `_journal_post_from_event` and the helper's own filter accepts it, and the contra-entry/new-entry pair is posted
+
+#### Scenario: The purchase adjustment event reaches the consumer through both filters
+
+- **WHEN** the relay processes a `PurchaseAdjusted` event
 - **THEN** the dispatch filter routes it to `_journal_post_from_event` and the helper's own filter accepts it, and the contra-entry/new-entry pair is posted
 
 #### Scenario: The expense events reach the consumer through both filters
@@ -335,13 +358,13 @@ El gate SHALL ejecutarse en integración continua en cada cambio. Un gate escrit
 
 El gate SHALL incluir una **matriz de evasión ejecutada**: el mismo comparador SHALL correrse además contra textos sintéticos con una divergencia plantada a propósito, para probar que la detecta. Un detector de texto sin matriz de evasión puede quedar verde por no encontrar nada, y ese verde es indistinguible del verde legítimo.
 
-El conjunto canónico SHALL constar de catorce tipos: `SaleConfirmed`, `PurchaseCreated`, `SaleOperationCreated`, `SaleOperationAdjusted`, `PaymentReceived`, `PaymentMade`, `CreditNoteIssued`, `SaleOperationDeleted`, `PurchaseDeleted`, `PaymentReceivedReversed`, `PaymentMadeReversed`, `ExpenseCreated`, `ExpenseAdjusted` y `ExpenseDeleted`. Esta enumeración SHALL prevalecer sobre cualquier enumeración anterior más corta que aparezca en otros requirements de este mismo capability o del capability `journal-entry`, que quedaron desactualizadas al incorporarse las ramas de borrado y las de gasto.
+El conjunto canónico SHALL constar de quince tipos: `SaleConfirmed`, `PurchaseCreated`, `SaleOperationCreated`, `SaleOperationAdjusted`, `PaymentReceived`, `PaymentMade`, `CreditNoteIssued`, `SaleOperationDeleted`, `PurchaseDeleted`, `PurchaseAdjusted`, `PaymentReceivedReversed`, `PaymentMadeReversed`, `ExpenseCreated`, `ExpenseAdjusted` y `ExpenseDeleted`. Esta enumeración SHALL prevalecer sobre cualquier enumeración anterior más corta que aparezca en otros requirements de este mismo capability o del capability `journal-entry`.
 
 #### Scenario: Los dos filtros enumeran el mismo conjunto
 
 - **WHEN** corre el gate del invariante sobre las definiciones vigentes
 - **THEN** el conjunto del filtro del despachador y el del helper de posteo son iguales
-- **AND** ambos contienen los catorce tipos canónicos
+- **AND** ambos contienen los quince tipos canónicos
 
 #### Scenario: Una divergencia introducida rompe el gate
 
@@ -448,3 +471,36 @@ Sin este predicado, borrar o editar un gasto anterior a la puesta en marcha del 
 - **GIVEN** un gasto cuyo evento `ExpenseCreated` todavía no fue procesado por el relay
 - **WHEN** se lo borra
 - **THEN** se emite `ExpenseDeleted`, porque el predicado mira el evento y no el asiento
+
+### Requirement: La edición de una compra emite PurchaseAdjusted sólo si existe el evento de alta
+
+El sistema SHALL emitir `PurchaseAdjusted` en la misma transacción que la edición de una compra **únicamente cuando existe un evento `PurchaseCreated`** para esa operación en el outbox, procesado o no. La emisión SHALL ser un `INSERT` plano, sin manejador de excepciones.
+
+El payload SHALL llevar:
+
+- la cuenta, el `old_operation_id` (el asiento a revertir) y el `new_operation_id` (el asiento nuevo), iguales una vez que la edición conserva el identificador;
+- el total editado;
+- la clase de forma de pago final derivada en el servidor, sin valor por defecto;
+- el centro de costo;
+- la fecha de negocio de la compra;
+- el desglose de IVA cuando exista.
+
+Es el mismo predicado que ya rige para el gasto: evaluar sobre el asiento suprimiría el ajuste de una compra editada dentro de la misma ventana del relay, y emitir sin evento de alta dejaría un evento irresoluble que reintentaría para siempre.
+
+Este productor cierra un defecto latente: hasta este cambio, editar una compra con asiento dejaba vivo el asiento del importe viejo, y un borrado posterior emitía un `PurchaseDeleted` que no encontraba asiento.
+
+#### Scenario: Editar una compra asentada emite el ajuste
+- **GIVEN** una compra con evento `PurchaseCreated` ya procesado
+- **WHEN** se edita su importe
+- **THEN** se inserta un `PurchaseAdjusted` en la misma transacción, con el total editado
+
+#### Scenario: Una compra histórica sin evento de alta no emite ajuste
+- **GIVEN** una compra sin evento `PurchaseCreated`
+- **WHEN** se la edita
+- **THEN** la edición procede y no se emite ningún evento de compra
+
+#### Scenario: Editar y borrar una compra deja el libro diario en cero
+- **GIVEN** una compra asentada que se edita y después se borra
+- **WHEN** el relay procesa los tres eventos en orden
+- **THEN** el asiento original y el de la edición quedan revertidos, y no queda ningún evento pendiente con `P0451`
+

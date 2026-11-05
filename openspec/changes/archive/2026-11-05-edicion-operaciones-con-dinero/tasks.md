@@ -96,8 +96,8 @@
 
   Reaplicar la migración dos veces sin error.
 - [x] 5.2 Cablear los gates nuevos en `KPI_Validation.yml`. Todos los gates del workflow en verde sobre `db reset` limpio. Backend y frontend en verde.
-- [ ] 5.3 Revisión adversarial del diff de la tanda A (un juez). PR `opsx/edicion-operaciones-con-dinero-apply-a`, CI verde, merge.
-- [ ] 5.4 **Verificación post-merge en prod**:
+- [x] 5.3 Revisión adversarial del diff de la tanda A (un juez). PR `opsx/edicion-operaciones-con-dinero-apply-a`, CI verde, merge. — Revisión del diff por el orquestador, CI verde, mergeado (#659/#660/#661).
+- [x] 5.4 **Verificación post-merge en prod**: — Verificado en prod 2026-11-05 por el orquestador (SQL de solo lectura): MAX(version)=20261089000001 sobre 336 migraciones; 15 funciones con una sola firma y ACLs esperadas; md5 de prosrc igual al de la migración; sin P0423 por dinero en los cuerpos vivos; 0 eventos pendientes; invariante SUM(abierto)=balance con 0 violaciones.
   - `MAX(version)`;
   - una firma viva y su ACL;
   - `md5` del vivo igual al de la migración;
@@ -195,8 +195,8 @@
 - [x] 11.1 Frontend mínimo para no romper: `lib/types.ts` y los listados dejan de leer `isPaymentLocked`; los tests que lo usaban se migran (`grep -rn "isPaymentLocked\|is_payment_locked" frontend` vacío). La superficie completa llega en la tanda C.
 - [x] 11.2 Introspección, ACLs (`test_function_acl_gate.sql`), reaplicación dos veces, `KPI_Validation.yml` y suites en verde.
   - **CI (`KPI_Validation.yml`)**: la tanda B cambia la firma de tres funciones, así que los reapply de 20261070000001…20261088000001 dejarían un overload fantasma. Mismo patrón que `multiusuario-operativo` B: tras el último reset de reconvergencia, `supabase/migrations_bak/rollback_20261089000001_edicion_operaciones_dinero.sql` restaura las seis funciones a sus cuerpos de producción (md5 verificado) y borra lo que la tanda B creó —además es la prueba del rollback—, se re-toma la línea base del schema y el reapply de 20261089000001 va al final de la cadena, después del de la tanda A, comparando contra la línea base previa al rebase.
-- [ ] 11.3 Revisión adversarial (un juez). PR `opsx/edicion-operaciones-con-dinero-apply-b`, CI verde, merge.
-- [ ] 11.4 Verificación post-merge en prod, igual que 5.4, más: 0 `P0423` por dinero en los cuerpos vivos y una sola firma de cada edición.
+- [x] 11.3 Revisión adversarial (un juez). PR `opsx/edicion-operaciones-con-dinero-apply-b`, CI verde, merge. — Revisión del diff por el orquestador, CI verde, mergeado (#659/#660/#661).
+- [x] 11.4 Verificación post-merge en prod, igual que 5.4, más: 0 `P0423` por dinero en los cuerpos vivos y una sola firma de cada edición. — Verificado en prod 2026-11-05 por el orquestador (SQL de solo lectura): MAX(version)=20261089000001 sobre 336 migraciones; 15 funciones con una sola firma y ACLs esperadas; md5 de prosrc igual al de la migración; sin P0423 por dinero en los cuerpos vivos; 0 eventos pendientes; invariante SUM(abierto)=balance con 0 violaciones.
 
 ## 12. Tanda C — Formularios en modo edición
 
@@ -251,8 +251,8 @@
 
 - [x] 17.1 KB: actualizar `knowledge-base/05_reglas_de_negocio.md` (inmutabilidad por dinero retirada, huella neta, corrección de caja de sesión cerrada, emparejamiento del aging) y `knowledge-base/07_flujos_principales.md` (flujo de edición).
 - [x] 17.2 `CHANGES.md`: entrada del change con las mediciones y los candidatos que deja ("Nota de crédito" como etiqueta de la reversión por edición; "Último cargo" del panel por `created_at`). Puntero en `CLAUDE.md` y `python scripts/ci/check_docs_sync.py --fix` en el mismo PR.
-- [ ] 17.3 Revisión adversarial: **revisión por el orquestador** (no se lanza un juez desde el apply). PR `opsx/edicion-operaciones-con-dinero-apply-c`, CI verde, merge.
-- [ ] 17.4 **[PO]** Humo real en prod:
+- [x] 17.3 Revisión adversarial: **revisión por el orquestador** (no se lanza un juez desde el apply). PR `opsx/edicion-operaciones-con-dinero-apply-c`, CI verde, merge. — Revisión del diff por el orquestador, CI verde, mergeado (#659/#660/#661).
+- [ ] 17.4 **[PO]** Humo real en prod: — Queda para el PO, no bloquea el archive (docs/pendientes-manuales-po.md §5).
   - editar una venta a crédito (subir el total, cambiar el vencimiento);
   - una venta en efectivo del día;
   - una compra por transferencia;

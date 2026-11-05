@@ -71,6 +71,14 @@ Este change pone un tope a la lectura de facturas con IA (`/compras` → «Subir
 
 ---
 
+## 7. `v31-money-integration-tests` — volver obligatorio el check de CI (sólo lo podés hacer vos)
+
+Este change hace que los tests contra una base real y los gates de dinero corran en cada PR y no puedan pasar en verde «salteándose». Hoy `main` no tiene ninguna regla de protección (medido el 2026-11-05), así que «obligatorio» depende de que se mergee sólo con la CI en verde.
+
+- [ ] **Cuando el apply esté mergeado**: en GitHub → *Settings → Branches* (o *Rules → Rulesets*), creá una regla para `main` que exija el check **`validate-kpis`** (workflow «KPI Validation») antes de mergear. No marques `pytest` (Backend Tests) como obligatorio mientras tenga filtro de rutas: en los PRs que no tocan el backend quedaría «esperando» para siempre y bloquearía el merge. No bloquea el change.
+
+---
+
 ## Registro de la corrida autónoma del 2026-11-04 (lo que hizo el agente)
 
 Se completa a medida que se mergea cada PR. Orden pactado: changes de a uno, siempre con la opción recomendada en cada OQ.
@@ -90,3 +98,4 @@ Se completa a medida que se mergea cada PR. Orden pactado: changes de a uno, sie
 | 04:52 (5-nov) | Propose v31-ia-ratelimit-budget (H-11: cuota y techo de costo del OCR) | #663 | mergeado |
 | 06:04 (5-nov) | Apply v31-ia-ratelimit-budget (cuota mensual + ráfaga + techo por llamada del OCR; migración 20261090000001) | #664 | mergeado (07:00, 5-nov) |
 | 07:05 (5-nov) | Archive v31-ia-ratelimit-budget (specs sincronizadas, change cerrado) | #665 | en revisión |
+| 07:17 (5-nov) | Propose v31-money-integration-tests (H-34: tier de integración real contra Postgres en CI; todas las OQs por la recomendada) | #TBD | en revisión |

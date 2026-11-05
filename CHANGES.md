@@ -1970,7 +1970,7 @@ C3 bank-reconciliation ✅ (2026-07-02 — nació con RN-A/RN-D5 aplicadas)
 | **H-09** Endpoint Python del outbox + `rpc_mark_event_processed` disparables por cualquier JWT → supresión de asientos contables | ALTO | `v31-outbox-endpoint-protect` | P1 | ALTO | S |
 | **H-10** Borrado de ventas/compras fuera de RPC → toca ledger inmutable/contabilidad sin compensación. Si introduce la anulación de `sales_orders`, debe sembrar la fila `sales_order draft→canceled` en `document_status_transitions` en su propia migración (G3 de `v31-fsm-status-triggers` ✅ 2026-07-31: `canceled` está en el `CHECK` de columna pero no en el catálogo, así que el trigger `BEFORE UPDATE` lo rechaza hoy). | ALTO | `v31-sales-delete-rpc-reversal` | P1 | ALTO (contable) | M |
 | **H-11** ✅ **ARCHIVADO 2026-11-05** (propose #663, apply #664 `465e801e`, migración `20261090000001`, verificada en prod; humo real con clave de OpenAI pendiente del PO) `invoice-ocr` sin techo de costo + sin rate limiting → DoS/costo OpenAI | ALTO | `v31-ia-ratelimit-budget` | P1 | MEDIO | M |
-| **H-34** Sin tier de integración real contra Postgres en CI (arqueo, conciliación, partida doble, webhook) + gates SQL degradables a NOTICE | ALTO | `v31-money-integration-tests` | P1 | MEDIO | L |
+| **H-34** 📝 **PROPUESTA 2026-11-05** (PR #TBD, `openspec/changes/v31-money-integration-tests/`) Sin tier de integración real contra Postgres en CI (arqueo, conciliación, partida doble, webhook) + gates SQL degradables a NOTICE | ALTO | `v31-money-integration-tests` | P1 | MEDIO | L |
 | **H-15** `sale_items` no universal (flag off 3/29, `name_snapshot`/`iva_rate_snapshot` NULL) + `purchase_items` congelada mid-history | MEDIO | `v31-document-lines-consistency` | P1 | MEDIO | M |
 | **H-20** IA sin telemetría (tokens/costo/latencia/calidad) ni evals; `_shared` de Edge Functions no consolidado | MEDIO | `v31-ia-telemetry-evals` | P1 | BAJO | M |
 | **H-12** Frontera del híbrido erosionada (140 `supabase.from` + 31 `.rpc` directos, incl. mutaciones ERP con endpoints backend muertos) | MEDIO | `v31-hybrid-boundary-erp` | P1 | MEDIO | M |
@@ -2036,6 +2036,25 @@ C3 bank-reconciliation ✅ (2026-07-02 — nació con RN-A/RN-D5 aplicadas)
 - **Problema**: ningún workflow corre `pytest`/`vitest` como required check → un PR que rompa los ~1.466 tests igual mergea y deploya. Sumado a que la lógica de dinero vive en RPCs SQL testeados con DB mockeada (ver `v31-money-integration-tests`, P1).
 - **Scope**: workflow de `pull_request` que corra backend `pytest` + frontend `vitest` como **required checks** de branch protection. (El tier de integración con Postgres real es P1.)
 - **Leer antes**: `audit/testing.md` H-04, `.github/workflows/`.
+
+#### `v31-money-integration-tests` — Tier de integración real contra Postgres en CI (H-34/H-04)
+- **Estado**: `[ ]` propuesta 2026-11-05 (PR #TBD) · **Governance**: MEDIO (CI y proceso: no escribe dinero real, no toca producción) · las 8 OQs resueltas por su opción recomendada (mandato permanente del PO del 2026-11-04)
+- **Problema** (medido el 2026-11-05): hay **12 archivos** de tests `-m integration` contra Postgres real (~128 tests: remitos, presupuestos, facturación, invitaciones, huella de dinero de la edición, aging, webhook de suscripciones) que **nunca corren en CI**, porque `Backend_Tests.yml` corre `-m "not integration"` y ellos hacen `pytest.skip` sin base. A eso se suman 3 tests de ARCA real bajo el mismo marker. Además, **33 gates SQL de dinero** tienen **202 ramas** que degradan a `RAISE NOTICE` y terminan en verde sin asertar. Una dispara hoy en CI: `test_payment_methods_seed.sql` bloque (1), «no hay cuentas en el stack», que nunca se ejecuta. Ningún test de integración ejercita el arqueo, la conciliación ni el asiento a través de su repositorio. `main` no tiene branch protection ni rulesets.
+- **Scope**:
+  - **D1**: el tier corre como paso final de `KPI_Validation.yml` (job `validate-kpis`), sobre el stack de `supabase start` que ese job ya levanta, con `if: !cancelled()`. Usa `pytest backend/tests -m "integration and not arca"` contra `:54322`. Ese workflow no tiene filtro de rutas, así que el check reporta en todo PR. Se descartaron un job nuevo en `Backend_Tests.yml` (~2 min más de runner y filtro de rutas) y un workflow aparte.
+  - **D2**: fail-closed con `CI_REQUIRE_INTEGRATION=1`. Un preflight aborta si la base no responde, una selección sin tests `integration` falla, y todo skip de un test `integration` sin `arca` se reescribe a `failed`. Los hooks viven en `backend/tests/integration_guard.py`, re-exportados por `conftest.py`. En local, sin la variable, nada cambia.
+  - **D3**: marker `arca` para los 3 tests de ARCA real, excluidos del tier.
+  - **D4**: fixture canónico `backend/tests/integration_db.py` (`DSN`, `connect()`, `set_claims()`, guardia de host local evaluada al conectar y nunca al importar). Los 12 archivos migran sólo DSN y conexión, que es lo mecánico.
+  - **D5**: `test_money_flows_integration.py`, un test por flujo de H-34 sin cobertura (arqueo con faltante, conciliación con match deshecho, asiento balanceado e idempotente tras dos `run_dispatch`).
+  - **D6**: `scripts/ci/run_gate_strict.py` envuelve a psql en los 33 gates de dinero y falla ante una degradación del propio gate que no esté en `scripts/ci/gate_degradation_allowlist.txt`, que arranca con una sola entrada de entorno. No se edita ningún `.sql`, y una prueba unitaria fija el detector contra las 202 ramas.
+  - **D7**: `test_payment_methods_seed` (1) crea su propia cuenta ancla.
+  - **D8**: el tier corre sin `--cov`, y el piso del 87% del job hermético no cambia.
+  - **D9**: comentarios y docstrings actualizados.
+- **Sin superficie frontend**: es un cambio de CI y tests.
+- **Fuera de alcance**: E2E de dinero (`v31-e2e-money-flows`, P3), las 190 degradaciones de los 41 gates que no son de dinero (candidato), y la generalización a routers que no son de dinero (`v4-backend-04`, que reutiliza este fixture).
+- **Paso manual del PO**: volver obligatorio `validate-kpis` en branch protection o en un ruleset de `main` (task 5.5).
+- **Dependencias**: ninguna dura. Construye el fixture base que consume `v4-backend-04`.
+- **Leer antes**: `openspec/changes/v31-money-integration-tests/design.md` (§Hechos medidos y D1-D9), `.github/workflows/KPI_Validation.yml`, `.github/workflows/Backend_Tests.yml`, `backend/tests/test_delivery_notes_module_integration.py` (molde de fixture).
 
 #### `v31-tenancy-pool-rls` — Modelo de tenancy del pool (H-05)
 - **Estado**: `[x]` ✅ **COMPLETADA 2026-08-26 (rollout) · ARCHIVADA 2026-08-27** (propose/apply mergeados en PRs #453 Paso 2 + #454 hotfix ACLs, sobre el código base de Paso 1 ya mergeado antes; archive `openspec/changes/archive/2026-08-27-v31-tenancy-pool-rls/`) · **Governance**: CRÍTICO (aislamiento entre 34 cuentas con dinero real) — rollout en dos pasos, ambos con sign-off explícito del PO

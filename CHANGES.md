@@ -4723,7 +4723,7 @@ El pedido literal (RPC con rol y motivo + quitar `GRANT` y policies) es correcto
 **Estado.** Propose — `openspec/changes/mp-cuota-acreditacion-resiliente/` (proposal, design, specs delta `payment-webhook` + `subscription-lifecycle`, tasks), `openspec validate --strict` en verde. **Apply bloqueado a sign-off del PO.** Mientras tanto, red manual: "Replicar cuotas" cada mes después del día 4 (`docs/pendientes-manuales-po.md` §8).
 
 
-## Change `productos-padre-variantes` — PROPOSE 2026-11-05 (PR **#TBD**; governance **MEDIO** con un tramo **ALTO** acotado al relabel de unidad)
+## Change `productos-padre-variantes` — PROPOSE 2026-11-05 (PR **#679**; governance **MEDIO** con un tramo **ALTO** acotado al relabel de unidad)
 
 **Contexto.** Pedido textual del PO: poder corregir la unidad de medida del producto padre y que se cambie en todos los hijos, y diferenciar el alta de un producto padre de la de un producto individual (el padre pide stock inicial, stock mínimo, código de barras, código de balanza y SKU, que no tienen sentido en él). Exploración completa y medición de prod en `openspec/explore/2026-11-05-productos-padre-variantes.md`; la **revisión 2** (decisiones del PO del mismo día) es el alcance vinculante: **sin herencia de precio/costo** ("confunde a los usuarios"), entran un **modificador de precios en lote** y la **sugerencia de precio = costo × 1,5**.
 

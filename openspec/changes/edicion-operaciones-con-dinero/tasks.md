@@ -108,13 +108,14 @@
 
 ## 6. Tanda B — Validación única del opt-in de caja
 
-- [ ] 6.1 **RED**: gate con la matriz de las tres condiciones (`kind`, sesión abierta de la sucursal y de la cuenta, fecha de hoy) contra `rpc_create_sale_operation_v2`, `rpc_create_purchase_operation` (o `_purchase_operation_core`) y `rpc_create_expense`, registrando tokens y códigos actuales. Correrlo contra el vivo y guardar el resultado como referencia.
-- [ ] 6.2 Crear `_cash_optin_assert` (D16) con los predicados copiados del vivo. Agregar la variante "corrección" (sin fecha de hoy si ya había huella de caja).
-- [ ] 6.3 Migrar las tres altas al helper, desde el vivo. Gate de 6.1: veredictos y mensajes idénticos.
+- [x] 6.1 **RED**: gate con la matriz de las tres condiciones (`kind`, sesión abierta de la sucursal y de la cuenta, fecha de hoy) contra `rpc_create_sale_operation_v2`, `rpc_create_purchase_operation` (o `_purchase_operation_core`) y `rpc_create_expense`, registrando tokens y códigos actuales. Correrlo contra el vivo y guardar el resultado como referencia.
+- [x] 6.2 Crear `_cash_optin_assert` (D16) con los predicados copiados del vivo. Agregar la variante "corrección" (sin fecha de hoy si ya había huella de caja).
+  - **Desvío (D16)**: `_cash_optin_assert` recibe un séptimo parámetro, `p_doc` (`sale`|`purchase`|`expense`), sólo para elegir el sustantivo del mensaje y que el texto de cada alta no cambie ("de la venta", "una compra fechada…", "un gasto fechado…"). `p_account_id` se recibe por contrato y no se usa: la tenencia de la sesión la sigue dando el backstop de `c28_register_cash_movement` (P0401).
+- [x] 6.3 Migrar las tres altas al helper, desde el vivo. Gate de 6.1: veredictos y mensajes idénticos.
 
 ## 7. Tanda B — Plan y edición de venta
 
-- [ ] 7.1 **RED** (`supabase/tests/test_edicion_operaciones_con_dinero.sql`, dos cuentas, roles reales y cleanup asertado), uno por escenario de `specs/operation-money-edit` y de los deltas de libros:
+- [x] 7.1 **RED** (`supabase/tests/test_edicion_operaciones_con_dinero.sql`, dos cuentas, roles reales y cleanup asertado), uno por escenario de `specs/operation-money-edit` y de los deltas de libros:
   - venta a crédito editada (sube, baja con `P0425`, cambio de cliente, vencimiento conservado o explícito);
   - efectivo del día y de una sesión cerrada (`P0426` sin sesión, `cash_intent_required` al cambiar de sucursal, `cash_optin_requires_today` para una retroactiva sin huella);
   - transferencia (espejo + nuevo, `P0424`, cuenta conservada);
@@ -127,8 +128,8 @@
   - auditoría;
   - rol (OQ-4);
   - `p_dry_run` sin efectos.
-- [ ] 7.2 Función interna de **plan** (D13): huella, efecto deseado, acción y bloqueos, sin escrituras.
-- [ ] 7.3 `rpc_atomic_update_sale_operation` desde el vivo (`DROP` + `CREATE` con la firma nueva):
+- [x] 7.2 Función interna de **plan** (D13): huella, efecto deseado, acción y bloqueos, sin escrituras.
+- [x] 7.3 `rpc_atomic_update_sale_operation` desde el vivo (`DROP` + `CREATE` con la firma nueva):
   - parámetros nuevos: `p_cash_session_id`/`p_cash_provided`, `p_bank_account_id`/`p_bank_account_provided`, `p_due_date`/`p_due_date_provided`, `p_reason`, `p_dry_run`;
   - se retiran los tres `P0423` de dinero;
   - orden de D12;
@@ -138,35 +139,37 @@
   - `audit_logs`.
 
   Conservar el guard de remito, el fiscal, la tenencia del cliente y el recálculo de la orden.
-- [ ] 7.4 Checkpoint: verificar que `_sales_order_sync_from_operation` recalcula también la forma de pago de la orden. Si no lo hace, extenderlo desde el vivo con su gate, porque el listado lee `COALESCE(pm, pos_pm)`.
-- [ ] 7.5 GREEN → **TRIANGULATE** hasta cubrir 7.1, más:
+  - **Desvíos**: (i) `P0999` es el código interno del sub-bloque que deshace la anulación del comprobante pendiente en vista previa (nada se anula en seco; un bloqueo fiscal `P0423` viaja como dato del plan). (ii) Un `p_due_date` explícito en `NULL` equivale a «volver a la cascada del plazo»: el helper del cargo es el único que resuelve el vencimiento y con `NULL` aplica la cascada, no deja el cargo sin vencimiento. (iii) `operation_id` ESTABLE se aplica en el RPC de la venta: el `UPDATE` de re-apuntado de la orden pasa a ser un no-op y se conserva porque devuelve la orden a recalcular.
+- [x] 7.4 Checkpoint: verificar que `_sales_order_sync_from_operation` recalcula también la forma de pago de la orden. Si no lo hace, extenderlo desde el vivo con su gate, porque el listado lee `COALESCE(pm, pos_pm)`.
+  - **Checkpoint 7.4 medido**: `_sales_order_sync_from_operation` NO recalcula la forma de pago de la orden (total, cliente, sucursal y líneas sí). Se alinea en el RPC de edición (`UPDATE sales_orders SET payment_method_id = …` tras la sincronización) y no en el helper, que comparte con la promoción de ventas legacy y cuyo contrato no cambia. Cubierto por el escenario V7 del gate.
+- [x] 7.5 GREEN → **TRIANGULATE** hasta cubrir 7.1, más:
   - mutantes muertos: reversión antes del cargo, compensar por tipo en vez de neto, escribir con H = E, sin `reversal_of IS NULL`, la fecha de hoy exigida en la corrección;
   - gate de carrera: doble guardado, y dos ediciones que cruzan clientes sin `40P01`;
   - gate que **ejecuta** la RPC también en modo `p_dry_run`.
-- [ ] 7.6 Actualizar los gates existentes que asumían el `P0423` por dinero o el `operation_id` regenerado (`test_pagos_cableados_restantes.sql`, `test_pos_banco_movimientos.sql`, `test_asiento_venta_formulario.sql`, `test_edicion_preserva_contexto.sql`, `test_venta_editable_sin_cae.sql`, `test_operation_edit_lines.sql`, `test_stock_movements_edicion.sql` y los demás de 0.6). Cada cambio de aserción, justificado en el PR.
+- [x] 7.6 Actualizar los gates existentes que asumían el `P0423` por dinero o el `operation_id` regenerado (`test_pagos_cableados_restantes.sql`, `test_pos_banco_movimientos.sql`, `test_asiento_venta_formulario.sql`, `test_edicion_preserva_contexto.sql`, `test_venta_editable_sin_cae.sql`, `test_operation_edit_lines.sql`, `test_stock_movements_edicion.sql` y los demás de 0.6). Cada cambio de aserción, justificado en el PR.
 
 ## 8. Tanda B — Edición de compra
 
-- [ ] 8.1 **RED**: escenarios de compra en el gate de 7.1:
+- [x] 8.1 **RED**: escenarios de compra en el gate de 7.1:
   - crédito (sube, baja con `P0425`, cambio de proveedor traslada el cargo);
   - efectivo y transferencia;
   - efectivo→crédito (antes `credit_transition_not_allowed`);
   - crédito histórico sin proveedor y sin cargo;
   - compra de remito sigue bloqueada;
   - `PurchaseAdjusted` con id estable.
-- [ ] 8.2 `rpc_atomic_update_purchase_operation` desde el vivo, con la misma firma nueva que la venta y el mismo plan. Se retiran los tres `P0423` de dinero y `credit_transition_not_allowed`; se conserva `credit_requires_supplier` bajo la regla de herencia. GREEN → TRIANGULATE.
-- [ ] 8.3 Actualizar `test_purchase_cash_optin.sql` (incluida la aserción de `operation_id` distinto en `:410`), `test_compras_proveedor_cuenta_corriente.sql`, `test_compras_gastos_sucursal_por_defecto.sql` y los demás que la ejecutan.
+- [x] 8.2 `rpc_atomic_update_purchase_operation` desde el vivo, con la misma firma nueva que la venta y el mismo plan. Se retiran los tres `P0423` de dinero y `credit_transition_not_allowed`; se conserva `credit_requires_supplier` bajo la regla de herencia. GREEN → TRIANGULATE.
+- [x] 8.3 Actualizar `test_purchase_cash_optin.sql` (incluida la aserción de `operation_id` distinto en `:410`), `test_compras_proveedor_cuenta_corriente.sql`, `test_compras_gastos_sucursal_por_defecto.sql` y los demás que la ejecutan.
 
 ## 9. Tanda B — Edición de gasto
 
-- [ ] 9.1 **RED**:
+- [x] 9.1 **RED**:
   - gasto en efectivo del día y de una sesión cerrada;
   - efectivo→transferencia (asiento acredita banco);
   - transferencia→efectivo (asiento acredita caja: la huella bancaria quedó en cero);
   - sólo categoría con la caja cerrada, sin escrituras;
   - `credit` sigue rechazado;
   - `p_dry_run`.
-- [ ] 9.2 `rpc_update_expense` desde el vivo (`DROP` + `CREATE`):
+- [x] 9.2 `rpc_update_expense` desde el vivo (`DROP` + `CREATE`):
   - plan;
   - se retiran los dos `P0423`;
   - `ExpenseAdjusted` con la contrapartida de la huella **posterior**;
@@ -176,18 +179,22 @@
 
 ## 10. Tanda B — Backend
 
-- [ ] 10.1 **RED** (pytest): tri-estado por `model_fields_set` de `cash_session_id`, `bank_account_id` y `due_date` en los tres esquemas; `reason` opcional; vista previa; historial; proyección sin `is_payment_locked` y con `edit_locked_reason`.
-- [ ] 10.2 Esquemas Pydantic v2 (`backend/schemas/sales.py`, `purchases.py`, `expenses.py`), routers, servicios y repositorios en tres capas:
+- [x] 10.1 **RED** (pytest): tri-estado por `model_fields_set` de `cash_session_id`, `bank_account_id` y `due_date` en los tres esquemas; `reason` opcional; vista previa; historial; proyección sin `is_payment_locked` y con `edit_locked_reason`.
+- [x] 10.2 Esquemas Pydantic v2 (`backend/schemas/sales.py`, `purchases.py`, `expenses.py`), routers, servicios y repositorios en tres capas:
   - `POST /sales/operation/edit-preview`, `POST /purchases/operation/edit-preview`, `POST /expenses/{id}/edit-preview`;
   - `GET .../edits`, con un único repositorio de lectura de auditoría filtrado por `account_id`.
-- [ ] 10.3 Proyecciones: `edit_locked_reason` (tokens de D15, fail-closed), `charge_due_date`, `charge_party_id`, `cash_cashbox_id` y su sesión abierta, `bank_account_id` de la huella. **Retirar `is_payment_locked`** de los tres esquemas de salida y de todos los tests de backend.
-- [ ] 10.4 Capacidad `CAN_CORRECT_MONEY` según OQ-4 en `backend/core/rbac.py`, con el guard en el servicio (espejo de la RPC) y el test que ata base, backend y frontend.
-- [ ] 10.5 Mapeo RFC 7807 de los tokens nuevos (`cash_intent_required`, `money_edit_requires_admin`) y de `P0425`/`P0426`/`P0424` en contexto edición. Coverage ≥ el umbral de CI.
+  - **Desvío**: el historial se lee con una RPC nueva, `rpc_operation_edits` (SECURITY DEFINER, filtra por la cuenta ACTIVA de la sesión y sólo las tres acciones de edición), porque `audit_logs` sólo tiene una policy heredada por `company_id`: una lectura directa con la RLS del usuario no devolvería nunca estas filas. El repositorio único es `OperationEditRepository`.
+- [x] 10.3 Proyecciones: `edit_locked_reason` (tokens de D15, fail-closed), `charge_due_date`, `charge_party_id`, `cash_cashbox_id` y su sesión abierta, `bank_account_id` de la huella. **Retirar `is_payment_locked`** de los tres esquemas de salida y de todos los tests de backend.
+  - **Desvío (D15)**: los cuatro indicadores y los datos vigentes del formulario salen de UNA función, `op_money_footprint_state` (la hermana de `op_money_footprint_flags` con los datos de precarga), que consumen los tres repositorios por `LATERAL`. `service_lines_locked` pasa del cliente al servidor como token de `edit_locked_reason`.
+- [x] 10.4 Capacidad `CAN_CORRECT_MONEY` según OQ-4 en `backend/core/rbac.py`, con el guard en el servicio (espejo de la RPC) y el test que ata base, backend y frontend.
+  - **Alcance del guard**: el servicio no puede saber si una edición escribe dinero (lo decide el plan), así que un actor SIN `CAN_CORRECT_MONEY` pide la vista previa —la misma RPC en seco, sin efectos— y corta con 403 `money_edit_requires_admin` si el plan escribe; el dueño y el administrador no pagan ese viaje. `edit_locked_reason` NO emite `money_edit_requires_admin`: un cajero edita la descripción de una venta en efectivo (spec "Corregir dinero ya registrado requiere dueño o administrador").
+- [x] 10.5 Mapeo RFC 7807 de los tokens nuevos (`cash_intent_required`, `money_edit_requires_admin`) y de `P0425`/`P0426`/`P0424` en contexto edición. Coverage ≥ el umbral de CI.
 
 ## 11. Tanda B — Cierre
 
-- [ ] 11.1 Frontend mínimo para no romper: `lib/types.ts` y los listados dejan de leer `isPaymentLocked`; los tests que lo usaban se migran (`grep -rn "isPaymentLocked\|is_payment_locked" frontend` vacío). La superficie completa llega en la tanda C.
-- [ ] 11.2 Introspección, ACLs (`test_function_acl_gate.sql`), reaplicación dos veces, `KPI_Validation.yml` y suites en verde.
+- [x] 11.1 Frontend mínimo para no romper: `lib/types.ts` y los listados dejan de leer `isPaymentLocked`; los tests que lo usaban se migran (`grep -rn "isPaymentLocked\|is_payment_locked" frontend` vacío). La superficie completa llega en la tanda C.
+- [x] 11.2 Introspección, ACLs (`test_function_acl_gate.sql`), reaplicación dos veces, `KPI_Validation.yml` y suites en verde.
+  - **CI (`KPI_Validation.yml`)**: la tanda B cambia la firma de tres funciones, así que los reapply de 20261070000001…20261088000001 dejarían un overload fantasma. Mismo patrón que `multiusuario-operativo` B: tras el último reset de reconvergencia, `supabase/migrations_bak/rollback_20261089000001_edicion_operaciones_dinero.sql` restaura las seis funciones a sus cuerpos de producción (md5 verificado) y borra lo que la tanda B creó —además es la prueba del rollback—, se re-toma la línea base del schema y el reapply de 20261089000001 va al final de la cadena, después del de la tanda A, comparando contra la línea base previa al rebase.
 - [ ] 11.3 Revisión adversarial (un juez). PR `opsx/edicion-operaciones-con-dinero-apply-b`, CI verde, merge.
 - [ ] 11.4 Verificación post-merge en prod, igual que 5.4, más: 0 `P0423` por dinero en los cuerpos vivos y una sola firma de cada edición.
 
@@ -255,6 +262,22 @@ Safety net (0.6): baseline en verde = la CI de #646 sobre `main` (`1dc70b7c`: py
 | 4.1–4.3 | `test_edicion_locks_race.sh` (dos conexiones) | SQL race | `test_venta_editable_sin_cae_race` | (c) `la segunda edicion ... EDIT_OK`; (e) `lost update: 'desc original\|999'` | (c) y (e) PASS | compra y gasto | — |
 | 4.4 | `test_purchase_edit_journal.sql` | SQL | idem | con el cuerpo previo: falta `PurchaseAdjusted` | PASS | alta → edición ×2 → borrado, histórica sin alta | — |
 | 5.1 | `test_function_acl_gate.sql` (+ introspección de la migración) | SQL | gate verde en `main` | `ACL GATE (5a) FAILED ... rpc_atomic_update_purchase_operation` | PASS | reaplicación doble | — |
+
+### Evidencia TDD — tanda B (apply 2026-11-04)
+
+Safety net (0.6): baseline = el de la tanda A (CI de `main` en `78f30c36`); corridas locales de esta tanda: backend `-m "not integration"` 4418 passed + los 7 `test_invoice_pdf.py` preexistentes de este entorno; integración de las proyecciones 3 passed; vitest sin regresiones nuevas; los gates SQL rebasados sobre `db reset` limpio.
+
+| Tarea | Test | Capa | Safety net | RED | GREEN | Triangulación | Refactor |
+|-------|------|------|------------|-----|-------|---------------|----------|
+| 6.1–6.3 | `supabase/tests/test_cash_optin_assert.sql` | SQL | caracterización de las 3 altas (PASA contra el cuerpo vivo) | `function public._cash_optin_assert(...) does not exist` (bloque H) | M 18/18 + H | 3 altas × 6 casos con token, ERRCODE y mensaje exactos; helper directo y variante de corrección | las 3 altas delegan en el helper |
+| 7.1–7.5 | `supabase/tests/test_edicion_dinero_venta.sql` (V1–V12) | SQL | `test_venta_editable_sin_cae`, `test_edicion_preserva_contexto` | `V4 estado: esperaba <00000> y dio <P0423>` | V1–V12 PASS | crédito sube/baja/cliente/vencimiento; efectivo del día y de sesión cerrada; sucursal; retroactiva; banco; herencia; entre libros; POS; id estable y auditoría; rol; en seco; borrado después de editar | plan único (`_op_edit_plan`) para las 3 ediciones |
+| 7.5 | `supabase/tests/test_edicion_dinero_race.sh` (a, b) | SQL race | `test_edicion_locks_race.sh` | — (script nuevo; ver nota) | PASS | doble guardado de la misma venta (P0404, una sola edición) · dos ediciones que cruzan clientes (sin 40P01) | — |
+| 8.1–8.3 | `supabase/tests/test_edicion_dinero_compra_gasto.sql` (P1–P9, R) | SQL | `test_purchase_cash_optin`, `test_compras_proveedor_cuenta_corriente` | `X4 estado: esperaba <00000> y dio <P0423>` | P1–P9 PASS | crédito sube/baja/proveedor; efectivo de sesión cerrada; transferencia; efectivo→crédito; crédito histórico sin proveedor; `PurchaseAdjusted` id estable; auditoría; rol | idem |
+| 9.1–9.2 | idem (X1–X8) | SQL | `test_gastos_forma_pago`, `test_asiento_contable_gastos` | idem | X1–X8 PASS | efectivo del día y de sesión cerrada; efectivo↔transferencia con el `kind` del asiento por la huella posterior; solo categoría sin escrituras; `credit` rechazado; en seco | idem |
+| 10.1–10.5 | `backend/tests/test_edicion_operaciones_con_dinero.py` + rebase de `test_sales/purchases/gastos/…` | Unit + integración | 4385 passed (A) | 26 failed / 8 passed antes de implementar | 34 passed | tri-estado ×3 esquemas; PUT ×3; vista previa ×3; historial ×3; proyecciones; `CAN_CORRECT_MONEY` atada a base y frontend; guard del servicio; 5 tokens RFC 7807 | `operation_edit` compartido |
+| 11.1 | `frontend/__tests__/lib/rbac-capabilities.test.ts` (+ tests migrados) | Unit | vitest completo (A) | tsc: `isPaymentLocked` inexistente en 20 archivos de test | verde | `grep isPaymentLocked\|is_payment_locked frontend` vacío | — |
+
+Nota RED de 7.5: el script de carrera es nuevo y no tiene RED contra un cuerpo anterior (la tanda A ya probó el lock de filas de la compra y del gasto con `test_edicion_locks_race.sh`); no se corrió un mutante que quite el `FOR UPDATE` del recuento, así que su capacidad de detectar la regresión queda sin demostrar por mutación y es un punto a mirar en la revisión.
 
 ## Evidencia TDD (plantilla del plan)
 

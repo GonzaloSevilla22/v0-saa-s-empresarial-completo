@@ -1892,6 +1892,27 @@ jobs:
           fi
           echo "20261089000001 idempotente: introspección OK en las dos pasadas y schema IDÉNTICO al de la historia completa (reset de reconvergencia)."
 
+          # v31-ia-ratelimit-budget (2026-11-05, governance MEDIO): reaplicación de 20261090000001 AL FINAL de la cadena, después
+          # del eslabón de la tanda B. La migración es ADITIVA (columnas con IF NOT EXISTS, seed que sólo toca filas sin valor, una
+          # RPC nueva con CREATE OR REPLACE de la misma firma, cron unschedule + schedule) y no toca ninguna función de las
+          # anteriores: el schema (constraints + firmas + ACLs) tiene que quedar IDÉNTICO al que dejó el eslabón previo, el job
+          # reset-ai-counters tiene que seguir siendo UNO con las tres columnas del OCR en su comando, y el seed de plan_limits
+          # (5/30/120/300) no se pisa en la segunda pasada.
+          VIA_OUT1=$(psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261090000001_ia_ocr_cuota_reserva.sql 2>&1) || { echo "$VIA_OUT1"; echo "ERROR: el reapply de 20261090000001 falló (sin tolerancia)."; exit 1; }
+          VIA_OUT2=$(psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261090000001_ia_ocr_cuota_reserva.sql 2>&1) || { echo "$VIA_OUT2"; echo "ERROR: la segunda pasada de 20261090000001 falló (sin tolerancia)."; exit 1; }
+          schema_snapshot > /tmp/schema_after_via_reapply.txt
+          if ! diff -u /tmp/schema_after_eodb_reapply.txt /tmp/schema_after_via_reapply.txt > /tmp/schema_diff_via.txt; then
+            echo "NOT IDEMPOTENT: reaplicar 20261090000001 cambió el schema (constraints + firmas de función + ACLs):"
+            cat /tmp/schema_diff_via.txt
+            exit 1
+          fi
+          VIA_STATE=$(psql -tA "$DSN" -c "SELECT (SELECT count(*) FROM cron.job WHERE jobname='reset-ai-counters' AND command LIKE '%ai_ocr_used = 0%') || '|' || (SELECT string_agg(plan || '=' || max_ai_ocr_per_month, ',' ORDER BY max_ai_ocr_per_month) FROM public.plan_limits)")
+          if [ "$VIA_STATE" != "1|gratis=5,inicial=30,avanzado=120,pro=300" ]; then
+            echo "ERROR: estado inesperado tras reaplicar 20261090000001 (job|seed): $VIA_STATE"
+            exit 1
+          fi
+          echo "20261090000001 idempotente: schema IDÉNTICO al previo, un solo job reset-ai-counters con el OCR y seed 5/30/120/300 intacto."
+
       # -v ON_ERROR_STOP=1 is required: without it psql prints RAISE EXCEPTION
       # errors but still exits 0, so failing assertions show green in CI.
       - name: Run deterministic KPI tests
@@ -3908,3 +3929,9 @@ jobs:
       # acreditando banco, transferencia->efectivo acreditando caja, solo categoría sin escrituras, credit rechazado, vista previa).
       - name: Run purchase and expense money edit gate (edicion-operaciones-con-dinero B8-B9)
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_edicion_dinero_compra_gasto.sql
+
+      # v31-ia-ratelimit-budget (H-11): cuota mensual, ráfaga y reserva atómica del OCR. EJECUTA rpc_reserve_ai_usage (concede,
+      # quota_exceeded, rate_limited, ventana vencida, 22023/P0401, plan efectivo) y, vía dblink por TCP, la carrera de dos
+      # reservas concurrentes sobre un único cupo. Asserta además el comando VIVO del cron reset-ai-counters.
+      - name: Run OCR quota reservation gate (v31-ia-ratelimit-budget)
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_ia_ocr_cuota_reserva.sql

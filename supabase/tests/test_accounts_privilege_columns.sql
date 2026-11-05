@@ -156,6 +156,7 @@ DECLARE
     'billing_plan', 'billing_status', 'trial_plan', 'trial_started_at',
     'trial_expires_at', 'billing_provider_customer_id',
     'ai_queries_used', 'ai_advice_used', 'exports_used', 'insights_used',
+    'ai_ocr_used', 'ai_ocr_window_count', 'ai_ocr_window_started_at',
     'usage_reset_at', 'insights_reset_at',
     'terms_accepted_at', 'terms_version',
     -- multiusuario-operativo (tanda A, D2): la CUENTA ACTIVA del usuario. Cambiarla a mano

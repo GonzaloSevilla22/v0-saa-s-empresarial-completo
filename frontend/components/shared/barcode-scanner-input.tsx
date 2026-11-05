@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useCallback } from "react"
+import { useState, useCallback, useEffect, useRef } from "react"
 import { toast } from "sonner"
 import { ScanLine, Check, AlertCircle } from "lucide-react"
 import { cn } from "@/lib/utils"
@@ -53,6 +53,15 @@ export function BarcodeScannerInput({
 }: BarcodeScannerInputProps) {
   const [state, setState] = useState<ScanState>("idle")
   const [label, setLabel] = useState<string>("")
+  // Temporizador de retorno a "idle": uno solo vivo, cancelado al desmontar
+  // (un setState tardío sobre un jsdom ya desmontado tumbaba la corrida de vitest).
+  const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (idleTimerRef.current !== null) clearTimeout(idleTimerRef.current)
+    }
+  }, [])
 
   const handleScan = useCallback((barcode: string) => {
     const feedback = onScan(barcode)
@@ -67,7 +76,11 @@ export function BarcodeScannerInput({
       setLabel(barcode)
     }
     // Reset to idle after 1.5 s
-    setTimeout(() => setState("idle"), 1500)
+    if (idleTimerRef.current !== null) clearTimeout(idleTimerRef.current)
+    idleTimerRef.current = setTimeout(() => {
+      idleTimerRef.current = null
+      setState("idle")
+    }, 1500)
   }, [onScan])
 
   useBarcodeScanner({ onScan: handleScan, enabled, scopeRef, guardFocusedInput })

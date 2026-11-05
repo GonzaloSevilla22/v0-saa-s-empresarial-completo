@@ -81,6 +81,13 @@ Este change hace que los tests contra una base real y los gates de dinero corran
 
 ---
 
+## 8. `mp-cuota-acreditacion-resiliente` — cobro mensual de la suscripción (propose PR #677)
+
+- [ ] **Antes del apply**: dar el OK (o objetar) las cinco decisiones del `design.md` (OQ-1…OQ-5). Recomendadas: barrido horario + webhook `payment` como acelerador; reutilizar el secreto del relay fiscal; cada hora con ventana de 30 días; dos columnas nuevas en `/admin/pagos/ambiguas`; corregir el defecto del replay. Governance CRÍTICO: sin tu OK no se aplica.
+- [ ] **Mientras no esté aplicado, cada mes después del día 4**: entrá a `/admin/pagos/ambiguas` → "Suscripciones recientes" y verificá que la suscripción de Aliadata Perfumes tenga el plan extendido (vencimiento ≈ día 14 del mes siguiente). Si no, tocá **"Replicar cuotas"** (es idempotente: no duplica cobros ni correos). Próximo cobro: 2026-12-04.
+
+---
+
 ## Registro de la corrida autónoma del 2026-11-04 (lo que hizo el agente)
 
 Se completa a medida que se mergea cada PR. Orden pactado: changes de a uno, siempre con la opción recomendada en cada OQ.
@@ -109,3 +116,4 @@ Se completa a medida que se mergea cada PR. Orden pactado: changes de a uno, sie
 | 15:20 UTC (5-nov) | Feature: saldo según libro al elegir una cuenta en /banco (saldo inicial + movimientos, como caja) | #673 | en revisión |
 | 16:30 UTC (5-nov) | Apply v31-document-lines-consistency (retiro del flag y la rama legacy, línea de servicio, backfill de 6 documentos y 79 líneas, name_snapshot NOT NULL, fix doble conteo en clientes; migración 20261091000001) | #675 | mergeado 16:20 |
 | 16:45 UTC (5-nov) | Archive v31-document-lines-consistency (spec sale-line-items sincronizada, change cerrado) | #676 | en revisión |
+| 16:55 UTC (5-nov) | Propose mp-cuota-acreditacion-resiliente (cobro mensual de suscripción sin depender de la notificación de la cuota: barrido horario + acelerador en el webhook `payment`; OQs por la recomendada, apply bloqueado a sign-off — governance CRÍTICO) | #677 | en revisión |

@@ -74,6 +74,14 @@ jobs:
             psql -tA "$DSN" -c "SELECT n.nspname || '.' || p.proname || '(' || pg_get_function_arguments(p.oid) || ') RETURNS ' || pg_get_function_result(p.oid) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname IN ('public','community') ORDER BY 1"
             psql -tA "$DSN" -c "SELECT n.nspname || '.' || p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ') :: ' || COALESCE(array_to_string(p.proacl, ','), '<default>') FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname IN ('public','community') ORDER BY 1"
           }
+          # edicion-operaciones-con-dinero TANDA B: los reapply de migraciones VIEJAS que recrean rpc_update_expense, las ediciones de venta/compra
+          # y las tres altas con su firma histórica corren contra el estado PREVIO a la tanda B (20261089000001 cambia esas firmas). Este paso
+          # deja la base en ese estado: al arrancar la cadena y tras cada `supabase db reset` (que vuelve a aplicar la historia completa).
+          # Es la prueba del rollback de la tanda y es idempotente.
+          eod_b_rollback() {
+            psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations_bak/rollback_20261089000001_edicion_operaciones_dinero.sql > /dev/null
+          }
+          eod_b_rollback
           schema_snapshot > /tmp/schema_before_reapply.txt
           BEFORE=$(psql -tA "$DSN" -c "$FINGERPRINT")
           psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20260924000001_activate_sale_items_rpc_v2.sql
@@ -971,6 +979,8 @@ jobs:
           # en verde.
           echo "Reconvergiendo: supabase db reset (reconstruye la DB desde cero con la migration history real, mismo mecanismo que 'supabase start')..."
           supabase db reset
+          schema_snapshot > /tmp/schema_with_eod_b.txt
+          eod_b_rollback
           schema_snapshot > /tmp/schema_after_reconverge.txt
           if ! diff -u /tmp/schema_before_reapply.txt /tmp/schema_after_reconverge.txt > /tmp/schema_diff.txt; then
             echo "NOT IDEMPOTENT: el schema (constraints + firmas de función + ACLs) quedó distinto del estado previo a este paso, incluso después de la reconvergencia:"
@@ -1201,6 +1211,8 @@ jobs:
           # eslabón de remitos (hoy, el de 20261081000001, al final de la cadena).
           echo "Reconvergiendo (remitos-compra): supabase db reset después de los reapply de 20261063000001..20261068000001..."
           supabase db reset
+          schema_snapshot > /tmp/schema_with_eod_b.txt
+          eod_b_rollback
           schema_snapshot > /tmp/schema_after_rc_reconverge.txt
           if ! diff -u /tmp/schema_before_reapply.txt /tmp/schema_after_rc_reconverge.txt > /tmp/schema_diff_rc_reconverge.txt; then
             echo "NOT IDEMPOTENT: el schema quedó distinto del estado previo incluso después de la reconvergencia de remitos-compra:"
@@ -1208,6 +1220,43 @@ jobs:
             exit 1
           fi
           echo "Reconvergencia (remitos-compra) OK: constraints + firmas de función + ACLs IDÉNTICOS al estado previo a este paso."
+
+          # edicion-operaciones-con-dinero TANDA B (2026-11-04, governance ALTA): REBASE de los pasos de abajo.
+          # 20261089000001 CAMBIA LA FIRMA de rpc_atomic_update_sale_operation, rpc_atomic_update_purchase_operation y
+          # rpc_update_expense (DROP + CREATE: parámetros nuevos de caja, banco, vencimiento, motivo y vista previa) y
+          # reescribe las tres altas (rpc_create_sale_operation_v2, _purchase_operation_core, rpc_create_expense). Los reapply
+          # de 20261070000001, 20261075000001, 20261081000001, 20261083000001, 20261087000001 y 20261088000001 recrean esas
+          # funciones con SU firma histórica y fijan por md5 o por introspección de SU cuerpo: sin este rebase dejarían un
+          # overload fantasma (la firma vieja junto a la nueva) y abortarían. Se REBASAN (no se retiran: así se conservan sus
+          # controles de idempotencia). El reset de reconvergencia de arriba ya reconstruyó la base con la historia real
+          # completa, incluida 20261089000001; acá se restauran las seis funciones a sus cuerpos de producción previos a la
+          # tanda B con supabase/migrations_bak/rollback_20261089000001_edicion_operaciones_dinero.sql —que además es la PRUEBA
+          # del rollback de la tanda— y se vuelve a tomar la línea base del schema (el estado previo a la tanda B queda en
+          # /tmp/schema_with_eod_b.txt (el schema de la historia completa, tomado tras el último reset), contra el que compara el reapply de 20261089000001, AL FINAL de la cadena).
+          # Va ANTES del rebase de multiusuario-operativo de abajo: este restaura los nueve cuerpos previos a 20261083000001
+          # con CREATE OR REPLACE sobre las firmas viejas, que acá vuelven a existir.
+          echo "Rebase de edicion-operaciones-con-dinero tanda B: restaurando las seis funciones previas a 20261089000001 (rollback)..."
+          psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations_bak/rollback_20261089000001_edicion_operaciones_dinero.sql
+          EOD_RESTORED=$(psql -tA "$DSN" -c "SELECT count(*) FROM pg_proc p JOIN (VALUES
+              ('rpc_atomic_update_sale_operation', 'a1681ab330c3aa83e4ee95a16c1d956c'),
+              ('rpc_atomic_update_purchase_operation', '6693bb7f02c748193dccdbf234fb883e'),
+              ('rpc_update_expense', '2eba5db62637d5597acce12c4ac390fa'),
+              ('rpc_create_sale_operation_v2', '41bfa7554f971d1b386541e01b3cf403'),
+              ('_purchase_operation_core', '12d47cda44f3497817cdc2219d886526'),
+              ('rpc_create_expense', '4a5b5ae1eeb775c63a3ecfe2681401ba')) AS e(fn, h) ON e.fn = p.proname AND e.h = md5(replace(p.prosrc, E'\r', ''))
+              WHERE p.pronamespace = 'public'::regnamespace")
+          if [ "$EOD_RESTORED" != "6" ]; then
+            echo "ERROR: el rollback de 20261089000001 no dejó los seis cuerpos de producción previos (md5 de partida): $EOD_RESTORED de 6."
+            exit 1
+          fi
+          EOD_LEFT=$(psql -tA "$DSN" -c "SELECT count(*) FROM pg_proc WHERE pronamespace = 'public'::regnamespace AND proname IN ('_cash_optin_assert', '_op_edit_plan', '_op_edit_raise_blocks', '_op_edit_lock', '_op_edit_apply', '_op_edit_audit', '_op_edit_block', 'op_money_footprint_state', 'rpc_operation_edits')")
+          EOD_SIGS=$(psql -tA "$DSN" -c "SELECT count(*) FROM pg_proc WHERE pronamespace = 'public'::regnamespace AND proname IN ('rpc_atomic_update_sale_operation', 'rpc_atomic_update_purchase_operation', 'rpc_update_expense')")
+          if [ "$EOD_LEFT" != "0" ] || [ "$EOD_SIGS" != "3" ]; then
+            echo "ERROR: el rollback de 20261089000001 dejó $EOD_LEFT función(es) de la tanda B (esperaba 0) y $EOD_SIGS firma(s) de edición (esperaba 3, una por función)."
+            exit 1
+          fi
+          schema_snapshot > /tmp/schema_before_reapply.txt
+          echo "Rollback de 20261089000001 OK: las seis funciones son las de producción previas a la tanda B; línea base del schema re-tomada."
 
           # multiusuario-operativo TANDA B (2026-10-17, governance CRÍTICO): REBASE de los pasos de abajo.
           # 20261083000001 reescribe nueve funciones —las ocho RPCs del camino del dinero de ventas y compras y el
@@ -1787,10 +1836,11 @@ jobs:
           # schema (constraints + firmas + ACLs) tiene que quedar IDÉNTICO tras cada pasada. schema_snapshot() no compara
           # cuerpos: por eso se re-consultan por md5. NO hay migración de datos.
           #
-          # REGLA PARA EL PR SIGUIENTE: la tanda B (edicion-operaciones-con-dinero) cambia la firma de
+          # REGLA PARA EL PR SIGUIENTE (cumplida por la tanda B, 20261089000001): la tanda B cambia la firma de
           # rpc_atomic_update_sale_operation / rpc_atomic_update_purchase_operation / rpc_update_expense (DROP + CREATE) y
-          # reescribe los mismos cuerpos: tiene que partir del cuerpo VIVO (preflight por md5), rebasar este bloque (los md5
-          # de abajo y los de test_compras_gastos_sucursal_por_defecto.sql) en el mismo PR y reaplicarse DESPUÉS de éste.
+          # reescribe los mismos cuerpos. Lo resuelve con un REBASE: tras el último reset de reconvergencia restaura las seis
+          # funciones a este estado (supabase/migrations_bak/rollback_20261089000001_*.sql), este bloque corre sobre las
+          # firmas viejas como siempre, y el reapply de 20261089000001 va DESPUÉS de éste, al final de la cadena.
           EOC_OUT1=$(psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261088000001_edicion_operaciones_cimientos.sql 2>&1) || { echo "$EOC_OUT1"; echo "ERROR: el reapply de 20261088000001 falló (sin tolerancia)."; exit 1; }
           echo "$EOC_OUT1"
           EOC_OUT2=$(psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261088000001_edicion_operaciones_cimientos.sql 2>&1) || { echo "$EOC_OUT2"; echo "ERROR: la segunda pasada de 20261088000001 falló (sin tolerancia)."; exit 1; }
@@ -1808,6 +1858,39 @@ jobs:
             exit 1
           fi
           echo "20261088000001 idempotente: introspección OK en las dos pasadas y schema IDÉNTICO al previo a este paso."
+
+          # edicion-operaciones-con-dinero TANDA B (2026-11-04, governance ALTA): reaplicación de 20261089000001 AL FINAL de la
+          # cadena, DESPUÉS de todos los eslabones anteriores (incluido el de la tanda A, que acá deja los cuerpos de la tanda A
+          # sobre las firmas viejas: el rebase de arriba restauró las seis funciones a ese estado). Esta migración CAMBIA LA FIRMA
+          # de las tres ediciones (DROP FUNCTION IF EXISTS de la firma vieja y de la nueva + CREATE: queda UNA firma viva, sin
+          # overload ni 42725), reescribe las tres altas (el opt-in de caja delega en _cash_optin_assert) y crea nueve funciones
+          # (_cash_optin_assert, el plan de dinero _op_edit_plan/_lock/_apply/_audit/_raise_blocks/_block,
+          # op_money_footprint_state y rpc_operation_edits), todo con REVOKE/GRANT/COMMENT re-emitidos. Idempotente: las DOS
+          # pasadas imprimen el OK de su introspección (una firma viva por función, ACLs, sin P0423 de dinero en los cuerpos de
+          # edición, las altas delegando en el helper único) y el schema (constraints + firmas + ACLs) tiene que quedar
+          # IDÉNTICO al de la historia completa (/tmp/schema_with_eod_b.txt). NO hay migración de datos.
+          #
+          # REGLA PARA EL PR SIGUIENTE: una migración posterior que redefina cualquiera de estas funciones tiene que partir del
+          # cuerpo VIVO, rebasar el rollback de supabase/migrations_bak/ y los md5 de este paso y de
+          # test_compras_gastos_sucursal_por_defecto.sql / test_ventas_sucursal_por_defecto.sql en el mismo PR, y reaplicarse
+          # DESPUÉS de éste.
+          EODB_OUT1=$(psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261089000001_edicion_operaciones_dinero.sql 2>&1) || { echo "$EODB_OUT1"; echo "ERROR: el reapply de 20261089000001 falló (sin tolerancia)."; exit 1; }
+          echo "$EODB_OUT1"
+          EODB_OUT2=$(psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261089000001_edicion_operaciones_dinero.sql 2>&1) || { echo "$EODB_OUT2"; echo "ERROR: la segunda pasada de 20261089000001 falló (sin tolerancia)."; exit 1; }
+          echo "$EODB_OUT2"
+          for EODB_PASS in "$EODB_OUT1" "$EODB_OUT2"; do
+            if ! echo "$EODB_PASS" | grep -qF 'edicion-operaciones-con-dinero tanda B (introspecci'; then
+              echo "ERROR: una pasada de 20261089000001 no imprimió el OK de su bloque de introspección."
+              exit 1
+            fi
+          done
+          schema_snapshot > /tmp/schema_after_eodb_reapply.txt
+          if ! diff -u /tmp/schema_with_eod_b.txt /tmp/schema_after_eodb_reapply.txt > /tmp/schema_diff_eodb.txt; then
+            echo "NOT IDEMPOTENT: reaplicar 20261089000001 dejó el schema distinto del que dejó el reset de reconvergencia (la historia completa) (constraints + firmas de función + ACLs):"
+            cat /tmp/schema_diff_eodb.txt
+            exit 1
+          fi
+          echo "20261089000001 idempotente: introspección OK en las dos pasadas y schema IDÉNTICO al de la historia completa (reset de reconvergencia)."
 
       # -v ON_ERROR_STOP=1 is required: without it psql prints RAISE EXCEPTION
       # errors but still exits 0, so failing assertions show green in CI.
@@ -3794,3 +3877,34 @@ jobs:
       # advisory lock observable en pg_locks.
       - name: Run edition locks race gate (dos conexiones) (edicion-operaciones-con-dinero A4)
         run: DB_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres bash supabase/tests/test_edicion_locks_race.sh
+
+      # edicion-operaciones-con-dinero (tanda B, 7.5): dos guardados CONCURRENTES de la misma venta con dinero (la segunda
+      # espera, recuenta y levanta P0404: una sola edición) y dos ediciones que cruzan clientes (orden de bloqueo fijo, sin
+      # 40P01). Paso aparte: necesita dos conexiones reales.
+      - name: Run edition with money race gate (dos conexiones) (edicion-operaciones-con-dinero B)
+        run: DB_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres bash supabase/tests/test_edicion_dinero_race.sh
+
+      # edicion-operaciones-con-dinero (tanda B, grupo 6, D16): UNA sola validación del opt-in de caja. EJECUTA las tres altas
+      # (venta, compra y gasto) con la matriz de las tres condiciones (kind no cash, sesión cerrada, sesión de otra sucursal,
+      # fecha distinta de hoy, camino feliz, sin sesión) y asserta token, ERRCODE y mensaje exactos —caracterizado contra el
+      # cuerpo previo y exigido idéntico después de que las altas delegan en _cash_optin_assert—, más el helper directo y su
+      # variante de corrección (sin la fecha de hoy si la operación ya tenía huella de caja). Residuo cero, asertado.
+      - name: Run cash opt-in assert gate (edicion-operaciones-con-dinero B6)
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_cash_optin_assert.sql
+
+      # edicion-operaciones-con-dinero (tanda B, grupo 7): EJECUTA rpc_atomic_update_sale_operation sobre ventas con dinero en
+      # los cuatro libros: crédito (sube sin P0425 porque el cargo nuevo va primero, baja con P0425, cambia de cliente,
+      # vencimiento conservado o explícito), efectivo del día y de una sesión CERRADA (la corrección va a la sesión abierta de
+      # la misma caja; P0426 sin sesión; cash_intent_required al cambiar de sucursal; cash_optin_requires_today sin huella),
+      # transferencia (espejo + nuevo, cuenta conservada, P0424), sin cambio económico = sin escritura, herencia, cambio de
+      # forma de pago entre los libros, venta del POS (referencias de la orden, rastro contable, forma de pago de la orden),
+      # operation_id estable y auditoría, rol (OQ-4), p_dry_run (el plan ejecutado es el de la vista previa) y el historial.
+      - name: Run sale money edit gate (edicion-operaciones-con-dinero B7)
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_edicion_dinero_venta.sql
+
+      # edicion-operaciones-con-dinero (tanda B, grupos 8 y 9): lo mismo para la compra (crédito, efectivo de sesión cerrada,
+      # transferencia, efectivo->crédito, crédito histórico sin proveedor ni cargo, PurchaseAdjusted con id estable, auditoría,
+      # borrar después de editar, rol) y el gasto (efectivo del día y de sesión cerrada, efectivo->transferencia con el asiento
+      # acreditando banco, transferencia->efectivo acreditando caja, solo categoría sin escrituras, credit rechazado, vista previa).
+      - name: Run purchase and expense money edit gate (edicion-operaciones-con-dinero B8-B9)
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_edicion_dinero_compra_gasto.sql

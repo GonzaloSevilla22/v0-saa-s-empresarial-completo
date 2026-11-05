@@ -54,14 +54,18 @@ BEGIN
   v_res := public.rpc_atomic_update_purchase_operation(v_ids, CURRENT_DATE, 'compra gate editada',
     jsonb_build_array(jsonb_build_object('product_id', v_product, 'amount', 120.00, 'quantity', 5, 'unit_id', NULL)));
   v_op2 := (v_res->>'operation_id')::uuid;
+  -- edicion-operaciones-con-dinero (tanda B, D2): el operation_id de la compra es ESTABLE: old = new.
+  IF v_op2 IS DISTINCT FROM v_op1 THEN
+    RAISE EXCEPTION 'GATE PURCHASE-EDIT-JOURNAL FAILED (id estable): la edicion debia conservar el operation_id (%), devolvio %', v_op1, v_op2;
+  END IF;
   IF NOT EXISTS (SELECT 1 FROM public.events WHERE event_type = 'PurchaseAdjusted' AND account_id = v_acc AND aggregate_id = v_op2
                   AND (payload->>'old_operation_id')::uuid = v_op1 AND (payload->>'new_operation_id')::uuid = v_op2 AND (payload->>'total')::numeric = 600) THEN
     RAISE EXCEPTION 'GATE PURCHASE-EDIT-JOURNAL FAILED (edit1): faltó el PurchaseAdjusted con old=% y new=% y el total 600', v_op1, v_op2;
   END IF;
   PERFORM public.rpc_process_outbox_dispatch(10000);
   IF (SELECT count(*) FROM public.journal_entries WHERE account_id = v_acc AND source_doc_ref = v_op2 AND status = 'posted' AND reversal_of IS NULL) <> 1
-     OR (SELECT status FROM public.journal_entries WHERE account_id = v_acc AND source_doc_ref = v_op1 AND reversal_of IS NULL) <> 'reversed' THEN
-    RAISE EXCEPTION 'GATE PURCHASE-EDIT-JOURNAL FAILED (edit1-asientos): el asiento viejo debia quedar reversed y existir UNO vigente con el id nuevo';
+     OR (SELECT count(*) FROM public.journal_entries WHERE account_id = v_acc AND source_doc_ref = v_op1 AND reversal_of IS NULL AND status = 'reversed') <> 1 THEN
+    RAISE EXCEPTION 'GATE PURCHASE-EDIT-JOURNAL FAILED (edit1-asientos): el asiento viejo debia quedar reversed y existir UNO vigente (mismo id, contra-asiento aparte)';
   END IF;
   IF (SELECT sum(jl.amount) FROM public.journal_lines jl JOIN public.journal_entries je ON je.id = jl.entry_id
        WHERE je.account_id = v_acc AND je.source_doc_ref = v_op2 AND je.status = 'posted' AND je.reversal_of IS NULL AND jl.side = 'debit') <> 600 THEN

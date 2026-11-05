@@ -1787,6 +1787,57 @@ GRANT EXECUTE ON FUNCTION public.op_money_footprint_state(uuid, text, uuid[]) TO
 COMMENT ON FUNCTION public.op_money_footprint_state(uuid, text, uuid[]) IS
   $c$edicion-operaciones-con-dinero (D15): los cuatro indicadores de huella neta y los datos vigentes que el formulario de edicion precarga (parte y vencimiento del cargo, caja de la huella y su sesion abierta, cuenta bancaria de la huella). Siempre devuelve una fila. SECURITY INVOKER.$c$;
 
+
+-- =============================================================================
+-- rpc_operation_edits — el historial de ediciones de una operación (D14)
+-- =============================================================================
+-- audit_logs tiene una policy heredada por company_id (company_users), sin ninguna por cuenta: la lectura directa desde el
+-- backend (rol authenticated, RLS activa) no devolvería nunca las filas de las ediciones. Esta RPC SECURITY DEFINER las lee con
+-- el filtro de cuenta EXPLÍCITO (la cuenta ACTIVA de la sesión, nunca un parámetro) y sólo las TRES acciones de edición.
+CREATE OR REPLACE FUNCTION public.rpc_operation_edits(p_action text, p_entity_id uuid, p_limit integer DEFAULT 100)
+ RETURNS TABLE(id uuid, created_at timestamp with time zone, user_id uuid, user_name text, action text, entity_type text,
+               entity_id uuid, metadata jsonb)
+ LANGUAGE plpgsql
+ STABLE
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_account_id uuid;
+BEGIN
+  IF (SELECT auth.uid()) IS NULL THEN
+    RAISE EXCEPTION 'Not authenticated' USING ERRCODE = 'insufficient_privilege';
+  END IF;
+
+  SELECT cai INTO v_account_id FROM public.current_account_ids() AS cai LIMIT 1;
+  IF v_account_id IS NULL THEN
+    RAISE EXCEPTION 'Usuario sin cuenta activa — no se puede leer el historial' USING ERRCODE = 'P0403';
+  END IF;
+
+  IF p_action NOT IN ('sale_operation.edited', 'purchase_operation.edited', 'expense.edited') THEN
+    RAISE EXCEPTION 'invalid_edit_action: % (esperado sale_operation.edited|purchase_operation.edited|expense.edited)', COALESCE(p_action, 'NULL')
+      USING ERRCODE = 'P0400';
+  END IF;
+
+  RETURN QUERY
+  SELECT al.id, al.created_at, al.user_id,
+         NULLIF(btrim(concat_ws(' ', pr.name, pr.last_name)), ''),
+         al.action, al.entity_type, al.entity_id, al.metadata
+  FROM   public.audit_logs al
+  LEFT JOIN public.profiles pr ON pr.id = al.user_id
+  WHERE  al.account_id = v_account_id
+    AND  al.action     = p_action
+    AND  al.entity_id  = p_entity_id
+  ORDER  BY al.created_at DESC, al.id DESC
+  LIMIT  LEAST(GREATEST(COALESCE(p_limit, 100), 1), 200);
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.rpc_operation_edits(text, uuid, integer) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.rpc_operation_edits(text, uuid, integer) TO authenticated, service_role;
+COMMENT ON FUNCTION public.rpc_operation_edits(text, uuid, integer) IS
+  $c$edicion-operaciones-con-dinero (D14): historial de ediciones de una venta, una compra o un gasto (audit_logs), filtrado por la cuenta ACTIVA de la sesión y limitado a las tres acciones de edición. Más reciente primero.$c$;
+
 -- =============================================================================
 -- rpc_atomic_update_sale_operation — plan de dinero, id estable, p_dry_run y auditoria (tanda B). DROP + CREATE: la firma cambia (sin overload, sin 42725).
 -- =============================================================================
@@ -3431,7 +3482,8 @@ BEGIN
   FOREACH v_fn IN ARRAY ARRAY['rpc_atomic_update_sale_operation', 'rpc_atomic_update_purchase_operation', 'rpc_update_expense',
                               '_cash_optin_assert', '_op_edit_plan', '_op_edit_block', '_op_edit_raise_blocks', '_op_edit_lock',
                               '_op_edit_apply', '_op_edit_audit',
-                              'rpc_create_sale_operation_v2', '_purchase_operation_core', 'rpc_create_expense'] LOOP
+                              'rpc_create_sale_operation_v2', '_purchase_operation_core', 'rpc_create_expense',
+                              'op_money_footprint_state', 'rpc_operation_edits'] LOOP
     SELECT count(*) INTO v_n FROM pg_proc WHERE pronamespace = 'public'::regnamespace AND proname = v_fn;
     IF v_n <> 1 THEN
       RAISE EXCEPTION 'edicion-operaciones-con-dinero tanda B (introspección): % tiene % firmas vivas (esperaba 1)', v_fn, v_n;
@@ -3439,7 +3491,8 @@ BEGIN
   END LOOP;
 
   -- las tres ediciones: ejecutables por authenticated, nunca por anon; el resto de la maquinaria, por nadie de la aplicacion
-  FOREACH v_fn IN ARRAY ARRAY['rpc_atomic_update_sale_operation', 'rpc_atomic_update_purchase_operation', 'rpc_update_expense'] LOOP
+  FOREACH v_fn IN ARRAY ARRAY['rpc_atomic_update_sale_operation', 'rpc_atomic_update_purchase_operation', 'rpc_update_expense',
+                              'op_money_footprint_state', 'rpc_operation_edits'] LOOP
     IF NOT has_function_privilege('authenticated', (SELECT p.oid FROM pg_proc p WHERE p.pronamespace = 'public'::regnamespace AND p.proname = v_fn), 'EXECUTE')
        OR has_function_privilege('anon', (SELECT p.oid FROM pg_proc p WHERE p.pronamespace = 'public'::regnamespace AND p.proname = v_fn), 'EXECUTE') THEN
       RAISE EXCEPTION 'edicion-operaciones-con-dinero tanda B (introspección): ACL de % incorrecta (authenticated sí, anon no)', v_fn;

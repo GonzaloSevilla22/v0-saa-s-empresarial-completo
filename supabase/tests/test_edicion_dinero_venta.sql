@@ -435,6 +435,17 @@ BEGIN
   SELECT * INTO r FROM pg_temp.edit(v_op, pg_temp.id('client'), 1100, '');
   SELECT count(*) INTO v_n FROM public.audit_logs WHERE entity_id = v_op AND action = 'sale_operation.edited';
   PERFORM pg_temp.eq('V9 dos ediciones, dos filas de auditoria', v_n::text, '2');
+  -- el historial lo lee rpc_operation_edits (audit_logs no tiene policy por cuenta): la cuenta activa, solo las acciones de edicion
+  SELECT count(*) INTO v_n FROM public.rpc_operation_edits('sale_operation.edited', v_op);
+  PERFORM pg_temp.eq('V9 historial de la operacion', v_n::text, '2');
+  PERFORM pg_temp.eq('V9 historial: el mas reciente primero', (SELECT (metadata->'after'->>'total') FROM public.rpc_operation_edits('sale_operation.edited', v_op) LIMIT 1), '1100.00');
+  PERFORM pg_temp.eq('V9 historial: el motivo de la primera edicion', (SELECT string_agg(metadata->>'reason', ',') FROM public.rpc_operation_edits('sale_operation.edited', v_op) WHERE metadata->>'reason' IS NOT NULL), 'corregi el precio');
+  PERFORM pg_temp.as_user(pg_temp.id('other'), pg_temp.id('acc_b'));
+  SELECT count(*) INTO v_n FROM public.rpc_operation_edits('sale_operation.edited', v_op);
+  PERFORM pg_temp.eq('V9 otra cuenta no ve el historial', v_n::text, '0');
+  PERFORM pg_temp.as_user(pg_temp.id('owner'), pg_temp.id('acc'));
+  SELECT * INTO r FROM pg_temp.try(format('(SELECT count(*) FROM public.rpc_operation_edits(%L, %L))', 'customer_charge.due_date_changed', v_op));
+  PERFORM pg_temp.eq('V9 solo las acciones de edicion', r.o_state, 'P0400');
   RAISE NOTICE 'PASS (V9)';
 END $$;
 

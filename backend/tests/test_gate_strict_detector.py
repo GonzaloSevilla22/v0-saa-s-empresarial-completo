@@ -80,10 +80,11 @@ def test_every_degradation_branch_of_the_money_gates_is_detected(gate: str):
 
 def test_the_corpus_is_the_one_the_design_measured():
     branches = [m for g in MONEY_GATES for m in _measured_branches(g)]
-    # 202 ramas medidas el 2026-11-05; sólo pueden crecer. Si baja, el extractor dejó de ver gates.
-    assert len(branches) >= 202
+    # 202 ramas medidas el 2026-11-05; D7 retiró una (el «no hay cuentas en el stack» de test_payment_methods_seed),
+    # así que hoy son 201. Sólo pueden crecer: si baja de ahí, el extractor dejó de ver gates.
+    assert len(branches) >= 201
     assert sum(1 for m in branches if m.startswith("DEGRADE")) >= 2
-    assert sum(1 for m in branches if m.startswith(("GATE", "SKIP"))) >= 200
+    assert sum(1 for m in branches if m.startswith(("GATE", "SKIP"))) >= 199
 
 
 def test_the_thirty_three_money_gates_exist():

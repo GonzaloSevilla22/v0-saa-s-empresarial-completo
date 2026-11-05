@@ -3,9 +3,7 @@
 ## Purpose
 
 Enforcement en runtime de límites y features por plan. Determina el plan efectivo del usuario, provee hooks de gating, y aplica restricciones en UI y Edge Functions.
-
 ## Requirements
-
 ### Requirement: Plan efectivo con soporte de trial
 
 El sistema SHALL calcular el plan efectivo desde la **cuenta activa** del usuario (`accounts`), no desde `profiles`. La determinación SHALL delegarse en la definición normativa única `public.get_effective_plan(account_id)` (capability `billing-trial-lifecycle`): exención de cortesía vigente tiene precedencia sobre el trial, el trial vigente tiene precedencia sobre `billing_plan`, y la ausencia de información resuelve a `gratis`.
@@ -193,9 +191,9 @@ La RLS de INSERT en `posts` y `replies` SHALL verificar `billing_plan IN ('avanz
 
 ### Requirement: Cuota IA aplica a todas las Edge Functions de IA (C-04)
 
-El sistema SHALL verificar la cuota IA **antes** de llamar a OpenAI y SHALL incrementar el contador **después** de una llamada exitosa, en **todas** las Edge Functions de IA del proyecto: `ai-insights`, `ai-comparativo`, `ai-precio`, `ai-prediccion`, `ai-rentabilidad`, `ai-resumen`, `ai-simulador` (counter `'queries'`) y `fair-advisor` (counter `'advice'`).
+El sistema SHALL verificar la cuota IA **antes** de llamar a OpenAI y SHALL incrementar el contador **después** de una llamada exitosa, en **todas** las Edge Functions de IA del proyecto: `ai-insights`, `ai-comparativo`, `ai-precio`, `ai-prediccion`, `ai-rentabilidad`, `ai-resumen`, `ai-simulador` (counter `'queries'`) y `fair-advisor` (counter `'advice'`). La Edge Function `invoice-ocr` SHALL quedar gobernada por la cuota de lecturas de factura (counter `'ocr'`, capability `invoice-ocr-budget`): en lugar del par verificar-antes / incrementar-después, SHALL **reservar** el cupo de forma atómica con `rpc_reserve_ai_usage('ocr')` antes de llamar a OpenAI.
 
-El incremento SHALL realizarse mediante el RPC atómico `rpc_increment_ai_usage` (no read-modify-write desde el cliente).
+El incremento SHALL realizarse mediante el RPC atómico `rpc_increment_ai_usage` (no read-modify-write desde el cliente), salvo para `invoice-ocr`, cuyo incremento ocurre dentro de la reserva atómica.
 
 El límite contra el que se compara el contador SHALL corresponder al **plan efectivo de la cuenta**, resuelto según la definición normativa de la base de datos. La verificación de cuota NOT SHALL derivar el plan de `public.profiles`.
 
@@ -222,6 +220,12 @@ El límite contra el que se compara el contador SHALL corresponder al **plan efe
 - **GIVEN** una cuenta con `accounts.billing_plan = 'pro'` cuyo registro en `profiles` conserva `'gratis'`, y un miembro con `ai_queries_used = 10`
 - **WHEN** ese miembro llama a una Edge Function de IA
 - **THEN** la llamada es procesada, porque el contador se compara contra el límite de `'pro'` (300) y no contra el de `'gratis'` (5)
+
+#### Scenario: invoice-ocr reserva antes de llamar a OpenAI
+
+- **GIVEN** un usuario `gratis` con `ai_ocr_used = 5` (límite = 5)
+- **WHEN** llama a `invoice-ocr`
+- **THEN** la función retorna HTTP 429 con `{ ok: false, error: 'quota_exceeded' }` sin llamar a OpenAI, y `ai_queries_used` no cambia
 
 ### Requirement: Límite de sucursales por plan (C-07)
 

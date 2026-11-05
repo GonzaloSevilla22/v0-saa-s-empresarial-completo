@@ -67,6 +67,7 @@ Este change pone un tope a la lectura de facturas con IA (`/compras` → «Subir
 - [ ] **Lecturas de factura por mes y por usuario**: gratis **5** · inicial **30** · avanzado **120** · pro **300**, el mismo número que las consultas IA. Si querés otros números, decímelo; se cambian sin deploy (es una fila de `plan_limits`).
 - [ ] **Ráfaga**: como máximo **3 lecturas por minuto** por usuario. Una lectura que falla del lado de OpenAI **cuenta igual**, porque OpenAI la cobra igual.
 - [ ] **Tope de gasto en OpenAI** (recomendado, sólo lo podés hacer vos): en el panel de OpenAI → *Settings → Limits* del proyecto que usa la app, fijá un **tope mensual de gasto**. Te sugiero unos US$20 hoy, y lo ajustás cuando crezca el uso. Es la red de último recurso si algo se escapa. No bloquea el change.
+- [ ] **Humo real del OCR con clave real de OpenAI** (sólo se hizo humo local con clave dummy): en `/compras` → «Subir factura IA», ver «Te quedan N lecturas…», leer una factura y verificar que el contador baja de N a N-1. Opcional: 4 lecturas en un minuto → aviso «Esperá N segundos».
 
 ---
 
@@ -87,4 +88,5 @@ Se completa a medida que se mergea cada PR. Orden pactado: changes de a uno, sie
 | 04:17 (5-nov) | `edicion-operaciones-con-dinero` tanda C (superficie: formularios de edición con dinero, diálogo del plan, historial de cambios; sin migración) | #661 | mergeado |
 | 04:33 (5-nov) | Archive `edicion-operaciones-con-dinero` (specs sincronizadas, change cerrado) | #662 | mergeado |
 | 04:52 (5-nov) | Propose v31-ia-ratelimit-budget (H-11: cuota y techo de costo del OCR) | #663 | mergeado |
-| 06:04 (5-nov) | Apply v31-ia-ratelimit-budget (cuota mensual + ráfaga + techo por llamada del OCR; migración 20261090000001) | #664 | en revisión |
+| 06:04 (5-nov) | Apply v31-ia-ratelimit-budget (cuota mensual + ráfaga + techo por llamada del OCR; migración 20261090000001) | #664 | mergeado (07:00, 5-nov) |
+| 07:05 (5-nov) | Archive v31-ia-ratelimit-budget (specs sincronizadas, change cerrado) | #665 | en revisión |

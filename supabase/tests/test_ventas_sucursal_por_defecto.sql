@@ -26,8 +26,9 @@
 --          producto y una de servicio: sales.branch_id y
 --          stock_movements.branch_id = la principal; el stock baja en la
 --          principal y la otra sucursal queda intacta.
---     (2)  Lo mismo por la RAMA LEGACY del wrapper (flag sale_items_rpc_v2 =
---          false): paridad v2 / legacy.
+--     (2)  Lo mismo con una fila del flag RETIRADO (sale_items_rpc_v2 = false):
+--          v31-document-lines-consistency eliminó la rama legacy, la fila ya
+--          no se lee y la v2 escribe las dos líneas igual.
 --     (3)  Con la principal CERRADA, c26_default_branch resuelve la siguiente
 --          operativa y la venta y el stock van ahí.
 --     (3b) Cuenta con TODAS las sucursales sin operar (una desactivada con
@@ -217,14 +218,17 @@ DECLARE
   -- multiusuario-operativo (tanda B, 20261083000001) reescribió las tres desde el vivo: suma el guard de rol y
   -- el filtro de cuenta del producto, sin tocar la sucursal resuelta que fija este gate. Son los md5 de ESA
   -- migración (el `v_rewritten` de su preflight); quien las redefina después rebasa estos valores.
-  v_md5_v2      constant text := '435b16eeee484c50fb19e62a9b6eab8a';
-  v_md5_wrapper constant text := '748c7a7e6cd1c4074bd127ae6e0092ee';
+  -- v31-document-lines-consistency (20261091000001) rebasa los tres: la v2 y la edición escriben también la línea de
+  -- servicio, y el wrapper pasa a ser un despachador de una línea a la v2 (se retiró el flag y la rama legacy). No tocan
+  -- la sucursal resuelta que fija este gate (antes 435b16ee…, 748c7a7e… y f9b8a07f…). Son los md5 de ESA migración.
+  v_md5_v2      constant text := 'f62e5bce06473d1b254c29664b47f092';
+  v_md5_wrapper constant text := '4ccac5e08f74a9a36bc6115d6051a21a';
   -- stock-edicion-sucursal-piso (20261087000001) redefine la EDICIÓN (gate de stock por sucursal y
   -- respaldo de la sucursal desactivada) desde el cuerpo de multiusuario-operativo: su md5 pasa a ser el
   -- `v_rewritten` de ESA migración (antes d95db43c5e737c080661c74208595b93, el de 20261083000001). La
   -- lógica de la sucursal por defecto de este change sigue en el cuerpo (las aserciones de contenido de
   -- abajo lo verifican).
-  v_md5_edit    constant text := 'f9b8a07f8b453972f801152274fcce7c';
+  v_md5_edit    constant text := '561e24b7a01f6f85cef939c63c90f265';
 
   -- Cuenta A (principal + B): bloques (1), (2), (5), (6).
   r_a jsonb; v_user_a uuid; v_acc_a uuid; v_a0 uuid; v_b uuid;
@@ -390,11 +394,10 @@ BEGIN
   IF v_md5 IS DISTINCT FROM v_md5_wrapper THEN
     v_failures := array_append(v_failures, format('FAIL (0 md5 wrapper): el cuerpo vivo de rpc_create_sale_operation mide %s y el de la migración es %s', v_md5, v_md5_wrapper));
   END IF;
-  IF v_src ~ 'p_branch_id,\s*v_canal' OR v_src ~ 'v_new_op_id,\s*p_branch_id' THEN
-    v_failures := array_append(v_failures, 'FAIL (0 legacy): la rama legacy del wrapper todavía persiste p_branch_id CRUDO (paridad con la v2)');
-  END IF;
-  IF position('no_branch_found' IN v_src) = 0 THEN
-    v_failures := array_append(v_failures, 'FAIL (0 legacy): la rama legacy no tiene el guard P0422 no_branch_found');
+  -- v31-document-lines-consistency: el wrapper ya no tiene rama legacy (ni escrituras propias): despacha a la v2, que
+  -- lleva la sucursal resuelta y el guard P0422 no_branch_found (verificados arriba sobre la v2).
+  IF position('INSERT INTO' IN v_src) > 0 OR position('rpc_create_sale_operation_v2' IN v_src) = 0 THEN
+    v_failures := array_append(v_failures, 'FAIL (0 wrapper): rpc_create_sale_operation debía ser un despachador a la v2 sin escrituras propias');
   END IF;
 
   SELECT prosrc INTO v_src FROM pg_proc WHERE proname = 'rpc_atomic_update_sale_operation' AND pronamespace = 'public'::regnamespace;
@@ -409,9 +412,10 @@ BEGIN
   IF v_cm IS NULL OR position('preserva branch_id/canal/unit_id al editar' IN v_cm) = 0 OR position('ventas-sucursal-por-defecto' IN v_cm) = 0 THEN
     v_failures := array_append(v_failures, 'FAIL (0 COMMENT): el COMMENT de la edición tiene que conservar su texto vivo y sumar la excepción de ventas-sucursal-por-defecto (D5)');
   END IF;
+  -- v31-document-lines-consistency: el wrapper gana un COMMENT que explica el retiro del flag; la v2 sigue sin COMMENT.
   IF obj_description('public.rpc_create_sale_operation_v2(text, uuid, date, text, jsonb, uuid, text, uuid, uuid, uuid, date)'::regprocedure, 'pg_proc') IS NOT NULL
-     OR obj_description('public.rpc_create_sale_operation(text, uuid, date, text, jsonb, uuid, text, uuid, uuid, uuid, date)'::regprocedure, 'pg_proc') IS NOT NULL THEN
-    v_failures := array_append(v_failures, 'FAIL (0 COMMENT): la v2 y el wrapper no tenían COMMENT y la migración no debe agregarles uno');
+     OR position('despachador incondicional' IN COALESCE(obj_description('public.rpc_create_sale_operation(text, uuid, date, text, jsonb, uuid, text, uuid, uuid, uuid, date)'::regprocedure, 'pg_proc'), '')) = 0 THEN
+    v_failures := array_append(v_failures, 'FAIL (0 COMMENT): la v2 no tiene COMMENT y el wrapper tiene el del despachador (retiro del flag)');
   END IF;
 
   IF COALESCE(array_length(v_failures, 1), 0) = v_fail_before THEN
@@ -466,7 +470,7 @@ BEGIN
   END IF;
 
   -- ═══════════════════════════════════════════════════════════════════════
-  -- (2) Rama LEGACY del wrapper (flag sale_items_rpc_v2 = false): paridad
+  -- (2) Flag RETIRADO (fila sale_items_rpc_v2 = false): ya no hay rama legacy, el camino único es el mismo
   -- ═══════════════════════════════════════════════════════════════════════
   v_fail_before := COALESCE(array_length(v_failures, 1), 0);
   INSERT INTO public.account_feature_flags (account_id, flag_key, enabled) VALUES (v_acc_a, 'sale_items_rpc_v2', FALSE)
@@ -480,13 +484,13 @@ BEGIN
       jsonb_build_object('product_id', NULL, 'amount', 50.00, 'quantity', 1)),
     NULL, v_client_a);
   IF NOT (v_res->>'ok')::boolean THEN
-    v_failures := array_append(v_failures, format('FAIL (2 alta): el alta legacy sin sucursal debía pasar, falló con %s / %s', v_res->>'state', v_res->>'msg'));
+    v_failures := array_append(v_failures, format('FAIL (2 alta): el alta sin sucursal con la fila del flag retirado debía pasar, falló con %s / %s', v_res->>'state', v_res->>'msg'));
   ELSE
     v_op := (v_res->>'operation_id')::uuid;
-    -- Prueba de que corrió la rama LEGACY y no la delegación: la legacy no escribe sale_items.
+    -- Prueba de que la fila del flag no abre ninguna rama: corre la v2 y escribe las dos líneas (producto y servicio).
     SELECT COUNT(*) INTO v_n FROM public.sale_items si JOIN public.sales s ON s.id = si.sale_id WHERE s.operation_id = v_op;
-    IF v_n <> 0 THEN
-      v_failures := array_append(v_failures, format('FAIL (2 rama): con el flag apagado no debía correr la v2 (hay %s sale_items) — el bloque no prueba la rama legacy', v_n));
+    IF v_n <> 2 THEN
+      v_failures := array_append(v_failures, format('FAIL (2 rama): con la fila del flag retirado debía correr el camino único (2 sale_items), hay %s', v_n));
     END IF;
     SELECT COUNT(*) INTO v_n FROM public.sales WHERE operation_id = v_op AND branch_id = v_a0;
     IF v_n <> 2 THEN
@@ -503,7 +507,7 @@ BEGIN
   END IF;
   DELETE FROM public.account_feature_flags WHERE account_id = v_acc_a AND flag_key = 'sale_items_rpc_v2';
   IF COALESCE(array_length(v_failures, 1), 0) = v_fail_before THEN
-    RAISE NOTICE 'PASS (2): rama legacy del wrapper — paridad con la v2: sales.branch_id y stock_movements.branch_id = la principal';
+    RAISE NOTICE 'PASS (2): con la fila del flag retirado el camino único sigue resolviendo la principal: sales.branch_id y stock_movements.branch_id = la principal';
   END IF;
 
   -- ═══════════════════════════════════════════════════════════════════════

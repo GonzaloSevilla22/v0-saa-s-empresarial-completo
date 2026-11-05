@@ -143,7 +143,7 @@ class ClientRepository(BaseRepository):
                         MAX((s.date AT TIME ZONE 'America/Argentina/Mendoza')::date) AS op_day,
                         SUM({self._LINE_AMOUNT_EXPR}) AS op_total
                     FROM sales s
-                    LEFT JOIN sale_items si ON si.sale_id = s.id
+                    LEFT JOIN sale_items si ON si.sale_id = s.id AND si.variant_id IS NULL
                     WHERE s.account_id = c.account_id AND s.client_id = c.id
                     GROUP BY {self._OP_KEY_EXPR}
                 ) ops
@@ -294,7 +294,7 @@ class ClientRepository(BaseRepository):
                     (s.date AT TIME ZONE 'America/Argentina/Mendoza')::date AS op_day,
                     {self._LINE_AMOUNT_EXPR} AS line_amount
                 FROM sales s
-                LEFT JOIN sale_items si ON si.sale_id = s.id
+                LEFT JOIN sale_items si ON si.sale_id = s.id AND si.variant_id IS NULL
                 WHERE s.account_id = $1::uuid AND s.client_id = $2::uuid
             ),
             ops AS (

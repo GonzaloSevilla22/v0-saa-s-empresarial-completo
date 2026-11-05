@@ -144,12 +144,12 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS: rpc_create_purchase_operation rejects unauthenticated call';
 
-  -- ── 7. amount > 0 guard presente en rpc_create_sale_operation ────────────────
+  -- ── 7. amount > 0 guard presente en el camino de la venta (v31-document-lines-consistency: rpc_create_sale_operation despacha a la v2, que lleva los guards) ──
   SELECT EXISTS (
     SELECT 1 FROM pg_proc p
     JOIN pg_namespace n ON p.pronamespace = n.oid
     WHERE n.nspname = 'public'
-      AND p.proname = 'rpc_create_sale_operation'
+      AND p.proname = 'rpc_create_sale_operation_v2'
       AND p.prosrc LIKE '%Amount must be greater than zero%'
   ) INTO v_ok;
 
@@ -188,7 +188,7 @@ BEGIN
   FROM pg_proc p
   JOIN pg_namespace n ON p.pronamespace = n.oid
   WHERE n.nspname = 'public'
-    AND p.proname IN ('rpc_create_sale_operation', '_purchase_operation_core');
+    AND p.proname IN ('rpc_create_sale_operation_v2', '_purchase_operation_core');
 
   IF NOT COALESCE(v_ok, false) THEN
     RAISE EXCEPTION 'FAIL: one or both RPCs missing 500-item cap guard';
@@ -200,7 +200,7 @@ BEGIN
     SELECT 1 FROM pg_proc p
     JOIN pg_namespace n ON p.pronamespace = n.oid
     WHERE n.nspname = 'public'
-      AND p.proname = 'rpc_create_sale_operation'
+      AND p.proname = 'rpc_create_sale_operation_v2'
       AND p.prosrc LIKE '%operation_kind = ''sale''%'
   ) INTO v_ok;
 
@@ -232,7 +232,7 @@ BEGIN
   FROM pg_proc p
   JOIN pg_namespace n ON p.pronamespace = n.oid
   WHERE n.nspname = 'public'
-    AND p.proname IN ('rpc_create_sale_operation', '_purchase_operation_core');
+    AND p.proname IN ('rpc_create_sale_operation_v2', '_purchase_operation_core');
 
   IF NOT COALESCE(v_ok, false) THEN
     RAISE EXCEPTION 'FAIL: one or both RPCs still using old 2-column ON CONFLICT target';

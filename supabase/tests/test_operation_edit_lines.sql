@@ -9,7 +9,7 @@
 -- §D5: acarreo por product_id si el producto no cambia (aunque products.cost
 -- se haya movido entre la creación y la edición — control positivo), snapshot
 -- fresco si cambia o si la operación nunca tuvo línea, header de compra
--- siempre poblado, línea gobernada por el flag sale_items_rpc_v2 (D3).
+-- siempre poblado, línea escrita SIEMPRE (v31-document-lines-consistency retiró el flag sale_items_rpc_v2).
 --
 -- Patrón del proyecto (test_sale_items_rpc_v2_activation.sql): acumular
 -- fallos en text[], un solo RAISE EXCEPTION al final. Anchors sintéticos vía
@@ -283,7 +283,8 @@ BEGIN
   END IF;
 
   -- ═══════════════════════════════════════════════════════════════════════
-  -- GATE 1.6 — línea de servicio (product_id NULL): sin fila, sin error.
+  -- GATE 1.6 — línea de servicio (product_id NULL): v31-document-lines-consistency (D3) — escribe SU línea
+  -- (product_id NULL, nombre = etiqueta, subtotal = el del header), sin error.
   -- ═══════════════════════════════════════════════════════════════════════
   v_result := public.rpc_create_sale_operation(
     'eol-sale-svc-' || gen_random_uuid()::text, v_client_a, CURRENT_DATE, 'ARS',
@@ -300,11 +301,12 @@ BEGIN
   v_op := (v_result->>'operation_id')::uuid;
   SELECT id INTO v_sale_svc FROM public.sales WHERE operation_id = v_op AND product_id IS NULL;
 
-  SELECT COUNT(*) INTO v_count FROM public.sale_items WHERE sale_id = v_sale_svc;
-  IF v_count <> 0 THEN
-    v_failures := array_append(v_failures, format('FAIL (1.6): editar una línea de servicio no debería generar sale_items, hay %s', v_count));
+  SELECT COUNT(*) INTO v_count FROM public.sale_items WHERE sale_id = v_sale_svc AND variant_id IS NULL AND product_id IS NULL
+     AND name_snapshot = 'Ítem sin producto' AND subtotal = 600.00;
+  IF v_count <> 1 THEN
+    v_failures := array_append(v_failures, format('FAIL (1.6): editar una línea de servicio debería dejar 1 sale_items sin producto, con nombre y subtotal 600, hay %s', v_count));
   ELSE
-    RAISE NOTICE 'PASS (1.6): editar una línea de servicio sigue sin generar sale_items';
+    RAISE NOTICE 'PASS (1.6): editar una línea de servicio deja su línea (sin producto, con nombre, subtotal del header)';
   END IF;
 
   -- ═══════════════════════════════════════════════════════════════════════
@@ -707,19 +709,20 @@ BEGIN
   v_op := (v_result->>'operation_id')::uuid;
   SELECT id INTO v_purch_svc FROM public.purchases WHERE operation_id = v_op AND product_id IS NULL;
 
-  SELECT COUNT(*) INTO v_count FROM public.purchase_items WHERE purchase_id = v_purch_svc;
-  IF v_count <> 0 THEN
-    v_failures := array_append(v_failures, format('FAIL (1.7 servicio): línea de servicio no debería generar purchase_items, hay %s', v_count));
+  SELECT COUNT(*) INTO v_count FROM public.purchase_items WHERE purchase_id = v_purch_svc AND variant_id IS NULL AND product_id IS NULL
+     AND name_snapshot = 'Compra servicio editada' AND subtotal = 550.00;
+  IF v_count <> 1 THEN
+    v_failures := array_append(v_failures, format('FAIL (1.7 servicio): la línea de servicio de compra editada debería existir (sin producto, nombre = la descripción editada, subtotal 550), hay %s', v_count));
   ELSE
-    RAISE NOTICE 'PASS (1.7 servicio): editar una línea de servicio de compra sigue sin generar purchase_items';
+    RAISE NOTICE 'PASS (1.7 servicio): editar una línea de servicio de compra deja su línea con la descripción como nombre';
   END IF;
 
   PERFORM set_config('request.jwt.claims', '', true);
   PERFORM set_config('request.jwt.claim.sub', '', true);
 
   -- ═══════════════════════════════════════════════════════════════════════
-  -- GATE 1.8 — kill-switch (cuenta B, enabled=false): la edición no escribe
-  -- línea; header y stock se comportan igual.
+  -- GATE 1.8 — el flag RETIRADO (cuenta B, fila enabled=false): v31-document-lines-consistency (D1) — la fila ya no
+  -- tiene efecto; la edición escribe SU línea igual que en una cuenta sin la fila.
   -- ═══════════════════════════════════════════════════════════════════════
   INSERT INTO auth.users (id, aud, role, email, created_at, updated_at, raw_user_meta_data)
   VALUES (v_user_b, 'authenticated', 'authenticated', v_email_b, now(), now(),
@@ -758,8 +761,8 @@ BEGIN
   SELECT id INTO v_sale_1 FROM public.sales WHERE operation_id = v_op AND product_id = v_product_b;
 
   SELECT COUNT(*) INTO v_count FROM public.sale_items WHERE sale_id = v_sale_1;
-  IF v_count <> 0 THEN
-    v_failures := array_append(v_failures, format('FAIL (1.8 sale): kill-switch debería mantener la edición sin sale_items, hay %s', v_count));
+  IF v_count <> 1 THEN
+    v_failures := array_append(v_failures, format('FAIL (1.8 sale): el flag retirado no debe alterar la edición: se esperaba 1 sale_items, hay %s', v_count));
   END IF;
   IF v_sale_1 IS NULL THEN
     v_failures := array_append(v_failures, 'FAIL (1.8 sale): la venta debería seguir editándose (header) aunque el flag esté apagado');
@@ -781,8 +784,8 @@ BEGIN
   SELECT id INTO v_purch_1 FROM public.purchases WHERE operation_id = v_op AND product_id = v_product_b;
 
   SELECT COUNT(*) INTO v_count FROM public.purchase_items WHERE purchase_id = v_purch_1;
-  IF v_count <> 0 THEN
-    v_failures := array_append(v_failures, format('FAIL (1.8 purchase): kill-switch debería mantener la edición sin purchase_items, hay %s', v_count));
+  IF v_count <> 1 THEN
+    v_failures := array_append(v_failures, format('FAIL (1.8 purchase): el flag retirado no debe alterar la edición: se esperaba 1 purchase_items, hay %s', v_count));
   END IF;
 
   -- D5: el header de compra se puebla SIEMPRE, incluso con el flag apagado
@@ -791,7 +794,7 @@ BEGIN
   IF v_val_numeric IS DISTINCT FROM 40.00 THEN
     v_failures := array_append(v_failures, format('FAIL (1.8 purchase/header): el header debería seguir poblándose aunque el flag esté apagado (40), hay %s', v_val_numeric));
   ELSE
-    RAISE NOTICE 'PASS (1.8): kill-switch mantiene la edición sin línea (venta y compra) pero el header de compra se sigue poblando';
+    RAISE NOTICE 'PASS (1.8): el flag retirado no tiene efecto: la edición escribe su línea (venta y compra) y el header de compra se puebla';
   END IF;
 
   PERFORM set_config('request.jwt.claims', '', true);

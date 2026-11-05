@@ -257,7 +257,10 @@ DECLARE
   -- multiusuario-operativo (tanda B, 20261083000001) reescribió estas tres desde el vivo: suma el guard de rol
   -- (el wrapper y la edición) y el filtro de cuenta del producto (el núcleo y la edición), sin tocar la sucursal
   -- resuelta que fija este gate. Son los md5 de ESA migración; quien las redefina después rebasa estos valores.
-  v_md5_core          constant text := '7b3707664c0f648921786a8081471ed5';
+  -- v31-document-lines-consistency (20261091000001) rebasa el núcleo (retira el flag, la línea de servicio escribe su
+  -- fila, name_snapshot siempre) y la edición de compra, SIN tocar la sucursal resuelta que fija este gate
+  -- (antes 7b3707664c0f648921786a8081471ed5 y 9752458f6e459406c4fdda0060e55c40). Son los md5 de ESA migración.
+  v_md5_core          constant text := '590626df772b67af62701dcd38e19906';
   v_md5_wrapper       constant text := '9a3b868b883d2f59b3ae1a6908288ea1';
   -- stock-edicion-sucursal-piso (20261087000001) redefine la EDICIÓN de compra (chequeo previo de la
   -- reversa) desde el cuerpo de multiusuario-operativo: su md5 pasa a ser el `v_rewritten` de ESA
@@ -269,7 +272,7 @@ DECLARE
   -- PurchaseAdjusted (antes d934a7d3ee8e35b3969aa3203353f3e1, el de 20261087000001); la edición de gasto lee la fila
   -- FOR UPDATE (antes bb8e7d02f737937fdd120804722a3151). Son los md5 de ESA migración; quien las redefina después
   -- rebasa estos valores.
-  v_md5_edit_purchase constant text := '9752458f6e459406c4fdda0060e55c40';
+  v_md5_edit_purchase constant text := 'd924fe999bbea81fbe2673209269dbac';
   v_md5_edit_expense  constant text := '732ac54fb96988d551024e7094de8e5b';
 
   -- Cuenta A (principal A0 + B): bloques (1), (6), (7), (8), (9), (10).

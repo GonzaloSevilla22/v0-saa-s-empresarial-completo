@@ -193,8 +193,8 @@ BEGIN
   INSERT INTO public.sales (user_id, account_id, branch_id, product_id, amount, quantity, total, date, operation_id)
   VALUES (v_user_id, v_account_id, v_branch_id, v_p_partial, 1000, 1, 1000, v_start::timestamp AT TIME ZONE 'UTC', gen_random_uuid())
   RETURNING id INTO v_sale_partial_a;
-  INSERT INTO public.sale_items (sale_id, product_id, account_id, quantity, price, subtotal, unit_cost_snapshot)
-  VALUES (v_sale_partial_a, v_p_partial, v_account_id, 1, 1000, 1000, 200);
+  INSERT INTO public.sale_items (sale_id, product_id, account_id, quantity, price, subtotal, unit_cost_snapshot, name_snapshot)
+  VALUES (v_sale_partial_a, v_p_partial, v_account_id, 1, 1000, 1000, 200, 'Fixture costo nullable');
 
   -- partial B: SIN snapshot, catálogo NULL -> has_cost=false.
   INSERT INTO public.sales (user_id, account_id, branch_id, product_id, amount, quantity, total, date, operation_id)
@@ -294,8 +294,8 @@ BEGIN
     IF (v_snap->>'unit_cost_snapshot') IS NOT NULL THEN
       RAISE EXCEPTION 'GATE COSTO-NULLABLE FAILED (T9a venta): op_line_snapshot con p_cost NULL debía congelar unit_cost_snapshot NULL, dio %.', v_snap->>'unit_cost_snapshot';
     END IF;
-    INSERT INTO public.sale_items (sale_id, product_id, account_id, quantity, price, subtotal, unit_cost_snapshot)
-    VALUES (v_sale_none, v_p_none, v_account_id, 1, 1000, 1000, (v_snap->>'unit_cost_snapshot')::numeric);
+    INSERT INTO public.sale_items (sale_id, product_id, account_id, quantity, price, subtotal, unit_cost_snapshot, name_snapshot)
+    VALUES (v_sale_none, v_p_none, v_account_id, 1, 1000, 1000, (v_snap->>'unit_cost_snapshot')::numeric, 'Fixture costo nullable');
     IF (SELECT unit_cost_snapshot FROM public.sale_items WHERE sale_id = v_sale_none AND product_id = v_p_none) IS NOT NULL THEN
       RAISE EXCEPTION 'GATE COSTO-NULLABLE FAILED (T9a persistido): la línea de venta debía persistir unit_cost_snapshot NULL.';
     END IF;
@@ -304,8 +304,8 @@ BEGIN
     VALUES (v_user_id, v_account_id, v_branch_id, 500, 1, 500, v_start::timestamp AT TIME ZONE 'UTC', gen_random_uuid())
     RETURNING id INTO v_purch_id;
     v_snap := public.op_line_snapshot(NULL, '__gate_pcn_none__', NULL, NULL);
-    INSERT INTO public.purchase_items (purchase_id, product_id, account_id, quantity, price, subtotal, unit_cost_snapshot)
-    VALUES (v_purch_id, v_p_none, v_account_id, 1, 500, 500, (v_snap->>'unit_cost_snapshot')::numeric);
+    INSERT INTO public.purchase_items (purchase_id, product_id, account_id, quantity, price, subtotal, unit_cost_snapshot, name_snapshot)
+    VALUES (v_purch_id, v_p_none, v_account_id, 1, 500, 500, (v_snap->>'unit_cost_snapshot')::numeric, 'Fixture costo nullable');
     IF (SELECT unit_cost_snapshot FROM public.purchase_items WHERE purchase_id = v_purch_id) IS NOT NULL THEN
       RAISE EXCEPTION 'GATE COSTO-NULLABLE FAILED (T9b persistido): la línea de compra debía persistir unit_cost_snapshot NULL.';
     END IF;

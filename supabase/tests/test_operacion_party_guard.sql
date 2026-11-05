@@ -72,13 +72,12 @@
 --       una RPC) porque quotes no es una de las 3 tablas en alcance de este
 --       change — sin este barrido, si ese guard se afloja el hueco vuelve en
 --       silencio y este gate SQL no lo vería.
---   (10) CANDADO DE FLAG [RONDA 1, MINOR] — la rama ELSE legacy de
---       rpc_create_sale_operation (activada por account_feature_flags con
---       flag_key='sale_items_rpc_v2' en false) tiene el MISMO hueco sin
---       guardar y no se toca (regla del brief: nunca el wrapper). Candado
---       barato: 0 cuentas con ese flag en false — si algún día deja de ser
---       cero, el hueco se reabre y hay que decidir qué hacer, no descubrirlo
---       en producción.
+--   (10) CANDADO DE RAMA LEGACY [v31-document-lines-consistency] — la rama ELSE legacy de
+--       rpc_create_sale_operation (la que no tenía el guard de client_id y sólo
+--       se activaba con account_feature_flags sale_items_rpc_v2 = false) se RETIRÓ:
+--       el wrapper es un despachador a la v2, que sí lleva el guard. El candado
+--       pasó de «0 cuentas con el flag en false» a «la rama no existe»: ninguna
+--       función de public menciona el flag y el wrapper no escribe en sales.
 --
 -- Degrade-don't-fail: si el anchor sintético no resuelve auth.uid() bajo
 -- request.jwt.claims local, o si no hay sucursal sembrada, el gate emite
@@ -650,30 +649,26 @@ BEGIN
   RAISE NOTICE 'PASS (9): barrido global — cero sales/sales_orders/purchases/quotes con la parte de otro tenant en toda la base.';
   v_blocks_run := v_blocks_run + 1;
 
-  -- ══ (10) CANDADO DE FLAG [RONDA 1, MINOR] — rama ELSE legacy sigue muerta ══
-  -- rpc_create_sale_operation (wrapper, nunca tocado por este fix) tiene una
-  -- rama ELSE gateada por este flag con el MISMO hueco sin guardar — medido
-  -- en prod 2026-09-10: 0 de 35 cuentas. Este candado no arregla la rama (eso
-  -- exigiría tocar el wrapper, fuera de regla), pero evita que activar el
-  -- flag reabra el hueco en silencio: si esto deja de ser 0, el hallazgo
-  -- vuelve a estar vivo y hay que decidir qué hacer ANTES de que CI lo deje
-  -- pasar en verde sin que nadie lo note.
-  -- JOIN contra accounts (no COUNT(*) crudo sobre account_feature_flags): la
-  -- base local compartida tiene filas huérfanas de OTROS gates que también
-  -- usan `session_replication_role = replica` para borrar accounts (mismo
-  -- mecanismo que el finding de arriba — no cascadea, deja
-  -- account_feature_flags apuntando a una cuenta que ya no existe).
-  -- Contarlas como "cuenta con el flag en false" sería un falso positivo de
-  -- este candado por basura ajena, no por el hallazgo que vino a cerrar.
+  -- ══ (10) CANDADO DE RAMA LEGACY — v31-document-lines-consistency (D1/D9) ══════════
+  -- Antes: «0 cuentas con sale_items_rpc_v2 = false» (la rama ELSE legacy de rpc_create_sale_operation tenía el MISMO
+  -- hueco sin guardar y sólo la activaba esa fila). Ahora la rama NO EXISTE: se asevera sobre el cuerpo vivo, que es
+  -- lo que impide que el hueco vuelva en silencio.
   SELECT COUNT(*) INTO v_n_flag_off
-  FROM public.account_feature_flags aff
-  JOIN public.accounts a ON a.id = aff.account_id
-  WHERE aff.flag_key = 'sale_items_rpc_v2' AND aff.enabled = false;
+  FROM pg_proc p
+  WHERE p.pronamespace = 'public'::regnamespace AND p.prosrc ILIKE '%sale_items_rpc_v2%';
 
   IF v_n_flag_off <> 0 THEN
-    RAISE EXCEPTION 'GATE OPERACION-PARTY-GUARD FAILED (10-flag): % cuenta(s) tienen sale_items_rpc_v2=false — la rama ELSE legacy de rpc_create_sale_operation está ACTIVA y NO tiene el guard de client_id (OQ-4 reabierta para esas cuentas). Ver CHANGES.md §operacion-party-guard, candidato "rama ELSE legacy".', v_n_flag_off;
+    RAISE EXCEPTION 'GATE OPERACION-PARTY-GUARD FAILED (10-flag): % función(es) de public todavía mencionan sale_items_rpc_v2 — la rama ELSE legacy de rpc_create_sale_operation (sin guard de client_id) puede haber vuelto.', v_n_flag_off;
   END IF;
-  RAISE NOTICE 'PASS (10): 0 cuentas con sale_items_rpc_v2=false — la rama ELSE legacy sin guard sigue muerta en la práctica.';
+
+  IF EXISTS (
+    SELECT 1 FROM pg_proc p
+    WHERE p.pronamespace = 'public'::regnamespace AND p.proname = 'rpc_create_sale_operation'
+      AND (p.prosrc ~* 'INSERT\s+INTO' OR p.prosrc !~ 'rpc_create_sale_operation_v2')
+  ) THEN
+    RAISE EXCEPTION 'GATE OPERACION-PARTY-GUARD FAILED (10-legacy): rpc_create_sale_operation debía ser un despachador a la v2 sin escrituras propias — la rama legacy sin guard de client_id puede haber vuelto.';
+  END IF;
+  RAISE NOTICE 'PASS (10): la rama ELSE legacy de rpc_create_sale_operation no existe (ninguna función lee el flag y el wrapper despacha a la v2, que lleva el guard de client_id).';
   v_blocks_run := v_blocks_run + 1;
 
   -- RONDA 2 (finding NIT, degrade-don't-fail): sin este candado, cualquiera

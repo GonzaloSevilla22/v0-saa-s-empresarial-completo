@@ -496,7 +496,7 @@ BEGIN
   RETURNING id INTO v_sale;
   INSERT INTO public.sale_items (id, sale_id, product_id, account_id, quantity, price, subtotal,
                                  name_snapshot, sku_snapshot, unit_cost_snapshot, iva_rate_snapshot)
-  VALUES ('00000000-0000-4000-8000-000000000001', v_sale, NULL,      v_account_a, 2, 500, 1000, NULL, NULL, NULL, NULL),
+  VALUES ('00000000-0000-4000-8000-000000000001', v_sale, NULL,      v_account_a, 2, 500, 1000, '__servicio_fvm__', NULL, NULL, NULL),
          ('ffffffff-ffff-4fff-bfff-ffffffffffff', v_sale, v_product, v_account_a, 2, 500, 1000,
           '__snap_fvm_producto__', 'FVM-2', 300, 21);
 
@@ -790,8 +790,8 @@ BEGIN
       -- ventas-sucursal-por-defecto (20261075000001, D5): re-declara el COMMENT vivo de
       -- la edición (el de 1675d3824b79fccd3efba3b256adf89e, que dejó 20261070000001) y le
       -- suma al final la excepción «un branch_id nulo, vigente o informado, se resuelve a
-      -- la principal». stock-edicion-sucursal-piso (20261087000001) le suma al final la regla del gate de stock por sucursal y el respaldo de la sucursal desactivada: este md5 es el del comentario de ESA migración (antes 1478b13be13a5da59df25fce328fd0d7).
-      ('public.rpc_atomic_update_sale_operation(uuid[], uuid, date, text, jsonb, uuid, boolean, uuid, boolean, text, boolean, uuid, boolean, uuid, boolean, date, boolean, text, boolean)', 'd7a585adaa341d2234b859693bd96226'),
+      -- la principal». stock-edicion-sucursal-piso (20261087000001) le suma al final la regla del gate de stock por sucursal y el respaldo de la sucursal desactivada: este md5 es el del comentario de ESA migración (antes 1478b13be13a5da59df25fce328fd0d7). v31-document-lines-consistency (20261091000001) le suma al final la nota del retiro del flag y de la línea de servicio: md5 de ESE comentario (antes d7a585adaa341d2234b859693bd96226).
+      ('public.rpc_atomic_update_sale_operation(uuid[], uuid, date, text, jsonb, uuid, boolean, uuid, boolean, text, boolean, uuid, boolean, uuid, boolean, date, boolean, text, boolean)', 'a2bca7a911dd1afe63d6a3c7815a75bc'),
       ('public.rpc_delete_sale_operation(uuid, uuid, text)', 'b3bafc6d5c0a20bbd42b006af8769513')
     ) AS t(sig, md5)
   LOOP

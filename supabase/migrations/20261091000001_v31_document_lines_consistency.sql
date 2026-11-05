@@ -446,8 +446,6 @@ $function$;
 
 REVOKE ALL ON FUNCTION public.rpc_create_sale_operation_v2(text,uuid,date,text,jsonb,uuid,text,uuid,uuid,uuid,date) FROM PUBLIC, anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.rpc_create_sale_operation_v2(text,uuid,date,text,jsonb,uuid,text,uuid,uuid,uuid,date) TO authenticated, service_role;
-COMMENT ON FUNCTION public.rpc_create_sale_operation_v2(text,uuid,date,text,jsonb,uuid,text,uuid,uuid,uuid,date) IS
-$cmt$v31-document-lines-consistency (H-15): escribe header + línea de sale_items en una transacción, también para la línea de servicio (product_id NULL, nombre = etiqueta Ítem sin producto). Punto único de la venta del formulario. Candado: supabase/tests/test_document_lines_consistency.sql.$cmt$;
 
 -- ── rpc_create_sale_operation ─────────────────────────────────────────────────────────────
 CREATE OR REPLACE FUNCTION public.rpc_create_sale_operation(p_idempotency_key text, p_client_id uuid, p_date date, p_currency text, p_items jsonb, p_branch_id uuid DEFAULT NULL::uuid, p_canal text DEFAULT NULL::text, p_payment_method_id uuid DEFAULT NULL::uuid, p_cash_session_id uuid DEFAULT NULL::uuid, p_bank_account_id uuid DEFAULT NULL::uuid, p_due_date date DEFAULT NULL::date)
@@ -3158,8 +3156,6 @@ $function$;
 
 REVOKE ALL ON FUNCTION public.rpc_create_purchase_operation_v2(text,date,text,jsonb) FROM PUBLIC, anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.rpc_create_purchase_operation_v2(text,date,text,jsonb) TO service_role;
-COMMENT ON FUNCTION public.rpc_create_purchase_operation_v2(text,date,text,jsonb) IS
-$cmt$v31-document-lines-consistency (H-15): variante interna (sólo service_role, sin llamadores SQL ni backend) de la compra. Ahora la línea lleva name_snapshot (producto: su nombre; servicio: la descripción o la etiqueta Ítem sin producto). Candado: supabase/tests/test_document_lines_consistency.sql.$cmt$;
 
 -- ── D2: las filas del flag ya no tienen efecto ni razón de existir ────────────────────────
 DELETE FROM public.account_feature_flags WHERE flag_key = 'sale_items_rpc_v2';

@@ -103,6 +103,20 @@ async def require_account_role(conn, auth: AuthContext, allowed: Collection[str]
     _assert_intersects(account_roles, allowed)
 
 
+async def has_account_role(conn, auth: AuthContext, allowed: Collection[str]) -> bool:
+    """¿El actor tiene alguna de las capacidades `allowed` en la cuenta activa? La misma resolución que
+    `require_account_role` (mismas tres vías, y la base como autoridad para las capacidades sensibles) pero devolviendo un
+    booleano en vez de lanzar 403: para los guards que DECIDEN según el rol en vez de cortar (edicion-operaciones-con-dinero,
+    OQ-4)."""
+    try:
+        await require_account_role(conn, auth, allowed)
+    except HTTPException as exc:
+        if exc.status_code == 403:
+            return False
+        raise
+    return True
+
+
 def _assert_intersects(account_roles: list[str], allowed: Collection[str]) -> None:
     """Decisión final compartida por los dos caminos de `require_account_role`.
 

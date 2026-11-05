@@ -69,7 +69,6 @@ _EXPENSE_ROW = {
     "payment_method_id": None,
     "payment_method_name": None,
     "payment_method_kind": None,
-    "is_payment_locked": False,
     "has_cash_movement": False,
     "has_bank_movement": False,
     "is_delete_blocked": False,

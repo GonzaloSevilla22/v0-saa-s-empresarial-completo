@@ -47,6 +47,15 @@ CAN_STOCK: frozenset[str] = frozenset({"owner", "admin", "stock"})
 CAN_PURCHASE: frozenset[str] = frozenset({"owner", "admin", "purchases"})
 CAN_ACCOUNT: frozenset[str] = frozenset({"owner", "admin", "accountant"})
 
+# edicion-operaciones-con-dinero (tanda B, OQ-4 a): corregir dinero YA REGISTRADO —una edición cuyo plan ESCRIBE en cuenta
+# corriente, caja o banco— es del dueño o un administrador (señal antifraude: el cajero no baja después el importe de una venta
+# en efectivo). Una edición que no escribe en ningún libro sigue con la autorización de siempre (CAN_SELL / CAN_PURCHASE / el
+# escritor del gasto). ESPEJA el `ARRAY['owner', 'admin']` de `_op_edit_plan` (migración 20261089000001): un test
+# (`test_edicion_operaciones_con_dinero.py`) lee esa migración y `frontend/lib/rbac-capabilities.ts` y falla si divergen.
+# Tiene el MISMO contenido que CAN_CONFIGURE, así que `is_sensitive_capability` la trata como sensible: la autoridad es la base
+# (el pivot de roles), no el claim del token — ante un claim desactualizado el error queda del lado seguro.
+CAN_CORRECT_MONEY: frozenset[str] = frozenset({"owner", "admin"})
+
 # multiusuario-operativo tanda B (D9, OQ-3 b / OQ-4 b): las ventas y las compras se autorizan por
 # CAPACIDAD DE ROL de la cuenta activa —nunca por quién cargó el producto o el documento—.
 #   · `CAN_SELL` (arriba) y `CAN_PURCHASE` (arriba) habilitan el alta, la edición y el borrado

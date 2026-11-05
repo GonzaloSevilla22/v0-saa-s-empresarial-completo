@@ -651,8 +651,11 @@ class TestSalesReadModel:
             await async_client.get("/sales", headers={"Authorization": f"Bearer {valid_token}"})
 
         sql = _normalized(conn.fetch.await_args_list[-1].args[0])
+        # edicion-operaciones-con-dinero (tanda B, D15): el motivo es un token del servidor; el remito manda y la línea de
+        # servicio de un presupuesto (que el cliente derivaba solo) pasa al servidor como `service_lines_locked`.
         assert re.search(
-            r"CASE WHEN so\.source_delivery_note_id IS NOT NULL THEN 'delivery_note_sale_locked' END\s+AS edit_locked_reason\b",
+            r"CASE WHEN so\.source_delivery_note_id IS NOT NULL THEN 'delivery_note_sale_locked' "
+            r"WHEN BOOL_OR\(.*?\) THEN 'service_lines_locked' END\s+AS edit_locked_reason\b",
             sql)
 
     async def test_a_sale_from_a_note_exposes_origin_and_reason(self, async_client, valid_token, mock_pool):

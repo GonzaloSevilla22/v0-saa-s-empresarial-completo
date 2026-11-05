@@ -16,8 +16,9 @@ Dos capas:
     para una operación de huella compensada y una de huella viva. Es la capa que detecta el bug: un mock
     de asyncpg no ejecuta el SQL.
 
-`is_payment_locked` NO se toca en la tanda A (lo retira la tanda B, grupo 10): sigue siendo el OR de los
-`EXISTS`, y los tests lo fijan para que nadie lo migre por accidente.
+edicion-operaciones-con-dinero (tanda B, D15): `is_payment_locked` SE RETIRÓ y las tres proyecciones consumen UNA sola
+definición del ESTADO de la huella (`op_money_footprint_state`: los cuatro indicadores más los datos vigentes que el
+formulario de edición precarga).
 """
 from __future__ import annotations
 
@@ -60,20 +61,18 @@ def _expr_before(src: str, alias: str) -> str:
 )
 def test_projection_consume_la_huella_neta(module, flags) -> None:
     src = inspect.getsource(module)
-    assert "op_money_footprint_flags" in src, "la proyección debe consumir la función de huella neta"
+    assert "op_money_footprint_state" in src, "la proyección debe consumir la función de huella neta"
     for flag in flags:
         expr = _expr_before(src, flag)
         assert "fp." in expr, f"{flag} debe salir de la huella neta (fp.), no de un EXISTS: {expr!r}"
         assert "EXISTS" not in expr.upper(), f"{flag} no puede reintroducir un EXISTS: {expr!r}"
 
 
-def test_is_payment_locked_sigue_siendo_el_or_de_los_exists() -> None:
-    """Fuera de alcance de la tanda A: se retira en la tanda B (grupo 10)."""
+def test_is_payment_locked_se_retiro_de_las_tres_proyecciones() -> None:
+    """Tanda B (D15): la edición ya no se bloquea por dinero, así que el indicador no existe."""
     for module in (sales_repository, purchase_repository, expense_repository):
         src = inspect.getsource(module)
-        assert re.search(r"AS\s+is_payment_locked\b", src), f"{module.__name__} perdió is_payment_locked"
-        expr = _expr_before(src, "is_payment_locked")
-        assert "EXISTS" in expr.upper()
+        assert not re.search(r"AS\s+is_payment_locked", src), f"{module.__name__} sigue calculando is_payment_locked"
 
 
 # ═════════════════════════ capa de integración ═════════════════════════
@@ -201,8 +200,12 @@ async def test_ventas_huella_compensada_no_reporta_dinero(seeded) -> None:
         "una venta con la huella compensada en los tres libros no tiene dinero registrado")
     live = _by_op(rows, ids["sale_live"])
     assert (live["has_account_charge"], live["has_cash_movement"], live["has_bank_movement"]) == (True, True, True)
-    # is_payment_locked NO se toca (grupo 10): sigue viendo cualquier movimiento, aunque el neto sea cero.
-    assert z["is_payment_locked"] is True
+    assert "is_payment_locked" not in z
+    # datos vigentes de la huella para precargar el formulario de edición: la huella compensada no trae caja ni cuenta
+    # bancaria; la viva sí, y la caja 1 tiene sesión abierta donde compensar.
+    assert z["cash_cashbox_id"] is None and z["bank_account_id"] is None and z["charge_party_id"] is None
+    assert live["cash_cashbox_id"] is not None and live["cash_open_session_id"] is not None
+    assert live["bank_account_id"] is not None and live["charge_party_id"] is not None
 
 
 @integration
@@ -215,7 +218,8 @@ async def test_compras_huella_compensada_no_reporta_dinero(seeded) -> None:
     live = _by_op(rows, ids["purchase_live"])
     assert (live["has_account_charge"], live["has_cash_movement"], live["has_bank_movement"]) == (True, True, True)
     assert live["is_delete_blocked"] is True, "con huella viva de caja y la caja SIN sesión abierta el borrado está bloqueado"
-    assert z["is_payment_locked"] is True
+    assert "is_payment_locked" not in z
+    assert live["cash_cashbox_id"] is not None and live["cash_open_session_id"] is None, "la caja de la huella no tiene sesión abierta"
 
 
 @integration
@@ -229,4 +233,5 @@ async def test_gastos_huella_compensada_no_reporta_dinero(seeded) -> None:
     assert (live["has_cash_movement"], live["has_bank_movement"], live["is_delete_blocked"]) == (True, True, True)
     one = await ExpenseRepository(conn).get_by_id(str(ids["expense_netzero"]), str(acc))
     assert one is not None and one["has_cash_movement"] is False
-    assert z["is_payment_locked"] is True
+    assert "is_payment_locked" not in z
+    assert live["cash_cashbox_id"] is not None and live["bank_account_id"] is not None

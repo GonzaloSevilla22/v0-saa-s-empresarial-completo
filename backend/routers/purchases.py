@@ -9,11 +9,14 @@ from backend.core.auth import get_current_user
 from backend.core.database import get_db_conn
 from backend.core.deps import get_account_id
 from backend.core.idempotency import require_idempotency_key
+from backend.repositories.operation_edit_repository import OperationEditRepository
 from backend.repositories.purchase_repository import PurchaseRepository
+from backend.schemas.operation_edit import EditPreviewOut, OperationEditOut
 from backend.schemas.purchases import (
     PurchaseOperationIn,
     PurchaseOperationOut,
     PurchaseOperationUpdateIn,
+    PurchaseOperationUpdateOut,
     PurchasesPageOut,
 )
 from backend.services import purchases as purchases_service
@@ -23,6 +26,10 @@ router = APIRouter(prefix="/purchases", tags=["purchases"])
 
 def get_repo(conn: asyncpg.Connection = Depends(get_db_conn)) -> PurchaseRepository:
     return PurchaseRepository(conn)
+
+
+def get_edit_repo(conn: asyncpg.Connection = Depends(get_db_conn)) -> OperationEditRepository:
+    return OperationEditRepository(conn)
 
 
 @router.get("", response_model=PurchasesPageOut)
@@ -84,7 +91,7 @@ async def create_purchase(
     return await purchases_service.create_purchase_operation(repo, auth, str(account_id), payload, conn=conn)
 
 
-@router.put("/operation")
+@router.put("/operation", response_model=PurchaseOperationUpdateOut)
 async def update_purchase_operation(
     payload: PurchaseOperationUpdateIn,
     auth: dict = Depends(get_current_user),
@@ -104,7 +111,7 @@ async def update_purchase_operation(
     # contrato tri-estado para supplier_id y cost_center_id.
     supplier_provided = "supplier_id" in payload.model_fields_set
     cost_center_provided = "cost_center_id" in payload.model_fields_set
-    await purchases_service.update_purchase_operation(
+    result = await purchases_service.update_purchase_operation(
         repo,
         auth,
         payload,
@@ -114,4 +121,36 @@ async def update_purchase_operation(
         cost_center_provided,
         conn=conn,
     )
-    return {"ok": True}
+    return {"ok": True, **result}
+
+
+@router.post("/operation/edit-preview", response_model=EditPreviewOut)
+async def preview_purchase_operation_edit(
+    payload: PurchaseOperationUpdateIn,
+    auth: dict = Depends(get_current_user),
+    repo: PurchaseRepository = Depends(get_repo),
+    conn: asyncpg.Connection = Depends(get_db_conn),
+):
+    """edicion-operaciones-con-dinero (D13): el PLAN de la edición calculado por la MISMA RPC, en seco (no escribe nada).
+    Mismo payload que `PUT /purchases/operation`."""
+    sent = payload.model_fields_set
+    return await purchases_service.preview_purchase_edit(
+        repo,
+        auth,
+        payload,
+        "payment_method_id" in sent,
+        "branch_id" in sent,
+        "supplier_id" in sent,
+        "cost_center_id" in sent,
+        conn=conn,
+    )
+
+
+@router.get("/operation/{operation_id}/edits", response_model=list[OperationEditOut])
+async def list_purchase_operation_edits(
+    operation_id: uuid.UUID,
+    auth: dict = Depends(get_current_user),
+    repo: OperationEditRepository = Depends(get_edit_repo),
+):
+    """Historial de cambios de la compra (quién, cuándo y qué cambió), más reciente primero, filtrado por la cuenta."""
+    return await purchases_service.list_purchase_edits(repo, str(operation_id))

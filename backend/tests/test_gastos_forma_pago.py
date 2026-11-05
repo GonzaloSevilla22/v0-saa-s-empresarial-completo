@@ -93,7 +93,6 @@ EXPENSE_ROW = {
     "payment_method_kind": "cash",
     "has_cash_movement": False,
     "has_bank_movement": False,
-    "is_payment_locked": False,
     "is_delete_blocked": False,
 }
 
@@ -248,7 +247,7 @@ class TestExpenseOutSchema:
                 "created_at": "2026-08-29T10:00:00",
             }
         )
-        assert out.is_payment_locked is False
+        assert not hasattr(out, "is_payment_locked")   # edicion-operaciones-con-dinero (tanda B, D15): se retiro
         assert out.has_cash_movement is False
         assert out.has_bank_movement is False
         assert out.is_delete_blocked is False
@@ -260,11 +259,10 @@ class TestExpenseOutSchema:
         from backend.schemas.expenses import ExpenseOut
 
         out = ExpenseOut.model_validate(
-            {**EXPENSE_ROW, "has_cash_movement": True, "is_payment_locked": True, "is_delete_blocked": True}
+            {**EXPENSE_ROW, "has_cash_movement": True, "is_delete_blocked": True}
         )
         assert out.has_cash_movement is True
         assert out.has_bank_movement is False
-        assert out.is_payment_locked is True
         assert out.is_delete_blocked is True
         assert out.payment_method_name == "Efectivo"
         assert out.branch_id == uuid.UUID(BRANCH_ID)
@@ -470,6 +468,13 @@ class TestExpenseRepositoryUpdate:
             True,
             None,
             False,
+            # edicion-operaciones-con-dinero (tanda B): intenciones de caja y banco (ausentes), motivo y vista previa
+            None,
+            False,
+            None,
+            False,
+            None,
+            False,
         )
 
     @pytest.mark.asyncio
@@ -559,17 +564,18 @@ class TestDerivedFlagsMatchServerGuards:
         (migración, repositorio, gate) tienen que traer el MISMO fragmento."""
         return _norm(SQL_GATE.read_text(encoding="utf-8"))
 
-    def test_cash_lock_predicate_is_the_p0423_guard(self, migration_sql, repo_sql, gate_sql):
-        fragment = "reference_id = <EXP>"
-        assert fragment in migration_sql, "el guard P0423 de caja cambió: revisar el derivado"
-        assert fragment in repo_sql
-        assert fragment in gate_sql
+    def test_cash_and_bank_flags_come_from_the_net_footprint(self, migration_sql, repo_sql, gate_sql):
+        """edicion-operaciones-con-dinero (tanda B): los P0423 de dinero de la edición se RETIRARON, así que el derivado de
+        lectura ya no tiene un guard con el que coincidir por texto. Pasa a coincidir con el PLAN de la edición: el gate SQL
+        (sección 7) compara has_cash_movement / has_bank_movement con la acción del plan en seco, y el repositorio consume
+        la función única de la huella neta."""
+        assert "op_money_footprint_state(account_id, 'expense', ARRAY[<EXP>])" in repo_sql
+        assert "fp.has_cash_movement" in repo_sql and "fp.has_bank_movement" in repo_sql
+        assert "p_dry_run => true" in gate_sql      # el gate ejecuta el plan en seco de verdad
 
-    def test_bank_lock_predicate_is_the_p0423_guard(self, migration_sql, repo_sql, gate_sql):
-        fragment = "source_doc_type = 'expense' AND source_doc_ref = <EXP>"
-        assert fragment in migration_sql, "el guard P0423 de banco cambió: revisar el derivado"
-        assert fragment in repo_sql
-        assert fragment in gate_sql
+    def test_the_p0423_money_guards_are_gone(self, migration_sql, gate_sql):
+        """Control negativo: ni el gate ni la edición viva conservan el rechazo por dinero."""
+        assert "expense_has_cash_movement_immutable" not in gate_sql.replace("-- ", "")
 
     def test_delete_block_predicate_is_the_p0426_guard(self, migration_sql, repo_sql, gate_sql):
         """El bloqueo de borrado combina los DOS fragmentos que evalúa
@@ -592,7 +598,7 @@ class TestDerivedFlagsMatchServerGuards:
         assert "book = 'cash' AND NOT EXISTS" in new_migration
         assert "cashbox_id = f.ledger_id AND status = 'open'" in new_migration
         # el repositorio delega en la función, no re-escribe el predicado
-        assert "op_money_footprint_flags(account_id, 'expense', ARRAY[<EXP>])" in repo_sql
+        assert "op_money_footprint_state(account_id, 'expense', ARRAY[<EXP>])" in repo_sql
         assert "fp.is_delete_blocked" in repo_sql
         # predicado histórico (migración original + gate SQL de gastos)
         assert "reference_id = <EXP> AND movement_type = 'expense'" in migration_sql
@@ -603,9 +609,9 @@ class TestDerivedFlagsMatchServerGuards:
 class TestExpenseRepositoryReads:
     @pytest.mark.asyncio
     async def test_get_by_id_returns_the_derived_flags(self, mock_conn):
-        mock_conn.fetchrow.return_value = {**EXPENSE_ROW, "is_payment_locked": True}
+        mock_conn.fetchrow.return_value = {**EXPENSE_ROW, "has_cash_movement": True}
         row = await _repo(mock_conn).get_by_id(EXPENSE_ID, ACCOUNT_ID)
-        assert row["is_payment_locked"] is True
+        assert row["has_cash_movement"] is True
         # tenencia explícita: el account_id viaja como parámetro, no se confía
         # sólo en RLS (regla dura tras la fuga del PR #446)
         assert mock_conn.fetchrow.call_args_list[0].args[1:] == (EXPENSE_ID, ACCOUNT_ID)
@@ -698,7 +704,7 @@ class TestListEndpointPagination:
         assert body["page"] == 0
         assert body["pages"] == 1
         assert body["items"][0]["payment_method_name"] == "Efectivo"
-        assert body["items"][0]["is_payment_locked"] is False
+        assert "is_payment_locked" not in body["items"][0]   # edicion-operaciones-con-dinero (D15): se retiro
 
     async def test_pages_is_zero_when_empty(self, async_client, valid_token, mock_pool):
         pool, conn = mock_pool
@@ -953,10 +959,19 @@ class TestUpdateAndDeleteEndpoints:
     def _owner(self):
         return make_token({"role": "user"})
 
+    @staticmethod
+    def _as_owner(conn):
+        """edicion-operaciones-con-dinero (tanda B, OQ-4): el servicio consulta el rol del actor (CAN_CORRECT_MONEY) con
+        `fetchval`; el dueño no necesita la vista previa."""
+        conn.fetchval = AsyncMock(
+            side_effect=lambda query, *a, **k: ["owner"] if "rpc_my_active_account_roles" in query else ACCOUNT_ID
+        )
+
     async def test_update_marks_only_the_fields_present_in_the_payload(self, async_client, mock_pool):
         """D12 tri-estado end-to-end: se manda sólo `amount`, así que los tres
         `_provided` viajan en false y la RPC preserva los valores vigentes."""
         pool, conn = mock_pool
+        self._as_owner(conn)
         conn.fetchrow = AsyncMock(
             side_effect=[{"result": json.dumps({"expense_id": EXPENSE_ID})}, EXPENSE_ROW]
         )
@@ -975,6 +990,7 @@ class TestUpdateAndDeleteEndpoints:
 
     async def test_update_explicit_null_desimputa(self, async_client, mock_pool):
         pool, conn = mock_pool
+        self._as_owner(conn)
         conn.fetchrow = AsyncMock(
             side_effect=[{"result": json.dumps({"expense_id": EXPENSE_ID})}, EXPENSE_ROW]
         )
@@ -987,21 +1003,6 @@ class TestUpdateAndDeleteEndpoints:
         assert resp.status_code == 200
         args = conn.fetchrow.call_args_list[0].args
         assert args[6] is None and args[7] is True
-
-    async def test_update_of_a_locked_expense_is_409(self, async_client, mock_pool):
-        """D11 — el gasto con dinero posteado es inmutable."""
-        pool, conn = mock_pool
-        conn.fetchrow = AsyncMock(
-            side_effect=_pg_error("P0423", "expense_has_cash_movement_immutable")
-        )
-        with patch("backend.core.database.pool", pool):
-            resp = await async_client.put(
-                f"/expenses/{EXPENSE_ID}",
-                json={"amount": "300.00"},
-                headers={"Authorization": f"Bearer {self._owner()}"},
-            )
-        assert resp.status_code == 409
-        assert resp.json()["code"] == "P0423"
 
     async def test_delete_ok_is_a_single_rpc_call(self, async_client, mock_pool):
         pool, conn = mock_pool

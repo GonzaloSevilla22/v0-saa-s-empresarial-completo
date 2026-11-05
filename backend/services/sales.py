@@ -7,7 +7,9 @@ from fastapi import HTTPException
 
 from backend.core.guards import require_account_role, require_role
 from backend.core.rbac import CAN_SELL
+from backend.repositories.operation_edit_repository import OperationEditRepository
 from backend.repositories.sales_repository import SalesRepository
+from backend.services import operation_edit
 from backend.schemas.sales import SaleOperationIn, SaleOperationUpdateIn
 
 
@@ -53,6 +55,30 @@ async def delete_sale_operation(
         raise HTTPException(status_code=404, detail="Operación no encontrada")
 
 
+def _sale_update_kwargs(
+    payload: SaleOperationUpdateIn,
+    payment_method_provided: bool,
+    branch_provided: bool,
+    canal_provided: bool,
+) -> dict[str, object]:
+    """Argumentos de `SalesRepository.update_operation`, iguales para la edición real y para la vista previa: la
+    vista previa es la MISMA RPC en seco, así que NO puede armar un payload distinto."""
+    payment_method_id = (
+        str(payload.payment_method_id) if payload.payment_method_id is not None else None
+    )
+    branch_id = str(payload.branch_id) if payload.branch_id is not None else None
+    return {
+        "payment_method_id": payment_method_id,
+        "payment_method_provided": payment_method_provided,
+        "branch_id": branch_id,
+        "branch_provided": branch_provided,
+        "canal": payload.canal,
+        "canal_provided": canal_provided,
+        # edicion-operaciones-con-dinero (tanda B): intenciones de caja, banco y vencimiento (tri-estado por ausencia).
+        **operation_edit.money_intent_kwargs(payload),
+    }
+
+
 async def update_sale_operation(
     repo: SalesRepository,
     auth: dict,
@@ -69,27 +95,53 @@ async def update_sale_operation(
 
     multiusuario-operativo tanda B (D9): editar exige CAN_SELL; la regla de autor (dueño y
     administrador sobre lo ajeno, el resto lo propio) y la tenencia de la venta y de los
-    productos (P0404) las decide la RPC."""
+    productos (P0404) las decide la RPC.
+
+    edicion-operaciones-con-dinero (tanda B, OQ-4): corregir DINERO ya registrado exige CAN_CORRECT_MONEY; el guard del
+    servicio es espejo de la RPC (`operation_edit.guard_money_correction`) y devuelve en `money` el plan que se ejecutó."""
     require_role(auth, ["user", "admin"])
     await require_account_role(conn, auth, CAN_SELL)
     items = [item.model_dump() for item in payload.items]
-    payment_method_id = (
-        str(payload.payment_method_id) if payload.payment_method_id is not None else None
-    )
-    branch_id = str(payload.branch_id) if payload.branch_id is not None else None
-    return await repo.update_operation(
-        payload.sale_ids,
-        payload.client_id,
-        payload.date,
-        payload.currency,
-        items,
-        payment_method_id=payment_method_id,
-        payment_method_provided=payment_method_provided,
-        branch_id=branch_id,
-        branch_provided=branch_provided,
-        canal=payload.canal,
-        canal_provided=canal_provided,
-    )
+    kwargs = _sale_update_kwargs(payload, payment_method_provided, branch_provided, canal_provided)
+
+    async def _preview() -> dict:
+        return await repo.update_operation(
+            payload.sale_ids, payload.client_id, payload.date, payload.currency, items, **kwargs, dry_run=True
+        )
+
+    await operation_edit.guard_money_correction(conn, auth, _preview)
+    with operation_edit.edit_errors_as_problems():
+        return await repo.update_operation(
+            payload.sale_ids, payload.client_id, payload.date, payload.currency, items, **kwargs
+        )
+
+
+async def preview_sale_edit(
+    repo: SalesRepository,
+    auth: dict,
+    payload: SaleOperationUpdateIn,
+    payment_method_provided: bool = False,
+    branch_provided: bool = False,
+    canal_provided: bool = False,
+    *,
+    conn,
+) -> dict[str, object]:
+    """edicion-operaciones-con-dinero (D13): el PLAN de la edición, calculado por la MISMA RPC en seco (sin escribir
+    nada, ni siquiera la anulación del comprobante pendiente). Los bloqueos de negocio viajan como datos en
+    `plan.blocks`; la autorización es la de editar una venta (CAN_SELL), el rol de corregir dinero es un bloqueo del plan."""
+    require_role(auth, ["user", "admin"])
+    await require_account_role(conn, auth, CAN_SELL)
+    items = [item.model_dump() for item in payload.items]
+    kwargs = _sale_update_kwargs(payload, payment_method_provided, branch_provided, canal_provided)
+    with operation_edit.edit_errors_as_problems():
+        return await repo.update_operation(
+            payload.sale_ids, payload.client_id, payload.date, payload.currency, items, **kwargs, dry_run=True
+        )
+
+
+async def list_sale_edits(repo: OperationEditRepository, operation_id: str) -> list[dict]:
+    """Historial de ediciones de la venta (más reciente primero), filtrado por la cuenta del usuario."""
+    return await operation_edit.list_edits(repo, "sale", operation_id)
 
 
 async def promote_to_order(

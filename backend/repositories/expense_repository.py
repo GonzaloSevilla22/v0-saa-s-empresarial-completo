@@ -53,7 +53,7 @@ def _uid(value) -> str | None:
 #     (edicion-operaciones-con-dinero, tanda A, 1.5): función op_money_footprint_flags, la
 #     misma que usan el borrado y la edición (D3). Ya no un EXISTS por tipo de movimiento:
 #     un gasto editado acumula original + compensación + nuevo bajo su propia referencia.
-#   is_payment_locked → el OR de los dos, exactamente como bloquea la edición.
+#   (edicion-operaciones-con-dinero, tanda B, D15: `is_payment_locked` SE RETIRÓ — el gasto con dinero se edita.)
 #   is_delete_blocked → el único bloqueo propio del borrado: hay neto de caja del
 #     gasto y NO hay sesión abierta en ESA caja donde compensar — el mismo par de
 #     predicados que rpc_delete_expense evalúa antes del P0426.
@@ -68,17 +68,12 @@ _EXPENSE_PROJECTION = """
     pm.kind AS payment_method_kind,
     COALESCE(fp.has_cash_movement, FALSE) AS has_cash_movement,
     COALESCE(fp.has_bank_movement, FALSE) AS has_bank_movement,
-    (
-      EXISTS (
-        SELECT 1 FROM public.cash_movements cm
-        WHERE cm.reference_id = e.id
-      )
-      OR EXISTS (
-        SELECT 1 FROM public.bank_movements bm
-        WHERE bm.source_doc_type = 'expense' AND bm.source_doc_ref = e.id
-      )
-    ) AS is_payment_locked,
     COALESCE(fp.is_delete_blocked, FALSE) AS is_delete_blocked,
+    -- edicion-operaciones-con-dinero (tanda B, D15): los datos vigentes de la huella que el formulario de edición precarga
+    -- (caja de la huella y su sesión abierta, cuenta bancaria de la huella). El gasto no tiene parte ni vencimiento.
+    fp.cash_cashbox_id,
+    fp.cash_open_session_id,
+    fp.bank_account_id,
     -- asiento-contable-gastos (D11): rastro contable del gasto. Mismo patrón
     -- que los cuatro derivados de arriba — se calcula UNA vez acá y lo heredan
     -- get_by_id, list_paginated y el re-SELECT de las tres mutaciones.
@@ -110,7 +105,7 @@ _EXPENSE_FROM = """
 
 # Huella neta del gasto, UNA vez por fila. Sólo en los SELECT de filas (el COUNT no la necesita).
 _EXPENSE_FP_JOIN = """
-    LEFT JOIN LATERAL public.op_money_footprint_flags(e.account_id, 'expense', ARRAY[e.id]) fp ON TRUE
+    LEFT JOIN LATERAL public.op_money_footprint_state(e.account_id, 'expense', ARRAY[e.id]) fp ON TRUE
 """
 
 
@@ -239,14 +234,24 @@ class ExpenseRepository(BaseRepository):
         branch_provided: bool,
         cost_center_id: str | None,
         cost_center_provided: bool,
+        cash_session_id: str | None = None,
+        cash_provided: bool = False,
+        bank_account_id: str | None = None,
+        bank_account_provided: bool = False,
+        reason: str | None = None,
+        dry_run: bool = False,
     ) -> dict | None:
-        """`rpc_update_expense` — edición con guards de inmutabilidad (P0423) y
-        contrato tri-estado. Los `*_provided` son el "la clave vino en el JSON":
-        sin ellos, un `null` explícito sería indistinguible de una ausencia.
+        """`rpc_update_expense` — edición con plan de dinero y contrato tri-estado. Los `*_provided` son el "la clave
+        vino en el JSON": sin ellos, un `null` explícito sería indistinguible de una ausencia.
+
+        edicion-operaciones-con-dinero (tanda B, D13): con `dry_run` devuelve `{dry_run, plan}` SIN escribir (la MISMA RPC);
+        en firme, el gasto re-leído más `money` (el plan que se ejecutó).
         """
         rpc_row = await self._conn.fetchrow(
             "SELECT public.rpc_update_expense("
-            "$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) AS result",
+            "$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, "
+            "p_cash_session_id => $12, p_cash_provided => $13, p_bank_account_id => $14, "
+            "p_bank_account_provided => $15, p_reason => $16, p_dry_run => $17) AS result",
             _uid(expense_id),
             category,
             amount,
@@ -258,10 +263,22 @@ class ExpenseRepository(BaseRepository):
             branch_provided,
             _uid(cost_center_id),
             cost_center_provided,
+            _uid(cash_session_id),
+            cash_provided,
+            _uid(bank_account_id),
+            bank_account_provided,
+            reason,
+            dry_run,
         )
         if rpc_row is None:
             return None
-        return await self.get_by_id(expense_id, account_id)
+        result = _jsonb(rpc_row["result"]) or {}
+        if dry_run:
+            return result
+        record = await self.get_by_id(expense_id, account_id)
+        if record is None:
+            return None
+        return {**record, "money": result.get("money")}
 
     async def delete(self, expense_id: str, account_id: str) -> dict:
         """`rpc_delete_expense` — compensa caja (`expense_reversal`) y banco

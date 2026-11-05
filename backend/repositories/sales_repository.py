@@ -61,12 +61,14 @@ class SalesRepository(CommercialIssuerMixin, BaseRepository):
               LIMIT $5 OFFSET $6
             ),
             op_fp AS (
-              -- edicion-operaciones-con-dinero (tanda A, 1.5): la huella NETA de cada operación de la página,
-              -- UNA vez por operación (no por fila de línea). Referencias: el operation_id (formulario) y el id
-              -- de su orden (POS / presupuesto). Es la misma función que usan el borrado y la edición (D3).
-              SELECT op_page.op_key, fp.has_account_charge, fp.has_cash_movement, fp.has_bank_movement
+              -- edicion-operaciones-con-dinero (tanda B, D15): el ESTADO de la huella NETA de cada operación de la página, UNA
+              -- vez por operación (no por fila de línea): los cuatro indicadores y los datos vigentes que el formulario de
+              -- edición precarga. UNA sola definición (función op_money_footprint_state), la misma base que usan el
+              -- borrado y la edición. Referencias: el operation_id (formulario) y el id de su orden (POS / presupuesto).
+              SELECT op_page.op_key, fp.has_account_charge, fp.has_cash_movement, fp.has_bank_movement,
+                     fp.charge_due_date, fp.charge_party_id, fp.cash_cashbox_id, fp.cash_open_session_id, fp.bank_account_id
               FROM op_page
-              LEFT JOIN LATERAL public.op_money_footprint_flags(
+              LEFT JOIN LATERAL public.op_money_footprint_state(
                 $1::uuid, 'sale',
                 ARRAY_REMOVE(ARRAY[
                   op_page.op_key::uuid,
@@ -163,41 +165,16 @@ class SalesRepository(CommercialIssuerMixin, BaseRepository):
                    (fd.id IS NOT NULL AND fd.status = 'pending_cae'
                       AND fd.cae_submit_started_at IS NULL
                       AND fd.cae_submit_unconfirmed_at IS NULL) AS fiscal_pending_voidable,
-                   -- pagos-cableados-restantes (D6): MISMO predicado que el
-                   -- guard P0423 de rpc_atomic_update_sale_operation — cubre
-                   -- las DOS convenciones de reference_id que la migración
-                   -- deja conviviendo: operation_id (formulario, vía el
-                   -- helper _pay_register_party_charge / opt-in de caja) y
-                   -- sales_orders.id (POS, _c29_confirm_order_core). Derivado
-                   -- de lectura, reusando el `so` ya montado para
-                   -- payment_method/is_fiscally_locked — nunca una columna
-                   -- denormalizada (misma regla D5 de arriba). El nombre
-                   -- is_invoiced que menciona este comentario pasó a
-                   -- is_fiscally_locked en venta-editable-sin-cae.
-                   -- pos-banco-movimientos (D8): tercer término — bank_movements,
-                   -- mismo predicado que el tercer EXISTS de
-                   -- rpc_atomic_update_sale_operation (source_doc_type='sale').
-                   -- delete-guard-ledgers (task 9.2): los tres EXISTS se
-                   -- exponen TAMBIÉN por separado (has_account_charge/
-                   -- has_cash_movement/has_bank_movement) para que el diálogo
-                   -- de borrado enumere específicamente qué libro compensaría
-                   -- — is_payment_locked (el OR de los tres) se preserva tal
-                   -- cual para no romper el badge de lock de edición existente.
-                   -- edicion-operaciones-con-dinero (tanda A, 1.5): los tres indicadores salen de la huella NETA
-                   -- (función op_money_footprint_flags, CTE op_fp de arriba), no de un EXISTS sobre el tipo de
-                   -- movimiento: una operación editada acumula original + compensación + nuevo bajo la misma
-                   -- referencia. is_payment_locked (el OR de los EXISTS) NO se toca acá: lo retira la tanda B.
+                   -- edicion-operaciones-con-dinero (tanda B, D15): los tres indicadores y los datos vigentes de la huella NETA
+                   -- (CTE op_fp de arriba). `is_payment_locked` SE RETIRÓ: la edición ya no se bloquea por dinero.
                    COALESCE(fp.has_account_charge, FALSE) AS has_account_charge,
                    COALESCE(fp.has_cash_movement,  FALSE) AS has_cash_movement,
                    COALESCE(fp.has_bank_movement,  FALSE) AS has_bank_movement,
-                   (
-                     EXISTS (SELECT 1 FROM customer_account_movements cam WHERE cam.reference_id = s.operation_id)
-                     OR (so.id IS NOT NULL AND EXISTS (SELECT 1 FROM customer_account_movements cam WHERE cam.reference_id = so.id))
-                     OR EXISTS (SELECT 1 FROM cash_movements cm WHERE cm.reference_id = s.operation_id)
-                     OR (so.id IS NOT NULL AND EXISTS (SELECT 1 FROM cash_movements cm WHERE cm.reference_id = so.id))
-                     OR EXISTS (SELECT 1 FROM bank_movements bm WHERE bm.source_doc_type = 'sale' AND bm.source_doc_ref = s.operation_id)
-                     OR (so.id IS NOT NULL AND EXISTS (SELECT 1 FROM bank_movements bm WHERE bm.source_doc_type = 'sale' AND bm.source_doc_ref = so.id))
-                   ) AS is_payment_locked,
+                   fp.charge_due_date,
+                   fp.charge_party_id,
+                   fp.cash_cashbox_id,
+                   fp.cash_open_session_id,
+                   fp.bank_account_id,
                    -- presupuestos-modulo (tanda B): el presupuesto que originó la
                    -- venta, derivado de sales_orders.source_quote_id (sin columnas
                    -- denormalizadas). El cruce con el presupuesto se filtra por la
@@ -214,8 +191,13 @@ class SalesRepository(CommercialIssuerMixin, BaseRepository):
                    -- explicación antes de llegar al error.
                    so.source_delivery_note_id               AS source_delivery_note_id,
                    sdn.number                               AS source_delivery_note_number,
-                   CASE WHEN so.source_delivery_note_id IS NOT NULL THEN 'delivery_note_sale_locked' END
-                                                            AS edit_locked_reason,
+                   -- edicion-operaciones-con-dinero (tanda B, D15): el motivo es un TOKEN del servidor, con los mismos predicados
+                   -- que los guards (el remito: P0423 de la RPC) y, ahora, la línea de servicio de un presupuesto, que el
+                   -- cliente derivaba solo (has_service_lines) y el editor no sabe representar. El remito manda.
+                   CASE WHEN so.source_delivery_note_id IS NOT NULL THEN 'delivery_note_sale_locked'
+                        WHEN BOOL_OR(s.product_id IS NULL AND si.id IS NULL AND so.source_quote_id IS NOT NULL)
+                               OVER (PARTITION BY COALESCE(s.operation_id::text, s.id::text)) THEN 'service_lines_locked'
+                   END                                      AS edit_locked_reason,
                    -- presupuestos-modulo (D6, OQ-P16): la operación incluye alguna
                    -- línea de servicio. Es de la OPERACIÓN, no de la fila: toda ella
                    -- se ve sin edición en /ventas. Derivado de lectura, sin columna.
@@ -326,7 +308,19 @@ class SalesRepository(CommercialIssuerMixin, BaseRepository):
         branch_provided: bool = False,
         canal: str | None = None,
         canal_provided: bool = False,
+        cash_session_id: str | None = None,
+        cash_provided: bool = False,
+        bank_account_id: str | None = None,
+        bank_account_provided: bool = False,
+        due_date: datetime.date | None = None,
+        due_date_provided: bool = False,
+        reason: str | None = None,
+        dry_run: bool = False,
     ) -> dict[str, object]:
+        # edicion-operaciones-con-dinero (tanda B, D13/D18): las intenciones de caja, banco y vencimiento viajan con el
+        # MISMO contrato tri-estado (valor + `*_provided`), y `dry_run` pide el PLAN sin escribir: es la MISMA RPC, así
+        # que la vista previa y la edición real no pueden divergir. Con `dry_run` la RPC devuelve
+        # `{dry_run, plan, voided_fiscal_document}`; en firme, `{operation_id, items, voided_fiscal_document, money}`.
         # rpc_atomic_update_sale_operation hace REVERSE de los ítems viejos +
         # APPLY de los nuevos en una sola transacción (stock sobre branch_stock,
         # C-21 hotfix). RLS/auth.uid() scope vía JWT-passthrough de la conexión.
@@ -356,7 +350,11 @@ class SalesRepository(CommercialIssuerMixin, BaseRepository):
                 $1::text[]::uuid[], $2::text::uuid, $3::date, $4::text, $5::jsonb,
                 p_payment_method_id => $6, p_payment_method_provided => $7,
                 p_branch_id => $8, p_branch_provided => $9,
-                p_canal => $10, p_canal_provided => $11
+                p_canal => $10, p_canal_provided => $11,
+                p_cash_session_id => $12, p_cash_provided => $13,
+                p_bank_account_id => $14, p_bank_account_provided => $15,
+                p_due_date => $16, p_due_date_provided => $17,
+                p_reason => $18, p_dry_run => $19
             )
             """,
             sale_ids,
@@ -370,6 +368,14 @@ class SalesRepository(CommercialIssuerMixin, BaseRepository):
             branch_provided,
             canal,
             canal_provided,
+            cash_session_id,
+            cash_provided,
+            bank_account_id,
+            bank_account_provided,
+            due_date,
+            due_date_provided,
+            reason,
+            dry_run,
         )
         if result is None:
             # La RPC siempre devuelve jsonb; un NULL acá es un contrato roto,

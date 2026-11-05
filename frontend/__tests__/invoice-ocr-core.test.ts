@@ -24,6 +24,15 @@ import { describe, it, expect } from "vitest"
 import {
   parseInvoiceOcrRequest,
   resolveInvoiceDownload,
+  checkInvoiceImageBudget,
+  resolveOcrModel,
+  encodeBase64Chunked,
+  MAX_INVOICE_IMAGE_BYTES,
+  OCR_DEFAULT_MODEL,
+  OCR_MAX_OUTPUT_TOKENS,
+  OCR_IMAGE_DETAIL,
+  OCR_TIMEOUT_MS,
+  OCR_PROCESSING_LOCK_MS,
   type InvoiceDocumentRow,
 } from "../../supabase/functions/_shared/invoice-ocr-core"
 
@@ -36,6 +45,7 @@ function row(overrides: Partial<InvoiceDocumentRow> = {}): InvoiceDocumentRow {
     mime_type: "image/jpeg",
     status: "pending",
     storage_path: ROW_PATH,
+    updated_at: null,
     ...overrides,
   }
 }
@@ -130,5 +140,122 @@ describe("parseInvoiceOcrRequest — el campo del body se acepta, pero deja de s
     expect(JSON.stringify(parsed)).not.toContain(OTHER_PATH)
     expect(Object.keys(parsed)).not.toContain("storagePath")
     expect(Object.keys(parsed)).not.toContain("storage_path")
+  })
+})
+
+// ─── v31-ia-ratelimit-budget — techo de costo por llamada (D4) ───────────────
+
+describe("constantes del techo de costo", () => {
+  it("fijan los valores firmados (OQ-6/OQ-7) en un solo lugar", () => {
+    expect(MAX_INVOICE_IMAGE_BYTES).toBe(6 * 1024 * 1024)
+    expect(OCR_DEFAULT_MODEL).toBe("gpt-4o-mini")
+    expect(OCR_MAX_OUTPUT_TOKENS).toBe(2000)
+    expect(OCR_IMAGE_DETAIL).toBe("high")
+    expect(OCR_TIMEOUT_MS).toBe(55_000)
+    expect(OCR_PROCESSING_LOCK_MS).toBe(90_000)
+  })
+})
+
+describe("checkInvoiceImageBudget", () => {
+  it("6 MiB exactos pasan", () => {
+    expect(checkInvoiceImageBudget(6 * 1024 * 1024)).toEqual({ ok: true })
+  })
+
+  it("6 MiB + 1 byte responde 413 con un mensaje accionable", () => {
+    const r = checkInvoiceImageBudget(6 * 1024 * 1024 + 1)
+    expect(r.ok).toBe(false)
+    if (r.ok) return
+    expect(r.status).toBe(413)
+    expect(r.error).toMatch(/6 MB/)
+  })
+
+  it("una imagen chica pasa y una de 7 MiB no (triangulación)", () => {
+    expect(checkInvoiceImageBudget(1_500_000).ok).toBe(true)
+    const r = checkInvoiceImageBudget(7 * 1024 * 1024)
+    expect(r.ok).toBe(false)
+  })
+
+  it("0 bytes es un objeto vacío: 422, no se reserva cupo por nada", () => {
+    const r = checkInvoiceImageBudget(0)
+    expect(r.ok).toBe(false)
+    if (r.ok) return
+    expect(r.status).toBe(422)
+  })
+})
+
+describe("resolveOcrModel — allow-list", () => {
+  it("undefined, vacío y un modelo fuera de la lista caen al default con warning", () => {
+    for (const value of [undefined, "", "   ", "gpt-4.1"]) {
+      const r = resolveOcrModel(value)
+      expect(r.model).toBe("gpt-4o-mini")
+      expect(r.warning).toBeDefined()
+    }
+  })
+
+  it("el warning de un valor ignorado nombra el valor ignorado", () => {
+    expect(resolveOcrModel("gpt-4.1").warning).toMatch(/gpt-4\.1/)
+  })
+
+  it("gpt-4o y gpt-4o-mini se respetan sin warning", () => {
+    expect(resolveOcrModel("gpt-4o")).toEqual({ model: "gpt-4o" })
+    expect(resolveOcrModel("gpt-4o-mini")).toEqual({ model: "gpt-4o-mini" })
+  })
+})
+
+describe("encodeBase64Chunked", () => {
+  const ref = (bytes: Uint8Array) => Buffer.from(bytes).toString("base64")
+  const make = (n: number) => {
+    const b = new Uint8Array(n)
+    for (let i = 0; i < n; i++) b[i] = (i * 31 + 7) & 0xff
+    return b
+  }
+
+  it("es idéntico a la codificación de referencia en los bordes de bloque", () => {
+    for (const n of [0, 1, 2, 3, 32 * 1024 - 1, 32 * 1024, 32 * 1024 + 1]) {
+      expect(encodeBase64Chunked(make(n))).toBe(ref(make(n)))
+    }
+  })
+
+  it("codifica 5 MiB sin lanzar RangeError (el spread de N argumentos sí lo hacía)", () => {
+    const big = make(5 * 1024 * 1024)
+    expect(() => String.fromCharCode(...big)).toThrow(RangeError)
+    expect(encodeBase64Chunked(big)).toBe(ref(big))
+  })
+})
+
+describe("resolveInvoiceDownload — candado de doble clic (D4)", () => {
+  const NOW = Date.parse("2026-11-05T12:00:00.000Z")
+  const secondsAgo = (s: number) => new Date(NOW - s * 1000).toISOString()
+  const decide = (over: Partial<InvoiceDocumentRow>) => resolveInvoiceDownload(row(over), {}, NOW)
+
+  it("processing actualizada hace 5 s responde 409 «ya se está leyendo»", () => {
+    const d = decide({ status: "processing", updated_at: secondsAgo(5) })
+    expect(d.ok).toBe(false)
+    if (d.ok) return
+    expect(d.status).toBe(409)
+    expect(d.error).toBe("La factura ya se está leyendo")
+  })
+
+  it("processing de hace 120 s es una fila colgada: se puede reintentar", () => {
+    expect(decide({ status: "processing", updated_at: secondsAgo(120) }).ok).toBe(true)
+  })
+
+  it("el borde: 89 s bloquea y 90 s libera", () => {
+    expect(decide({ status: "processing", updated_at: secondsAgo(89) }).ok).toBe(false)
+    expect(decide({ status: "processing", updated_at: secondsAgo(90) }).ok).toBe(true)
+  })
+
+  it("processing sin updated_at no bloquea (no hay con qué medirlo)", () => {
+    expect(decide({ status: "processing", updated_at: null }).ok).toBe(true)
+  })
+
+  it("failed y pending se pueden reintentar; completed sigue siendo 409 «ya fue procesado»", () => {
+    expect(decide({ status: "failed", updated_at: secondsAgo(1) }).ok).toBe(true)
+    expect(decide({ status: "pending", updated_at: secondsAgo(1) }).ok).toBe(true)
+    const d = decide({ status: "completed", updated_at: secondsAgo(1) })
+    expect(d.ok).toBe(false)
+    if (d.ok) return
+    expect(d.status).toBe(409)
+    expect(d.error).toBe("Documento ya fue procesado")
   })
 })

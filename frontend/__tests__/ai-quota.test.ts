@@ -14,6 +14,8 @@ import { describe, it, expect, vi } from "vitest"
 import {
   checkAiQuota,
   incrementAiUsage,
+  mapAiReservation,
+  reserveAiUsage,
   type AiQuotaClient,
 } from "../../supabase/functions/_shared/ai-quota"
 
@@ -177,5 +179,82 @@ describe("checkAiQuota / incrementAiUsage (task 4.4)", () => {
     expect(requestedColumns).toMatch(/ai_queries_used/)
     expect(requestedColumns).toMatch(/ai_advice_used/)
     expect(requestedColumns).toMatch(/usage_reset_at/)
+  })
+})
+
+// ─── v31-ia-ratelimit-budget — reserva atómica (D6) ──────────────────────────
+
+describe("mapAiReservation — datos de la RPC a resultado (puro)", () => {
+  it("allowed:true concede", () => {
+    expect(mapAiReservation({ allowed: true, used: 3, limit: 5, reset_at: "2026-12-01T00:00:00+00:00" }, null)).toEqual({ kind: "allowed" })
+  })
+
+  it("quota_exceeded -> 429 con used, limit y resetAt (la PRÓXIMA renovación)", () => {
+    expect(
+      mapAiReservation({ allowed: false, reason: "quota_exceeded", used: 5, limit: 5, reset_at: "2026-12-01T00:00:00+00:00" }, null),
+    ).toEqual({
+      kind: "denied",
+      status: 429,
+      body: { ok: false, error: "quota_exceeded", resetAt: "2026-12-01T00:00:00+00:00", used: 5, limit: 5 },
+    })
+  })
+
+  it("rate_limited -> 429 con retryAfterSeconds en el body y como dato para el header", () => {
+    expect(mapAiReservation({ allowed: false, reason: "rate_limited", retry_after_seconds: 40 }, null)).toEqual({
+      kind: "denied",
+      status: 429,
+      body: { ok: false, error: "rate_limited", retryAfterSeconds: 40 },
+      retryAfterSeconds: 40,
+    })
+  })
+
+  it("error de la RPC -> 503 quota_unavailable (fail-closed, a diferencia de checkAiQuota)", () => {
+    expect(mapAiReservation(null, { message: "boom" })).toEqual({
+      kind: "unavailable",
+      status: 503,
+      body: { ok: false, error: "quota_unavailable" },
+    })
+  })
+
+  it("formas inesperadas -> 503, nunca concede por omisión", () => {
+    const unavailable = { kind: "unavailable", status: 503, body: { ok: false, error: "quota_unavailable" } }
+    for (const data of [null, undefined, "ok", 42, [], {}, { allowed: "true" }, { allowed: false }, { allowed: false, reason: "otra" },
+      { allowed: false, reason: "rate_limited" }, { allowed: false, reason: "rate_limited", retry_after_seconds: 0 },
+      { allowed: false, reason: "quota_exceeded", used: "5", limit: 5 }]) {
+      expect(mapAiReservation(data, null)).toEqual(unavailable)
+    }
+  })
+})
+
+describe("reserveAiUsage — llama a la RPC con el contador pedido", () => {
+  function reserveClient(result: { data: unknown; error: unknown }) {
+    const rpc = vi.fn(async () => result)
+    return { client: { rpc } as unknown as AiQuotaClient, rpc }
+  }
+
+  it("invoca rpc_reserve_ai_usage con p_counter ocr y mapea el resultado", async () => {
+    const { client, rpc } = reserveClient({ data: { allowed: true, used: 1, limit: 5, reset_at: "x" }, error: null })
+    const out = await reserveAiUsage(client, "ocr")
+    expect(rpc).toHaveBeenCalledTimes(1)
+    expect(rpc).toHaveBeenCalledWith("rpc_reserve_ai_usage", { p_counter: "ocr" })
+    expect(out).toEqual({ kind: "allowed" })
+  })
+
+  it("una RPC que rechaza con error se traduce a 503, no a una excepción", async () => {
+    const { client } = reserveClient({ data: null, error: { message: "P0503" } })
+    expect((await reserveAiUsage(client, "ocr")).kind).toBe("unavailable")
+  })
+
+  it("una RPC que LANZA (red caída) también es 503", async () => {
+    const rpc = vi.fn(async () => { throw new Error("network") })
+    const out = await reserveAiUsage({ rpc } as unknown as AiQuotaClient, "ocr")
+    expect(out.kind).toBe("unavailable")
+  })
+
+  it("checkAiQuota e incrementAiUsage siguen intactos (no consumen la reserva)", async () => {
+    const { client, rpcMock } = makeClient({})
+    await checkAiQuota(client, "u", "queries")
+    await incrementAiUsage(client, "u", "queries")
+    expect(rpcMock.mock.calls.map((c) => c[0])).not.toContain("rpc_reserve_ai_usage")
   })
 })

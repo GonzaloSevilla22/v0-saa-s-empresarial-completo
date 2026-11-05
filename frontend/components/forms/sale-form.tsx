@@ -45,13 +45,18 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { usePaymentMethods } from "@/hooks/data/use-payment-methods"
-import { bankAccountForKind } from "@/lib/types"
+import { bankAccountForKind, isBankPaymentKind } from "@/lib/types"
 import { humanizeOperationError } from "@/lib/operation-errors"
 import { useRouter } from "next/navigation"
 import { useCustomerAccount } from "@/hooks/data/use-customer-account"
 import { useBranches } from "@/hooks/data/use-branches"
 import { CashOptinBlock } from "@/components/cash/CashOptinBlock"
 import { useCashOptin } from "@/hooks/use-cash-optin"
+import { OperationEditPlanDialog } from "@/components/shared/OperationEditPlanDialog"
+import { useEditPlanFlow } from "@/hooks/use-edit-plan-flow"
+import { buildEditMoneyIntent } from "@/lib/money-intent"
+import { summarizeExecutedPlan } from "@/lib/money-plan"
+import type { SaleOperationUpdateVars } from "@/hooks/data/use-sales"
 
 interface SaleFormProps {
   onSuccess: () => void
@@ -62,7 +67,7 @@ interface SaleFormProps {
 export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
   const { products }                                     = useProducts()
   const { clients, addClient }                           = useClients()
-  const { addSaleOperation, updateSaleOperation }        = useSales()
+  const { addSaleOperation, updateSaleOperation, previewSaleOperationEdit } = useSales()
   const queryClient = useQueryClient()
   const { user }    = useAuth()
   const refreshData = () => queryClient.invalidateQueries()
@@ -160,16 +165,26 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
   const [paymentMethodId, setPaymentMethodId] = useState<string | null>(
     () => editingOperation?.paymentMethodId ?? null,
   )
-  // pos-banco-movimientos (D2/D9): override de la cuenta bancaria destino —
-  // sólo aplica en alta (la edición no tiene parámetro de banco en la RPC,
-  // ver D8: el guard bloquea la edición cuando YA hay un bank_movement).
-  const [bankAccountId, setBankAccountId] = useState<string | null>(null)
+  // pos-banco-movimientos (D2/D9): override de la cuenta bancaria destino.
+  // edicion-operaciones-con-dinero (D7): al editar parte de la cuenta de la huella vigente y SÓLO viaja si el
+  // usuario la cambia (`bankTouched`): reenviar el valor vigente sería una intención nueva.
+  const [bankAccountId, setBankAccountId] = useState<string | null>(() => editingOperation?.bankAccountId ?? null)
+  const [bankTouched, setBankTouched] = useState(false)
+  const handleBankAccountChange = useCallback((value: string | null) => {
+    setBankAccountId(value)
+    setBankTouched(true)
+  }, [])
+  // edicion-operaciones-con-dinero (D17): motivo opcional del cambio; queda en el historial de la operación.
+  const [reason, setReason] = useState("")
   // pagos-cableados-restantes (OQ-C): opt-in explícito de caja — el usuario
   // tilda la casilla, nunca se marca solo (D4: silenciosamente convertiría
   // toda venta retroactiva en una diferencia de arqueo — alternativa
   // descartada en el design). Sólo se envía cuando las tres condiciones de
   // servidor también se cumplen (ver cashOptinEligible más abajo).
-  const [registerInCash, setRegisterInCash] = useState(false)
+  // edicion-operaciones-con-dinero (D6): al editar, el tilde parte de lo que HAY — «Registrado en caja» si la operación tiene
+  // movimiento de caja vigente—, no de «desmarcado» como en el alta.
+  const hadCash = isEdit && !!editingOperation?.hasCashMovement
+  const [registerInCash, setRegisterInCash] = useState(() => hadCash)
 
   // ── Inline new client ───────────────────────────────────────────────────────
   const [showNewClient, setShowNewClient] = useState(false)
@@ -211,7 +226,12 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
     setDueDate: handleDueDateChange,
     effectiveTermsDays,
     valueForServer: dueDateForServer,
-  } = useDueDateCascade({ date, entityTermsDays: selectedClient?.paymentTermsDays })
+  } = useDueDateCascade({
+    date,
+    entityTermsDays: selectedClient?.paymentTermsDays,
+    // edicion-operaciones-con-dinero (D17): con cargo vigente, el campo arranca en SU vencimiento y no sigue la cascada.
+    initialDueDate: isEdit && editingOperation?.hasAccountCharge ? (editingOperation.chargeDueDate ?? null) : undefined,
+  })
 
   // ── pagos-cableados-restantes (OQ-C): opt-in de caja ────────────────────────
   // La sucursal EFECTIVA es la elegida en el form, o la primera activa de la
@@ -221,7 +241,8 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
   // `useCashOptin` — el formulario de gasto es el segundo consumidor del bloque
   // exacto. Extracción pura: mismos hooks, mismos predicados, mismos textos.
   const { branches } = useBranches()
-  const cashOptin = useCashOptin({ kind: resolvedKind, branchId, date, document: "venta" })
+  // edicion-operaciones-con-dinero (D6): corregir lo ya registrado en caja no exige que la fecha sea hoy (variante «corrección»).
+  const cashOptin = useCashOptin({ kind: resolvedKind, branchId, date, document: "venta", requiresDate: !hadCash })
   const isCashSelected = cashOptin.isCashSelected
   const effectiveBranchId = cashOptin.effectiveBranchId
   // Contexto para traducir errores de la RPC (bug prod 2026-08-24: el error de
@@ -243,12 +264,17 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
   // nativamente, sin diálogo nuevo.
   const showOperationError = useCallback(
     (prefix: string, rawMessage: string) => {
-      const { message, action } = humanizeOperationError(rawMessage, lookupProductName, effectiveBranchName)
+      // edicion-operaciones-con-dinero (15.2): al guardar una edición, los rechazos de dinero (caja cerrada, saldo, período
+      // conciliado) se redactan como edición, no como borrado.
+      const { message, action } = humanizeOperationError(rawMessage, lookupProductName, effectiveBranchName, {
+        intent: isEdit ? "edit" : undefined,
+        party: "cliente",
+      })
       toast.error(`${prefix}${message}`, action ? {
         action: { label: action.label, onClick: () => router.push(action.href) },
       } : undefined)
     },
-    [router, lookupProductName, effectiveBranchName],
+    [router, lookupProductName, effectiveBranchName, isEdit],
   )
 
   // Las TRES condiciones de servidor (D4) — el checkbox sólo aparece cuando
@@ -256,15 +282,21 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
   // silencio).
   const currentSession = cashOptin.session
   const cashOptinEligible = cashOptin.eligible
-  // caja-optin-carga: en el alta en efectivo, no se confirma mientras se averigua
-  // la sesión. En la edición no se ofrece caja, así que no se espera.
-  const cashPending = !isEdit && isCashSelected && cashOptin.isLoading
+  // caja-optin-carga: con efectivo elegido, no se confirma mientras se averigua la sesión
+  // (alta o edición: confirmar ahora mandaría la caja a ciegas).
+  const cashPending = isCashSelected && cashOptin.isLoading
 
   const cartTotal = useMemo(() => calcCartTotal(cartItems), [cartItems])
 
   // pagos-cableados-restantes (D8): saldo proyectado tras esta venta — mismo
   // patrón visual que /ventas/pos (0 si aún no resolvió la CustomerAccount).
-  const projectedBalance = (customerAccount?.balance ?? 0) + cartTotal
+  // edicion-operaciones-con-dinero: al EDITAR, el saldo de la cuenta ya incluye el cargo que esta venta tiene hoy (si es
+  // del mismo cliente): se descuenta para no contarlo dos veces. Es una estimación; el plan exacto lo da el servidor.
+  const alreadyCharged =
+    isEdit && editingOperation?.hasAccountCharge && (editingOperation.chargePartyId ?? editingOperation.clientId) === clientId
+      ? editingOperation.total
+      : 0
+  const projectedBalance = (customerAccount?.balance ?? 0) + cartTotal - alreadyCharged
 
   // ── Option lists ────────────────────────────────────────────────────────────
 
@@ -378,12 +410,82 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
     setNewClientPhone("")
   }
 
+  // ── edicion-operaciones-con-dinero (tanda C) ────────────────────────────────
+  // Las intenciones de dinero viajan SÓLO cuando el usuario las cambió (tri-estado por ausencia). El plan exacto —qué se
+  // compensa y qué se registra en cada libro— lo calcula el servidor con la misma RPC en seco (`previewSaleOperationEdit`).
+  const moneyIntent = buildEditMoneyIntent({
+    cash: {
+      finalKindIsCash: isCashSelected,
+      hadCash,
+      registerInCash,
+      branchChanged: isEdit && (branchId ?? null) !== (editingOperation?.branchId ?? null),
+      eligible: cashOptinEligible,
+      sessionId: currentSession?.id ?? null,
+    },
+    bank: { touched: bankTouched, kindIsBank: isBankPaymentKind(resolvedKind), value: bankAccountId },
+    due: { touched: dueDateTouched, isCredit: isCreditSelected, value: dueDate },
+    reason,
+  })
+
+  /** El payload de la edición: el MISMO para la vista previa y para guardar. */
+  function buildEditVars(): SaleOperationUpdateVars | null {
+    if (!isEdit || !editingOperation) return null
+    return {
+      saleIds: editingOperation.items.map(i => i.id),
+      newItems: cartItems,
+      meta: {
+        clientId: clientId || null,
+        date,
+        currency,
+        orgId: user?.accountId ?? "",
+        // metodos-pago-operaciones (D5): el form SIEMPRE manda el valor
+        // vigente en el selector (precargado o cambiado por el usuario)
+        // — nunca se omite, así que "reimputar con el mismo valor" y
+        // "preservar" son observacionalmente idénticos para quien edita.
+        paymentMethodId,
+        // edicion-preserva-contexto (F1 §D11): mismo criterio — el
+        // selector siempre está montado, así que branchId/canal viajan
+        // siempre con el valor vigente del form.
+        branchId,
+        canal,
+      },
+      money: moneyIntent,
+    }
+  }
+
+  // Se pide el plan cuando la operación ya tiene dinero registrado o la forma de pago elegida puede escribirlo; el servidor
+  // decide si hay algo que confirmar (sin cambios en ningún libro se guarda directo).
+  const hasMoneyFootprint =
+    isEdit && (!!editingOperation?.hasAccountCharge || hadCash || !!editingOperation?.hasBankMovement)
+  const needsPlan = isEdit && (hasMoneyFootprint || resolvedKind !== null)
+  const planFlow = useEditPlanFlow({
+    needsPlan,
+    preview: () => {
+      const vars = buildEditVars()
+      if (!vars) return Promise.reject(new Error("La operación ya no se puede editar."))
+      return previewSaleOperationEdit(vars)
+    },
+    execute: submitOperation,
+    onPreviewError: (err) => showOperationError("Error al calcular el cambio: ", err instanceof Error ? err.message : String(err)),
+  })
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (isFiscallyLocked) {
       // Defensa en profundidad: el botón ya está deshabilitado y el
       // fieldset ya bloquea los inputs — esto cubre un submit programático.
       toast.error("El comprobante fiscal de esta venta ya se envió a ARCA y no puede editarse.")
+      return
+    }
+    // edicion-operaciones-con-dinero: con dinero de por medio, el plan lo calcula el servidor y el usuario lo confirma (incluye
+    // el comprobante pendiente que se anula, así que reemplaza al diálogo de abajo).
+    if (isEdit && needsPlan) {
+      if (cashPending) return
+      if (cartItems.length === 0) {
+        toast.error("Agregá al menos un producto al carrito")
+        return
+      }
+      await planFlow.requestSave()
       return
     }
     // venta-editable-sin-cae: confirmación explícita ANTES de anular el
@@ -417,36 +519,16 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
       }
       setSubmitting(true)
       try {
-        const saleIds = editingOperation.items.map(i => i.id)
-        const result = await updateSaleOperation({
-          saleIds,
-          newItems: cartItems,
-          meta: {
-            clientId: clientId || null,
-            date,
-            currency,
-            orgId: user?.accountId ?? "",
-            // metodos-pago-operaciones (D5): el form SIEMPRE manda el valor
-            // vigente en el selector (precargado o cambiado por el usuario)
-            // — nunca se omite, así que "reimputar con el mismo valor" y
-            // "preservar" son observacionalmente idénticos para quien edita.
-            paymentMethodId,
-            // edicion-preserva-contexto (F1 §D11): mismo criterio — el
-            // selector siempre está montado, así que branchId/canal viajan
-            // siempre con el valor vigente del form.
-            branchId,
-            canal,
-          },
-        })
+        const result = await updateSaleOperation(buildEditVars() as SaleOperationUpdateVars)
         // venta-editable-sin-cae: el toast se arma con lo que dice el
         // SERVIDOR (`voided_fiscal_document`), no con lo que el cliente creía
         // antes de guardar: si la carrera contra el relay hizo que el servidor
         // bloqueara, llega un 409 y nunca se muestra un "anulado" falso.
         const voided = result?.voided_fiscal_document ?? null
+        // edicion-operaciones-con-dinero: y con lo que el servidor dice que EJECUTÓ en los libros (su plan, no el que mostramos).
+        const executed = summarizeExecutedPlan(result?.money ?? null, { party: "cliente" })
         toast.success(
-          voided
-            ? `✅ Cambios guardados — se anuló el comprobante ${voided.label}`
-            : "✅ Venta actualizada correctamente",
+          `${voided ? `✅ Cambios guardados — se anuló el comprobante ${voided.label}` : "✅ Venta actualizada correctamente"}${executed ? `. ${executed}` : ""}`,
         )
         await refreshData()
         onSuccess()
@@ -616,7 +698,7 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
               type="submit"
               ref={submitButtonRef}
               className="w-full"
-              disabled={submitting || cartItems.length === 0 || isFiscallyLocked || cashPending}
+              disabled={submitting || planFlow.previewing || cartItems.length === 0 || isFiscallyLocked || cashPending}
               aria-disabled={isFiscallyLocked}
               aria-describedby={
                 isFiscallyLocked
@@ -628,6 +710,8 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
             >
               {isFiscallyLocked
                 ? "No editable — comprobante enviado a ARCA"
+                : planFlow.previewing
+                ? "Calculando el cambio..."
                 : submitting
                 ? isEdit ? "Guardando..." : "Registrando..."
                 : isEdit
@@ -782,21 +866,19 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
           {/* ── Cuenta bancaria destino (pos-banco-movimientos D9) ──────────
               Contiguo al selector de forma de pago; cero render si el kind
               elegido no es bancario o la cuenta no tiene bancos cargados.
-              Sin equivalente en edición (D8: no hay parámetro de banco en
-              la RPC de edición). */}
-          {!isEdit && (
-            <BankAccountDestinationSelect
-              paymentMethodKind={resolvedKind}
-              value={bankAccountId}
-              onChange={setBankAccountId}
-              className="bg-background border-border text-foreground text-sm"
-            />
-          )}
+              edicion-operaciones-con-dinero (D7): también al editar, con la
+              cuenta de la huella vigente; sólo viaja si el usuario la cambia. */}
+          <BankAccountDestinationSelect
+            paymentMethodKind={resolvedKind}
+            value={bankAccountId}
+            onChange={handleBankAccountChange}
+            className="bg-background border-border text-foreground text-sm"
+          />
 
           {/* ── Bloque de cuenta corriente (pagos-cableados-restantes OQ-D) ──
               Mismo patrón visual que /ventas/pos (pos-catalogo-pagos D8):
               cliente obligatorio + saldo actual/proyectado, sólo con 'credit'. */}
-          {!isEdit && isCreditSelected && (
+          {isCreditSelected && (
             <div className="flex flex-col gap-1.5 rounded-md border border-border bg-accent/20 px-3 py-2 text-xs">
               {creditBlockedNoClient ? (
                 <div className="flex items-center gap-2 text-amber-700 dark:text-amber-400">
@@ -810,7 +892,7 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
                   <div className="flex items-center justify-between gap-2 text-muted-foreground">
                     <span>Saldo actual: {formatMoney(customerAccount?.balance ?? 0, "ARS")}</span>
                     <span className="font-medium text-foreground">
-                      Después de esta venta: {formatMoney(projectedBalance, "ARS")}
+                      {isEdit ? "Después de guardar" : "Después de esta venta"}: {formatMoney(projectedBalance, "ARS")}
                     </span>
                   </div>
                   {/* cobranzas-vencimientos (D11): vencimiento resuelto y
@@ -834,6 +916,8 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
                   <p className="text-[11px] text-muted-foreground">
                     {dueDateTouched && dueDate
                       ? "Vencimiento elegido para esta venta."
+                      : isEdit && editingOperation?.hasAccountCharge
+                      ? "Vencimiento vigente de esta venta: sólo cambia si lo modificás."
                       : effectiveTermsDays !== null
                       ? selectedClient?.paymentTermsDays != null
                         ? `Resuelto por el plazo del cliente (${effectiveTermsDays} días).`
@@ -851,12 +935,31 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
               efectiva + fecha=hoy) — si no, se explica el motivo (D4: nunca
               se oculta en silencio, y nunca se marca solo). Mientras se averigua
               la sesión (caja-optin-carga) se avisa y «Confirmar» espera. */}
-          {!isEdit && isCashSelected && (
+          {isCashSelected && (
             <CashOptinBlock
               cash={cashOptin}
               registerInCash={registerInCash}
               onRegisterInCashChange={setRegisterInCash}
+              hadFootprint={hadCash}
             />
+          )}
+
+          {/* ── Motivo del cambio (edicion-operaciones-con-dinero, D14/D17) ──
+              Opcional; queda en el historial de cambios de la operación. */}
+          {isEdit && (
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="sale-edit-reason" className="text-foreground text-sm">
+                Motivo del cambio <span className="text-muted-foreground font-normal">(opcional)</span>
+              </Label>
+              <Input
+                id="sale-edit-reason"
+                value={reason}
+                maxLength={500}
+                onChange={(e) => setReason(e.target.value)}
+                placeholder="Ej: precio cargado de más"
+                className="bg-background border-border text-foreground text-sm"
+              />
+            </div>
           )}
         </div>
 
@@ -875,6 +978,18 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
         />
       </ScrollableCartShell>
       </fieldset>
+
+      {/* edicion-operaciones-con-dinero (D13/D17): el plan que calculó el servidor, antes de guardar. */}
+      <OperationEditPlanDialog
+        open={planFlow.dialogOpen}
+        onOpenChange={planFlow.setDialogOpen}
+        preview={planFlow.preview}
+        party="cliente"
+        documentLabel="esta venta"
+        onConfirm={() => void planFlow.confirm()}
+        executing={planFlow.executing}
+        returnFocusRef={submitButtonRef}
+      />
 
       {/* venta-editable-sin-cae: confirmación EXPLÍCITA antes de anular el
           comprobante pendiente. Mismo patrón que operation-delete-compensation:

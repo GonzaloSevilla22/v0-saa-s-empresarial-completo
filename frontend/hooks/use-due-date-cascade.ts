@@ -32,6 +32,12 @@ export interface UseDueDateCascadeParams {
   date: string
   /** Plazo de la contraparte (cliente o proveedor); null/undefined = no tiene. */
   entityTermsDays: number | null | undefined
+  /**
+   * edicion-operaciones-con-dinero (tanda C): al EDITAR una operación que ya tiene cargo, el vencimiento VIGENTE
+   * (`null` = el cargo no tiene vencimiento). El campo arranca ahí y NO sigue a la cascada: el servidor conserva el vigente
+   * salvo que el usuario lo cambie. `undefined` (alta, o edición sin cargo previo) = seguir la cascada.
+   */
+  initialDueDate?: string | null
 }
 
 export interface DueDateCascadeState {
@@ -48,9 +54,10 @@ export interface DueDateCascadeState {
   valueForServer: string | null
 }
 
-export function useDueDateCascade({ date, entityTermsDays }: UseDueDateCascadeParams): DueDateCascadeState {
+export function useDueDateCascade({ date, entityTermsDays, initialDueDate }: UseDueDateCascadeParams): DueDateCascadeState {
   const { data: collectionSettings } = useCollectionSettings()
-  const [dueDate, setDueDateState] = useState("")
+  const followsCascade = initialDueDate === undefined
+  const [dueDate, setDueDateState] = useState(initialDueDate ?? "")
   const [touched, setTouched] = useState(false)
 
   const accountTermsDays = collectionSettings?.defaultPaymentTermsDays ?? null
@@ -61,8 +68,8 @@ export function useDueDateCascade({ date, entityTermsDays }: UseDueDateCascadePa
     effectiveTermsDays !== null && date ? addDaysToIsoDate(date, effectiveTermsDays) : ""
 
   useEffect(() => {
-    if (!touched) setDueDateState(resolvedDueDate)
-  }, [resolvedDueDate, touched])
+    if (!touched && followsCascade) setDueDateState(resolvedDueDate)
+  }, [resolvedDueDate, touched, followsCascade])
 
   const setDueDate = useCallback((value: string) => {
     setDueDateState(value)

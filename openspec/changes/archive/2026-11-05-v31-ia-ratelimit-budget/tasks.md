@@ -117,7 +117,7 @@ Una sola tanda de apply, con un solo agente. TDD estricto: cada grupo arranca en
   - (c) el bucket `invoices` admite PDF y 20 MiB, contra los 6 MiB de la función;
   - (d) la visibilidad de admin del uso de OCR, que pasa a H-20.
 - [x] 5.4 Correr la suite completa: los tests del grupo 2 y del grupo 4, `StatisticsAiPanel`, `tsc --noEmit` sin errores nuevos y el gate SQL. Registrar los números en el PR.
-- [ ] 5.5 *(pendiente: corre después del merge y del deploy)* Post-merge, sólo lectura en prod:
+- [x] 5.5 Post-merge, sólo lectura en prod (verificado 2026-11-05 07:02 UTC, tras el merge de #664 `465e801e` y el deploy): `max(version)=20261090000001` (337 migraciones); `rpc_reserve_ai_usage(text)` con una sola firma, SECURITY DEFINER, `search_path=""`, ACL `{postgres,authenticated,service_role}` (sin anon); `plan_limits.max_ai_ocr_per_month` gratis 5 / inicial 30 / avanzado 120 / pro 300; columnas `ai_ocr_used`/`ai_ocr_window_count`/`ai_ocr_window_started_at` presentes sin grants de columna a anon/authenticated; el cron `reset-ai-counters` resetea las 3 columnas de OCR; Edge Function `invoice-ocr` redeployada (versión 83, 07:01 UTC). Checklist original:
   - `max(version) = '20261090000001'`;
   - las columnas y el seed;
   - las ACL de la RPC;

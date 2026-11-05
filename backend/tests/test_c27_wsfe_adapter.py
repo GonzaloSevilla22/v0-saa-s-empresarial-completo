@@ -176,6 +176,7 @@ class TestWSFEAdapterMocked:
 
 
 @pytest.mark.integration
+@pytest.mark.arca
 class TestWSFEAdapterRealHomologacion:
     """Tests de integración real contra homologación de ARCA.
 

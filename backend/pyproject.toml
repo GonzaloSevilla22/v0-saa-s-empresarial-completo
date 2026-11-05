@@ -37,7 +37,8 @@ where = [".."]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 markers = [
-    "integration: tests de integración contra servicios externos (excluidos del gate de CI; correr con -m integration)",
+    "integration: requiere Postgres local (supabase start) o un servicio externo; el job hermético los deselecciona (-m \"not integration\") y el tier de CI de KPI_Validation.yml corre `integration and not arca`",
+    "arca: requiere credenciales o el servicio real de ARCA; nunca corre en CI (el tier lo excluye por expresión y su skip no se convierte en falla)",
 ]
 
 # Coverage del gate de CI (Backend_Tests.yml): medir solo código de app —

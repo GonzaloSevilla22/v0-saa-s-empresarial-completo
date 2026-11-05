@@ -6,8 +6,12 @@
 # La suite es HERMÉTICA: asyncpg/Redis/supabase mockeados (ver
 # backend/tests/conftest.py — ASGITransport in-process, JWT de test con
 # python-jose). No necesita supabase start ni servicios: corre en ~30s.
-# Los tests `-m integration` (servicios externos reales) quedan fuera del
-# gate por diseño — el marker lo documenta desde su creación.
+# Los tests `-m integration` (Postgres real) quedan fuera de ESTE job por diseño
+# (deseleccionados con `-m "not integration"`): corren en el tier de integración
+# de KPI_Validation.yml (paso «Run backend integration tests (Postgres real)»),
+# que ya tiene el stack de `supabase start` levantado y no lleva filtro de rutas
+# (v31-money-integration-tests, H-34). Los `arca` (servicio real de ARCA) no
+# corren en ningún job de CI.
 #
 # Coverage: solo código de app (omit de tests/ vía [tool.coverage.run] en
 # backend/pyproject.toml — pasado explícito con --cov-config porque

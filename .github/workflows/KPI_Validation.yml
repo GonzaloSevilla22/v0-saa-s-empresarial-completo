@@ -3935,3 +3935,42 @@ jobs:
       # reservas concurrentes sobre un único cupo. Asserta además el comando VIVO del cron reset-ai-counters.
       - name: Run OCR quota reservation gate (v31-ia-ratelimit-budget)
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_ia_ocr_cuota_reserva.sql
+
+      # ─────────────────────────────────────────────────────────────────────────
+      # v31-money-integration-tests (H-34): TIER DE INTEGRACIÓN contra el Postgres real de este job.
+      #
+      # Qué corre: los tests del backend marcados `integration` (menos los `arca`, que necesitan el
+      # servicio real de ARCA y nunca corren en CI): repositorios y RPCs de dinero ejercitados contra
+      # la base con la cadena completa de migraciones, hasta ahora sólo a mano. El job hermético
+      # (Backend_Tests.yml, `-m "not integration"`) los deselecciona y no puede cubrirlos.
+      #
+      # Por qué vive en ESTE job: el stack de `supabase start` ya está levantado (un segundo arranque
+      # cuesta ~1 min 30 s) y el workflow no tiene filtro de rutas, así que el check aparece en todo PR
+      # y puede volverse obligatorio sin quedar en «Expected — waiting» en los PRs que no tocan backend.
+      # Corre aunque un gate anterior haya fallado (`!cancelled()`): las dos señales se ven en la misma
+      # corrida, con su propio nombre.
+      #
+      # Fail-closed: CI_REQUIRE_INTEGRATION=1 convierte en FALLA todo skip de un test `integration`,
+      # aborta si la base no responde y si la selección queda vacía (backend/tests/integration_guard.py).
+      # Sin --cov a propósito (D8): el piso del 87% se mide sólo en el job hermético.
+      - name: Set up Python (integration tier)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install backend dependencies (integration tier)
+        # pypdf: sólo de tests (los de remitos/presupuestos extraen el texto del PDF); igual que Backend_Tests.yml.
+        run: pip install -r backend/requirements.txt pytest pytest-asyncio "pypdf>=4"
+
+      - name: Run backend integration tests (Postgres real) (v31-money-integration-tests)
+        if: ${{ !cancelled() }}
+        timeout-minutes: 10
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+          CI_REQUIRE_INTEGRATION: '1'
+          AUTH_ALLOW_HS256_FALLBACK: 'true'
+          REDIS_URL: ''
+          WSFE_ADAPTER_MODE: stub
+        run: python -m pytest backend/tests -m "integration and not arca" -p no:cacheprovider -q

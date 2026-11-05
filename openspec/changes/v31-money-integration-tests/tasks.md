@@ -21,9 +21,10 @@
 
 ## 2. Pasos del tier en `KPI_Validation.yml`
 
-- [ ] 2.1 Al final del job `validate-kpis`, agregar `actions/setup-python@v5` (`python-version: '3.12'`, `cache: 'pip'`, `cache-dependency-path: backend/requirements.txt`) y `pip install -r backend/requirements.txt pytest pytest-asyncio`.
-- [ ] 2.2 Agregar el paso «Run backend integration tests (Postgres real) (v31-money-integration-tests)» con `if: ${{ !cancelled() }}`, `timeout-minutes: 10`, el entorno `DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres`, `CI_REQUIRE_INTEGRATION: '1'`, `AUTH_ALLOW_HS256_FALLBACK: 'true'`, `REDIS_URL: ''` y `WSFE_ADAPTER_MODE: stub`, y el comando `python -m pytest backend/tests -m "integration and not arca" -p no:cacheprovider -q` **sin `--cov`** (D8). Si 0.4 lo pidió, anteponer `supabase db reset` en el mismo paso.
-- [ ] 2.3 Comentario de cabecera del paso: qué corre, por qué vive en este job (stack ya levantado, sin filtro de rutas) y la referencia a H-34. Corregir el comentario de cabecera de `Backend_Tests.yml` que dice que los tests `integration` «quedan fuera del gate por diseño» para que apunte a este paso (D9).
+- [x] 2.1 Al final del job `validate-kpis`, agregar `actions/setup-python@v5` (`python-version: '3.12'`, `cache: 'pip'`, `cache-dependency-path: backend/requirements.txt`) y `pip install -r backend/requirements.txt pytest pytest-asyncio`.
+  - **Desvío del design**: el `pip install` suma `"pypdf>=4"` (igual que `Backend_Tests.yml`): `test_delivery_notes_module_integration.py` y `test_quotes_module_integration.py` hacen `from pypdf import PdfReader` y sin él los 68 tests de esos dos archivos darían error de colección en CI.
+- [x] 2.2 Agregar el paso «Run backend integration tests (Postgres real) (v31-money-integration-tests)» con `if: ${{ !cancelled() }}`, `timeout-minutes: 10`, el entorno `DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres`, `CI_REQUIRE_INTEGRATION: '1'`, `AUTH_ALLOW_HS256_FALLBACK: 'true'`, `REDIS_URL: ''` y `WSFE_ADAPTER_MODE: stub`, y el comando `python -m pytest backend/tests -m "integration and not arca" -p no:cacheprovider -q` **sin `--cov`** (D8). Si 0.4 lo pidió, anteponer `supabase db reset` en el mismo paso.
+- [x] 2.3 Comentario de cabecera del paso: qué corre, por qué vive en este job (stack ya levantado, sin filtro de rutas) y la referencia a H-34. Corregir el comentario de cabecera de `Backend_Tests.yml` que dice que los tests `integration` «quedan fuera del gate por diseño» para que apunte a este paso (D9).
 
 ## 3. Fail-closed de los skips
 

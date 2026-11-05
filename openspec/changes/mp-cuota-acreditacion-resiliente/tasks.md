@@ -9,18 +9,18 @@
 
 ## 1. Núcleo compartido de reconciliación (D2, D3)
 
-- [ ] 1.1 RED (`test_subscriptions_service.py`): `reconcile_preapproval_charges` acredita una cuota `processed/approved` sin `billing_event` previo con `plan_expires_at = next_payment_date del preapproval + 10 días`, y la reporta en `applied`.
-- [ ] 1.2 RED: una cuota cuyo `billing_event` ya existía se reporta en `already_applied` y se aplica con `plan_expires_at=None` (D3) — caso real: preapproval con `next_payment_date` del mes siguiente y la cuota del mes en curso todavía `scheduled` → el vencimiento de la cuenta NO cambia.
-- [ ] 1.3 RED: un 5xx de `GET /preapproval` o de `/authorized_payments/search` levanta 502 antes de cualquier escritura (ningún `execute`).
-- [ ] 1.4 GREEN: extraer `reconcile_preapproval_charges(subscription, repo, conn)` del cuerpo de `replay_subscription_charges` (llamadas HTTP antes de cualquier transacción); `replay_subscription_charges` queda como envoltorio admin (404/409) que la llama. Sin duplicar ninguna escritura: todo efecto de dinero sigue en `_apply_approved_charge`.
-- [ ] 1.5 TRIANGULAR: los tests existentes del replay (H4: reaplicación que completa un correo faltante, orden por id, `last_payment_status` sin `scheduled`, `clear_pending_charge`) siguen verdes sin tocarlos, salvo los que asserteaban el vencimiento para cuotas ya acreditadas (ajustarlos a D3 y dejarlo dicho en el PR).
-- [ ] 1.6 Integración (`test_subscriptions_apply_approved_charge_integration.py`, Postgres real): `plan_expires_at=None` conserva el vencimiento vigente y completa el correo pendiente.
+- [x] 1.1 RED (`test_subscriptions_service.py`): `reconcile_preapproval_charges` acredita una cuota `processed/approved` sin `billing_event` previo con `plan_expires_at = next_payment_date del preapproval + 10 días`, y la reporta en `applied`.
+- [x] 1.2 RED: una cuota cuyo `billing_event` ya existía se reporta en `already_applied` y se aplica con `plan_expires_at=None` (D3) — caso real: preapproval con `next_payment_date` del mes siguiente y la cuota del mes en curso todavía `scheduled` → el vencimiento de la cuenta NO cambia.
+- [x] 1.3 RED: un 5xx de `GET /preapproval` o de `/authorized_payments/search` levanta 502 antes de cualquier escritura (ningún `execute`).
+- [x] 1.4 GREEN: extraer `reconcile_preapproval_charges(subscription, repo, conn)` del cuerpo de `replay_subscription_charges` (llamadas HTTP antes de cualquier transacción); `replay_subscription_charges` queda como envoltorio admin (404/409) que la llama. Sin duplicar ninguna escritura: todo efecto de dinero sigue en `_apply_approved_charge`.
+- [x] 1.5 TRIANGULAR: los tests existentes del replay (H4: reaplicación que completa un correo faltante, orden por id, `last_payment_status` sin `scheduled`, `clear_pending_charge`) siguen verdes sin tocarlos, salvo los que asserteaban el vencimiento para cuotas ya acreditadas (ajustarlos a D3 y dejarlo dicho en el PR).
+- [x] 1.6 Integración (`test_subscriptions_apply_approved_charge_integration.py`, Postgres real): `plan_expires_at=None` conserva el vencimiento vigente y completa el correo pendiente.
 
 ## 2. Serialización por suscripción (D7)
 
-- [ ] 2.1 RED (integración): dos aplicaciones concurrentes de la misma cuota con distinto `plan_expires_at` dejan UNA fila de `billing_events` y UNA de `email_logs`.
-- [ ] 2.2 GREEN: primera sentencia de la transacción de `_apply_approved_charge` = `SELECT pg_advisory_xact_lock(hashtextextended('subscription_charge:' || $1, 0))` con el `preapproval_id`.
-- [ ] 2.3 Verificar que `_claim_subscription_webhook_idempotency` sigue exigiendo transacción (#641) y que ningún camino nuevo lo llama fuera de una.
+- [x] 2.1 RED (integración): dos aplicaciones concurrentes de la misma cuota con distinto `plan_expires_at` dejan UNA fila de `billing_events` y UNA de `email_logs`.
+- [x] 2.2 GREEN: primera sentencia de la transacción de `_apply_approved_charge` = `SELECT pg_advisory_xact_lock(hashtextextended('subscription_charge:' || $1, 0))` con el `preapproval_id`.
+- [x] 2.3 Verificar que `_claim_subscription_webhook_idempotency` sigue exigiendo transacción (#641) y que ningún camino nuevo lo llama fuera de una.
 
 ## 3. Barrido programado (D4, D5)
 

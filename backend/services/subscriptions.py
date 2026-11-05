@@ -388,6 +388,17 @@ async def _apply_approved_charge(
         amount = decimal.Decimal(str(amount))
 
     async with conn.transaction():
+        # mp-cuota-acreditacion-resiliente D7: barrido, webhook de la cuota,
+        # webhook `payment` y replay pueden aplicar la misma cuota a la vez.
+        # El correo se deduplica con `NOT EXISTS`, que bajo dos transacciones
+        # concurrentes no ve la fila de la otra: se serializa por suscripción
+        # con un lock transaccional (se libera solo al cerrar la transacción,
+        # o la externa si esta corre como savepoint). `fetchval` y no
+        # `execute`: la sentencia no escribe nada.
+        await conn.fetchval(
+            "SELECT pg_advisory_xact_lock(hashtextextended('subscription_charge:' || $1::text, 0))",
+            preapproval_id,
+        )
         await conn.execute(
             """
             UPDATE public.accounts
@@ -975,6 +986,186 @@ async def _apply_authorized_payment_notification(
 
 # ── Reproceso admin de cobros históricos (H3 hotfix 2026-09-04) ───────────
 
+async def _fetch_preapproval_and_charges(preapproval_id: str) -> tuple[dict, list[dict]]:
+    """Las dos consultas a MercadoPago de una reconciliación — el
+    preapproval (estado y `next_payment_date` vigentes) y TODAS sus cuotas
+    (`/authorized_payments/search`) — hechas ANTES de abrir cualquier
+    transacción (patrón de #641: ninguna transacción sostenida durante un
+    round-trip de red).
+
+    Cualquier falla de MercadoPago —un status distinto de 200 o un corte de
+    red de httpx— corta con 502 sin haber escrito nada: el webhook devuelve
+    502 y MercadoPago reintenta; el barrido lo cuenta como error y vuelve a
+    intentar en la corrida siguiente (mp-cuota-acreditacion-resiliente D2).
+
+    Devuelve `(preapproval, cuotas)` con las cuotas ordenadas por id de
+    MercadoPago (ver NIT F9 abajo)."""
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            preapproval_resp = await _get_preapproval(client, preapproval_id)
+            if preapproval_resp.status_code != 200:
+                logger.error(
+                    "[subscriptions] reconcile: MP API error %s al consultar preapproval %s",
+                    preapproval_resp.status_code, preapproval_id,
+                )
+                raise HTTPException(status_code=502, detail="No se pudo consultar la suscripción en MercadoPago")
+            preapproval_data = preapproval_resp.json()
+
+            payments_resp = await client.get(
+                "https://api.mercadopago.com/authorized_payments/search",
+                params={"preapproval_id": preapproval_id},
+                headers={"Authorization": f"Bearer {settings.mercadopago_access_token}"},
+            )
+            if payments_resp.status_code != 200:
+                logger.error(
+                    "[subscriptions] reconcile: MP API error %s al buscar authorized_payments de %s",
+                    payments_resp.status_code, preapproval_id,
+                )
+                raise HTTPException(status_code=502, detail="No se pudieron consultar las cuotas en MercadoPago")
+            payments_data = payments_resp.json()
+    except httpx.HTTPError as exc:
+        logger.error(
+            "[subscriptions] reconcile: MercadoPago inalcanzable para el preapproval %s (%s)",
+            preapproval_id, type(exc).__name__,
+        )
+        raise HTTPException(status_code=502, detail="No se pudo consultar MercadoPago") from exc
+
+    # el shape documentado de /authorized_payments/search es
+    # {"paging": {...}, "results": [...]} — defensivo por si alguna vez
+    # llega como lista pelada.
+    cuotas = payments_data.get("results") if isinstance(payments_data, dict) else payments_data
+    cuotas = cuotas or []
+    # NIT (revisor adversarial tanda6, F9): el orden real es por id de
+    # MercadoPago (monótono creciente), NO "cronológico"/"por fecha" — si
+    # algún id no es numérico (p.ej. ids sintéticos de test), la lista queda
+    # tal cual la devolvió MercadoPago, sin ordenar. Importa para
+    # `last_payment_status` (deriva de la ÚLTIMA cuota por este mismo
+    # criterio) — derivar fuera de orden dejaría un valor viejo pisando uno
+    # más nuevo.
+    try:
+        cuotas = sorted(cuotas, key=lambda c: int(c.get("id")))
+    except (TypeError, ValueError):
+        pass
+    return (preapproval_data if isinstance(preapproval_data, dict) else {}), cuotas
+
+
+async def reconcile_preapproval_charges(
+    subscription,
+    repo: SubscriptionsRepository,
+    conn: asyncpg.Connection,
+) -> dict:
+    """ÚNICA definición de "acreditar las cuotas aprobadas de un
+    preapproval contra la verdad de MercadoPago"
+    (mp-cuota-acreditacion-resiliente D2). La consumen tres caminos:
+
+    - el replay admin (`replay_subscription_charges`, red manual);
+    - el barrido horario (`reconcile_due_subscriptions`, red principal);
+    - el webhook `payment` de un cobro de suscripción con
+      `metadata.preapproval_id` conocido (`services.payments.process_payment`,
+      acelerador).
+
+    Caso real que lo motivó: la cuota de noviembre 2026 (7033613241 / pago
+    187789722328, $24.900) se cobró y MercadoPago nunca notificó la cuota
+    `processed`; el plan quedó a punto de vencer con el mes pagado.
+
+    `subscription` necesita `account_id` (no nulo — el caller lo garantiza),
+    `preapproval_id` y `plan`. Todo efecto de dinero pasa por
+    `_apply_approved_charge` (idempotente, serializado por preapproval — D7),
+    nunca por una segunda copia.
+
+    D3 — el vencimiento sólo lo mueve una cuota acreditada por PRIMERA vez:
+    una cuota cuyo `billing_event` ya existía al empezar la corrida se
+    reaplica con `plan_expires_at=None` (el `COALESCE` conserva el vencimiento
+    vigente; las demás escrituras completan una aplicación parcial, que es la
+    razón de ser del replay H4). Antes, reaplicar la cuota de octubre con el
+    `next_payment_date` ya adelantado por MercadoPago extendía el plan un mes
+    sin cobro; con un barrido horario eso habría sido sistemático.
+
+    Devuelve `{"applied": [...], "already_applied": [...]}` (ids de cuota)."""
+    preapproval_id = subscription["preapproval_id"]
+    preapproval_data, cuotas = await _fetch_preapproval_and_charges(preapproval_id)
+
+    # Mismo criterio que el webhook de cuotas (`_plan_expiry_after`): el
+    # vencimiento es el siguiente ciclo VIGENTE del preapproval + gracia —
+    # no el `debit_date` de la cuota, que dejaba el plan venciendo diez días
+    # después del último cobro.
+    next_cycle = _parse_mp_datetime(preapproval_data.get("next_payment_date"))
+    new_charge_expiry = _plan_expiry_after(next_cycle)
+
+    applied: list[str] = []
+    already_applied: list[str] = []
+
+    for cuota in cuotas:
+        payment = cuota.get("payment") or {}
+        if not _is_approved_charge(cuota):
+            continue
+        authorized_payment_id = str(cuota.get("id"))
+
+        mercadopago_payment_id = str(payment["id"]) if payment.get("id") else None
+        # H4 hotfix: la clasificación se decide ANTES de aplicar (el
+        # billing_event existía o no existía cuando arrancó esta corrida) —
+        # pero se aplica SIEMPRE, exista o no, para completar cualquier
+        # escritura parcial que hubiera quedado pendiente de una corrida
+        # anterior interrumpida a mitad.
+        billing_event_existed = bool(
+            mercadopago_payment_id and await repo.has_billing_event_for_payment(mercadopago_payment_id)
+        )
+
+        await _apply_approved_charge(
+            conn,
+            account_id=subscription["account_id"],
+            plan=subscription["plan"],
+            preapproval_id=preapproval_id,
+            authorized_payment_id=authorized_payment_id,
+            mercadopago_payment_id=mercadopago_payment_id,
+            amount=cuota.get("transaction_amount"),
+            # D3: una cuota ya acreditada nunca mueve el vencimiento.
+            plan_expires_at=None if billing_event_existed else new_charge_expiry,
+        )
+        if billing_event_existed:
+            already_applied.append(authorized_payment_id)
+        else:
+            applied.append(authorized_payment_id)
+
+    # item B (3), residuo (d) de mp-real-subscriptions: last_payment_status
+    # derivado de la ÚLTIMA cuota que representó un intento de cobro REAL —
+    # misma regla que el webhook de cuotas: aprobado si processed+approved,
+    # si no el status del pago con reserva en el de la cuota. None si no
+    # hubo ninguna cuota (update_subscription_status hace COALESCE).
+    #
+    # F1 fix (revisor adversarial tanda6): una cuota `scheduled` (cobro
+    # futuro, todavía no ocurrido) NUNCA representa el "último cobro" — se
+    # excluye ANTES de tomar la última.
+    last_payment_status: str | None = None
+    charged = [c for c in cuotas if c.get("status") != "scheduled"]
+    if charged:
+        latest_cuota = charged[-1]
+        latest_payment = latest_cuota.get("payment") or {}
+        if latest_cuota.get("status") == "processed" and latest_payment.get("status") == "approved":
+            last_payment_status = "approved"
+        else:
+            last_payment_status = latest_payment.get("status") or latest_cuota.get("status")
+
+    # trae el estado/vencimiento LOCAL de subscriptions al día con la verdad
+    # vigente de MP, independientemente de si hubo alguna cuota para replicar.
+    mp_status = preapproval_data.get("status")
+    if mp_status:
+        await repo.update_subscription_status(
+            preapproval_id,
+            mp_status,
+            next_payment_date=next_cycle,
+            last_payment_status=last_payment_status,
+        )
+
+    # cualquier cuota processed/approved encontrada (nueva o ya aplicada)
+    # significa que este preapproval ya está cubierto — el marcador de
+    # "cobro pendiente de replicar" quedó obsoleto en cualquiera de los 2 casos.
+    if applied or already_applied:
+        await repo.clear_pending_charge(preapproval_id)
+
+    return {"applied": applied, "already_applied": already_applied}
+
+
 async def replay_subscription_charges(
     subscription_id: str,
     repo: SubscriptionsRepository,
@@ -1024,137 +1215,8 @@ async def replay_subscription_charges(
             detail="Esta suscripción todavía no tiene una cuenta asignada — resolvela primero",
         )
 
-    preapproval_id = subscription["preapproval_id"]
-
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        preapproval_resp = await _get_preapproval(client, preapproval_id)
-        if preapproval_resp.status_code != 200:
-            logger.error(
-                "[subscriptions] replay-charges: MP API error %s al consultar preapproval %s",
-                preapproval_resp.status_code, preapproval_id,
-            )
-            raise HTTPException(status_code=502, detail="No se pudo consultar la suscripción en MercadoPago")
-        preapproval_data = preapproval_resp.json()
-
-        payments_resp = await client.get(
-            "https://api.mercadopago.com/authorized_payments/search",
-            params={"preapproval_id": preapproval_id},
-            headers={"Authorization": f"Bearer {settings.mercadopago_access_token}"},
-        )
-        if payments_resp.status_code != 200:
-            logger.error(
-                "[subscriptions] replay-charges: MP API error %s al buscar authorized_payments de %s",
-                payments_resp.status_code, preapproval_id,
-            )
-            raise HTTPException(status_code=502, detail="No se pudieron consultar las cuotas en MercadoPago")
-        payments_data = payments_resp.json()
-
-    # el shape documentado de /authorized_payments/search es
-    # {"paging": {...}, "results": [...]} — defensivo por si alguna vez
-    # llega como lista pelada.
-    cuotas = payments_data.get("results") if isinstance(payments_data, dict) else payments_data
-    cuotas = cuotas or []
-    # NIT (revisor adversarial tanda6, F9): el orden real es por id de
-    # MercadoPago (monótono creciente), NO "cronológico"/"por fecha" como
-    # decía este comentario antes — el try/except de abajo es la verdad
-    # completa: si algún id no es numérico (p.ej. ids sintéticos de test),
-    # la lista queda tal cual la devolvió MercadoPago, sin ordenar. Importa
-    # para `last_payment_status` (deriva de la ÚLTIMA cuota por este mismo
-    # criterio, ver más abajo) — derivar fuera de orden dejaría un valor
-    # viejo pisando uno más nuevo.
-    try:
-        cuotas = sorted(cuotas, key=lambda c: int(c.get("id")))
-    except (TypeError, ValueError):
-        pass
-
-    # Mismo criterio que el webhook de cuotas (`_plan_expiry_after`): el
-    # vencimiento es el siguiente ciclo VIGENTE del preapproval + gracia,
-    # igual para todas las cuotas — no el `debit_date` de cada una, que
-    # dejaba el plan venciendo diez días después del último cobro.
-    next_cycle = (
-        _parse_mp_datetime(preapproval_data.get("next_payment_date"))
-        if isinstance(preapproval_data, dict)
-        else None
-    )
-    plan_expires_at = _plan_expiry_after(next_cycle)
-
-    applied: list[str] = []
-    already_applied: list[str] = []
-
-    for cuota in cuotas:
-        payment = cuota.get("payment") or {}
-        if not _is_approved_charge(cuota):
-            continue
-        authorized_payment_id = str(cuota.get("id"))
-
-        mercadopago_payment_id = str(payment["id"]) if payment.get("id") else None
-        # H4 hotfix: la clasificación se decide ANTES de aplicar (el
-        # billing_event existía o no existía cuando arrancó esta corrida) —
-        # pero se aplica SIEMPRE, exista o no, para completar cualquier
-        # escritura parcial que hubiera quedado pendiente de una corrida
-        # anterior interrumpida a mitad (ver docstring de esta función).
-        billing_event_existed = bool(
-            mercadopago_payment_id and await repo.has_billing_event_for_payment(mercadopago_payment_id)
-        )
-
-        await _apply_approved_charge(
-            conn,
-            account_id=subscription["account_id"],
-            plan=subscription["plan"],
-            preapproval_id=preapproval_id,
-            authorized_payment_id=authorized_payment_id,
-            mercadopago_payment_id=mercadopago_payment_id,
-            amount=cuota.get("transaction_amount"),
-            plan_expires_at=plan_expires_at,
-        )
-        if billing_event_existed:
-            already_applied.append(authorized_payment_id)
-        else:
-            applied.append(authorized_payment_id)
-
-    # item B (3), residuo (d) de mp-real-subscriptions: last_payment_status
-    # derivado de la ÚLTIMA cuota que representó un intento de cobro REAL
-    # (cuotas ya vienen ordenadas por id de MP arriba, ver NIT F9 en esa
-    # sección) — misma regla que el webhook de cuotas
-    # (process_subscription_authorized_payment_notification): aprobado si
-    # processed+approved, si no el status del pago con reserva en el de la
-    # cuota. None si no hubo ninguna cuota — update_subscription_status ya
-    # hace COALESCE, así que no pisa un valor previo.
-    #
-    # F1 fix (revisor adversarial tanda6): una cuota `scheduled` (cobro
-    # futuro, todavía no ocurrido) NUNCA representa el "último cobro" — se
-    # excluye ANTES de tomar la última. Antes de este fix, una cuota
-    # scheduled al final de la lista (orden por id ascendente) pisaba un
-    # 'approved' correcto con 'scheduled', mostrado sin traducir en
-    # /facturacion ("Último cobro: scheduled").
-    last_payment_status: str | None = None
-    charged = [c for c in cuotas if c.get("status") != "scheduled"]
-    if charged:
-        latest_cuota = charged[-1]
-        latest_payment = latest_cuota.get("payment") or {}
-        if latest_cuota.get("status") == "processed" and latest_payment.get("status") == "approved":
-            last_payment_status = "approved"
-        else:
-            last_payment_status = latest_payment.get("status") or latest_cuota.get("status")
-
-    # trae el estado/vencimiento LOCAL de subscriptions al día con la verdad
-    # vigente de MP, independientemente de si hubo alguna cuota para replicar.
-    mp_status = preapproval_data.get("status") if isinstance(preapproval_data, dict) else None
-    if mp_status:
-        await repo.update_subscription_status(
-            preapproval_id,
-            mp_status,
-            next_payment_date=next_cycle,
-            last_payment_status=last_payment_status,
-        )
-
-    # cualquier cuota processed/approved encontrada (nueva o ya aplicada)
-    # significa que este preapproval ya está cubierto — el marcador de
-    # "cobro pendiente de replicar" quedó obsoleto en cualquiera de los 2 casos.
-    if applied or already_applied:
-        await repo.clear_pending_charge(preapproval_id)
-
-    return {"ok": True, "applied": applied, "already_applied": already_applied}
+    result = await reconcile_preapproval_charges(subscription, repo, conn)
+    return {"ok": True, **result}
 
 
 # ── Cola de ambiguos — Descartar (residuo (b) de mp-real-subscriptions,

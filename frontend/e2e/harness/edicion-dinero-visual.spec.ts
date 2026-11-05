@@ -26,6 +26,13 @@ const VIEWPORTS = [
   { name: 'mobile-375', width: 375, height: 812 },
 ] as const
 
+// Los formularios viven en un cuerpo que se desplaza por dentro (ScrollableCartShell, 80vh): para que la captura muestre TODOS los
+// bloques de dinero a la vez se usa un alto generoso. Los diálogos y el historial usan el alto real de un teléfono / un notebook.
+const FORM_VIEWPORTS = [
+  { name: 'desktop-1366', width: 1366, height: 1300 },
+  { name: 'mobile-375', width: 375, height: 1500 },
+] as const
+
 const THEMES = ['light', 'dark'] as const
 
 test.beforeAll(() => {
@@ -45,40 +52,6 @@ async function sinDesborde(page: Page) {
 for (const vp of VIEWPORTS) {
   for (const theme of THEMES) {
     const tag = `${vp.name}-${theme}`
-
-    test(`formulario de venta a crédito en edición — ${tag}`, async ({ page }) => {
-      await page.setViewportSize({ width: vp.width, height: vp.height })
-      await abrir(page, `theme=${theme}&view=venta`, (p) => p.getByLabel(/Vencimiento/i))
-      await expect(page.getByLabel(/Vencimiento/i)).toHaveValue('2026-12-01')
-      await expect(page.getByText(/Después de guardar/i)).toBeVisible()
-      await expect(page.getByLabel(/Motivo del cambio/i)).toBeVisible()
-      await page.screenshot({ path: `${SHOT_DIR}/formulario-venta-credito-${tag}.png`, fullPage: true })
-      await sinDesborde(page)
-    })
-
-    test(`formulario de venta en efectivo en edición — ${tag}`, async ({ page }) => {
-      await page.setViewportSize({ width: vp.width, height: vp.height })
-      await abrir(page, `theme=${theme}&view=venta-caja`, (p) => p.getByText(/Registrado en caja/i))
-      await expect(page.getByRole('checkbox')).toHaveAttribute('data-state', 'checked')
-      await page.screenshot({ path: `${SHOT_DIR}/formulario-venta-efectivo-${tag}.png`, fullPage: true })
-      await sinDesborde(page)
-    })
-
-    test(`formulario de compra a crédito en edición — ${tag}`, async ({ page }) => {
-      await page.setViewportSize({ width: vp.width, height: vp.height })
-      await abrir(page, `theme=${theme}&view=compra`, (p) => p.getByLabel(/Vencimiento/i))
-      await expect(page.getByText(/Después de guardar/i)).toBeVisible()
-      await page.screenshot({ path: `${SHOT_DIR}/formulario-compra-credito-${tag}.png`, fullPage: true })
-      await sinDesborde(page)
-    })
-
-    test(`formulario de gasto en efectivo en edición — ${tag}`, async ({ page }) => {
-      await page.setViewportSize({ width: vp.width, height: vp.height })
-      await abrir(page, `theme=${theme}&view=gasto`, (p) => p.getByText(/Registrado en caja/i))
-      await expect(page.getByLabel(/Motivo del cambio/i)).toBeVisible()
-      await page.screenshot({ path: `${SHOT_DIR}/formulario-gasto-efectivo-${tag}.png`, fullPage: true })
-      await sinDesborde(page)
-    })
 
     test(`diálogo del plan SIN bloqueo (cuenta corriente) — ${tag}`, async ({ page }) => {
       await page.setViewportSize({ width: vp.width, height: vp.height })
@@ -144,3 +117,44 @@ for (const vp of VIEWPORTS) {
     })
   }
 }
+
+for (const vp of FORM_VIEWPORTS) {
+  for (const theme of THEMES) {
+    const tag = `${vp.name}-${theme}`
+
+    test(`formulario de venta a crédito en edición — ${tag}`, async ({ page }) => {
+      await page.setViewportSize({ width: vp.width, height: vp.height })
+      await abrir(page, `theme=${theme}&view=venta`, (p) => p.getByLabel(/Vencimiento/i))
+      await expect(page.getByLabel(/Vencimiento/i)).toHaveValue('2026-12-01')
+      await expect(page.getByText(/Después de guardar/i)).toBeVisible()
+      await expect(page.getByLabel(/Motivo del cambio/i)).toBeVisible()
+      await page.screenshot({ path: `${SHOT_DIR}/formulario-venta-credito-${tag}.png`, fullPage: true })
+      await sinDesborde(page)
+    })
+
+    test(`formulario de venta en efectivo en edición — ${tag}`, async ({ page }) => {
+      await page.setViewportSize({ width: vp.width, height: vp.height })
+      await abrir(page, `theme=${theme}&view=venta-caja`, (p) => p.getByText(/Registrado en caja/i))
+      await expect(page.getByRole('checkbox')).toHaveAttribute('data-state', 'checked')
+      await page.screenshot({ path: `${SHOT_DIR}/formulario-venta-efectivo-${tag}.png`, fullPage: true })
+      await sinDesborde(page)
+    })
+
+    test(`formulario de compra a crédito en edición — ${tag}`, async ({ page }) => {
+      await page.setViewportSize({ width: vp.width, height: vp.height })
+      await abrir(page, `theme=${theme}&view=compra`, (p) => p.getByLabel(/Vencimiento/i))
+      await expect(page.getByText(/Después de guardar/i)).toBeVisible()
+      await page.screenshot({ path: `${SHOT_DIR}/formulario-compra-credito-${tag}.png`, fullPage: true })
+      await sinDesborde(page)
+    })
+
+    test(`formulario de gasto en efectivo en edición — ${tag}`, async ({ page }) => {
+      await page.setViewportSize({ width: vp.width, height: vp.height })
+      await abrir(page, `theme=${theme}&view=gasto`, (p) => p.getByText(/Registrado en caja/i))
+      await expect(page.getByLabel(/Motivo del cambio/i)).toBeVisible()
+      await page.screenshot({ path: `${SHOT_DIR}/formulario-gasto-efectivo-${tag}.png`, fullPage: true })
+      await sinDesborde(page)
+    })
+  }
+}
+

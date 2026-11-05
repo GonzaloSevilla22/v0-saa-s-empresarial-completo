@@ -95,3 +95,15 @@ layout ni scroll ante `wheel`/`touchmove` (RED de `tasks.md` 1.1/2.1).
   que el arnés lo monta con estados sintéticos. Spec:
   `e2e/harness/cash-optin-carga.spec.ts` (guarda las capturas en
   `CASH_OPTIN_SHOT_DIR`, por defecto `test-results/cash-optin-carga`).
+- `/dev-harness/edicion-dinero?theme=light|dark&view=venta|venta-caja|compra|gasto|lista&plan=cuenta|caja|bloqueo` —
+  edicion-operaciones-con-dinero (tanda C, 16.1): los formularios REALES de
+  edición (`SaleForm`, `PurchaseForm`, `ExpenseForm`) y el listado de ventas con
+  su «Historial de cambios», contra un backend simulado por intercept de
+  `window.fetch` (catálogos de formas de pago, cuenta corriente, cajas, sesión,
+  vista previa del plan y `.../edits`). `plan` elige lo que responde la vista
+  previa: `cuenta` (revierte y registra el cargo), `caja` (sale lo que había
+  entrado y entra lo nuevo) o `bloqueo` (caja cerrada + saldo negativo, con la
+  confirmación deshabilitada). Es la pasada visual de las 4 combinaciones
+  (1366 / 375 × claro / oscuro). Spec: `e2e/harness/edicion-dinero-visual.spec.ts`
+  (capturas en `EDICION_DINERO_SHOT_DIR`, por defecto
+  `openspec/changes/edicion-operaciones-con-dinero/evidence/tanda-c`).

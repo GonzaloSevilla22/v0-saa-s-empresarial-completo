@@ -80,7 +80,7 @@ export function OperationEditPlanDialog({
             ¿Guardar los cambios de {documentLabel}?
           </AlertDialogTitle>
           <AlertDialogDescription asChild>
-            <div className="space-y-2 text-sm text-muted-foreground">
+            <div className="space-y-2 text-left text-sm text-muted-foreground">
               <p>Esto es lo que va a pasar con el dinero de la operación:</p>
               <MoneyPlanList title="Se va a ajustar:" items={items} />
               {blocked && (

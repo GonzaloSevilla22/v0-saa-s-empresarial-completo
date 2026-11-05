@@ -26,7 +26,7 @@ interface MoneyPlanListProps {
 export function MoneyPlanList({ title, items, className }: MoneyPlanListProps) {
   if (items.length === 0) return null
   return (
-    <div className={cn("rounded-md border border-border bg-accent/30 p-3", className)}>
+    <div className={cn("rounded-md border border-border bg-accent/30 p-3 text-left", className)}>
       <p className="mb-1.5 font-medium text-foreground">{title}</p>
       <ul className="list-disc space-y-1 pl-4">
         {items.map((item) => {

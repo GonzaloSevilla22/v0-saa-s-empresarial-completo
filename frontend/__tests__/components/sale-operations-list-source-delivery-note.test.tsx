@@ -15,6 +15,10 @@ import { SaleOperationsList } from "@/components/ventas/sale-operations-list"
 import type { Sale } from "@/lib/types"
 import type { PaginationMeta } from "@/lib/pagination-utils"
 
+// edicion-operaciones-con-dinero (tanda C): el detalle expandido monta el historial de cambios, que consulta por react-query + python-client.
+vi.mock("@/hooks/data/use-operation-edit", () => ({
+  useOperationEditHistory: () => ({ data: [], isLoading: false, isError: false, refetch: vi.fn() }),
+}))
 vi.mock("@/hooks/data/use-fiscal-profile", () => ({ useFiscalProfile: () => ({ profile: null }) }))
 vi.mock("@/hooks/data/use-points-of-sale", () => ({ usePointsOfSale: () => ({ pointsOfSale: [] }) }))
 vi.mock("@/hooks/data/use-promote-to-order", () => ({ usePromoteToOrder: () => ({ mutateAsync: vi.fn() }) }))

@@ -18,7 +18,7 @@ import { useAuth } from "@/contexts/auth-context"
 import { useUnitsOfMeasure } from "@/hooks/use-units-of-measure"
 import { formatMoney } from "@/lib/format"
 import type { PurchaseOperation } from "@/lib/group-operations"
-import { bankAccountForKind, type PaymentMethodKind } from "@/lib/types"
+import { bankAccountForKind, isBankPaymentKind } from "@/lib/types"
 import {
   unitInputStep,
   unitInputMin,
@@ -48,6 +48,12 @@ import { BranchSelect } from "@/components/branches/BranchSelect"
 // convierte un remito de compra.
 import { PurchaseCheckoutFields } from "@/components/compras/PurchaseCheckoutFields"
 import { usePurchaseCheckout } from "@/hooks/use-purchase-checkout"
+import { useDueDateCascade } from "@/hooks/use-due-date-cascade"
+import { OperationEditPlanDialog } from "@/components/shared/OperationEditPlanDialog"
+import { useEditPlanFlow } from "@/hooks/use-edit-plan-flow"
+import { buildEditMoneyIntent } from "@/lib/money-intent"
+import { summarizeExecutedPlan } from "@/lib/money-plan"
+import type { PurchaseOperationUpdateVars } from "@/hooks/data/use-purchases"
 
 interface PurchaseFormProps {
   onSuccess: () => void
@@ -59,7 +65,7 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
   const isEdit = !!editingOperation
 
   const { products, addProduct }                           = useProducts()
-  const { addPurchaseOperation, updatePurchaseOperation } = usePurchases()
+  const { addPurchaseOperation, updatePurchaseOperation, previewPurchaseOperationEdit } = usePurchases()
   // compras-proveedor-cuenta-corriente (D10): mismo patrón que useClients en
   // SaleForm — combobox buscable + alta inline.
   // review C (F1): isLoading/isError entran al cálculo del hint de "proveedor
@@ -150,10 +156,17 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
     setPaymentMethodId(v)
     setPaymentMethodTouched(true)
   }, [])
-  // pos-banco-movimientos (D2/D9): override de la cuenta bancaria destino
-  // del egreso — sólo en alta (espejo de SaleForm; la edición no tiene
-  // parámetro de banco en la RPC, D8).
-  const [bankAccountId, setBankAccountId] = useState<string | null>(null)
+  // pos-banco-movimientos (D2/D9): override de la cuenta bancaria destino del egreso.
+  // edicion-operaciones-con-dinero (D7): al editar parte de la cuenta de la huella vigente y SÓLO viaja si el usuario la
+  // cambia (`bankTouched`) — espejo de SaleForm.
+  const [bankAccountId, setBankAccountId] = useState<string | null>(() => editingOperation?.bankAccountId ?? null)
+  const [bankTouched, setBankTouched] = useState(false)
+  const handleBankAccountChange = useCallback((value: string | null) => {
+    setBankAccountId(value)
+    setBankTouched(true)
+  }, [])
+  // edicion-operaciones-con-dinero (D14/D17): motivo opcional del cambio; queda en el historial de la operación.
+  const [reason, setReason] = useState("")
   // compras-proveedor-cuenta-corriente (D4/D7): proveedor imputado a la
   // operación. Precargado al editar desde editingOperation.supplierId.
   const [supplierId, setSupplierId] = useState<string | null>(
@@ -196,6 +209,12 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
     supplierId,
     total: cartTotal,
     isEdit,
+    // edicion-operaciones-con-dinero: el bloque de caja parte de lo que HAY, y el saldo estimado no cuenta dos veces el cargo vigente.
+    hadCash: isEdit && !!editingOperation?.hasCashMovement,
+    alreadyCharged:
+      isEdit && editingOperation?.hasAccountCharge && (editingOperation.chargePartyId ?? editingOperation.supplierId) === supplierId
+        ? editingOperation.total
+        : 0,
   })
   const resolvedKind = checkout.kind
   const paymentMethods = checkout.paymentMethods
@@ -218,10 +237,14 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
   )
   const showOperationError = useCallback(
     (prefix: string, rawMessage: string) => {
-      const { message } = humanizeOperationError(rawMessage, lookupProductName)
+      // edicion-operaciones-con-dinero (15.2): al guardar una edición, los rechazos de dinero se redactan como edición.
+      const { message } = humanizeOperationError(rawMessage, lookupProductName, undefined, {
+        intent: isEdit ? "edit" : undefined,
+        party: "proveedor",
+      })
       toast.error(`${prefix}${message}`)
     },
-    [lookupProductName],
+    [lookupProductName, isEdit],
   )
 
   // compras-proveedor-cuenta-corriente (D6/OQ-D): kind=credit exige proveedor
@@ -261,30 +284,9 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
     !!supplierId &&
     !suppliers.some((s) => s.id === supplierId)
 
-  // review B (F3): kind ORIGINAL de la operación (antes de cualquier cambio
-  // en este form) — distingue "ya era crédito" (D7: editable sin postear
-  // nada) de "está TRANSICIONANDO a crédito" (server: credit_transition_not_
-  // allowed, batch A). Comparación por KIND, no por payment_method_id: dos
-  // formas de pago distintas con el mismo kind='credit' no son una transición.
-  //
-  // review C (F2): el resultado es TRI-ESTADO, no "kind o null":
-  //   "none" → la operación no tenía forma de pago. Pasarla a crédito SÍ es una
-  //            transición (el servidor: v_old_kind NULL IS DISTINCT FROM
-  //            'credit' ⇒ credit_transition_not_allowed).
-  //   kind   → resuelto contra el catálogo COMPLETO (incluye las dadas de baja,
-  //            ver usePaymentMethods(isEdit) arriba).
-  //   null   → todavía no se pudo resolver (la query no respondió). DESCONOCIDO
-  //            no es "no era crédito": antes se colapsaban los tres casos en
-  //            null y una operación que YA era a crédito mostraba el aviso
-  //            "borrala y volvé a cargarla" — un camino de corrección
-  //            innecesario para una edición que el servidor acepta.
-  const originalKind = useMemo<PaymentMethodKind | "none" | null>(() => {
-    if (!editingOperation) return null
-    if (!editingOperation.paymentMethodId) return "none"
-    return paymentMethods.find((pm) => pm.id === editingOperation.paymentMethodId)?.kind ?? null
-  }, [paymentMethods, editingOperation])
-  const isTransitioningToCredit =
-    isEdit && isCreditSelected && originalKind !== null && originalKind !== "credit"
+  // edicion-operaciones-con-dinero (tanda C): pasar a crédito desde otra forma de pago ya NO se rechaza
+  // (`credit_transition_not_allowed` se retiró): la edición compensa lo que haya y registra el cargo nuevo. Lo que el servidor
+  // no admite, lo dice el plan de la confirmación.
 
   // Resolve selected unit from the map (O(1) vs O(n) Array.find)
   const selectedUnit = useMemo(
@@ -561,8 +563,98 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
     setSupplierTouched(true)
   }
 
+  // ── edicion-operaciones-con-dinero (tanda C) ────────────────────────────────
+  // Vencimiento de la deuda con el proveedor: con cargo vigente arranca en SU vencimiento (no sigue la cascada) y sólo viaja si
+  // el usuario lo cambia. Mismo hook que usa la venta y el diálogo del remito de compra.
+  const selectedSupplier = suppliers.find((sp) => sp.id === supplierId)
+  const hasCharge = isEdit && !!editingOperation?.hasAccountCharge
+  const dueDateState = useDueDateCascade({
+    date,
+    entityTermsDays: selectedSupplier?.paymentTermsDays,
+    initialDueDate: hasCharge ? (editingOperation?.chargeDueDate ?? null) : undefined,
+  })
+
+  // Las intenciones de dinero viajan SÓLO cuando el usuario las cambió (tri-estado por ausencia).
+  const hadCash = isEdit && !!editingOperation?.hasCashMovement
+  const moneyIntent = buildEditMoneyIntent({
+    cash: {
+      finalKindIsCash: checkout.kind === "cash",
+      hadCash,
+      registerInCash: checkout.registerInCash,
+      branchChanged: isEdit && (branchId ?? null) !== (editingOperation?.branchId ?? null),
+      eligible: checkout.cash.eligible,
+      sessionId: checkout.cash.session?.id ?? null,
+    },
+    bank: { touched: bankTouched, kindIsBank: isBankPaymentKind(resolvedKind), value: bankAccountId },
+    due: { touched: dueDateState.touched, isCredit: isCreditSelected, value: dueDateState.dueDate },
+    reason,
+  })
+
+  /** El payload de la edición: el MISMO para la vista previa y para guardar. */
+  function buildEditVars(): PurchaseOperationUpdateVars | null {
+    if (!isEdit || !editingOperation) return null
+    return {
+      purchaseIds: editingOperation.items.map(i => i.id),
+      newItems: cartItems,
+      meta: {
+        date,
+        description,
+        orgId: user?.accountId ?? "",
+        // metodos-pago-operaciones (D5): ver el comentario espejo en sale-form.tsx.
+        paymentMethodId,
+        // edicion-preserva-contexto (F1 §D11): mismo criterio — el
+        // selector siempre está montado, así que branchId viaja siempre
+        // con el valor vigente del form.
+        branchId,
+        // review B (F2): supplierId SOLO viaja si el usuario tocó el
+        // selector (o creó un proveedor inline) — a diferencia de
+        // branchId/paymentMethodId de arriba. Antes se reenviaba SIEMPRE el
+        // valor vigente del form, lo que rompía en silencio cuando el
+        // selector no podía resolver un proveedor dado de baja
+        // (supplierId prefillado pero fuera de la lista → el usuario
+        // nunca lo tocó y el submit igual lo desimputaba).
+        ...(supplierTouched ? { supplierId } : {}),
+        // review B (FE-1/OQ-5 A): mismo patrón "tocado" para
+        // costCenterId — el CostCenterSelect estaba montado sin ningún
+        // efecto real en la edición.
+        ...(costCenterTouched ? { costCenterId } : {}),
+      },
+      money: moneyIntent,
+    }
+  }
+
+  // Se pide el plan cuando la operación ya tiene dinero registrado o la forma de pago elegida puede escribirlo; el servidor
+  // decide si hay algo que confirmar (sin cambios en ningún libro se guarda directo).
+  const hasMoneyFootprint = isEdit && (hasCharge || hadCash || !!editingOperation?.hasBankMovement)
+  const needsPlan = isEdit && (hasMoneyFootprint || resolvedKind !== null)
+  const planFlow = useEditPlanFlow({
+    needsPlan,
+    preview: () => {
+      const vars = buildEditVars()
+      if (!vars) return Promise.reject(new Error("La operación ya no se puede editar."))
+      return previewPurchaseOperationEdit(vars)
+    },
+    execute: submitOperation,
+    onPreviewError: (err) => showOperationError("Error al calcular el cambio: ", err instanceof Error ? err.message : String(err)),
+  })
+  const submitButtonRef = useRef<HTMLButtonElement>(null)
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+    if (isEdit && needsPlan) {
+      if (checkout.cashPending) return
+      if (cartItems.length === 0) {
+        toast.error("Agregá al menos un producto al carrito")
+        return
+      }
+      await planFlow.requestSave()
+      return
+    }
+    await submitOperation()
+  }
+
+  /** El submit real: lo comparten el submit directo y la confirmación del plan. */
+  async function submitOperation() {
     // caja-optin-carga: defensa en profundidad — el botón ya está deshabilitado
     // mientras se averigua la sesión, pero un submit por otra vía (Enter) no
     // puede registrar la compra en efectivo sin caja a ciegas.
@@ -578,35 +670,10 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
     if (isEdit && editingOperation) {
       setSubmitting(true)
       try {
-        const purchaseIds = editingOperation.items.map(i => i.id)
-        await updatePurchaseOperation({
-          purchaseIds,
-          newItems: cartItems,
-          meta: {
-            date,
-            description,
-            orgId: user?.accountId ?? "",
-            // metodos-pago-operaciones (D5): ver el comentario espejo en sale-form.tsx.
-            paymentMethodId,
-            // edicion-preserva-contexto (F1 §D11): mismo criterio — el
-            // selector siempre está montado, así que branchId viaja siempre
-            // con el valor vigente del form.
-            branchId,
-            // review B (F2): supplierId SOLO viaja si el usuario tocó el
-            // selector (o creó un proveedor inline) — a diferencia de
-            // branchId/paymentMethodId de arriba. Antes se reenviaba SIEMPRE
-            // el valor vigente del form, lo que rompía en silencio cuando el
-            // selector no podía resolver un proveedor dado de baja
-            // (supplierId prefillado pero fuera de la lista → el usuario
-            // nunca lo tocó y el submit igual lo desimputaba).
-            ...(supplierTouched ? { supplierId } : {}),
-            // review B (FE-1/OQ-5 A): mismo patrón "tocado" para
-            // costCenterId — el CostCenterSelect estaba montado sin ningún
-            // efecto real en la edición.
-            ...(costCenterTouched ? { costCenterId } : {}),
-          },
-        })
-        toast.success("✅ Compra actualizada correctamente")
+        const result = await updatePurchaseOperation(buildEditVars() as PurchaseOperationUpdateVars)
+        // edicion-operaciones-con-dinero: con lo que el servidor dice que EJECUTÓ en los libros (su plan, no el que mostramos).
+        const executed = summarizeExecutedPlan(result?.money ?? null, { party: "proveedor" })
+        toast.success(`✅ Compra actualizada correctamente${executed ? `. ${executed}` : ""}`)
         await refreshData()
         onSuccess()
       } catch (err: any) {
@@ -719,10 +786,13 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
 
             <Button
               type="submit"
+              ref={submitButtonRef}
               className="w-full"
-              disabled={submitting || cartItems.length === 0 || submitBlockedNoSupplier || checkout.cashPending}
+              disabled={submitting || planFlow.previewing || cartItems.length === 0 || submitBlockedNoSupplier || checkout.cashPending}
             >
-              {submitting
+              {planFlow.previewing
+                ? "Calculando el cambio..."
+                : submitting
                 ? isEdit ? "Guardando..." : "Registrando..."
                 : isEdit
                 ? `Guardar cambios (${cartItems.length} ítem${cartItems.length !== 1 ? "s" : ""})`
@@ -751,8 +821,10 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
           paymentMethodId={paymentMethodId}
           onPaymentMethodChange={handlePaymentMethodChange}
           bankAccountId={bankAccountId}
-          onBankAccountChange={setBankAccountId}
-          isTransitioningToCredit={isTransitioningToCredit}
+          onBankAccountChange={handleBankAccountChange}
+          showDueDate={isEdit}
+          dueDate={dueDateState}
+          dueDateIsCurrent={hasCharge}
           afterDate={
             <>
               <div className="flex flex-col gap-2">
@@ -813,6 +885,24 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
             </>
           }
         />
+
+        {/* ── Motivo del cambio (edicion-operaciones-con-dinero, D14/D17) ──
+            Opcional; queda en el historial de cambios de la operación. */}
+        {isEdit && (
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="purchase-edit-reason" className="text-foreground text-sm">
+              Motivo del cambio <span className="text-muted-foreground font-normal">(opcional)</span>
+            </Label>
+            <Input
+              id="purchase-edit-reason"
+              value={reason}
+              maxLength={500}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="Ej: costo cargado de más"
+              className="bg-background border-border text-foreground text-sm"
+            />
+          </div>
+        )}
 
         <div className="border-t border-border" />
 
@@ -1009,6 +1099,18 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
           </Button>
         </div>
       </ScrollableCartShell>
+
+      {/* edicion-operaciones-con-dinero (D13/D17): el plan que calculó el servidor, antes de guardar. */}
+      <OperationEditPlanDialog
+        open={planFlow.dialogOpen}
+        onOpenChange={planFlow.setDialogOpen}
+        preview={planFlow.preview}
+        party="proveedor"
+        documentLabel="esta compra"
+        onConfirm={() => void planFlow.confirm()}
+        executing={planFlow.executing}
+        returnFocusRef={submitButtonRef}
+      />
     </form>
   )
 }

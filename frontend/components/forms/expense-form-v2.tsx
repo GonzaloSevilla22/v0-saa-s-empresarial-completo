@@ -1,12 +1,12 @@
 "use client"
 
-import { useState } from "react"
+import { useCallback, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { NumericInput } from "@/components/ui/numeric-input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { useAddExpense, useUpdateExpense } from "@/hooks/data/use-expenses-query"
+import { previewExpenseEdit, useAddExpense, useUpdateExpense } from "@/hooks/data/use-expenses-query"
 import { EXPENSE_CATEGORIES } from "@/lib/constants"
 import { CalendarIcon } from "lucide-react"
 import { toast } from "sonner"
@@ -22,6 +22,11 @@ import { useBankAccounts } from "@/hooks/data/use-bank-accounts"
 import { CashOptinBlock } from "@/components/cash/CashOptinBlock"
 import { useCashOptin } from "@/hooks/use-cash-optin"
 import { argentinaToday } from "@/lib/date-range"
+import { OperationEditPlanDialog } from "@/components/shared/OperationEditPlanDialog"
+import { useEditPlanFlow } from "@/hooks/use-edit-plan-flow"
+import { buildEditMoneyIntent } from "@/lib/money-intent"
+import { summarizeExecutedPlan } from "@/lib/money-plan"
+import { humanizeOperationError } from "@/lib/operation-errors"
 
 interface ExpenseFormProps {
   onSuccess: () => void
@@ -42,9 +47,17 @@ export function ExpenseForm({ onSuccess, initialData }: ExpenseFormProps) {
   const [costCenterId,  setCostCenterId]  = useState<string | null>(initialData?.costCenterId  ?? null)
   // ── gastos-forma-pago ─────────────────────────────────────────────────────
   const [paymentMethodId, setPaymentMethodId] = useState<string | null>(initialData?.paymentMethodId ?? null)
-  // D5: override de la cuenta bancaria de origen. Sólo en el alta — la edición
-  // no postea movimientos (D11), así que `rpc_update_expense` ni lo recibe.
-  const [bankAccountId, setBankAccountId] = useState<string | null>(null)
+  // D5: override de la cuenta bancaria de origen.
+  // edicion-operaciones-con-dinero (D7): la edición YA compensa y registra en el banco; parte de la cuenta de la huella
+  // vigente y SÓLO viaja si el usuario la cambia (`bankTouched`).
+  const [bankAccountId, setBankAccountId] = useState<string | null>(() => initialData?.bankAccountId ?? null)
+  const [bankTouched, setBankTouched] = useState(false)
+  const handleBankAccountChange = useCallback((value: string | null) => {
+    setBankAccountId(value)
+    setBankTouched(true)
+  }, [])
+  // edicion-operaciones-con-dinero (D14/D17): motivo opcional del cambio; queda en el historial.
+  const [reason, setReason] = useState("")
   /**
    * D1 / OQ-1 firmada por el PO: el opt-in de caja arranca PRE-MARCADO, al
    * revés que el formulario de venta. La asimetría es deliberada: la venta
@@ -52,7 +65,10 @@ export function ExpenseForm({ onSuccess, initialData }: ExpenseFormProps) {
    * ventas retroactivas; el gasto no tiene esa deuda (0 de 175 tocaron caja
    * jamás) y el pedido del PO es literalmente que concilien caja.
    */
-  const [registerInCash, setRegisterInCash] = useState(true)
+  // edicion-operaciones-con-dinero (D6): al EDITAR parte de lo que HAY — «Registrado en caja» si el gasto tiene movimiento
+  // de caja vigente, desmarcado si no (el pre-marcado es del alta).
+  const hadCash = isEdit && !!initialData?.hasCashMovement
+  const [registerInCash, setRegisterInCash] = useState(() => (isEdit ? hadCash : true))
 
   // El `kind` se resuelve del catálogo, nunca se escribe a mano.
   const { paymentMethods } = usePaymentMethods(isEdit)
@@ -63,16 +79,64 @@ export function ExpenseForm({ onSuccess, initialData }: ExpenseFormProps) {
   // tenants no podrían registrar un gasto por transferencia.
   const { data: bankAccounts } = useBankAccounts()
   const hasActiveBankAccounts = (bankAccounts ?? []).some((b) => b.isActive)
-  const bankAccountRequired = !isEdit && isBankPaymentKind(resolvedKind) && hasActiveBankAccounts
+  // En la edición sólo se exige cuando la forma de pago pasó a bancaria (el servidor pide destino cuando el kind cambia).
+  const kindChanged = isEdit && resolvedKind !== (initialData?.paymentMethodKind ?? null)
+  const bankAccountRequired =
+    isBankPaymentKind(resolvedKind) && hasActiveBankAccounts && (isEdit ? kindChanged && !bankAccountId : true)
 
   // D16: mismo hook que el formulario de venta — las tres condiciones no se
   // reescriben, se reusan.
-  const cashOptin = useCashOptin({ kind: resolvedKind, branchId, date, document: "gasto" })
-  const showCashBlock = !isEdit && cashOptin.isCashSelected
-  // caja-optin-carga: en el alta en efectivo, no se confirma mientras se averigua
-  // la sesión (el opt-in nace PRE-MARCADO: confirmar ahora registraría el gasto
-  // sin caja, en silencio). En la edición no se ofrece caja, así que no se espera.
+  // edicion-operaciones-con-dinero (D6): corregir lo ya registrado en caja no exige que la fecha sea hoy (variante «corrección»).
+  const cashOptin = useCashOptin({ kind: resolvedKind, branchId, date, document: "gasto", requiresDate: !hadCash })
+  const showCashBlock = cashOptin.isCashSelected
+  // caja-optin-carga: con efectivo elegido, no se confirma mientras se averigua la
+  // sesión (alta o edición: confirmar ahora mandaría la caja a ciegas, en silencio).
   const cashPending = showCashBlock && cashOptin.isLoading
+
+  // ── edicion-operaciones-con-dinero (tanda C) ────────────────────────────────
+  // Las intenciones de dinero viajan SÓLO cuando el usuario las cambió (tri-estado por ausencia). El plan exacto lo calcula el
+  // servidor con la misma RPC en seco (`previewExpenseEdit`).
+  const moneyIntent = buildEditMoneyIntent({
+    cash: {
+      finalKindIsCash: cashOptin.isCashSelected,
+      hadCash,
+      registerInCash,
+      branchChanged: isEdit && (branchId ?? null) !== (initialData?.branchId ?? null),
+      eligible: cashOptin.eligible,
+      sessionId: cashOptin.session?.id ?? null,
+    },
+    bank: { touched: bankTouched, kindIsBank: isBankPaymentKind(resolvedKind), value: bankAccountId },
+    due: { touched: false, isCredit: false, value: "" },
+    reason,
+  })
+
+  /** El payload de la edición: el MISMO para la vista previa y para guardar. */
+  function buildEditInput() {
+    return {
+      ...(initialData as Expense),
+      category, description, amount, date,
+      costCenterId, branchId, paymentMethodId,
+      money: moneyIntent,
+    }
+  }
+
+  const showEditError = useCallback((prefix: string, error: unknown) => {
+    const raw = error instanceof Error ? error.message : typeof error === "string" ? error : "Error desconocido"
+    const { message } = humanizeOperationError(raw, undefined, undefined, { intent: "edit" })
+    toast.error(`${prefix}${message}`)
+  }, [])
+
+  // Se pide el plan cuando el gasto ya tiene dinero registrado o la forma de pago elegida puede escribirlo; el servidor decide
+  // si hay algo que confirmar (sin cambios en ningún libro se guarda directo). Un gasto no tiene cuenta corriente.
+  const hasMoneyFootprint = isEdit && (hadCash || !!initialData?.hasBankMovement)
+  const needsPlan = isEdit && (hasMoneyFootprint || resolvedKind !== null)
+  const submitButtonRef = useRef<HTMLButtonElement>(null)
+  const planFlow = useEditPlanFlow({
+    needsPlan,
+    preview: () => previewExpenseEdit(buildEditInput()),
+    execute: persist,
+    onPreviewError: (error) => showEditError("Error al calcular el cambio: ", error),
+  })
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -99,15 +163,21 @@ export function ExpenseForm({ onSuccess, initialData }: ExpenseFormProps) {
       toast.error("Elegí la cuenta bancaria de la que sale el dinero")
       return
     }
+    if (isEdit && needsPlan) {
+      await planFlow.requestSave()
+      return
+    }
+    await persist()
+  }
+
+  /** El guardado real: lo comparten el submit directo y la confirmación del plan. */
+  async function persist() {
     try {
       if (isEdit && initialData) {
-        // Tri-estado por presencia de la clave: el formulario controla los
-        // tres campos, así que los tres viajan siempre (D12).
-        await updateExpenseMutation.mutateAsync({
-          ...initialData, category, description, amount, date,
-          costCenterId, branchId, paymentMethodId,
-        })
-        toast.success("Gasto actualizado")
+        const result = await updateExpenseMutation.mutateAsync(buildEditInput())
+        // edicion-operaciones-con-dinero: con lo que el servidor dice que EJECUTÓ en los libros (su plan, no el que mostramos).
+        const executed = summarizeExecutedPlan(result?.money ?? null, { party: "proveedor" })
+        toast.success(`Gasto actualizado${executed ? `. ${executed}` : ""}`)
       } else {
         await addExpenseMutation.mutateAsync({
           date, category, description, amount, branchId, costCenterId,
@@ -124,9 +194,13 @@ export function ExpenseForm({ onSuccess, initialData }: ExpenseFormProps) {
       onSuccess()
     } catch (error: unknown) {
       console.error("Expense form error:", error)
+      if (isEdit) {
+        showEditError("Error al actualizar gasto: ", error)
+        return
+      }
       const errorMsg =
         error instanceof Error ? error.message : typeof error === "string" ? error : "Error desconocido"
-      toast.error(`Error al ${isEdit ? "actualizar" : "registrar"} gasto: ${errorMsg}`)
+      toast.error(`Error al registrar gasto: ${errorMsg}`)
     }
   }
 
@@ -197,17 +271,17 @@ export function ExpenseForm({ onSuccess, initialData }: ExpenseFormProps) {
         className="bg-background border-border text-foreground text-sm"
       />
 
-      {/* ── Cuenta bancaria de origen (D5, obligatoria en el alta) ── */}
-      {!isEdit && (
-        <BankAccountDestinationSelect
-          paymentMethodKind={resolvedKind}
-          value={bankAccountId}
-          onChange={setBankAccountId}
-          required
-          showEmptyNotice
-          className="bg-background border-border text-foreground text-sm"
-        />
-      )}
+      {/* ── Cuenta bancaria de origen (D5, obligatoria en el alta) ──
+          edicion-operaciones-con-dinero (D7): también al editar, con la cuenta de la huella; sólo se exige si la forma de pago
+          pasó a bancaria, y sólo viaja si el usuario la cambia. */}
+      <BankAccountDestinationSelect
+        paymentMethodKind={resolvedKind}
+        value={bankAccountId}
+        onChange={handleBankAccountChange}
+        required={bankAccountRequired}
+        showEmptyNotice
+        className="bg-background border-border text-foreground text-sm"
+      />
 
       {/* ── Opt-in de caja (D1, pre-marcado — OQ-1) ────────────────
           Las tres condiciones las verifica el servidor; acá se muestran para
@@ -220,6 +294,7 @@ export function ExpenseForm({ onSuccess, initialData }: ExpenseFormProps) {
           cash={cashOptin}
           registerInCash={registerInCash}
           onRegisterInCashChange={setRegisterInCash}
+          hadFootprint={hadCash}
         />
       )}
 
@@ -245,9 +320,39 @@ export function ExpenseForm({ onSuccess, initialData }: ExpenseFormProps) {
         className="bg-background border-border text-foreground text-sm"
       />
 
-      <Button type="submit" className="w-full" disabled={cashPending}>
-        {isEdit ? "Guardar cambios" : "Registrar gasto"}
+      {/* ── Motivo del cambio (edicion-operaciones-con-dinero, D14/D17) ──
+          Opcional; queda en el historial de cambios del gasto. */}
+      {isEdit && (
+        <div className="flex flex-col gap-2">
+          <Label htmlFor="expense-edit-reason" className="text-foreground text-sm">
+            Motivo del cambio <span className="text-muted-foreground font-normal">(opcional)</span>
+          </Label>
+          <Input
+            id="expense-edit-reason"
+            value={reason}
+            maxLength={500}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="Ej: importe cargado de más"
+            className="bg-background border-border text-foreground text-sm"
+          />
+        </div>
+      )}
+
+      <Button type="submit" ref={submitButtonRef} className="w-full" disabled={cashPending || planFlow.previewing}>
+        {planFlow.previewing ? "Calculando el cambio..." : isEdit ? "Guardar cambios" : "Registrar gasto"}
       </Button>
+
+      {/* edicion-operaciones-con-dinero (D13/D17): el plan que calculó el servidor, antes de guardar. */}
+      <OperationEditPlanDialog
+        open={planFlow.dialogOpen}
+        onOpenChange={planFlow.setDialogOpen}
+        preview={planFlow.preview}
+        party="proveedor"
+        documentLabel="este gasto"
+        onConfirm={() => void planFlow.confirm()}
+        executing={planFlow.executing}
+        returnFocusRef={submitButtonRef}
+      />
     </form>
   )
 }

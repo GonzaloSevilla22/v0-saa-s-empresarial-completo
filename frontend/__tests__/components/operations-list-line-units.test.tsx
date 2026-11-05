@@ -17,6 +17,10 @@ import type { PaginationMeta } from "@/lib/pagination-utils"
 
 const exportToCSVMock = vi.hoisted(() => vi.fn())
 
+// edicion-operaciones-con-dinero (tanda C): el detalle expandido monta el historial de cambios, que consulta por react-query + python-client.
+vi.mock("@/hooks/data/use-operation-edit", () => ({
+  useOperationEditHistory: () => ({ data: [], isLoading: false, isError: false, refetch: vi.fn() }),
+}))
 vi.mock("@/lib/excel", () => ({ exportToCSV: exportToCSVMock }))
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
 vi.mock("@/hooks/data/use-fiscal-profile", () => ({ useFiscalProfile: () => ({ profile: null }) }))

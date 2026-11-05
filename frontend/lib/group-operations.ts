@@ -61,6 +61,13 @@ export interface SaleOperation {
   /** presupuestos-modulo (OQ-P16): ALGUNA fila de la operación es un concepto sin
    * producto (línea de servicio). Un OR: una operación mixta también lo es. */
   hasServiceLines: boolean
+  /** edicion-operaciones-con-dinero (D15): datos VIGENTES de la huella neta, para precargar la edición. La PRIMERA fila que los trae
+   * (todas las líneas de una operación comparten cargo, caja y banco). */
+  chargeDueDate?: string | null
+  chargePartyId?: string | null
+  cashCashboxId?: string | null
+  cashOpenSessionId?: string | null
+  bankAccountId?: string | null
   /** multiusuario-operativo tanda B (D9, OQ-4 b): quién cargó la operación (`created_by` del listado). Sólo informativo: decide qué se muestra (`canModifyDocument`); la autoridad es la RPC (P0403). */
   createdBy?: string | null
 }
@@ -89,6 +96,11 @@ export function groupSalesByOperation(sales: Sale[]): SaleOperation[] {
       op.editLockedReason = op.editLockedReason ?? sale.editLockedReason ?? null
       op.hasServiceLines = op.hasServiceLines || !!sale.hasServiceLines
       op.createdBy = op.createdBy ?? sale.createdBy ?? null
+      op.chargeDueDate = op.chargeDueDate ?? sale.chargeDueDate ?? null
+      op.chargePartyId = op.chargePartyId ?? sale.chargePartyId ?? null
+      op.cashCashboxId = op.cashCashboxId ?? sale.cashCashboxId ?? null
+      op.cashOpenSessionId = op.cashOpenSessionId ?? sale.cashOpenSessionId ?? null
+      op.bankAccountId = op.bankAccountId ?? sale.bankAccountId ?? null
     } else {
       map.set(key, {
         key,
@@ -116,6 +128,11 @@ export function groupSalesByOperation(sales: Sale[]): SaleOperation[] {
         editLockedReason: sale.editLockedReason ?? null,
         hasServiceLines: !!sale.hasServiceLines,
         createdBy: sale.createdBy ?? null,
+        chargeDueDate: sale.chargeDueDate ?? null,
+        chargePartyId: sale.chargePartyId ?? null,
+        cashCashboxId: sale.cashCashboxId ?? null,
+        cashOpenSessionId: sale.cashOpenSessionId ?? null,
+        bankAccountId: sale.bankAccountId ?? null,
       })
     }
   }
@@ -168,6 +185,13 @@ export interface PurchaseOperation {
   editLockedReason?: string | null
   /** multiusuario-operativo tanda B (D9, OQ-4 b): quién cargó la operación (`created_by` del listado). Sólo informativo: decide qué se muestra (`canModifyDocument`); la autoridad es la RPC (P0403). */
   createdBy?: string | null
+  /** edicion-operaciones-con-dinero (D15): datos VIGENTES de la huella neta, para precargar la edición. La PRIMERA fila que los trae
+   * (todas las líneas de una operación comparten cargo, caja y banco). */
+  chargeDueDate?: string | null
+  chargePartyId?: string | null
+  cashCashboxId?: string | null
+  cashOpenSessionId?: string | null
+  bankAccountId?: string | null
 }
 
 export function groupPurchasesByOperation(purchases: Purchase[]): PurchaseOperation[] {
@@ -190,6 +214,11 @@ export function groupPurchasesByOperation(purchases: Purchase[]): PurchaseOperat
       op.sourceDeliveryNoteBranchActive = op.sourceDeliveryNoteBranchActive ?? purchase.sourceDeliveryNoteBranchActive ?? null
       op.editLockedReason = op.editLockedReason ?? purchase.editLockedReason ?? null
       op.createdBy = op.createdBy ?? purchase.createdBy ?? null
+      op.chargeDueDate = op.chargeDueDate ?? purchase.chargeDueDate ?? null
+      op.chargePartyId = op.chargePartyId ?? purchase.chargePartyId ?? null
+      op.cashCashboxId = op.cashCashboxId ?? purchase.cashCashboxId ?? null
+      op.cashOpenSessionId = op.cashOpenSessionId ?? purchase.cashOpenSessionId ?? null
+      op.bankAccountId = op.bankAccountId ?? purchase.bankAccountId ?? null
     } else {
       map.set(key, {
         key,
@@ -214,6 +243,11 @@ export function groupPurchasesByOperation(purchases: Purchase[]): PurchaseOperat
         sourceDeliveryNoteBranchActive: purchase.sourceDeliveryNoteBranchActive ?? null,
         editLockedReason: purchase.editLockedReason ?? null,
         createdBy: purchase.createdBy ?? null,
+        chargeDueDate: purchase.chargeDueDate ?? null,
+        chargePartyId: purchase.chargePartyId ?? null,
+        cashCashboxId: purchase.cashCashboxId ?? null,
+        cashOpenSessionId: purchase.cashOpenSessionId ?? null,
+        bankAccountId: purchase.bankAccountId ?? null,
       })
     }
   }

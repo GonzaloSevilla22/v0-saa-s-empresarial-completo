@@ -39,6 +39,14 @@ let suppliersMock: Supplier[] = []
 // productos-categorias-sku: purchase-form monta ProductCategorySelect en el alta
 // inline de producto → use-product-categories → python-client (explota sin
 // NEXT_PUBLIC_BACKEND_URL) y useOrgRole → react-query real (mockeado acá).
+// edicion-operaciones-con-dinero (tanda C): el detalle expandido monta el historial de cambios, que consulta por react-query + python-client.
+// edicion-operaciones-con-dinero (tanda C): el formulario de compra monta useDueDateCascade, que consulta el plazo por defecto de la cuenta.
+vi.mock("@/hooks/data/use-collection-settings", () => ({
+  useCollectionSettings: () => ({ data: { defaultPaymentTermsDays: null }, isLoading: false }),
+}))
+vi.mock("@/hooks/data/use-operation-edit", () => ({
+  useOperationEditHistory: () => ({ data: [], isLoading: false, isError: false, refetch: vi.fn() }),
+}))
 vi.mock("@/hooks/data/use-product-categories", () => ({
   useProductCategories: () => ({ productCategories: [], isLoading: false, createProductCategory: vi.fn(), createProductCategoryMutation: { isPending: false } }),
 }))

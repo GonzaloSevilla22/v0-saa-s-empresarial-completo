@@ -116,3 +116,36 @@ export function invalidateAfterSaleDelete(queryClient: QueryClient): void {
   invalidateAfterSale(queryClient)
   queryClient.invalidateQueries({ queryKey: queryKeys.deliveryNotes.all() })
 }
+
+/** Los libros y reportes que toda edición con dinero toca, sea del documento que sea. */
+const OPERATION_EDIT_COMMON_ROOTS = [
+  "cashSessions",
+  "cashMovements",
+  "bankAccounts",
+  "bankReconciliation",
+  "journal-entries",
+  "paymentMethods",
+  "operation-edits",
+] as const
+
+/** Las raíces que invalida la edición de cada documento (una definición, un test). */
+export const OPERATION_EDIT_INVALIDATED_ROOTS = {
+  sale: ["sales", "products", "branchStock", "customerAccounts", "receivables", ...OPERATION_EDIT_COMMON_ROOTS],
+  purchase: ["purchases", "products", "branchStock", "supplierAccounts", "payables", ...OPERATION_EDIT_COMMON_ROOTS],
+  expense: ["expenses", ...OPERATION_EDIT_COMMON_ROOTS],
+} as const
+
+/**
+ * edicion-operaciones-con-dinero (tanda C, 13.2): editar una operación con dinero compensa y registra en la cuenta corriente,
+ * la caja y el banco en la misma transacción, así que invalida lo mismo que el borrado y las altas de cada documento
+ * (reutilizando sus claves), más lo que sólo la edición mueve: la conciliación bancaria (el movimiento nuevo nace pendiente),
+ * el libro diario (el asiento se reemite), el reporte de formas de pago y el historial de cambios de la operación.
+ */
+export function invalidateAfterOperationEdit(
+  queryClient: QueryClient,
+  kind: keyof typeof OPERATION_EDIT_INVALIDATED_ROOTS,
+): void {
+  for (const root of OPERATION_EDIT_INVALIDATED_ROOTS[kind]) {
+    queryClient.invalidateQueries({ queryKey: [root] })
+  }
+}

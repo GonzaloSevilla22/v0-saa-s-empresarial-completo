@@ -20,6 +20,11 @@ vi.mock("@/hooks/useOrgRole", () => ({ useOrgRole: () => ({ isWriter: true, role
 vi.mock("@/hooks/data/use-products", () => ({ useProducts: () => ({ products: [], addProduct: vi.fn() }) }))
 vi.mock("@/hooks/data/use-purchases", () => ({ usePurchases: () => ({ addPurchaseOperation: vi.fn(), updatePurchaseOperation: vi.fn() }) }))
 vi.mock("@tanstack/react-query", () => ({ useQueryClient: () => ({ invalidateQueries: vi.fn() }) }))
+// edicion-operaciones-con-dinero (tanda C): el formulario de compra monta useDueDateCascade (vencimiento de la deuda al
+// editar), que consulta el plazo por defecto de la cuenta — sin este mock importa python-client, que exige NEXT_PUBLIC_BACKEND_URL.
+vi.mock("@/hooks/data/use-collection-settings", () => ({
+  useCollectionSettings: () => ({ data: { defaultPaymentTermsDays: null }, isLoading: false }),
+}))
 vi.mock("@/contexts/auth-context", () => ({ useAuth: () => ({ user: { id: "u1" } }) }))
 vi.mock("@/hooks/use-units-of-measure", () => ({ useUnitsOfMeasure: () => ({ units: [], unitsById: {} }) }))
 vi.mock("@/components/branches/BranchSelect", () => ({ BranchSelect: () => null }))

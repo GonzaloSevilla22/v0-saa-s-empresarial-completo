@@ -16,6 +16,19 @@ import { toast } from "sonner"
 
 const addPurchaseOperationMock = vi.fn().mockResolvedValue(undefined)
 const updatePurchaseOperationMock = vi.fn().mockResolvedValue(undefined)
+// edicion-operaciones-con-dinero (tanda C): con una forma de pago elegida el formulario pide el plan al servidor antes de guardar.
+const EMPTY_PREVIEW = {
+  dry_run: true,
+  voided_fiscal_document: null,
+  plan: {
+    writes_money: false,
+    blocks: [],
+    account: { action: "none", party_kind: null, register: null, reverse: [], current_balance: null, projected_balance: null, current_due_date: null },
+    cash: { action: "none", register: null, reverse: [] },
+    bank: { action: "none", register: null, reverse: [] },
+  },
+}
+const previewPurchaseOperationEditMock = vi.fn().mockResolvedValue(EMPTY_PREVIEW)
 const addSupplierMock = vi.fn()
 
 let paymentMethodsMock: Array<{ id: string; name: string; kind: string; isActive: boolean }> = []
@@ -43,9 +56,18 @@ vi.mock("@/hooks/data/use-product-categories", () => ({
 vi.mock("@/hooks/useOrgRole", () => ({ useOrgRole: () => ({ isWriter: true, role: "owner", isLoading: false }) }))
 vi.mock("@/hooks/data/use-products", () => ({ useProducts: () => ({ products: [PRODUCT], addProduct: vi.fn() }) }))
 vi.mock("@/hooks/data/use-purchases", () => ({
-  usePurchases: () => ({ addPurchaseOperation: addPurchaseOperationMock, updatePurchaseOperation: updatePurchaseOperationMock }),
+  usePurchases: () => ({
+    addPurchaseOperation: addPurchaseOperationMock,
+    updatePurchaseOperation: updatePurchaseOperationMock,
+    previewPurchaseOperationEdit: previewPurchaseOperationEditMock,
+  }),
 }))
 vi.mock("@tanstack/react-query", () => ({ useQueryClient: () => ({ invalidateQueries: vi.fn() }) }))
+// edicion-operaciones-con-dinero (tanda C): el formulario de compra monta useDueDateCascade (vencimiento de la deuda al
+// editar), que consulta el plazo por defecto de la cuenta — sin este mock importa python-client, que exige NEXT_PUBLIC_BACKEND_URL.
+vi.mock("@/hooks/data/use-collection-settings", () => ({
+  useCollectionSettings: () => ({ data: { defaultPaymentTermsDays: null }, isLoading: false }),
+}))
 vi.mock("@/contexts/auth-context", () => ({ useAuth: () => ({ user: { id: "u1", accountId: "acc-1" } }) }))
 vi.mock("@/hooks/use-units-of-measure", () => ({ useUnitsOfMeasure: () => ({ units: [], unitsById: new Map() }) }))
 vi.mock("@/components/branches/BranchSelect", () => ({ BranchSelect: () => <div data-testid="branch-select" /> }))
@@ -448,7 +470,9 @@ describe("PurchaseForm — edición: bloque de crédito (F3)", () => {
     expect(screen.queryByText(/Después de esta compra/i)).not.toBeInTheDocument()
   })
 
-  it("transicionando de cash a credit CON proveedor: avisa el camino de corrección pero no bloquea el submit", async () => {
+  // edicion-operaciones-con-dinero (tanda C): `credit_transition_not_allowed` se retiró en la tanda B — pasar a crédito desde otra
+  // forma de pago se guarda: la edición compensa lo que haya y registra el cargo. Ya no hay aviso de «borrala y volvé a cargarla».
+  it("transicionando de cash a credit CON proveedor: ya no se avisa como imposible y se guarda", async () => {
     paymentMethodsMock = [PM_CASH, PM_CREDIT]
     suppliersMock = [{ id: "sup-1", name: "Distribuidora Mendoza" }]
     render(
@@ -459,7 +483,7 @@ describe("PurchaseForm — edición: bloque de crédito (F3)", () => {
     )
     selectPaymentMethod(PM_CREDIT.id)
 
-    expect(screen.getByText(/no postea cargos/i)).toBeInTheDocument()
+    expect(screen.queryByText(/no postea cargos/i)).not.toBeInTheDocument()
     const submitButton = screen.getByRole("button", { name: /Guardar cambios/i })
     expect(submitButton).not.toBeDisabled()
 
@@ -503,65 +527,24 @@ describe("PurchaseForm — hint 'proveedor no disponible' (review C, F1)", () =>
   })
 })
 
-describe("PurchaseForm — aviso de transición a crédito (review C, F2)", () => {
-  it("la forma de pago ORIGINAL está desactivada: elegir una de crédito NO inventa una transición", () => {
-    // La operación ya era a crédito, solo que con una forma de pago que después
-    // se dio de baja. El servidor resuelve el kind viejo contra la fila real
-    // (v_old_kind = 'credit') y NO rechaza: el aviso sería falso.
+describe("PurchaseForm — pasar a crédito en la edición (aviso retirado)", () => {
+  it.each([
+    ["la operación NO tenía forma de pago", { paymentMethodId: null }],
+    ["la forma de pago ORIGINAL está desactivada", { paymentMethodId: PM_CREDIT_OLD.id }],
+    ["la forma de pago original no resuelve en ninguna lista", { paymentMethodId: "pm-gone" }],
+  ])("%s: elegir crédito no muestra ningún aviso de transición", (_label, over) => {
     paymentMethodsMock = [PM_CREDIT_OLD, PM_CREDIT, PM_CASH]
     suppliersMock = [{ id: "sup-1", name: "Distribuidora Mendoza" }]
     render(
       <PurchaseForm
         onSuccess={vi.fn()}
-        editingOperation={makeOperation({
-          paymentMethodId: PM_CREDIT_OLD.id,
-          supplierId: "sup-1",
-          supplierName: "Distribuidora Mendoza",
-        })}
+        editingOperation={makeOperation({ ...over, supplierId: "sup-1", supplierName: "Distribuidora Mendoza" })}
       />,
     )
     selectPaymentMethod(PM_CREDIT.id)
 
     expect(screen.queryByText(/no postea cargos/i)).not.toBeInTheDocument()
-  })
-
-  it("la forma de pago original no resuelve en ninguna lista: tampoco inventa una transición", () => {
-    paymentMethodsMock = [PM_CREDIT, PM_CASH]
-    suppliersMock = [{ id: "sup-1", name: "Distribuidora Mendoza" }]
-    render(
-      <PurchaseForm
-        onSuccess={vi.fn()}
-        editingOperation={makeOperation({
-          paymentMethodId: "pm-gone",
-          supplierId: "sup-1",
-          supplierName: "Distribuidora Mendoza",
-        })}
-      />,
-    )
-    selectPaymentMethod(PM_CREDIT.id)
-
-    expect(screen.queryByText(/no postea cargos/i)).not.toBeInTheDocument()
-  })
-
-  it("TRIANGULATE: la operación NO tenía forma de pago — pasar a crédito SÍ es una transición y se avisa", () => {
-    // v_old_kind NULL IS DISTINCT FROM 'credit' ⇒ el servidor rechaza con
-    // credit_transition_not_allowed. "Sin forma de pago" es un kind ausente
-    // conocido, no un kind desconocido.
-    paymentMethodsMock = [PM_CASH, PM_CREDIT]
-    suppliersMock = [{ id: "sup-1", name: "Distribuidora Mendoza" }]
-    render(
-      <PurchaseForm
-        onSuccess={vi.fn()}
-        editingOperation={makeOperation({
-          paymentMethodId: null,
-          supplierId: "sup-1",
-          supplierName: "Distribuidora Mendoza",
-        })}
-      />,
-    )
-    selectPaymentMethod(PM_CREDIT.id)
-
-    expect(screen.getByText(/no postea cargos/i)).toBeInTheDocument()
+    expect(screen.queryByText(/borrala y volvé a cargarla/i)).not.toBeInTheDocument()
   })
 })
 

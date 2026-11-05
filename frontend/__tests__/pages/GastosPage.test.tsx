@@ -37,6 +37,10 @@ const clearFiltersMock = vi.fn()
 const deleteExpenseMock = vi.fn().mockResolvedValue(undefined)
 const setPageMock = vi.fn()
 
+// edicion-operaciones-con-dinero (tanda C): cada gasto monta el historial de cambios, que consulta por react-query + python-client.
+vi.mock("@/hooks/data/use-operation-edit", () => ({
+  useOperationEditHistory: () => ({ data: [], isLoading: false, isError: false, refetch: vi.fn() }),
+}))
 vi.mock("@/hooks/data/use-expenses-query", () => ({
   useExpenses: () => ({
     expenses: expensesFixture,

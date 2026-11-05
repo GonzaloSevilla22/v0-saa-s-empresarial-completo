@@ -4,6 +4,10 @@ import { useState, useCallback, useMemo } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { pythonClient } from "@/lib/api/python-client"
 import { queryKeys } from "@/lib/query-keys"
+import { invalidateAfterOperationEdit } from "@/lib/query-invalidation"
+import { fetchEditPreview } from "@/lib/operation-edit-api"
+import { moneyIntentPayload, type EditMoneyIntent } from "@/lib/money-intent"
+import type { EditPreview, MoneyPlan } from "@/lib/money-plan"
 import type { Expense, ExpenseImportInput, ExpenseImportResult, PaymentMethodKind } from "@/lib/types"
 import {
   buildPaginationMeta,
@@ -46,6 +50,8 @@ interface ExpenseApiRow {
   cash_cashbox_id?: string | null
   cash_open_session_id?: string | null
   bank_account_id?: string | null
+  // edicion-operaciones-con-dinero (D13): el plan que ejecutó la edición (sólo en la respuesta del PUT).
+  money?: MoneyPlan | null
 }
 
 /**
@@ -80,10 +86,12 @@ export type ExpenseCreateInput = Omit<Expense, "id"> & {
  *
  * `JSON.stringify` omite las claves con valor `undefined`, así que "ausente"
  * viaja literalmente ausente y el backend lo distingue con `model_fields_set`.
- * La firma NO acepta `cashSessionId`/`bankAccountId`: la edición no postea
- * movimientos (D11/D13), y `rpc_update_expense` ni siquiera los recibe.
+ *
+ * edicion-operaciones-con-dinero (D6/D7/D9): la edición YA mueve dinero —compensa y registra en caja y banco según el plan
+ * del servidor—, así que `money` lleva las intenciones de caja y banco y el motivo, con el mismo contrato por ausencia
+ * (`buildEditMoneyIntent`). Sin `money`, el payload es el de siempre.
  */
-export type ExpenseUpdateInput = Expense
+export type ExpenseUpdateInput = Expense & { money?: EditMoneyIntent }
 
 function mapExpense(e: ExpenseApiRow): Expense {
   return {
@@ -174,6 +182,30 @@ export function useInvalidateExpenseLedgers() {
     queryClient.invalidateQueries({ queryKey: queryKeys.bankReconciliation.all() })
     queryClient.invalidateQueries({ queryKey: queryKeys.paymentMethods.all() })
   }, [queryClient])
+}
+
+/** El body de `PUT /expenses/{id}` y de `POST /expenses/{id}/edit-preview`: una sola definición. */
+export function buildExpenseUpdatePayload(expense: ExpenseUpdateInput): Record<string, unknown> {
+  const payload: Record<string, unknown> = {
+    category:    expense.category,
+    description: expense.description ?? null,
+    amount:      expense.amount,
+    date:        expense.date,
+  }
+  // Tri-estado por ausencia (D12). `cost_center_id` se perdía en cada
+  // edición porque el payload directamente no lo incluía.
+  if ("costCenterId" in expense)     payload.cost_center_id    = expense.costCenterId ?? null
+  if ("branchId" in expense)         payload.branch_id         = expense.branchId ?? null
+  if ("paymentMethodId" in expense)  payload.payment_method_id = expense.paymentMethodId ?? null
+  return { ...payload, ...moneyIntentPayload(expense.money ?? {}) }
+}
+
+/**
+ * La vista previa del plan de la edición de un gasto (D13): la misma RPC en seco, no escribe nada. Función suelta, no
+ * un hook: no tiene estado, y el formulario la usa junto con `useUpdateExpense()`.
+ */
+export function previewExpenseEdit(expense: ExpenseUpdateInput): Promise<EditPreview> {
+  return fetchEditPreview("expense", buildExpenseUpdatePayload(expense), expense.id)
 }
 
 // ── importador-gastos-transaccional ─────────────────────────────────────────
@@ -342,6 +374,7 @@ export function useExpenses() {
   // Set completo de invalidaciones (definido arriba, compartido con el
   // importador masivo).
   const invalidateLedgers = useInvalidateExpenseLedgers()
+  const queryClient = useQueryClient()
 
   const addExpenseMutation = useMutation({
     mutationFn: postExpense,
@@ -349,21 +382,10 @@ export function useExpenses() {
   })
 
   const updateExpenseMutation = useMutation({
-    mutationFn: async (expense: ExpenseUpdateInput) => {
-      const payload: Record<string, unknown> = {
-        category:    expense.category,
-        description: expense.description ?? null,
-        amount:      expense.amount,
-        date:        expense.date,
-      }
-      // Tri-estado por ausencia (D12). `cost_center_id` se perdía en cada
-      // edición porque el payload directamente no lo incluía.
-      if ("costCenterId" in expense)     payload.cost_center_id    = expense.costCenterId ?? null
-      if ("branchId" in expense)         payload.branch_id         = expense.branchId ?? null
-      if ("paymentMethodId" in expense)  payload.payment_method_id = expense.paymentMethodId ?? null
-      return pythonClient.put<ExpenseApiRow>(`/expenses/${expense.id}`, payload)
-    },
-    onSuccess: invalidateLedgers,
+    mutationFn: async (expense: ExpenseUpdateInput) =>
+      pythonClient.put<ExpenseApiRow>(`/expenses/${expense.id}`, buildExpenseUpdatePayload(expense)),
+    // edicion-operaciones-con-dinero (D17): una sola definición de lo que invalida la edición de un gasto.
+    onSuccess: () => invalidateAfterOperationEdit(queryClient, "expense"),
   })
 
   const deleteExpenseMutation = useMutation({

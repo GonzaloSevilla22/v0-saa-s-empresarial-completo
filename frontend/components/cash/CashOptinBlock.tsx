@@ -29,9 +29,14 @@ interface CashOptinBlockProps {
   /** Intención del usuario de registrar la operación en la caja. */
   registerInCash: boolean
   onRegisterInCashChange: (value: boolean) => void
+  /**
+   * edicion-operaciones-con-dinero (tanda C): la operación que se edita YA tiene movimiento de caja. El tilde dice «Registrado en
+   * caja» (desmarcarlo la saca de la caja) y, sin sesión abierta, el motivo es el de corregir —abrir la caja—, no el del alta.
+   */
+  hadFootprint?: boolean
 }
 
-export function CashOptinBlock({ cash, registerInCash, onRegisterInCashChange }: CashOptinBlockProps) {
+export function CashOptinBlock({ cash, registerInCash, onRegisterInCashChange, hadFootprint = false }: CashOptinBlockProps) {
   return (
     <div className="flex flex-col gap-1.5 rounded-md border border-border bg-accent/20 px-3 py-2 text-xs">
       {cash.isLoading ? (
@@ -45,12 +50,20 @@ export function CashOptinBlock({ cash, registerInCash, onRegisterInCashChange }:
             checked={registerInCash}
             onCheckedChange={(v) => onRegisterInCashChange(v === true)}
           />
-          <span>Registrar en caja — sesión {cash.session?.id.slice(0, 8)}…</span>
+          <span>
+            {hadFootprint
+              ? `Registrado en caja — sesión ${cash.session?.id.slice(0, 8)}…. Desmarcalo para sacar esta operación de la caja.`
+              : `Registrar en caja — sesión ${cash.session?.id.slice(0, 8)}…`}
+          </span>
         </label>
       ) : (
         <div role="note" className="flex items-center gap-2 text-muted-foreground">
           <AlertCircle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-          <span>{cash.reason}</span>
+          <span>
+            {hadFootprint
+              ? "Esta operación está registrada en caja y no hay una sesión abierta: abrí la caja para poder corregirla."
+              : cash.reason}
+          </span>
         </div>
       )}
     </div>

@@ -15,6 +15,10 @@ import { getDeleteCompensation } from "@/lib/delete-compensation"
 import type { Purchase } from "@/lib/types"
 import type { PaginationMeta } from "@/lib/pagination-utils"
 
+// edicion-operaciones-con-dinero (tanda C): el detalle expandido monta el historial de cambios, que consulta por react-query + python-client.
+vi.mock("@/hooks/data/use-operation-edit", () => ({
+  useOperationEditHistory: () => ({ data: [], isLoading: false, isError: false, refetch: vi.fn() }),
+}))
 vi.mock("@/components/cost-centers/CostCenterSelect", () => ({ CostCenterSelect: () => null }))
 vi.mock("@/components/payment-methods/PaymentMethodSelect", () => ({ PaymentMethodSelect: () => null }))
 
@@ -98,7 +102,7 @@ describe("PurchaseOperationsList — la compra con caja posteada se EDITA (edici
     render(<PurchaseOperationsList {...baseProps([makePurchase({ hasCashMovement: true })])} />)
 
     expect(screen.queryByTitle(/movimiento de caja registrado/i)).not.toBeInTheDocument()
-    const editButtons = screen.getAllByRole("button", { name: "" }).filter((b) => b.querySelector("svg.lucide-pencil"))
+    const editButtons = screen.getAllByRole("button").filter((b) => b.tagName === "BUTTON" && b.querySelector("svg.lucide-pencil"))
     expect(editButtons.length).toBeGreaterThan(0)
     for (const b of editButtons) expect(b).not.toBeDisabled()
   })

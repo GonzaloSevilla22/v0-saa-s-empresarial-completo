@@ -22,6 +22,18 @@ import { toast } from "sonner"
 
 const addExpenseMock = vi.fn().mockResolvedValue(undefined)
 const updateExpenseMock = vi.fn().mockResolvedValue(undefined)
+// edicion-operaciones-con-dinero (tanda C): con una forma de pago elegida la edición pide el plan al servidor antes de guardar.
+const previewExpenseEditMock = vi.fn().mockResolvedValue({
+  dry_run: true,
+  voided_fiscal_document: null,
+  plan: {
+    writes_money: false,
+    blocks: [],
+    account: { action: "none", party_kind: null, register: null, reverse: [], current_balance: null, projected_balance: null, current_due_date: null },
+    cash: { action: "none", register: null, reverse: [] },
+    bank: { action: "none", register: null, reverse: [] },
+  },
+})
 
 let paymentMethodsMock: Array<{ id: string; name: string; kind: string; isActive: boolean }> = []
 let currentSessionMock: { id: string } | null = null
@@ -33,6 +45,7 @@ vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
 vi.mock("@/hooks/data/use-expenses-query", () => ({
   useAddExpense: () => ({ mutateAsync: addExpenseMock }),
   useUpdateExpense: () => ({ mutateAsync: updateExpenseMock }),
+  previewExpenseEdit: (...a: unknown[]) => previewExpenseEditMock(...a),
 }))
 vi.mock("@/components/branches/BranchSelect", () => ({ BranchSelect: () => <div data-testid="branch-select" /> }))
 vi.mock("@/components/cost-centers/CostCenterSelect", () => ({ CostCenterSelect: () => <div data-testid="cc-select" /> }))
@@ -350,16 +363,18 @@ describe("ExpenseForm — edición (D11/D13)", () => {
     description: "Luz", amount: 1200,
   }
 
-  it("en edición no se ofrece ni opt-in de caja ni cuenta bancaria: la edición no postea movimientos", () => {
+  // edicion-operaciones-con-dinero (tanda C): la edición YA compensa y registra en la caja y el banco (antes era inmutable),
+  // así que ofrece los dos bloques; el opt-in de caja parte de lo que hay (sin movimiento vigente, desmarcado).
+  it("en edición SÍ se ofrece el opt-in de caja (desmarcado sin movimiento vigente) y la cuenta bancaria", () => {
     paymentMethodsMock = [PM_CASH, PM_TRANSFER]
     bankAccountsMock = [{ id: "bank-1", name: "Cuenta 1", isActive: true, accountKind: "checking" }]
     currentSessionMock = { id: "session-abc12345" }
-    render(<ExpenseForm onSuccess={vi.fn()} initialData={LOCKED} />)
+    render(<ExpenseForm onSuccess={vi.fn()} initialData={{ ...LOCKED, date: argentinaToday() }} />)
     fireEvent.click(screen.getByTestId("pm-option-pm-cash"))
 
-    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument()
+    expect(screen.getByRole("checkbox")).toHaveAttribute("data-state", "unchecked")
     fireEvent.click(screen.getByTestId("pm-option-pm-transfer"))
-    expect(screen.queryByTestId("bank-select")).not.toBeInTheDocument()
+    expect(screen.getByTestId("bank-select")).toBeInTheDocument()
   })
 
   it("la edición manda la forma de pago junto con el resto del contexto", async () => {
@@ -454,7 +469,7 @@ describe("ExpenseForm — caja cargando (caja-optin-carga)", () => {
     expect(screen.getByRole("button", { name: /registrar gasto/i })).toBeEnabled()
   })
 
-  it("edición: no hay caja que esperar (no se ofrece) — el botón de guardar no queda bloqueado", () => {
+  it("edición con efectivo: la caja también se espera (no se guarda a ciegas) — el botón queda bloqueado mientras carga", () => {
     paymentMethodsMock = [PM_CASH]
     cashLoadingMock = true
     render(
@@ -467,7 +482,7 @@ describe("ExpenseForm — caja cargando (caja-optin-carga)", () => {
       />,
     )
 
-    expect(screen.queryByRole("status")).not.toBeInTheDocument()
-    expect(screen.getByRole("button", { name: /guardar cambios/i })).toBeEnabled()
+    expect(screen.getByRole("status")).toHaveTextContent("Verificando la caja…")
+    expect(screen.getByRole("button", { name: /guardar cambios/i })).toBeDisabled()
   })
 })

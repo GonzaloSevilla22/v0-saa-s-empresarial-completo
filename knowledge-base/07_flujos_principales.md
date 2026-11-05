@@ -360,3 +360,29 @@ Invitado → /invitacion/<token>  (pública; sin Referer, sin indexar)
                 limpia la caché, avisa a las otras pestañas y lleva al Tablero del negocio
 Dueño → «Reenviar» (rota el token; el link viejo muere) · «Revocar» (con confirmación)
 ```
+
+## Flujo 15: Editar una operación con dinero (`edicion-operaciones-con-dinero`, tanda C)
+
+```
+/ventas · /compras · /gastos → lápiz «Editar»  (title: «la operación tiene dinero registrado; vas a ver qué se ajusta antes de guardar»)
+    │   deshabilitado sólo si: remito/servicio/comprobante ya enviado a ARCA, o rol sin CAN_CORRECT_MONEY sobre una operación con dinero
+    ▼
+Formulario en modo edición (SaleForm / PurchaseForm / ExpenseForm)
+    ├── bloques con el estado VIGENTE: cuenta corriente (saldo estimado, vencimiento precargado) · «Registrado en caja» tildado si hay
+    │   huella · cuenta bancaria de la huella · «Motivo del cambio» (opcional)
+    └── al guardar viajan las claves cash_session_id / bank_account_id / due_date SÓLO si el usuario las cambió (ausente = conservar)
+    ▼
+¿la operación tiene dinero registrado o una forma de pago que puede escribirlo?
+    ├── no  → PUT directo
+    └── sí  → POST .../edit-preview  (la MISMA RPC que el PUT, en seco: nada se escribe, nada se anula)
+                 ├── plan sin efecto sobre ningún libro → PUT directo
+                 └── plan que escribe / bloqueo / comprobante a anular → diálogo «¿Guardar los cambios de esta venta?»
+                        ├── por libro: cuenta corriente (revierte / registra, vencimiento, saldo) · caja (entran / salen) · banco (ingreso / egreso)
+                        ├── bloqueo (caja cerrada, saldo negativo, período conciliado, rol) → «Confirmar» deshabilitado, motivo visible
+                        └── «Confirmar y guardar» → PUT: el servidor re-evalúa todo en la transacción; manda el servidor
+    ▼
+PUT → { ok, operation_id (estable), money: el plan EJECUTADO }  →  aviso con lo que el servidor dijo que hizo
+    ▼
+Se invalidan caja, banco, conciliación, cuentas corrientes, cobranzas, libro diario, formas de pago y el historial de la operación
+Detalle expandido → «Historial de cambios» (GET .../edits, carga diferida): quién, cuándo, importe/fecha antes → después, libros tocados, motivo
+```

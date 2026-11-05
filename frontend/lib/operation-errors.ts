@@ -31,6 +31,8 @@
  * mapeo (regla "reutilización antes que repetición").
  */
 
+import { describeBlock } from "@/lib/money-plan"
+
 /** Devuelve el nombre del producto, o undefined si no se lo puede resolver. */
 export type ProductNameLookup = (productId: string) => string | undefined
 
@@ -284,6 +286,59 @@ export interface OperationErrorContext {
    * sin él, o con `"sale"`, el texto no cambia.
    */
   direction?: "sale" | "purchase"
+  /**
+   * edicion-operaciones-con-dinero (tanda C): `"edit"` cuando el rechazo viene de GUARDAR una edición. Cambia la
+   * redacción de los que ya existían para el borrado (`P0426`, `P0424`: «no se pudo guardar», no «anular») y agrega
+   * que no se guardó ningún cambio.
+   */
+  intent?: "edit"
+  /** edicion-operaciones-con-dinero: de qué cuenta corriente habla el rechazo (cobro de un cliente / pago a un proveedor). */
+  party?: "cliente" | "proveedor"
+}
+
+/**
+ * edicion-operaciones-con-dinero (tanda C, 15.2): los rechazos de la edición con dinero (`token: texto`, RFC 7807 con
+ * `code` estable). Los que son bloqueos del PLAN se redactan con `describeBlock` (la única redacción, la misma que
+ * muestra el diálogo de confirmación); el resto tiene su texto acá. Devuelve `null` si el mensaje no es de la edición.
+ */
+const MONEY_EDIT_NOT_SAVED = " No se guardó ningún cambio."
+
+const MONEY_EDIT_TOKEN_TEXT: Record<string, string> = {
+  cash_optin_requires_today: "Sólo se puede registrar en caja una operación fechada hoy.",
+  cash_optin_requires_cash_kind: "Sólo un pago en efectivo puede registrarse en la caja.",
+  due_date_before_charge: "El vencimiento no puede ser anterior a la fecha de la operación.",
+  credit_requires_client: "Una venta a crédito necesita un cliente identificado para cargar su cuenta corriente.",
+  credit_requires_supplier: "Una compra a crédito necesita un proveedor identificado para cargar su cuenta corriente.",
+  bank_account_required_for_expense: "Elegí la cuenta bancaria de la que sale el dinero: sin ella el gasto no aparecería en la conciliación bancaria.",
+  bank_account_requires_bank_kind: "Sólo una forma de pago bancaria (transferencia, tarjeta, billetera o cheque) lleva una cuenta bancaria.",
+}
+
+const MONEY_PLAN_BLOCK_TOKENS = new Set([
+  "no_open_session_for_reversal",
+  "reversal_would_go_negative",
+  "bank_period_reconciled",
+  "money_edit_requires_admin",
+  "cash_intent_required",
+])
+
+function humanizeMoneyEditError(message: string, context?: OperationErrorContext): HumanizedOperationError | null {
+  const isEdit = context?.intent === "edit"
+  const token = message.match(/^\s*([a-z][a-z0-9_]*):/)?.[1]
+  if (!token) return null
+
+  // `P0426` y `P0424` también los emite el borrado: su redacción de siempre se conserva fuera de la edición.
+  const sharedWithDelete = token === "no_open_session_for_reversal" || token === "bank_period_reconciled"
+  if (MONEY_PLAN_BLOCK_TOKENS.has(token) && (isEdit || !sharedWithDelete)) {
+    const text = describeBlock({ book: "", code: "", token, message }, { party: context?.party })
+    return {
+      message: `${text}${MONEY_EDIT_NOT_SAVED}`,
+      ...(token === "no_open_session_for_reversal" ? { action: { label: "Ir a Caja", href: "/caja" } } : {}),
+    }
+  }
+
+  const text = MONEY_EDIT_TOKEN_TEXT[token]
+  if (text && isEdit) return { message: `${text}${MONEY_EDIT_NOT_SAVED}` }
+  return null
 }
 
 /**
@@ -301,6 +356,9 @@ export function humanizeOperationError(
   const isRemito = context?.documentLabel === "remito"
   const isPurchaseRemito = isRemito && context?.direction === "purchase"
   const isStockAdjustment = context?.documentLabel === "ajuste de stock"
+
+  const moneyEdit = humanizeMoneyEditError(message, context)
+  if (moneyEdit) return moneyEdit
 
   // stock-ledger-solo-rpc: el ajuste manual de stock primero — son los rechazos
   // del núcleo único y cada uno nombra qué hacer en vez de repetir el literal.

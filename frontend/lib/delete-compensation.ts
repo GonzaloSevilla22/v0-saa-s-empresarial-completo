@@ -24,6 +24,8 @@
  * proveedor) — no hay lógica de negocio nueva acá, sólo redacción.
  */
 
+import { voidedFiscalText } from "@/lib/money-plan"
+
 export interface DeletableOperationFlags {
   /**
    * venta-editable-sin-cae (D11): renombrado desde `isInvoiced`. true sólo
@@ -150,9 +152,7 @@ export function getDeleteCompensation(
   // venta-editable-sin-cae: PRIMERA de la lista, mismo orden que los guards del
   // servidor (el fiscal corre antes que cuenta corriente, caja y banco).
   if (flags.voidsPendingFiscalDocument) {
-    compensations.push(
-      `Se anulará el comprobante pendiente ${flags.voidsPendingFiscalDocument} (todavía no se envió a ARCA). Podés volver a emitirlo después.`,
-    )
+    compensations.push(voidedFiscalText(flags.voidsPendingFiscalDocument))
   }
   if (flags.hasAccountCharge) {
     compensations.push(

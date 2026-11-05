@@ -81,7 +81,7 @@
   - **Apply 2026-11-05**: `knowledge-base/04_modelo_de_datos.md`: sección nueva `sale_items` / `purchase_items` (línea canónica, línea de servicio, filas legacy de variante, `name_snapshot NOT NULL`, retiro del flag y backfill); `05_reglas_de_negocio.md` deja de nombrar la rama legacy.
 - [x] 5.3 Escribir en `CHANGES.md` (ficha de C-20 Grupo 10) el veredicto del D11: qué bloquea todavía el DROP del header plano. Agregar el inventario de lectores de `sales.product_id/amount/quantity/total` y `purchases.*` (repositorios, RPCs, vistas, Edge Functions) como candidato `c20-grupo10-lectores`.
   - **Apply 2026-11-05**: veredicto de D11 escrito en la ficha de H-15 y en la nota de C-20 Grupo 10: no queda bloqueo estructural; quedan los LECTORES del header plano, inventariados (27 funciones SQL, 2 vistas, 7 repositorios, 5 Edge Functions y `buildBusinessSnapshot.ts`) como candidato `c20-grupo10-lectores`.
-- [ ] 5.4 [orquestador] Verificación post-merge en prod, sólo lectura (**queda abierta a propósito en este apply**):
+- [x] 5.4 [orquestador] Verificación post-merge en prod, sólo lectura:
   - `max(version) = 20261091000001`;
   - 0 `prosrc` con `sale_items_rpc_v2`;
   - 0 filas del flag;
@@ -90,4 +90,6 @@
   - ACLs de las 7 funciones;
   - las ventas y compras creadas después del deploy tienen su línea;
   - re-medir la actividad de los 14 clientes afectados.
-- [ ] 5.5 [orquestador] Registro en `docs/pendientes-manuales-po.md` y `mem_save` del cierre. (El apply ya dejó la fila «Apply v31-document-lines-consistency» en el registro y el `mem_save` del apply; falta el cierre tras el merge.)
+  - **Verificado 2026-11-05 16:30 UTC (sólo lectura)**: `max(version)=20261091000001`, 338 migraciones; 0 funciones cuyo cuerpo lee `sale_items_rpc_v2`; 0 filas del flag en `account_feature_flags`; 0 ventas y 0 compras sin línea canónica (`variant_id IS NULL`); 0 `name_snapshot` NULL en `sale_items`/`purchase_items`, ambas columnas `NOT NULL`; md5 de las 7 funciones reescritas idéntico en prod y local; ACLs: `_purchase_operation_core` y `rpc_create_purchase_operation_v2` sólo `service_role`, las otras cinco `authenticated`+`service_role`, ninguna `anon`. D8 re-medido: 21 ventas con fila legacy de variante, 14 clientes, $1.246.150 de total de cabecera, las 23 filas de variante preservadas; `/clientes` lee ya la línea canónica (#675; el hermano #674 `aec938d5` corrigió el corrimiento de fecha de negocio).
+- [x] 5.5 [orquestador] Registro en `docs/pendientes-manuales-po.md` y `mem_save` del cierre. (El apply ya dejó la fila «Apply v31-document-lines-consistency» en el registro y el `mem_save` del apply; falta el cierre tras el merge.)
+  - **Cierre 2026-11-05**: fila de archive en el registro y `mem_save` del archive hechos.

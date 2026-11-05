@@ -354,8 +354,11 @@ class TestUpdateScalePluTriState:
         assert _update_call(conn) is None
 
     async def test_convert_to_variant_only_clearing_plu_passes(self, async_client, mock_pool):
+        # productos-padre-variantes (D2): convertir un producto en padre por la API ya
+        # no se permite (422 stock_control_type_locked); lo que sigue valiendo es que un
+        # padre que reenvía `variant_only` pueda limpiar el PLU heredado de un dato viejo.
         pool, conn = mock_pool
-        conn.fetchrow = AsyncMock(return_value=PRODUCT_ROW)
+        conn.fetchrow = AsyncMock(return_value={**PARENT_ROW, "scale_plu": 509})
         resp = await self._put(async_client, pool, {"stock_control_type": "variant_only", "scale_plu": None})
         assert resp.status_code == 200
         call = _update_call(conn)

@@ -463,3 +463,424 @@ $function$;
 
 REVOKE ALL ON FUNCTION public.rpc_bulk_upsert_products(jsonb, uuid) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.rpc_bulk_upsert_products(jsonb, uuid) TO service_role;
+
+-- =============================================================================
+-- 3. fn_product_base_unit_guard: re-derivado del cuerpo VIVO, con UN corte (D6)
+-- =============================================================================
+-- Base: pg_get_functiondef VIVO de prod (md5 sin CR 89b462c5169f867da49610d84b4d4962,
+-- idéntico al de 20261069000001_remitos_venta.sql, medido el 2026-11-05). Sólo se
+-- agrega el bloque marcado «productos-padre-variantes (D6)». Misma firma ():
+-- CREATE OR REPLACE conserva el disparador trg_product_base_unit_guard y la ACL.
+-- Cuerpo previo (rollback): el de 20261069000001_remitos_venta.sql.
+CREATE OR REPLACE FUNCTION public.fn_product_base_unit_guard()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_unit_system  boolean;
+  v_unit_account uuid;
+  v_parent_base  uuid;
+  v_old_parent_base  uuid;
+  v_old_eff      uuid;
+  v_new_eff      uuid;
+  v_self_changed      boolean;
+  v_children_changed  boolean;
+  v_self_assigned     boolean;
+  v_children_assigned boolean;
+  v_stash             jsonb;
+  v_conflict_unit     uuid;
+BEGIN
+  -- Cuarta revisión: DELETE físico de un PADRE. products_parent_id_fkey es ON
+  -- DELETE SET NULL: la acción referencial desengancha a las variantes que
+  -- sobreviven, y cuando ese UPDATE llega a este trigger el padre ya no es
+  -- visible — la unidad que heredaban se perdía sin control ("5 kg" → "5
+  -- uds"; `authenticated` tiene DELETE por products_writer_delete). Acá se
+  -- toman FOR UPDATE las variantes que heredan (serializa con una venta o
+  -- compra de la variante) y la unidad del padre queda en un GUC LOCAL de la
+  -- transacción; la rama UPDATE la lee cuando no encuentra al padre y decide
+  -- con el stock de la variante que QUEDA. Borrar el padre junto con sus
+  -- variantes en la misma sentencia no traba nada: la acción referencial corre
+  -- al final de la sentencia y ya no las encuentra.
+  IF TG_OP = 'DELETE' THEN
+    IF OLD.base_unit_id IS NOT NULL THEN
+      PERFORM 1 FROM public.products v
+       WHERE v.parent_id = OLD.id AND v.base_unit_id IS NULL
+       ORDER BY v.id
+       FOR UPDATE;
+      IF FOUND THEN
+        v_stash := COALESCE(NULLIF(current_setting('ventas_uom.deleted_parent_base', true), ''), '{}')::jsonb;
+        PERFORM set_config('ventas_uom.deleted_parent_base',
+                           (v_stash || jsonb_build_object(OLD.id::text, OLD.base_unit_id::text))::text, true);
+      END IF;
+    END IF;
+    RETURN OLD;
+  END IF;
+
+  -- Tenencia: sólo cuando la unidad base (o la cuenta) efectivamente cambia.
+  IF NEW.base_unit_id IS NOT NULL AND (
+       TG_OP = 'INSERT'
+       OR NEW.base_unit_id IS DISTINCT FROM OLD.base_unit_id
+       OR NEW.account_id   IS DISTINCT FROM OLD.account_id) THEN
+    SELECT COALESCE(u.is_system, false), u.account_id
+      INTO v_unit_system, v_unit_account
+      FROM public.units_of_measure u
+     WHERE u.id = NEW.base_unit_id;
+    IF NOT FOUND OR (NOT v_unit_system AND v_unit_account IS DISTINCT FROM NEW.account_id) THEN
+      RAISE EXCEPTION 'base_unit_not_found: la unidad base no existe o no pertenece a la cuenta del producto'
+        USING ERRCODE = 'P0404';
+    END IF;
+  END IF;
+
+  -- productos-padre-variantes (D6, ÚNICO cambio respecto del cuerpo vivo): salida del
+  -- guard para la CORRECCIÓN EXPLÍCITA de la unidad de una familia
+  -- (rpc_relabel_product_unit). La RPC escribe el GUC LOCAL
+  -- products.unit_relabel_root con el id de la RAÍZ del grupo que ya bloqueó; sólo
+  -- las filas de ESE grupo (la raíz y sus variantes) pasan sin los chequeos de
+  -- stock/historia, y sólo si no cambian de padre ni de cuenta: re-parentar, mover de
+  -- cuenta o tocar otro producto en la misma transacción siguen pasando por el
+  -- guard completo. Va DESPUÉS del chequeo de tenencia de la unidad (la unidad nueva
+  -- se valida igual). `authenticated` no puede escribir este GUC por PostgREST
+  -- (set_config vive en pg_catalog, fuera de los esquemas expuestos): un PATCH
+  -- directo sigue recibiendo P0409 base_unit_locked. Anidado, no con AND: OLD no
+  -- existe en un INSERT y el orden de evaluación de un AND no está garantizado.
+  IF TG_OP = 'UPDATE' THEN
+    IF NULLIF(current_setting('products.unit_relabel_root', true), '') = COALESCE(NEW.parent_id, NEW.id)::text THEN
+      IF NEW.parent_id IS NOT DISTINCT FROM OLD.parent_id AND NEW.account_id = OLD.account_id THEN
+        RETURN NEW;
+      END IF;
+    END IF;
+  END IF;
+
+  -- Tercera revisión: la unidad base EFECTIVA de una variante que hereda
+  -- también cambia si se la RE-PARENTA (o se la desengancha): `authenticated`
+  -- tiene UPDATE sobre products.parent_id, y re-parentar 5 kg a un padre en
+  -- 'u' los dejaba leyéndose 5 u (reproducido por PostgREST).
+  IF TG_OP = 'INSERT'
+     OR (NEW.base_unit_id IS NOT DISTINCT FROM OLD.base_unit_id
+         AND NEW.parent_id IS NOT DISTINCT FROM OLD.parent_id) THEN
+    RETURN NEW;
+  END IF;
+
+  -- Unidad base EFECTIVA antes y después: la propia o la heredada del padre
+  -- (misma regla que _uom_normalize_quantity y v_products_with_stock) — el
+  -- padre de OLD para la de antes y el de NEW para la de después.
+  IF OLD.parent_id IS NOT NULL THEN
+    SELECT p.base_unit_id INTO v_old_parent_base FROM public.products p WHERE p.id = OLD.parent_id;
+    IF NOT FOUND THEN
+      -- Cuarta revisión: el padre se está borrando en esta misma sentencia
+      -- (este UPDATE es la acción referencial ON DELETE SET NULL); su unidad
+      -- la dejó la rama DELETE en el GUC local.
+      v_old_parent_base := NULLIF(
+        COALESCE(NULLIF(current_setting('ventas_uom.deleted_parent_base', true), ''), '{}')::jsonb
+          ->> OLD.parent_id::text, '')::uuid;
+    END IF;
+  END IF;
+  IF NEW.parent_id IS NOT NULL THEN
+    IF NEW.parent_id IS DISTINCT FROM OLD.parent_id THEN
+      -- Cuarta revisión (write skew): re-parentar bajo P2 mientras otra
+      -- transacción cambia la unidad base de P2. El FK sólo toma KEY SHARE
+      -- sobre P2, que no choca con el NO KEY UPDATE del cambio de base, y ese
+      -- cambio no ve todavía a esta variante como hija: los dos pasaban.
+      -- FOR SHARE sí choca: el que llega segundo espera y decide sobre lo
+      -- commiteado (test_ventas_unidades_conversion_race.sh, (d) y (e)).
+      SELECT p.base_unit_id INTO v_parent_base FROM public.products p WHERE p.id = NEW.parent_id FOR SHARE;
+    ELSE
+      SELECT p.base_unit_id INTO v_parent_base FROM public.products p WHERE p.id = NEW.parent_id;
+    END IF;
+  END IF;
+  v_old_eff := COALESCE(OLD.base_unit_id, v_old_parent_base);
+  v_new_eff := COALESCE(NEW.base_unit_id, v_parent_base);
+
+  -- Sin cambio efectivo no hay nada que proteger. Dos grupos, cada uno con su
+  -- condición:
+  --   · el producto mismo, si SU unidad efectiva cambia (base propia o padre);
+  --   · las variantes que HEREDAN su base propia, si la base PROPIA cambia
+  --     (re-parentar al producto no las toca: heredan NEW.base_unit_id, no la
+  --     unidad efectiva de NEW).
+  -- CAMBIAR (de una unidad a otra, o quitarla) con stock o movimientos → P0409.
+  -- ASIGNAR (de ninguna a una) — cuarta revisión: también → P0409 si el grupo
+  -- tiene stock o movimientos Y alguna línea grabada con una unidad EXPLÍCITA
+  -- distinta de la que se asigna. Un producto sin unidad base admite líneas
+  -- en cualquier unidad base (kg, L, u): con historia en kg, asignarle 'g'
+  -- dejaba el stock 1000 veces menor, y con historia en 'u', asignarle 'kg'
+  -- lo reinterpretaba en kilos (redteam-3a/30-31). Las líneas SIN unidad no
+  -- declaran ninguna: sobre ellas la asignación sigue permitida (D-C).
+  v_self_changed      := v_old_eff IS NOT NULL AND v_old_eff IS DISTINCT FROM v_new_eff;
+  v_children_changed  := OLD.base_unit_id IS NOT NULL AND NEW.base_unit_id IS DISTINCT FROM OLD.base_unit_id;
+  v_self_assigned     := v_old_eff IS NULL AND v_new_eff IS NOT NULL;
+  v_children_assigned := OLD.base_unit_id IS NULL AND NEW.base_unit_id IS NOT NULL;
+  IF NOT (v_self_changed OR v_children_changed OR v_self_assigned OR v_children_assigned) THEN
+    RETURN NEW;
+  END IF;
+
+  -- Las variantes que heredan se toman FOR UPDATE (orden de id) para
+  -- serializar con las ventas/compras, que toman la fila de su producto.
+  IF v_children_changed OR v_children_assigned THEN
+    PERFORM 1 FROM public.products v
+     WHERE v.parent_id = NEW.id AND v.base_unit_id IS NULL
+     ORDER BY v.id
+     FOR UPDATE;
+  END IF;
+
+  IF (v_self_changed OR v_children_changed) AND (
+       EXISTS (
+         SELECT 1 FROM public.branch_stock bs
+          WHERE bs.quantity <> 0
+            AND ((v_self_changed AND bs.product_id = NEW.id)
+                 OR (v_children_changed
+                     AND bs.product_id IN (SELECT v.id FROM public.products v
+                                            WHERE v.parent_id = NEW.id AND v.base_unit_id IS NULL))))
+       OR EXISTS (
+         SELECT 1 FROM public.stock_movements sm
+          WHERE (v_self_changed AND sm.product_id = NEW.id)
+             OR (v_children_changed
+                 AND sm.product_id IN (SELECT v.id FROM public.products v
+                                        WHERE v.parent_id = NEW.id AND v.base_unit_id IS NULL)))) THEN
+    RAISE EXCEPTION 'base_unit_locked: el producto % ya tiene stock o movimientos en su unidad base actual; cambiarla haría que las cantidades se lean en otra unidad. Creá un producto nuevo con la unidad correcta y pasale el stock con un ajuste.', NEW.id
+      USING ERRCODE = 'P0409';
+  END IF;
+
+  IF v_self_assigned OR v_children_assigned THEN
+    -- Los productos cuya unidad efectiva se asigna, cada uno con la unidad
+    -- que pasaría a tener; y la primera línea grabada en otra unidad.
+    WITH grp AS (
+      SELECT NEW.id AS product_id, v_new_eff AS target WHERE v_self_assigned
+      UNION ALL
+      SELECT v.id, NEW.base_unit_id FROM public.products v
+       WHERE v_children_assigned AND v.parent_id = NEW.id AND v.base_unit_id IS NULL
+    ), lines AS (
+      SELECT s.product_id, s.unit_id FROM public.sales s WHERE s.product_id IN (SELECT g.product_id FROM grp g)
+      UNION ALL
+      SELECT pu.product_id, pu.unit_id FROM public.purchases pu WHERE pu.product_id IN (SELECT g.product_id FROM grp g)
+      UNION ALL
+      SELECT si.product_id, si.unit_id FROM public.sale_items si WHERE si.product_id IN (SELECT g.product_id FROM grp g)
+      UNION ALL
+      SELECT pi.product_id, pi.unit_id FROM public.purchase_items pi WHERE pi.product_id IN (SELECT g.product_id FROM grp g)
+      UNION ALL
+      SELECT soi.product_id, soi.unit_id FROM public.sales_order_items soi WHERE soi.product_id IN (SELECT g.product_id FROM grp g)
+      UNION ALL
+      SELECT qi.product_id, qi.unit_id FROM public.quote_items qi WHERE qi.product_id IN (SELECT g.product_id FROM grp g)
+      UNION ALL
+      -- remitos-venta (D14): las líneas del remito también graban la unidad.
+      SELECT dni.product_id, dni.unit_id FROM public.delivery_note_items dni WHERE dni.product_id IN (SELECT g.product_id FROM grp g)
+    )
+    SELECT l.unit_id INTO v_conflict_unit
+      FROM lines l JOIN grp g ON g.product_id = l.product_id
+     WHERE l.unit_id IS NOT NULL AND l.unit_id IS DISTINCT FROM g.target
+     LIMIT 1;
+
+    IF v_conflict_unit IS NOT NULL AND (
+         EXISTS (
+           SELECT 1 FROM public.branch_stock bs
+            WHERE bs.quantity <> 0
+              AND ((v_self_assigned AND bs.product_id = NEW.id)
+                   OR (v_children_assigned
+                       AND bs.product_id IN (SELECT v.id FROM public.products v
+                                              WHERE v.parent_id = NEW.id AND v.base_unit_id IS NULL))))
+         OR EXISTS (
+           SELECT 1 FROM public.stock_movements sm
+            WHERE (v_self_assigned AND sm.product_id = NEW.id)
+               OR (v_children_assigned
+                   AND sm.product_id IN (SELECT v.id FROM public.products v
+                                          WHERE v.parent_id = NEW.id AND v.base_unit_id IS NULL)))) THEN
+      RAISE EXCEPTION 'base_unit_locked: el producto % tiene stock o movimientos y operaciones cargadas en otra unidad (%); asignarle la unidad base % haría que esas cantidades se lean en la unidad nueva. Asignale la unidad en que ya lo venías cargando, o creá un producto nuevo con la unidad correcta y pasale el stock con un ajuste.',
+        NEW.id,
+        COALESCE((SELECT u.symbol FROM public.units_of_measure u WHERE u.id = v_conflict_unit), v_conflict_unit::text),
+        COALESCE((SELECT u.symbol FROM public.units_of_measure u WHERE u.id = COALESCE(v_new_eff, NEW.base_unit_id)), COALESCE(v_new_eff, NEW.base_unit_id)::text)
+        USING ERRCODE = 'P0409';
+    END IF;
+  END IF;
+
+  RETURN NEW;
+END;
+$function$;
+-- COMMENT y ACL: se conservan los vivos (CREATE OR REPLACE no los toca).
+
+-- =============================================================================
+-- 4. rpc_relabel_product_unit (D5): corrección de la unidad de una FAMILIA, sin
+--    convertir cantidades
+-- =============================================================================
+DROP FUNCTION IF EXISTS public.rpc_relabel_product_unit(uuid, uuid, boolean);
+CREATE FUNCTION public.rpc_relabel_product_unit(
+  p_product_id  uuid,
+  p_new_unit_id uuid,
+  p_dry_run     boolean DEFAULT false
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $function$
+DECLARE
+  v_account       uuid;
+  v_root          uuid;
+  v_unit_before   uuid;
+  v_group         uuid[];
+  v_variants      integer;
+  v_variants_own  integer;
+  v_with_stock    integer;
+  v_movements     integer;
+  v_conflict      uuid;
+  v_own_before    jsonb;
+  v_result        jsonb;
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'unauthorized' USING ERRCODE = 'P0401';
+  END IF;
+
+  -- 1. El producto y su cuenta. Inexistente, borrado o de una cuenta que no es la
+  --    activa del usuario: el MISMO P0404 (no revela si existe en otro lado).
+  SELECT p.account_id, COALESCE(p.parent_id, p.id)
+    INTO v_account, v_root
+    FROM public.products p
+   WHERE p.id = p_product_id AND p.deleted_at IS NULL;
+  IF v_account IS NULL OR NOT EXISTS (SELECT 1 FROM public.current_account_ids() AS cai WHERE cai = v_account) THEN
+    RAISE EXCEPTION 'product_not_found: el producto no existe o no pertenece a tu cuenta'
+      USING ERRCODE = 'P0404';
+  END IF;
+
+  -- Rol: sin escritura en la cuenta P0401; con escritura pero sin ser dueño o
+  -- administrador P0403 insufficient_role. Corregir la unidad reinterpreta el stock
+  -- de toda la familia: es una acción de configuración, no de operación.
+  PERFORM public._account_assert_capability(
+    v_account, ARRAY['owner', 'admin'],
+    'tu rol no permite corregir la unidad de medida (requiere administrador o dueño)');
+
+  IF p_new_unit_id IS NULL THEN
+    RAISE EXCEPTION 'unit_required: elegí la unidad de medida de la familia'
+      USING ERRCODE = 'P0400';
+  END IF;
+  -- Misma regla de tenencia que el trigger de la unidad base: del sistema o de la cuenta.
+  IF NOT EXISTS (SELECT 1 FROM public.units_of_measure u
+                  WHERE u.id = p_new_unit_id
+                    AND (COALESCE(u.is_system, false) OR u.account_id = v_account)) THEN
+    RAISE EXCEPTION 'base_unit_not_found: la unidad no existe o no pertenece a tu cuenta'
+      USING ERRCODE = 'P0404';
+  END IF;
+
+  -- 2. Locks: la raíz y luego las variantes vivas POR ORDEN DE ID (el mismo orden
+  --    que el trigger de la unidad base y que las RPCs de venta/compra, que toman
+  --    la fila del producto antes de normalizar): sin interbloqueo posible.
+  SELECT p.base_unit_id INTO v_unit_before
+    FROM public.products p
+   WHERE p.id = v_root AND p.account_id = v_account AND p.deleted_at IS NULL
+   FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'product_not_found: el producto no existe o no pertenece a tu cuenta'
+      USING ERRCODE = 'P0404';
+  END IF;
+  PERFORM 1
+    FROM public.products v
+   WHERE v.parent_id = v_root AND v.account_id = v_account AND v.deleted_at IS NULL
+   ORDER BY v.id
+   FOR UPDATE;
+
+  -- 3. Impacto (igual en dry-run). El grupo es la raíz más sus variantes vivas.
+  SELECT count(*), count(*) FILTER (WHERE v.base_unit_id IS NOT NULL),
+         COALESCE(jsonb_agg(jsonb_build_object('id', v.id, 'unit_before', v.base_unit_id) ORDER BY v.id)
+                  FILTER (WHERE v.base_unit_id IS NOT NULL), '[]'::jsonb)
+    INTO v_variants, v_variants_own, v_own_before
+    FROM public.products v
+   WHERE v.parent_id = v_root AND v.account_id = v_account AND v.deleted_at IS NULL;
+  v_group := ARRAY[v_root] || COALESCE(
+    (SELECT array_agg(v.id) FROM public.products v
+      WHERE v.parent_id = v_root AND v.account_id = v_account AND v.deleted_at IS NULL), '{}'::uuid[]);
+  SELECT count(DISTINCT bs.product_id) INTO v_with_stock
+    FROM public.branch_stock bs
+   WHERE bs.account_id = v_account AND bs.product_id = ANY (v_group) AND bs.quantity <> 0;
+  SELECT count(*) INTO v_movements
+    FROM public.stock_movements sm
+   WHERE sm.account_id = v_account AND sm.product_id = ANY (v_group);
+
+  v_result := jsonb_build_object(
+    'changed',                false,
+    'root_id',                v_root,
+    'unit_before',            v_unit_before,
+    'unit_after',             p_new_unit_id,
+    'variants',               v_variants,
+    'variants_with_own_unit', v_variants_own,
+    'products_with_stock',    v_with_stock,
+    'movements',              v_movements,
+    'conflict_unit',          NULL);
+
+  -- 4. Sin efecto: la raíz ya tiene esa unidad y ninguna variante declara una propia.
+  --    Idempotente: no escribe, no audita, y no mira conflictos (nada cambiaría).
+  IF v_unit_before IS NOT DISTINCT FROM p_new_unit_id AND v_variants_own = 0 THEN
+    RETURN v_result;
+  END IF;
+
+  -- 5. Conflicto: alguna línea del grupo se grabó con una unidad EXPLÍCITA distinta de
+  --    la nueva. Es el mismo UNION de líneas de fn_product_base_unit_guard (ramas de
+  --    asignación) y de has_lines_in_other_unit. Un relabel que las dejara así
+  --    reinterpretaría esas cantidades en silencio.
+  SELECT l.unit_id INTO v_conflict
+    FROM (
+      SELECT s.unit_id   FROM public.sales s               WHERE s.product_id   = ANY (v_group)
+      UNION ALL
+      SELECT pu.unit_id  FROM public.purchases pu          WHERE pu.product_id  = ANY (v_group)
+      UNION ALL
+      SELECT si.unit_id  FROM public.sale_items si         WHERE si.product_id  = ANY (v_group)
+      UNION ALL
+      SELECT pi.unit_id  FROM public.purchase_items pi     WHERE pi.product_id  = ANY (v_group)
+      UNION ALL
+      SELECT soi.unit_id FROM public.sales_order_items soi WHERE soi.product_id = ANY (v_group)
+      UNION ALL
+      SELECT qi.unit_id  FROM public.quote_items qi        WHERE qi.product_id  = ANY (v_group)
+      UNION ALL
+      SELECT dni.unit_id FROM public.delivery_note_items dni WHERE dni.product_id = ANY (v_group)
+    ) l
+   WHERE l.unit_id IS NOT NULL AND l.unit_id <> p_new_unit_id
+   LIMIT 1;
+
+  v_result := jsonb_set(v_result, '{changed}', 'true'::jsonb);
+  IF v_conflict IS NOT NULL THEN
+    IF p_dry_run THEN
+      -- La vista previa lo informa en vez de lanzar: el diálogo lo explica.
+      RETURN jsonb_set(v_result, '{conflict_unit}', to_jsonb(v_conflict));
+    END IF;
+    RAISE EXCEPTION 'unit_relabel_conflict: la familia tiene operaciones cargadas en %; corregir la unidad a otra distinta reinterpretaría esas cantidades. Corregila a esa unidad o creá un producto nuevo con la unidad correcta.',
+      COALESCE((SELECT u.symbol FROM public.units_of_measure u WHERE u.id = v_conflict), v_conflict::text)
+      USING ERRCODE = 'P0409';
+  END IF;
+
+  IF p_dry_run THEN
+    RETURN v_result;
+  END IF;
+
+  -- 6. Escritura. El GUC es LOCAL a la transacción y lo escribe SÓLO esta función: le
+  --    avisa a fn_product_base_unit_guard que estas filas (las de ESTE grupo, ya
+  --    bloqueadas) cambian de unidad por una corrección explícita. Se vuelve a vaciar
+  --    apenas termina.
+  PERFORM set_config('products.unit_relabel_root', v_root::text, true);
+  UPDATE public.products
+     SET base_unit_id = p_new_unit_id
+   WHERE id = v_root AND account_id = v_account;
+  UPDATE public.products
+     SET base_unit_id = NULL
+   WHERE parent_id = v_root AND account_id = v_account AND deleted_at IS NULL AND base_unit_id IS NOT NULL;
+  PERFORM set_config('products.unit_relabel_root', '', true);
+
+  -- 7. Auditoría: lo que hace falta para revertir con otro relabel.
+  INSERT INTO public.audit_logs (account_id, user_id, action, entity_type, entity_id, metadata, created_at)
+  VALUES (
+    v_account, auth.uid(), 'product.unit_relabel', 'product', v_root,
+    jsonb_build_object(
+      'unit_before',                    v_unit_before,
+      'unit_after',                     p_new_unit_id,
+      'variants',                       v_variants,
+      'variants_with_own_unit_before',  v_own_before,
+      'products_with_stock',            v_with_stock,
+      'movements',                      v_movements),
+    now());
+
+  RETURN v_result;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.rpc_relabel_product_unit(uuid, uuid, boolean) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.rpc_relabel_product_unit(uuid, uuid, boolean) TO authenticated;
+
+COMMENT ON FUNCTION public.rpc_relabel_product_unit(uuid, uuid, boolean) IS
+  $c$productos-padre-variantes (D5): corrige la unidad base de una FAMILIA (el producto normalizado a su raíz y todas sus variantes) como un CAMBIO DE RÓTULO: ninguna cantidad de branch_stock, stock_movements ni de ninguna línea se convierte. La raíz queda con la unidad nueva y todas las variantes vivas heredándola (base_unit_id NULL). Sólo dueño o administrador (P0403 insufficient_role); producto ajeno/inexistente P0404 product_not_found; sin unidad P0400 unit_required; unidad ajena P0404 base_unit_not_found; una línea del grupo con otra unidad explícita P0409 unit_relabel_conflict (en dry-run viaja en conflict_unit). Sin efecto -> changed=false sin escribir ni auditar. Audita product.unit_relabel con lo necesario para revertir con otro relabel. Es la ÚNICA excepción al bloqueo base_unit_locked: lo reconoce fn_product_base_unit_guard por el GUC local products.unit_relabel_root, atado a la raíz.$c$;

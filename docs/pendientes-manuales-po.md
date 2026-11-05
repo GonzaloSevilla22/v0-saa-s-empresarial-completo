@@ -4,7 +4,7 @@
 >
 > Convención: una sección por change o tema, con los pasos concretos y qué esperar en cada uno. Cuando lo hagas, marcá `[x]` o decime «pasó» / «falló en el paso N» y lo cierro.
 >
-> Última actualización: 2026-11-04.
+> Última actualización: 2026-11-05.
 
 ---
 
@@ -46,6 +46,20 @@ Ya probados por vos y cerrados: `balanza-etiquetas-pos`, `presupuestos-modulo`, 
 
 ---
 
+## 5. `edicion-operaciones-con-dinero` — humo real en prod (task 17.4)
+
+Las tres tandas (#659 cimientos, #660 edición con dinero, #661 superficie) deshabilitaron el bloqueo por dinero: ahora se puede **editar** una venta, compra o gasto con cuenta corriente, caja o banco, y antes de guardar la pantalla muestra **qué se va a ajustar en cada libro**. Esto sólo lo podés probar vos, con datos reales. Usá operaciones **tuyas de prueba** (después las borrás) y mirá siempre tres cosas en cada caso: el **plan** del diálogo, los **libros** resultantes (Caja, Banco, cuenta corriente del cliente o proveedor) y el **«Historial de cambios»** del detalle de la operación.
+
+- [ ] 1. **Venta a crédito, subir el total y cambiar el vencimiento.** Cargá una venta a una cuenta corriente de un cliente de prueba, abrila con el lápiz, subí el total y cambiá el vencimiento. Al guardar tiene que aparecer el diálogo: «se revertirá el cargo de $X» + «se registrará un cargo de $Y, con vencimiento el …» + el saldo antes → después. Confirmá: el saldo del cliente queda en el total nuevo, el vencimiento es el elegido, y el historial muestra «Total $X → $Y».
+- [ ] 2. **Venta en efectivo del día.** Con la caja abierta, cargá una venta en efectivo tildando «Registrar en caja», editala (cambiá el importe): el diálogo dice que **salen** $X de la caja y **entran** $Y. En `/caja` el arqueo de hoy tiene que reflejar el cambio. Probá también destildar «Registrado en caja»: el efectivo sale de la caja y la venta queda sin movimiento de caja.
+- [ ] 3. **Compra por transferencia.** Cargá una compra por transferencia con cuenta bancaria, editala (cambiá el importe): el diálogo muestra el **egreso** nuevo y el movimiento inverso, ambos «pendientes de conciliar». En `/banco` tienen que aparecer los dos.
+- [ ] 4. **Gasto en efectivo de una sesión ya cerrada, con la caja de hoy abierta.** Elegí un gasto en efectivo de un día cuya caja ya cerraste, editá su importe: el diálogo tiene que decir que la corrección se asienta en la **sesión abierta de hoy** (no toca la cerrada). Cerrá la caja de hoy, repetí la edición y verificá que el diálogo **bloquea** con «Abrí la caja para poder corregir esta operación» y el botón de confirmar deshabilitado.
+- [ ] 5. **Rol.** Si tenés un usuario vendedor o cajero de prueba: sobre una operación con dinero registrado, el lápiz tiene que aparecer deshabilitado con «Solo el dueño o un administrador pueden corregir dinero ya registrado».
+
+Si algo falla o el diálogo muestra algo que no coincide con los libros, decime el número de paso.
+
+---
+
 ## Registro de la corrida autónoma del 2026-11-04 (lo que hizo el agente)
 
 Se completa a medida que se mergea cada PR. Orden pactado: changes de a uno, siempre con la opción recomendada en cada OQ.
@@ -59,6 +73,6 @@ Se completa a medida que se mergea cada PR. Orden pactado: changes de a uno, sie
 | 18:43 | `fix/importador-productos-stock-apertura`: el stock del archivo es de apertura, no pisa el saldo vivo (R1 de la auditoría de stock; migración `20261086000001`) | #645 | mergeado |
 | 18:58 | `fix/stock-edicion-sucursal-y-piso`: editar valida el stock por sucursal, el piso deja un solo movimiento (R2/R4/R5; migración `20261087000001`; va antes del change por diseño) | #646 | mergeado |
 | 19:40 | `edicion-operaciones-con-dinero` tanda A (huella neta, aging, consumidor contable; migración `20261088000001`; sin superficie: nada que probar a mano) | #659 | mergeado |
-| — | `edicion-operaciones-con-dinero` tanda B (edición con dinero; migración `20261089000001`; sin superficie nueva: la ve la tanda C) | #660 | en revisión |
-| — | `edicion-operaciones-con-dinero` tanda C (superficie) | — | pendiente |
+| 02:20 (5-nov) | `edicion-operaciones-con-dinero` tanda B (edición con dinero; migración `20261089000001`; sin superficie nueva: la ve la tanda C) | #660 | mergeado |
+| — | `edicion-operaciones-con-dinero` tanda C (superficie: formularios de edición con dinero, diálogo del plan, historial de cambios; sin migración) | #661 | en revisión |
 | — | Archive `edicion-operaciones-con-dinero` | — | pendiente |

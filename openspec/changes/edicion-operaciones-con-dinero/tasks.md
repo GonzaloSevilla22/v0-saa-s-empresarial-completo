@@ -200,46 +200,58 @@
 
 ## 12. Tanda C — Formularios en modo edición
 
-- [ ] 12.1 **RED** (vitest): en `sale-form`, `purchase-form` y `expense-form-v2`, en modo edición:
+- [x] 12.1 **RED** (vitest): en `sale-form`, `purchase-form` y `expense-form-v2`, en modo edición:
   - aparecen los bloques de cuenta corriente (saldo proyectado, vencimiento precargado), caja ("Registrado en caja X" marcado si hay huella) y cuenta bancaria;
   - el payload manda las claves tri-estado sólo cuando cambian;
   - campo "Motivo del cambio".
-- [ ] 12.2 Quitar los `!isEdit` de `BankAccountDestinationSelect`, el bloque de crédito y el bloque de caja, reutilizando los mismos componentes del alta con copy de edición. Sesión de la sucursal nueva si cambia la sucursal.
+- [x] 12.2 Quitar los `!isEdit` de `BankAccountDestinationSelect`, el bloque de crédito y el bloque de caja, reutilizando los mismos componentes del alta con copy de edición. Sesión de la sucursal nueva si cambia la sucursal.
+  - Cuenta bancaria, cuenta corriente y caja se muestran al editar en los tres formularios con los MISMOS componentes (`BankAccountDestinationSelect`, `CashOptinBlock` con la prop nueva `hadFootprint`, el bloque de crédito de `PurchaseCheckoutFields` y el de `SaleForm`). `useDueDateCascade` gana `initialDueDate` (el vencimiento VIGENTE no sigue la cascada) y `usePurchaseCheckout` gana `hadCash`/`alreadyCharged`.
+  - Lógica pura compartida en `lib/money-intent.ts` (`buildEditMoneyIntent`): el tri-estado por ausencia se prueba sin montar nada.
+  - El bloque de crédito de la edición **estima** el saldo (sin contar dos veces el cargo vigente); el plan exacto lo da el servidor en la confirmación. Para la caja el formulario resuelve la sesión con `useCashOptin` (primera caja de la sucursal efectiva): si la sucursal tiene varias cajas y la huella está en otra, el plan del servidor lo dice (bloqueo o `cash_intent_required`) en vez de adivinarlo la pantalla.
+  - Se retira el aviso de «borrala y volvé a cargarla» de `PurchaseCheckoutFields` (`credit_transition_not_allowed` se retiró en la tanda B).
 
 ## 13. Tanda C — Confirmación con el plan del servidor
 
-- [ ] 13.1 **RED**:
+- [x] 13.1 **RED**:
   - `OperationEditPlanDialog` muestra el plan por libro con el sentido real (entra o sale de la caja);
   - deshabilita la confirmación con su motivo ante un bloqueo;
   - no aparece si el plan no cambia ningún libro;
   - el resultado mostrado sale de la respuesta del servidor;
   - el foco vuelve al control que lo abrió.
-- [ ] 13.2 `lib/money-plan.ts` (única redacción) y un componente de lista compartido con `DeleteOperationDialog`; hooks `useOperationEditPreview` y mutaciones de edición que invalidan caja, banco, conciliación, cuentas corrientes, `receivables.*`, libro diario y formas de pago, reutilizando las claves existentes.
+- [x] 13.2 `lib/money-plan.ts` (única redacción) y un componente de lista compartido con `DeleteOperationDialog`; hooks `useOperationEditPreview` y mutaciones de edición que invalidan caja, banco, conciliación, cuentas corrientes, `receivables.*`, libro diario y formas de pago, reutilizando las claves existentes.
+  - **Desvío (con motivo)**: no existe un hook `useOperationEditPreview`. La vista previa vive como `previewSaleOperationEdit` / `previewPurchaseOperationEdit` (devueltos por `useSales()` / `usePurchases()`) y como función suelta `previewExpenseEdit` (en `use-expenses-query.ts`), todas sobre la misma `fetchEditPreview` de `lib/operation-edit-api.ts` y el mismo constructor de payload que el PUT. Motivo: 25 archivos de test de formularios y listados ya mockean esos hooks de dominio; un hook nuevo importado por los formularios exigía tocar todos para mockear `python-client`. El flujo «guardar → plan → confirmar → ejecutar» es el hook `useEditPlanFlow` (`hooks/use-edit-plan-flow.ts`), compartido por los tres formularios.
+  - Las invalidaciones son una sola definición, `invalidateAfterOperationEdit(queryClient, kind)` en `lib/query-invalidation.ts` (con su lista exportada y su test), reutilizando las raíces de `queryKeys`.
 
 ## 14. Tanda C — Historial de cambios
 
-- [ ] 14.1 **RED**: `OperationEditHistory` en el detalle expandido de las tres pantallas, con carga diferida: fecha, usuario y resumen. Vacío sin ediciones.
-- [ ] 14.2 Implementación con `useOperationEditHistory` sobre los endpoints de 10.2.
+- [x] 14.1 **RED**: `OperationEditHistory` en el detalle expandido de las tres pantallas, con carga diferida: fecha, usuario y resumen. Vacío sin ediciones.
+- [x] 14.2 Implementación con `useOperationEditHistory` sobre los endpoints de 10.2.
+  - `OperationEditHistory` (componente compartido) con su cuerpo `HistoryBody` que recién monta el hook al abrir. Está en el detalle expandido de `/ventas` y `/compras` (sólo si la operación tiene `operation_id`) y, como `/gastos` **no tiene detalle expandido**, bajo cada fila de gasto (cerrado). Convertir las filas de `/gastos` en expandibles queda como candidato.
 
 ## 15. Tanda C — Listados y errores
 
-- [ ] 15.1 Listados de `/ventas`, `/compras` y `/gastos`:
+- [x] 15.1 Listados de `/ventas`, `/compras` y `/gastos`:
   - motivo desde `edit_locked_reason` y derivados fiscales;
   - se retiran `PAYMENT_LOCKED_REASON` y sus equivalentes;
   - `title` del lápiz cuando hay dinero registrado;
   - "Editar" deshabilitado por rol según OQ-4.
-- [ ] 15.2 `lib/operation-errors.ts`: tokens nuevos y mensajes de edición para `P0425`, `P0426` y `P0424`, con tests.
+- [x] 15.2 `lib/operation-errors.ts`: tokens nuevos y mensajes de edición para `P0425`, `P0426` y `P0424`, con tests.
+  - `OperationErrorContext` gana `intent: "edit"` y `party`; los cinco bloqueos del plan se redactan con `describeBlock` de `lib/money-plan.ts` (una sola redacción, la misma del diálogo) y los siete tokens restantes tienen su texto. Fuera de la edición, `P0426`/`P0424` conservan su redacción del borrado.
 
 ## 16. Tanda C — Verificación visual y accesibilidad
 
-- [ ] 16.1 Pasada visual del formulario de edición, el diálogo del plan y el historial en escritorio y móvil (375 px), en tema claro y oscuro, con capturas en `evidence/`. Tokens semánticos y contraste AA (gate `token-contrast-aa`).
-- [ ] 16.2 Tests a11y (teclado, `aria-*` del diálogo y del historial) y `tsc` sin errores nuevos.
+- [x] 16.1 Pasada visual del formulario de edición, el diálogo del plan y el historial en escritorio y móvil (375 px), en tema claro y oscuro, con capturas en `evidence/`. Tokens semánticos y contraste AA (gate `token-contrast-aa`).
+  - Arnés `app/dev-harness/edicion-dinero` (componentes REALES contra un backend simulado por intercept de `fetch`) + `e2e/harness/edicion-dinero-visual.spec.ts`: 32 pruebas (venta a crédito, venta en efectivo, compra, gasto, plan sin bloqueo, plan en efectivo, plan con bloqueo, historial × 1366/375 × claro/oscuro), todas verdes; capturas en `evidence/tanda-c/` (32 PNG). No se usó el stack completo con login: las pantallas reales exigen sesión y las tres RPCs ya están cubiertas por los gates SQL de la tanda B.
+  - Sólo tokens semánticos (`border-border`, `bg-accent/30`, `text-destructive`, `bg-destructive/10`…); ningún color literal nuevo.
+- [x] 16.2 Tests a11y (teclado, `aria-*` del diálogo y del historial) y `tsc` sin errores nuevos.
+  - Diálogo: `alertdialog` con nombre y descripción, el foco entra y vuelve al control que lo abrió, `Escape` cierra sin confirmar, el botón deshabilitado apunta al motivo con `aria-describedby`, los bloqueos con `role="alert"`. Historial: botón nativo con `aria-expanded`/`aria-controls`, región con nombre, estados `status`/`alert`.
+  - `tsc --noEmit`: los mismos 8 errores preexistentes en 5 archivos de test (LedgerMovementsPanel, purchase-operations-list-payment-lock, use-critical-stock, pos-payment-methods, revenue-canon); ninguno nuevo
 
 ## 17. Tanda C — Documentación, cierre y humo
 
-- [ ] 17.1 KB: actualizar `knowledge-base/05_reglas_de_negocio.md` (inmutabilidad por dinero retirada, huella neta, corrección de caja de sesión cerrada, emparejamiento del aging) y `knowledge-base/07_flujos_principales.md` (flujo de edición).
-- [ ] 17.2 `CHANGES.md`: entrada del change con las mediciones y los candidatos que deja ("Nota de crédito" como etiqueta de la reversión por edición; "Último cargo" del panel por `created_at`). Puntero en `CLAUDE.md` y `python scripts/ci/check_docs_sync.py --fix` en el mismo PR.
-- [ ] 17.3 Revisión adversarial (un juez). PR `opsx/edicion-operaciones-con-dinero-apply-c`, CI verde, merge.
+- [x] 17.1 KB: actualizar `knowledge-base/05_reglas_de_negocio.md` (inmutabilidad por dinero retirada, huella neta, corrección de caja de sesión cerrada, emparejamiento del aging) y `knowledge-base/07_flujos_principales.md` (flujo de edición).
+- [x] 17.2 `CHANGES.md`: entrada del change con las mediciones y los candidatos que deja ("Nota de crédito" como etiqueta de la reversión por edición; "Último cargo" del panel por `created_at`). Puntero en `CLAUDE.md` y `python scripts/ci/check_docs_sync.py --fix` en el mismo PR.
+- [ ] 17.3 Revisión adversarial: **revisión por el orquestador** (no se lanza un juez desde el apply). PR `opsx/edicion-operaciones-con-dinero-apply-c`, CI verde, merge.
 - [ ] 17.4 **[PO]** Humo real en prod:
   - editar una venta a crédito (subir el total, cambiar el vencimiento);
   - una venta en efectivo del día;
@@ -278,6 +290,26 @@ Safety net (0.6): baseline = el de la tanda A (CI de `main` en `78f30c36`); corr
 | 11.1 | `frontend/__tests__/lib/rbac-capabilities.test.ts` (+ tests migrados) | Unit | vitest completo (A) | tsc: `isPaymentLocked` inexistente en 20 archivos de test | verde | `grep isPaymentLocked\|is_payment_locked frontend` vacío | — |
 
 Nota RED de 7.5: el script de carrera es nuevo y no tiene RED contra un cuerpo anterior (la tanda A ya probó el lock de filas de la compra y del gasto con `test_edicion_locks_race.sh`); no se corrió un mutante que quite el `FOR UPDATE` del recuento, así que su capacidad de detectar la regresión queda sin demostrar por mutación y es un punto a mirar en la revisión.
+
+### Evidencia TDD — tanda C (apply 2026-11-05)
+
+Safety net: baseline de los archivos tocados corrido antes de modificarlos (`delete-operation-dialog`, `operation-errors`, `sale-form-edit-context`, formularios y listados: en verde sobre `main` `b666f343`). Resultado final: vitest completo 592/593 archivos y 7228 tests en verde; los 2 que fallan (banco-conciliacion-import-warnings) vencieron por timeout bajo la carga de la corrida y pasan en aislamiento (8/8). `tsc --noEmit`: los mismos 8 errores preexistentes en 5 archivos de test (LedgerMovementsPanel, purchase-operations-list-payment-lock, use-critical-stock, pos-payment-methods, revenue-canon); ninguno nuevo.
+
+| Tarea | Test | Capa | Safety net | RED | GREEN | Triangulación | Refactor |
+|-------|------|------|------------|-----|-------|---------------|----------|
+| 13.1–13.2 | `__tests__/lib/money-plan.test.ts` | Unit | — (módulo nuevo) | módulo inexistente (`Failed to resolve import`) | 22 passed | cuenta corriente revierte/registra (cliente y proveedor, con y sin vencimiento), caja de venta vs. compra/gasto (entra/sale/vuelve), `both`, banco ingreso/egreso/inverso, 6 tokens de bloqueo, comprobante, resumen del historial (venta/gasto/sin cambios), `moneyEditAffordance` | `voidedFiscalText` única, consumida por `delete-compensation` |
+| 12.2 | `__tests__/lib/money-intent.test.ts` | Unit | — (módulo nuevo) | `Failed to resolve import "@/lib/money-intent"` | 13 passed | caja ×7 (sin huella, tildar, conservar, destildar, sucursal nueva, sin sesión, forma de pago no efectivo), banco, vencimiento, motivo, payload | — |
+| 15.2 | `__tests__/lib/operation-errors-money-edit.test.ts` | Unit | 82 passed en `operation-errors*` | 14 failed (los tokens se mostraban crudos) | 82 passed | P0425 cliente/proveedor/sin contexto, P0426 y P0424 en edición y fuera de ella, 9 tokens nuevos | los bloqueos del plan delegan en `describeBlock` |
+| 13.1 | `__tests__/components/OperationEditPlanDialog.test.tsx` | Component + a11y | 3 archivos del diálogo de borrado en verde | `Failed to resolve import` | 17 passed | sentido de la caja (venta/compra), respuesta del servidor, bloqueo (1 y varios), no aparece sin efecto, foco de vuelta, Escape, nombre/descripción | `MoneyPlanList` extraída y consumida por `DeleteOperationDialog` (sus 22 tests siguen verdes) |
+| 13.2 | `__tests__/hooks/use-edit-plan-flow.test.tsx`, `__tests__/lib/query-invalidation-operation-edit.test.ts` | Unit | — | `Failed to resolve import` | 8 + 11 passed | directo / plan con efecto / sin efecto / bloqueo / error de vista previa / cancelar / doble guardado; raíces por documento | — |
+| 14.1–14.2 | `__tests__/components/OperationEditHistory.test.tsx`, `__tests__/hooks/use-operation-edit.test.tsx` | Component + hook | — | `Failed to resolve import` | 10 + 6 passed | carga diferida, fecha/usuario/resumen/motivo, vacío, cargando, error + reintentar, gasto («Importe»), a11y | `HistoryBody` monta el hook sólo al abrir |
+| 12.1 venta | `__tests__/components/sale-form-edit-money.test.tsx` | Component | 101 passed en 14 archivos `sale-form*`/`CashOptinBlock`/`use-due` | 17 failed / 4 passed | 21 passed | crédito (saldo sin doble cuenta, vencimiento vigente), efectivo con y sin huella, banco, motivo, 7 payloads por ausencia, plan (directo, mismo payload, confirmar, volver, bloqueo, aviso del servidor, error humanizado) | — |
+| 12.1 compra | `__tests__/components/purchase-form-edit-money.test.tsx` + `use-purchase-checkout.test.ts` + `PurchaseCheckoutFields.test.tsx` | Component + hook | 93 passed en `purchase-form*` | 14 failed / 3 passed; hook 5 failed; fields 2 failed (contra el cuerpo previo) | 17 + 21 + 26 passed | espejo de venta + pasar a crédito sin aviso, `hadCash`, `requiresDate`, `alreadyCharged` | `PurchaseCheckoutFields` sin la rama de transición |
+| 12.1 gasto | `__tests__/components/expense-form-edit-money.test.tsx` | Component | `expense-form*` + `gastos.a11y` en verde | 16 failed / 2 passed | 18 passed | caja marcada/desmarcada, banco requerido sólo si el kind pasa a bancario, payload, plan, aviso, error humanizado | — |
+| 15.1 | `__tests__/components/operations-list-money-edit.test.tsx`, `__tests__/pages/GastosPage-money-edit.test.tsx` | Component | 131 passed en listados | 10 failed / 7 passed; 5 failed / 3 passed | 17 + 8 passed | 3 libros × (ventas, compras), rol sin capacidad con/sin dinero, historial por `operation_id`, gasto | — |
+| 16.1 | `e2e/harness/edicion-dinero-visual.spec.ts` | Navegador (Playwright, arnés) | — | — | 32 passed | 4 formularios, 3 planes, historial × 2 anchos × 2 temas; sin desborde horizontal, CTA dentro del diálogo, confirmación deshabilitada con bloqueo | — |
+
+**Tests previos migrados** (el comportamiento que fijaban cambió a propósito, cada cambio justificado en el PR): `use-purchase-checkout.test.ts` y `PurchaseCheckoutFields.test.tsx` (caja, banco y crédito se ofrecen al editar; se retira el aviso de transición), `purchase-form-cash-optin.test.tsx` y `purchase-form-supplier.test.tsx` (ídem), `expense-form-payment-effects.test.tsx` (edición ofrece caja y banco; espera la caja), tres tests de listado de compras (el lápiz tiene nombre accesible ahora), y el mock de `use-operation-edit` / `use-collection-settings` en 24 archivos de test que renderizan los listados, la página de gastos o `PurchaseForm`.
 
 ## Evidencia TDD (plantilla del plan)
 

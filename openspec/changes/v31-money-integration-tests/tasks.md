@@ -50,8 +50,12 @@
 
 ## 5. Documentación y verificación
 
-- [ ] 5.1 Reemplazo mecánico, en los docstrings de los 12 archivos, de la frase «excluido del gate de CI» (y sus variantes) por «corre en el tier de integración de `KPI_Validation.yml`». Verificar con `git diff --stat` que no hay cambios fuera de docstrings en ese paso.
+- [x] 5.1 Reemplazo mecánico, en los docstrings de los 12 archivos, de la frase «excluido del gate de CI» (y sus variantes) por «corre en el tier de integración de `KPI_Validation.yml`». Verificar con `git diff --stat` que no hay cambios fuera de docstrings en ese paso.
+  - Reemplazo en los 10 docstrings que traían la frase (los otros 2 archivos de los 12, `aging_reversal_pairing` y `op_money_footprint_projection`, no la usaban); `git diff` muestra sólo líneas de docstring.
 - [ ] 5.2 Primera corrida real en el PR: anotar acá la duración del job `validate-kpis` antes (8 min 23 s, corrida 41982888027) y después, más la duración del paso del tier y del setup de Python. Si el job supera los 12 min, reabrir D1 (alternativa (a)) antes de pedir el check obligatorio.
+  - **Pendiente de la primera corrida en el PR**: se mide acá con el número real de CI (antes 8 min 23 s, corrida 41982888027). Referencia local, Windows con Docker Desktop: el tier completo (133 tests) tarda ~225 s y la instalación de dependencias es la medida de `E2E_Tests.yml` (~11 s).
 - [ ] 5.3 Control negativo en CI (en una rama descartable o en un commit revertido dentro del mismo PR): un test de integración que falla pone el paso en rojo, y un `pytest.skip` forzado en un test `integration` también. Dejar el link a las dos corridas en el PR y revertir.
-- [ ] 5.4 `npx openspec validate v31-money-integration-tests --strict` en verde. Todos los archivos tocados en LF (`git ls-files --eol` sin `w/crlf` ni `i/-text` en lo nuevo).
+  - **Lo que se hizo sin CI**: el control negativo de los hooks vive en `test_integration_fail_closed.py` (con `pytester`: un skip pasa a `failed` bajo `CI_REQUIRE_INTEGRATION=1`, un test que falla sigue fallando, el preflight aborta) y se verificó a mano en local (puerto cerrado y host remoto → exit 1). **Queda para el orquestador**: las dos corridas de CI en rama descartable (test que falla y `pytest.skip` forzado) y dejar los links en el PR.
+- [x] 5.4 `npx openspec validate v31-money-integration-tests --strict` en verde. Todos los archivos tocados en LF (`git ls-files --eol` sin `w/crlf` ni `i/-text` en lo nuevo).
+  - `npx openspec validate v31-money-integration-tests --strict` → *Change is valid*. Todo lo tocado entra al índice como `i/lf`.
 - [ ] 5.5 [PO] (manual, fuera del alcance del agente): crear la regla de branch protection o el ruleset de `main` con `validate-kpis` (KPI Validation) y `pytest` (Backend Tests) como checks obligatorios. Hoy `main` no tiene protección (medido 2026-11-05). Ojo: `Backend Tests` tiene filtro de rutas, así que conviene marcar obligatorio sólo `validate-kpis` o quitarle el filtro antes.

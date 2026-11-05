@@ -1,8 +1,7 @@
 """
 fix(billing) 2026-10-13 — tests de integración de los handlers REALES de los
 topics de suscripción de MercadoPago contra la DB local (Supabase local stack,
-`supabase start`). Marcados `@pytest.mark.integration`: excluidos del gate de
-CI (`pytest backend/tests -m "not integration"`) — correr a mano con
+`supabase start`). Marcados `@pytest.mark.integration`: corren en el tier de integración de `KPI_Validation.yml` — correr a mano con
 `-m integration` cuando el stack local esté levantado.
 
 Por qué existen: hasta este fix ningún test ejecutaba

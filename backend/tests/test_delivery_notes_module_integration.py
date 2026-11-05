@@ -1,8 +1,7 @@
 """
 remitos-venta (tanda A, task 2.1, "RED que persiste de verdad") — integración
 contra el Postgres LOCAL real (stack de `supabase start`, con 20261069000001
-aplicada). Marcado `@pytest.mark.integration`: excluido del gate de CI
-(`-m "not integration"`); correr a mano con `-m integration`. La evidencia de CI
+aplicada). Marcado `@pytest.mark.integration`: corre en el tier de integración de `KPI_Validation.yml`; correr a mano con `-m integration`. La evidencia de CI
 del esquema es el gate SQL supabase/tests/test_remitos_venta.sql.
 
 Por qué además de test_delivery_notes_module.py: aquel prueba el repositorio

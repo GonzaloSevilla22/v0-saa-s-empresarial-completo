@@ -1,8 +1,7 @@
 """
 venta-editable-vs-promocion-legacy (20261061000001) — integración contra el
 Postgres LOCAL real (stack de `supabase start`). Marcado
-`@pytest.mark.integration`: excluido del gate de CI (`pytest backend/tests -m
-"not integration"`, Backend_Tests.yml); correr a mano con `-m integration`
+`@pytest.mark.integration`: corre en el tier de integración de `KPI_Validation.yml`; correr a mano con `-m integration`
 con el stack local levantado. La evidencia de CI de que la RPC corre es el
 gate SQL supabase/tests/test_facturar_venta_manual.sql.
 

@@ -2,8 +2,7 @@
 factura-fiscal-imprimible — tenencia de `FiscalDocumentRepository.get_by_id`
 contra el Postgres LOCAL real (stack de `supabase start`).
 
-Marcado `@pytest.mark.integration`: excluido del gate de CI (`pytest
-backend/tests -m "not integration"`); correr a mano con `-m integration` y el
+Marcado `@pytest.mark.integration`: corre en el tier de integración de `KPI_Validation.yml`; correr a mano con `-m integration` y el
 stack local levantado. En CI la evidencia es el test de repositorio de
 test_factura_fiscal_endpoint.py (asserta el SQL y los parámetros).
 

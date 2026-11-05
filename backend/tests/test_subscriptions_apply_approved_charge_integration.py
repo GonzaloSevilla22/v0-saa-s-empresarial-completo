@@ -1,8 +1,7 @@
 """
 H4 hotfix (2026-09-04) — test de integración contra la DB local real
 (Supabase local stack, `supabase start`). Marcado `@pytest.mark.integration`:
-excluido del gate de CI (`pytest backend/tests -m "not integration"`,
-Backend_Tests.yml) — correr a mano con `-m integration` cuando el stack local
+corre en el tier de integración de `KPI_Validation.yml` — correr a mano con `-m integration` cuando el stack local
 esté levantado.
 
 Por qué hace falta un test de integración además de los mocks: el bug real

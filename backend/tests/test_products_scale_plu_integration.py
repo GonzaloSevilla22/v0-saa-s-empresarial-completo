@@ -1,7 +1,7 @@
 """
 balanza-etiquetas-pos (task 2.1, "RED que persiste de verdad") — integración
 contra el Postgres LOCAL real (stack de `supabase start`). Marcado
-`@pytest.mark.integration`: excluido del gate de CI (`-m "not integration"`);
+`@pytest.mark.integration`: corre en el tier de integración de `KPI_Validation.yml`;
 correr a mano con `-m integration` con el stack local levantado y
 20261066000001 aplicada. La evidencia de CI del esquema es el gate SQL
 supabase/tests/test_balanza_etiquetas_pos.sql.

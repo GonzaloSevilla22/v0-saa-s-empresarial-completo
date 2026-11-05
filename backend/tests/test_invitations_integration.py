@@ -2,7 +2,7 @@
 multiusuario-operativo TANDA C (grupo 15, "integración contra Postgres local") — la invitación de
 punta a punta contra la base REAL.
 
-Marcado `@pytest.mark.integration`: excluido del gate de CI (`-m "not integration"`); correr a mano con
+Marcado `@pytest.mark.integration`: corre en el tier de integración de `KPI_Validation.yml`; correr a mano con
 `-m integration` contra el stack local con 20261085000001 aplicada. La evidencia de CI del esquema es el
 gate SQL supabase/tests/test_multiusuario_invitaciones.sql.
 

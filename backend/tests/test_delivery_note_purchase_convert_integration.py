@@ -2,7 +2,7 @@
 remitos-compra (tanda B, tareas 7.1-7.2, "RED que persiste de verdad") — la
 conversión del remito de compra en compra contra el Postgres LOCAL real (stack de
 `supabase start`, con 20261081000001 aplicada). Marcado
-`@pytest.mark.integration`: excluido del gate de CI (`-m "not integration"`);
+`@pytest.mark.integration`: corre en el tier de integración de `KPI_Validation.yml`;
 correr a mano con `-m integration`. La evidencia de CI del esquema es el gate SQL
 supabase/tests/test_remito_a_compra.sql.
 

@@ -77,3 +77,37 @@ describe("ClientPurchaseHistory", () => {
     expect(screen.getByText(/error al cargar el historial/i)).toBeInTheDocument()
   })
 })
+
+// ── clientes-historial-fecha-enlace ─────────────────────────────────────────
+describe("ClientPurchaseHistory — fecha de negocio y enlace a la venta", () => {
+  const baseProps = {
+    meta: META, isLoading: false, error: null,
+    onPageChange: vi.fn(), onSizeChange: vi.fn(),
+  }
+
+  it("shows the business date as-is, with no timezone shift (UTC-3 browser)", () => {
+    // `new Date("2026-10-30")` es medianoche UTC → en Argentina caía al 29/10.
+    const prev = process.env.TZ
+    process.env.TZ = "America/Argentina/Mendoza"
+    try {
+      render(
+        <ClientPurchaseHistory
+          {...baseProps}
+          purchases={[{ operationId: "op-9", operationDate: "2026-10-30", itemCount: 1, total: 100 }]}
+        />
+      )
+      expect(screen.getByText("30/10/2026")).toBeInTheDocument()
+      expect(screen.queryByText("29/10/2026")).not.toBeInTheDocument()
+    } finally {
+      process.env.TZ = prev
+    }
+  })
+
+  it("links every row to its sale in /ventas", () => {
+    render(<ClientPurchaseHistory {...baseProps} purchases={PURCHASES} />)
+    const link1 = screen.getByRole("link", { name: /ver venta del 01\/08\/2026/i })
+    const link2 = screen.getByRole("link", { name: /ver venta del 15\/07\/2026/i })
+    expect(link1).toHaveAttribute("href", "/ventas?operation_id=op-1")
+    expect(link2).toHaveAttribute("href", "/ventas?operation_id=op-2")
+  })
+})

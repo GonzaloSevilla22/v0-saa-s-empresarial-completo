@@ -27,7 +27,11 @@ class SalesRepository(CommercialIssuerMixin, BaseRepository):
         date_from: datetime.date | None = None,
         date_to: datetime.date | None = None,
         payment_method_id: str | None = None,
+        operation_id: str | None = None,
     ) -> tuple[list[asyncpg.Record], int]:
+        # clientes-historial-fecha-enlace: `operation_id` es un filtro OPCIONAL
+        # (deep link desde el historial del cliente). La operación se identifica
+        # con la MISMA clave que ese historial: COALESCE(operation_id, id)::text.
         # metodos-pago-operaciones: `payment_method_id` es un filtro OPCIONAL,
         # atributo de la OPERACIÓN (todas sus líneas comparten el mismo valor)
         # — mismo patrón que cost_center_id en PurchaseRepository. El filtro
@@ -43,8 +47,9 @@ class SalesRepository(CommercialIssuerMixin, BaseRepository):
               AND ($2::date IS NULL OR date >= $2::date)
               AND ($3::date IS NULL OR date <= $3::date)
               AND ($4::uuid IS NULL OR payment_method_id = $4::uuid)
+              AND ($5::text IS NULL OR COALESCE(operation_id::text, id::text) = $5::text)
             """,
-            account_id, date_from, date_to, payment_method_id,
+            account_id, date_from, date_to, payment_method_id, operation_id,
         ) or 0
 
         rows: list[asyncpg.Record] = await self._conn.fetch(
@@ -56,6 +61,7 @@ class SalesRepository(CommercialIssuerMixin, BaseRepository):
                 AND ($2::date IS NULL OR date >= $2::date)
                 AND ($3::date IS NULL OR date <= $3::date)
                 AND ($4::uuid IS NULL OR payment_method_id = $4::uuid)
+                AND ($7::text IS NULL OR COALESCE(operation_id::text, id::text) = $7::text)
               GROUP BY COALESCE(operation_id::text, id::text)
               ORDER BY MAX(date) DESC
               LIMIT $5 OFFSET $6
@@ -248,6 +254,7 @@ class SalesRepository(CommercialIssuerMixin, BaseRepository):
             ORDER BY s.date DESC, s.id
             """,
             account_id, date_from, date_to, payment_method_id, page_size, page * page_size,
+            operation_id,
         )
         return rows, total
 

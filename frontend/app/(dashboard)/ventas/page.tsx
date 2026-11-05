@@ -1,6 +1,9 @@
 "use client"
 
-import { useState, useCallback } from "react"
+import { Suspense, useState, useCallback } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
+import { X } from "lucide-react"
+import { Button } from "@/components/ui/button"
 import { useSales } from "@/hooks/data/use-sales"
 import { useClients } from "@/hooks/data/use-clients"
 import { SaleForm } from "@/components/forms/sale-form"
@@ -16,6 +19,19 @@ import { ExportButton } from "@/components/export/ExportButton"
 import type { SaleOperation } from "@/lib/group-operations"
 
 export default function VentasPage() {
+  // `useSearchParams` exige un límite de Suspense en el build de Next.
+  return (
+    <Suspense fallback={null}>
+      <VentasPageContent />
+    </Suspense>
+  )
+}
+
+function VentasPageContent() {
+  const router = useRouter()
+  // clientes-historial-fecha-enlace: deep link desde el historial de compras
+  // del cliente. La URL manda: quitar el filtro es volver a `/ventas`.
+  const operationId = useSearchParams().get("operation_id")
   const { clients } = useClients()
   const {
     sales, meta, isLoading, error,
@@ -23,7 +39,7 @@ export default function VentasPage() {
     paymentMethodId, setPaymentMethodId, clearFilters,
     setPage, setPageSize, refetch,
     deleteSale, deleteSalesByOperation,
-  } = useSales()
+  } = useSales({ operationId })
 
   const { isAdmin, user } = useAuth()
   // ventas-unidades-conversion (cuarta revisión, D-F′): el listado muestra la
@@ -91,6 +107,23 @@ export default function VentasPage() {
       )}
 
       {!isWriter && <NoWriteAccessBanner />}
+
+      {operationId && (
+        <div
+          role="status"
+          className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-primary/30 bg-primary/10 px-4 py-2.5 text-sm text-foreground"
+        >
+          <span>
+            {sales[0]?.clientName
+              ? `Mostrando la venta de ${sales[0].clientName}`
+              : "Mostrando una sola venta"}
+          </span>
+          <Button variant="ghost" size="sm" onClick={() => router.replace("/ventas")}>
+            <X className="h-3.5 w-3.5" />
+            Ver todas las ventas
+          </Button>
+        </div>
+      )}
 
       <SaleOperationsList
         sales={sales}

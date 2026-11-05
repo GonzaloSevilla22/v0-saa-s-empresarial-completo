@@ -5,7 +5,9 @@
  * compras del cliente": una fila por operación de venta, fecha descendente.
  */
 
-import { PackageOpen } from "lucide-react"
+import Link from "next/link"
+import { ChevronRight, PackageOpen } from "lucide-react"
+import { formatBusinessDate } from "@/lib/sales-statistics"
 import { PaginationBar } from "@/components/ui/pagination-bar"
 import type { PaginationMeta, PageSizeOption } from "@/lib/pagination-utils"
 import type { ClientPurchase } from "@/hooks/data/use-client-activity"
@@ -15,13 +17,6 @@ const currencyFormatter = new Intl.NumberFormat("es-AR", {
   currency: "ARS",
   maximumFractionDigits: 0,
 })
-
-const dateFormatter = new Intl.DateTimeFormat("es-AR", { dateStyle: "medium" })
-
-function formatDate(iso: string): string {
-  const d = new Date(iso)
-  return Number.isNaN(d.getTime()) ? iso : dateFormatter.format(d)
-}
 
 interface ClientPurchaseHistoryProps {
   purchases:    ClientPurchase[]
@@ -47,15 +42,15 @@ export function ClientPurchaseHistory({
 
       <div className="rounded-lg border border-border overflow-hidden overflow-x-auto">
         <div className="min-w-[420px] sm:min-w-0">
-          <div className="grid grid-cols-[1fr_100px_120px] gap-3 px-4 py-2.5 bg-accent/40 border-b border-border text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
-            <span>Fecha</span><span>Ítems</span><span>Total</span>
+          <div className="grid grid-cols-[1fr_100px_120px_16px] gap-3 px-4 py-2.5 bg-accent/40 border-b border-border text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
+            <span>Fecha</span><span>Ítems</span><span>Total</span><span aria-hidden />
           </div>
 
           {isLoading && purchases.length === 0 && (
             <div data-testid="client-purchase-history-loading" className="flex flex-col">
               {Array.from({ length: 4 }).map((_, i) => (
                 <div key={i} className="border-t border-border/50 first:border-t-0 px-4 py-3">
-                  <div className="grid grid-cols-[1fr_100px_120px] gap-3 items-center">
+                  <div className="grid grid-cols-[1fr_100px_120px_16px] gap-3 items-center">
                     {Array.from({ length: 3 }).map((_, j) => (
                       <div key={j} className="h-3.5 rounded bg-accent animate-pulse" />
                     ))}
@@ -72,18 +67,26 @@ export function ClientPurchaseHistory({
             </div>
           )}
 
-          {purchases.map((p) => (
-            <div
-              key={p.operationId}
-              className="grid grid-cols-[1fr_100px_120px] gap-3 px-4 py-3 items-center border-t border-border/50 first:border-t-0"
-            >
-              <span className="text-sm text-foreground">{formatDate(p.operationDate)}</span>
-              <span className="text-sm text-muted-foreground tabular-nums">{p.itemCount}</span>
-              <span className="text-sm font-medium text-foreground tabular-nums">
-                {currencyFormatter.format(p.total)}
-              </span>
-            </div>
-          ))}
+          {purchases.map((p) => {
+            // `operationDate` es una fecha de negocio "YYYY-MM-DD": se muestra
+            // tal cual, sin pasar por `Date` (que la correría un día en UTC-3).
+            const date = formatBusinessDate(p.operationDate)
+            return (
+              <Link
+                key={p.operationId}
+                href={`/ventas?operation_id=${encodeURIComponent(p.operationId)}`}
+                aria-label={`Ver venta del ${date}`}
+                className="grid grid-cols-[1fr_100px_120px_16px] gap-3 px-4 py-3 items-center border-t border-border/50 first:border-t-0 transition-colors hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+              >
+                <span className="text-sm text-foreground">{date}</span>
+                <span className="text-sm text-muted-foreground tabular-nums">{p.itemCount}</span>
+                <span className="text-sm font-medium text-foreground tabular-nums">
+                  {currencyFormatter.format(p.total)}
+                </span>
+                <ChevronRight aria-hidden className="h-4 w-4 text-muted-foreground" />
+              </Link>
+            )
+          })}
         </div>
       </div>
 

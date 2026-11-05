@@ -84,7 +84,7 @@ Los agregados SHALL calcularse en la base de datos dentro de la misma consulta q
 ### Requirement: Días y ventanas en día calendario argentino
 El sistema SHALL computar los días transcurridos desde la última compra y los límites de la ventana de frecuencia en día calendario `America/Argentina/Mendoza`, conforme al canon `business-day-timezone`.
 
-La fecha de cada operación SHALL convertirse al día calendario argentino antes de compararse, y el día de referencia SHALL obtenerse de `reporting_local_today()`. El sistema NO SHALL derivar estas ventanas de restas directas sobre `now()` ni del huso del servidor o del dispositivo del usuario.
+La fecha de cada operación (`sales.date`) SHALL tomarse como la fecha de negocio `sales.date::date`, sin conversión de zona: es una fecha de negocio guardada a medianoche UTC y convertirla la correría al día anterior (21:00 ART). El día de referencia SHALL obtenerse de `reporting_local_today()`. El sistema NO SHALL derivar estas ventanas de restas directas sobre `now()` ni del huso del servidor o del dispositivo del usuario.
 
 #### Scenario: Compra registrada en la franja nocturna
 - **WHEN** la última compra de un cliente se registró a las 22:00 hora argentina del día D (01:00 UTC del día D+1)

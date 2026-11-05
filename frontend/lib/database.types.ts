@@ -2877,6 +2877,7 @@ export type Database = {
           history_days: number
           internal_roles: string
           max_ai_advice_per_month: number
+          max_ai_ocr_per_month: number
           max_ai_queries_per_month: number
           max_branches: number
           max_clients: number
@@ -2899,6 +2900,7 @@ export type Database = {
           history_days?: number
           internal_roles?: string
           max_ai_advice_per_month?: number
+          max_ai_ocr_per_month: number
           max_ai_queries_per_month?: number
           max_branches?: number
           max_clients?: number
@@ -2921,6 +2923,7 @@ export type Database = {
           history_days?: number
           internal_roles?: string
           max_ai_advice_per_month?: number
+          max_ai_ocr_per_month?: number
           max_ai_queries_per_month?: number
           max_branches?: number
           max_clients?: number
@@ -3262,6 +3265,9 @@ export type Database = {
       profiles: {
         Row: {
           ai_advice_used: number
+          ai_ocr_used: number
+          ai_ocr_window_count: number
+          ai_ocr_window_started_at: string | null
           ai_queries_used: number
           avatar_url: string | null
           billing_plan: string
@@ -3297,6 +3303,9 @@ export type Database = {
         }
         Insert: {
           ai_advice_used?: number
+          ai_ocr_used?: number
+          ai_ocr_window_count?: number
+          ai_ocr_window_started_at?: string | null
           ai_queries_used?: number
           avatar_url?: string | null
           billing_plan?: string
@@ -3332,6 +3341,9 @@ export type Database = {
         }
         Update: {
           ai_advice_used?: number
+          ai_ocr_used?: number
+          ai_ocr_window_count?: number
+          ai_ocr_window_started_at?: string | null
           ai_queries_used?: number
           avatar_url?: string | null
           billing_plan?: string
@@ -5741,6 +5753,10 @@ export type Database = {
       rpc_increment_ai_usage: {
         Args: { p_counter: string; p_user_id: string }
         Returns: undefined
+      }
+      rpc_reserve_ai_usage: {
+        Args: { p_counter: string }
+        Returns: Json
       }
       rpc_increment_export_usage: {
         Args: { p_user_id: string }

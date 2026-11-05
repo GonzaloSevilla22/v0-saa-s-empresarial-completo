@@ -3,7 +3,7 @@
 import { createClient } from "@/lib/supabase/client"
 // auth-hardening-jwt-cookies (Parte C, D1, task 19.8b).
 import { getSessionUser } from "@/lib/auth/access-token-store"
-import type { InvoiceDocument, ParsedInvoice, OcrStep } from "@/lib/invoice-types"
+import { InvoiceOcrError, type InvoiceDocument, type ParsedInvoice, type OcrStep } from "@/lib/invoice-types"
 
 const BUCKET = "invoices"
 
@@ -44,6 +44,85 @@ async function compressImage(file: File, maxDimension = 2048, quality = 0.85): P
     img.onerror = reject
     img.src     = url
   })
+}
+
+/** Lo mínimo que se lee de una Response: el status y el cuerpo en texto. */
+interface ResponseLike {
+  status: number
+  text(): Promise<string>
+}
+
+function isResponseLike(value: unknown): value is ResponseLike {
+  return (
+    typeof value === "object" && value !== null &&
+    typeof (value as { status?: unknown }).status === "number" &&
+    typeof (value as { text?: unknown }).text === "function"
+  )
+}
+
+/**
+ * Busca la Response HTTP del error de `functions.invoke`. En functions-js el `context` de un
+ * FunctionsHttpError ES la Response; se acepta también `context.response` (forma que el código
+ * anterior asumía y que no existe en la versión instalada).
+ */
+function extractResponse(fnErr: unknown): ResponseLike | null {
+  if (typeof fnErr !== "object" || fnErr === null) return null
+  const ctx = (fnErr as { context?: unknown }).context
+  if (isResponseLike(ctx)) return ctx
+  if (typeof ctx === "object" && ctx !== null) {
+    const nested = (ctx as { response?: unknown }).response
+    if (isResponseLike(nested)) return nested
+  }
+  return null
+}
+
+const GENERIC_OCR_ERROR = "Error en el procesamiento IA"
+
+/**
+ * Traduce el error de `supabase.functions.invoke("invoice-ocr")` a un `InvoiceOcrError` tipado
+ * (v31-ia-ratelimit-budget, D8). El código sale del `error` del cuerpo (`quota_exceeded`,
+ * `rate_limited`, `quota_unavailable`) o del status 413; todo lo demás es `other` con el mensaje
+ * del cuerpo.
+ */
+export async function toInvoiceOcrError(fnErr: unknown): Promise<InvoiceOcrError> {
+  const res = extractResponse(fnErr)
+  if (!res) {
+    const message = fnErr instanceof Error && fnErr.message ? fnErr.message : GENERIC_OCR_ERROR
+    return new InvoiceOcrError("other", message)
+  }
+
+  let raw = ""
+  try { raw = await res.text() } catch { /* cuerpo ilegible: queda el mensaje genérico */ }
+
+  let body: Record<string, unknown> | null = null
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+      body = parsed as Record<string, unknown>
+    }
+  } catch { /* no es JSON */ }
+
+  const serverError = typeof body?.error === "string" ? body.error : null
+  const message = serverError ?? (raw.trim() || GENERIC_OCR_ERROR)
+
+  if (res.status === 429 && serverError === "quota_exceeded") {
+    return new InvoiceOcrError("quota_exceeded", "Usaste todas las lecturas de factura de tu plan este mes", {
+      resetAt: typeof body?.resetAt === "string" ? body.resetAt : null,
+      used: typeof body?.used === "number" ? body.used : undefined,
+      limit: typeof body?.limit === "number" ? body.limit : undefined,
+    })
+  }
+  if (res.status === 429 && serverError === "rate_limited") {
+    const retry = body?.retryAfterSeconds
+    return new InvoiceOcrError("rate_limited", "Demasiadas lecturas seguidas", {
+      retryAfterSeconds: typeof retry === "number" ? retry : undefined,
+    })
+  }
+  if (res.status === 413) return new InvoiceOcrError("image_too_large", message)
+  if (res.status === 503 && serverError === "quota_unavailable") {
+    return new InvoiceOcrError("quota_unavailable", "No pudimos verificar tu cupo")
+  }
+  return new InvoiceOcrError("other", message)
 }
 
 // ── Main service ──────────────────────────────────────────────────────────────
@@ -121,17 +200,7 @@ export const invoiceOcrService = {
     })
 
     if (fnErr) {
-      let msg = "Error en el procesamiento IA"
-      try {
-        const ctx = (fnErr as any).context
-        if (ctx?.response) {
-          const txt = await ctx.response.text()
-          try { msg = JSON.parse(txt)?.error || msg } catch (_) { msg = txt }
-        } else if (fnErr instanceof Error) {
-          msg = fnErr.message
-        }
-      } catch (_) {}
-      throw new Error(msg)
+      throw await toInvoiceOcrError(fnErr)
     }
 
     if (!fnData?.ok) {

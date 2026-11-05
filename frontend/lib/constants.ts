@@ -42,6 +42,7 @@ export const PLAN_LIMITS = {
     maxExportsPerMonth: 0,
     maxAiQueriesPerMonth: 5,
     maxAiAdvicePerMonth: 3,
+    maxAiOcrPerMonth: 5,
     maxBranches: 1,
     hasProductProfitability: false,
     hasComparativeReports: false,
@@ -62,6 +63,7 @@ export const PLAN_LIMITS = {
     maxExportsPerMonth: 3,
     maxAiQueriesPerMonth: 30,
     maxAiAdvicePerMonth: 15,
+    maxAiOcrPerMonth: 30,
     maxBranches: 1,
     hasProductProfitability: false,
     hasComparativeReports: false,
@@ -82,6 +84,7 @@ export const PLAN_LIMITS = {
     maxExportsPerMonth: 15,
     maxAiQueriesPerMonth: 120,
     maxAiAdvicePerMonth: 60,
+    maxAiOcrPerMonth: 120,
     maxBranches: 1,
     hasProductProfitability: true,
     hasComparativeReports: true,
@@ -102,6 +105,7 @@ export const PLAN_LIMITS = {
     maxExportsPerMonth: 50,
     maxAiQueriesPerMonth: 300,
     maxAiAdvicePerMonth: 150,
+    maxAiOcrPerMonth: 300,
     maxBranches: 3,
     hasProductProfitability: true,
     hasComparativeReports: true,
@@ -122,6 +126,7 @@ export const PLAN_LIMITS = {
   maxExportsPerMonth: number
   maxAiQueriesPerMonth: number
   maxAiAdvicePerMonth: number
+  maxAiOcrPerMonth: number
   maxBranches: number
   hasProductProfitability: boolean
   hasComparativeReports: boolean

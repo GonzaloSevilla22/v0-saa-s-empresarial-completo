@@ -157,6 +157,8 @@ export interface PlanLimits {
   maxExportsPerMonth: number
   maxAiQueriesPerMonth: number
   maxAiAdvicePerMonth: number
+  /** Lecturas de factura con IA (invoice-ocr) por usuario y mes. */
+  maxAiOcrPerMonth: number
   maxBranches: number
   hasProductProfitability: boolean
   hasComparativeReports: boolean

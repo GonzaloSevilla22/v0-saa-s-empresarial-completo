@@ -129,3 +129,50 @@ export interface OcrSessionState {
   error:        string | null
   progress:     number          // 0–100 for progress bar
 }
+
+// ── Errores tipados de invoice-ocr (v31-ia-ratelimit-budget, D8) ──────────────
+
+/** Por qué rechazó la función una lectura: cada código tiene un mensaje propio en la UI. */
+export type InvoiceOcrErrorCode =
+  | "quota_exceeded"     // 429: usó todas las lecturas del mes
+  | "rate_limited"       // 429: más de 3 en 60 s
+  | "image_too_large"    // 413: la imagen supera 6 MB
+  | "quota_unavailable"  // 503: no se pudo verificar el cupo (fail-closed)
+  | "other"
+
+export class InvoiceOcrError extends Error {
+  readonly code: InvoiceOcrErrorCode
+  readonly retryAfterSeconds?: number
+  readonly resetAt?: string | null
+  readonly used?: number
+  readonly limit?: number
+
+  constructor(
+    code: InvoiceOcrErrorCode,
+    message: string,
+    extra: { retryAfterSeconds?: number; resetAt?: string | null; used?: number; limit?: number } = {},
+  ) {
+    super(message)
+    this.name = "InvoiceOcrError"
+    this.code = code
+    this.retryAfterSeconds = extra.retryAfterSeconds
+    this.resetAt = extra.resetAt
+    this.used = extra.used
+    this.limit = extra.limit
+  }
+
+  /** Texto para el usuario en español, propio de cada código. */
+  get userMessage(): string {
+    switch (this.code) {
+      case "rate_limited": {
+        const n = this.retryAfterSeconds
+        if (typeof n !== "number" || n < 1) return "Esperá unos segundos y volvé a intentar"
+        return `Esperá ${n} ${n === 1 ? "segundo" : "segundos"} y volvé a intentar`
+      }
+      case "image_too_large": return "La imagen supera 6 MB. Sacá la foto de nuevo o recortala."
+      case "quota_exceeded": return "Usaste todas las lecturas de factura de tu plan este mes."
+      case "quota_unavailable": return "No pudimos verificar tu cupo, intentá en un rato."
+      default: return this.message
+    }
+  }
+}

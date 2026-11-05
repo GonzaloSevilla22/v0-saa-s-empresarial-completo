@@ -4,6 +4,7 @@ import { useState, useCallback, useEffect } from "react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { InvoiceUploadZone } from "@/components/invoice/InvoiceUploadZone"
+import { OcrQuotaNotice } from "@/components/invoice/OcrQuotaNotice"
 import { InvoiceProcessingCard } from "@/components/invoice/InvoiceProcessingCard"
 import { InvoiceReviewModal } from "@/components/invoice/InvoiceReviewModal"
 import { PendingPurchaseNotesNotice } from "@/components/delivery-notes/PendingPurchaseNotesNotice"
@@ -15,10 +16,11 @@ import { usePurchases } from "@/hooks/data/use-purchases"
 import { useQueryClient } from "@tanstack/react-query"
 import { useAuth } from "@/contexts/auth-context"
 import { useUnitsOfMeasure } from "@/hooks/use-units-of-measure"
+import { useAiUsage } from "@/hooks/auth/use-ai-usage"
 import { ScanText, Sparkles } from "lucide-react"
 import { toast } from "sonner"
 import { argentinaToday } from "@/lib/date-range"
-import type { OcrStep, ParsedInvoice, MatchedInvoiceLine, OcrSessionState } from "@/lib/invoice-types"
+import { InvoiceOcrError, type OcrStep, type ParsedInvoice, type MatchedInvoiceLine, type OcrSessionState } from "@/lib/invoice-types"
 import type { ProductAlias } from "@/lib/invoice-matcher"
 
 const INITIAL_STATE: OcrSessionState = {
@@ -38,6 +40,11 @@ export function InvoiceAIButton({ onPurchasesCreated }: Props) {
   const { user }                    = useAuth()
   const refreshData                 = () => queryClient.invalidateQueries()
   const { units }  = useUnitsOfMeasure()
+  // v31-ia-ratelimit-budget (D8): saldo de lecturas de factura del mes. Mientras carga (o si el
+  // plan no resolvió el límite) NO se bloquea ni se muestra un aviso: la función es la que manda.
+  const { ocrRemaining, ocrLimit, isLoading: usageLoading } = useAiUsage()
+  const quotaKnown = !usageLoading && ocrLimit > 0
+  const quotaExhausted = quotaKnown && ocrRemaining === 0
 
   const [uploadOpen,  setUploadOpen]  = useState(false)
   const [reviewOpen,  setReviewOpen]  = useState(false)
@@ -79,12 +86,17 @@ export function InvoiceAIButton({ onPurchasesCreated }: Props) {
       setUploadOpen(false)
       setReviewOpen(true)
 
-    } catch (err: any) {
-      const msg = err?.message || "Error desconocido"
+    } catch (err: unknown) {
+      const msg = err instanceof InvoiceOcrError
+        ? err.userMessage
+        : (err instanceof Error && err.message) || "Error desconocido"
       setSession((s) => ({ ...s, step: "error", error: msg, progress: 0 }))
       toast.error(msg)
+    } finally {
+      // El intento pudo consumir (o agotar) el cupo: se refresca el saldo del diálogo.
+      if (user?.id) queryClient.invalidateQueries({ queryKey: ["aiUsage", user.id] })
     }
-  }, [products, units, aliases, setStep])
+  }, [products, units, aliases, setStep, queryClient, user?.id])
 
   // ── Confirm purchase ───────────────────────────────────────────────────────
   const handleConfirm = useCallback(async (
@@ -174,9 +186,10 @@ export function InvoiceAIButton({ onPurchasesCreated }: Props) {
       toast.success(`✅ ${purchasables.length} compra${purchasables.length > 1 ? "s" : ""} registrada${purchasables.length > 1 ? "s" : ""} desde factura IA`)
       setSession(INITIAL_STATE)
       onPurchasesCreated?.()
-    } catch (err: any) {
-      toast.error(`Error al registrar compras: ${err.message || "Error desconocido"}`)
-      setSession((s) => ({ ...s, step: "error", error: err.message ?? "Error desconocido", progress: 0 }))
+    } catch (err: unknown) {
+      const msg = (err instanceof Error && err.message) || "Error desconocido"
+      toast.error(`Error al registrar compras: ${msg}`)
+      setSession((s) => ({ ...s, step: "error", error: msg, progress: 0 }))
     }
   }, [addProduct, addPurchaseOperation, user, queryClient, onPurchasesCreated])
 
@@ -215,7 +228,11 @@ export function InvoiceAIButton({ onPurchasesCreated }: Props) {
           </DialogHeader>
 
           <div className="flex flex-col gap-4">
-            {session.step === "idle" && (
+            {session.step === "idle" && quotaKnown && (
+              <OcrQuotaNotice remaining={ocrRemaining} limit={ocrLimit} />
+            )}
+
+            {session.step === "idle" && !quotaExhausted && (
               <InvoiceUploadZone onFileSelected={handleFileSelected} />
             )}
 

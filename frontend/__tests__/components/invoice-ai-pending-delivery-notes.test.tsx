@@ -42,6 +42,10 @@ vi.mock("@/hooks/data/use-purchases", () => ({
 }))
 vi.mock("@tanstack/react-query", () => ({ useQueryClient: () => ({ invalidateQueries: vi.fn() }) }))
 vi.mock("@/contexts/auth-context", () => ({ useAuth: () => ({ user: { id: "u1", accountId: "acc-1" } }) }))
+// v31-ia-ratelimit-budget: el botón lee el saldo de lecturas de factura (react-query está mockeado acá).
+vi.mock("@/hooks/auth/use-ai-usage", () => ({
+  useAiUsage: () => ({ ocrUsed: 0, ocrRemaining: 30, ocrLimit: 30, isLoading: false }),
+}))
 vi.mock("@/hooks/use-units-of-measure", () => ({ useUnitsOfMeasure: () => ({ units: [], unitsById: new Map() }) }))
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn() } }))
 vi.mock("@/lib/services/invoiceOcrService", () => ({

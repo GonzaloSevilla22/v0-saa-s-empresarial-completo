@@ -116,6 +116,7 @@ export default async function PlanesPage() {
     maxExportsPerMonth: row.max_exports_per_month,
     maxAiQueriesPerMonth: row.max_ai_queries_per_month,
     maxAiAdvicePerMonth: row.max_ai_advice_per_month,
+    maxAiOcrPerMonth: row.max_ai_ocr_per_month,
     maxBranches: row.max_branches,
     hasProductProfitability: row.has_product_profitability,
     hasComparativeReports: row.has_comparative_reports,

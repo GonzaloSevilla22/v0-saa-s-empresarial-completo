@@ -4615,7 +4615,7 @@ El pedido literal (RPC con rol y motivo + quitar `GRANT` y policies) es correcto
 
 **Pendiente del PO** (`docs/pendientes-manuales-po.md` §6, no bloqueante): fijar un tope mensual de gasto en el proyecto de OpenAI (OQ-8), y los límites 5/30/120/300, que aplican salvo objeción.
 
-### APPLY 2026-11-05 (PR **#__PR__**, en revisión; migración `20261090000001_ia_ocr_cuota_reserva.sql`; una sola tanda, un solo agente)
+### APPLY 2026-11-05 (PR **#664**, en revisión; migración `20261090000001_ia_ocr_cuota_reserva.sql`; una sola tanda, un solo agente)
 
 **Qué cambió** (todo lo del propose, sin desvíos de alcance):
 

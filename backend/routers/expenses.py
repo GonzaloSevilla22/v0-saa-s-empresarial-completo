@@ -11,6 +11,7 @@ from backend.core.database import get_db_conn
 from backend.core.deps import get_account_id
 from backend.core.idempotency import require_idempotency_key
 from backend.repositories.expense_repository import ExpenseRepository
+from backend.repositories.operation_edit_repository import OperationEditRepository
 from backend.schemas.expenses import (
     ExpenseCreate,
     ExpenseImportIn,
@@ -19,6 +20,7 @@ from backend.schemas.expenses import (
     ExpensesPageOut,
     ExpenseUpdate,
 )
+from backend.schemas.operation_edit import EditPreviewOut, OperationEditOut
 from backend.services import expenses as expense_service
 
 router = APIRouter(prefix="/expenses", tags=["expenses"])
@@ -26,6 +28,10 @@ router = APIRouter(prefix="/expenses", tags=["expenses"])
 
 def get_repo(conn: asyncpg.Connection = Depends(get_db_conn)) -> ExpenseRepository:
     return ExpenseRepository(conn)
+
+
+def get_edit_repo(conn: asyncpg.Connection = Depends(get_db_conn)) -> OperationEditRepository:
+    return OperationEditRepository(conn)
 
 
 # gastos-forma-pago D18 — BREAKING de API interna sancionado: la respuesta deja
@@ -132,8 +138,32 @@ async def update_expense(
     auth: dict = Depends(get_current_user),
     account_id: uuid.UUID = Depends(get_account_id),
     repo: ExpenseRepository = Depends(get_repo),
+    conn: asyncpg.Connection = Depends(get_db_conn),
 ):
-    return await expense_service.update_expense(repo, auth, str(account_id), expense_id, payload)
+    return await expense_service.update_expense(repo, auth, str(account_id), expense_id, payload, conn=conn)
+
+
+@router.post("/{expense_id}/edit-preview", response_model=EditPreviewOut)
+async def preview_expense_edit(
+    expense_id: str,
+    payload: ExpenseUpdate,
+    auth: dict = Depends(get_current_user),
+    account_id: uuid.UUID = Depends(get_account_id),
+    repo: ExpenseRepository = Depends(get_repo),
+):
+    """edicion-operaciones-con-dinero (D13): el PLAN de la edición calculado por la MISMA RPC, en seco (no escribe nada).
+    Mismo payload que `PUT /expenses/{id}`."""
+    return await expense_service.preview_expense_edit(repo, auth, str(account_id), expense_id, payload)
+
+
+@router.get("/{expense_id}/edits", response_model=list[OperationEditOut])
+async def list_expense_edits(
+    expense_id: uuid.UUID,
+    auth: dict = Depends(get_current_user),
+    repo: OperationEditRepository = Depends(get_edit_repo),
+):
+    """Historial de cambios del gasto (quién, cuándo y qué cambió), más reciente primero, filtrado por la cuenta."""
+    return await expense_service.list_expense_edits(repo, str(expense_id))
 
 
 @router.delete("/{expense_id}", status_code=204)

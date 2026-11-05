@@ -56,7 +56,6 @@ const ROW = {
   payment_method_id: "pm-cash",
   payment_method_name: "Efectivo",
   payment_method_kind: "cash",
-  is_payment_locked: true,
   has_cash_movement: true,
   has_bank_movement: false,
   is_delete_blocked: true,
@@ -282,7 +281,7 @@ describe("useExpenses — edición (9.2, 9.3)", () => {
 // ── 9.3 — mapExpense: derivados de bloqueo ──────────────────────────────────
 
 describe("useExpenses — mapeo de lectura (9.3)", () => {
-  it("mapea forma de pago, sucursal y los CUATRO derivados de bloqueo", async () => {
+  it("mapea forma de pago, sucursal y los TRES derivados de dinero", async () => {
     const { result } = await mounted()
 
     expect(result.current.expenses[0]).toMatchObject({
@@ -293,7 +292,6 @@ describe("useExpenses — mapeo de lectura (9.3)", () => {
       paymentMethodId: "pm-cash",
       paymentMethodName: "Efectivo",
       paymentMethodKind: "cash",
-      isPaymentLocked: true,
       hasCashMovement: true,
       hasBankMovement: false,
       isDeleteBlocked: true,
@@ -324,7 +322,6 @@ describe("useExpenses — mapeo de lectura (9.3)", () => {
       paymentMethodId: null,
       paymentMethodName: null,
       branchId: null,
-      isPaymentLocked: false,
       hasCashMovement: false,
       hasBankMovement: false,
       isDeleteBlocked: false,

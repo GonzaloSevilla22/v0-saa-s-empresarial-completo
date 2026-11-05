@@ -7,6 +7,7 @@ from decimal import Decimal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from backend.schemas.common import PageOut
+from backend.schemas.operation_edit import MoneyEditPlanOut, OperationEditStateOut, VoidedFiscalDocumentOut
 
 
 class SaleItemIn(BaseModel):
@@ -104,19 +105,20 @@ class SaleOperationUpdateIn(BaseModel):
     payment_method_id: uuid.UUID | None = None
     branch_id: uuid.UUID | None = Field(default=None, description="Sin sucursal (informada como null o sin informar sobre una venta sin sucursal), la venta se registra en la sucursal principal de la cuenta.")
     canal: str | None = Field(default=None, max_length=40)
+    # edicion-operaciones-con-dinero (tanda B, D6/D7/D9): intenciones del dinero, MISMO contrato tri-estado por AUSENCIA
+    # (`model_fields_set`, nunca `is None`): ausente = conservar el efecto vigente; presente (incluso `null`) = intención
+    # explícita. `cash_session_id` + null saca la venta de la caja; con una sesión la registra ahí (la RPC valida las
+    # tres condiciones del alta, y la fecha de hoy sólo si no había huella de caja). `bank_account_id` elige la cuenta
+    # bancaria; `due_date` fija el vencimiento del cargo (ausente = se conserva el vigente). El backend NO evalúa ninguna
+    # regla de dinero: las decide la RPC (SECURITY DEFINER) y el plan que devuelve.
+    cash_session_id: uuid.UUID | None = None
+    bank_account_id: uuid.UUID | None = None
+    due_date: datetime.date | None = None
+    reason: str | None = Field(default=None, max_length=500, description="Motivo opcional del cambio; queda en el historial de ediciones.")
 
 
-class VoidedFiscalDocumentOut(BaseModel):
-    """venta-editable-sin-cae: comprobante que la edición ANULÓ (voided) porque
-    su pedido todavía no había salido hacia ARCA. Lo devuelve
-    rpc_atomic_update_sale_operation dentro de su jsonb."""
-    model_config = ConfigDict(from_attributes=True)
-
-    fiscal_document_id: uuid.UUID
-    punto_de_venta: int
-    number: int
-    #: Etiqueta ya formateada por el servidor, p. ej. "0003-00000005".
-    label: str
+# VoidedFiscalDocumentOut vive en operation_edit (lo comparten la edición real y la vista previa) y se re-exporta acá.
+__all__ = ["VoidedFiscalDocumentOut"]
 
 
 class SaleOperationUpdateOut(BaseModel):
@@ -133,9 +135,11 @@ class SaleOperationUpdateOut(BaseModel):
     ok: bool = True
     operation_id: uuid.UUID
     voided_fiscal_document: VoidedFiscalDocumentOut | None = None
+    #: edicion-operaciones-con-dinero: el plan de dinero que el servidor EJECUTÓ (lo que la interfaz muestra como resultado).
+    money: MoneyEditPlanOut | None = None
 
 
-class SaleItemOut(BaseModel):
+class SaleItemOut(OperationEditStateOut):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
@@ -192,11 +196,8 @@ class SaleItemOut(BaseModel):
     fiscal_frozen: bool = False
     #: Pendiente SIN marca: editar o borrar la venta lo ANULA.
     fiscal_pending_voidable: bool = False
-    # pagos-cableados-restantes (D6): derivado de lectura (mismo predicado
-    # que el guard P0423 de rpc_atomic_update_sale_operation), para que la
-    # lista deshabilite "Editar" con motivo visible ANTES de que el usuario
-    # llegue al error del backend.
-    is_payment_locked: bool = False
+    # edicion-operaciones-con-dinero (tanda B, D15): `is_payment_locked` SE RETIRÓ — la edición ya no se bloquea por dinero.
+    # El motivo de bloqueo es `edit_locked_reason` (heredado de OperationEditStateOut).
     # qa-integral-modulos G10 (H12): mismo hueco de serialización que en
     # PurchaseItemOut — `list_paginated_by_operation` ya calcula los tres
     # EXISTS por separado (repositories/sales_repository.py) para que el
@@ -219,10 +220,8 @@ class SaleItemOut(BaseModel):
     # número es el del remito; la etiqueta la arma la interfaz.
     source_delivery_note_id: uuid.UUID | None = None
     source_delivery_note_number: int | None = None
-    # Motivo por el que la operación no se edita (hoy un único token:
-    # `delivery_note_sale_locked`). Derivado de lectura, sin columna: la
-    # autoridad al editar sigue siendo la RPC (P0423).
-    edit_locked_reason: str | None = None
+    # `edit_locked_reason` (heredado): `delivery_note_sale_locked` o `service_lines_locked`. Derivado de lectura, sin columna:
+    # la autoridad al editar sigue siendo la RPC (P0423).
     # presupuestos-modulo (D6, OQ-P16): la OPERACIÓN incluye alguna fila sin
     # producto (línea de servicio de un presupuesto convertido). El editor de
     # /ventas no la edita: la acción "Editar" se deshabilita con su motivo.

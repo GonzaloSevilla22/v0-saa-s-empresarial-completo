@@ -6,7 +6,9 @@ from fastapi import HTTPException
 
 from backend.core.guards import require_account_role, require_role
 from backend.core.rbac import CAN_PURCHASE
+from backend.repositories.operation_edit_repository import OperationEditRepository
 from backend.repositories.purchase_repository import PurchaseRepository
+from backend.services import operation_edit
 from backend.schemas.purchases import PurchaseOperationIn, PurchaseOperationUpdateIn
 
 
@@ -53,6 +55,29 @@ async def delete_purchase_operation(
         raise HTTPException(status_code=404, detail="Operación no encontrada")
 
 
+def _purchase_update_kwargs(
+    payload: PurchaseOperationUpdateIn,
+    payment_method_provided: bool,
+    branch_provided: bool,
+    supplier_provided: bool,
+    cost_center_provided: bool,
+) -> dict[str, object]:
+    """Argumentos de `PurchaseRepository.update_operation`, iguales para la edición real y para la vista previa."""
+    return {
+        "payment_method_id": str(payload.payment_method_id) if payload.payment_method_id is not None else None,
+        "payment_method_provided": payment_method_provided,
+        "branch_id": str(payload.branch_id) if payload.branch_id is not None else None,
+        "branch_provided": branch_provided,
+        # compras-proveedor-cuenta-corriente (D7, task 9.4, OQ-5 opción A): passthrough tri-estado.
+        "supplier_id": str(payload.supplier_id) if payload.supplier_id is not None else None,
+        "supplier_provided": supplier_provided,
+        "cost_center_id": str(payload.cost_center_id) if payload.cost_center_id is not None else None,
+        "cost_center_provided": cost_center_provided,
+        # edicion-operaciones-con-dinero (tanda B): intenciones de caja, banco y vencimiento (tri-estado por ausencia).
+        **operation_edit.money_intent_kwargs(payload),
+    }
+
+
 async def update_purchase_operation(
     repo: PurchaseRepository,
     auth: dict,
@@ -63,36 +88,46 @@ async def update_purchase_operation(
     cost_center_provided: bool = False,
     *,
     conn,
-) -> None:
+) -> dict[str, object]:
     require_role(auth, ["user", "admin"])
     # multiusuario-operativo tanda B (D9): editar exige CAN_PURCHASE; la regla de autor y la tenencia de
     # la compra y de los productos (P0404) las decide la RPC.
     await require_account_role(conn, auth, CAN_PURCHASE)
     items = [item.model_dump() for item in payload.items]
-    payment_method_id = (
-        str(payload.payment_method_id) if payload.payment_method_id is not None else None
-    )
-    branch_id = str(payload.branch_id) if payload.branch_id is not None else None
-    # compras-proveedor-cuenta-corriente (D7, task 9.4, OQ-5 opción A):
-    # passthrough tri-estado, mismo patrón que payment_method_id/branch_id.
-    supplier_id = str(payload.supplier_id) if payload.supplier_id is not None else None
-    cost_center_id = (
-        str(payload.cost_center_id) if payload.cost_center_id is not None else None
-    )
-    await repo.update_operation(
-        payload.purchase_ids,
-        payload.date,
-        payload.description,
-        items,
-        payment_method_id=payment_method_id,
-        payment_method_provided=payment_method_provided,
-        branch_id=branch_id,
-        branch_provided=branch_provided,
-        supplier_id=supplier_id,
-        supplier_provided=supplier_provided,
-        cost_center_id=cost_center_id,
-        cost_center_provided=cost_center_provided,
-    )
+    kwargs = _purchase_update_kwargs(payload, payment_method_provided, branch_provided, supplier_provided, cost_center_provided)
+
+    async def _preview() -> dict:
+        return await repo.update_operation(payload.purchase_ids, payload.date, payload.description, items, **kwargs, dry_run=True)
+
+    # edicion-operaciones-con-dinero (tanda B, OQ-4): corregir DINERO ya registrado exige CAN_CORRECT_MONEY (espejo de la RPC).
+    await operation_edit.guard_money_correction(conn, auth, _preview)
+    with operation_edit.edit_errors_as_problems():
+        return await repo.update_operation(payload.purchase_ids, payload.date, payload.description, items, **kwargs)
+
+
+async def preview_purchase_edit(
+    repo: PurchaseRepository,
+    auth: dict,
+    payload: PurchaseOperationUpdateIn,
+    payment_method_provided: bool = False,
+    branch_provided: bool = False,
+    supplier_provided: bool = False,
+    cost_center_provided: bool = False,
+    *,
+    conn,
+) -> dict[str, object]:
+    """edicion-operaciones-con-dinero (D13): el PLAN de la edición, calculado por la MISMA RPC en seco (sin escribir)."""
+    require_role(auth, ["user", "admin"])
+    await require_account_role(conn, auth, CAN_PURCHASE)
+    items = [item.model_dump() for item in payload.items]
+    kwargs = _purchase_update_kwargs(payload, payment_method_provided, branch_provided, supplier_provided, cost_center_provided)
+    with operation_edit.edit_errors_as_problems():
+        return await repo.update_operation(payload.purchase_ids, payload.date, payload.description, items, **kwargs, dry_run=True)
+
+
+async def list_purchase_edits(repo: OperationEditRepository, operation_id: str) -> list[dict]:
+    """Historial de ediciones de la compra (más reciente primero), filtrado por la cuenta del usuario."""
+    return await operation_edit.list_edits(repo, "purchase", operation_id)
 
 
 async def create_purchase_operation(

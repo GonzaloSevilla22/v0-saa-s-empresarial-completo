@@ -372,22 +372,20 @@ BEGIN
   v_op_id := (v_result->>'operation_id')::uuid;
   SELECT id INTO v_purchase_id FROM public.purchases WHERE operation_id = v_op_id LIMIT 1;
 
-  v_rejected := false;
-  BEGIN
-    PERFORM public.rpc_atomic_update_purchase_operation(
-      p_purchase_ids => ARRAY[v_purchase_id],
-      p_date => public.reporting_local_today(),
-      p_description => 'edición bloqueada',
-      p_items => jsonb_build_array(jsonb_build_object('product_id', v_product_a, 'amount', 71, 'quantity', 1))
-    );
-  EXCEPTION WHEN OTHERS THEN
-    IF SQLSTATE = 'P0423' THEN v_rejected := true; ELSE RAISE; END IF;
-  END;
-  IF NOT v_rejected THEN
-    RAISE EXCEPTION 'GATE CCC-PURCHASE FAILED (6.1): se pudo editar una compra con movimiento de caja posteado — el guard P0423 no la alcanza.';
+  -- edicion-operaciones-con-dinero (tanda B, D1): el P0423 por movimiento de caja se retiro. La compra con caja posteada SE EDITA:
+  -- el efectivo se corrige en la sesion abierta de la MISMA caja (compensa 70 y registra 71) y el operation_id se conserva.
+  PERFORM public.rpc_atomic_update_purchase_operation(
+    p_purchase_ids => ARRAY[v_purchase_id],
+    p_date => public.reporting_local_today(),
+    p_description => 'edicion con caja',
+    p_items => jsonb_build_array(jsonb_build_object('product_id', v_product_a, 'amount', 71, 'quantity', 1))
+  );
+  IF NOT EXISTS (SELECT 1 FROM public.purchases WHERE operation_id = v_op_id AND amount = 71) THEN
+    RAISE EXCEPTION 'GATE CCC-PURCHASE FAILED (6.1): la compra con movimiento de caja debia poder editarse conservando el operation_id.';
   END IF;
-  IF NOT EXISTS (SELECT 1 FROM public.purchases WHERE id = v_purchase_id AND amount = 70) THEN
-    RAISE EXCEPTION 'GATE CCC-PURCHASE FAILED (6.1-efectos): el rechazo P0423 dejó la compra editada de todos modos.';
+  IF (SELECT COALESCE(SUM(net), 0) FROM public.op_money_footprint(
+        (SELECT account_id FROM public.purchases WHERE operation_id = v_op_id LIMIT 1), 'purchase', ARRAY[v_op_id]) WHERE book = 'cash') <> -71 THEN
+    RAISE EXCEPTION 'GATE CCC-PURCHASE FAILED (6.1-efectos): la huella neta de caja debia quedar en -71 (compensacion + importe nuevo).';
   END IF;
 
   -- Compra SIN movimiento de caja (opt-in NO tildado) sigue editable.
@@ -407,11 +405,11 @@ BEGIN
     p_description => 'edición permitida',
     p_items => jsonb_build_array(jsonb_build_object('product_id', v_product_a, 'amount', 81, 'quantity', 1))
   );
-  IF NOT EXISTS (SELECT 1 FROM public.purchases WHERE operation_id <> v_op_id AND amount = 81 AND description = 'edición permitida') THEN
+  IF NOT EXISTS (SELECT 1 FROM public.purchases WHERE operation_id = v_op_id AND amount = 81 AND description = 'edición permitida') THEN   -- (id ESTABLE, tanda B de edicion-operaciones-con-dinero)
     RAISE EXCEPTION 'GATE CCC-PURCHASE FAILED (6.1-control): una compra sin caja posteada quedó bloqueada — el guard es demasiado amplio.';
   END IF;
 
-  RAISE NOTICE 'PASS (6.1): editar una compra con movimiento de caja falla P0423 sin dejarla editada; sin movimiento de caja sigue plenamente editable.';
+  RAISE NOTICE 'PASS (6.1): editar una compra con movimiento de caja corrige la caja y conserva el id; sin movimiento de caja sigue plenamente editable.';
 END $$;
 
 

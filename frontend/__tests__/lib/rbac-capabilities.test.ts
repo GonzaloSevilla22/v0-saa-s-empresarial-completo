@@ -12,7 +12,7 @@
 import { describe, it, expect } from "vitest"
 import fs from "node:fs"
 import path from "node:path"
-import { CAN_CONFIGURE, CAN_QUOTE, CAN_STOCK, hasCapability } from "@/lib/rbac-capabilities"
+import { CAN_CONFIGURE, CAN_CORRECT_MONEY, CAN_QUOTE, CAN_STOCK, hasCapability } from "@/lib/rbac-capabilities"
 
 const ROOT = path.resolve(__dirname, "../../..")
 
@@ -148,5 +148,38 @@ describe("hasCapability", () => {
   it("owner y admin habilitan", () => {
     expect(hasCapability(["owner"], CAN_QUOTE, true)).toBe(true)
     expect(hasCapability(["admin"], CAN_QUOTE, true)).toBe(true)
+  })
+})
+
+describe("CAN_CORRECT_MONEY — atado al backend y a la migración (edicion-operaciones-con-dinero, OQ-4)", () => {
+  /** Los roles que `_op_edit_plan` exige para escribir dinero (el ARRAY[...] de la migración de la tanda B). */
+  function sqlAllowedRoles(): string[] {
+    const dir = path.join(ROOT, "supabase/migrations")
+    const file = fs.readdirSync(dir).find((f) => f.endsWith("edicion_operaciones_dinero.sql"))
+    expect(file, "no se encontró la migración de la tanda B").toBeDefined()
+    const sql = fs.readFileSync(path.join(dir, file!), "utf-8")
+    const match = /account_user_active_roles\(p_account_id, auth\.uid\(\)\)\s*&&\s*ARRAY\[([^\]]*)\]/.exec(sql)
+    expect(match, "no se encontró el rol que exige el plan para escribir dinero").not.toBeNull()
+    return [...match![1].matchAll(/'([a-z_]+)'/g)].map((m) => m[1]).sort()
+  }
+
+  it("es owner y admin (decisión del PO, 2026-11-04)", () => {
+    expect([...CAN_CORRECT_MONEY].sort()).toEqual(["admin", "owner"])
+  })
+
+  it("coincide con CAN_CORRECT_MONEY de backend/core/rbac.py", () => {
+    expect(pythonCapability("CAN_CORRECT_MONEY")).not.toBeNull()
+    expect([...CAN_CORRECT_MONEY].sort()).toEqual(pythonCapability("CAN_CORRECT_MONEY"))
+  })
+
+  it("coincide con el rol que exige _op_edit_plan en la migración (la base exige lo mismo)", () => {
+    expect([...CAN_CORRECT_MONEY].sort()).toEqual(sqlAllowedRoles())
+  })
+
+  it("seller y cashier no corrigen dinero; owner y admin sí", () => {
+    expect(hasCapability(["seller"], CAN_CORRECT_MONEY, true)).toBe(false)
+    expect(hasCapability(["cashier"], CAN_CORRECT_MONEY, true)).toBe(false)
+    expect(hasCapability(["owner"], CAN_CORRECT_MONEY, true)).toBe(true)
+    expect(hasCapability(["admin"], CAN_CORRECT_MONEY, true)).toBe(true)
   })
 })

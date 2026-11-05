@@ -55,7 +55,6 @@ def _purchase_row(**overrides: object) -> dict:
         "supplier_name": "Insumos Andinos",
         "has_account_charge": True,
         "has_bank_movement": False,
-        "is_payment_locked": True,
     }
     row.update(overrides)
     return row
@@ -79,7 +78,6 @@ def _sale_row(**overrides: object) -> dict:
         "has_account_charge": True,
         "has_cash_movement": False,
         "has_bank_movement": True,
-        "is_payment_locked": True,
     }
     row.update(overrides)
     return row
@@ -118,15 +116,16 @@ class TestPurchaseDeleteCompensationFlags:
         assert payload["has_account_charge"] is False
         assert payload["has_bank_movement"] is False
 
-    def test_is_payment_locked_is_not_a_substitute(self) -> None:
-        """El diálogo NO puede derivar el cargo de is_payment_locked: el OR
-        de los tres EXISTS no dice CUÁL libro se compensa."""
+    def test_is_payment_locked_no_longer_exists(self) -> None:
+        """edicion-operaciones-con-dinero (tanda B, D15): `is_payment_locked` SE RETIRÓ del contrato; el diálogo de borrado
+        nunca lo usó (enumera los libros con los flags por separado) y la edición ya no se bloquea por dinero."""
         row = _purchase_row(has_account_charge=False, has_bank_movement=True)
 
         payload = PurchaseItemOut.model_validate(row).model_dump()
 
-        assert payload["is_payment_locked"] is True
+        assert "is_payment_locked" not in payload
         assert payload["has_account_charge"] is False
+        assert payload["has_bank_movement"] is True
 
 
 class TestSaleDeleteCompensationFlags:

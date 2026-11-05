@@ -4,10 +4,9 @@ import { PurchaseOperationsList } from "@/components/compras/purchase-operations
 import type { Purchase } from "@/lib/types"
 import type { PaginationMeta } from "@/lib/pagination-utils"
 
-// pagos-cableados-restantes (D6, task 9.3/12.4): espejo de
-// sale-operations-list-payment-lock.test.tsx — "Editar" se deshabilita con
-// motivo visible cuando la compra tiene un cargo de cuenta corriente
-// posteado (isPaymentLocked).
+// edicion-operaciones-con-dinero (tanda B, D15): ANTES, "Editar" se deshabilitaba con motivo visible cuando la compra tenía un
+// cargo de cuenta corriente posteado (indicador de bloqueo por pago). Ese bloqueo se RETIRÓ: el servidor compara la huella neta con
+// el efecto deseado y ajusta cada libro, así que la compra con dinero registrado se edita.
 
 vi.mock("@/components/cost-centers/CostCenterSelect", () => ({ CostCenterSelect: () => null }))
 vi.mock("@/components/payment-methods/PaymentMethodSelect", () => ({ PaymentMethodSelect: () => null }))
@@ -41,20 +40,21 @@ function baseProps(purchases: Purchase[]) {
   }
 }
 
-describe("PurchaseOperationsList — D6 disable 'Editar' con cargo posteado", () => {
+describe("PurchaseOperationsList — la compra con cargo posteado se edita", () => {
+  function editButtons() {
+    return screen.getAllByRole("button", { name: "" }).filter((b) => b.querySelector("svg.lucide-pencil"))
+  }
+
   it("compra SIN cargo posteado: el botón Editar está habilitado", () => {
-    render(<PurchaseOperationsList {...baseProps([makePurchase({ isPaymentLocked: false })])} />)
-    const editButtons = screen.getAllByRole("button", { name: "" }).filter(
-      (b) => b.querySelector("svg.lucide-pencil"),
-    )
-    expect(editButtons.length).toBeGreaterThan(0)
-    for (const b of editButtons) expect(b).not.toBeDisabled()
+    render(<PurchaseOperationsList {...baseProps([makePurchase({})])} />)
+    expect(editButtons().length).toBeGreaterThan(0)
+    for (const b of editButtons()) expect(b).not.toBeDisabled()
   })
 
-  it("compra CON cargo de cuenta corriente posteado: 'Editar' se deshabilita con motivo visible", () => {
-    render(<PurchaseOperationsList {...baseProps([makePurchase({ isPaymentLocked: true })])} />)
-    const lockButtons = screen.getAllByTitle(/No editable.*cargo de cuenta corriente/i)
-    expect(lockButtons.length).toBeGreaterThan(0)
-    for (const b of lockButtons) expect(b).toBeDisabled()
+  it("compra CON cargo de cuenta corriente posteado: 'Editar' sigue habilitado y sin motivo de bloqueo", () => {
+    render(<PurchaseOperationsList {...baseProps([makePurchase({ hasAccountCharge: true })])} />)
+    expect(screen.queryAllByTitle(/No editable.*cargo de cuenta corriente/i)).toHaveLength(0)
+    expect(editButtons().length).toBeGreaterThan(0)
+    for (const b of editButtons()) expect(b).not.toBeDisabled()
   })
 })

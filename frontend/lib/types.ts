@@ -514,9 +514,7 @@ export interface Sale {
   isFiscallyLocked?: boolean
   /** venta-editable-sin-cae: estado fiscal de la venta, derivado de lectura. null = sin comprobante. */
   fiscal?: SaleFiscalState | null
-  /** pagos-cableados-restantes (D6): true si tiene cargo de cuenta corriente o movimiento de caja posteado — inmutable. */
-  isPaymentLocked?: boolean
-  /** delete-guard-ledgers: mismos tres EXISTS de isPaymentLocked, separados
+  /** delete-guard-ledgers: los tres indicadores de la huella NETA de dinero, separados
    * para que el diálogo de borrado enumere específicamente qué libro
    * compensaría (cta-cte / caja / banco). */
   hasAccountCharge?: boolean
@@ -531,8 +529,16 @@ export interface Sale {
   /** Número interno del remito de origen (`R-00000007` lo arma la interfaz). */
   sourceDeliveryNoteNumber?: number | null
   /** remitos-venta (D9): token con el motivo por el que el servidor no deja editar la operación
-   * (hoy `delivery_note_sale_locked`). Derivado de lectura; la autoridad al editar es la RPC (P0423). */
+   * (`delivery_note_sale_locked` o `service_lines_locked`). Derivado de lectura; la autoridad al editar es la RPC (P0423). */
   editLockedReason?: string | null
+  /** edicion-operaciones-con-dinero (D15): vencimiento y parte del cargo VIGENTE (huella neta), para precargar la edición. */
+  chargeDueDate?: string | null
+  chargePartyId?: string | null
+  /** Caja de la huella y su sesión abierta (null si no hay): la edición compensa en la sesión abierta de la MISMA caja. */
+  cashCashboxId?: string | null
+  cashOpenSessionId?: string | null
+  /** Cuenta bancaria de la huella. */
+  bankAccountId?: string | null
   /** presupuestos-modulo (OQ-P16): la operación incluye conceptos sin producto (líneas de servicio); el editor de /ventas no las rehidrata. */
   hasServiceLines?: boolean
   /** multiusuario-operativo tanda B (D9, OQ-4 b): quién cargó la operación (`created_by` del listado). Sólo informativo: decide qué se muestra (`canModifyDocument`); la autoridad es la RPC (P0403). */
@@ -562,9 +568,7 @@ export interface Purchase {
   paymentMethodKind?: PaymentMethodKind | null
   /** edicion-preserva-contexto: sucursal de la operación (editable, tri-estado). */
   branchId?: string | null
-  /** pagos-cableados-restantes (D6): true si tiene cargo de cuenta corriente posteado — inmutable. */
-  isPaymentLocked?: boolean
-  /** delete-guard-ledgers: mismos EXISTS de isPaymentLocked, separados. */
+  /** delete-guard-ledgers: los indicadores de la huella NETA de dinero, separados. */
   hasAccountCharge?: boolean
   hasBankMovement?: boolean
   /** caja-compras-cobranzas (D9): mismos dos derivados que Expense — hay
@@ -587,6 +591,14 @@ export interface Purchase {
   sourceDeliveryNoteBranchActive?: boolean | null
   /** Motivo por el que la operación no se edita (`delivery_note_purchase_locked`). */
   editLockedReason?: string | null
+  /** edicion-operaciones-con-dinero (D15): vencimiento y parte del cargo VIGENTE (huella neta), para precargar la edición. */
+  chargeDueDate?: string | null
+  chargePartyId?: string | null
+  /** Caja de la huella y su sesión abierta (null si no hay): la edición compensa en la sesión abierta de la MISMA caja. */
+  cashCashboxId?: string | null
+  cashOpenSessionId?: string | null
+  /** Cuenta bancaria de la huella. */
+  bankAccountId?: string | null
   /** multiusuario-operativo tanda B (D9, OQ-4 b): quién cargó la operación (`created_by` del listado). Sólo informativo: decide qué se muestra (`canModifyDocument`); la autoridad es la RPC (P0403). */
   createdBy?: string | null
 }
@@ -617,8 +629,6 @@ export interface Expense {
   /** Nombre resuelto por el BACKEND (LEFT JOIN al catálogo), no por un Map en cliente. */
   paymentMethodName?: string | null
   paymentMethodKind?: PaymentMethodKind | null
-  /** D11: hay movimiento de caja o bancario del gasto → la edición es P0423. */
-  isPaymentLocked?: boolean
   /** D18: separados para que el diálogo de borrado enumere qué libro compensa. */
   hasCashMovement?: boolean
   hasBankMovement?: boolean
@@ -629,6 +639,16 @@ export interface Expense {
   hasJournalEntry?: boolean
   /** Derivado de SERVIDOR: hay un evento contable de este gasto que el relay todavía no procesó. */
   journalPending?: boolean
+  /** edicion-operaciones-con-dinero (D15): motivo de bloqueo de la edición, token del SERVIDOR (falla cerrado). */
+  editLockedReason?: string | null
+  /** edicion-operaciones-con-dinero (D15): vencimiento y parte del cargo VIGENTE (huella neta), para precargar la edición. */
+  chargeDueDate?: string | null
+  chargePartyId?: string | null
+  /** Caja de la huella y su sesión abierta (null si no hay): la edición compensa en la sesión abierta de la MISMA caja. */
+  cashCashboxId?: string | null
+  cashOpenSessionId?: string | null
+  /** Cuenta bancaria de la huella. */
+  bankAccountId?: string | null
 }
 
 // ── importador-gastos-transaccional ──────────────────────────────────────────

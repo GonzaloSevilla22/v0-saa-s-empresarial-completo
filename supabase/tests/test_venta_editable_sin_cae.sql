@@ -116,7 +116,7 @@ BEGIN
 
   -- El guard nuevo está en los cuerpos vivos, y el viejo NO.
   SELECT prosrc INTO v_def FROM pg_proc
-  WHERE oid = to_regprocedure('public.rpc_atomic_update_sale_operation(uuid[], uuid, date, text, jsonb, uuid, boolean, uuid, boolean, text, boolean)');
+  WHERE oid = to_regprocedure('public.rpc_atomic_update_sale_operation(uuid[], uuid, date, text, jsonb, uuid, boolean, uuid, boolean, text, boolean, uuid, boolean, uuid, boolean, date, boolean, text, boolean)');
   IF v_def IS NULL OR position('_fiscal_void_pending_for_sale_edit' in v_def) = 0 THEN
     v_failures := v_failures || format('(1) rpc_atomic_update_sale_operation no llama al helper de anulación');
   END IF;
@@ -186,7 +186,7 @@ BEGIN
   SELECT lower(regexp_replace(regexp_replace(prosrc, '--[^' || chr(10) || ']*', '', 'g'), '\s+', ' ', 'g'))
   INTO   v_def
   FROM   pg_proc
-  WHERE  oid = to_regprocedure('public.rpc_atomic_update_sale_operation(uuid[], uuid, date, text, jsonb, uuid, boolean, uuid, boolean, text, boolean)');
+  WHERE  oid = to_regprocedure('public.rpc_atomic_update_sale_operation(uuid[], uuid, date, text, jsonb, uuid, boolean, uuid, boolean, text, boolean, uuid, boolean, uuid, boolean, date, boolean, text, boolean)');
   IF v_def IS NOT NULL AND position('and so.fiscal_document_id is not null' in v_def) > 0 THEN
     v_failures := v_failures || format('(1) rpc_atomic_update_sale_operation volvió a filtrar las órdenes por fiscal_document_id IS NOT NULL SIN lock: con una emisión abierta el helper no se llama y queda un comprobante pendiente vivo con importes viejos');
   END IF;

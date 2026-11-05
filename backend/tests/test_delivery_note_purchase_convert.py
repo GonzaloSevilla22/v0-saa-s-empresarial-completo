@@ -682,7 +682,6 @@ def _purchase_row(**extra) -> dict:
         "amount": "100.00", "total": "100.00", "product_name": None,
         "cost_center_id": None, "cost_center_name": None,
         "payment_method_id": None, "payment_method_name": None, "payment_method_kind": None,
-        "is_payment_locked": False,
     }
     row.update(extra)
     return row

@@ -41,10 +41,7 @@ export interface SaleOperation {
    * nula, no un OR: todas las líneas de una operación comparten la misma orden,
    * así que agregar un objeto con OR no significaría nada. null = sin comprobante. */
   fiscal: SaleFiscalState | null
-  /** pagos-cableados-restantes (D6): true si la operación tiene un cargo de
-   * cuenta corriente o movimiento de caja posteado — inmutable (P0423). */
-  isPaymentLocked: boolean
-  /** delete-guard-ledgers: desglose de isPaymentLocked por libro, para que
+  /** delete-guard-ledgers: desglose de la huella NETA de dinero por libro, para que
    * el diálogo de borrado enumere específicamente qué se va a compensar. */
   hasAccountCharge: boolean
   hasCashMovement: boolean
@@ -82,7 +79,6 @@ export function groupSalesByOperation(sales: Sale[]): SaleOperation[] {
       op.isGrouped = true
       op.isFiscallyLocked = op.isFiscallyLocked || !!sale.isFiscallyLocked
       op.fiscal = op.fiscal ?? sale.fiscal ?? null
-      op.isPaymentLocked = op.isPaymentLocked || !!sale.isPaymentLocked
       op.hasAccountCharge = op.hasAccountCharge || !!sale.hasAccountCharge
       op.hasCashMovement = op.hasCashMovement || !!sale.hasCashMovement
       op.hasBankMovement = op.hasBankMovement || !!sale.hasBankMovement
@@ -110,7 +106,6 @@ export function groupSalesByOperation(sales: Sale[]): SaleOperation[] {
         unitId: sale.unitId ?? null,
         isFiscallyLocked: !!sale.isFiscallyLocked,
         fiscal: sale.fiscal ?? null,
-        isPaymentLocked: !!sale.isPaymentLocked,
         hasAccountCharge: !!sale.hasAccountCharge,
         hasCashMovement: !!sale.hasCashMovement,
         hasBankMovement: !!sale.hasBankMovement,
@@ -145,10 +140,7 @@ export interface PurchaseOperation {
   branchId: string | null
   /** edicion-preserva-contexto: unidad de medida de la primera línea. */
   unitId: string | null
-  /** pagos-cableados-restantes (D6, task 9.3): true si la operación tiene un
-   * cargo de cuenta corriente posteado — inmutable (P0423). */
-  isPaymentLocked: boolean
-  /** delete-guard-ledgers: desglose de isPaymentLocked por libro. */
+  /** delete-guard-ledgers: desglose de la huella NETA de dinero por libro. */
   hasAccountCharge: boolean
   hasBankMovement: boolean
   /** caja-compras-cobranzas (D9): mismos dos derivados que SaleOperation —
@@ -189,7 +181,6 @@ export function groupPurchasesByOperation(purchases: Purchase[]): PurchaseOperat
       op.items.push(purchase)
       op.total += purchase.total
       op.isGrouped = true
-      op.isPaymentLocked = op.isPaymentLocked || !!purchase.isPaymentLocked
       op.hasAccountCharge = op.hasAccountCharge || !!purchase.hasAccountCharge
       op.hasBankMovement = op.hasBankMovement || !!purchase.hasBankMovement
       op.hasCashMovement = op.hasCashMovement || !!purchase.hasCashMovement
@@ -211,7 +202,6 @@ export function groupPurchasesByOperation(purchases: Purchase[]): PurchaseOperat
         paymentMethodId: purchase.paymentMethodId ?? null,
         branchId: purchase.branchId ?? null,
         unitId: purchase.unitId ?? null,
-        isPaymentLocked: !!purchase.isPaymentLocked,
         hasAccountCharge: !!purchase.hasAccountCharge,
         hasBankMovement: !!purchase.hasBankMovement,
         hasCashMovement: !!purchase.hasCashMovement,

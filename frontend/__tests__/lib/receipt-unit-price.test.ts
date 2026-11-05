@@ -32,8 +32,7 @@ function op(items: Sale[]): SaleOperation {
     clientName: "Consumidor Final", currency: "ARS", items,
     total: items.reduce((s, i) => s + i.total, 0), isGrouped: items.length > 1,
     paymentMethodId: null, branchId: null, canal: null, unitId: null,
-    isFiscallyLocked: false, fiscal: null, isPaymentLocked: false,
-    hasAccountCharge: false, hasCashMovement: false, hasBankMovement: false, sourceQuoteId: null, sourceQuoteNumber: null, hasServiceLines: false,
+    isFiscallyLocked: false, fiscal: null, hasAccountCharge: false, hasCashMovement: false, hasBankMovement: false, sourceQuoteId: null, sourceQuoteNumber: null, hasServiceLines: false,
   }
 }
 

@@ -127,8 +127,8 @@ describe("PurchaseOperationsList — 'Editar' en una compra nacida de un remito 
     expect(screen.getAllByRole("button", { name: LOCK_REASON }).length).toBeGreaterThan(0)
   })
 
-  it("PRIORIDAD: gana al bloqueo de pago, porque el servidor lo evalúa primero", () => {
-    render(<PurchaseOperationsList {...baseProps([makePurchase({ ...FROM_REMITO, isPaymentLocked: true })])} />)
+  it("con dinero posteado el motivo sigue siendo el del remito (el dinero ya no bloquea la edición)", () => {
+    render(<PurchaseOperationsList {...baseProps([makePurchase({ ...FROM_REMITO, hasAccountCharge: true })])} />)
     expect(screen.getAllByTitle(LOCK_REASON).length).toBeGreaterThan(0)
     expect(screen.queryAllByTitle(/cargo de cuenta corriente del proveedor/i)).toHaveLength(0)
   })
@@ -175,7 +175,7 @@ describe("PurchaseOperationsList — borrar una compra nacida de un remito (D9)"
   it("con origen de remito y dinero posteado enumera igual las compensaciones de los libros", () => {
     render(
       <PurchaseOperationsList
-        {...baseProps([makePurchase({ ...FROM_REMITO, hasAccountCharge: true, isPaymentLocked: true })])}
+        {...baseProps([makePurchase({ ...FROM_REMITO, hasAccountCharge: true })])}
       />,
     )
     fireEvent.click(screen.getAllByTestId("delete-operation-trigger")[0])

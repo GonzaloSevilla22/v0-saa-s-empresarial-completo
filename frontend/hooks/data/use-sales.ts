@@ -45,15 +45,18 @@ interface SaleApiRow extends FiscalReadModelRow {
   is_fiscally_locked?: boolean
   // venta-editable-sin-cae + factura-fiscal-imprimible: la evidencia cruda
   // del comprobante (fiscal_*) viene de FiscalReadModelRow (lib/fiscal-comprobante).
-  // pagos-cableados-restantes (D6): derivado de lectura — true si tiene
-  // cargo de cuenta corriente o movimiento de caja posteado.
-  is_payment_locked?: boolean
-  // delete-guard-ledgers (task 9.2): mismos tres EXISTS de is_payment_locked,
+  // delete-guard-ledgers (task 9.2): los tres indicadores de la huella NETA,
   // expuestos por separado para que el diálogo de borrado enumere
   // específicamente qué libro compensaría.
   has_account_charge?: boolean
   has_cash_movement?: boolean
   has_bank_movement?: boolean
+  // edicion-operaciones-con-dinero (D15): datos vigentes de la huella neta, para precargar la edición.
+  charge_due_date?: string | null
+  charge_party_id?: string | null
+  cash_cashbox_id?: string | null
+  cash_open_session_id?: string | null
+  bank_account_id?: string | null
   // presupuestos-modulo (tanda B, 6.6/6.10): derivados de lectura del servidor.
   source_quote_id?: string | null
   source_quote_number?: number | null
@@ -132,7 +135,6 @@ function mapSale(s: SaleApiRow): Sale {
     // acción destructiva — las decisiones reales vienen del servidor
     // (`is_fiscally_locked` / `fiscal_pending_voidable`).
     fiscal: mapFiscalState(s),
-    isPaymentLocked: s.is_payment_locked ?? false,
     hasAccountCharge: s.has_account_charge ?? false,
     hasCashMovement:  s.has_cash_movement  ?? false,
     hasBankMovement:  s.has_bank_movement  ?? false,
@@ -141,6 +143,11 @@ function mapSale(s: SaleApiRow): Sale {
     sourceDeliveryNoteId:     s.source_delivery_note_id ?? null,
     sourceDeliveryNoteNumber: s.source_delivery_note_number ?? null,
     editLockedReason:         s.edit_locked_reason ?? null,
+    chargeDueDate:     s.charge_due_date ?? null,
+    chargePartyId:     s.charge_party_id ?? null,
+    cashCashboxId:     s.cash_cashbox_id ?? null,
+    cashOpenSessionId: s.cash_open_session_id ?? null,
+    bankAccountId:     s.bank_account_id ?? null,
     hasServiceLines:   s.has_service_lines ?? false,
     createdBy:         s.created_by ?? null,
   }

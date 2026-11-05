@@ -126,7 +126,7 @@ describe("SaleOperationsList — 'Editar' en una venta nacida de un remito (D9)"
   })
 
   it("PRIORIDAD: gana al bloqueo de pago, porque el servidor lo evalúa primero", () => {
-    render(<SaleOperationsList {...baseProps([makeSale({ ...FROM_REMITO, isPaymentLocked: true })])} />)
+    render(<SaleOperationsList {...baseProps([makeSale({ ...FROM_REMITO, hasAccountCharge: true })])} />)
     expect(screen.getAllByTitle(LOCK_REASON).length).toBeGreaterThan(0)
     expect(screen.queryAllByTitle(/cargo de cuenta corriente/i)).toHaveLength(0)
   })

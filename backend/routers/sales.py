@@ -9,7 +9,9 @@ from backend.core.auth import get_current_user
 from backend.core.database import get_db_conn
 from backend.core.deps import get_account_id
 from backend.core.idempotency import require_idempotency_key
+from backend.repositories.operation_edit_repository import OperationEditRepository
 from backend.repositories.sales_repository import SalesRepository
+from backend.schemas.operation_edit import EditPreviewOut, OperationEditOut
 from backend.schemas.sales import (
     PromoteToOrderOut,
     SaleOperationIn,
@@ -27,6 +29,10 @@ router = APIRouter(prefix="/sales", tags=["sales"])
 
 def get_repo(conn: asyncpg.Connection = Depends(get_db_conn)) -> SalesRepository:
     return SalesRepository(conn)
+
+
+def get_edit_repo(conn: asyncpg.Connection = Depends(get_db_conn)) -> OperationEditRepository:
+    return OperationEditRepository(conn)
 
 
 @router.post("/receipt-pdf")
@@ -110,6 +116,38 @@ async def update_sale_operation(
         repo, auth, payload, payment_method_provided, branch_provided, canal_provided, conn=conn
     )
     return {"ok": True, **result}
+
+
+@router.post("/operation/edit-preview", response_model=EditPreviewOut)
+async def preview_sale_operation_edit(
+    payload: SaleOperationUpdateIn,
+    auth: dict = Depends(get_current_user),
+    repo: SalesRepository = Depends(get_repo),
+    conn: asyncpg.Connection = Depends(get_db_conn),
+):
+    """edicion-operaciones-con-dinero (D13): el PLAN de la edición —qué se compensa y qué se registra en cada libro, con los
+    bloqueos de negocio como datos— calculado por la MISMA RPC que ejecuta la edición, en seco: no escribe nada (ni
+    anula el comprobante pendiente). Mismo payload que `PUT /sales/operation`."""
+    return await sales_service.preview_sale_edit(
+        repo,
+        auth,
+        payload,
+        "payment_method_id" in payload.model_fields_set,
+        "branch_id" in payload.model_fields_set,
+        "canal" in payload.model_fields_set,
+        conn=conn,
+    )
+
+
+@router.get("/operation/{operation_id}/edits", response_model=list[OperationEditOut])
+async def list_sale_operation_edits(
+    operation_id: uuid.UUID,
+    auth: dict = Depends(get_current_user),
+    repo: OperationEditRepository = Depends(get_edit_repo),
+):
+    """Historial de cambios de la venta (quién, cuándo y qué cambió), más reciente primero. Filtrado por la cuenta del
+    usuario: la lectura la hace la base con la cuenta activa de la sesión."""
+    return await sales_service.list_sale_edits(repo, str(operation_id))
 
 
 @router.delete("", status_code=204)

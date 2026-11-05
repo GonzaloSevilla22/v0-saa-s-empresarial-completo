@@ -133,11 +133,18 @@ describe("SaleOperationsList — 'Editar' con líneas de servicio (OQ-P16)", () 
     expect(screen.getAllByRole("button", { name: SERVICE_REASON }).length).toBeGreaterThan(0)
   })
 
-  it("PRIORIDAD: un bloqueo duro (de pago) gana al de servicio", () => {
-    render(<SaleOperationsList {...baseProps([makeSale({ hasServiceLines: true, isPaymentLocked: true })])} />)
+  it("el dinero posteado ya no bloquea: con líneas de servicio el motivo sigue siendo el de servicio", () => {
+    render(<SaleOperationsList {...baseProps([makeSale({ hasServiceLines: true, hasAccountCharge: true })])} />)
 
-    expect(screen.getAllByTitle(/cargo de cuenta corriente/i).length).toBeGreaterThan(0)
-    expect(screen.queryAllByTitle(SERVICE_REASON)).toHaveLength(0)
+    expect(screen.queryAllByTitle(/cargo de cuenta corriente/i)).toHaveLength(0)
+    expect(screen.getAllByTitle(SERVICE_REASON).length).toBeGreaterThan(0)
+  })
+
+  it("el token del servidor service_lines_locked también bloquea (la derivación pasó del cliente al servidor)", () => {
+    render(<SaleOperationsList {...baseProps([makeSale({ editLockedReason: "service_lines_locked" })])} />)
+
+    expect(screen.getAllByTitle(SERVICE_REASON).length).toBeGreaterThan(0)
+    expect(pencilButtons()).toHaveLength(0)
   })
 
   it("el borrado sigue disponible: una venta con líneas de servicio se puede eliminar", () => {

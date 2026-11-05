@@ -7,6 +7,7 @@ from decimal import Decimal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from backend.schemas.common import PageOut
+from backend.schemas.operation_edit import MoneyEditPlanOut, OperationEditStateOut
 
 
 class PurchaseItemIn(BaseModel):
@@ -113,9 +114,25 @@ class PurchaseOperationUpdateIn(BaseModel):
     )
     supplier_id: uuid.UUID | None = None
     cost_center_id: uuid.UUID | None = None
+    # edicion-operaciones-con-dinero (tanda B, D6/D7/D9): intenciones del dinero, MISMO contrato tri-estado por AUSENCIA
+    # (`model_fields_set`). Ver SaleOperationUpdateIn: ausente = conservar; presente (incluso null) = intención explícita.
+    cash_session_id: uuid.UUID | None = None
+    bank_account_id: uuid.UUID | None = None
+    due_date: datetime.date | None = None
+    reason: str | None = Field(default=None, max_length=500, description="Motivo opcional del cambio; queda en el historial de ediciones.")
 
 
-class PurchaseItemOut(BaseModel):
+class PurchaseOperationUpdateOut(BaseModel):
+    """Respuesta de PUT /purchases/operation: el id (ESTABLE desde la tanda B) y el plan de dinero que se ejecutó."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    ok: bool = True
+    operation_id: uuid.UUID | None = None
+    money: MoneyEditPlanOut | None = None
+
+
+class PurchaseItemOut(OperationEditStateOut):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
@@ -150,11 +167,8 @@ class PurchaseItemOut(BaseModel):
     # NO se expone" (era cierto hasta que este change agregó el selector).
     supplier_id: uuid.UUID | None = None
     supplier_name: str | None = None
-    # pagos-cableados-restantes (D6): derivado de lectura (mismo predicado
-    # que el guard P0423 de rpc_atomic_update_purchase_operation), para que
-    # la lista deshabilite "Editar" con motivo visible ANTES de que el
-    # usuario llegue al error del backend.
-    is_payment_locked: bool = False
+    # edicion-operaciones-con-dinero (tanda B, D15): `is_payment_locked` SE RETIRÓ — la edición ya no se bloquea por dinero.
+    # El motivo de bloqueo es `edit_locked_reason` (heredado de OperationEditStateOut).
     # qa-integral-modulos G10 (H12): los dos EXISTS que `list_paginated_by_
     # operation` ya calcula por separado (repositories/purchase_repository.py)
     # tienen que DECLARARSE acá o Pydantic los descarta al serializar y el
@@ -181,10 +195,8 @@ class PurchaseItemOut(BaseModel):
     source_delivery_note_id: uuid.UUID | None = None
     source_delivery_note_number: int | None = None
     source_delivery_note_branch_active: bool | None = None
-    # Motivo por el que la operación no se edita (hoy un único token:
-    # `delivery_note_purchase_locked`). Derivado de lectura, sin columna: la
-    # autoridad al editar sigue siendo la RPC (P0423).
-    edit_locked_reason: str | None = None
+    # `edit_locked_reason` (heredado): `delivery_note_purchase_locked`. Derivado de lectura, sin columna: la autoridad al
+    # editar sigue siendo la RPC (P0423).
 
     @field_validator("date", mode="before")
     @classmethod

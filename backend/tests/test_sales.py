@@ -447,8 +447,8 @@ async def test_update_sale_operation_without_field_preserves(async_client, mock_
             headers={"Authorization": f"Bearer {owner_token}"},
         )
     assert resp.status_code == 200
-    assert captured["args"][-6] is None      # payment_method_id
-    assert captured["args"][-5] is False     # payment_method_provided
+    assert captured["args"][-14] is None      # payment_method_id
+    assert captured["args"][-13] is False     # payment_method_provided
 
 
 async def test_update_sale_operation_with_payment_method_reimputes(async_client, mock_pool):
@@ -470,7 +470,7 @@ async def test_update_sale_operation_with_payment_method_reimputes(async_client,
         )
     assert resp.status_code == 200
     assert PM_ID in [str(a) for a in captured["args"]]
-    assert captured["args"][-5] is True  # payment_method_provided
+    assert captured["args"][-13] is True  # payment_method_provided
 
 
 async def test_update_sale_operation_with_explicit_null_clears(async_client, mock_pool):
@@ -492,8 +492,8 @@ async def test_update_sale_operation_with_explicit_null_clears(async_client, moc
             headers={"Authorization": f"Bearer {owner_token}"},
         )
     assert resp.status_code == 200
-    assert captured["args"][-6] is None   # payment_method_id explícito NULL
-    assert captured["args"][-5] is True   # provided=true (distinto del caso ausente)
+    assert captured["args"][-14] is None   # payment_method_id explícito NULL
+    assert captured["args"][-13] is True   # provided=true (distinto del caso ausente)
 
 
 # ── edicion-preserva-contexto: branch_id/canal tri-estado (F1 §D3) ─────────
@@ -523,10 +523,10 @@ async def test_update_sale_operation_without_branch_canal_preserves(async_client
             headers={"Authorization": f"Bearer {owner_token}"},
         )
     assert resp.status_code == 200
-    assert captured["args"][-4] is None   # branch_id
-    assert captured["args"][-3] is False  # branch_provided
-    assert captured["args"][-2] is None   # canal
-    assert captured["args"][-1] is False  # canal_provided
+    assert captured["args"][-12] is None   # branch_id
+    assert captured["args"][-11] is False  # branch_provided
+    assert captured["args"][-10] is None   # canal
+    assert captured["args"][-9] is False  # canal_provided
 
 
 async def test_update_sale_operation_with_branch_id_reimputes(async_client, mock_pool):
@@ -548,7 +548,7 @@ async def test_update_sale_operation_with_branch_id_reimputes(async_client, mock
         )
     assert resp.status_code == 200
     assert BRANCH_ID in [str(a) for a in captured["args"]]
-    assert captured["args"][-3] is True  # branch_provided
+    assert captured["args"][-11] is True  # branch_provided
 
 
 async def test_update_sale_operation_with_canal_reimputes(async_client, mock_pool):
@@ -569,8 +569,8 @@ async def test_update_sale_operation_with_canal_reimputes(async_client, mock_poo
             headers={"Authorization": f"Bearer {owner_token}"},
         )
     assert resp.status_code == 200
-    assert captured["args"][-2] == "instagram"
-    assert captured["args"][-1] is True  # canal_provided
+    assert captured["args"][-10] == "instagram"
+    assert captured["args"][-9] is True  # canal_provided
 
 
 async def test_update_sale_operation_with_explicit_null_branch_clears(async_client, mock_pool):
@@ -592,8 +592,8 @@ async def test_update_sale_operation_with_explicit_null_branch_clears(async_clie
             headers={"Authorization": f"Bearer {owner_token}"},
         )
     assert resp.status_code == 200
-    assert captured["args"][-4] is None  # branch_id explícito NULL
-    assert captured["args"][-3] is True  # provided=true
+    assert captured["args"][-12] is None  # branch_id explícito NULL
+    assert captured["args"][-11] is True  # provided=true
 
 
 async def test_update_sale_operation_propagates_invoiced_immutable_as_409(async_client, mock_pool):
@@ -1061,12 +1061,10 @@ async def test_list_sales_fiscal_predicate_uses_submit_marks(async_client, valid
     assert "AS is_invoiced" not in rows_query
 
 
-async def test_list_sales_row_exposes_is_payment_locked_flag(async_client, valid_token, mock_pool):
-    """pagos-cableados-restantes (D6): is_payment_locked viaja en la fila para
-    que la lista deshabilite 'Editar' ANTES de que el usuario intente
-    modificar una operación con cargo de cuenta corriente o movimiento de
-    caja ya posteado (mismo predicado que el guard P0423 de
-    rpc_atomic_update_sale_operation — ver SalesRepository)."""
+async def test_list_sales_row_exposes_edit_state_and_no_payment_lock(async_client, valid_token, mock_pool):
+    """edicion-operaciones-con-dinero (tanda B, D15): `is_payment_locked` SE RETIRÓ — la edición ya no se bloquea por dinero.
+    La fila trae el motivo de bloqueo del SERVIDOR (`edit_locked_reason`) y los datos vigentes de la huella neta que el
+    formulario de edición precarga (vencimiento y parte del cargo, caja de la huella y su sesión abierta, cuenta bancaria)."""
     pool, conn = mock_pool
     row = {
         "id": SALE_ID, "date": "2026-01-15", "client_id": None, "operation_id": OPERATION_ID,
@@ -1074,7 +1072,11 @@ async def test_list_sales_row_exposes_is_payment_locked_flag(async_client, valid
         "total": "100.00", "product_name": None, "client_name": None,
         "branch_id": None, "canal": None, "unit_id": None,
         "payment_method_id": None, "payment_method_name": None, "payment_method_kind": None,
-        "is_fiscally_locked": False, "is_payment_locked": True,
+        "is_fiscally_locked": False,
+        "has_cash_movement": True, "cash_cashbox_id": "99999999-9999-9999-9999-999999999999",
+        "cash_open_session_id": "88888888-8888-8888-8888-888888888888", "bank_account_id": None,
+        "charge_due_date": None, "charge_party_id": None,
+        "edit_locked_reason": "service_lines_locked",
     }
     conn.fetch = AsyncMock(return_value=[row])
     conn.fetchval = AsyncMock(return_value=1)
@@ -1083,14 +1085,15 @@ async def test_list_sales_row_exposes_is_payment_locked_flag(async_client, valid
             "/sales", headers={"Authorization": f"Bearer {valid_token}"}
         )
     assert resp.status_code == 200
-    assert resp.json()["items"][0]["is_payment_locked"] is True
-
+    item = resp.json()["items"][0]
+    assert "is_payment_locked" not in item
+    assert item["edit_locked_reason"] == "service_lines_locked"
+    assert item["cash_cashbox_id"] == "99999999-9999-9999-9999-999999999999"
+    assert item["cash_open_session_id"] == "88888888-8888-8888-8888-888888888888"
 
 async def test_list_sales_row_exposes_payment_lock_query_predicate(async_client, valid_token, mock_pool):
-    """El predicado de is_payment_locked cubre AMBAS convenciones de
-    reference_id de la migración pagos-cableados-restantes: operation_id
-    (formulario) y sales_orders.id (POS). pos-banco-movimientos (D8) suma
-    bank_movements al mismo predicado, mismas dos convenciones."""
+    """El listado consume UNA sola definición de la huella neta (`op_money_footprint_state`), con las DOS convenciones de
+    referencia (operation_id del formulario y sales_orders.id del POS), y ya no calcula `is_payment_locked`."""
     pool, conn = mock_pool
     captured = _capture_sales_queries(conn)
     with patch("backend.core.database.pool", pool):
@@ -1099,11 +1102,10 @@ async def test_list_sales_row_exposes_payment_lock_query_predicate(async_client,
         )
     assert resp.status_code == 200
     rows_query, _ = captured["rows"]
-    assert "customer_account_movements" in rows_query
-    assert "cash_movements" in rows_query
-    assert "bank_movements" in rows_query
-    assert "is_payment_locked" in rows_query
-
+    assert "op_money_footprint_state" in rows_query
+    assert "so2.sale_operation_id" in rows_query          # la orden del POS entra en el conjunto de referencias
+    assert "AS is_payment_locked" not in rows_query
+    assert "service_lines_locked" in rows_query
 
 async def test_list_sales_exposes_payment_method_of_the_operation(async_client, valid_token, mock_pool):
     """La fila devuelta expone payment_method_id + nombre + kind, con la

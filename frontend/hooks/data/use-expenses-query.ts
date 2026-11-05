@@ -32,7 +32,6 @@ interface ExpenseApiRow {
   payment_method_id?: string | null
   payment_method_name?: string | null
   payment_method_kind?: string | null
-  is_payment_locked?: boolean
   has_cash_movement?: boolean
   has_bank_movement?: boolean
   is_delete_blocked?: boolean
@@ -40,14 +39,21 @@ interface ExpenseApiRow {
   // cuatro derivados de arriba — servidor-derivado, default seguro.
   has_journal_entry?: boolean
   journal_pending?: boolean
+  // edicion-operaciones-con-dinero (D15): motivo de bloqueo (token del servidor) y datos vigentes de la huella neta.
+  edit_locked_reason?: string | null
+  charge_due_date?: string | null
+  charge_party_id?: string | null
+  cash_cashbox_id?: string | null
+  cash_open_session_id?: string | null
+  bank_account_id?: string | null
 }
 
 /**
  * D18 — BREAKING de API interna sancionado: `GET /expenses` dejó de devolver
  * una lista plana y adoptó el envelope estándar de `v3-api-standards §2`,
  * igual que `GET /sales`. Es la única forma de que el estado de bloqueo llegue
- * a cada fila: `is_payment_locked` es un derivado de `cash_movements`/
- * `bank_movements`, no una columna de `expenses`, y por PostgREST directo no
+ * a cada fila: los derivados de dinero salen de la huella neta (`cash_movements`/
+ * y `bank_movements`), no de una columna de `expenses`, y por PostgREST directo no
  * hay camino de datos.
  */
 interface ExpensesPageResponse {
@@ -93,9 +99,8 @@ function mapExpense(e: ExpenseApiRow): Expense {
     paymentMethodId:   e.payment_method_id ?? null,
     paymentMethodName: e.payment_method_name ?? null,
     paymentMethodKind: (e.payment_method_kind ?? null) as PaymentMethodKind | null,
-    // Default false: una fila que llega sin el derivado se trata como NO
-    // bloqueada y el servidor sigue siendo la autoridad (rechaza igual).
-    isPaymentLocked: e.is_payment_locked ?? false,
+    // Default false: una fila que llega sin el derivado se trata como «sin dinero»
+    // y el servidor sigue siendo la autoridad.
     hasCashMovement: e.has_cash_movement ?? false,
     hasBankMovement: e.has_bank_movement ?? false,
     isDeleteBlocked: e.is_delete_blocked ?? false,
@@ -103,6 +108,12 @@ function mapExpense(e: ExpenseApiRow): Expense {
     // estado legítimo de un gasto histórico o de una lectura sin el derivado.
     hasJournalEntry: e.has_journal_entry ?? false,
     journalPending:  e.journal_pending ?? false,
+    editLockedReason: e.edit_locked_reason ?? null,
+    chargeDueDate:     e.charge_due_date ?? null,
+    chargePartyId:     e.charge_party_id ?? null,
+    cashCashboxId:     e.cash_cashbox_id ?? null,
+    cashOpenSessionId: e.cash_open_session_id ?? null,
+    bankAccountId:     e.bank_account_id ?? null,
   }
 }
 

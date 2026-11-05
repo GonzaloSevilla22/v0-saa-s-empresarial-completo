@@ -193,7 +193,7 @@ describe("PurchaseForm — opt-in de caja (D2/D4)", () => {
           key: "op-1", operationId: "op-1", date: "2026-08-20",
           items: [{ id: "p1", date: "2026-08-20", productId: "prod-1", productName: "X", quantity: 1, unitCost: 10, total: 10, operationId: "op-1" }],
           total: 10, description: "", isGrouped: false, paymentMethodId: PM_CASH.id, branchId: null, unitId: null,
-          isPaymentLocked: false, hasAccountCharge: false, hasBankMovement: false,
+          hasAccountCharge: false, hasBankMovement: false,
           hasCashMovement: false, isDeleteBlocked: false,
           supplierId: null, supplierName: null, costCenterId: null,
         }}

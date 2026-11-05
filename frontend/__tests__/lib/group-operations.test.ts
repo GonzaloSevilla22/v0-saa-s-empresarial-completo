@@ -74,25 +74,26 @@ describe("groupSalesByOperation — contexto edicion-preserva-contexto", () => {
     expect(op.isFiscallyLocked).toBe(true)
   })
 
-  // pagos-cableados-restantes (D6): mismo contrato que isFiscallyLocked, para el
-  // guard de inmutabilidad por cargo de cuenta corriente / movimiento de caja.
-  it("isPaymentLocked=false por defecto cuando la fila no lo trae", () => {
-    const [op] = groupSalesByOperation([makeSale({ isPaymentLocked: undefined })])
-    expect(op.isPaymentLocked).toBe(false)
+  // edicion-operaciones-con-dinero (tanda B, D15): el indicador de bloqueo por pago se retiró; los indicadores de la huella NETA siguen
+  // agregándose por operación (los usa el diálogo de borrado para enumerar los libros que compensa).
+  it("los indicadores de dinero valen false por defecto cuando la fila no los trae", () => {
+    const [op] = groupSalesByOperation([makeSale({})])
+    expect([op.hasAccountCharge, op.hasCashMovement, op.hasBankMovement]).toEqual([false, false, false])
   })
 
-  it("isPaymentLocked=true se propaga a la operación agrupada", () => {
-    const [op] = groupSalesByOperation([makeSale({ isPaymentLocked: true })])
-    expect(op.isPaymentLocked).toBe(true)
+  it("un indicador de dinero se propaga a la operación agrupada", () => {
+    const [op] = groupSalesByOperation([makeSale({ hasCashMovement: true })])
+    expect(op.hasCashMovement).toBe(true)
   })
 
-  it("TRIANGULATE: en una operación multi-línea, si CUALQUIER línea tiene cargo/movimiento posteado, la operación queda bloqueada", () => {
+  it("TRIANGULATE: en una operación multi-línea, si CUALQUIER línea tiene dinero en un libro, la operación lo tiene", () => {
     const [op] = groupSalesByOperation([
-      makeSale({ id: "s1", isPaymentLocked: false }),
-      makeSale({ id: "s2", isPaymentLocked: true }),
+      makeSale({ id: "s1" }),
+      makeSale({ id: "s2", hasBankMovement: true }),
     ])
     expect(op.isGrouped).toBe(true)
-    expect(op.isPaymentLocked).toBe(true)
+    expect(op.hasBankMovement).toBe(true)
+    expect(op.hasCashMovement).toBe(false)
   })
 })
 
@@ -179,25 +180,26 @@ describe("groupPurchasesByOperation — contexto edicion-preserva-contexto", () 
     expect(op.unitId).toBeNull()
   })
 
-  // pagos-cableados-restantes (D6, task 9.3): espejo de sales — inmutabilidad
-  // por cargo de cuenta corriente posteado.
-  it("isPaymentLocked=false por defecto cuando la fila no lo trae", () => {
-    const [op] = groupPurchasesByOperation([makePurchase({ isPaymentLocked: undefined })])
-    expect(op.isPaymentLocked).toBe(false)
+  // edicion-operaciones-con-dinero (tanda B, D15): espejo de sales — el indicador de bloqueo por pago se retiró; los indicadores de la
+  // huella NETA se siguen agregando por operación.
+  it("los indicadores de dinero valen false por defecto cuando la fila no los trae", () => {
+    const [op] = groupPurchasesByOperation([makePurchase({})])
+    expect([op.hasAccountCharge, op.hasCashMovement, op.hasBankMovement]).toEqual([false, false, false])
   })
 
-  it("isPaymentLocked=true se propaga a la operación agrupada", () => {
-    const [op] = groupPurchasesByOperation([makePurchase({ isPaymentLocked: true })])
-    expect(op.isPaymentLocked).toBe(true)
+  it("un indicador de dinero se propaga a la operación agrupada", () => {
+    const [op] = groupPurchasesByOperation([makePurchase({ hasAccountCharge: true })])
+    expect(op.hasAccountCharge).toBe(true)
   })
 
-  it("TRIANGULATE: en una operación multi-línea, si CUALQUIER línea tiene cargo posteado, la operación queda bloqueada", () => {
+  it("TRIANGULATE: en una operación multi-línea, si CUALQUIER línea tiene dinero en un libro, la operación lo tiene", () => {
     const [op] = groupPurchasesByOperation([
-      makePurchase({ id: "pu1", isPaymentLocked: false }),
-      makePurchase({ id: "pu2", isPaymentLocked: true }),
+      makePurchase({ id: "pu1" }),
+      makePurchase({ id: "pu2", hasCashMovement: true }),
     ])
     expect(op.isGrouped).toBe(true)
-    expect(op.isPaymentLocked).toBe(true)
+    expect(op.hasCashMovement).toBe(true)
+    expect(op.hasAccountCharge).toBe(false)
   })
 
   // compras-proveedor-cuenta-corriente (D4/D10, task 10.3): supplierId/

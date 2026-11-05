@@ -117,7 +117,7 @@ const BASE: Expense = {
   id: "exp-1", date: "2026-08-20", category: "Servicios",
   description: "Luz de agosto", amount: 12000,
   paymentMethodId: "pm-cash", paymentMethodName: "Efectivo", paymentMethodKind: "cash",
-  isPaymentLocked: false, hasCashMovement: false, hasBankMovement: false, isDeleteBlocked: false,
+  hasCashMovement: false, hasBankMovement: false, isDeleteBlocked: false,
 }
 
 beforeEach(() => {
@@ -217,17 +217,25 @@ describe("/gastos — lock visible y borrado (11.3, 11.4)", () => {
     for (const b of screen.getAllByTestId("delete-operation-trigger")) expect(b).not.toBeDisabled()
   })
 
-  it("11.3: con movimiento de caja, 'Editar' queda deshabilitado CON la razón (P0423 anticipado)", () => {
-    expensesFixture = [{ ...BASE, isPaymentLocked: true, hasCashMovement: true }]
+  it("edicion-operaciones-con-dinero: con movimiento de caja, 'Editar' queda HABILITADO (el dinero ya no bloquea la edición)", () => {
+    expensesFixture = [{ ...BASE, hasCashMovement: true }]
+    render(<GastosPage />)
+
+    const editar = screen.getAllByTestId("expense-edit")[0]
+    expect(editar).not.toBeDisabled()
+  })
+
+  it("fail-closed: un motivo de bloqueo del servidor que la pantalla no conoce también deshabilita 'Editar'", () => {
+    expensesFixture = [{ ...BASE, editLockedReason: "algun_token_nuevo" }]
     render(<GastosPage />)
 
     const editar = screen.getAllByTestId("expense-edit")[0]
     expect(editar).toBeDisabled()
-    expect(editar.getAttribute("aria-label") ?? "").toMatch(/caja|movimiento|no se puede editar/i)
+    expect(editar.getAttribute("aria-label") ?? "").toMatch(/no editable/i)
   })
 
   it("11.3: con caja cerrada, 'Eliminar' queda deshabilitado CON la razón (P0426 anticipado)", () => {
-    expensesFixture = [{ ...BASE, isPaymentLocked: true, hasCashMovement: true, isDeleteBlocked: true }]
+    expensesFixture = [{ ...BASE, hasCashMovement: true, isDeleteBlocked: true }]
     render(<GastosPage />)
 
     const blocked = screen.getAllByTestId("delete-operation-blocked")[0]
@@ -236,7 +244,7 @@ describe("/gastos — lock visible y borrado (11.3, 11.4)", () => {
   })
 
   it("CONTROL: el mismo gasto con la caja ABIERTA (isDeleteBlocked=false) sí se puede eliminar", () => {
-    expensesFixture = [{ ...BASE, isPaymentLocked: true, hasCashMovement: true, isDeleteBlocked: false }]
+    expensesFixture = [{ ...BASE, hasCashMovement: true, isDeleteBlocked: false }]
     render(<GastosPage />)
 
     // Sin este control, un botón cableado a `disabled` pasaría el test anterior.

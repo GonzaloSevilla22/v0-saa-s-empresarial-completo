@@ -69,12 +69,13 @@ class PurchaseRepository(BaseRepository):
               LIMIT $6 OFFSET $7
             ),
             op_fp AS (
-              -- edicion-operaciones-con-dinero (tanda A, 1.5): la huella NETA de cada operación de la página, UNA
-              -- vez por operación. Misma función que usan el borrado y la edición (D3).
-              SELECT op_page.op_key, fp.has_account_charge, fp.has_cash_movement,
-                     fp.has_bank_movement, fp.is_delete_blocked
+              -- edicion-operaciones-con-dinero (tanda B, D15): el ESTADO de la huella NETA de cada operación de la página, UNA
+              -- vez por operación: los cuatro indicadores y los datos vigentes que el formulario de edición precarga. UNA sola
+              -- definición (función op_money_footprint_state), la misma base que usan el borrado y la edición.
+              SELECT op_page.op_key, fp.has_account_charge, fp.has_cash_movement, fp.has_bank_movement, fp.is_delete_blocked,
+                     fp.charge_due_date, fp.charge_party_id, fp.cash_cashbox_id, fp.cash_open_session_id, fp.bank_account_id
               FROM op_page
-              LEFT JOIN LATERAL public.op_money_footprint_flags(
+              LEFT JOIN LATERAL public.op_money_footprint_state(
                 $1::uuid, 'purchase', ARRAY[op_page.op_key::uuid]
               ) fp ON TRUE
             )
@@ -122,48 +123,19 @@ class PurchaseRepository(BaseRepository):
                                                            AS source_delivery_note_branch_active,
                    CASE WHEN p.source_delivery_note_id IS NOT NULL THEN 'delivery_note_purchase_locked' END
                                                            AS edit_locked_reason,
-                   -- pagos-cableados-restantes (D6, task 9.3): MISMO
-                   -- predicado que el guard P0423 de
-                   -- rpc_atomic_update_purchase_operation. Sin la doble
-                   -- convención de reference_id de la venta (no hay un
-                   -- concepto análogo a sales_orders para compras): siempre
-                   -- p.operation_id.
-                   -- pos-banco-movimientos (D8): segundo término —
-                   -- bank_movements, mismo predicado que el EXISTS de
-                   -- rpc_atomic_update_purchase_operation (source_doc_type='purchase').
-                   -- delete-guard-ledgers (task 9.2): expuestos también por
-                   -- separado para que el diálogo de borrado enumere qué
-                   -- libro compensaría.
-                   -- caja-compras-cobranzas (D9): tercer término —
-                   -- has_cash_movement, mismo predicado que el tercer EXISTS
-                   -- del guard P0423 de rpc_atomic_update_purchase_operation
-                   -- (movement_type='purchase_payment'). is_delete_blocked es
-                   -- el MISMO EXISTS que precede al P0426 de
-                   -- rpc_delete_purchase_operation: hay movimiento de caja Y
-                   -- no hay sesión abierta en esa caja.
-                   -- edicion-operaciones-con-dinero (tanda A, 1.5): los cuatro derivados salen de la huella NETA
-                   -- (CTE op_fp de arriba, función op_money_footprint_flags), no de un EXISTS por tipo de movimiento.
-                   -- is_delete_blocked: hay neto de caja de esta compra Y no hay sesión abierta en ESA MISMA caja
-                   -- donde compensar (el mismo par de condiciones que precede al P0426 del borrado).
-                   -- is_payment_locked (el OR de los EXISTS) NO se toca acá: lo retira la tanda B.
+                   -- edicion-operaciones-con-dinero (tanda B, D15): los cuatro indicadores y los datos vigentes de la huella NETA
+                   -- (CTE op_fp de arriba). is_delete_blocked: hay neto de caja de esta compra Y no hay sesión abierta en ESA MISMA
+                   -- caja donde compensar (el mismo par de condiciones que precede al P0426 del borrado). `is_payment_locked` SE
+                   -- RETIRÓ: la edición ya no se bloquea por dinero.
                    COALESCE(fp.has_account_charge, FALSE) AS has_account_charge,
                    COALESCE(fp.has_bank_movement,  FALSE) AS has_bank_movement,
                    COALESCE(fp.has_cash_movement,  FALSE) AS has_cash_movement,
                    COALESCE(fp.is_delete_blocked,  FALSE) AS is_delete_blocked,
-                   (
-                     EXISTS (
-                       SELECT 1 FROM supplier_account_movements sam
-                       WHERE sam.reference_id = p.operation_id
-                     )
-                     OR EXISTS (
-                       SELECT 1 FROM bank_movements bm
-                       WHERE bm.source_doc_type = 'purchase' AND bm.source_doc_ref = p.operation_id
-                     )
-                     OR EXISTS (
-                       SELECT 1 FROM cash_movements cm
-                       WHERE cm.movement_type = 'purchase_payment' AND cm.reference_id = p.operation_id
-                     )
-                   ) AS is_payment_locked
+                   fp.charge_due_date,
+                   fp.charge_party_id,
+                   fp.cash_cashbox_id,
+                   fp.cash_open_session_id,
+                   fp.bank_account_id
             FROM purchases p
             JOIN op_page ON COALESCE(p.operation_id::text, p.id::text) = op_page.op_key
             LEFT JOIN op_fp fp ON fp.op_key = op_page.op_key
@@ -236,7 +208,18 @@ class PurchaseRepository(BaseRepository):
         supplier_provided: bool = False,
         cost_center_id: str | None = None,
         cost_center_provided: bool = False,
-    ) -> None:
+        cash_session_id: str | None = None,
+        cash_provided: bool = False,
+        bank_account_id: str | None = None,
+        bank_account_provided: bool = False,
+        due_date: datetime.date | None = None,
+        due_date_provided: bool = False,
+        reason: str | None = None,
+        dry_run: bool = False,
+    ) -> dict[str, object]:
+        # edicion-operaciones-con-dinero (tanda B, D13/D18): caja, banco y vencimiento con el MISMO contrato tri-estado
+        # (valor + `*_provided`), y `dry_run` pide el PLAN sin escribir (la MISMA RPC). Antes la edición descartaba el
+        # resultado (`execute`); ahora lo devuelve: `{operation_id, items, money}` en firme o `{dry_run, plan}` en seco.
         # rpc_atomic_update_purchase_operation hace REVERSE de los ítems viejos +
         # APPLY de los nuevos en una sola transacción (stock sobre branch_stock,
         # C-21 hotfix). RLS/auth.uid() scope vía JWT-passthrough de la conexión.
@@ -253,14 +236,18 @@ class PurchaseRepository(BaseRepository):
                 return str(obj)
             raise TypeError(f"Not serializable: {type(obj)}")
 
-        await self._conn.execute(
+        result = await self._conn.fetchval(
             """
             SELECT rpc_atomic_update_purchase_operation(
                 $1::text[]::uuid[], $2::date, $3::text, $4::jsonb,
                 p_payment_method_id => $5, p_payment_method_provided => $6,
                 p_branch_id => $7, p_branch_provided => $8,
                 p_supplier_id => $9, p_supplier_provided => $10,
-                p_cost_center_id => $11, p_cost_center_provided => $12
+                p_cost_center_id => $11, p_cost_center_provided => $12,
+                p_cash_session_id => $13, p_cash_provided => $14,
+                p_bank_account_id => $15, p_bank_account_provided => $16,
+                p_due_date => $17, p_due_date_provided => $18,
+                p_reason => $19, p_dry_run => $20
             )
             """,
             purchase_ids,
@@ -275,7 +262,19 @@ class PurchaseRepository(BaseRepository):
             supplier_provided,
             cost_center_id,
             cost_center_provided,
+            cash_session_id,
+            cash_provided,
+            bank_account_id,
+            bank_account_provided,
+            due_date,
+            due_date_provided,
+            reason,
+            dry_run,
         )
+        if result is None:
+            raise ValueError("rpc_atomic_update_purchase_operation devolvió NULL inesperado")
+        decoded = json.loads(result) if isinstance(result, str) else result
+        return dict(decoded)
 
     async def create_operation(
         self,

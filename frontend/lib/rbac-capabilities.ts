@@ -102,6 +102,16 @@ export const CAN_PURCHASE: readonly OrgRole[] = ["owner", "admin", "purchases"]
 export const CAN_MODIFY_ANY_DOCUMENT: readonly OrgRole[] = ["owner", "admin"]
 
 /**
+ * Corregir dinero YA REGISTRADO (edicion-operaciones-con-dinero, OQ-4 a): una edición de venta, compra o gasto cuyo plan
+ * ESCRIBE en cuenta corriente, caja o banco. Espejo de `CAN_CORRECT_MONEY` de `backend/core/rbac.py` y del
+ * `ARRAY['owner', 'admin']` de `_op_edit_plan` (migración 20261089000001): un test del backend
+ * (`test_edicion_operaciones_con_dinero.py`) y el de este archivo (`rbac-capabilities.test.ts`) leen las tres fuentes y
+ * fallan si divergen. Una edición que no escribe en ningún libro sigue con la capacidad de su dominio. Es sólo informativa
+ * para la interfaz (la superficie llega con la tanda C): la autoridad es la RPC (P0403 `money_edit_requires_admin`).
+ */
+export const CAN_CORRECT_MONEY: readonly OrgRole[] = ["owner", "admin"]
+
+/**
  * ¿Alguno de los roles activos del usuario habilita la capacidad?
  *
  * Mientras el conjunto no resolvió (`rolesResolved === false`) responde `true`:

@@ -53,7 +53,6 @@ function makeOp(overrides: Partial<SaleOperation> = {}): SaleOperation {
     unitId: null,
     isFiscallyLocked: false,
     fiscal: null,
-    isPaymentLocked: false,
     hasAccountCharge: false,
     hasCashMovement: false,
     hasBankMovement: false, sourceQuoteId: null, sourceQuoteNumber: null, hasServiceLines: false,

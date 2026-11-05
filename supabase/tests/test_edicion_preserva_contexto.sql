@@ -926,10 +926,14 @@ BEGIN
   INSERT INTO public.sales_orders (account_id, branch_id, status, total, created_by, sale_operation_id, fiscal_document_id)
   VALUES (v_account_a, v_branch_a, 'confirmed', 200, v_user_a, v_op, v_doc_void_del);
 
-  -- Cargo de cuenta corriente posteado sobre la MISMA operación (D12: los
-  -- guards hermanos quedan intactos).
+  -- Cargo de cuenta corriente posteado sobre la MISMA operación y YA COBRADO por completo.
+  -- edicion-operaciones-con-dinero (tanda B): el P0423 por dinero se retiró; el aborto DESPUÉS de anular lo produce ahora el
+  -- plan de dinero (P0425: la reversión del cargo dejaría negativa la cuenta), que corre luego del guard fiscal.
   PERFORM public.c30_register_customer_account_movement(
     public.c30_get_or_create_customer_account(v_account_a, v_client_a), 200, 'sale', v_op
+  );
+  PERFORM public.c30_register_customer_account_movement(
+    public.c30_get_or_create_customer_account(v_account_a, v_client_a), -200, 'payment_received', NULL
   );
 
   v_caught_sqlstate := NULL;
@@ -940,19 +944,19 @@ BEGIN
       ARRAY[v_sale_id], v_client_a, CURRENT_DATE, 'ARS',
       jsonb_build_array(jsonb_build_object('product_id', v_p1, 'amount', 100.00, 'quantity', 8))
     );
-    v_failures := array_append(v_failures, 'FAIL (2.14): una venta con cargo de cuenta corriente posteado sigue siendo inmutable (D12), no falló');
+    v_failures := array_append(v_failures, 'FAIL (2.14): editar una venta cuyo cargo ya se cobró y cuya reversión dejaría negativa la cuenta debía fallar con P0425, no falló');
   EXCEPTION
     WHEN OTHERS THEN
       GET STACKED DIAGNOSTICS v_caught_sqlstate = RETURNED_SQLSTATE;
       v_msg := SQLERRM;
   END;
   SELECT status INTO v_status_text FROM public.fiscal_documents WHERE id = v_doc_void_del;
-  IF v_caught_sqlstate IS DISTINCT FROM 'P0423' THEN
-    v_failures := array_append(v_failures, format('FAIL (2.14 SQLSTATE): esperaba P0423, obtuvo %s', COALESCE(v_caught_sqlstate, 'ningún error')));
-  ELSIF position('operation_has_account_charge_immutable' in COALESCE(v_msg, '')) = 0 THEN
-    v_failures := array_append(v_failures, format('FAIL (2.14 token): esperaba operation_has_account_charge_immutable, obtuvo: %s', COALESCE(v_msg, '<sin mensaje>')));
+  IF v_caught_sqlstate IS DISTINCT FROM 'P0425' THEN
+    v_failures := array_append(v_failures, format('FAIL (2.14 SQLSTATE): esperaba P0425, obtuvo %s', COALESCE(v_caught_sqlstate, 'ningún error')));
+  ELSIF position('reversal_would_go_negative' in COALESCE(v_msg, '')) = 0 THEN
+    v_failures := array_append(v_failures, format('FAIL (2.14 token): esperaba reversal_would_go_negative, obtuvo: %s', COALESCE(v_msg, '<sin mensaje>')));
   ELSIF v_status_text IS DISTINCT FROM 'pending_cae' THEN
-    v_failures := array_append(v_failures, format('FAIL (2.14 rollback): el guard de pago abortó DESPUÉS de anular — el rollback de la transacción debe dejar el comprobante en pending_cae, quedó %s', COALESCE(v_status_text, '<inexistente>')));
+    v_failures := array_append(v_failures, format('FAIL (2.14 rollback): el plan de dinero abortó DESPUÉS de anular — el rollback de la transacción debe dejar el comprobante en pending_cae, quedó %s', COALESCE(v_status_text, '<inexistente>')));
   END IF;
   SELECT COUNT(*) INTO v_count
   FROM   public.document_status_history
@@ -961,7 +965,7 @@ BEGIN
     v_failures := array_append(v_failures, format('FAIL (2.14 historial): el rollback debe llevarse también la fila de historial de la anulación, hay %s', v_count));
   END IF;
   IF COALESCE(array_length(v_failures, 1), 0) = v_fail_before THEN
-    RAISE NOTICE 'PASS (2.14): con cargo de cuenta corriente posteado la edición sigue bloqueada (D12) y el rollback deshace la anulación — comprobante e historial intactos';
+    RAISE NOTICE 'PASS (2.14): si el plan de dinero aborta (P0425) DESPUÉS de anular el comprobante pendiente, el rollback deshace la anulación — comprobante e historial intactos';
   END IF;
 
   -- ═══════════════════════════════════════════════════════════════════════

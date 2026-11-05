@@ -7,6 +7,20 @@ import pytest
 
 from backend.tests.conftest import make_token, tenant_token
 
+
+def _as_update_rpc(update_side_effect, roles=("owner",)):
+    """edicion-operaciones-con-dinero (tanda B): la edicion de compra ahora DEVUELVE el jsonb de la RPC (antes `execute` lo
+    descartaba), asi que el doble es de `fetchval`; y el guard de CAN_CORRECT_MONEY consulta los roles con `fetchval` tambien.
+    `update_side_effect` conserva la firma `(query, *args)` de los tests que capturan la llamada a la RPC."""
+
+    async def _fetchval(query, *args, **kwargs):
+        if "rpc_my_active_account_roles" in query:
+            return list(roles)
+        await update_side_effect(query, *args)
+        return '{"operation_id": null, "items": [], "money": null}'
+
+    return AsyncMock(side_effect=_fetchval)
+
 PURCHASE_ID = "22222222-2222-2222-2222-222222222222"
 OPERATION_ID = "33333333-3333-3333-3333-333333333333"
 
@@ -28,7 +42,7 @@ async def test_update_purchase_operation_ok(async_client, mock_pool):
         captured["query"] = query
         return "SELECT 1"
 
-    conn.execute = AsyncMock(side_effect=execute_side_effect)
+    conn.fetchval = _as_update_rpc(execute_side_effect)
     with patch("backend.core.database.pool", pool):
         resp = await async_client.put(
             "/purchases/operation",
@@ -344,7 +358,7 @@ async def test_update_purchase_operation_without_field_preserves(async_client, m
         captured["args"] = args
         return "SELECT 1"
 
-    conn.execute = AsyncMock(side_effect=execute_side_effect)
+    conn.fetchval = _as_update_rpc(execute_side_effect)
     with patch("backend.core.database.pool", pool):
         resp = await async_client.put(
             "/purchases/operation",
@@ -352,8 +366,8 @@ async def test_update_purchase_operation_without_field_preserves(async_client, m
             headers={"Authorization": f"Bearer {owner_token}"},
         )
     assert resp.status_code == 200
-    assert captured["args"][-8] is None
-    assert captured["args"][-7] is False
+    assert captured["args"][4] is None
+    assert captured["args"][5] is False
 
 
 async def test_update_purchase_operation_with_explicit_null_clears(async_client, mock_pool):
@@ -367,7 +381,7 @@ async def test_update_purchase_operation_with_explicit_null_clears(async_client,
         captured["args"] = args
         return "SELECT 1"
 
-    conn.execute = AsyncMock(side_effect=execute_side_effect)
+    conn.fetchval = _as_update_rpc(execute_side_effect)
     with patch("backend.core.database.pool", pool):
         resp = await async_client.put(
             "/purchases/operation",
@@ -375,8 +389,8 @@ async def test_update_purchase_operation_with_explicit_null_clears(async_client,
             headers={"Authorization": f"Bearer {owner_token}"},
         )
     assert resp.status_code == 200
-    assert captured["args"][-8] is None
-    assert captured["args"][-7] is True
+    assert captured["args"][4] is None
+    assert captured["args"][5] is True
 
 
 async def test_update_purchase_operation_with_payment_method_reimputes(async_client, mock_pool):
@@ -388,7 +402,7 @@ async def test_update_purchase_operation_with_payment_method_reimputes(async_cli
         captured["args"] = args
         return "SELECT 1"
 
-    conn.execute = AsyncMock(side_effect=execute_side_effect)
+    conn.fetchval = _as_update_rpc(execute_side_effect)
     with patch("backend.core.database.pool", pool):
         resp = await async_client.put(
             "/purchases/operation",
@@ -397,7 +411,7 @@ async def test_update_purchase_operation_with_payment_method_reimputes(async_cli
         )
     assert resp.status_code == 200
     assert PM_ID in [str(a) for a in captured["args"]]
-    assert captured["args"][-7] is True
+    assert captured["args"][5] is True
 
 
 # ── edicion-preserva-contexto: branch_id tri-estado (F1 §D3) ────────────────
@@ -419,7 +433,7 @@ async def test_update_purchase_operation_without_branch_preserves(async_client, 
         captured["args"] = args
         return "SELECT 1"
 
-    conn.execute = AsyncMock(side_effect=execute_side_effect)
+    conn.fetchval = _as_update_rpc(execute_side_effect)
     with patch("backend.core.database.pool", pool):
         resp = await async_client.put(
             "/purchases/operation",
@@ -427,8 +441,8 @@ async def test_update_purchase_operation_without_branch_preserves(async_client, 
             headers={"Authorization": f"Bearer {owner_token}"},
         )
     assert resp.status_code == 200
-    assert captured["args"][-6] is None   # branch_id
-    assert captured["args"][-5] is False  # branch_provided
+    assert captured["args"][6] is None   # branch_id
+    assert captured["args"][7] is False  # branch_provided
 
 
 async def test_update_purchase_operation_with_branch_id_reimputes(async_client, mock_pool):
@@ -441,7 +455,7 @@ async def test_update_purchase_operation_with_branch_id_reimputes(async_client, 
         captured["args"] = args
         return "SELECT 1"
 
-    conn.execute = AsyncMock(side_effect=execute_side_effect)
+    conn.fetchval = _as_update_rpc(execute_side_effect)
     with patch("backend.core.database.pool", pool):
         resp = await async_client.put(
             "/purchases/operation",
@@ -450,7 +464,7 @@ async def test_update_purchase_operation_with_branch_id_reimputes(async_client, 
         )
     assert resp.status_code == 200
     assert BRANCH_ID in [str(a) for a in captured["args"]]
-    assert captured["args"][-5] is True  # branch_provided
+    assert captured["args"][7] is True  # branch_provided
 
 
 # ── compras-proveedor-cuenta-corriente (task 9.5/9.7): supplier_id +
@@ -468,7 +482,7 @@ async def test_update_purchase_operation_without_supplier_preserves(async_client
         captured["args"] = args
         return "SELECT 1"
 
-    conn.execute = AsyncMock(side_effect=execute_side_effect)
+    conn.fetchval = _as_update_rpc(execute_side_effect)
     with patch("backend.core.database.pool", pool):
         resp = await async_client.put(
             "/purchases/operation",
@@ -476,8 +490,8 @@ async def test_update_purchase_operation_without_supplier_preserves(async_client
             headers={"Authorization": f"Bearer {owner_token}"},
         )
     assert resp.status_code == 200
-    assert captured["args"][-4] is None   # supplier_id
-    assert captured["args"][-3] is False  # supplier_provided
+    assert captured["args"][8] is None   # supplier_id
+    assert captured["args"][9] is False  # supplier_provided
 
 
 async def test_update_purchase_operation_with_explicit_null_supplier_clears(async_client, mock_pool):
@@ -490,7 +504,7 @@ async def test_update_purchase_operation_with_explicit_null_supplier_clears(asyn
         captured["args"] = args
         return "SELECT 1"
 
-    conn.execute = AsyncMock(side_effect=execute_side_effect)
+    conn.fetchval = _as_update_rpc(execute_side_effect)
     with patch("backend.core.database.pool", pool):
         resp = await async_client.put(
             "/purchases/operation",
@@ -498,8 +512,8 @@ async def test_update_purchase_operation_with_explicit_null_supplier_clears(asyn
             headers={"Authorization": f"Bearer {owner_token}"},
         )
     assert resp.status_code == 200
-    assert captured["args"][-4] is None
-    assert captured["args"][-3] is True
+    assert captured["args"][8] is None
+    assert captured["args"][9] is True
 
 
 async def test_update_purchase_operation_with_supplier_id_reimputes(async_client, mock_pool):
@@ -512,7 +526,7 @@ async def test_update_purchase_operation_with_supplier_id_reimputes(async_client
         captured["args"] = args
         return "SELECT 1"
 
-    conn.execute = AsyncMock(side_effect=execute_side_effect)
+    conn.fetchval = _as_update_rpc(execute_side_effect)
     with patch("backend.core.database.pool", pool):
         resp = await async_client.put(
             "/purchases/operation",
@@ -521,7 +535,7 @@ async def test_update_purchase_operation_with_supplier_id_reimputes(async_client
         )
     assert resp.status_code == 200
     assert SUPPLIER_ID in [str(a) for a in captured["args"]]
-    assert captured["args"][-3] is True
+    assert captured["args"][9] is True
 
 
 async def test_update_purchase_operation_without_cost_center_preserves(async_client, mock_pool):
@@ -535,7 +549,7 @@ async def test_update_purchase_operation_without_cost_center_preserves(async_cli
         captured["args"] = args
         return "SELECT 1"
 
-    conn.execute = AsyncMock(side_effect=execute_side_effect)
+    conn.fetchval = _as_update_rpc(execute_side_effect)
     with patch("backend.core.database.pool", pool):
         resp = await async_client.put(
             "/purchases/operation",
@@ -543,8 +557,8 @@ async def test_update_purchase_operation_without_cost_center_preserves(async_cli
             headers={"Authorization": f"Bearer {owner_token}"},
         )
     assert resp.status_code == 200
-    assert captured["args"][-2] is None   # cost_center_id
-    assert captured["args"][-1] is False  # cost_center_provided
+    assert captured["args"][10] is None   # cost_center_id
+    assert captured["args"][11] is False  # cost_center_provided
 
 
 async def test_update_purchase_operation_with_explicit_null_cost_center_clears(async_client, mock_pool):
@@ -556,7 +570,7 @@ async def test_update_purchase_operation_with_explicit_null_cost_center_clears(a
         captured["args"] = args
         return "SELECT 1"
 
-    conn.execute = AsyncMock(side_effect=execute_side_effect)
+    conn.fetchval = _as_update_rpc(execute_side_effect)
     with patch("backend.core.database.pool", pool):
         resp = await async_client.put(
             "/purchases/operation",
@@ -564,8 +578,8 @@ async def test_update_purchase_operation_with_explicit_null_cost_center_clears(a
             headers={"Authorization": f"Bearer {owner_token}"},
         )
     assert resp.status_code == 200
-    assert captured["args"][-2] is None
-    assert captured["args"][-1] is True
+    assert captured["args"][10] is None
+    assert captured["args"][11] is True
 
 
 async def test_update_purchase_operation_with_cost_center_id_reimputes(async_client, mock_pool):
@@ -577,7 +591,7 @@ async def test_update_purchase_operation_with_cost_center_id_reimputes(async_cli
         captured["args"] = args
         return "SELECT 1"
 
-    conn.execute = AsyncMock(side_effect=execute_side_effect)
+    conn.fetchval = _as_update_rpc(execute_side_effect)
     with patch("backend.core.database.pool", pool):
         resp = await async_client.put(
             "/purchases/operation",
@@ -586,7 +600,7 @@ async def test_update_purchase_operation_with_cost_center_id_reimputes(async_cli
         )
     assert resp.status_code == 200
     assert COST_CENTER_ID in [str(a) for a in captured["args"]]
-    assert captured["args"][-1] is True
+    assert captured["args"][11] is True
 
 
 # ── review B (B5): mensajes del RAISE de la edición llegan al cliente ──────
@@ -1119,13 +1133,11 @@ async def test_list_purchases_exposes_payment_method_of_the_operation(
 
 # ── pagos-cableados-restantes (D6, task 9.3/12.4): inmutabilidad expuesta ────
 
-async def test_list_purchases_row_exposes_is_payment_locked_flag(
+async def test_list_purchases_row_exposes_edit_state_and_no_payment_lock(
     async_client, valid_token, mock_pool
 ):
-    """is_payment_locked viaja en la fila para que la lista deshabilite
-    'Editar' ANTES de que el usuario intente modificar una compra con cargo
-    de cuenta corriente ya posteado (mismo predicado que el guard P0423 de
-    rpc_atomic_update_purchase_operation — ver PurchaseRepository)."""
+    """edicion-operaciones-con-dinero (tanda B, D15): `is_payment_locked` SE RETIRÓ; la fila trae el motivo de bloqueo
+    del servidor (`edit_locked_reason`) y los datos vigentes de la huella neta que el formulario de edición precarga."""
     pool, conn = mock_pool
     row = {
         "id": PURCHASE_ID, "date": "2026-01-15", "operation_id": None,
@@ -1133,7 +1145,10 @@ async def test_list_purchases_row_exposes_is_payment_locked_flag(
         "amount": "100.00", "total": "100.00", "product_name": None,
         "cost_center_id": None, "cost_center_name": None,
         "payment_method_id": None, "payment_method_name": None, "payment_method_kind": None,
-        "is_payment_locked": True,
+        "has_account_charge": True, "charge_due_date": "2026-02-01",
+        "charge_party_id": "99999999-9999-9999-9999-999999999999",
+        "cash_cashbox_id": None, "cash_open_session_id": None, "bank_account_id": None,
+        "edit_locked_reason": "delivery_note_purchase_locked",
     }
     conn.fetch = AsyncMock(return_value=[row])
     conn.fetchval = AsyncMock(return_value=1)
@@ -1142,16 +1157,18 @@ async def test_list_purchases_row_exposes_is_payment_locked_flag(
             "/purchases", headers={"Authorization": f"Bearer {valid_token}"}
         )
     assert resp.status_code == 200
-    assert resp.json()["items"][0]["is_payment_locked"] is True
-
+    item = resp.json()["items"][0]
+    assert "is_payment_locked" not in item
+    assert item["edit_locked_reason"] == "delivery_note_purchase_locked"
+    assert item["charge_due_date"] == "2026-02-01"
+    assert item["charge_party_id"] == "99999999-9999-9999-9999-999999999999"
+    assert item["has_account_charge"] is True
 
 async def test_list_purchases_row_exposes_payment_lock_query_predicate(
     async_client, valid_token, mock_pool
 ):
-    """El predicado de is_payment_locked consulta supplier_account_movements
-    por p.operation_id (espejo del de ventas, sin la complejidad de doble
-    referencia — las compras no tienen un concepto análogo a sales_orders).
-    pos-banco-movimientos (D8) suma bank_movements al mismo predicado."""
+    """edicion-operaciones-con-dinero (tanda B, D15): el listado consume UNA sola definición de la huella neta
+    (`op_money_footprint_state`) y ya no calcula `is_payment_locked`."""
     pool, conn = mock_pool
     captured = _capture_queries(conn)
     with patch("backend.core.database.pool", pool):
@@ -1160,12 +1177,10 @@ async def test_list_purchases_row_exposes_payment_lock_query_predicate(
         )
     assert resp.status_code == 200
     rows_query, _ = captured["rows"]
-    assert "supplier_account_movements" in rows_query
-    assert "bank_movements" in rows_query
-    assert "is_payment_locked" in rows_query
+    assert "op_money_footprint_state" in rows_query
+    assert "AS is_payment_locked" not in rows_query
     assert "payment_method_name" in rows_query
     assert "payment_method_kind" in rows_query
-
 
 # ── compras-proveedor-cuenta-corriente (task 9.1/9.3): proveedor en el listado ─
 
@@ -1199,7 +1214,6 @@ async def test_list_purchases_row_keeps_supplier_name_in_response(
         "amount": "100.00", "total": "100.00", "product_name": None,
         "cost_center_id": None, "cost_center_name": None,
         "payment_method_id": None, "payment_method_name": None, "payment_method_kind": None,
-        "is_payment_locked": False,
         "supplier_id": SUPPLIER_ID,
         "supplier_name": "Distribuidora Sur",
     }
@@ -1227,7 +1241,6 @@ async def test_list_purchases_row_without_supplier_returns_null_name(
         "amount": "100.00", "total": "100.00", "product_name": None,
         "cost_center_id": None, "cost_center_name": None,
         "payment_method_id": None, "payment_method_name": None, "payment_method_kind": None,
-        "is_payment_locked": False,
         "supplier_id": None,
         "supplier_name": None,
     }
@@ -1260,7 +1273,7 @@ async def test_list_purchases_row_exposes_has_cash_movement_flag(
         "amount": "100.00", "total": "100.00", "product_name": None,
         "cost_center_id": None, "cost_center_name": None,
         "payment_method_id": None, "payment_method_name": None, "payment_method_kind": None,
-        "is_payment_locked": True, "has_account_charge": False, "has_bank_movement": False,
+        "has_account_charge": False, "has_bank_movement": False,
         "has_cash_movement": True, "is_delete_blocked": False,
         "supplier_id": None, "supplier_name": None,
     }
@@ -1288,7 +1301,7 @@ async def test_list_purchases_row_exposes_is_delete_blocked_flag(
         "amount": "100.00", "total": "100.00", "product_name": None,
         "cost_center_id": None, "cost_center_name": None,
         "payment_method_id": None, "payment_method_name": None, "payment_method_kind": None,
-        "is_payment_locked": True, "has_account_charge": False, "has_bank_movement": False,
+        "has_account_charge": False, "has_bank_movement": False,
         "has_cash_movement": True, "is_delete_blocked": True,
         "supplier_id": None, "supplier_name": None,
     }
@@ -1315,7 +1328,6 @@ async def test_list_purchases_row_without_cash_movement_defaults_false(
         "amount": "100.00", "total": "100.00", "product_name": None,
         "cost_center_id": None, "cost_center_name": None,
         "payment_method_id": None, "payment_method_name": None, "payment_method_kind": None,
-        "is_payment_locked": False,
         "supplier_id": None, "supplier_name": None,
     }
     conn.fetch = AsyncMock(return_value=[row])
@@ -1333,9 +1345,7 @@ async def test_list_purchases_row_without_cash_movement_defaults_false(
 async def test_list_purchases_row_exposes_cash_movement_query_predicate(
     async_client, valid_token, mock_pool
 ):
-    """El predicado de has_cash_movement/is_delete_blocked consulta
-    cash_movements por movement_type='purchase_payment' y p.operation_id —
-    mismo criterio que el tercer EXISTS del guard P0423."""
+    """has_cash_movement/is_delete_blocked salen de la huella neta (caja de la operación), no de un EXISTS sobre el tipo."""
     pool, conn = mock_pool
     captured = _capture_queries(conn)
     with patch("backend.core.database.pool", pool):
@@ -1344,11 +1354,9 @@ async def test_list_purchases_row_exposes_cash_movement_query_predicate(
         )
     assert resp.status_code == 200
     rows_query, _ = captured["rows"]
-    assert "cash_movements" in rows_query
-    assert "purchase_payment" in rows_query
     assert "has_cash_movement" in rows_query
     assert "is_delete_blocked" in rows_query
-
+    assert "cash_open_session_id" in rows_query
 
 # ── compras-gastos-sucursal-por-defecto (D10): el contrato queda documentado en OpenAPI ─────────
 

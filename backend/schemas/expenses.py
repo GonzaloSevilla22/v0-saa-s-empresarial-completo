@@ -7,6 +7,7 @@ from decimal import Decimal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from backend.schemas.common import PageOut
+from backend.schemas.operation_edit import MoneyEditPlanOut, OperationEditStateOut
 
 # importador-gastos-transaccional (D8): tope de filas por lote, verificado en
 # el SERVIDOR (acá y de nuevo en la RPC — el cliente lo aplica antes de subir,
@@ -77,9 +78,11 @@ class ExpenseUpdate(BaseModel):
     sucursal operativa. Forma de pago y centro de costo conservan las tres
     intenciones.
 
-    La firma NO acepta `cash_session_id` ni `bank_account_id`: la edición no
-    postea movimientos (D11/D13). Un gasto que ya movió plata es inmutable
-    (P0423); uno que no, sólo cambia de etiqueta.
+    edicion-operaciones-con-dinero (tanda B, D6/D7): la edición YA mueve dinero —compensa y registra en caja y banco según el
+    plan que calcula la RPC—, así que acepta `cash_session_id` y `bank_account_id` con el MISMO contrato tri-estado por
+    AUSENCIA (`model_fields_set`): ausente = conservar el efecto vigente (la sesión abierta de la misma caja, la misma
+    cuenta bancaria); presente (incluso `null`) = intención explícita. `reason` es el motivo opcional del cambio, que queda
+    en el historial. El gasto con `kind = credit` sigue rechazado.
     """
 
     category: str | None = None
@@ -96,9 +99,12 @@ class ExpenseUpdate(BaseModel):
         default=None,
         description="Sin sucursal (null informado, o un gasto histórico sin sucursal), el gasto se registra en la sucursal principal de la cuenta: null ya no desimputa la sucursal.",
     )
+    cash_session_id: uuid.UUID | None = None
+    bank_account_id: uuid.UUID | None = None
+    reason: str | None = Field(default=None, max_length=500, description="Motivo opcional del cambio; queda en el historial de ediciones.")
 
 
-class ExpenseOut(BaseModel):
+class ExpenseOut(OperationEditStateOut):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
@@ -118,13 +124,11 @@ class ExpenseOut(BaseModel):
     payment_method_kind: str | None = None
     branch_id: uuid.UUID | None = None
     # ── Derivados de lectura (D11/D18) ───────────────────────────────────────
-    # Espejo literal de SaleItemOut.is_payment_locked: se calculan en el
-    # servidor con los MISMOS `EXISTS` que evalúan los guards de la edición
-    # (P0423) y del borrado (P0426), para que la lista deshabilite el control
-    # con el motivo visible ANTES de que el usuario llegue al error.
-    # Default False: un gasto que llega sin el derivado (lectura vieja) se
-    # trata como NO bloqueado y el servidor sigue siendo la autoridad.
-    is_payment_locked: bool = False
+    # Se calculan en el servidor con la HUELLA NETA (`op_money_footprint_state`, la misma definición que usan el borrado y
+    # la edición), para que la lista muestre qué libros tocó el gasto antes de que el usuario llegue al error.
+    # edicion-operaciones-con-dinero (tanda B, D15): `is_payment_locked` SE RETIRÓ — el gasto con dinero se edita.
+    # Default False: un gasto que llega sin el derivado (lectura vieja) se trata como «sin dinero posteado» y el servidor
+    # sigue siendo la autoridad.
     has_cash_movement: bool = False
     has_bank_movement: bool = False
     is_delete_blocked: bool = False
@@ -135,6 +139,8 @@ class ExpenseOut(BaseModel):
     # accidente.
     has_journal_entry: bool = False
     journal_pending: bool = False
+    #: edicion-operaciones-con-dinero: el plan de dinero que ejecutó la edición (sólo en la respuesta de PUT).
+    money: MoneyEditPlanOut | None = None
 
     @field_validator("date", mode="before")
     @classmethod

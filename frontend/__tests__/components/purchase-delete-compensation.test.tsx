@@ -76,7 +76,7 @@ describe("PurchaseOperationsList — el diálogo de borrado enumera la compensac
   it("compra a cuenta corriente: el diálogo nombra la reversión del cargo y la del stock", () => {
     render(
       <PurchaseOperationsList
-        {...baseProps([makePurchase({ hasAccountCharge: true, isPaymentLocked: true })])}
+        {...baseProps([makePurchase({ hasAccountCharge: true })])}
       />,
     )
 

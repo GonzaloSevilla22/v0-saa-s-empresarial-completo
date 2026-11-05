@@ -231,7 +231,7 @@ BEGIN
     RAISE EXCEPTION 'GATE ASIENTO-VENTA-FORMULARIO FAILED (4a, GATE ESTRELLA): esperaba EXACTAMENTE 1 asiento final tras el reemplazo in-place, hay %.', v_count;
   END IF;
 
-  SELECT je.id INTO v_entry_id FROM public.journal_entries je WHERE je.source_doc_type = 'SaleOperation' AND je.source_doc_ref = v_op2_id;
+  SELECT je.id INTO v_entry_id FROM public.journal_entries je WHERE je.source_doc_type = 'SaleOperation' AND je.source_doc_ref = v_op2_id AND je.reversal_of IS NULL;   -- (id ESTABLE: edicion-operaciones-con-dinero D2; v_op2_id = v_op_id)
   IF v_entry_id IS NULL THEN
     RAISE EXCEPTION 'GATE ASIENTO-VENTA-FORMULARIO FAILED (4a-ref): el asiento final debería referenciar el operation_id NUEVO (%), no lo encontré.', v_op2_id;
   END IF;
@@ -284,7 +284,7 @@ BEGIN
   END IF;
 
   -- Asiento nuevo: source_doc_ref = new_operation_id, valores editados (transfer -> 1110, 9000).
-  SELECT id INTO v_entry2_id FROM public.journal_entries WHERE source_doc_type = 'SaleOperation' AND source_doc_ref = v_op2_id AND status = 'posted';
+  SELECT id INTO v_entry2_id FROM public.journal_entries WHERE source_doc_type = 'SaleOperation' AND source_doc_ref = v_op2_id AND status = 'posted' AND reversal_of IS NULL;   -- (id ESTABLE: el contra-asiento comparte la referencia)
   IF v_entry2_id IS NULL THEN
     RAISE EXCEPTION 'GATE ASIENTO-VENTA-FORMULARIO FAILED (4b-nuevo): esperaba un asiento nuevo posted con source_doc_ref=% (operation_id editado).', v_op2_id;
   END IF;

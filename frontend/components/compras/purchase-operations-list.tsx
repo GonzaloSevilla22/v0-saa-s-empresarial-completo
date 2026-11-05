@@ -35,23 +35,9 @@ import { humanizeOperationError } from "@/lib/operation-errors"
 import { CostCenterSelect } from "@/components/cost-centers/CostCenterSelect"
 import { PaymentMethodSelect } from "@/components/payment-methods/PaymentMethodSelect"
 
-// pagos-cableados-restantes (D6, task 9.3/12.4): espejo del motivo de
-// sale-operations-list.tsx — el guard real vive en el backend (P0423), esto
-// sólo evita que el usuario llegue hasta ese error.
-// pos-banco-movimientos (D8): is_payment_locked ahora también se dispara por
-// un bank_movement posteado (egreso) — mensaje actualizado.
-// compras-proveedor-cuenta-corriente (D9/task 13.3): el texto anterior decía
-// "Emití una nota de crédito y registrá una compra nueva" — copiado del lado
-// venta, donde SÍ existe nota de crédito. Las compras no la tienen (D8 del
-// design): el camino de corrección real es borrar la operación
-// (rpc_delete_purchase_operation compensa cta cte + banco + stock) y
-// recargarla. El motivo ahora también nombra explícitamente que el cargo es
-// del PROVEEDOR (antes era genérico y no distinguía de qué cuenta).
-// caja-compras-cobranzas (D8, task 12.4): suma la caja al motivo — antes era
-// inalcanzable (ninguna compra tenía movimiento de caja), ahora la compra
-// con opt-in tildado también puede caer en este bloqueo.
-const PAYMENT_LOCKED_REASON =
-  "No editable: esta operación ya tiene un cargo de cuenta corriente del proveedor, un movimiento bancario o un movimiento de caja registrado. Para corregirla, borrá esta compra (revierte el cargo, la caja y el banco, y repone el stock) y volvé a cargarla."
+// edicion-operaciones-con-dinero (tanda B, D15): la edición ya NO se bloquea por dinero (cargo de cuenta corriente del proveedor,
+// caja o banco): el servidor compara la huella neta con el efecto deseado y ajusta cada libro. Se retiró el motivo de «ya tiene un
+// cargo…» y su indicador de bloqueo por pago. El único bloqueo que queda es el del remito de origen, que no es de dinero.
 
 // remitos-compra (tanda B, D9): una compra nacida de un remito no se edita — el stock ya
 // entró con el remito y el editor, que siempre reemplaza líneas (REVERSE+APPLY), lo restaría
@@ -382,8 +368,7 @@ export function PurchaseOperationsList({
               ? null
               : formatDeliveryNoteNumber("purchase", op.sourceDeliveryNoteNumber)
           const editBlockedReason =
-            editLockedReasonText(op.editLockedReason, remitoLabel) ??
-            (op.isPaymentLocked ? PAYMENT_LOCKED_REASON : null)
+            editLockedReasonText(op.editLockedReason, remitoLabel)
           // multiusuario-operativo tanda B (D9): sin la capacidad de compra, o sobre lo ajeno sin ser dueño ni administrador, no se ofrece ni Editar ni Eliminar.
           const canModify = canModifyOperation ? canModifyOperation(op) : true
           const deleteInfo = getDeleteCompensation(

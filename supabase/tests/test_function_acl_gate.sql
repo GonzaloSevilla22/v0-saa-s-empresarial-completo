@@ -164,6 +164,14 @@ DECLARE
     'public._pay_register_party_charge(uuid, text, uuid, numeric, uuid, uuid, date, date)',
     'public._journal_post_from_event(events)',
     'public._pay_reverse_party_charge(uuid, text, uuid, numeric, uuid, uuid)',
+    -- edicion-operaciones-con-dinero (tanda B, 20261089000001): la maquinaria interna de la edicion con dinero. SECURITY DEFINER,
+    -- reciben el account_id y los ids de los libros POR PARAMETRO y escriben en cuenta corriente, caja y banco sin validar
+    -- tenencia (la validan las tres ediciones, que las invocan despues de resolver la cuenta activa y el rol). Expuestas a
+    -- `authenticated` serian la primitiva para compensar y registrar dinero en cualquier cuenta por PostgREST. NUNCA otorgar.
+    'public._op_edit_plan(uuid, text, uuid[], uuid, numeric, date, date, uuid, uuid, text, uuid, uuid, uuid, boolean, uuid, boolean, uuid, boolean, date)',
+    'public._op_edit_lock(jsonb)',
+    'public._op_edit_apply(uuid, text, jsonb, uuid, uuid, text, uuid, uuid, date, text, text)',
+    'public._op_edit_audit(uuid, uuid, text, text, uuid, jsonb, jsonb, jsonb, jsonb, text)',
     -- fiscal-emision-segura (2026-09-22): las 5 RPCs del relay del CAE. Son
     -- SECURITY DEFINER y NO validan tenencia — reciben el doc_id y escriben.
     -- Con EXECUTE para `authenticated`, `authorize` era la primitiva para
@@ -407,13 +415,13 @@ DECLARE
     -- filtro: cerrar un evento ajeno hace que su asiento no se postee nunca.
     'public.rpc_mark_event_processed(p_event_id uuid)',
     -- expuesta: SÍ, y es LEGÍTIMO (ver v_cross_tenant_event_exposed_ok).
-    'public.rpc_atomic_update_sale_operation(p_sale_ids uuid[], p_client_id uuid, p_date date, p_currency text, p_items jsonb, p_payment_method_id uuid, p_payment_method_provided boolean, p_branch_id uuid, p_branch_provided boolean, p_canal text, p_canal_provided boolean)',
+    'public.rpc_atomic_update_sale_operation(p_sale_ids uuid[], p_client_id uuid, p_date date, p_currency text, p_items jsonb, p_payment_method_id uuid, p_payment_method_provided boolean, p_branch_id uuid, p_branch_provided boolean, p_canal text, p_canal_provided boolean, p_cash_session_id uuid, p_cash_provided boolean, p_bank_account_id uuid, p_bank_account_provided boolean, p_due_date date, p_due_date_provided boolean, p_reason text, p_dry_run boolean)',
     -- expuesta: SÍ, y es LEGÍTIMO (ver v_cross_tenant_event_exposed_ok).
     -- asiento-contable-gastos (D7): el SELECT 1 FROM public.events del
     -- predicado ("¿existe ExpenseCreated para este gasto?") es una LECTURA
     -- del outbox, aunque el INSERT condicionado a ese mismo SELECT ya se
     -- resta por la regla (2) del detector.
-    'public.rpc_update_expense(p_expense_id uuid, p_category text, p_amount numeric, p_date date, p_description text, p_payment_method_id uuid, p_payment_method_provided boolean, p_branch_id uuid, p_branch_provided boolean, p_cost_center_id uuid, p_cost_center_provided boolean)',
+    'public.rpc_update_expense(p_expense_id uuid, p_category text, p_amount numeric, p_date date, p_description text, p_payment_method_id uuid, p_payment_method_provided boolean, p_branch_id uuid, p_branch_provided boolean, p_cost_center_id uuid, p_cost_center_provided boolean, p_cash_session_id uuid, p_cash_provided boolean, p_bank_account_id uuid, p_bank_account_provided boolean, p_reason text, p_dry_run boolean)',
     -- expuesta: SÍ, y es LEGÍTIMO (ver v_cross_tenant_event_exposed_ok).
     -- asiento-contable-gastos (D7): mismo predicado de lectura que la de
     -- arriba, antes del borrado físico del gasto.
@@ -422,7 +430,7 @@ DECLARE
     -- edicion-operaciones-con-dinero (tanda A, D10): la edición de una compra emite PurchaseAdjusted sólo si existe el
     -- alta contable de ESA operación, así que lee el outbox con un SELECT 1 ... WHERE aggregate_id = <operación> AND
     -- account_id = v_account_id, la misma forma que rpc_update_expense.
-    'public.rpc_atomic_update_purchase_operation(p_purchase_ids uuid[], p_date date, p_description text, p_items jsonb, p_payment_method_id uuid, p_payment_method_provided boolean, p_branch_id uuid, p_branch_provided boolean, p_supplier_id uuid, p_supplier_provided boolean, p_cost_center_id uuid, p_cost_center_provided boolean)'
+    'public.rpc_atomic_update_purchase_operation(p_purchase_ids uuid[], p_date date, p_description text, p_items jsonb, p_payment_method_id uuid, p_payment_method_provided boolean, p_branch_id uuid, p_branch_provided boolean, p_supplier_id uuid, p_supplier_provided boolean, p_cost_center_id uuid, p_cost_center_provided boolean, p_cash_session_id uuid, p_cash_provided boolean, p_bank_account_id uuid, p_bank_account_provided boolean, p_due_date date, p_due_date_provided boolean, p_reason text, p_dry_run boolean)'
   ];
   -- Subconjunto del anterior que SÍ puede estar expuesto a `authenticated`.
   -- Una entrada acá es una excepción con nombre y apellido, no una categoría.
@@ -435,7 +443,7 @@ DECLARE
     -- acotado a los eventos de la operación que la propia RPC ya validó por
     -- tenant antes de tocar nada — no recorre el outbox completo ni acepta un
     -- event_id por parámetro, que es la diferencia con las dos de arriba.
-    'public.rpc_atomic_update_sale_operation(p_sale_ids uuid[], p_client_id uuid, p_date date, p_currency text, p_items jsonb, p_payment_method_id uuid, p_payment_method_provided boolean, p_branch_id uuid, p_branch_provided boolean, p_canal text, p_canal_provided boolean)',
+    'public.rpc_atomic_update_sale_operation(p_sale_ids uuid[], p_client_id uuid, p_date date, p_currency text, p_items jsonb, p_payment_method_id uuid, p_payment_method_provided boolean, p_branch_id uuid, p_branch_provided boolean, p_canal text, p_canal_provided boolean, p_cash_session_id uuid, p_cash_provided boolean, p_bank_account_id uuid, p_bank_account_provided boolean, p_due_date date, p_due_date_provided boolean, p_reason text, p_dry_run boolean)',
     -- asiento-contable-gastos (D7, 2026-09-10): rpc_update_expense y
     -- rpc_delete_expense son las RPC de EDICIÓN y BORRADO de un gasto, API
     -- pública real (con GRANT a authenticated desde gastos-forma-pago). El
@@ -446,14 +454,14 @@ DECLARE
     -- (id, account_id), más arriba en el mismo cuerpo). No acepta un
     -- event_id por parámetro ni recorre el outbox de otro tenant: exactamente
     -- la misma forma que rpc_atomic_update_sale_operation.
-    'public.rpc_update_expense(p_expense_id uuid, p_category text, p_amount numeric, p_date date, p_description text, p_payment_method_id uuid, p_payment_method_provided boolean, p_branch_id uuid, p_branch_provided boolean, p_cost_center_id uuid, p_cost_center_provided boolean)',
+    'public.rpc_update_expense(p_expense_id uuid, p_category text, p_amount numeric, p_date date, p_description text, p_payment_method_id uuid, p_payment_method_provided boolean, p_branch_id uuid, p_branch_provided boolean, p_cost_center_id uuid, p_cost_center_provided boolean, p_cash_session_id uuid, p_cash_provided boolean, p_bank_account_id uuid, p_bank_account_provided boolean, p_reason text, p_dry_run boolean)',
     'public.rpc_delete_expense(p_expense_id uuid)',
     -- edicion-operaciones-con-dinero (tanda A, D10): rpc_atomic_update_purchase_operation es la RPC de EDICIÓN de una
     -- compra, API pública real. Su único acceso al outbox es un SELECT 1 FROM public.events WHERE event_type IN
     -- ('PurchaseCreated','PurchaseAdjusted') AND aggregate_id = <operación que la RPC ya validó> AND account_id =
     -- v_account_id — la compra y la cuenta están resueltas y bloqueadas (FOR UPDATE) ANTES de esa lectura. No acepta un
     -- event_id por parámetro ni recorre el outbox de otro tenant: la misma forma que rpc_update_expense.
-    'public.rpc_atomic_update_purchase_operation(p_purchase_ids uuid[], p_date date, p_description text, p_items jsonb, p_payment_method_id uuid, p_payment_method_provided boolean, p_branch_id uuid, p_branch_provided boolean, p_supplier_id uuid, p_supplier_provided boolean, p_cost_center_id uuid, p_cost_center_provided boolean)'
+    'public.rpc_atomic_update_purchase_operation(p_purchase_ids uuid[], p_date date, p_description text, p_items jsonb, p_payment_method_id uuid, p_payment_method_provided boolean, p_branch_id uuid, p_branch_provided boolean, p_supplier_id uuid, p_supplier_provided boolean, p_cost_center_id uuid, p_cost_center_provided boolean, p_cash_session_id uuid, p_cash_provided boolean, p_bank_account_id uuid, p_bank_account_provided boolean, p_due_date date, p_due_date_provided boolean, p_reason text, p_dry_run boolean)'
   ];
 BEGIN
   -- Entorno sin roles de Supabase (p.ej. postgres pelado): no hay nada que gatear

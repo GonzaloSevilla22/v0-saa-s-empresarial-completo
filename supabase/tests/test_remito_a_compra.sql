@@ -521,12 +521,13 @@ BEGIN
     v_failures := v_failures || format('FAIL (g0 sesión): la compra directa sin sesión debía dar 42501, vino %s', v_txt);
   END IF;
   PERFORM pg_temp.rcb_as(v_owner_a);
-  -- El P0423 de dinero de una compra directa en efectivo no cambia (regresión).
+  -- edicion-operaciones-con-dinero (tanda B): el P0423 de DINERO de una compra directa en efectivo se retiró — se edita (la
+  -- caja se corrige en la sesión abierta). Lo que NO cambia es que el bloqueo del remito sigue siendo otro motivo.
   SELECT array_agg(id) INTO v_ids FROM public.purchases WHERE operation_id = v_op_d1;
   v_txt := pg_temp.rcb_err(format('SELECT public.rpc_atomic_update_purchase_operation(%L::uuid[], %L::date, ''x'', %L::jsonb)',
-            v_ids, v_today, jsonb_build_array(pg_temp.rcb_pline(v_p1, 1, 1000))));
-  IF v_txt NOT LIKE 'P0423%' OR v_txt LIKE '%delivery_note_purchase_locked%' THEN
-    v_failures := v_failures || format('FAIL (g0 P0423): editar una compra directa con caja posteada debía dar el P0423 de dinero de siempre, vino %s', v_txt);
+            v_ids, v_today, jsonb_build_array(pg_temp.rcb_pline(v_p1, 2, 1000))));
+  IF v_txt IS DISTINCT FROM 'OK' THEN
+    v_failures := v_failures || format('FAIL (g0 edición): editar una compra directa con caja posteada ya no es P0423 de dinero; debía editarse, vino %s', v_txt);
   END IF;
   IF COALESCE(array_length(v_failures, 1), 0) = v_fail_before THEN
     RAISE NOTICE 'PASS (g0): compra directa idéntica al golden — cash con caja, credit con cargo y vencimiento a 30 días, transfer con banco, línea sin producto, 450 g -> 0,45 kg, replay sin efectos, 42501 sin sesión y el P0423 de dinero intacto.';
@@ -1512,7 +1513,7 @@ BEGIN
   FOREACH v_fn IN ARRAY ARRAY['public.rpc_create_purchase_operation(text, date, text, jsonb, uuid, uuid, uuid, uuid, uuid, uuid, date)',
                               'public.rpc_convert_delivery_note_to_purchase(text, uuid, integer, uuid, date, uuid, uuid, uuid, date, text)',
                               'public.rpc_delete_purchase_operation(uuid, uuid, text)',
-                              'public.rpc_atomic_update_purchase_operation(uuid[], date, text, jsonb, uuid, boolean, uuid, boolean, uuid, boolean, uuid, boolean)'] LOOP
+                              'public.rpc_atomic_update_purchase_operation(uuid[], date, text, jsonb, uuid, boolean, uuid, boolean, uuid, boolean, uuid, boolean, uuid, boolean, uuid, boolean, date, boolean, text, boolean)'] LOOP
     v_oid := to_regprocedure(v_fn);
     IF v_oid IS NULL THEN v_bad := v_bad || format('(u) %s no existe', v_fn);
     ELSIF NOT has_function_privilege('authenticated', v_oid, 'EXECUTE') THEN
@@ -1599,11 +1600,13 @@ BEGIN
     v_bad := v_bad || '(u) el borrado toma el lock del remito DESPUÉS de una compensación (orden remito -> dinero)'::text;
   END IF;
 
-  -- Edición: el P0423 del remito ANTES de los P0423 de dinero.
-  SELECT prosrc INTO v_src FROM pg_proc WHERE oid = to_regprocedure('public.rpc_atomic_update_purchase_operation(uuid[], date, text, jsonb, uuid, boolean, uuid, boolean, uuid, boolean, uuid, boolean)');
+  -- Edición: el P0423 del remito ANTES de CUALQUIER escritura de dinero. edicion-operaciones-con-dinero (tanda B) retiró los P0423 de
+  -- dinero: el marcador de «dinero» pasa a ser el plan (_op_edit_plan) y su aplicación (_op_edit_apply); el remito sigue primero.
+  SELECT prosrc INTO v_src FROM pg_proc WHERE oid = to_regprocedure('public.rpc_atomic_update_purchase_operation(uuid[], date, text, jsonb, uuid, boolean, uuid, boolean, uuid, boolean, uuid, boolean, uuid, boolean, uuid, boolean, date, boolean, text, boolean)');
   IF position('delivery_note_purchase_locked' IN v_src) = 0
-     OR position('delivery_note_purchase_locked' IN v_src) > position('operation_has_account_charge_immutable' IN v_src) THEN
-    v_bad := v_bad || '(u) la edición no rechaza la compra de un remito (P0423) ANTES de los P0423 de dinero'::text;
+     OR position('delivery_note_purchase_locked' IN v_src) > position('_op_edit_plan(' IN v_src)
+     OR position('delivery_note_purchase_locked' IN v_src) > position('_op_edit_apply(' IN v_src) THEN
+    v_bad := v_bad || '(u) la edición no rechaza la compra de un remito (P0423) ANTES del plan de dinero y de su aplicación'::text;
   END IF;
 
   -- Conversión: lock, rol del remito, precios y proveedor vivo antes de llamar al núcleo, que es el único camino a la compra.

@@ -169,7 +169,7 @@ def _sale_requests():
 def _purchase_requests():
     return [
         ("post", "/purchases", CREATE_PURCHASE_PAYLOAD, "fetchrow_op"),
-        ("put", "/purchases/operation", PURCHASE_UPDATE_PAYLOAD, "execute_ok"),
+        ("put", "/purchases/operation", PURCHASE_UPDATE_PAYLOAD, "fetchval_update"),   # edicion-operaciones-con-dinero: la edicion de compra devuelve el jsonb (fetchval)
         ("delete", f"/purchases?operation_id={PURCHASE_OPERATION_ID}", None, "fetchrow_true"),
         ("delete", f"/purchases/{PURCHASE_ID}", None, "fetchrow_true"),
     ]

@@ -832,7 +832,7 @@ BEGIN
   END IF;
 
   -- ═══════════════════════════════════════════════════════════════════════
-  -- (m) regresiones: POS, conversión de presupuesto, P0423 de dinero
+  -- (m) regresiones: POS, conversión de presupuesto, edición con dinero
   -- ═══════════════════════════════════════════════════════════════════════
   v_fail_before := COALESCE(array_length(v_failures, 1), 0);
   v_s1 := pg_temp.rc_stock(v_ppos, v_x);
@@ -850,8 +850,10 @@ BEGIN
     'SELECT public.rpc_atomic_update_sale_operation(%L::uuid[], NULL, %L::date, %L, %L::jsonb)',
     v_sale_ids, v_today, 'ARS',
     jsonb_build_array(jsonb_build_object('product_id', v_ppos, 'amount', 100, 'quantity', 1))));
-  IF v_txt NOT LIKE 'P0423 operation_has_cash_movement_immutable%' THEN
-    v_failures := v_failures || format('FAIL (m): editar una venta POS en efectivo debía dar el P0423 de dinero de siempre, vino %s', v_txt);
+  -- edicion-operaciones-con-dinero tanda B: el P0423 de dinero se RETIRÓ; la edición corrige la caja (la sesión de la venta sigue
+  -- abierta) y termina bien. El bloqueo que sigue vigente es el fiscal.
+  IF v_txt <> 'OK' THEN
+    v_failures := v_failures || format('FAIL (m): editar una venta POS en efectivo con la sesión abierta debía corregir la caja y terminar bien, vino %s', v_txt);
   END IF;
   v_quote := (public.rpc_create_quote(v_c1, NULL, NULL, NULL, jsonb_build_array(jsonb_build_object(
                'product_id', v_pq, 'unit_id', NULL, 'quantity', 1, 'price', 100, 'subtotal', 100, 'description', NULL)))->>'id')::uuid;
@@ -1172,7 +1174,7 @@ BEGIN
     'public.rpc_convert_delivery_note_to_sale(text,uuid,integer,uuid,uuid,uuid,text)',
     'public._c29_confirm_order_core(text,uuid,text,uuid,text,uuid,text,uuid,uuid)',
     'public.rpc_delete_sale_operation(uuid,uuid,text)',
-    'public.rpc_atomic_update_sale_operation(uuid[],uuid,date,text,jsonb,uuid,boolean,uuid,boolean,text,boolean)'
+    'public.rpc_atomic_update_sale_operation(uuid[],uuid,date,text,jsonb,uuid,boolean,uuid,boolean,text,boolean,uuid,boolean,uuid,boolean,date,boolean,text,boolean)'
   ] LOOP
     IF to_regprocedure(v_sig) IS NULL THEN
       v_bad := v_bad || format('%s no existe', v_sig);
@@ -1222,7 +1224,7 @@ BEGIN
 
   -- Edición: P0423 ANTES de la anulación fiscal.
   SELECT replace(prosrc, E'\r', '') INTO v_src FROM pg_proc
-  WHERE oid = 'public.rpc_atomic_update_sale_operation(uuid[],uuid,date,text,jsonb,uuid,boolean,uuid,boolean,text,boolean)'::regprocedure;
+  WHERE oid = 'public.rpc_atomic_update_sale_operation(uuid[],uuid,date,text,jsonb,uuid,boolean,uuid,boolean,text,boolean,uuid,boolean,uuid,boolean,date,boolean,text,boolean)'::regprocedure;
   IF position('delivery_note_sale_locked' IN v_src) = 0
      OR position('delivery_note_sale_locked' IN v_src) > position('_fiscal_void_pending_for_sale_edit' IN v_src)
      OR position('delivery_note_sale_locked' IN v_src) < position('client_not_found' IN v_src) THEN

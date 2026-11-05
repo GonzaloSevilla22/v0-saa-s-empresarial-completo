@@ -26,10 +26,12 @@ from backend.core.errors import (
 )
 from backend.core.guards import require_role
 from backend.repositories.expense_repository import ExpenseRepository
+from backend.repositories.operation_edit_repository import OperationEditRepository
+from backend.services import operation_edit
 from backend.schemas.expenses import ExpenseCreate, ExpenseUpdate
 
 
-def _pg_to_http(exc: asyncpg.PostgresError) -> HTTPException | None:
+def _pg_to_http(exc: asyncpg.PostgresError, *, stable_edit_codes: bool = False) -> HTTPException | None:
     """D19 — mapeo local de ERRCODEs del camino de gasto.
 
     `P0412` sube a 422 con `field = "bank_account_id"` SÓLO acá (en el resto de
@@ -42,16 +44,20 @@ def _pg_to_http(exc: asyncpg.PostgresError) -> HTTPException | None:
     status = EXPENSE_ERRCODE_STATUS.get(code)
     if status is None:
         return None
+    # edicion-operaciones-con-dinero (tanda B): los rechazos de la EDICIÓN (P0422 cash_intent_required, P0424, P0425, P0426,
+    # P0403 money_edit_requires_admin…) viajan con el `code` ESTABLE de su token, no con el sqlstate. Los del alta y el
+    # borrado conservan el suyo (el frontend ya los traduce por sqlstate).
+    stable = operation_edit.stable_edit_code(exc) if stable_edit_codes else None
     return ProblemHTTPException(
         status_code=status,
         detail=str(exc),
-        code=code,
+        code=stable or code,
         field=EXPENSE_FIELD_BY_ERRCODE.get(code),
     )
 
 
 @contextlib.contextmanager
-def _pg_errors_as_problems():
+def _pg_errors_as_problems(*, stable_edit_codes: bool = False):
     """Traduce los ERRCODEs de las tres RPCs de gasto a 7807, en un solo lugar.
 
     Se extrae porque el bloque aparecía idéntico en alta, edición y borrado
@@ -61,7 +67,7 @@ def _pg_errors_as_problems():
     try:
         yield
     except asyncpg.PostgresError as exc:
-        mapped = _pg_to_http(exc)
+        mapped = _pg_to_http(exc, stable_edit_codes=stable_edit_codes)
         if mapped is None:
             raise
         raise mapped from exc
@@ -130,32 +136,60 @@ async def create_expense(
     return record
 
 
+def _expense_update_kwargs(payload: ExpenseUpdate) -> dict[str, object]:
+    # D12 — tri-estado POR AUSENCIA: `model_fields_set` trae las claves que vinieron en el JSON. NUNCA `is None`: un `null`
+    # explícito (desimputar) y una clave ausente (preservar) tienen el mismo valor y distinto significado.
+    sent = payload.model_fields_set
+    return {
+        "category": payload.category,
+        "amount": payload.amount,
+        "date": payload.date,
+        "description": payload.description,
+        "payment_method_id": _uid(payload.payment_method_id),
+        "payment_method_provided": "payment_method_id" in sent,
+        "branch_id": _uid(payload.branch_id),
+        "branch_provided": "branch_id" in sent,
+        "cost_center_id": _uid(payload.cost_center_id),
+        "cost_center_provided": "cost_center_id" in sent,
+        # edicion-operaciones-con-dinero (tanda B): intenciones de caja y banco (tri-estado por ausencia). El gasto no tiene
+        # vencimiento: sin cuenta corriente de la parte.
+        **operation_edit.money_intent_kwargs(payload, with_due_date=False),
+    }
+
+
 async def update_expense(
-    repo: ExpenseRepository, auth: dict, account_id: str, expense_id: str, payload: ExpenseUpdate
+    repo: ExpenseRepository, auth: dict, account_id: str, expense_id: str, payload: ExpenseUpdate, *, conn
 ) -> dict:
     require_role(auth, ["user", "admin"])
-    # D12 — tri-estado POR AUSENCIA: `model_fields_set` trae las claves que
-    # vinieron en el JSON. NUNCA `is None`: un `null` explícito (desimputar) y
-    # una clave ausente (preservar) tienen el mismo valor y distinto significado.
-    sent = payload.model_fields_set
-    with _pg_errors_as_problems():
-        record = await repo.update(
-            expense_id,
-            account_id,
-            category=payload.category,
-            amount=payload.amount,
-            date=payload.date,
-            description=payload.description,
-            payment_method_id=_uid(payload.payment_method_id),
-            payment_method_provided="payment_method_id" in sent,
-            branch_id=_uid(payload.branch_id),
-            branch_provided="branch_id" in sent,
-            cost_center_id=_uid(payload.cost_center_id),
-            cost_center_provided="cost_center_id" in sent,
-        )
+    kwargs = _expense_update_kwargs(payload)
+
+    async def _preview() -> dict:
+        return await repo.update(expense_id, account_id, **kwargs, dry_run=True) or {}
+
+    # edicion-operaciones-con-dinero (tanda B, OQ-4): corregir DINERO ya registrado exige CAN_CORRECT_MONEY (espejo de la RPC).
+    await operation_edit.guard_money_correction(conn, auth, _preview)
+    with _pg_errors_as_problems(stable_edit_codes=True):
+        record = await repo.update(expense_id, account_id, **kwargs)
     if record is None:
         raise HTTPException(status_code=404, detail="Gasto no encontrado")
     return record
+
+
+async def preview_expense_edit(
+    repo: ExpenseRepository, auth: dict, account_id: str, expense_id: str, payload: ExpenseUpdate
+) -> dict:
+    """edicion-operaciones-con-dinero (D13): el PLAN de la edición, calculado por la MISMA RPC en seco (sin escribir)."""
+    require_role(auth, ["user", "admin"])
+    with _pg_errors_as_problems(stable_edit_codes=True):
+        result = await repo.update(expense_id, account_id, **_expense_update_kwargs(payload), dry_run=True)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Gasto no encontrado")
+    return result
+
+
+async def list_expense_edits(repo: OperationEditRepository, expense_id: str) -> list[dict]:
+    """Historial de ediciones del gasto (más reciente primero), filtrado por la cuenta del usuario."""
+    return await operation_edit.list_edits(repo, "expense", expense_id)
 
 
 async def delete_expense(

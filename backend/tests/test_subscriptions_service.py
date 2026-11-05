@@ -2613,6 +2613,26 @@ class TestReconcilePreapprovalCharges:
         assert _expiry_args(conn) == [None, next_cycle + GRACE_PERIOD]
 
     @pytest.mark.asyncio
+    async def test_approved_cuota_without_payment_id_is_never_credited(self):
+        """7.2 (revisión adversarial): sin `payment.id` no hay forma de saber
+        si el cobro ya se acreditó — `billing_events` sólo deduplica por
+        `mercadopago_payment_id` NO nulo, así que cada corrida horaria
+        insertaría otro cobro y volvería a mover el vencimiento. Se saltea
+        (no se acredita) y la cuota bien formada de la misma corrida sí."""
+        from backend.services.subscriptions import reconcile_preapproval_charges
+
+        repo = _mock_repo(has_billing_event_for_payment=AsyncMock(return_value=False))
+        conn = _mock_conn()
+        broken = {"id": "7033613240", "status": "processed", "payment": {"status": "approved"},
+                  "transaction_amount": 24900}
+        responses = [_preapproval_resp(), _search_resp([broken, _approved("7033613241", "187789722328")])]
+        with patch("httpx.AsyncClient.get", new_callable=AsyncMock, side_effect=responses):
+            result = await reconcile_preapproval_charges(_SUB_WITH_ACCOUNT, repo, conn)
+
+        assert result == {"applied": ["7033613241"], "already_applied": []}
+        assert len(_expiry_args(conn)) == 1
+
+    @pytest.mark.asyncio
     async def test_mp_5xx_on_preapproval_raises_502_before_any_write(self):
         """1.3 RED: un 5xx de MercadoPago corta con 502 sin escribir nada."""
         from backend.services.subscriptions import reconcile_preapproval_charges

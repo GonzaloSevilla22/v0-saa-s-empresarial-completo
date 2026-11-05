@@ -1109,14 +1109,22 @@ async def reconcile_preapproval_charges(
         authorized_payment_id = str(cuota.get("id"))
 
         mercadopago_payment_id = str(payment["id"]) if payment.get("id") else None
+        if mercadopago_payment_id is None:
+            # Sin id de pago no se puede saber si el cobro ya se acreditó:
+            # `billing_events` sólo deduplica por `mercadopago_payment_id` NO
+            # nulo, así que el barrido horario insertaría un cobro por corrida
+            # y volvería a mover el vencimiento. Nunca se acredita a ciegas.
+            logger.warning(
+                "[subscriptions] reconcile: cuota %s del preapproval %s aprobada sin payment.id — no se acredita",
+                authorized_payment_id, preapproval_id,
+            )
+            continue
         # H4 hotfix: la clasificación se decide ANTES de aplicar (el
         # billing_event existía o no existía cuando arrancó esta corrida) —
         # pero se aplica SIEMPRE, exista o no, para completar cualquier
         # escritura parcial que hubiera quedado pendiente de una corrida
         # anterior interrumpida a mitad.
-        billing_event_existed = bool(
-            mercadopago_payment_id and await repo.has_billing_event_for_payment(mercadopago_payment_id)
-        )
+        billing_event_existed = await repo.has_billing_event_for_payment(mercadopago_payment_id)
 
         await _apply_approved_charge(
             conn,

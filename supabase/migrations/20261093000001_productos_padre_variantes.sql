@@ -92,7 +92,7 @@ COMMENT ON CONSTRAINT products_variant_only_no_price_cost ON public.products IS
   $c$productos-padre-variantes (D3): un producto padre variant_only no lleva precio ni costo — price = 0 y cost NULL para cualquier escritor (API, PostgREST, importador, función futura). El precio y el costo viven en cada variante; NO se heredan del padre. El servidor traduce el 23514 a 422 parent_field_not_allowed.$c$;
 
 -- =============================================================================
--- 6. rpc_bulk_upsert_products: la rama Padre del importador fuerza price = 0 y
+-- 2b. rpc_bulk_upsert_products: la rama Padre del importador fuerza price = 0 y
 --    cost = NULL (checkpoint 1.3 de tasks.md; D3)
 -- =============================================================================
 -- Re-derivada del cuerpo VIVO de prod (md5 sin CR 30730c94469dc0a5ad98f1905608af46,
@@ -884,3 +884,219 @@ GRANT EXECUTE ON FUNCTION public.rpc_relabel_product_unit(uuid, uuid, boolean) T
 
 COMMENT ON FUNCTION public.rpc_relabel_product_unit(uuid, uuid, boolean) IS
   $c$productos-padre-variantes (D5): corrige la unidad base de una FAMILIA (el producto normalizado a su raíz y todas sus variantes) como un CAMBIO DE RÓTULO: ninguna cantidad de branch_stock, stock_movements ni de ninguna línea se convierte. La raíz queda con la unidad nueva y todas las variantes vivas heredándola (base_unit_id NULL). Sólo dueño o administrador (P0403 insufficient_role); producto ajeno/inexistente P0404 product_not_found; sin unidad P0400 unit_required; unidad ajena P0404 base_unit_not_found; una línea del grupo con otra unidad explícita P0409 unit_relabel_conflict (en dry-run viaja en conflict_unit). Sin efecto -> changed=false sin escribir ni auditar. Audita product.unit_relabel con lo necesario para revertir con otro relabel. Es la ÚNICA excepción al bloqueo base_unit_locked: lo reconoce fn_product_base_unit_guard por el GUC local products.unit_relabel_root, atado a la raíz.$c$;
+
+-- =============================================================================
+-- 5. rpc_bulk_adjust_prices (D8): modificación de precios en lote
+-- =============================================================================
+DROP FUNCTION IF EXISTS public.rpc_bulk_adjust_prices(uuid[], text, text, numeric, boolean);
+CREATE FUNCTION public.rpc_bulk_adjust_prices(
+  p_product_ids uuid[],
+  p_mode        text,
+  p_direction   text,
+  p_value       numeric,
+  p_dry_run     boolean DEFAULT false
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $function$
+DECLARE
+  v_account    uuid;
+  v_sign       integer;
+  v_requested  integer;
+  v_eligible   integer;
+  v_skipped    integer;
+  v_rows       jsonb;
+  v_changed    integer;
+  v_clamped    integer;
+  v_sample     jsonb;
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'unauthorized' USING ERRCODE = 'P0401';
+  END IF;
+  SELECT cai INTO v_account FROM public.current_account_ids() AS cai LIMIT 1;
+  IF v_account IS NULL THEN
+    RAISE EXCEPTION 'unauthorized' USING ERRCODE = 'P0401';
+  END IF;
+  -- Rol: sin escritura P0401; sin ser dueño o administrador P0403 insufficient_role.
+  PERFORM public._account_assert_capability(
+    v_account, ARRAY['owner', 'admin'],
+    'tu rol no permite modificar precios en lote (requiere administrador o dueño)');
+
+  -- Validación (P0400 con literal estable; la API lo devuelve como 422, sin escribir).
+  IF p_mode IS NULL OR p_mode NOT IN ('percent', 'amount') THEN
+    RAISE EXCEPTION 'bulk_price_invalid_mode: el modo tiene que ser porcentaje o importe fijo' USING ERRCODE = 'P0400';
+  END IF;
+  IF p_direction IS NULL OR p_direction NOT IN ('increase', 'decrease') THEN
+    RAISE EXCEPTION 'bulk_price_invalid_direction: la dirección tiene que ser aumento o baja' USING ERRCODE = 'P0400';
+  END IF;
+  IF p_value IS NULL OR p_value <= 0 THEN
+    RAISE EXCEPTION 'bulk_price_invalid_value: el valor tiene que ser mayor que 0' USING ERRCODE = 'P0400';
+  END IF;
+  -- Porcentaje efectivo entre -90 y +1000.
+  IF p_mode = 'percent'
+     AND ((p_direction = 'decrease' AND p_value > 90) OR (p_direction = 'increase' AND p_value > 1000)) THEN
+    RAISE EXCEPTION 'bulk_price_out_of_range: el porcentaje tiene que estar entre una baja del 90 %% y un aumento del 1000 %%' USING ERRCODE = 'P0400';
+  END IF;
+  IF p_product_ids IS NULL OR cardinality(p_product_ids) = 0 THEN
+    RAISE EXCEPTION 'bulk_price_no_products: elegí al menos un producto' USING ERRCODE = 'P0400';
+  END IF;
+  IF cardinality(p_product_ids) > 500 THEN
+    RAISE EXCEPTION 'bulk_price_too_many_ids: como máximo 500 productos por llamada' USING ERRCODE = 'P0400';
+  END IF;
+
+  v_sign := CASE p_direction WHEN 'increase' THEN 1 ELSE -1 END;
+  SELECT count(DISTINCT x) INTO v_requested FROM unnest(p_product_ids) AS x;
+
+  -- Al aplicar, la familia se toma FOR UPDATE por orden de id: dos lotes concurrentes
+  -- no se pisan con un cálculo hecho sobre un precio viejo. La vista previa no bloquea.
+  IF NOT p_dry_run THEN
+    PERFORM 1
+      FROM public.products p
+     WHERE p.account_id = v_account AND p.deleted_at IS NULL
+       AND COALESCE(p.parent_id, p.id) IN (
+             SELECT COALESCE(r.parent_id, r.id) FROM public.products r
+              WHERE r.id = ANY (p_product_ids) AND r.account_id = v_account AND r.deleted_at IS NULL)
+     ORDER BY p.id
+     FOR UPDATE;
+  END IF;
+
+  -- Alcance y cálculo (UNA sola definición, la misma para la vista previa y la aplicación):
+  -- los ids se normalizan a su raíz y se expanden a la raíz más sus variantes vivas; los
+  -- padres variant_only no tienen precio y se omiten. El filtro de cuenta es el guard de
+  -- tenencia: un id ajeno o borrado no produce error ni revela existencia.
+  WITH req AS (
+    SELECT DISTINCT COALESCE(p.parent_id, p.id) AS root_id
+      FROM public.products p
+     WHERE p.id = ANY (p_product_ids) AND p.account_id = v_account AND p.deleted_at IS NULL
+  ), fam AS (
+    SELECT p.id, p.name, p.price, (p.stock_control_type IS NOT DISTINCT FROM 'variant_only') AS is_parent
+      FROM public.products p
+      JOIN req r ON (p.id = r.root_id OR p.parent_id = r.root_id)
+     WHERE p.account_id = v_account AND p.deleted_at IS NULL
+  ), calc AS (
+    SELECT f.id, f.name, f.price AS price_before, f.is_parent,
+           CASE p_mode
+             WHEN 'percent' THEN public.product_round_price(f.price * (1 + v_sign * p_value / 100))
+             ELSE public.product_round_price(f.price + v_sign * p_value)
+           END AS raw_price
+      FROM fam f
+  ), final AS (
+    SELECT c.*, GREATEST(0, c.raw_price) AS price_after FROM calc c
+  )
+  SELECT count(*) FILTER (WHERE NOT is_parent),
+         count(*) FILTER (WHERE is_parent),
+         COALESCE(jsonb_agg(jsonb_build_object(
+                    'id', id, 'name', name, 'price_before', price_before, 'price_after', price_after,
+                    'clamped', raw_price < 0) ORDER BY name, id)
+                  FILTER (WHERE NOT is_parent AND price_after <> price_before), '[]'::jsonb)
+    INTO v_eligible, v_skipped, v_rows
+    FROM final;
+
+  v_changed := jsonb_array_length(v_rows);
+  SELECT count(*) INTO v_clamped FROM jsonb_array_elements(v_rows) AS e WHERE (e ->> 'clamped')::boolean;
+  SELECT COALESCE(jsonb_agg(s.x - 'clamped'), '[]'::jsonb) INTO v_sample
+    FROM (SELECT t.x FROM jsonb_array_elements(v_rows) WITH ORDINALITY AS t(x, n) ORDER BY t.n LIMIT 10) s;
+
+  IF NOT p_dry_run AND v_changed > 0 THEN
+    -- UN solo UPDATE atómico por llamada.
+    UPDATE public.products p
+       SET price = (r ->> 'price_after')::numeric
+      FROM jsonb_array_elements(v_rows) AS r
+     WHERE p.id = (r ->> 'id')::uuid
+       AND p.account_id = v_account
+       AND p.price IS DISTINCT FROM (r ->> 'price_after')::numeric;
+
+    INSERT INTO public.audit_logs (account_id, user_id, action, entity_type, entity_id, metadata, created_at)
+    VALUES (
+      v_account, auth.uid(), 'product.bulk_price_adjusted', 'product', NULL,
+      jsonb_build_object(
+        'mode',        p_mode,
+        'direction',   p_direction,
+        'value',       p_value,
+        'changed',     v_changed,
+        'clamped',     v_clamped,
+        'product_ids', (SELECT jsonb_agg(e -> 'id') FROM jsonb_array_elements(v_rows) AS e)),
+      now());
+  END IF;
+
+  RETURN jsonb_build_object(
+    'requested',       v_requested,
+    'eligible',        v_eligible,
+    'changed',         v_changed,
+    'unchanged',       v_eligible - v_changed,
+    'skipped_parents', v_skipped,
+    'clamped',         v_clamped,
+    'sample',          v_sample);
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.rpc_bulk_adjust_prices(uuid[], text, text, numeric, boolean) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.rpc_bulk_adjust_prices(uuid[], text, text, numeric, boolean) TO authenticated;
+
+COMMENT ON FUNCTION public.rpc_bulk_adjust_prices(uuid[], text, text, numeric, boolean) IS
+  $c$productos-padre-variantes (D8): modifica el PRECIO (nunca el costo) de varios productos a la vez. Modo percent (precio por 1 ± valor/100) o amount (precio ± valor, piso 0), redondeado con product_round_price; porcentaje efectivo entre -90 y +1000; 1 a 500 ids (fuera de rango o valor/modo/dirección inválidos: P0400 sin escribir). Cada id se normaliza a su raíz y se expande a la raíz más sus variantes vivas; los padres variant_only se omiten (skipped_parents); ids ajenos o borrados no dan error ni revelan existencia. Una fila cuyo precio no cambia no se escribe. UN solo UPDATE atómico. Sólo dueño o administrador (P0403 insufficient_role). p_dry_run = true devuelve el mismo resultado sin escribir ni auditar (la vista previa); una aplicación con cambios audita product.bulk_price_adjusted.$c$;
+
+-- =============================================================================
+-- 7. Introspección final: la migración ABORTA si algo no quedó como se espera
+-- =============================================================================
+DO $verify$
+DECLARE
+  v_def  text;
+  v_bad  text[] := '{}';
+BEGIN
+  -- Corte del guard.
+  v_def := pg_get_functiondef('public.fn_product_base_unit_guard()'::regprocedure);
+  IF position('products.unit_relabel_root' in v_def) = 0
+     OR position('NEW.parent_id IS NOT DISTINCT FROM OLD.parent_id' in v_def) = 0
+     OR position('NEW.account_id = OLD.account_id' in v_def) = 0 THEN
+    v_bad := v_bad || 'el guard de la unidad base no quedó con el corte atado a la raíz'::text;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = 'public.products'::regclass
+                  AND tgname = 'trg_product_base_unit_guard' AND tgenabled = 'O') THEN
+    v_bad := v_bad || 'falta el disparador trg_product_base_unit_guard'::text;
+  END IF;
+
+  -- CHECK validado y sin padres fuera de forma.
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'public.products'::regclass
+                  AND conname = 'products_variant_only_no_price_cost' AND convalidated) THEN
+    v_bad := v_bad || 'el CHECK products_variant_only_no_price_cost no existe o no está validado'::text;
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.products WHERE stock_control_type = 'variant_only' AND (price IS DISTINCT FROM 0 OR cost IS NOT NULL)) THEN
+    v_bad := v_bad || 'quedan padres variant_only con precio o costo'::text;
+  END IF;
+
+  -- ACLs: sin EXECUTE para anon; authenticated sólo en las dos RPCs; el guard y el importador internos.
+  IF has_function_privilege('anon', 'public.rpc_relabel_product_unit(uuid,uuid,boolean)', 'EXECUTE')
+     OR has_function_privilege('anon', 'public.rpc_bulk_adjust_prices(uuid[],text,text,numeric,boolean)', 'EXECUTE')
+     OR has_function_privilege('anon', 'public.product_round_price(numeric)', 'EXECUTE') THEN
+    v_bad := v_bad || 'anon tiene EXECUTE sobre una función nueva'::text;
+  END IF;
+  IF NOT has_function_privilege('authenticated', 'public.rpc_relabel_product_unit(uuid,uuid,boolean)', 'EXECUTE')
+     OR NOT has_function_privilege('authenticated', 'public.rpc_bulk_adjust_prices(uuid[],text,text,numeric,boolean)', 'EXECUTE') THEN
+    v_bad := v_bad || 'authenticated no tiene EXECUTE sobre las RPCs nuevas'::text;
+  END IF;
+  IF has_function_privilege('authenticated', 'public.fn_product_base_unit_guard()', 'EXECUTE')
+     OR has_function_privilege('authenticated', 'public.rpc_bulk_upsert_products(jsonb,uuid)', 'EXECUTE')
+     OR has_function_privilege('anon', 'public.rpc_bulk_upsert_products(jsonb,uuid)', 'EXECUTE') THEN
+    v_bad := v_bad || 'el guard o el importador quedaron expuestos'::text;
+  END IF;
+
+  -- Una sola firma viva por función.
+  IF (SELECT count(*) FROM pg_proc WHERE pronamespace = 'public'::regnamespace
+       AND proname IN ('rpc_relabel_product_unit', 'rpc_bulk_adjust_prices', 'product_round_price', 'rpc_bulk_upsert_products')) <> 4 THEN
+    v_bad := v_bad || 'alguna de las cuatro funciones tiene un overload vivo'::text;
+  END IF;
+
+  -- La rama Padre del importador fuerza precio y costo.
+  v_def := pg_get_functiondef('public.rpc_bulk_upsert_products(jsonb,uuid)'::regprocedure);
+  IF position('productos-padre-variantes' in v_def) = 0 THEN
+    v_bad := v_bad || 'el importador no quedó con la rama Padre sin precio/costo'::text;
+  END IF;
+
+  IF array_length(v_bad, 1) > 0 THEN
+    RAISE EXCEPTION 'productos-padre-variantes: introspección fallida: %', array_to_string(v_bad, '; ');
+  END IF;
+END
+$verify$;

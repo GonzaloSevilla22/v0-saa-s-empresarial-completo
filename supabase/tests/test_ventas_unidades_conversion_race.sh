@@ -148,21 +148,21 @@ BEGIN
   INSERT INTO public.products (user_id, account_id, name, sku, cost, price, base_unit_id)
   VALUES (v_user, v_account, 'Harina VUCR (b)', 'VUCR-B', 900, 1800, v_kg) RETURNING id INTO v_pb;
   INSERT INTO public.products (user_id, account_id, name, sku, cost, price, base_unit_id, stock_control_type)
-  VALUES (v_user, v_account, 'Queso VUCR (padre kg)', 'VUCR-P', 900, 1800, v_kg, 'variant_only') RETURNING id INTO v_parent;
+  VALUES (v_user, v_account, 'Queso VUCR (padre kg)', 'VUCR-P', NULL, 0, v_kg, 'variant_only') RETURNING id INTO v_parent;
   INSERT INTO public.products (user_id, account_id, name, sku, cost, price, parent_id, is_variant)
   VALUES (v_user, v_account, 'Queso VUCR — horma', 'VUCR-V', 900, 1800, v_parent, true) RETURNING id INTO v_var;
 
   -- (d)/(e) cuarta revisión: re-parent vs cambio de la base del padre nuevo.
   INSERT INTO public.products (user_id, account_id, name, sku, cost, price, base_unit_id, stock_control_type)
-  VALUES (v_user, v_account, 'Salame VUCR P1 (kg)', 'VUCR-P1', 900, 1800, v_kg, 'variant_only') RETURNING id INTO v_p1;
+  VALUES (v_user, v_account, 'Salame VUCR P1 (kg)', 'VUCR-P1', NULL, 0, v_kg, 'variant_only') RETURNING id INTO v_p1;
   INSERT INTO public.products (user_id, account_id, name, sku, cost, price, base_unit_id, stock_control_type)
-  VALUES (v_user, v_account, 'Salame VUCR P2 (kg)', 'VUCR-P2', 900, 1800, v_kg, 'variant_only') RETURNING id INTO v_p2;
+  VALUES (v_user, v_account, 'Salame VUCR P2 (kg)', 'VUCR-P2', NULL, 0, v_kg, 'variant_only') RETURNING id INTO v_p2;
   INSERT INTO public.products (user_id, account_id, name, sku, cost, price, parent_id, is_variant)
   VALUES (v_user, v_account, 'Salame VUCR — picado fino', 'VUCR-V1', 900, 1800, v_p1, true) RETURNING id INTO v_v1;
   INSERT INTO public.products (user_id, account_id, name, sku, cost, price, base_unit_id, stock_control_type)
-  VALUES (v_user, v_account, 'Salame VUCR P3 (kg)', 'VUCR-P3', 900, 1800, v_kg, 'variant_only') RETURNING id INTO v_p3;
+  VALUES (v_user, v_account, 'Salame VUCR P3 (kg)', 'VUCR-P3', NULL, 0, v_kg, 'variant_only') RETURNING id INTO v_p3;
   INSERT INTO public.products (user_id, account_id, name, sku, cost, price, base_unit_id, stock_control_type)
-  VALUES (v_user, v_account, 'Salame VUCR P4 (kg)', 'VUCR-P4', 900, 1800, v_kg, 'variant_only') RETURNING id INTO v_p4;
+  VALUES (v_user, v_account, 'Salame VUCR P4 (kg)', 'VUCR-P4', NULL, 0, v_kg, 'variant_only') RETURNING id INTO v_p4;
   INSERT INTO public.products (user_id, account_id, name, sku, cost, price, parent_id, is_variant)
   VALUES (v_user, v_account, 'Salame VUCR — picado grueso', 'VUCR-V2', 900, 1800, v_p3, true) RETURNING id INTO v_v2;
   PERFORM set_config('request.jwt.claims', json_build_object('sub', v_user::text, 'role', 'authenticated')::text, true);

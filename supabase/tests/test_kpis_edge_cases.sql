@@ -211,7 +211,7 @@ BEGIN
   INSERT INTO public.products (id, user_id, account_id, name, price, cost) VALUES (gen_random_uuid(), v_owner_id, v_account_id, '__gate_cs_p_multi__', 100, 50) RETURNING id INTO v_p_multi;
   INSERT INTO public.products (id, user_id, account_id, name, price, cost) VALUES (gen_random_uuid(), v_owner_id, v_account_id, '__gate_cs_p_zero__', 100, 50) RETURNING id INTO v_p_zero;
   INSERT INTO public.products (id, user_id, account_id, name, price, cost, stock_control_type) VALUES (gen_random_uuid(), v_owner_id, v_account_id, '__gate_cs_p_untrk__', 100, 50, 'untracked') RETURNING id INTO v_p_untrk;
-  INSERT INTO public.products (id, user_id, account_id, name, price, cost, stock_control_type) VALUES (gen_random_uuid(), v_owner_id, v_account_id, '__gate_cs_p_vonly__', 100, 50, 'variant_only') RETURNING id INTO v_p_vonly;
+  INSERT INTO public.products (id, user_id, account_id, name, price, cost, stock_control_type) VALUES (gen_random_uuid(), v_owner_id, v_account_id, '__gate_cs_p_vonly__', 0, NULL, 'variant_only') RETURNING id INTO v_p_vonly;
   INSERT INTO public.products (id, user_id, account_id, name, price, cost, stock_control_type) VALUES (gen_random_uuid(), v_owner_id, v_account_id, '__gate_cs_p_legacy__', 100, 50, 'unit') RETURNING id INTO v_p_legacy;
   INSERT INTO public.products (id, user_id, account_id, name, price, cost) VALUES (gen_random_uuid(), v_owner_id, v_account_id, '__gate_cs_p_nulltyp__', 100, 50) RETURNING id INTO v_p_nulltyp;
   INSERT INTO public.products (id, user_id, account_id, name, price, cost, deleted_at) VALUES (gen_random_uuid(), v_owner_id, v_account_id, '__gate_cs_p_deleted__', 100, 50, now()) RETURNING id INTO v_p_deleted;

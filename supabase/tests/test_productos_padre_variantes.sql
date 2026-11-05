@@ -452,6 +452,236 @@ BEGIN
 END $$;
 
 -- ═══════════════════════════════════════════════════════════════════════════
+-- (E) rpc_bulk_adjust_prices (D8)
+-- ═══════════════════════════════════════════════════════════════════════════
+DO $$
+DECLARE
+  v_a uuid := pg_temp.fx('a');  v_b uuid := pg_temp.fx('b');  v_ow uuid := pg_temp.fx('ow');  v_ob uuid := pg_temp.fx('ob');
+  v_p uuid;  v_v uuid;
+BEGIN
+  -- E1 / E2: productos simples.
+  INSERT INTO public.products (user_id, account_id, name, price, cost) VALUES (v_ow, v_a, 'PPV E1 uno', 1000, 600) RETURNING id INTO v_p;
+  INSERT INTO fx VALUES ('e1_a', v_p);
+  INSERT INTO public.products (user_id, account_id, name, price, cost) VALUES (v_ow, v_a, 'PPV E1 dos', 2345, 1000) RETURNING id INTO v_p;
+  INSERT INTO fx VALUES ('e1_b', v_p);
+  INSERT INTO public.products (user_id, account_id, name, price, cost) VALUES (v_ow, v_a, 'PPV E2 barato', 300, 100) RETURNING id INTO v_p;
+  INSERT INTO fx VALUES ('e2_a', v_p);
+  INSERT INTO public.products (user_id, account_id, name, price, cost) VALUES (v_ow, v_a, 'PPV E2 caro', 1000, 100) RETURNING id INTO v_p;
+  INSERT INTO fx VALUES ('e2_b', v_p);
+  -- E3: padre con dos variantes de 1000.
+  INSERT INTO public.products (user_id, account_id, name, stock_control_type) VALUES (v_ow, v_a, 'PPV E3 padre', 'variant_only') RETURNING id INTO v_p;
+  INSERT INTO fx VALUES ('e3_p', v_p);
+  INSERT INTO public.products (user_id, account_id, name, price, cost, parent_id, is_variant) VALUES (v_ow, v_a, 'PPV E3 v1', 1000, 500, v_p, true) RETURNING id INTO v_v;
+  INSERT INTO fx VALUES ('e3_v1', v_v);
+  INSERT INTO public.products (user_id, account_id, name, price, cost, parent_id, is_variant) VALUES (v_ow, v_a, 'PPV E3 v2', 1000, 500, v_p, true) RETURNING id INTO v_v;
+  INSERT INTO fx VALUES ('e3_v2', v_v);
+  -- E4: otra familia, se selecciona UNA variante suelta.
+  INSERT INTO public.products (user_id, account_id, name, stock_control_type) VALUES (v_ow, v_a, 'PPV E4 padre', 'variant_only') RETURNING id INTO v_p;
+  INSERT INTO fx VALUES ('e4_p', v_p);
+  INSERT INTO public.products (user_id, account_id, name, price, cost, parent_id, is_variant) VALUES (v_ow, v_a, 'PPV E4 v1', 200, 100, v_p, true) RETURNING id INTO v_v;
+  INSERT INTO fx VALUES ('e4_v1', v_v);
+  INSERT INTO public.products (user_id, account_id, name, price, cost, parent_id, is_variant) VALUES (v_ow, v_a, 'PPV E4 v2', 400, 100, v_p, true) RETURNING id INTO v_v;
+  INSERT INTO fx VALUES ('e4_v2', v_v);
+  -- E5: un precio 0 (queda igual), un producto borrado, un producto de la cuenta B.
+  INSERT INTO public.products (user_id, account_id, name, price, cost) VALUES (v_ow, v_a, 'PPV E5 gratis', 0, NULL) RETURNING id INTO v_p;
+  INSERT INTO fx VALUES ('e5_zero', v_p);
+  INSERT INTO public.products (user_id, account_id, name, price, cost, deleted_at) VALUES (v_ow, v_a, 'PPV E5 borrado', 700, 300, now()) RETURNING id INTO v_p;
+  INSERT INTO fx VALUES ('e5_del', v_p);
+  INSERT INTO public.products (user_id, account_id, name, price, cost) VALUES (v_ob, v_b, 'PPV E5 de B', 5000, 2000) RETURNING id INTO v_p;
+  INSERT INTO fx VALUES ('e5_b', v_p);
+  -- E6: 12 productos para la muestra de hasta 10.
+  FOR i IN 1..12 LOOP
+    INSERT INTO public.products (user_id, account_id, name, price, cost) VALUES (v_ow, v_a, format('PPV E6 %s', lpad(i::text, 2, '0')), 100 * i, 50) RETURNING id INTO v_p;
+    INSERT INTO fx VALUES (format('e6_%s', i), v_p);
+  END LOOP;
+END $$;
+
+DO $$
+DECLARE
+  v_a uuid := pg_temp.fx('a');  v_b uuid := pg_temp.fx('b');
+  v_ow uuid := pg_temp.fx('ow');  v_ad uuid := pg_temp.fx('ad');  v_st uuid := pg_temp.fx('st');  v_ca uuid := pg_temp.fx('ca');  v_ob uuid := pg_temp.fx('ob');
+  v_r record;  v_x record;  v_res jsonb;  v_audit integer;  v_meta jsonb;  v_ids text;  v_ghost uuid := gen_random_uuid();
+  v_e6 text;
+BEGIN
+  IF to_regprocedure('public.rpc_bulk_adjust_prices(uuid[],text,text,numeric,boolean)') IS NULL THEN
+    PERFORM pg_temp.chk(false, '(E) falta public.rpc_bulk_adjust_prices(uuid[], text, text, numeric, boolean)');
+    RETURN;
+  END IF;
+
+  -- ── E1: aumento por porcentaje con redondeo; el costo NO cambia ───────────
+  v_ids := format('%L::uuid[]', ARRAY[pg_temp.fx('e1_a'), pg_temp.fx('e1_b')]::text);
+  SELECT count(*) INTO v_audit FROM public.audit_logs WHERE action = 'product.bulk_price_adjusted';
+  SELECT * INTO v_r FROM pg_temp.run_rpc(v_ow, v_a, format('public.rpc_bulk_adjust_prices(%s, ''percent'', ''increase'', 10, false)', v_ids));
+  PERFORM pg_temp.chk(v_r.o_state = '00000', format('(E1) aumento del 10%%: %s %s', v_r.o_state, v_r.o_msg));
+  v_res := v_r.o_res;
+  PERFORM pg_temp.chk((SELECT price FROM public.products WHERE id = pg_temp.fx('e1_a')) = 1100, '(E1) 1000 +10% debía ser 1100');
+  PERFORM pg_temp.chk((SELECT price FROM public.products WHERE id = pg_temp.fx('e1_b')) = 2580, '(E1) 2345 +10% debía ser 2580 (2579,5 redondea hacia afuera)');
+  PERFORM pg_temp.chk((SELECT cost FROM public.products WHERE id = pg_temp.fx('e1_a')) = 600 AND (SELECT cost FROM public.products WHERE id = pg_temp.fx('e1_b')) = 1000,
+    '(E1) el costo no puede cambiar por esta vía');
+  PERFORM pg_temp.chk((v_res->>'requested')::int = 2 AND (v_res->>'eligible')::int = 2 AND (v_res->>'changed')::int = 2
+                      AND (v_res->>'unchanged')::int = 0 AND (v_res->>'skipped_parents')::int = 0 AND (v_res->>'clamped')::int = 0,
+    format('(E1) contadores: %s', v_res));
+  PERFORM pg_temp.chk(jsonb_array_length(v_res->'sample') = 2, format('(E1) muestra: %s', v_res->'sample'));
+  PERFORM pg_temp.chk((SELECT bool_or((e->>'price_before')::numeric = 1000 AND (e->>'price_after')::numeric = 1100 AND e->>'name' = 'PPV E1 uno')
+                         FROM jsonb_array_elements(v_res->'sample') e),
+    format('(E1) la muestra debe traer precio anterior y nuevo: %s', v_res->'sample'));
+  PERFORM pg_temp.chk(v_res->'sample'->0->>'name' < v_res->'sample'->1->>'name', '(E1) la muestra va ordenada por nombre');
+  SELECT metadata INTO v_meta FROM public.audit_logs WHERE action = 'product.bulk_price_adjusted' AND entity_id IS NULL
+     AND (metadata->>'mode') = 'percent' AND (metadata->>'value')::numeric = 10 AND (metadata->>'changed')::int = 2
+   ORDER BY created_at DESC LIMIT 1;
+  PERFORM pg_temp.chk(v_meta IS NOT NULL AND v_meta->>'direction' = 'increase' AND (v_meta->>'clamped')::int = 0 AND jsonb_array_length(v_meta->'product_ids') = 2,
+    format('(E1) auditoría product.bulk_price_adjusted incompleta: %s', v_meta));
+  PERFORM pg_temp.chk((SELECT user_id = v_ow AND account_id = v_a FROM public.audit_logs
+                        WHERE action = 'product.bulk_price_adjusted' AND (metadata->>'mode') = 'percent' AND (metadata->>'value')::numeric = 10 ORDER BY created_at DESC LIMIT 1),
+    '(E1) la auditoría debe llevar el usuario y la cuenta');
+  PERFORM pg_temp.chk((SELECT count(*) FROM public.audit_logs WHERE action = 'product.bulk_price_adjusted') = v_audit + 1, '(E1) una sola fila de auditoría por llamada');
+
+  -- ── E2: baja por importe con piso 0 y clamped ─────────────────────────────
+  v_ids := format('%L::uuid[]', ARRAY[pg_temp.fx('e2_a'), pg_temp.fx('e2_b')]::text);
+  SELECT * INTO v_r FROM pg_temp.run_rpc(v_ad, v_a, format('public.rpc_bulk_adjust_prices(%s, ''amount'', ''decrease'', 500, false)', v_ids));
+  PERFORM pg_temp.chk(v_r.o_state = '00000', format('(E2) baja por importe (administrador): %s %s', v_r.o_state, v_r.o_msg));
+  PERFORM pg_temp.chk((SELECT price FROM public.products WHERE id = pg_temp.fx('e2_a')) = 0 AND (SELECT price FROM public.products WHERE id = pg_temp.fx('e2_b')) = 500,
+    '(E2) 300-500 debía acotarse a 0 y 1000-500 = 500');
+  PERFORM pg_temp.chk((v_r.o_res->>'clamped')::int = 1 AND (v_r.o_res->>'changed')::int = 2, format('(E2) clamped/changed: %s', v_r.o_res));
+  -- el mismo importe sobre lo que ya está en 0: queda igual y NO cuenta como acotado.
+  SELECT * INTO v_r FROM pg_temp.run_rpc(v_ad, v_a, format('public.rpc_bulk_adjust_prices(%L::uuid[], ''amount'', ''decrease'', 500, false)', ARRAY[pg_temp.fx('e2_a')]::text));
+  PERFORM pg_temp.chk((v_r.o_res->>'changed')::int = 0 AND (v_r.o_res->>'unchanged')::int = 1 AND (v_r.o_res->>'clamped')::int = 0,
+    format('(E2) bajar lo que ya vale 0: sin cambio ni acotado; got %s', v_r.o_res));
+  -- aumento por importe fijo
+  SELECT * INTO v_r FROM pg_temp.run_rpc(v_ow, v_a, format('public.rpc_bulk_adjust_prices(%L::uuid[], ''amount'', ''increase'', 49.6, false)', ARRAY[pg_temp.fx('e2_b')]::text));
+  PERFORM pg_temp.chk((SELECT price FROM public.products WHERE id = pg_temp.fx('e2_b')) = 550, format('(E2) 500 + 49,6 redondea a 550; got %s', (SELECT price FROM public.products WHERE id = pg_temp.fx('e2_b'))));
+
+  -- ── E3: un padre seleccionado se expande a sus variantes ──────────────────
+  SELECT * INTO v_r FROM pg_temp.run_rpc(v_ow, v_a, format('public.rpc_bulk_adjust_prices(%L::uuid[], ''percent'', ''increase'', 20, false)', ARRAY[pg_temp.fx('e3_p')]::text));
+  PERFORM pg_temp.chk(v_r.o_state = '00000', format('(E3) %s %s', v_r.o_state, v_r.o_msg));
+  PERFORM pg_temp.chk((SELECT price FROM public.products WHERE id = pg_temp.fx('e3_v1')) = 1200 AND (SELECT price FROM public.products WHERE id = pg_temp.fx('e3_v2')) = 1200,
+    '(E3) las dos variantes debían quedar en 1200');
+  PERFORM pg_temp.chk((SELECT price = 0 AND cost IS NULL FROM public.products WHERE id = pg_temp.fx('e3_p')), '(E3) el padre debe seguir en 0 / sin costo');
+  PERFORM pg_temp.chk((v_r.o_res->>'requested')::int = 1 AND (v_r.o_res->>'eligible')::int = 2 AND (v_r.o_res->>'skipped_parents')::int = 1 AND (v_r.o_res->>'changed')::int = 2,
+    format('(E3) contadores del padre expandido: %s', v_r.o_res));
+
+  -- ── E4: una variante suelta se normaliza a su raíz ────────────────────────
+  SELECT * INTO v_r FROM pg_temp.run_rpc(v_ow, v_a, format('public.rpc_bulk_adjust_prices(%L::uuid[], ''percent'', ''decrease'', 50, false)', ARRAY[pg_temp.fx('e4_v1')]::text));
+  PERFORM pg_temp.chk((SELECT price FROM public.products WHERE id = pg_temp.fx('e4_v1')) = 100 AND (SELECT price FROM public.products WHERE id = pg_temp.fx('e4_v2')) = 200,
+    '(E4) seleccionar UNA variante debía ajustar toda la familia (100 y 200)');
+
+  -- ── E5: sin cambio, borrado, otra cuenta, duplicados ──────────────────────
+  v_ids := format('%L::uuid[]', ARRAY[pg_temp.fx('e5_zero'), pg_temp.fx('e5_del'), pg_temp.fx('e5_b'), v_ghost, pg_temp.fx('e5_zero')]::text);
+  SELECT count(*) INTO v_audit FROM public.audit_logs WHERE action = 'product.bulk_price_adjusted';
+  SELECT * INTO v_r FROM pg_temp.run_rpc(v_ow, v_a, format('public.rpc_bulk_adjust_prices(%s, ''percent'', ''increase'', 10, false)', v_ids));
+  PERFORM pg_temp.chk(v_r.o_state = '00000', format('(E5) ids ajenos/borrados/fantasma no deben dar error; got %s %s', v_r.o_state, v_r.o_msg));
+  PERFORM pg_temp.chk((v_r.o_res->>'requested')::int = 4 AND (v_r.o_res->>'eligible')::int = 1 AND (v_r.o_res->>'changed')::int = 0 AND (v_r.o_res->>'unchanged')::int = 1,
+    format('(E5) requested cuenta ids distintos; eligible sólo lo vivo y propio: %s', v_r.o_res));
+  PERFORM pg_temp.chk((SELECT price FROM public.products WHERE id = pg_temp.fx('e5_b')) = 5000 AND (SELECT price FROM public.products WHERE id = pg_temp.fx('e5_del')) = 700,
+    '(E5) el producto de OTRA cuenta o el borrado cambió de precio');
+  PERFORM pg_temp.chk((SELECT count(*) FROM public.audit_logs WHERE action = 'product.bulk_price_adjusted') = v_audit, '(E5) sin cambios no debe haber auditoría');
+
+  -- ── E6: muestra de hasta 10; dry-run no escribe ni audita ─────────────────
+  SELECT string_agg(quote_literal(pg_temp.fx(format('e6_%s', i))), ',') INTO v_e6 FROM generate_series(1, 12) i;
+  SELECT count(*) INTO v_audit FROM public.audit_logs WHERE action = 'product.bulk_price_adjusted';
+  SELECT * INTO v_r FROM pg_temp.run_rpc(v_ow, v_a, format('public.rpc_bulk_adjust_prices(ARRAY[%s]::uuid[], ''percent'', ''increase'', 10, true)', v_e6));
+  PERFORM pg_temp.chk(v_r.o_state = '00000' AND (v_r.o_res->>'changed')::int = 12 AND jsonb_array_length(v_r.o_res->'sample') = 10,
+    format('(E6) dry-run: 12 cambian y la muestra trae 10; got %s %s', v_r.o_state, v_r.o_res));
+  PERFORM pg_temp.chk((SELECT price FROM public.products WHERE id = pg_temp.fx('e6_1')) = 100 AND (SELECT price FROM public.products WHERE id = pg_temp.fx('e6_12')) = 1200,
+    '(E6) el dry-run escribió precios');
+  PERFORM pg_temp.chk((SELECT count(*) FROM public.audit_logs WHERE action = 'product.bulk_price_adjusted') = v_audit, '(E6) el dry-run escribió auditoría');
+  PERFORM pg_temp.chk((v_r.o_res->'sample'->0->>'price_before')::numeric = 100 AND (v_r.o_res->'sample'->0->>'price_after')::numeric = 110,
+    format('(E6) la muestra va ordenada por nombre: %s', v_r.o_res->'sample'->0));
+  -- la aplicación real devuelve lo mismo que la vista previa
+  SELECT * INTO v_x FROM pg_temp.run_rpc(v_ow, v_a, format('public.rpc_bulk_adjust_prices(ARRAY[%s]::uuid[], ''percent'', ''increase'', 10, false)', v_e6));
+  PERFORM pg_temp.chk(v_x.o_res = v_r.o_res, format('(E6) la vista previa y la aplicación deben devolver el mismo resultado: %s vs %s', v_r.o_res, v_x.o_res));
+  PERFORM pg_temp.chk((SELECT price FROM public.products WHERE id = pg_temp.fx('e6_12')) = 1320, '(E6) la aplicación real no escribió');
+
+  -- ── E7: rangos y validaciones (todas P0400, sin escribir) ─────────────────
+  v_ids := format('%L::uuid[]', ARRAY[pg_temp.fx('e1_a')]::text);
+  FOR v_r IN
+    SELECT label, expr FROM (VALUES
+      ('baja del 95 %',        format('public.rpc_bulk_adjust_prices(%s, ''percent'', ''decrease'', 95, false)', v_ids)),
+      ('aumento del 1.500 %',  format('public.rpc_bulk_adjust_prices(%s, ''percent'', ''increase'', 1500, false)', v_ids)),
+      ('valor 0',              format('public.rpc_bulk_adjust_prices(%s, ''percent'', ''increase'', 0, false)', v_ids)),
+      ('valor negativo',       format('public.rpc_bulk_adjust_prices(%s, ''amount'', ''increase'', -5, false)', v_ids)),
+      ('valor nulo',           format('public.rpc_bulk_adjust_prices(%s, ''amount'', ''increase'', NULL, false)', v_ids)),
+      ('modo inválido',        format('public.rpc_bulk_adjust_prices(%s, ''fixed'', ''increase'', 5, false)', v_ids)),
+      ('dirección inválida',   format('public.rpc_bulk_adjust_prices(%s, ''percent'', ''up'', 5, false)', v_ids)),
+      ('lista vacía',          'public.rpc_bulk_adjust_prices(ARRAY[]::uuid[], ''percent'', ''increase'', 5, false)'),
+      ('lista nula',           'public.rpc_bulk_adjust_prices(NULL::uuid[], ''percent'', ''increase'', 5, false)'),
+      ('501 ids',              'public.rpc_bulk_adjust_prices(ARRAY(SELECT gen_random_uuid() FROM generate_series(1, 501)), ''percent'', ''increase'', 5, false)')
+    ) t(label, expr)
+  LOOP
+    SELECT * INTO v_x FROM pg_temp.run_rpc(v_ow, v_a, v_r.expr);
+    PERFORM pg_temp.chk(v_x.o_state = 'P0400', format('(E7) %s: esperado P0400; got %s %s', v_r.label, v_x.o_state, v_x.o_msg));
+  END LOOP;
+  PERFORM pg_temp.chk((SELECT price FROM public.products WHERE id = pg_temp.fx('e1_a')) = 1100, '(E7) una validación fallida escribió');
+  -- los bordes SÍ se aceptan: baja del 90 %, aumento del 1.000 %, exactamente 500 ids (en dry-run)
+  SELECT * INTO v_x FROM pg_temp.run_rpc(v_ow, v_a, format('public.rpc_bulk_adjust_prices(%s, ''percent'', ''decrease'', 90, true)', v_ids));
+  PERFORM pg_temp.chk(v_x.o_state = '00000', format('(E7) baja del 90%% debía aceptarse; got %s %s', v_x.o_state, v_x.o_msg));
+  SELECT * INTO v_x FROM pg_temp.run_rpc(v_ow, v_a, format('public.rpc_bulk_adjust_prices(%s, ''percent'', ''increase'', 1000, true)', v_ids));
+  PERFORM pg_temp.chk(v_x.o_state = '00000', format('(E7) aumento del 1000%% debía aceptarse; got %s %s', v_x.o_state, v_x.o_msg));
+  SELECT * INTO v_x FROM pg_temp.run_rpc(v_ow, v_a, 'public.rpc_bulk_adjust_prices(ARRAY(SELECT gen_random_uuid() FROM generate_series(1, 500)), ''percent'', ''increase'', 5, true)');
+  PERFORM pg_temp.chk(v_x.o_state = '00000' AND (v_x.o_res->>'eligible')::int = 0, format('(E7) 500 ids debía aceptarse; got %s %s', v_x.o_state, v_x.o_msg));
+
+  -- ── E8: roles ─────────────────────────────────────────────────────────────
+  v_ids := format('%L::uuid[]', ARRAY[pg_temp.fx('e1_a')]::text);
+  SELECT * INTO v_x FROM pg_temp.run_rpc(v_st, v_a, format('public.rpc_bulk_adjust_prices(%s, ''percent'', ''increase'', 10, false)', v_ids));
+  PERFORM pg_temp.chk(v_x.o_state = 'P0403' AND v_x.o_msg LIKE 'insufficient_role%', format('(E8) depósito: esperado P0403 insufficient_role; got %s %s', v_x.o_state, v_x.o_msg));
+  SELECT * INTO v_x FROM pg_temp.run_rpc(v_ca, v_a, format('public.rpc_bulk_adjust_prices(%s, ''percent'', ''increase'', 10, true)', v_ids));
+  PERFORM pg_temp.chk(v_x.o_state = 'P0403', format('(E8) cajero (también en dry-run): esperado P0403; got %s', v_x.o_state));
+  PERFORM pg_temp.chk((SELECT price FROM public.products WHERE id = pg_temp.fx('e1_a')) = 1100, '(E8) un rechazo por rol escribió');
+  -- el dueño de OTRA cuenta no toca los productos de A: ids ajenos = sin efecto ni error.
+  SELECT * INTO v_x FROM pg_temp.run_rpc(v_ob, v_b, format('public.rpc_bulk_adjust_prices(%s, ''percent'', ''increase'', 10, false)', v_ids));
+  PERFORM pg_temp.chk(v_x.o_state = '00000' AND (v_x.o_res->>'eligible')::int = 0 AND (v_x.o_res->>'changed')::int = 0, format('(E8) otra cuenta: sin efecto ni error; got %s %s', v_x.o_state, v_x.o_res));
+  PERFORM pg_temp.chk((SELECT price FROM public.products WHERE id = pg_temp.fx('e1_a')) = 1100, '(E8) la otra cuenta cambió el precio de A');
+
+  -- ── E9: ACL ───────────────────────────────────────────────────────────────
+  PERFORM pg_temp.chk(NOT has_function_privilege('anon', 'public.rpc_bulk_adjust_prices(uuid[],text,text,numeric,boolean)', 'EXECUTE'), '(E9) anon tiene EXECUTE sobre rpc_bulk_adjust_prices');
+  PERFORM pg_temp.chk(has_function_privilege('authenticated', 'public.rpc_bulk_adjust_prices(uuid[],text,text,numeric,boolean)', 'EXECUTE'), '(E9) authenticated no tiene EXECUTE sobre rpc_bulk_adjust_prices');
+  PERFORM pg_temp.chk((SELECT count(*) FROM pg_proc WHERE proname = 'rpc_bulk_adjust_prices') = 1, '(E9) rpc_bulk_adjust_prices debe tener UNA sola firma');
+  PERFORM pg_temp.chk(NOT has_function_privilege('anon', 'public.product_round_price(numeric)', 'EXECUTE'), '(E9) anon tiene EXECUTE sobre product_round_price');
+END $$;
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- (F) Introspección: cuerpo vivo del guard, funciones nuevas, ACLs, COMMENT
+-- ═══════════════════════════════════════════════════════════════════════════
+DO $$
+DECLARE
+  v_def text;  v_fn text;  v_n integer;
+BEGIN
+  v_def := pg_get_functiondef('public.fn_product_base_unit_guard()'::regprocedure);
+  PERFORM pg_temp.chk(position('products.unit_relabel_root' in v_def) > 0, '(F) el guard no contiene el corte del GUC products.unit_relabel_root');
+  PERFORM pg_temp.chk(position('NEW.parent_id IS NOT DISTINCT FROM OLD.parent_id' in v_def) > 0
+                      AND position('NEW.account_id = OLD.account_id' in v_def) > 0,
+    '(F) el corte del guard debe exigir mismo padre y misma cuenta');
+  -- el corte va DESPUÉS del chequeo de tenencia de la unidad y ANTES de los chequeos de stock
+  PERFORM pg_temp.chk(position('base_unit_not_found' in v_def) < position('products.unit_relabel_root' in v_def)
+                      AND position('products.unit_relabel_root' in v_def) < position('base_unit_locked' in v_def),
+    '(F) el corte debe ir después de la tenencia (P0404) y antes del P0409');
+  PERFORM pg_temp.chk(position('delivery_note_items' in v_def) > 0 AND position('ventas_uom.deleted_parent_base' in v_def) > 0,
+    '(F) el guard perdió partes del cuerpo previo (remitos / DELETE del padre)');
+  PERFORM pg_temp.chk((SELECT count(*) FROM pg_trigger WHERE tgfoid = 'public.fn_product_base_unit_guard()'::regprocedure AND tgname = 'trg_product_base_unit_guard' AND tgenabled = 'O') = 1,
+    '(F) falta el disparador trg_product_base_unit_guard habilitado');
+  PERFORM pg_temp.chk(NOT has_function_privilege('authenticated', 'public.fn_product_base_unit_guard()', 'EXECUTE')
+                      AND NOT has_function_privilege('anon', 'public.fn_product_base_unit_guard()', 'EXECUTE'),
+    '(F) el guard no debe tener EXECUTE para authenticated ni anon');
+  PERFORM pg_temp.chk((SELECT obj_description('public.fn_product_base_unit_guard()'::regprocedure, 'pg_proc') IS NOT NULL), '(F) el guard perdió su COMMENT');
+
+  FOREACH v_fn IN ARRAY ARRAY['rpc_relabel_product_unit', 'rpc_bulk_adjust_prices', 'product_round_price'] LOOP
+    SELECT count(*) INTO v_n FROM pg_proc WHERE proname = v_fn AND pronamespace = 'public'::regnamespace;
+    PERFORM pg_temp.chk(v_n = 1, format('(F) %s tiene %s firmas vivas (esperado 1)', v_fn, v_n));
+    PERFORM pg_temp.chk((SELECT obj_description(p.oid, 'pg_proc') IS NOT NULL FROM pg_proc p WHERE p.proname = v_fn AND p.pronamespace = 'public'::regnamespace),
+      format('(F) %s no tiene COMMENT', v_fn));
+  END LOOP;
+  PERFORM pg_temp.chk((SELECT prosecdef FROM pg_proc WHERE proname = 'rpc_relabel_product_unit') AND (SELECT prosecdef FROM pg_proc WHERE proname = 'rpc_bulk_adjust_prices'),
+    '(F) las dos RPCs deben ser SECURITY DEFINER');
+  PERFORM pg_temp.chk((SELECT proconfig::text LIKE '%search_path=public%' FROM pg_proc WHERE proname = 'rpc_relabel_product_unit')
+                      AND (SELECT proconfig::text LIKE '%search_path=public%' FROM pg_proc WHERE proname = 'rpc_bulk_adjust_prices'),
+    '(F) las dos RPCs deben fijar search_path = public');
+  -- el cuerpo del relabel toma la raíz y luego las variantes POR ORDEN DE ID, con el filtro de cuenta
+  v_def := (SELECT prosrc FROM pg_proc WHERE proname = 'rpc_relabel_product_unit');
+  PERFORM pg_temp.chk(position('ORDER BY v.id' in v_def) > 0 AND position('FOR UPDATE' in v_def) > 0, '(F) el relabel debe bloquear las variantes por orden de id');
+  PERFORM pg_temp.chk(position('set_config(''products.unit_relabel_root'', '''', true)' in v_def) > 0, '(F) el relabel debe volver a vaciar el GUC');
+END $$;
+
+-- ═══════════════════════════════════════════════════════════════════════════
 -- (G) rpc_bulk_upsert_products: la rama Padre nunca deja precio/costo (D3, 1.3)
 -- ═══════════════════════════════════════════════════════════════════════════
 DO $$

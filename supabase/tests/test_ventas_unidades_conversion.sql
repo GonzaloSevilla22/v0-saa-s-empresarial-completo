@@ -242,7 +242,7 @@ BEGIN
   -- base (hereda la del padre), y una unidad "ajena" (account_id NULL, no
   -- del sistema) para el guard de tenencia del helper.
   INSERT INTO public.products (user_id, account_id, name, sku, cost, price, base_unit_id, stock_control_type)
-  VALUES (v_user_a, v_account_a, 'Queso VUC (padre kg)', 'VUC-PARENT', 800.00, 1500.00, v_u_kg, 'variant_only') RETURNING id INTO v_p_parent;
+  VALUES (v_user_a, v_account_a, 'Queso VUC (padre kg)', 'VUC-PARENT', NULL, 0, v_u_kg, 'variant_only') RETURNING id INTO v_p_parent;
   INSERT INTO public.products (user_id, account_id, name, sku, cost, price, parent_id, is_variant)
   VALUES (v_user_a, v_account_a, 'Queso VUC — horma chica', 'VUC-VAR', 800.00, 1500.00, v_p_parent, true) RETURNING id INTO v_p_var;
   INSERT INTO public.units_of_measure (account_id, name, symbol, type, factor, base_unit_id, is_system)
@@ -1168,7 +1168,7 @@ BEGIN
 
   -- K.2 (A.17) la base PROPIA de una variante gana sobre la del padre (hay 2 en prod).
   INSERT INTO public.products (user_id, account_id, name, sku, cost, price, base_unit_id, stock_control_type)
-  VALUES (v_user_a, v_account_a, 'Huevos VUC (padre kg)', 'VUC-PARENT2', 1.00, 2.00, v_u_kg, 'variant_only') RETURNING id INTO v_p_parent2;
+  VALUES (v_user_a, v_account_a, 'Huevos VUC (padre kg)', 'VUC-PARENT2', NULL, 0, v_u_kg, 'variant_only') RETURNING id INTO v_p_parent2;
   INSERT INTO public.products (user_id, account_id, name, sku, cost, price, parent_id, is_variant, base_unit_id)
   VALUES (v_user_a, v_account_a, 'Huevos VUC — por unidad', 'VUC-VAR-U', 50.00, 100.00, v_p_parent2, true, v_u_u) RETURNING id INTO v_p_var_u;
   BEGIN
@@ -1285,11 +1285,11 @@ BEGIN
   -- sobre products.parent_id: re-parentar 5 kg a un padre en 'u' los dejaba
   -- leyéndose 5 u (reproducido por PostgREST). El trigger mira parent_id.
   INSERT INTO public.products (user_id, account_id, name, sku, cost, price, base_unit_id, stock_control_type)
-  VALUES (v_user_a, v_account_a, 'Queso VUC RP (padre kg)', 'VUC-RP-K', 1.00, 2.00, v_u_kg, 'variant_only') RETURNING id INTO v_p_rp_k;
+  VALUES (v_user_a, v_account_a, 'Queso VUC RP (padre kg)', 'VUC-RP-K', NULL, 0, v_u_kg, 'variant_only') RETURNING id INTO v_p_rp_k;
   INSERT INTO public.products (user_id, account_id, name, sku, cost, price, base_unit_id, stock_control_type)
-  VALUES (v_user_a, v_account_a, 'Queso VUC RP (otro padre kg)', 'VUC-RP-K2', 1.00, 2.00, v_u_kg, 'variant_only') RETURNING id INTO v_p_rp_k2;
+  VALUES (v_user_a, v_account_a, 'Queso VUC RP (otro padre kg)', 'VUC-RP-K2', NULL, 0, v_u_kg, 'variant_only') RETURNING id INTO v_p_rp_k2;
   INSERT INTO public.products (user_id, account_id, name, sku, cost, price, base_unit_id, stock_control_type)
-  VALUES (v_user_a, v_account_a, 'Huevo VUC RP (padre u)', 'VUC-RP-U', 1.00, 2.00, v_u_u, 'variant_only') RETURNING id INTO v_p_rp_u;
+  VALUES (v_user_a, v_account_a, 'Huevo VUC RP (padre u)', 'VUC-RP-U', NULL, 0, v_u_u, 'variant_only') RETURNING id INTO v_p_rp_u;
   INSERT INTO public.products (user_id, account_id, name, sku, cost, price, parent_id, is_variant)
   VALUES (v_user_a, v_account_a, 'Queso VUC RP — horma', 'VUC-RP-V', 1.00, 2.00, v_p_rp_k, true) RETURNING id INTO v_p_rp_v;
   PERFORM public.rpc_adjust_branch_stock(v_p_rp_v, v_branch_a, 5, 'seed gate VUC L.8');
@@ -1408,7 +1408,7 @@ BEGIN
   -- L.18 grupo: un PADRE sin base cuya variante (que hereda) tiene stock e historia
   --      en 'u' → asignarle 'kg' al padre → P0409 (la variante pasaría a heredar kg).
   INSERT INTO public.products (user_id, account_id, name, sku, cost, price, stock_control_type)
-  VALUES (v_user_a, v_account_a, 'Remera VUC AS (padre sin base)', 'VUC-ASP', 1.00, 2.00, 'variant_only') RETURNING id INTO v_p_asp;
+  VALUES (v_user_a, v_account_a, 'Remera VUC AS (padre sin base)', 'VUC-ASP', NULL, 0, 'variant_only') RETURNING id INTO v_p_asp;
   INSERT INTO public.products (user_id, account_id, name, sku, cost, price, parent_id, is_variant)
   VALUES (v_user_a, v_account_a, 'Remera VUC AS — talle M', 'VUC-ASV', 1.00, 2.00, v_p_asp, true) RETURNING id INTO v_p_asv;
   PERFORM public.rpc_adjust_branch_stock(v_p_asv, v_branch_a, 5, 'seed gate VUC L.18');
@@ -1429,7 +1429,7 @@ BEGIN
   -- L.20 re-parentar una variante sin unidad efectiva (historia en 'u', stock) a un
   --      padre en kg también es ASIGNAR → P0409.
   INSERT INTO public.products (user_id, account_id, name, sku, cost, price, stock_control_type)
-  VALUES (v_user_a, v_account_a, 'Remera VUC AS2 (padre sin base)', 'VUC-ASP2', 1.00, 2.00, 'variant_only') RETURNING id INTO v_p_asp2;
+  VALUES (v_user_a, v_account_a, 'Remera VUC AS2 (padre sin base)', 'VUC-ASP2', NULL, 0, 'variant_only') RETURNING id INTO v_p_asp2;
   INSERT INTO public.products (user_id, account_id, name, sku, cost, price, parent_id, is_variant)
   VALUES (v_user_a, v_account_a, 'Remera VUC AS2 — talle L', 'VUC-ASV2', 1.00, 2.00, v_p_asp2, true) RETURNING id INTO v_p_asv2;
   PERFORM public.rpc_adjust_branch_stock(v_p_asv2, v_branch_a, 5, 'seed gate VUC L.20');
@@ -1448,7 +1448,7 @@ BEGIN
   --      el padre. (redteam-3b/10-reparent-via-delete: el trigger no veía al
   --      padre ya borrado y lo tomaba como "sin unidad antes".)
   INSERT INTO public.products (user_id, account_id, name, sku, cost, price, base_unit_id, stock_control_type)
-  VALUES (v_user_a, v_account_a, 'Queso VUC DP (padre kg)', 'VUC-DP', 1.00, 2.00, v_u_kg, 'variant_only') RETURNING id INTO v_p_dp;
+  VALUES (v_user_a, v_account_a, 'Queso VUC DP (padre kg)', 'VUC-DP', NULL, 0, v_u_kg, 'variant_only') RETURNING id INTO v_p_dp;
   INSERT INTO public.products (user_id, account_id, name, sku, cost, price, parent_id, is_variant)
   VALUES (v_user_a, v_account_a, 'Queso VUC DP — horma', 'VUC-DV', 1.00, 2.00, v_p_dp, true) RETURNING id INTO v_p_dv;
   PERFORM public.rpc_adjust_branch_stock(v_p_dv, v_branch_a, 5, 'seed gate VUC L.21');
@@ -1478,7 +1478,7 @@ BEGIN
   END;
   -- L.23 borrar un padre SIN unidad base: la variante que queda no pierde nada → se permite.
   INSERT INTO public.products (user_id, account_id, name, sku, cost, price, stock_control_type)
-  VALUES (v_user_a, v_account_a, 'Remera VUC DP3 (padre sin base)', 'VUC-DP3', 1.00, 2.00, 'variant_only') RETURNING id INTO v_p_dp3;
+  VALUES (v_user_a, v_account_a, 'Remera VUC DP3 (padre sin base)', 'VUC-DP3', NULL, 0, 'variant_only') RETURNING id INTO v_p_dp3;
   INSERT INTO public.products (user_id, account_id, name, sku, cost, price, parent_id, is_variant)
   VALUES (v_user_a, v_account_a, 'Remera VUC DP3 — talle S', 'VUC-DV3', 1.00, 2.00, v_p_dp3, true) RETURNING id INTO v_p_dv3;
   PERFORM public.rpc_adjust_branch_stock(v_p_dv3, v_branch_a, 5, 'seed gate VUC L.23');

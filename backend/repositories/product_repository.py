@@ -314,6 +314,34 @@ class ProductRepository(BaseRepository):
         status = await self.execute(_BULK_SET_CATEGORY_SQL, product_ids, account_id, category_id)
         return int(status.rsplit(" ", 1)[-1])
 
+    # ── productos-padre-variantes ────────────────────────────────────────────
+
+    async def relabel_unit(self, product_id: str, new_unit_id: str, dry_run: bool) -> dict:
+        """`rpc_relabel_product_unit` — un solo `fetchrow` (D7). La RPC resuelve la cuenta, el rol y
+        la tenencia desde la sesión (JWT-passthrough); acá no viaja `account_id`."""
+        row = await self.fetchrow(
+            "SELECT public.rpc_relabel_product_unit($1::uuid, $2::uuid, $3::boolean) AS result",
+            product_id,
+            new_unit_id,
+            dry_run,
+        )
+        return _jsonb(row["result"]) if row is not None else {}
+
+    async def bulk_adjust_prices(
+        self, product_ids: list[str], mode: str, direction: str, value: Decimal, dry_run: bool
+    ) -> dict:
+        """`rpc_bulk_adjust_prices` — vista previa y aplicación por la MISMA función (D8/D10)."""
+        row = await self.fetchrow(
+            "SELECT public.rpc_bulk_adjust_prices("
+            "$1::uuid[], $2::text, $3::text, $4::numeric, $5::boolean) AS result",
+            product_ids,
+            mode,
+            direction,
+            value,
+            dry_run,
+        )
+        return _jsonb(row["result"]) if row is not None else {}
+
     # ── importador-productos-fastapi ─────────────────────────────────────────
 
     async def import_batch(

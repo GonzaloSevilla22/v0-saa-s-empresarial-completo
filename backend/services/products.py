@@ -6,9 +6,9 @@ from collections.abc import Mapping
 from decimal import Decimal
 from fastapi import HTTPException
 
-from backend.core.errors import ProblemHTTPException
-from backend.core.guards import require_account_role, require_role
-from backend.core.rbac import CAN_STOCK
+from backend.core.errors import ProblemHTTPException, problem_from_pg_error
+from backend.core.guards import require_account_capability, require_account_role, require_role
+from backend.core.rbac import CAN_CONFIGURE, CAN_STOCK
 from backend.repositories.plan_limits_repository import PlanLimitsRepository
 from backend.repositories.product_category_repository import ProductCategoryRepository
 from backend.repositories.product_repository import ProductRepository
@@ -580,6 +580,60 @@ async def bulk_set_category(
         raise HTTPException(status_code=404, detail="Categoría no encontrada o inactiva")
     updated = await repo.bulk_set_category(unique_ids, account_id, category_id)
     return {"requested": len(unique_ids), "updated": updated}
+
+
+# ── productos-padre-variantes: corrección de unidad de una familia y precios en lote ──
+
+
+async def relabel_product_unit(
+    repo: ProductRepository,
+    auth: dict,
+    conn,
+    product_id: str,
+    base_unit_id: str,
+    dry_run: bool,
+) -> dict:
+    """D7: CERO reglas de dominio acá — la RPC resuelve cuenta, rol, tenencia, conflicto y auditoría.
+    `require_role` es el guard de PLATAFORMA; `require_account_capability(CAN_CONFIGURE)` repite el rol de
+    la cuenta ANTES de llamar la RPC (defensa en profundidad: la base es la autoridad, y es sensible).
+    Los errores de negocio de la RPC salen como RFC 7807 con el literal estable de su mensaje
+    (`unit_relabel_conflict` 409, `product_not_found` / `base_unit_not_found` 404, `insufficient_role` 403)."""
+    require_role(auth, ["user", "admin"])
+    await require_account_capability(conn, auth, CAN_CONFIGURE)
+    try:
+        return await repo.relabel_unit(product_id, base_unit_id, dry_run)
+    except asyncpg.PostgresError as exc:
+        problem = problem_from_pg_error(exc)
+        if problem is None:
+            raise
+        raise problem from exc
+
+
+async def bulk_adjust_prices(
+    repo: ProductRepository,
+    auth: dict,
+    conn,
+    product_ids: list[str],
+    mode: str,
+    direction: str,
+    value: Decimal,
+    dry_run: bool,
+) -> dict:
+    """D10: la misma llamada da la vista previa (`dry_run`) y la aplicación. Los ids ajenos o borrados
+    no producen error (la RPC los filtra por cuenta). Un P0400 de la RPC (la base repite la validación de
+    Pydantic) sale como 422, igual que un payload inválido."""
+    require_role(auth, ["user", "admin"])
+    await require_account_capability(conn, auth, CAN_CONFIGURE)
+    unique_ids = list(dict.fromkeys(product_ids))
+    try:
+        return await repo.bulk_adjust_prices(unique_ids, mode, direction, value, dry_run)
+    except asyncpg.PostgresError as exc:
+        problem = problem_from_pg_error(exc)
+        if problem is None:
+            raise
+        if problem.status_code == 400:
+            problem.status_code = 422
+        raise problem from exc
 
 
 # ── importador-productos-fastapi ────────────────────────────────────────────

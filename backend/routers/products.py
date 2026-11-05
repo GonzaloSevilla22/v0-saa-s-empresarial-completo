@@ -16,10 +16,14 @@ from backend.repositories.product_repository import ProductRepository
 from backend.schemas.products import (
     ProductBulkCategoryIn,
     ProductBulkCategoryOut,
+    ProductBulkPriceIn,
+    ProductBulkPriceOut,
     ProductCreate,
     ProductImportIn,
     ProductImportOut,
     ProductOut,
+    ProductUnitRelabelIn,
+    ProductUnitRelabelOut,
     ProductUpdate,
 )
 from backend.services import products as product_service
@@ -65,6 +69,24 @@ async def bulk_set_category(
         [str(pid) for pid in payload.product_ids],
         str(payload.category_id),
         category_repo,
+    )
+
+
+# productos-padre-variantes (D10): declarado ANTES de las rutas /{product_id} para que "bulk-price"
+# nunca se lea como un id (mismo cuidado que `bulk-category`).
+@router.patch("/bulk-price", response_model=ProductBulkPriceOut)
+async def bulk_adjust_prices(
+    payload: ProductBulkPriceIn,
+    auth: dict = Depends(get_current_user),
+    repo: ProductRepository = Depends(get_repo),
+    conn: asyncpg.Connection = Depends(get_db_conn),
+):
+    """Modificar precios en lote (sólo el PRECIO). `dry_run = true` devuelve la vista previa del servidor
+    sin escribir; el cliente trocea en bloques de hasta 500 ids. Sólo dueño o administrador."""
+    return await product_service.bulk_adjust_prices(
+        repo, auth, conn,
+        [str(pid) for pid in payload.product_ids],
+        payload.mode, payload.direction, payload.value, payload.dry_run,
     )
 
 
@@ -171,6 +193,21 @@ async def update_product(
         # balanza-etiquetas-pos (D2): mismo tri-estado para el código de balanza.
         scale_plu_provided="scale_plu" in payload.model_fields_set,
         category_repo=category_repo,
+    )
+
+
+@router.post("/{product_id}/relabel-unit", response_model=ProductUnitRelabelOut)
+async def relabel_product_unit(
+    product_id: str,
+    payload: ProductUnitRelabelIn,
+    auth: dict = Depends(get_current_user),
+    repo: ProductRepository = Depends(get_repo),
+    conn: asyncpg.Connection = Depends(get_db_conn),
+):
+    """Corregir la unidad de una familia SIN convertir cantidades (cambio de rótulo). `dry_run = true`
+    devuelve el impacto (variantes, stock, movimientos, conflicto) sin escribir. Sólo dueño o administrador."""
+    return await product_service.relabel_product_unit(
+        repo, auth, conn, product_id, str(payload.base_unit_id), payload.dry_run,
     )
 
 

@@ -100,3 +100,4 @@ Se completa a medida que se mergea cada PR. Orden pactado: changes de a uno, sie
 | 07:05 (5-nov) | Archive v31-ia-ratelimit-budget (specs sincronizadas, change cerrado) | #665 | en revisión |
 | 07:17 (5-nov) | Propose v31-money-integration-tests (H-34: tier de integración real contra Postgres en CI; todas las OQs por la recomendada) | #666 | en revisión |
 | 08:20 UTC (5-nov) | Apply v31-money-integration-tests (tier de integración real contra Postgres en KPI_Validation + 33 gates de dinero estrictos; sin migración) | #667 | mergeado 08:41 |
+| 08:52 UTC (5-nov) | Archive v31-money-integration-tests (spec integration-test-tier sincronizada, change cerrado) | #PRN | en revisión |

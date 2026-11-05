@@ -2,23 +2,31 @@ import { createClient } from 'jsr:@supabase/supabase-js@2'
 import {
   parseInvoiceOcrRequest,
   resolveInvoiceDownload,
+  checkInvoiceImageBudget,
+  resolveOcrModel,
+  encodeBase64Chunked,
+  OCR_MAX_OUTPUT_TOKENS,
+  OCR_IMAGE_DETAIL,
+  OCR_TIMEOUT_MS,
   type InvoiceOcrRequestBody,
 } from '../_shared/invoice-ocr-core.ts'
+import { reserveAiUsage, type AiQuotaClient } from '../_shared/ai-quota.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
-// Model selection: override with INVOICE_AI_MODEL env var.
-// gpt-4o-mini (default): vision support since Aug 2024, ~10x cheaper than gpt-4o.
-// gpt-4o: better accuracy on low-quality / handwritten invoices.
-const AI_MODEL     = Deno.env.get('INVOICE_AI_MODEL') ?? 'gpt-4o-mini'
-const AI_TIMEOUT_MS = 55_000
+// Model selection: override with INVOICE_AI_MODEL env var, constrained to the
+// allow-list of the pure core (v31-ia-ratelimit-budget D4): gpt-4o-mini (default,
+// ~10x cheaper than gpt-4o) or gpt-4o (better on low-quality / handwritten
+// invoices). Any other value falls back to the default and is logged below.
+const { model: AI_MODEL, warning: AI_MODEL_WARNING } = resolveOcrModel(Deno.env.get('INVOICE_AI_MODEL'))
+if (AI_MODEL_WARNING) console.warn('[invoice-ocr]', AI_MODEL_WARNING)
 
-function jsonResponse(body: unknown, status = 200) {
+function jsonResponse(body: unknown, status = 200, extraHeaders: Record<string, string> = {}) {
   return new Response(JSON.stringify(body), {
-    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    headers: { ...corsHeaders, ...extraHeaders, 'Content-Type': 'application/json' },
     status,
   })
 }
@@ -120,7 +128,7 @@ Deno.serve(async (req) => {
     // Verify document belongs to this user
     const { data: doc, error: docErr } = await supabase
       .from('invoice_documents')
-      .select('id, mime_type, status, storage_path')
+      .select('id, mime_type, status, storage_path, updated_at')
       .eq('id', document_id)
       .eq('user_id', user.id)
       .single()
@@ -133,11 +141,8 @@ Deno.serve(async (req) => {
       return jsonResponse({ ok: false, error: download.error }, download.status)
     }
 
-    // Mark as processing
-    await supabase
-      .from('invoice_documents')
-      .update({ status: 'processing' })
-      .eq('id', document_id)
+    // v31-ia-ratelimit-budget (D5): la fila se marca `processing` DESPUÉS de reservar el
+    // cupo, para que un 429/503 no la deje "en proceso".
 
     // ── Download file from storage ──────────────────────────────────────────────
     // El path viene de la fila autorizada por user_id, nunca del body: el
@@ -158,10 +163,9 @@ Deno.serve(async (req) => {
       return jsonResponse({ ok: false, error: 'No se pudo descargar el archivo' }, 500)
     }
 
-    // ── Convert to base64 ───────────────────────────────────────────────────────
+    // ── Bytes y MIME (rechazos baratos, antes de reservar cupo) ─────────────────
     const arrayBuffer = await fileData.arrayBuffer()
     const uint8Array  = new Uint8Array(arrayBuffer)
-    const base64      = btoa(String.fromCharCode(...uint8Array))
     const mimeType    = download.mimeType
 
     if (!mimeType.startsWith('image/')) {
@@ -176,14 +180,44 @@ Deno.serve(async (req) => {
       }, 422)
     }
 
-    // ── Call GPT-4o Vision ──────────────────────────────────────────────────────
+    // Techo de bytes sobre lo DESCARGADO (no sobre file_size_bytes, que declara el cliente).
+    const budget = checkInvoiceImageBudget(uint8Array.length)
+    if (!budget.ok) {
+      await supabase.from('invoice_documents').update({
+        status: 'failed',
+        error_message: budget.error,
+        processing_ms: Date.now() - startMs,
+      }).eq('id', document_id)
+      return jsonResponse({ ok: false, error: budget.error }, budget.status)
+    }
+
     const openAiKey = Deno.env.get('OPENAI_API_KEY')
     if (!openAiKey) return jsonResponse({ ok: false, error: 'OpenAI no configurado' }, 500)
 
-    console.log('[invoice-ocr] Calling GPT-4o vision, image size:', uint8Array.length, 'bytes')
+    // ── Reserva atómica del cupo (cuota mensual + ráfaga), justo antes de OpenAI ─
+    // Cliente del USUARIO (la RPC resuelve auth.uid()), nunca el de service role. Fail-closed:
+    // si la reserva no se puede resolver no se llama a OpenAI. Denegada o no disponible: la fila
+    // NO se toca (sigue pending y se puede reintentar). Una reserva concedida no se devuelve
+    // aunque OpenAI falle (OQ-2: OpenAI factura igual).
+    const reservation = await reserveAiUsage(supabase as unknown as AiQuotaClient, 'ocr')
+    if (reservation.kind !== 'allowed') {
+      const retryHeader: Record<string, string> = reservation.kind === 'denied' && reservation.retryAfterSeconds !== undefined
+        ? { 'Retry-After': String(reservation.retryAfterSeconds) }
+        : {}
+      return jsonResponse(reservation.body, reservation.status, retryHeader)
+    }
+
+    await supabase
+      .from('invoice_documents')
+      .update({ status: 'processing' })
+      .eq('id', document_id)
+
+    // ── Call OpenAI vision ──────────────────────────────────────────────────────
+    const base64 = encodeBase64Chunked(uint8Array)
+    console.log('[invoice-ocr] Calling OpenAI vision, model:', AI_MODEL, 'image size:', uint8Array.length, 'bytes')
 
     const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), AI_TIMEOUT_MS)
+    const timer = setTimeout(() => controller.abort(), OCR_TIMEOUT_MS)
 
     let aiResponse: Response
     try {
@@ -205,7 +239,7 @@ Deno.serve(async (req) => {
                   type: 'image_url',
                   image_url: {
                     url: `data:${mimeType};base64,${base64}`,
-                    detail: 'high',
+                    detail: OCR_IMAGE_DETAIL,
                   },
                 },
                 {
@@ -216,7 +250,7 @@ Deno.serve(async (req) => {
             },
           ],
           response_format: { type: 'json_object' },
-          max_tokens: 2000,
+          max_tokens: OCR_MAX_OUTPUT_TOKENS,
           temperature: 0.1,
         }),
       })

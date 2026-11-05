@@ -1,7 +1,7 @@
 # invoice-ocr-budget Specification
 
 ## Purpose
-Acotar el costo de la lectura de facturas con IA (`invoice-ocr`, OpenAI `gpt-4o` con visión): cuota mensual por plan, límite de ráfaga por ventana corta y reserva atómica del cupo antes de llamar al proveedor, para que ningún usuario pueda generar un gasto ilimitado. Origen: H-11 del Roadmap v3.1 (`v31-ia-ratelimit-budget`).
+Acotar el costo de la lectura de facturas con IA (`invoice-ocr`, OpenAI con visión: `gpt-4o-mini` por defecto, `gpt-4o` opcional por `INVOICE_AI_MODEL`): cuota mensual por plan, límite de ráfaga por ventana corta y reserva atómica del cupo antes de llamar al proveedor, para que ningún usuario pueda generar un gasto ilimitado. Origen: H-11 del Roadmap v3.1 (`v31-ia-ratelimit-budget`).
 ## Requirements
 ### Requirement: Cuota mensual de lecturas de factura por plan
 

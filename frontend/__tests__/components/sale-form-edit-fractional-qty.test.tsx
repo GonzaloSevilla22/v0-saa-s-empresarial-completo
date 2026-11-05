@@ -184,7 +184,6 @@ function makeOperation(overrides: Partial<SaleOperation> = {}): SaleOperation {
     unitId: "unit-kg",
     isFiscallyLocked: false,
     fiscal: null,
-    isPaymentLocked: false,
     hasAccountCharge: false,
     hasCashMovement: false,
     hasBankMovement: false, sourceQuoteId: null, sourceQuoteNumber: null, hasServiceLines: false,

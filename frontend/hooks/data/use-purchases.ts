@@ -36,10 +36,7 @@ interface PurchaseApiRow {
   // edicion-preserva-contexto: expuestos para prefillear el form de edición.
   branch_id?: string | null
   unit_id?: string | null
-  // pagos-cableados-restantes (D6): derivado de lectura — true si tiene
-  // cargo de cuenta corriente posteado.
-  is_payment_locked?: boolean
-  // delete-guard-ledgers (task 9.2): mismos EXISTS de is_payment_locked,
+  // delete-guard-ledgers (task 9.2): los indicadores de la huella NETA,
   // expuestos por separado.
   has_account_charge?: boolean
   has_bank_movement?: boolean
@@ -56,6 +53,12 @@ interface PurchaseApiRow {
   source_delivery_note_number?: number | null
   source_delivery_note_branch_active?: boolean | null
   edit_locked_reason?: string | null
+  // edicion-operaciones-con-dinero (D15): datos vigentes de la huella neta, para precargar la edición.
+  charge_due_date?: string | null
+  charge_party_id?: string | null
+  cash_cashbox_id?: string | null
+  cash_open_session_id?: string | null
+  bank_account_id?: string | null
   // multiusuario-operativo tanda B (D9, OQ-4 b): quién cargó la operación.
   created_by?: string | null
 }
@@ -94,7 +97,6 @@ function mapPurchase(p: PurchaseApiRow): Purchase {
     // con qué prefillear sucursal/unidad.
     branchId: p.branch_id ?? null,
     unitId:   p.unit_id ?? undefined,
-    isPaymentLocked: p.is_payment_locked ?? false,
     hasAccountCharge: p.has_account_charge ?? false,
     hasBankMovement:  p.has_bank_movement  ?? false,
     hasCashMovement:  p.has_cash_movement  ?? false,
@@ -105,6 +107,11 @@ function mapPurchase(p: PurchaseApiRow): Purchase {
     sourceDeliveryNoteNumber:       p.source_delivery_note_number ?? null,
     sourceDeliveryNoteBranchActive: p.source_delivery_note_branch_active ?? null,
     editLockedReason:               p.edit_locked_reason ?? null,
+    chargeDueDate:     p.charge_due_date ?? null,
+    chargePartyId:     p.charge_party_id ?? null,
+    cashCashboxId:     p.cash_cashbox_id ?? null,
+    cashOpenSessionId: p.cash_open_session_id ?? null,
+    bankAccountId:     p.bank_account_id ?? null,
     createdBy:                      p.created_by ?? null,
   }
 }

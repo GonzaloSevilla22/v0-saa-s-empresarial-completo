@@ -59,15 +59,10 @@ import { useFiscalProfile } from "@/hooks/data/use-fiscal-profile"
 import { usePromoteToOrder } from "@/hooks/data/use-promote-to-order"
 import { PaymentMethodSelect } from "@/components/payment-methods/PaymentMethodSelect"
 
-// pagos-cableados-restantes (D6, task 12.4): motivo visible cuando "Editar"
-// se deshabilita por un cargo de cuenta corriente o movimiento de caja ya
-// posteado — el guard real vive en el backend (P0423), esto sólo evita que
-// el usuario llegue hasta ese error.
-// pos-banco-movimientos (D8): is_payment_locked ahora también se dispara por
-// un bank_movement posteado — el mensaje nombra las tres causas posibles,
-// consistente con el RAISE del backend (P0423, mensaje distinto por causa).
-const PAYMENT_LOCKED_REASON =
-  "No editable: esta operación ya tiene un cargo de cuenta corriente, un movimiento de caja o un movimiento bancario registrado. Emití una nota de crédito y registrá una venta nueva."
+// edicion-operaciones-con-dinero (tanda B, D15): la edición ya NO se bloquea por dinero (cargo de cuenta corriente, caja o banco): el
+// servidor compara la huella neta con el efecto deseado y ajusta cada libro. Se retiró el motivo de «ya tiene un cargo…» y el
+// indicador de bloqueo por pago. Los bloqueos que quedan no son de dinero: el comprobante fiscal, el remito de origen y las líneas de
+// servicio de un presupuesto; todos los decide el servidor.
 
 // presupuestos-modulo (D6, OQ-P16): una venta convertida desde un presupuesto
 // con conceptos sin producto (líneas de servicio) no se edita desde /ventas: el
@@ -86,10 +81,13 @@ const SERVICE_LINES_REASON =
 // va primero. El token viene del servidor (`edit_locked_reason`); uno que no
 // conocemos también bloquea (fail-closed): la UI no adivina "se puede".
 const DELIVERY_NOTE_SALE_LOCKED = "delivery_note_sale_locked"
+// edicion-operaciones-con-dinero (D15): la línea de servicio de un presupuesto pasó del cliente al servidor como token.
+// Sigue siendo ÚLTIMA en la prioridad (un bloqueo fiscal es el que el usuario tiene que ver primero).
+const SERVICE_LINES_LOCKED = "service_lines_locked"
 const UNKNOWN_EDIT_LOCK_REASON = "No editable: el servidor no permite editar esta operación."
 
 function editLockedReasonText(token: string | null | undefined, remitoLabel: string | null): string | null {
-  if (!token) return null
+  if (!token || token === SERVICE_LINES_LOCKED) return null
   if (token !== DELIVERY_NOTE_SALE_LOCKED) return UNKNOWN_EDIT_LOCK_REASON
   const origen = remitoLabel ? `del remito ${remitoLabel}` : "de un remito"
   return `No editable: la venta nació ${origen}. Para corregirla, eliminá la venta, editá el remito y volvé a convertirlo.`
@@ -119,7 +117,7 @@ function OperationSourceBadge({ op, className }: { op: SaleOperation; className?
 // el PO. Tres causas distintas comparten P0423 en el servidor y la acción que
 // le queda al usuario es distinta en cada una — un texto único las confundiría.
 // Hallazgo del estudio corregido en este change: el lápiz NO consultaba el
-// estado fiscal en absoluto (sólo `isPaymentLocked`); lo único que frenaba
+// estado fiscal en absoluto (sólo el bloqueo por pago); lo único que frenaba
 // editar una venta facturada era el banner del formulario, UNA VEZ ABIERTO.
 function fiscalBlockedReason(fiscal: SaleFiscalState | null | undefined): string | null {
   if (!fiscal) return null
@@ -500,8 +498,7 @@ export function SaleOperationsList({
           const editBlockedReason =
             editLockedReasonText(op.editLockedReason, remitoLabel) ??
             fiscalReason ??
-            (op.isPaymentLocked ? PAYMENT_LOCKED_REASON : null) ??
-            (op.hasServiceLines ? SERVICE_LINES_REASON : null)
+            (op.hasServiceLines || op.editLockedReason === SERVICE_LINES_LOCKED ? SERVICE_LINES_REASON : null)
           const voidHint = voidableEditHint(op.fiscal)
           // multiusuario-operativo tanda B (D9): sin la capacidad de venta, o sobre lo ajeno sin ser dueño ni administrador, no se ofrece ni Editar ni Eliminar.
           const canModify = canModifyOperation ? canModifyOperation(op) : true

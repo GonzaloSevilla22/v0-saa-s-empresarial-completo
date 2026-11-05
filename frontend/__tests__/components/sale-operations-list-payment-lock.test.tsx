@@ -6,7 +6,7 @@ import type { PaginationMeta } from "@/lib/pagination-utils"
 
 // pagos-cableados-restantes (D6, task 12.4): "Editar" se deshabilita con
 // motivo visible cuando la operación tiene un cargo de cuenta corriente o
-// movimiento de caja posteado (isPaymentLocked) — el guard real vive en el
+// movimiento de caja posteado (retirado por edicion-operaciones-con-dinero) — el guard real vivía en el
 // backend (P0423), esto sólo evita que el usuario llegue hasta ese error.
 
 vi.mock("@/hooks/data/use-fiscal-profile", () => ({ useFiscalProfile: () => ({ profile: null }) }))
@@ -67,26 +67,27 @@ function pencilButtons(): HTMLElement[] {
     .filter((b) => b.tagName === "BUTTON" && b.querySelector("svg.lucide-pencil"))
 }
 
-describe("SaleOperationsList — D6 disable 'Editar' con cargo/movimiento posteado", () => {
+describe("SaleOperationsList — la operación con cargo/movimiento posteado se EDITA (edicion-operaciones-con-dinero, tanda B)", () => {
   it("operación SIN cargo/movimiento: el botón Editar está habilitado", () => {
-    render(<SaleOperationsList {...baseProps([makeSale({ isPaymentLocked: false })])} />)
+    render(<SaleOperationsList {...baseProps([makeSale({})])} />)
     const editButtons = pencilButtons()
     expect(editButtons.length).toBeGreaterThan(0)
     for (const b of editButtons) expect(b).not.toBeDisabled()
   })
 
-  it("operación CON cargo/movimiento posteado: 'Editar' se deshabilita con motivo visible", () => {
-    render(<SaleOperationsList {...baseProps([makeSale({ isPaymentLocked: true })])} />)
-    const lockButtons = screen.getAllByTitle(/No editable.*cargo de cuenta corriente/i)
-    expect(lockButtons.length).toBeGreaterThan(0)
-    for (const b of lockButtons) expect(b).toBeDisabled()
+  it("operación CON cargo/movimiento posteado: 'Editar' sigue habilitado y sin motivo de bloqueo por dinero", () => {
+    render(<SaleOperationsList {...baseProps([makeSale({ hasAccountCharge: true, hasCashMovement: true })])} />)
+    expect(screen.queryAllByTitle(/No editable.*cargo de cuenta corriente/i)).toHaveLength(0)
+    const editButtons = pencilButtons()
+    expect(editButtons.length).toBeGreaterThan(0)
+    for (const b of editButtons) expect(b).not.toBeDisabled()
   })
 })
 
 // ── venta-editable-sin-cae ────────────────────────────────────────────────────
 //
 // HALLAZGO que este change cierra: el lápiz del listado NO consultaba el estado
-// fiscal en absoluto — se deshabilitaba SÓLO por isPaymentLocked. Lo único que
+// fiscal en absoluto — se deshabilitaba SÓLO por el bloqueo de pago. Lo único que
 // frenaba editar una venta facturada era el banner del formulario, UNA VEZ
 // ABIERTO (el borrado sí estaba bien gateado). Esa asimetría se cierra acá.
 
@@ -158,10 +159,10 @@ describe("SaleOperationsList — el lápiz nombra la CAUSA FISCAL real", () => {
     }
   })
 
-  it("PRIORIDAD: con bloqueo fiscal Y de pago a la vez, gana el motivo FISCAL", () => {
+  it("con bloqueo fiscal Y dinero posteado, el motivo es el FISCAL (el dinero ya no bloquea)", () => {
     render(
       <SaleOperationsList
-        {...baseProps([makeSale({ isFiscallyLocked: true, fiscal: AUTHORIZED, isPaymentLocked: true })])}
+        {...baseProps([makeSale({ isFiscallyLocked: true, fiscal: AUTHORIZED, hasAccountCharge: true })])}
       />,
     )
     expect(screen.getAllByTitle(/autorizado por ARCA/i).length).toBeGreaterThan(0)

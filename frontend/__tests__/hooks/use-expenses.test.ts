@@ -12,7 +12,7 @@
  *  1. `returns mapped expenses when API responds` — el fixture pasa de lista
  *     plana al envelope `{items,total,page,pages}`. Es el BREAKING de API
  *     interna sancionado por D18/OQ-10: sin el envelope no hay forma de que
- *     `is_payment_locked` (derivado de cash_movements/bank_movements, NO una
+ *     los derivados de dinero (huella neta de cash_movements/bank_movements, NO una
  *     columna de `expenses`) llegue a cada fila del listado. Lo que el test
  *     verifica —que el hook mapea id/categoría/monto— no cambió.
  *  2. `addExpense calls POST /expenses …` — el payload suma los cuatro campos

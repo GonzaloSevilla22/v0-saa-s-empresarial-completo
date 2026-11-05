@@ -51,15 +51,12 @@ describe("PurchaseOperationsList — badge de proveedor", () => {
   })
 })
 
-describe("PurchaseOperationsList — motivo del bloqueo nombra al proveedor y el camino de corrección (task 13.3)", () => {
-  it("el título del bloqueo menciona el cargo de cuenta corriente DEL PROVEEDOR y borrar/recargar", () => {
-    render(<PurchaseOperationsList {...baseProps([makePurchase({ isPaymentLocked: true })])} />)
-    const lockButtons = screen.getAllByTitle(/No editable.*cargo de cuenta corriente/i)
-    expect(lockButtons.length).toBeGreaterThan(0)
-    for (const b of lockButtons) {
-      const title = b.getAttribute("title") ?? ""
-      expect(title).toMatch(/proveedor/i)
-      expect(title).toMatch(/borr/i)
-    }
+describe("PurchaseOperationsList — la compra con cargo del proveedor se edita (edicion-operaciones-con-dinero, tanda B)", () => {
+  it("con el cargo de cuenta corriente del proveedor posteado, 'Editar' queda habilitado y sin motivo de bloqueo por dinero", () => {
+    render(<PurchaseOperationsList {...baseProps([makePurchase({ hasAccountCharge: true })])} />)
+    expect(screen.queryAllByTitle(/No editable.*cargo de cuenta corriente/i)).toHaveLength(0)
+    const edit = screen.getAllByRole("button", { name: "" }).filter((b) => b.querySelector("svg.lucide-pencil"))
+    expect(edit.length).toBeGreaterThan(0)
+    for (const b of edit) expect(b).not.toBeDisabled()
   })
 })

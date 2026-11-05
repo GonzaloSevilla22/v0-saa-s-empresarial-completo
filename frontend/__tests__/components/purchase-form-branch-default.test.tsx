@@ -150,7 +150,6 @@ function makeOperation(overrides: Partial<PurchaseOperation> = {}): PurchaseOper
     paymentMethodId: null,
     branchId: "b-show",
     unitId: "unit-kg",
-    isPaymentLocked: false,
     hasAccountCharge: false,
     supplierId: null,
     supplierName: null,

@@ -2,7 +2,7 @@
  * caja-compras-cobranzas (task 12.1/12.3/12.4 RED->GREEN->TRIANGULATE): el
  * listado de compras pasa hasCashMovement/isDeleteBlocked a
  * getDeleteCompensation (documento "compra") y deshabilita "Editar" con
- * motivo cuando is_payment_locked es true por caja.
+ * motivo (retirado por edicion-operaciones-con-dinero: la compra con caja posteada se edita).
  *
  * Espejo de purchase-delete-compensation.test.tsx (G10/H12), que ya fijó el
  * molde para stock/cuenta corriente.
@@ -93,20 +93,18 @@ describe("PurchaseOperationsList — el diálogo de borrado enumera la caja (12.
   })
 })
 
-describe("PurchaseOperationsList — 'Editar' deshabilitado cuando is_payment_locked es por caja (12.4)", () => {
-  it("compra con caja posteada (is_payment_locked=true): el lápiz aparece deshabilitado con motivo visible", () => {
-    render(
-      <PurchaseOperationsList
-        {...baseProps([makePurchase({ isPaymentLocked: true, hasCashMovement: true })])}
-      />,
-    )
+describe("PurchaseOperationsList — la compra con caja posteada se EDITA (edicion-operaciones-con-dinero, tanda B)", () => {
+  it("compra con caja posteada: el lápiz está habilitado y sin motivo de bloqueo por dinero", () => {
+    render(<PurchaseOperationsList {...baseProps([makePurchase({ hasCashMovement: true })])} />)
 
-    const lockedButtons = screen.getAllByTitle(/movimiento de caja registrado/i)
-    expect(lockedButtons.length).toBeGreaterThan(0)
+    expect(screen.queryByTitle(/movimiento de caja registrado/i)).not.toBeInTheDocument()
+    const editButtons = screen.getAllByRole("button", { name: "" }).filter((b) => b.querySelector("svg.lucide-pencil"))
+    expect(editButtons.length).toBeGreaterThan(0)
+    for (const b of editButtons) expect(b).not.toBeDisabled()
   })
 
   it("compra sin dinero posteado: 'Editar' sigue habilitado", () => {
-    render(<PurchaseOperationsList {...baseProps([makePurchase({ isPaymentLocked: false })])} />)
+    render(<PurchaseOperationsList {...baseProps([makePurchase({})])} />)
 
     expect(screen.queryByTitle(/movimiento de caja registrado/i)).not.toBeInTheDocument()
   })

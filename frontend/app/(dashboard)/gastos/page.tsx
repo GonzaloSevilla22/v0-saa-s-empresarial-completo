@@ -49,19 +49,11 @@ const categoryColors: Record<string, string> = {
   Otros:     "bg-muted text-muted-foreground border-border",
 }
 
-/** Razón visible del lock de edición (D11) — anticipa el `P0423` del servidor. */
+/** Razón visible del bloqueo de edición. edicion-operaciones-con-dinero (tanda B, D15): el gasto con dinero ya se edita (el
+ * servidor compensa y registra en caja y banco), así que el único bloqueo posible es un token del SERVIDOR que falla cerrado:
+ * uno que la pantalla no conoce también deshabilita. Hoy el servidor no emite ninguno para el gasto. */
 function editBlockedReason(row: Expense): string | null {
-  if (!row.isPaymentLocked) return null
-  if (row.hasCashMovement && row.hasBankMovement) {
-    return "No se puede editar: el gasto ya movió plata en la caja y en el banco. Para corregirlo, borralo y cargalo de nuevo."
-  }
-  if (row.hasCashMovement) {
-    return "No se puede editar: el gasto ya descontó de la caja. Para corregirlo, borralo y cargalo de nuevo."
-  }
-  if (row.hasBankMovement) {
-    return "No se puede editar: el gasto ya registró un movimiento bancario. Para corregirlo, borralo y cargalo de nuevo."
-  }
-  return "No se puede editar: el gasto ya movió plata."
+  return row.editLockedReason ? "No editable: el servidor no permite editar este gasto." : null
 }
 
 export default function GastosPage() {
@@ -75,7 +67,7 @@ export default function GastosPage() {
   // ── D18: origen de datos = GET /expenses paginado del backend ─────────────
   // Antes: usePaginatedQuery({ table: "expenses" }) por PostgREST directo, con
   // su `mapRow` local. Por ese camino no hay forma de que llegue el lock
-  // (`is_payment_locked` es un derivado de cash_movements/bank_movements, NO
+  // (los derivados de dinero salen de la huella neta del servidor, NO
   // una columna de `expenses`) ni el nombre de la forma de pago. Es la misma
   // plomería que /ventas ya usa con useSales(), no lógica nueva.
   const {

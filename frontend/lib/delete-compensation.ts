@@ -3,7 +3,7 @@
  *
  * Deriva, DE LECTURA, qué va a pasar si se borra una operación de venta o
  * compra — nunca una columna denormalizada (misma regla D5 que ya rige
- * is_payment_locked/is_fiscally_locked). Espeja el orden de guards del backend
+ * is_fiscally_locked). Espeja el orden de guards del backend
  * (rpc_delete_sale_operation / rpc_delete_purchase_operation, D2/D3):
  *
  *   1. Comprobante fiscal que YA SALIÓ hacia ARCA → NO borrable (P0423). El

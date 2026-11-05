@@ -174,7 +174,7 @@ function makeOperation(overrides: Partial<PurchaseOperation> = {}): PurchaseOper
   return {
     key: "op-1", operationId: "op-1", date: "2026-08-20", items: [makePurchase()], total: 150,
     description: "", isGrouped: false, paymentMethodId: null, branchId: null, unitId: null,
-    isPaymentLocked: false, hasAccountCharge: false, hasBankMovement: false,
+    hasAccountCharge: false, hasBankMovement: false,
     // caja-compras-cobranzas (D9): campos nuevos requeridos por PurchaseOperation.
     hasCashMovement: false, isDeleteBlocked: false,
     supplierId: null, supplierName: null, costCenterId: null,

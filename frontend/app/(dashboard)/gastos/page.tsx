@@ -31,6 +31,9 @@ import {
 import { toast } from "sonner"
 import { ExportButton } from "@/components/export/ExportButton"
 import type { Expense } from "@/lib/types"
+import { OperationEditHistory } from "@/components/shared/OperationEditHistory"
+import { moneyEditAffordance } from "@/lib/money-plan"
+import { CAN_CORRECT_MONEY, hasCapability } from "@/lib/rbac-capabilities"
 
 /**
  * ⚠️ Deuda ajena declarada (D17): estos son literales de Tailwind, el patrón
@@ -58,7 +61,10 @@ function editBlockedReason(row: Expense): string | null {
 
 export default function GastosPage() {
   const { isAdmin } = useAuth()
-  const { isWriter } = useOrgRole()
+  const { isWriter, roles = [], rolesResolved = false } = useOrgRole()
+  // edicion-operaciones-con-dinero (tanda C, OQ-4): corregir dinero ya registrado es del dueño o un administrador. Sólo qué se
+  // muestra: la barrera es la RPC (P0403) y el guard del servicio.
+  const canCorrectMoney = hasCapability(roles, CAN_CORRECT_MONEY, rolesResolved)
   const [importOpen,     setImportOpen]     = useState(false)
   const [addOpen,        setAddOpen]        = useState(false)
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null)
@@ -324,7 +330,10 @@ export default function GastosPage() {
         {expenses.map((row) => {
           // D11/D8: los dos bloqueos vienen de los MISMOS predicados que evalúa
           // el servidor (derivados en el backend), no de una regla de cliente.
-          const lockReason = editBlockedReason(row)
+          // edicion-operaciones-con-dinero (tanda C, D17/OQ-4): el dinero registrado ya no deshabilita «Editar»; avisa en el título que se
+          // va a ver qué se ajusta, y para un rol sin la capacidad de corregir dinero la deshabilita con el motivo.
+          const money = moneyEditAffordance({ hasMoney: !!row.hasCashMovement || !!row.hasBankMovement, canCorrectMoney })
+          const lockReason = editBlockedReason(row) ?? money.blockedReason
           const deleteInfo = getDeleteCompensation(
             {
               hasCashMovement: row.hasCashMovement,
@@ -364,8 +373,8 @@ export default function GastosPage() {
                   <Button
                     variant="ghost" size="icon" data-testid="expense-edit"
                     disabled={!!lockReason}
-                    title={lockReason ?? undefined}
-                    aria-label={lockReason ?? "Editar gasto"}
+                    title={lockReason ?? money.hint ?? undefined}
+                    aria-label={lockReason ?? money.hint ?? "Editar gasto"}
                     className="h-7 w-7 text-muted-foreground hover:text-primary"
                     onClick={() => setEditingExpense(row)}
                   >
@@ -408,8 +417,8 @@ export default function GastosPage() {
                 <Button
                   variant="ghost" size="icon" data-testid="expense-edit"
                   disabled={!!lockReason}
-                  title={lockReason ?? undefined}
-                  aria-label={lockReason ?? "Editar gasto"}
+                  title={lockReason ?? money.hint ?? undefined}
+                  aria-label={lockReason ?? money.hint ?? "Editar gasto"}
                   className="h-7 w-7 text-muted-foreground hover:text-primary"
                   onClick={() => setEditingExpense(row)}
                 >
@@ -422,6 +431,11 @@ export default function GastosPage() {
                   onConfirm={() => handleDelete(row.id)}
                 />
               </div>
+            </div>
+
+            {/* edicion-operaciones-con-dinero (tanda C, D14/D17): quién cambió qué, con carga diferida. */}
+            <div className="px-4 pb-2">
+              <OperationEditHistory kind="expense" entityId={row.id} document="gasto" />
             </div>
           </div>
           )

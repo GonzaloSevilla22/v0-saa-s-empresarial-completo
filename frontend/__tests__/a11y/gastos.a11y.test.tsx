@@ -28,6 +28,10 @@ let paymentMethodsMock: Array<{ id: string; name: string; kind: string; isActive
 let currentSessionMock: { id: string } | null = null
 let bankAccountsMock: Array<{ id: string; name: string; isActive: boolean; accountKind: string }> = []
 
+// edicion-operaciones-con-dinero (tanda C): cada gasto monta el historial de cambios, que consulta por react-query + python-client.
+vi.mock("@/hooks/data/use-operation-edit", () => ({
+  useOperationEditHistory: () => ({ data: [], isLoading: false, isError: false, refetch: vi.fn() }),
+}))
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
 vi.mock("@/hooks/data/use-expenses-query", () => ({
   useAddExpense: () => ({ mutateAsync: vi.fn() }),

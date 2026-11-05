@@ -3,6 +3,9 @@ import {
   describeBlock,
   moneyPlanItems,
   moneyPlanHasEffect,
+  moneyEditAffordance,
+  MONEY_EDIT_ADMIN_REASON,
+  MONEY_EDIT_HINT,
   summarizeEdit,
   summarizeExecutedPlan,
   voidedFiscalText,
@@ -229,5 +232,25 @@ describe("summarizeEdit — el resumen de una entrada del historial", () => {
   it("una edición que no cambió nada visible lo dice, sin inventar", () => {
     const s = summarizeEdit({ before: { total: 100 }, after: { total: 100 }, money: null, reason: null }, "venta")
     expect(s).toBe("Sin cambios de importe ni de fecha.")
+  })
+})
+
+describe("moneyEditAffordance — cómo se ofrece «Editar» según el dinero y el rol (OQ-4)", () => {
+  it("sin dinero registrado no hay nada que avisar ni bloquear, sea cual sea el rol", () => {
+    expect(moneyEditAffordance({ hasMoney: false, canCorrectMoney: true })).toEqual({ blockedReason: null, hint: null })
+    expect(moneyEditAffordance({ hasMoney: false, canCorrectMoney: false })).toEqual({ blockedReason: null, hint: null })
+  })
+
+  it("con dinero y la capacidad: se edita y el título avisa que se va a ver qué se ajusta", () => {
+    const a = moneyEditAffordance({ hasMoney: true, canCorrectMoney: true })
+    expect(a.blockedReason).toBeNull()
+    expect(a.hint).toBe(MONEY_EDIT_HINT)
+  })
+
+  it("con dinero y sin la capacidad: bloqueado con el motivo (dueño o administrador)", () => {
+    const a = moneyEditAffordance({ hasMoney: true, canCorrectMoney: false })
+    expect(a.hint).toBeNull()
+    expect(a.blockedReason).toBe(MONEY_EDIT_ADMIN_REASON)
+    expect(a.blockedReason).toMatch(/due[ñn]o o un administrador/i)
   })
 })

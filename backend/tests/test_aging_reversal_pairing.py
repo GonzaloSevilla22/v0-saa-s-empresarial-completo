@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import datetime
 import json
-import os
 import re
 import uuid
 from decimal import Decimal
@@ -27,7 +26,7 @@ import pytest
 
 from backend.repositories._account_aging_sql import build_aging_cte
 
-DSN = os.environ.get("DATABASE_URL", "postgresql://postgres:postgres@127.0.0.1:54322/postgres")
+from backend.tests.integration_db import connect
 
 CUSTOMER = dict(account_column="customer_account_id", movements_table="customer_account_movements",
                 charge_type="sale", reversal_type="credit_note", outer_alias="cam")
@@ -56,10 +55,7 @@ def test_el_tipo_de_reversion_es_obligatorio() -> None:
 @pytest.fixture
 async def ledger():
     """Ledger sintético dentro de UNA transacción revertida: sin residuo."""
-    try:
-        conn = await asyncpg.connect(DSN)
-    except (OSError, asyncpg.PostgresError) as exc:  # pragma: no cover
-        pytest.skip(f"Postgres local no disponible ({exc}); levantá `supabase start`")
+    conn = await connect()
     tr = conn.transaction()
     await tr.start()
     try:

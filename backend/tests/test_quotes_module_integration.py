@@ -21,7 +21,6 @@ import contextlib
 import datetime
 import io
 import json
-import os
 import uuid
 
 import asyncpg
@@ -57,7 +56,7 @@ RPC_COMMERCIAL_ISSUER_KEYS = {
     "palette_preset", "accent_color", "logo_sha256",
 }
 
-DSN = os.environ.get("DATABASE_URL", "postgresql://postgres:postgres@127.0.0.1:54322/postgres")
+from backend.tests.integration_db import connect
 
 pytestmark = pytest.mark.integration
 
@@ -198,10 +197,7 @@ async def _cleanup(conn: asyncpg.Connection, w: World) -> None:
 
 @pytest.fixture
 async def conn():
-    try:
-        c = await asyncpg.connect(DSN)
-    except (OSError, asyncpg.PostgresError) as exc:  # pragma: no cover - depende del entorno
-        pytest.skip(f"Postgres local no disponible ({exc}); levantá `supabase start`")
+    c = await connect()
     try:
         yield c
     finally:

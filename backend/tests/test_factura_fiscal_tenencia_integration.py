@@ -14,7 +14,6 @@ RLS es red, no guard único).
 """
 from __future__ import annotations
 
-import os
 import uuid
 
 import asyncpg
@@ -22,7 +21,7 @@ import pytest
 
 from backend.repositories.fiscal_document_repository import FiscalDocumentRepository
 
-DSN = os.environ.get("DATABASE_URL", "postgresql://postgres:postgres@127.0.0.1:54322/postgres")
+from backend.tests.integration_db import connect
 
 pytestmark = pytest.mark.integration
 
@@ -116,10 +115,7 @@ async def _cleanup(conn: asyncpg.Connection, anchors: list[tuple[uuid.UUID, uuid
 
 @pytest.fixture
 async def conn():
-    try:
-        c = await asyncpg.connect(DSN)
-    except (OSError, asyncpg.PostgresError) as exc:  # pragma: no cover - depende del entorno
-        pytest.skip(f"Postgres local no disponible ({exc}); levantá `supabase start`")
+    c = await connect()
     try:
         yield c
     finally:

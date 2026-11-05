@@ -17,7 +17,6 @@ from __future__ import annotations
 import contextlib
 import io
 import json
-import os
 import uuid
 from decimal import Decimal
 
@@ -35,7 +34,7 @@ from backend.schemas.delivery_notes import (
 )
 from backend.services import delivery_notes as svc
 
-DSN = os.environ.get("DATABASE_URL", "postgresql://postgres:postgres@127.0.0.1:54322/postgres")
+from backend.tests.integration_db import connect
 
 pytestmark = pytest.mark.integration
 
@@ -208,10 +207,7 @@ async def _cleanup(conn: asyncpg.Connection, w: World) -> None:
 
 @pytest.fixture
 async def conn():
-    try:
-        c = await asyncpg.connect(DSN)
-    except (OSError, asyncpg.PostgresError) as exc:  # pragma: no cover - depende del entorno
-        pytest.skip(f"Postgres local no disponible ({exc}); levantá `supabase start`")
+    c = await connect()
     try:
         yield c
     finally:

@@ -4708,7 +4708,7 @@ El pedido literal (RPC con rol y motivo + quitar `GRANT` y policies) es correcto
 **Candidato lateral (no urgente).** El patrón `checkAiQuota` + `incrementAiUsage` de las otras 9 Edge Functions de IA tiene la misma carrera chequear-luego-incrementar que se cerró acá para el OCR; `rpc_reserve_ai_usage(p_counter)` es el punto de extensión (ramas `queries`/`advice`).
 
 
-## Change `mp-cuota-acreditacion-resiliente` — PROPOSE 2026-11-05 (PR **#677**, mergeado) · APPLY PR **#678** (mergeado 22:10 UTC) · **✅ COMPLETADA Y ARCHIVADA 2026-11-05/06** (archive PR **#ARCHIVE_PR**; governance **CRÍTICO**: webhook de pagos, dinero real)
+## Change `mp-cuota-acreditacion-resiliente` — PROPOSE 2026-11-05 (PR **#677**, mergeado) · APPLY PR **#678** (mergeado 22:10 UTC) · **✅ COMPLETADA Y ARCHIVADA 2026-11-05/06** (archive PR **#680**; governance **CRÍTICO**: webhook de pagos, dinero real)
 
 **Contexto.** Pedido textual del PO: «propone un change para que esto se solucione». El backend acredita el cobro mensual de una suscripción SÓLO desde la notificación `subscription_authorized_payment` en `processed`/`approved` (`_apply_authorized_payment_notification` → `_apply_approved_charge`); la notificación `payment` del mismo cobro se ignora a propósito (`ignored="subscription_charge"`, ítem B(1) de #526). Ficha previa del handler: `billing-webhook-cuota-idempotencia` (#641/#642), que no se reescribe.
 

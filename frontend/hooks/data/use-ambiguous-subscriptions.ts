@@ -52,6 +52,10 @@ export interface RecentSubscriptionApi {
   last_payment_status: string | null
   retry_state: string
   updated_at: string
+  // mp-cuota-acreditacion-resiliente D9: fin del período pagado de la cuenta y
+  // último cobro mensual acreditado del preapproval (null = sin cobros).
+  plan_expires_at?: string | null
+  last_charge_credited_at?: string | null
 }
 
 export interface ReplaySubscriptionChargesResultApi {
@@ -90,6 +94,8 @@ export interface RecentSubscription {
   lastPaymentStatus: string | null
   retryState: string
   updatedAt: string
+  planExpiresAt: string | null
+  lastChargeCreditedAt: string | null
 }
 
 export interface ReplaySubscriptionChargesResult {
@@ -131,6 +137,8 @@ function mapRecentSubscription(r: RecentSubscriptionApi): RecentSubscription {
     lastPaymentStatus: r.last_payment_status,
     retryState: r.retry_state,
     updatedAt: r.updated_at,
+    planExpiresAt: r.plan_expires_at ?? null,
+    lastChargeCreditedAt: r.last_charge_credited_at ?? null,
   }
 }
 

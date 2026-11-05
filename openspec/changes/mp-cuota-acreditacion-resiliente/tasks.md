@@ -46,13 +46,13 @@
 
 ## 5. Observabilidad (D8)
 
-- [ ] 5.1 RED: test que verifique que, tras importar `backend.main`, el logger `backend` emite `INFO` (nivel efectivo) y que la línea del marcador incluye marcador, preapproval y resultado, sin email ni nombre del pagador (`caplog`).
-- [ ] 5.2 GREEN: configurar el logger `backend` en `backend/main.py` (handler a stdout, nivel INFO, sin tocar uvicorn ni el root); ajustar la línea del marcador en `process_payment`.
+- [x] 5.1 RED: test que verifique que, tras importar `backend.main`, el logger `backend` emite `INFO` (nivel efectivo) y que la línea del marcador incluye marcador, preapproval y resultado, sin email ni nombre del pagador (`caplog`).
+- [x] 5.2 GREEN: configurar el logger `backend` en `backend/main.py` (handler a stdout, nivel INFO, sin tocar uvicorn ni el root); ajustar la línea del marcador en `process_payment`.
 
 ## 6. Superficie admin (D9)
 
-- [ ] 6.1 RED (`test_subscriptions_repository.py` / router): `list_recent_subscriptions` devuelve `plan_expires_at` y `last_charge_credited_at` (máximo `created_at` de `subscription_payment_approved` del preapproval; `None` sin cobros); schema de salida actualizado.
-- [ ] 6.2 GREEN: consulta + schema.
+- [x] 6.1 RED (`test_subscriptions_repository.py` / router): `list_recent_subscriptions` devuelve `plan_expires_at` y `last_charge_credited_at` (máximo `created_at` de `subscription_payment_approved` del preapproval; `None` sin cobros); schema de salida actualizado.
+- [x] 6.2 GREEN: consulta + schema.
 - [ ] 6.3 RED (`frontend/__tests__/SuscripcionesAmbiguasPage.test.tsx`, `frontend/__tests__/hooks/use-ambiguous-subscriptions.test.ts`): la tabla "Suscripciones recientes" muestra "Plan vence" y "Último cobro acreditado", y "Sin cobros" cuando es nulo.
 - [ ] 6.4 GREEN: tipos en `frontend/hooks/data/use-ambiguous-subscriptions.ts` (sin `any`) y columnas en `frontend/app/(dashboard)/admin/pagos/ambiguas/page.tsx` con tokens semánticos y el formateador de fecha existente.
 - [ ] 6.5 Verificación visual: desktop y móvil (375 px), tema claro y oscuro, con el arnés local (sin tocar prod).

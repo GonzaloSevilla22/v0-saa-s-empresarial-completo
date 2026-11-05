@@ -49,7 +49,7 @@ jobs:
         run: |
           set -e
           DSN=postgresql://postgres:postgres@127.0.0.1:54322/postgres
-          FINGERPRINT="SELECT (SELECT count(*) FROM public.analytics_events WHERE event_name='operation_created') || '|' || (SELECT count(*) FROM public.sale_items WHERE account_id IS NULL) || '|' || (SELECT count(*) FROM public.purchase_items WHERE account_id IS NULL) || '|' || (SELECT count(*) FROM public.account_feature_flags WHERE flag_key='sale_items_rpc_v2')"
+          FINGERPRINT="SELECT (SELECT count(*) FROM public.analytics_events WHERE event_name='operation_created') || '|' || (SELECT count(*) FROM public.sale_items WHERE account_id IS NULL) || '|' || (SELECT count(*) FROM public.purchase_items WHERE account_id IS NULL)"
           # fix-ci-idempotencia-reapply-firmas (2026-09-02, capa 2): este paso
           # reaplica migraciones VIEJAS fuera de su orden cronológico real para
           # probar idempotencia — eso es un ejercicio, no debe dejar rastro. El
@@ -1913,6 +1913,34 @@ jobs:
           fi
           echo "20261090000001 idempotente: schema IDÉNTICO al previo, un solo job reset-ai-counters con el OCR y seed 5/30/120/300 intacto."
 
+          # v31-document-lines-consistency (2026-11-05, governance MEDIO con tramo ALTO): reaplicación de 20261091000001 AL FINAL de la
+          # cadena, después del eslabón de 20261090000001. Es OBLIGATORIA, no un control más: esta cadena reaplica migraciones VIEJAS
+          # (20260924000001 y las que recrean rpc_create_sale_operation, _purchase_operation_core y las dos ediciones) que dejan vivas las
+          # funciones con el flag sale_items_rpc_v2 y la rama legacy; sólo esta migración, corrida DESPUÉS de todas, las vuelve a dejar
+          # en el cuerpo único. Por eso el FINGERPRINT de arriba ya no cuenta las filas del flag (la reaplicación de 20260924000001 puede
+          # volver a sembrarlas) y los gates que siguen corren contra el estado FINAL. La migración es idempotente: el schema (constraints
+          # + firmas + ACLs) tiene que quedar IDÉNTICO al del eslabón previo, la segunda pasada no crea ni modifica ninguna línea, ninguna
+          # función conserva el flag y name_snapshot queda NOT NULL en las dos tablas.
+          DLC_OUT1=$(psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261091000001_v31_document_lines_consistency.sql 2>&1) || { echo "$DLC_OUT1"; echo "ERROR: el reapply de 20261091000001 falló (sin tolerancia)."; exit 1; }
+          DLC_OUT2=$(psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261091000001_v31_document_lines_consistency.sql 2>&1) || { echo "$DLC_OUT2"; echo "ERROR: la segunda pasada de 20261091000001 falló (sin tolerancia)."; exit 1; }
+          if ! echo "$DLC_OUT2" | grep -qF "líneas creadas ventas=0 compras=0; nombres completados ventas=0 compras=0"; then
+            echo "$DLC_OUT2"
+            echo "NOT IDEMPOTENT: la segunda pasada de 20261091000001 creó o modificó líneas."
+            exit 1
+          fi
+          schema_snapshot > /tmp/schema_after_dlc_reapply.txt
+          if ! diff -u /tmp/schema_after_via_reapply.txt /tmp/schema_after_dlc_reapply.txt > /tmp/schema_diff_dlc.txt; then
+            echo "NOT IDEMPOTENT: reaplicar 20261091000001 cambió el schema (constraints + firmas de función + ACLs):"
+            cat /tmp/schema_diff_dlc.txt
+            exit 1
+          fi
+          DLC_STATE=$(psql -tA "$DSN" -c "SELECT (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public' AND p.prosrc ILIKE '%sale_items_rpc_v2%') || '|' || (SELECT count(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name IN ('sale_items','purchase_items') AND column_name = 'name_snapshot' AND is_nullable = 'NO')")
+          if [ "$DLC_STATE" != "0|2" ]; then
+            echo "ERROR: estado inesperado tras reaplicar 20261091000001 (funciones con el flag|columnas name_snapshot NOT NULL): $DLC_STATE (esperaba 0|2)"
+            exit 1
+          fi
+          echo "20261091000001 idempotente: schema IDÉNTICO al previo, segunda pasada sin cambios, 0 funciones con el flag y name_snapshot NOT NULL en las dos tablas."
+
       # -v ON_ERROR_STOP=1 is required: without it psql prints RAISE EXCEPTION
       # errors but still exits 0, so failing assertions show green in CI.
       - name: Run deterministic KPI tests
@@ -1950,15 +1978,25 @@ jobs:
       # opt-out — ausencia de fila en account_feature_flags deja de
       # significar legacy y pasa a significar v2. Verifica, para
       # rpc_create_sale_operation Y rpc_create_purchase_operation (mismo
-      # flag_key): cuenta sin fila escribe línea, kill-switch explícito
-      # (enabled=false) sigue en legacy, línea de servicio no genera fila,
-      # idempotencia intacta, y el stock se mueve igual que antes. Hallazgo
+      # flag_key): cuenta sin fila escribe línea, (v31-document-lines-consistency
+      # retiró el flag: enabled=false ya no tiene efecto, la línea de servicio
+      # TAMBIÉN escribe su fila), idempotencia intacta, y el stock se mueve igual que antes. Hallazgo
       # documentado en la migración: rpc_create_purchase_operation vigente en
       # prod no tenía dispatch a ningún flag — se agregó junto con el
       # INSERT condicionado de purchase_items (ver cabecera de
       # 20260924000001_activate_sale_items_rpc_v2.sql).
       - name: Run sale_items_rpc_v2 activation gates
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_sale_items_rpc_v2_activation.sql
+
+      # v31-document-lines-consistency (H-15, D7): la línea de documento es UNIVERSAL por construcción. EJECUTA los seis
+      # escritores de líneas (rpc_create_sale_operation, rpc_quick_sale / rpc_confirm_sales_order →
+      # _c29_confirm_order_core, rpc_create_purchase_operation, rpc_create_purchase_operation_v2 y las dos ediciones),
+      # con producto y con servicio, y verifica: exactamente una línea canónica con nombre por header, el flag
+      # sale_items_rpc_v2 sin efecto (sin fila y con enabled=false), ninguna función que lo lea, barrido de la cuenta ancla,
+      # reportes invariantes a la línea de servicio, backfill idempotente y convergente (re-ejecuta la migración ENTERA
+      # con fixtures sucias) y name_snapshot NOT NULL. Es un gate de DINERO: corre con el wrapper estricto.
+      - name: Run document lines consistency gate (strict)
+        run: python3 scripts/ci/run_gate_strict.py supabase/tests/test_document_lines_consistency.sql
 
       # edicion-operaciones-lineas (OQ-1 de deudas-menores-agosto): las RPCs de
       # EDICIÓN (rpc_atomic_update_sale_operation / rpc_atomic_update_

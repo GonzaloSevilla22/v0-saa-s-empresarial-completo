@@ -152,6 +152,20 @@ date            DATE
 created_at      TIMESTAMP
 ```
 
+### `sale_items` / `purchase_items` — Línea de documento (universal desde `v31-document-lines-consistency`, 2026-11-05, migración `20261091000001`)
+```sql
+id, sale_id (o purchase_id) FK ON DELETE CASCADE, account_id, quantity, price, subtotal NUMERIC
+product_id UUID NULL FK products ON DELETE SET NULL      -- NULL = línea de SERVICIO (o producto borrado)
+variant_id UUID NULL FK product_variants ON DELETE RESTRICT  -- sólo filas LEGACY de variante (41 en prod); ningún escritor lo escribe
+unit_id UUID NULL
+name_snapshot TEXT NOT NULL                              -- siempre hay nombre
+sku_snapshot TEXT NULL, unit_cost_snapshot NUMERIC(15,2) NULL, iva_rate_snapshot NUMERIC(5,2) NULL, snapshot_backfilled BOOLEAN NOT NULL DEFAULT false
+```
+> **Invariante**: toda fila de `sales` / `purchases` (con producto o de servicio) tiene EXACTAMENTE UNA **línea canónica** (`variant_id IS NULL`), escrita en la misma transacción que el header por cualquiera de los seis escritores (`rpc_create_sale_operation` → `_v2`, `_c29_confirm_order_core`, `rpc_create_purchase_operation` → `_purchase_operation_core`, `rpc_create_purchase_operation_v2` y las dos ediciones). El feature flag `sale_items_rpc_v2` y la rama legacy (header sin línea) **ya no existen**.
+> **Línea de servicio**: `product_id NULL` y `variant_id NULL`, mismo importe y cantidad que el header; `name_snapshot` = nombre de la línea de la orden (`sales_order_items.name_snapshot`) / descripción de la compra / etiqueta constante `Ítem sin producto`. Los reportes siguen sumando por el header de producto, así que ningún total cambió.
+> **Filas legacy de variante** (23 de venta y 18 de compra, marzo-abril 2026): se conservan, sólo recibieron nombre. Todo lector que una la línea a su header para sumar importes filtra por la línea canónica (`si.variant_id IS NULL`) — `client_repository.py` lo hacía sin filtro y contaba dos veces 21 ventas de 14 clientes.
+> **Backfill** (idempotente, `snapshot_backfilled = true`): línea canónica para los 2 + 4 documentos que no la tenían y nombre para las 50 + 29 líneas sin él (cascada: producto → `stock_movements.product_name` → `purchases.description` → etiqueta). `iva_rate_snapshot` queda NULL por diseño (`products` no tiene IVA; lo traerá el change de IVA/percepciones).
+
 ### `purchases` — Compras a Proveedores
 ```sql
 id              UUID    PK

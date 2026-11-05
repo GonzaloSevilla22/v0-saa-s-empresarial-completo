@@ -102,4 +102,5 @@ Se completa a medida que se mergea cada PR. Orden pactado: changes de a uno, sie
 | 07:17 (5-nov) | Propose v31-money-integration-tests (H-34: tier de integración real contra Postgres en CI; todas las OQs por la recomendada) | #666 | en revisión |
 | 08:20 UTC (5-nov) | Apply v31-money-integration-tests (tier de integración real contra Postgres en KPI_Validation + 33 gates de dinero estrictos; sin migración) | #667 | mergeado 08:41 |
 | 08:52 UTC (5-nov) | Archive v31-money-integration-tests (spec integration-test-tier sincronizada, change cerrado) | #669 | en revisión |
-| 14:48 UTC (5-nov) | Propose v31-document-lines-consistency (H-15: retiro del flag y la rama legacy, backfill de 6 documentos sin línea, invariante de líneas; OQs por la recomendada) | #671 | en revisión |
+| 14:48 UTC (5-nov) | Propose v31-document-lines-consistency (H-15: retiro del flag y la rama legacy, backfill de 6 documentos sin línea, invariante de líneas; OQs por la recomendada) | #671 | mergeado |
+| 16:30 UTC (5-nov) | Apply v31-document-lines-consistency (retiro del flag y la rama legacy, línea de servicio, backfill de 6 documentos y 79 líneas, name_snapshot NOT NULL, fix doble conteo en clientes; migración 20261091000001) | #PRNUM | en revisión |

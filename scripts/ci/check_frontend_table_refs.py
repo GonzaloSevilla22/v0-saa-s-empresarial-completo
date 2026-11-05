@@ -35,7 +35,7 @@ ningún caso real en este repo al momento de escribir el gate.
 
 Discriminadores para no generar falsos positivos (ver `_EXCLUDED_FROM_RECEIVERS`
 y `extract_refs`):
-- `Array.from(...)` / `Object.from(...)` (JS builtins, nada que ver con
+- `Array.from(...)` / `Object.from(...)` / `Buffer.from(...)` (builtins de JS/Node, nada que ver con
   supabase-js) se excluyen por el identificador inmediatamente anterior al
   `.from(` — SIN esto, `Array.from({length: 6})` no matchea igual porque su
   argumento no es un string literal, pero `Array.from("abc")` (string
@@ -93,7 +93,7 @@ Ref = namedtuple("Ref", ["name", "lineno", "kind"])  # kind: "table" | "function
 # llamada a supabase-js: `Array.from`/`Object.from` son builtins de JS, y
 # `storage.from` apunta a un bucket de Supabase Storage, no a una tabla. Solo
 # aplica al método `from` (no hay equivalente ambiguo para `.rpc(`).
-_EXCLUDED_FROM_RECEIVERS = {"Array", "Object", "storage"}
+_EXCLUDED_FROM_RECEIVERS = {"Array", "Object", "Buffer", "storage"}
 
 # ── comentarios / strings ──────────────────────────────────────────────────
 

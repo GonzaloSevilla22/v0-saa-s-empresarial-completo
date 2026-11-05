@@ -20,6 +20,9 @@ import { resolveEffectivePlan, type EffectivePlanClient } from "./effective-plan
 
 type Counter = "queries" | "advice"
 
+/** Contadores que se consumen por RESERVA atómica (v31-ia-ratelimit-budget). Hoy sólo el OCR. */
+export type ReserveCounter = "ocr"
+
 interface QueryResult<T> {
   data: T | null
   error: { message: string } | null
@@ -61,6 +64,10 @@ export interface AiQuotaClient extends EffectivePlanClient {
   rpc(
     fn: "rpc_increment_ai_usage",
     args: { p_user_id: string; p_counter: Counter },
+  ): PromiseLike<{ data: unknown; error: unknown }>
+  rpc(
+    fn: "rpc_reserve_ai_usage",
+    args: { p_counter: ReserveCounter },
   ): PromiseLike<{ data: unknown; error: unknown }>
 }
 
@@ -134,4 +141,94 @@ export async function incrementAiUsage(
   counter: Counter,
 ): Promise<void> {
   await supabase.rpc("rpc_increment_ai_usage", { p_user_id: userId, p_counter: counter })
+}
+
+// ─── Reserva atómica (v31-ia-ratelimit-budget, D6) ───────────────────────────
+//
+// `checkAiQuota` + `incrementAiUsage` son dos pasos separados por la llamada a
+// OpenAI (10 s o más): una ráfaga concurrente pasa entera el chequeo. Para el
+// OCR la cuota se RESERVA antes de llamar, con un UPDATE condicional único en la
+// base (`rpc_reserve_ai_usage`). A diferencia de `checkAiQuota` (fail-open), la
+// reserva es FAIL-CLOSED: si no se puede resolver, no se llama a OpenAI (OQ-3).
+//
+// Usage (after auth + cheap rejections, BEFORE OpenAI), con el cliente del
+// USUARIO (la RPC resuelve auth.uid()), nunca el de service role:
+//   const r = await reserveAiUsage(supabase, 'ocr')
+//   if (r.kind !== 'allowed') return jsonResponse(r.body, r.status, retryHeaders(r))
+
+export type AiReservationResult =
+  | { kind: "allowed" }
+  | {
+      kind: "denied"
+      status: 429
+      body:
+        | { ok: false; error: "quota_exceeded"; resetAt: string | null; used: number; limit: number }
+        | { ok: false; error: "rate_limited"; retryAfterSeconds: number }
+      /** Presente sólo en `rate_limited`: valor del header `Retry-After`. */
+      retryAfterSeconds?: number
+    }
+  | { kind: "unavailable"; status: 503; body: { ok: false; error: "quota_unavailable" } }
+
+const UNAVAILABLE: AiReservationResult = {
+  kind: "unavailable",
+  status: 503,
+  body: { ok: false, error: "quota_unavailable" },
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+/**
+ * Traduce el `jsonb` de `rpc_reserve_ai_usage` al resultado del handler. Pura y
+ * exportada para testearla: cualquier forma que no se reconozca por completo es
+ * `unavailable` (503), nunca una concesión por omisión.
+ */
+export function mapAiReservation(data: unknown, error: unknown): AiReservationResult {
+  if (error || !isRecord(data) || typeof data.allowed !== "boolean") return UNAVAILABLE
+  if (data.allowed) return { kind: "allowed" }
+
+  if (data.reason === "quota_exceeded") {
+    if (typeof data.used !== "number" || typeof data.limit !== "number") return UNAVAILABLE
+    return {
+      kind: "denied",
+      status: 429,
+      body: {
+        ok: false,
+        error: "quota_exceeded",
+        resetAt: typeof data.reset_at === "string" ? data.reset_at : null,
+        used: data.used,
+        limit: data.limit,
+      },
+    }
+  }
+
+  if (data.reason === "rate_limited") {
+    const retry = data.retry_after_seconds
+    if (typeof retry !== "number" || !Number.isFinite(retry) || retry < 1) return UNAVAILABLE
+    return {
+      kind: "denied",
+      status: 429,
+      body: { ok: false, error: "rate_limited", retryAfterSeconds: retry },
+      retryAfterSeconds: retry,
+    }
+  }
+
+  return UNAVAILABLE
+}
+
+/**
+ * Reserva una unidad del contador para el usuario autenticado. Una reserva
+ * concedida NO se devuelve (OQ-2): OpenAI factura la llamada aunque falle.
+ */
+export async function reserveAiUsage(
+  supabase: AiQuotaClient,
+  counter: ReserveCounter,
+): Promise<AiReservationResult> {
+  try {
+    const { data, error } = await supabase.rpc("rpc_reserve_ai_usage", { p_counter: counter })
+    return mapAiReservation(data, error)
+  } catch (_err) {
+    return UNAVAILABLE
+  }
 }

@@ -120,6 +120,7 @@ Una persona se suma a un negocio por **invitación**: el dueño o un administrad
 | Exportaciones/mes | 0 | 3 | 15 | 50 |
 | Consultas IA/mes | 5 | 30 | 120 | 300 |
 | Consejos IA/mes | 3 | 15 | 60 | 150 |
+| Lecturas de factura IA/mes (OCR) | 5 | 30 | 120 | 300 |
 | Rentabilidad por producto | ❌ | ❌ | ✅ | ✅ |
 | Reportes comparativos | ❌ | ❌ | ✅ | ✅ |
 | Roles internos ⁽¹⁾ | Todos | Todos | Todos | Todos |

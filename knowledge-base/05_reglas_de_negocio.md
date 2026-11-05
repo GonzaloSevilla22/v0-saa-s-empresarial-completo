@@ -215,6 +215,15 @@ Cuando el usuario confirma el match OCR → producto, el alias se guarda en `pro
 ### RN-53 — Conversión a compra
 Una factura OCR completada puede convertirse en una compra (`purchase_operation_id`) siguiendo el mismo flujo atómico del carrito (RN-10). Esta acción es irreversible una vez que `purchase_operation_id` está setteado.
 
+### RN-54 — Cuota y ráfaga del OCR
+Cada lectura de factura con IA (`invoice-ocr`) consume una unidad del contador propio `profiles.ai_ocr_used`, independiente de `ai_queries_used` y `ai_advice_used`. El límite mensual por usuario sale de `plan_limits.max_ai_ocr_per_month` según el plan efectivo de la cuenta activa (`rpc_my_effective_plan()`): gratis 5, inicial 30, avanzado 120, pro 300. El cron `reset-ai-counters` lo reinicia a las 00:00 UTC del día 1.
+
+- **Reserva previa y sin devolución.** El cupo se reserva ANTES de llamar a OpenAI con `rpc_reserve_ai_usage('ocr')` (un solo `UPDATE` condicional: dos pedidos concurrentes no superan el cupo). Una reserva concedida no se devuelve aunque OpenAI falle: OpenAI factura la llamada igual. Los rechazos de entrada (404/409/422/413) y los de cupo (429/503) no consumen ni tocan la fila del documento.
+- **Ráfaga.** Máximo 3 reservas por ventana fija de 60 s por usuario; la cuarta recibe 429 `rate_limited` con `Retry-After`. Si además no quedan lecturas del mes, informa `quota_exceeded`.
+- **Techo por llamada.** La imagen descargada no puede superar 6 MiB (413); el modelo sale de la allow-list `gpt-4o-mini`/`gpt-4o` (`INVOICE_AI_MODEL`, default `gpt-4o-mini`); salida acotada a 2.000 tokens y timeout de 55 s.
+- **Fail-closed.** Si la reserva no puede resolverse, la función responde 503 `quota_unavailable` y no llama a OpenAI (a diferencia de `checkAiQuota`, que es fail-open).
+- **Candado de doble clic.** Una fila `processing` actualizada hace menos de 90 s responde 409; no es el control de abuso (el dueño puede reescribir `status`), lo es el contador.
+
 ---
 
 ## Dominio: Comunidad

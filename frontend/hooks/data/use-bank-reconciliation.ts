@@ -272,8 +272,12 @@ export function useSessionMatches(sessionId: string | null) {
 
 function useInvalidateReconciliation() {
   const queryClient = useQueryClient()
-  return () =>
+  return () => {
     queryClient.invalidateQueries({ queryKey: queryKeys.bankReconciliation.all() })
+    // banco-saldo-segun-libro: un ajuste manual cambia el saldo y una conciliación
+    // cambia los "sin conciliar" que muestra la card de /banco.
+    queryClient.invalidateQueries({ queryKey: queryKeys.bankAccounts.all() })
+  }
 }
 
 export function useImportStatement(bankAccountId: string | null) {

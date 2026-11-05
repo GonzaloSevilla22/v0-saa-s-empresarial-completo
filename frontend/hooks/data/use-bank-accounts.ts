@@ -16,6 +16,11 @@ export interface BankAccountApi {
   currency: string
   account_kind: "bank" | "wallet"
   is_active: boolean
+  // banco-saldo-segun-libro: Decimal del backend llega como string (o number).
+  opening_balance?: string | number
+  current_balance?: string | number
+  last_movement_date?: string | null
+  pending_reconciliation_count?: number
 }
 
 // ── Domain type ────────────────────────────────────────────────────────────────
@@ -30,6 +35,12 @@ export interface BankAccount {
   currency: string
   accountKind: "bank" | "wallet"
   isActive: boolean
+  /** Saldo inicial de la cuenta (base de cálculo). */
+  openingBalance: number
+  /** Saldo según libro = saldo inicial + Σ movimientos (calculado por el servidor). */
+  currentBalance: number
+  lastMovementDate: string | null
+  pendingReconciliationCount: number
 }
 
 function mapBankAccount(r: BankAccountApi): BankAccount {
@@ -45,6 +56,10 @@ function mapBankAccount(r: BankAccountApi): BankAccount {
     // manda el campo (mismo criterio que lib/bank-account-kind.ts).
     accountKind: r.account_kind ?? "bank",
     isActive:    r.is_active,
+    openingBalance:             Number(r.opening_balance ?? 0),
+    currentBalance:             Number(r.current_balance ?? 0),
+    lastMovementDate:           r.last_movement_date ?? null,
+    pendingReconciliationCount: r.pending_reconciliation_count ?? 0,
   }
 }
 

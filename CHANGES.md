@@ -1969,7 +1969,7 @@ C3 bank-reconciliation ✅ (2026-07-02 — nació con RN-A/RN-D5 aplicadas)
 | **H-07** ✅ **ARCHIVADO 2026-09-05** (hook activo en prod desde 2026-08-01, verificado por `auth_logs`; prueba de aceptación 8.5 cumplida 2026-09-05 con un centro de costo real; residuo declarado: 8.4 diferida, ver ficha) Capa de autorización ficticia (rol nunca viaja en JWT): `require_role` no-op / bloqueo total, `require_plan` dead code, gating fail-open; `cost_centers` = 403 universal | ALTO | `v31-authz-token-hook` | P1 | CRÍTICO (auth) | M |
 | **H-09** Endpoint Python del outbox + `rpc_mark_event_processed` disparables por cualquier JWT → supresión de asientos contables | ALTO | `v31-outbox-endpoint-protect` | P1 | ALTO | S |
 | **H-10** Borrado de ventas/compras fuera de RPC → toca ledger inmutable/contabilidad sin compensación. Si introduce la anulación de `sales_orders`, debe sembrar la fila `sales_order draft→canceled` en `document_status_transitions` en su propia migración (G3 de `v31-fsm-status-triggers` ✅ 2026-07-31: `canceled` está en el `CHECK` de columna pero no en el catálogo, así que el trigger `BEFORE UPDATE` lo rechaza hoy). | ALTO | `v31-sales-delete-rpc-reversal` | P1 | ALTO (contable) | M |
-| **H-11** `invoice-ocr` sin techo de costo + sin rate limiting → DoS/costo OpenAI | ALTO | `v31-ia-ratelimit-budget` | P1 | MEDIO | M |
+| **H-11** (propose 2026-11-05, PR #663 en revisión) `invoice-ocr` sin techo de costo + sin rate limiting → DoS/costo OpenAI | ALTO | `v31-ia-ratelimit-budget` | P1 | MEDIO | M |
 | **H-34** Sin tier de integración real contra Postgres en CI (arqueo, conciliación, partida doble, webhook) + gates SQL degradables a NOTICE | ALTO | `v31-money-integration-tests` | P1 | MEDIO | L |
 | **H-15** `sale_items` no universal (flag off 3/29, `name_snapshot`/`iva_rate_snapshot` NULL) + `purchase_items` congelada mid-history | MEDIO | `v31-document-lines-consistency` | P1 | MEDIO | M |
 | **H-20** IA sin telemetría (tokens/costo/latencia/calidad) ni evals; `_shared` de Edge Functions no consolidado | MEDIO | `v31-ia-telemetry-evals` | P1 | BAJO | M |
@@ -2231,13 +2231,13 @@ Ningún change v4 duplica un `v31-*`: lo **referencia** en el campo **Consolida*
   - Reusar la conexión Redis ya inicializada en el lifespan (`backend/core/redis_client.py`) — no crear un segundo cliente.
   - Excepción documentada y con límite específico (no exclusión ciega) para `POST /payments/webhook` (IP variable de MercadoPago).
   - 429 en shape RFC 7807 (reusa `problem_response` de `v4-backend-03`) con header `Retry-After`.
-  - Reusar la primitiva de token bucket de `v31-ia-ratelimit-budget` en vez de reimplementarla.
+  - ~~Reusar la primitiva de token bucket de `v31-ia-ratelimit-budget`~~ — H-11 no deja primitiva Redis (ver Dependencias); el bucket nace acá, una sola vez.
 - **Criterios de aceptación**:
   - Test que dispara N+1 requests a una ruta de mutación recibe 429 RFC 7807 + `Retry-After` en el intento N+1.
   - Límite del webhook de pagos documentado (valor+justificación); test confirma que el volumen normal de MercadoPago no dispara 429.
   - Login/reset-password con límite más estricto que rutas de negocio, verificado por test.
   - No se crea una segunda conexión Redis (verificado por code review).
-- **Dependencias**: `v31-ia-ratelimit-budget` (H-11, reusa primitiva Redis); `backend/core/redis_client.py`.
+- **Dependencias**: `backend/core/redis_client.py`. ~~`v31-ia-ratelimit-budget` (H-11, reusa primitiva Redis)~~ → **re-scopeado 2026-11-05** por el propose de H-11 (PR #663, `design.md` hallazgo 4): el OCR corre en una Edge Function Deno, así que su límite de ráfaga vive en **Postgres** (`rpc_reserve_ai_usage`), no en Redis; este middleware ASGI construye su propio bucket sobre Redis y no hereda nada de H-11.
 - **Consolida**: M-SEC-03 + M-ARQ-09 (rate limiting general); complementa H-11.
 
 #### `v4-backend-08` — Cache Redis de lecturas calientes (dashboard/reporting)
@@ -4572,3 +4572,45 @@ El pedido literal (RPC con rol y motivo + quitar `GRANT` y policies) es correcto
 **Pendiente del orquestador**: 17.3 (revisión) y el merge; y del PO, 17.4 (humo real; pasos en `docs/pendientes-manuales-po.md` §5).
 
 **ARCHIVE 2026-11-05** (PR **#662**): change archivado en `openspec/changes/archive/2026-11-05-edicion-operaciones-con-dinero/`. Specs sincronizadas: 1 capability nueva (`operation-money-edit`) + 15 modificadas (`openspec validate --specs --strict` 114 → 115). Tareas cerradas 5.3, 5.4, 11.3, 11.4 y 17.3 (verificación post-merge en prod 2026-11-05: 336 migraciones, `max(version)=20261089000001`, 15 funciones con una sola firma y ACLs esperadas, 0 eventos pendientes, invariante de aging sin violaciones). Pendiente 17.4: humo real del PO (`docs/pendientes-manuales-po.md` §5); no bloquea el archive.
+
+## Change `v31-ia-ratelimit-budget` — PROPOSE 2026-11-05 (PR **#663**, en revisión; migración reservada `20261090000001_ia_ocr_cuota_reserva.sql`; governance **MEDIO**: costo de OpenAI y disponibilidad del OCR, sin dinero de negocio)
+
+**Pedido y sign-off.** Hallazgo **H-11** del Roadmap v3.1 (P1, esfuerzo M): *«`invoice-ocr` sin techo de costo + sin rate limiting → DoS/costo OpenAI»*. Sign-off del 2026-11-04 (*«continuando con los changes 1 por 1 y que siempre vayas con lo recomendado»*): **OQ-1 a OQ-8 se resuelven por su opción recomendada**. Queda registrado en `design.md` §"Sign-off del PO".
+
+**Qué hace.**
+
+- **Cuota mensual propia de lecturas de factura por plan.** `profiles.ai_ocr_used` y `plan_limits.max_ai_ocr_per_month` = 5/30/120/300 (OQ-1). No consume las consultas IA.
+- **Reserva atómica antes de llamar a OpenAI.** La hace `rpc_reserve_ai_usage('ocr')`: es `SECURITY DEFINER`, toma el usuario de `auth.uid()` y el plan de `rpc_my_effective_plan()`, y en un solo `UPDATE` condicional comprueba cuota y ráfaga y consume.
+- **Ráfaga.** 3 lecturas cada 60 s por usuario, en Postgres y sin Redis (OQ-4).
+- **Techo por llamada.**
+  - imagen de 6 MiB como máximo, medida sobre los bytes descargados → 413 (OQ-6);
+  - allow-list de modelo `gpt-4o-mini`/`gpt-4o`;
+  - `max_tokens` de 2000 y `detail: 'high'` (OQ-7);
+  - base64 por bloques.
+- **Contrato de rechazo.**
+  - 429 `quota_exceeded`/`rate_limited`, con `Retry-After`;
+  - 503 fail-closed si la reserva no se resuelve (OQ-3);
+  - un rechazo no toca la fila;
+  - una reserva concedida no se devuelve (OQ-2).
+- **Reset y superficie.** El cron `reset-ai-counters` también resetea el contador del OCR. En `/compras`, botón «Subir factura IA», el diálogo muestra el saldo del mes, y en 0 un aviso con la renovación y «Ver planes».
+
+**Hallazgos que cambiaron el diseño** (medidos en prod el 2026-11-05, sólo lectura):
+
+1. **El OCR casi no se usa.** Hay 2 documentos en toda la historia y **0 en 90 días**, así que no hay backfill ni usuarios que rozar.
+2. **La cuota del resto de la IA tiene una carrera.** `checkAiQuota` chequea antes de OpenAI y `incrementAiUsage` incrementa después, así que una ráfaga concurrente pasa entera el chequeo. Para el OCR, la reserva se hace antes.
+3. **El estado del documento no es un guard.** El dueño puede reescribir `invoice_documents.status` por PostgREST, así que el guard real es el contador, que `authenticated` no puede escribir.
+4. **El costo de tokens por imagen ya lo acota OpenAI** con el reescalado de `detail: 'high'`. La palanca de costo es la cantidad de llamadas, y por eso cuota más ráfaga.
+5. **El modelo vivo es `gpt-4o-mini`.** `CLAUDE.md` decía `gpt-4o`; se corrige en el apply.
+
+**Superficie frontend**: `/compras` → «Subir factura IA» (existente), componente nuevo `OcrQuotaNotice` y errores tipados `InvoiceOcrError`, que retiran un `as any`. Admin **sin superficie**, declarado: la visibilidad del uso de OCR por usuario pasa a H-20.
+
+**Dependencias**: ninguna abierta. **Re-scope**: `v4-backend-07` deja de depender de este change (ver su ficha).
+
+**Candidatos que dejará el apply** (se dan de alta en la task 5.3):
+
+- migrar las otras 9 funciones de IA a la reserva atómica (`v3-ia-hygiene-baseline` / H-20);
+- el `resetAt` de `checkAiQuota` es el último reset, no el próximo;
+- el bucket `invoices` admite PDF y 20 MiB, contra los 6 MiB de la función;
+- la visibilidad de admin del uso de OCR.
+
+**Pendiente del PO** (`docs/pendientes-manuales-po.md` §6, no bloqueante): fijar un tope mensual de gasto en el proyecto de OpenAI (OQ-8), y los límites 5/30/120/300, que aplican salvo objeción.

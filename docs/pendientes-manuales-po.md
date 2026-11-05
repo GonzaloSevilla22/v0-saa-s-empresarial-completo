@@ -60,6 +60,16 @@ Si algo falla o el diálogo muestra algo que no coincide con los libros, decime 
 
 ---
 
+## 6. `v31-ia-ratelimit-budget` — límites de la lectura de facturas con IA (valores por defecto: aplican salvo que objetes)
+
+Este change pone un tope a la lectura de facturas con IA (`/compras` → «Subir factura IA»). Hoy no tiene ninguno: cualquier usuario, incluso del plan gratis, puede dispararla sin límite, y es la llamada de IA más cara. Uso real: 2 facturas leídas en toda la historia y ninguna en los últimos 90 días, así que nadie se va a cruzar con estos límites.
+
+- [ ] **Lecturas de factura por mes y por usuario**: gratis **5** · inicial **30** · avanzado **120** · pro **300**, el mismo número que las consultas IA. Si querés otros números, decímelo; se cambian sin deploy (es una fila de `plan_limits`).
+- [ ] **Ráfaga**: como máximo **3 lecturas por minuto** por usuario. Una lectura que falla del lado de OpenAI **cuenta igual**, porque OpenAI la cobra igual.
+- [ ] **Tope de gasto en OpenAI** (recomendado, sólo lo podés hacer vos): en el panel de OpenAI → *Settings → Limits* del proyecto que usa la app, fijá un **tope mensual de gasto**. Te sugiero unos US$20 hoy, y lo ajustás cuando crezca el uso. Es la red de último recurso si algo se escapa. No bloquea el change.
+
+---
+
 ## Registro de la corrida autónoma del 2026-11-04 (lo que hizo el agente)
 
 Se completa a medida que se mergea cada PR. Orden pactado: changes de a uno, siempre con la opción recomendada en cada OQ.
@@ -75,4 +85,5 @@ Se completa a medida que se mergea cada PR. Orden pactado: changes de a uno, sie
 | 19:40 | `edicion-operaciones-con-dinero` tanda A (huella neta, aging, consumidor contable; migración `20261088000001`; sin superficie: nada que probar a mano) | #659 | mergeado |
 | 02:20 (5-nov) | `edicion-operaciones-con-dinero` tanda B (edición con dinero; migración `20261089000001`; sin superficie nueva: la ve la tanda C) | #660 | mergeado |
 | 04:17 (5-nov) | `edicion-operaciones-con-dinero` tanda C (superficie: formularios de edición con dinero, diálogo del plan, historial de cambios; sin migración) | #661 | mergeado |
-| 05:00 (5-nov) | Archive `edicion-operaciones-con-dinero` (specs sincronizadas, change cerrado) | #662 | en revisión |
+| 04:33 (5-nov) | Archive `edicion-operaciones-con-dinero` (specs sincronizadas, change cerrado) | #662 | mergeado |
+| 04:45 (5-nov) | Propose v31-ia-ratelimit-budget (H-11: cuota y techo de costo del OCR) | #663 | en revisión |

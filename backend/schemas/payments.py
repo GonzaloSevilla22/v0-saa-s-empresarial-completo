@@ -35,6 +35,11 @@ class WebhookResponse(BaseModel):
     # deja un log de diagnóstico con la forma real del pago). Ver
     # `services.payments.process_payment`.
     ignored: str | None = None
+    # mp-cuota-acreditacion-resiliente D6: "subscription_charge" cuando la
+    # notificación `payment` de un cobro de suscripción traía
+    # `metadata.preapproval_id` de una suscripción con cuenta y disparó la
+    # reconciliación de ese preapproval (ya no "sin escrituras").
+    reconciled: str | None = None
 
 
 # ── Recibos de pago (#4 comprobante) ──────────────────────────────────────────

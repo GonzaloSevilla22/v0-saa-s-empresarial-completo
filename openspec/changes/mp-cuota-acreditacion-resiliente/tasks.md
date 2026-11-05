@@ -37,12 +37,12 @@
 
 ## 4. Webhook `payment` como acelerador (D6)
 
-- [ ] 4.1 RED (`test_payments.py`): `payment` aprobado con `external_reference` vacío y `metadata.preapproval_id` de una suscripción con cuenta → llama al núcleo y responde `{"ok": true, "reconciled": "subscription_charge"}`.
-- [ ] 4.2 RED: mismo pago con `operation_type=recurring_payment` sin `metadata.preapproval_id`, con preapproval desconocido o con suscripción sin cuenta → `ignored="subscription_charge"` y ningún `execute` (contrato actual intacto).
-- [ ] 4.3 RED: error de MercadoPago dentro del núcleo → 502 sin escrituras.
-- [ ] 4.4 RED: pago ya acreditado (fila en `billing_events` con ese `mercadopago_payment_id`) → `idempotent` sin consultar MercadoPago (check existente).
-- [ ] 4.5 GREEN: implementar la rama en `process_payment` (`WebhookResponse` gana `reconciled: str | None`); el servicio de pagos recibe el repositorio de suscripciones por parámetro, sin import circular.
-- [ ] 4.6 Integración (`test_subscriptions_webhook_handlers_integration.py`): `payment` con `metadata.preapproval_id` acredita; la notificación tardía `processed/approved` de la misma cuota después no duplica nada.
+- [x] 4.1 RED (`test_payments.py`): `payment` aprobado con `external_reference` vacío y `metadata.preapproval_id` de una suscripción con cuenta → llama al núcleo y responde `{"ok": true, "reconciled": "subscription_charge"}`.
+- [x] 4.2 RED: mismo pago con `operation_type=recurring_payment` sin `metadata.preapproval_id`, con preapproval desconocido o con suscripción sin cuenta → `ignored="subscription_charge"` y ningún `execute` (contrato actual intacto).
+- [x] 4.3 RED: error de MercadoPago dentro del núcleo → 502 sin escrituras.
+- [x] 4.4 RED: pago ya acreditado (fila en `billing_events` con ese `mercadopago_payment_id`) → `idempotent` sin consultar MercadoPago (check existente).
+- [x] 4.5 GREEN: implementar la rama en `process_payment` (`WebhookResponse` gana `reconciled: str | None`); el servicio de pagos recibe el repositorio de suscripciones por parámetro, sin import circular.
+- [x] 4.6 Integración (`test_subscriptions_webhook_handlers_integration.py`): `payment` con `metadata.preapproval_id` acredita; la notificación tardía `processed/approved` de la misma cuota después no duplica nada.
 
 ## 5. Observabilidad (D8)
 

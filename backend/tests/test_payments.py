@@ -1251,3 +1251,189 @@ class TestFetchUserEmailServiceRoleKeyAlias:
 
         mock_get.assert_not_awaited()
         assert result is None
+
+
+# ── mp-cuota-acreditacion-resiliente D6 — el `payment` de un cobro de
+#    suscripción como ACELERADOR de la reconciliación ──────────────────────────
+# Caso real: el pago 187789722328 (cuota de noviembre) llegó dos veces y se
+# ignoró por diseño, mientras la cuota `processed` nunca se notificó. Con
+# `metadata.preapproval_id` de una suscripción con cuenta, ese mismo `payment`
+# reconcilia el preapproval en el momento; sin ese vínculo positivo, el
+# contrato de siempre (ignored, sin escrituras) — el barrido lo cubre.
+
+PREAPPROVAL = "50681db010a341968e53c3880d52c3e9"
+KNOWN_SUB = {
+    "id": "fa624f9b-32e5-4b5c-ad0d-fc64e6dc16b1",
+    "account_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+    "preapproval_id": PREAPPROVAL,
+    "plan": "inicial",
+}
+
+
+def _sub_payment(**overrides) -> dict:
+    data = {
+        "id": 187789722328,
+        "status": "approved",
+        "external_reference": None,
+        "transaction_amount": 24900,
+        "operation_type": "recurring_payment",
+        "metadata": {"preapproval_id": PREAPPROVAL},
+    }
+    data.update(overrides)
+    return data
+
+
+def _conn_without_billing_event():
+    conn = AsyncMock()
+    conn.fetchrow = AsyncMock(return_value=None)
+    conn.execute = AsyncMock(return_value="OK")
+    return conn
+
+
+class TestSubscriptionChargeAccelerator:
+    async def _run(self, payment: dict, sub, *, enabled: bool = True, core=None, repo=None):
+        from backend.services import payments as payments_module
+
+        conn = _conn_without_billing_event()
+        repo = repo or AsyncMock()
+        repo.find_by_preapproval_id = AsyncMock(return_value=sub)
+        core = core or AsyncMock(return_value={"applied": ["7033613241"], "already_applied": []})
+        with (
+            patch.object(payments_module, "_fetch_mp_payment", new=AsyncMock(return_value=payment)),
+            patch.object(payments_module.settings, "billing_subscriptions_enabled", enabled),
+            patch("backend.services.subscriptions.reconcile_preapproval_charges", new=core),
+        ):
+            result = await payments_module.process_payment("187789722328", conn, subscriptions_repo=repo)
+        return result, conn, repo, core
+
+    async def test_known_preapproval_with_account_reconciles(self):
+        """4.1 RED: `payment` aprobado sin external_reference y con
+        `metadata.preapproval_id` de una suscripción con cuenta → núcleo de
+        reconciliación para ESE preapproval y `reconciled`."""
+        result, conn, repo, core = await self._run(_sub_payment(), KNOWN_SUB)
+
+        assert result.ok is True
+        assert result.reconciled == "subscription_charge"
+        assert result.ignored is None
+        repo.find_by_preapproval_id.assert_awaited_once_with(PREAPPROVAL)
+        core.assert_awaited_once()
+        assert core.await_args.args == (KNOWN_SUB, repo, conn)
+
+    async def test_preapproval_marker_alone_also_reconciles(self):
+        """TRIANGULATE: aunque el único marcador sea `metadata.preapproval_id`
+        (sin `operation_type`), el vínculo positivo alcanza."""
+        payment = _sub_payment()
+        payment.pop("operation_type")
+        result, *_rest, core = await self._run(payment, KNOWN_SUB)
+        assert result.reconciled == "subscription_charge"
+        core.assert_awaited_once()
+
+    @pytest.mark.parametrize(
+        "payment, sub",
+        [
+            # marcador presente pero sin metadata.preapproval_id
+            (_sub_payment(metadata={}), KNOWN_SUB),
+            # preapproval desconocido
+            (_sub_payment(), None),
+            # suscripción sin cuenta (cola de ambiguas)
+            (_sub_payment(), {**KNOWN_SUB, "account_id": None}),
+        ],
+        ids=["no-preapproval-id", "unknown-preapproval", "subscription-without-account"],
+    )
+    async def test_without_positive_link_keeps_ignoring_without_writes(self, payment, sub):
+        """4.2 RED: sin vínculo positivo el contrato no cambia —
+        `ignored="subscription_charge"`, ningún `execute`, ni núcleo."""
+        result, conn, _repo, core = await self._run(payment, sub)
+
+        assert result.ignored == "subscription_charge"
+        assert result.reconciled is None
+        core.assert_not_awaited()
+        conn.execute.assert_not_called()
+
+    async def test_switch_off_keeps_ignoring(self):
+        """TRIANGULATE: con la palanca de suscripciones apagada el
+        acelerador no corre (ni siquiera busca la suscripción)."""
+        result, conn, repo, core = await self._run(_sub_payment(), KNOWN_SUB, enabled=False)
+
+        assert result.ignored == "subscription_charge"
+        repo.find_by_preapproval_id.assert_not_awaited()
+        core.assert_not_awaited()
+
+    async def test_mercadopago_failure_inside_reconciliation_is_502(self):
+        """4.3 RED: un error de MercadoPago dentro del núcleo sale como 502
+        (MercadoPago reintenta la notificación), sin escrituras propias."""
+        from fastapi import HTTPException
+
+        core = AsyncMock(side_effect=HTTPException(status_code=502, detail="No se pudo consultar MercadoPago"))
+        with pytest.raises(HTTPException) as exc:
+            await self._run(_sub_payment(), KNOWN_SUB, core=core)
+        assert exc.value.status_code == 502
+
+    async def test_already_credited_payment_is_idempotent_without_mercadopago(self):
+        """4.4: el pago ya acreditado (fila en billing_events con ese
+        `mercadopago_payment_id`) corta con `idempotent` antes de consultar
+        MercadoPago o reconciliar."""
+        from backend.services import payments as payments_module
+
+        conn = AsyncMock()
+        conn.fetchrow = AsyncMock(return_value={"id": "be-1"})
+        repo = AsyncMock()
+        core = AsyncMock()
+        fetch = AsyncMock()
+        with (
+            patch.object(payments_module, "_fetch_mp_payment", new=fetch),
+            patch.object(payments_module.settings, "billing_subscriptions_enabled", True),
+            patch("backend.services.subscriptions.reconcile_preapproval_charges", new=core),
+        ):
+            result = await payments_module.process_payment("187789722328", conn, subscriptions_repo=repo)
+
+        assert result.idempotent is True
+        fetch.assert_not_awaited()
+        core.assert_not_awaited()
+
+    async def test_marker_decision_is_logged_with_preapproval_and_outcome_without_payer_data(self, caplog):
+        """5.1 (D8): la línea del marcador nombra el marcador, el
+        preapproval resuelto y el resultado — y ningún dato del pagador."""
+        payment = _sub_payment(payer={"email": "pagador@example.com", "first_name": "Ana"})
+        with caplog.at_level(logging.INFO, logger="backend.services.payments"):
+            await self._run(payment, KNOWN_SUB)
+
+        lines = [r.getMessage() for r in caplog.records if r.name == "backend.services.payments"]
+        decision = [m for m in lines if "187789722328" in m and "marker=" in m]
+        assert len(decision) == 1
+        assert "marker=operation_type" in decision[0]
+        assert f"preapproval={PREAPPROVAL}" in decision[0]
+        assert "outcome=reconciled" in decision[0]
+        assert not any("pagador@example.com" in m or "Ana" in m for m in lines)
+
+    async def test_ignored_decision_logs_none_preapproval(self, caplog):
+        """TRIANGULATE (5.1): sin vínculo, `preapproval=None outcome=ignored`."""
+        with caplog.at_level(logging.INFO, logger="backend.services.payments"):
+            await self._run(_sub_payment(metadata={}), KNOWN_SUB)
+        decision = [r.getMessage() for r in caplog.records if "marker=" in r.getMessage()]
+        assert len(decision) == 1
+        assert "preapproval=None" in decision[0] and "outcome=ignored" in decision[0]
+
+
+async def test_webhook_payment_topic_wires_the_subscriptions_repository(async_client, mock_service_pool):
+    """4.5: el router pasa un `SubscriptionsRepository` sobre la conexión de
+    servicio a `process_payment` (sin import circular entre servicios)."""
+    from backend.schemas.payments import WebhookResponse
+
+    pool, conn = mock_service_pool
+    body = _mp_body("pay-sub-wire")
+    sig = _make_signature("pay-sub-wire")
+    with (
+        patch("backend.core.database.pool", pool),
+        patch("backend.core.config.settings.mercadopago_webhook_secret", SECRET),
+        patch(
+            "backend.routers.payments.process_payment",
+            new_callable=AsyncMock, return_value=WebhookResponse(ok=True, reconciled="subscription_charge"),
+        ) as proc,
+    ):
+        resp = await _post_webhook(async_client, body, sig)
+
+    assert resp.status_code == 200
+    assert resp.json()["reconciled"] == "subscription_charge"
+    repo = proc.await_args.kwargs["subscriptions_repo"]
+    assert repo._conn is conn

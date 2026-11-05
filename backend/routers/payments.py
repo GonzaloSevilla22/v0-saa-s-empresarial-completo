@@ -138,7 +138,11 @@ async def mercadopago_webhook(
     )
 
     if notification.type == "payment":
-        return await process_payment(notification.data.id, conn, shadow=shadow)
+        # mp-cuota-acreditacion-resiliente D6: el repositorio de suscripciones
+        # habilita el acelerador de cobros de suscripción (ver process_payment).
+        return await process_payment(
+            notification.data.id, conn, shadow=shadow, subscriptions_repo=SubscriptionsRepository(conn)
+        )
 
     # mp-real-subscriptions D2bis/D9: topics de suscripción. Detrás de la
     # palanca — apagada, se tratan como "topic no manejado" (task 6.11: sin

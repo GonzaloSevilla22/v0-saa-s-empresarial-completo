@@ -48,6 +48,7 @@ function checkoutState(over: Partial<PurchaseCheckoutState> = {}): PurchaseCheck
       reason: "Sólo un pago en efectivo puede registrarse en la caja.",
     },
     showCashBlock: false,
+    hadCash: false,
     cashPending: false,
     registerInCash: true,
     setRegisterInCash: vi.fn(),
@@ -128,9 +129,10 @@ describe("PurchaseCheckoutFields — cuenta bancaria", () => {
     expect(screen.getByTestId("bank-account-select")).toHaveAttribute("data-kind", "transfer")
   })
 
-  it("en la edición NO se monta (la RPC de edición no tiene destino bancario, D8)", () => {
+  // edicion-operaciones-con-dinero (tanda C, D7): la edición YA tiene destino bancario (compensa y registra en el banco).
+  it("en la edición también se monta, con el kind elegido", () => {
     renderFields({ mode: "edit", checkout: checkoutState({ kind: "transfer" }) })
-    expect(screen.queryByTestId("bank-account-select")).not.toBeInTheDocument()
+    expect(screen.getByTestId("bank-account-select")).toHaveAttribute("data-kind", "transfer")
   })
 })
 
@@ -173,7 +175,7 @@ describe("PurchaseCheckoutFields — opt-in de caja", () => {
     expect(screen.getByRole("note")).toHaveTextContent("No hay caja abierta en esta sucursal")
   })
 
-  it("sin showCashBlock (otra forma de pago o edición) no hay bloque de caja", () => {
+  it("sin showCashBlock (otra forma de pago) no hay bloque de caja", () => {
     renderFields({ checkout: checkoutState({ kind: "transfer", showCashBlock: false }) })
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument()
     expect(screen.queryByRole("note")).not.toBeInTheDocument()
@@ -197,17 +199,18 @@ describe("PurchaseCheckoutFields — cuenta corriente del proveedor", () => {
     expect(screen.queryByText(/Saldo actual:/)).not.toBeInTheDocument()
   })
 
-  it("en la edición sólo muestra el saldo actual (la edición nunca postea cargos)", () => {
+  // edicion-operaciones-con-dinero (tanda C): la edición SÍ compensa y registra el cargo, así que proyecta el saldo y, pasar a
+  // crédito, ya no se rechaza ni se avisa (`credit_transition_not_allowed` se retiró en la tanda B).
+  it("en la edición muestra el saldo actual y el saldo estimado después de guardar", () => {
     renderFields({ mode: "edit", checkout: credit })
     expect(screen.getByText(/Saldo actual:/)).toBeInTheDocument()
+    expect(screen.getByText(/Después de guardar:/)).toBeInTheDocument()
     expect(screen.queryByText(/Después de esta compra:/)).not.toBeInTheDocument()
   })
 
-  it("en la edición, pasar a crédito desde otra forma de pago se avisa", () => {
-    renderFields({ mode: "edit", checkout: credit, isTransitioningToCredit: true })
-    expect(
-      screen.getByText("La edición no postea cargos: para pasar esta compra a crédito, borrala y volvé a cargarla."),
-    ).toBeInTheDocument()
+  it("en la edición ya no hay aviso de 'borrala y volvé a cargarla' al pasar a crédito", () => {
+    renderFields({ mode: "edit", checkout: credit })
+    expect(screen.queryByText(/borrala y volvé a cargarla/i)).not.toBeInTheDocument()
   })
 
   it("con otra forma de pago no hay bloque de crédito", () => {

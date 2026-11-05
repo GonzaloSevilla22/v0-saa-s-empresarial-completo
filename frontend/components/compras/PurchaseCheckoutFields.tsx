@@ -27,9 +27,10 @@
  *   - `beforeCredit`: lo que va entre el bloque de caja y el de cuenta corriente (el
  *     selector de proveedor).
  *
- * `mode="edit"` (sólo el formulario): sin cuenta bancaria (la RPC de edición no la
- * tiene, D8) y con el bloque de crédito de la edición (la edición nunca postea
- * cargos: no proyecta saldo y avisa si se pasa a crédito).
+ * `mode="edit"` (sólo el formulario). edicion-operaciones-con-dinero (tanda C): la edición YA compensa y registra en la
+ * cuenta corriente, la caja y el banco, así que el modo edición muestra los mismos bloques que el alta —cuenta bancaria,
+ * caja («Registrado en caja» si hay huella) y cuenta corriente con el saldo estimado y el vencimiento vigente— con copy de
+ * edición. El plan exacto lo muestra el diálogo de confirmación.
  */
 
 import type { ReactNode } from "react"
@@ -64,8 +65,8 @@ interface PurchaseCheckoutFieldsProps {
   /** Muestra el vencimiento a crédito; exige `dueDate`. */
   showDueDate?: boolean
   dueDate?: DueDateCascadeState
-  /** Edición: la forma de pago pasa de otra a crédito (el servidor lo rechaza, se avisa). */
-  isTransitioningToCredit?: boolean
+  /** Edición con cargo vigente: el vencimiento que muestra es el de la deuda actual, no el de la cascada. */
+  dueDateIsCurrent?: boolean
   /** Celdas de la grilla justo después de la fecha. */
   afterDate?: ReactNode
   /** Entre el bloque de caja y el de cuenta corriente. */
@@ -93,7 +94,7 @@ export function PurchaseCheckoutFields({
   onBankAccountChange,
   showDueDate = false,
   dueDate,
-  isTransitioningToCredit = false,
+  dueDateIsCurrent = false,
   afterDate,
   beforeCredit,
   gridClassName = "grid grid-cols-2 gap-3",
@@ -139,29 +140,30 @@ export function PurchaseCheckoutFields({
 
         {/* ── Cuenta bancaria destino del egreso (pos-banco-movimientos D9)
             Contiguo al selector de forma de pago; cero render si el kind no es
-            bancario o la cuenta no tiene bancos cargados. Sin equivalente en
-            edición (D8). */}
-        {!isEdit && (
-          <BankAccountDestinationSelect
-            paymentMethodKind={checkout.kind}
-            value={bankAccountId}
-            onChange={onBankAccountChange}
-            className={SELECT_CLASS}
-          />
-        )}
+            bancario o la cuenta no tiene bancos cargados. También al editar
+            (edicion-operaciones-con-dinero D7): parte de la cuenta de la huella y sólo
+            viaja si el usuario la cambia. */}
+        <BankAccountDestinationSelect
+          paymentMethodKind={checkout.kind}
+          value={bankAccountId}
+          onChange={onBankAccountChange}
+          className={SELECT_CLASS}
+        />
       </div>
 
-      {/* ── Opt-in de caja (caja-compras-cobranzas D4, pre-marcado) ────────
+      {/* ── Opt-in de caja (caja-compras-cobranzas D4, pre-marcado en el alta) ──
           Las tres condiciones las verifica el servidor; acá se muestran para que el
           usuario no descubra el bloqueo con un error. Cuando no aplican, el motivo
-          se muestra: nunca se oculta en silencio. Sólo en el alta (D8: la compra con
-          caja posteada es inmutable). Mientras se averigua la sesión
-          (caja-optin-carga) se avisa y quien confirma espera: `checkout.cashPending`. */}
+          se muestra: nunca se oculta en silencio. Al editar (edicion-operaciones-con-dinero)
+          parte de lo que hay: «Registrado en caja» marcado si la compra ya tiene movimiento
+          de caja. Mientras se averigua la sesión (caja-optin-carga) se avisa y quien
+          confirma espera: `checkout.cashPending`. */}
       {checkout.showCashBlock && (
         <CashOptinBlock
           cash={checkout.cash}
           registerInCash={checkout.registerInCash}
           onRegisterInCashChange={checkout.setRegisterInCash}
+          hadFootprint={checkout.hadCash}
         />
       )}
 
@@ -169,13 +171,9 @@ export function PurchaseCheckoutFields({
 
       {/* ── Bloque de cuenta corriente (D6/OQ-D) ───────────────────────────
           Mismo patrón visual que SaleForm: cliente→proveedor obligatorio + saldo
-          actual/proyectado, sólo con 'credit'. Se muestra tanto en alta como en
-          edición para explicar el efecto. La edición NUNCA postea ni revierte
-          cargos (D7): a diferencia del alta, no tiene sentido mostrar «Después de
-          esta compra» ahí (prometería un efecto que no ocurre). Si además se está
-          TRANSICIONANDO a crédito desde otro kind (el servidor rechaza con
-          credit_transition_not_allowed), se avisa aparte — sin bloquear el submit
-          client-side. */}
+          actual/proyectado, sólo con 'credit'. En la edición
+          (edicion-operaciones-con-dinero) el saldo es una ESTIMACIÓN que no cuenta dos veces
+          el cargo vigente; el plan exacto lo da el servidor en la confirmación. */}
       {checkout.isCredit && (
         <div className="flex flex-col gap-1.5 rounded-md border border-border bg-accent/20 px-3 py-2 text-xs">
           {checkout.creditBlockedNoSupplier ? (
@@ -183,19 +181,12 @@ export function PurchaseCheckoutFields({
               <AlertCircle className="h-3.5 w-3.5 shrink-0" />
               <span>Elegí un proveedor: una compra a cuenta corriente se le carga a alguien.</span>
             </div>
-          ) : isEdit && isTransitioningToCredit ? (
-            <div className="flex items-center gap-2 text-warning">
-              <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-              <span>La edición no postea cargos: para pasar esta compra a crédito, borrala y volvé a cargarla.</span>
-            </div>
-          ) : isEdit ? (
-            <div className="text-muted-foreground">Saldo actual: {formatMoney(checkout.supplierBalance)}</div>
           ) : (
             <>
               <div className="flex items-center justify-between gap-2 text-muted-foreground">
                 <span>Saldo actual: {formatMoney(checkout.supplierBalance)}</span>
                 <span className="font-medium text-foreground">
-                  Después de esta compra: {formatMoney(checkout.projectedBalance)}
+                  {isEdit ? "Después de guardar" : "Después de esta compra"}: {formatMoney(checkout.projectedBalance)}
                 </span>
               </div>
               {showDueDate && dueDate && (
@@ -218,6 +209,8 @@ export function PurchaseCheckoutFields({
                   <p className="text-[11px] text-muted-foreground">
                     {dueDate.touched && dueDate.dueDate
                       ? "Vencimiento elegido para esta compra."
+                      : dueDateIsCurrent
+                        ? "Vencimiento vigente de esta compra: sólo cambia si lo modificás."
                       : dueDate.effectiveTermsDays !== null
                         ? dueDate.termsSource === "entity"
                           ? `Resuelto por el plazo del proveedor (${dueDate.effectiveTermsDays} días).`

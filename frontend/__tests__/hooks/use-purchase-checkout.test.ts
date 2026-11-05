@@ -71,7 +71,7 @@ describe("usePurchaseCheckout", () => {
   it("pasa a useCashOptin el kind, la sucursal, la fecha y el documento «compra»", () => {
     renderHook(() => usePurchaseCheckout({ ...base, paymentMethodId: "pm-cash", date: "2026-10-14" }))
     expect(cashOptinMock).toHaveBeenCalledWith({
-      kind: "cash", branchId: "branch-1", date: "2026-10-14", document: "compra",
+      kind: "cash", branchId: "branch-1", date: "2026-10-14", document: "compra", requiresDate: true,
     })
   })
 
@@ -122,15 +122,48 @@ describe("usePurchaseCheckout", () => {
       expect(result.current.cashSessionId).toBeNull()
     })
 
-    it("en la edición NO se ofrece la caja (D8: una compra con caja posteada es inmutable)", () => {
+    // edicion-operaciones-con-dinero (tanda C): la edición compensa y registra en caja, así que el bloque se ofrece también
+    // al editar. Parte de lo que HAY, no del pre-marcado del alta, y el hook nunca manda la sesión: qué clave de caja viaja lo
+    // decide `buildEditMoneyIntent`.
+    it("en la edición SÍ se ofrece la caja; sin movimiento de caja vigente el tilde parte DESMARCADO", () => {
       cashOptinMock.mockReturnValue(eligible)
       const { result } = renderHook(() => usePurchaseCheckout({ ...base, paymentMethodId: "pm-cash", isEdit: true }))
-      expect(result.current.showCashBlock).toBe(false)
+      expect(result.current.showCashBlock).toBe(true)
+      expect(result.current.registerInCash).toBe(false)
+      expect(result.current.hadCash).toBe(false)
       expect(result.current.cashSessionId).toBeNull()
+    })
+
+    it("en la edición con movimiento de caja vigente el tilde parte MARCADO (registrado en caja) y no exige la fecha de hoy", () => {
+      cashOptinMock.mockReturnValue(eligible)
+      const { result } = renderHook(() =>
+        usePurchaseCheckout({ ...base, paymentMethodId: "pm-cash", isEdit: true, hadCash: true }),
+      )
+      expect(result.current.registerInCash).toBe(true)
+      expect(result.current.hadCash).toBe(true)
+      expect(cashOptinMock).toHaveBeenLastCalledWith(expect.objectContaining({ requiresDate: false }))
+      expect(result.current.cashSessionId).toBeNull()
+    })
+
+    it("en el alta y en la edición SIN huella la fecha de hoy se sigue exigiendo", () => {
+      cashOptinMock.mockReturnValue(eligible)
+      renderHook(() => usePurchaseCheckout({ ...base, paymentMethodId: "pm-cash" }))
+      expect(cashOptinMock).toHaveBeenLastCalledWith(expect.objectContaining({ requiresDate: true }))
+      renderHook(() => usePurchaseCheckout({ ...base, paymentMethodId: "pm-cash", isEdit: true }))
+      expect(cashOptinMock).toHaveBeenLastCalledWith(expect.objectContaining({ requiresDate: true }))
     })
   })
 
   describe("cuenta corriente del proveedor", () => {
+    it("en la edición el saldo proyectado NO cuenta dos veces el cargo que la compra ya tiene", () => {
+      supplierAccountMock.mockReturnValue({ data: { balance: 1000 } })
+      const { result } = renderHook(() =>
+        usePurchaseCheckout({ ...base, paymentMethodId: "pm-credit", supplierId: "sup-1", total: 1200, isEdit: true, alreadyCharged: 1000 }),
+      )
+      expect(result.current.supplierBalance).toBe(1000)
+      expect(result.current.projectedBalance).toBe(1200)
+    })
+
     it("a crédito consulta la cuenta del proveedor y proyecta el saldo con el total", () => {
       supplierAccountMock.mockReturnValue({ data: { balance: 1000 } })
       const { result } = renderHook(() =>
@@ -195,13 +228,13 @@ describe("usePurchaseCheckout — caja cargando (caja-optin-carga)", () => {
     expect(result.current.cashSessionId).toBeNull()
   })
 
-  it("en la edición no hay caja que esperar (D8): cashPending=false aunque el hook diga que carga", () => {
+  it("en la edición también se espera la caja: confirmar ahora la mandaría a ciegas", () => {
     cashOptinMock.mockReturnValue(loading)
     const { result } = renderHook(() =>
-      usePurchaseCheckout({ ...base, paymentMethodId: "pm-cash", isEdit: true }),
+      usePurchaseCheckout({ ...base, paymentMethodId: "pm-cash", isEdit: true, hadCash: true }),
     )
 
-    expect(result.current.cashPending).toBe(false)
+    expect(result.current.cashPending).toBe(true)
   })
 
   it("forma de pago que no es efectivo: cashPending=false", () => {

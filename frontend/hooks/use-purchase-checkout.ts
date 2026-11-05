@@ -17,6 +17,12 @@
  * `credit_requires_supplier`…): esto sólo evita que el usuario descubra el bloqueo
  * con un error. Reutiliza `useCashOptin` (tercer consumidor, con la fecha propia de
  * la compra: la caja exige hoy).
+ *
+ * edicion-operaciones-con-dinero (tanda C): la EDICIÓN ya compensa y registra en caja, cuenta corriente y banco, así que el
+ * bloque de caja se ofrece también al editar. Parte de lo que HAY (`hadCash`: «Registrado en caja» marcado si la operación
+ * tiene movimiento de caja vigente, desmarcado si no), y corregir lo ya registrado no exige que la fecha sea hoy. A
+ * diferencia del alta, `cashSessionId` es siempre null al editar: qué clave de caja viaja la decide `buildEditMoneyIntent`
+ * (tri-estado por ausencia), no este hook.
  */
 
 import { useState } from "react"
@@ -38,10 +44,16 @@ export interface UsePurchaseCheckoutParams {
   /**
    * Edición del formulario: pide el catálogo COMPLETO de formas de pago (incluidas
    * las dadas de baja: la operación puede estar imputada a una desactivada, y esa
-   * lista resuelve su `kind`) y NO ofrece la caja (D8: una compra con caja posteada
-   * es inmutable).
+   * lista resuelve su `kind`).
    */
   isEdit?: boolean
+  /** Edición: la compra YA tiene movimiento de caja vigente (huella neta). */
+  hadCash?: boolean
+  /**
+   * Edición: el cargo que la compra ya tiene en la cuenta corriente de ESTE proveedor. El saldo de la cuenta lo incluye, así
+   * que se descuenta para no contarlo dos veces en el saldo proyectado.
+   */
+  alreadyCharged?: number
 }
 
 export interface PurchaseCheckoutState {
@@ -50,23 +62,24 @@ export interface PurchaseCheckoutState {
   isCredit: boolean
   /** Las condiciones de caja resueltas para la sucursal efectiva. */
   cash: CashOptinState
-  /** Se muestra el bloque «Registrar en caja»: forma de pago en efectivo y no es una edición. */
+  /** Se muestra el bloque de caja: la forma de pago es efectivo (en el alta y en la edición). */
   showCashBlock: boolean
+  /** Edición: la compra tenía movimiento de caja (el bloque dice «Registrado en caja»). */
+  hadCash: boolean
   /**
-   * `caja-optin-carga`: se ofrece la caja (alta en efectivo) pero todavía se está
-   * averiguando si hay sesión abierta. Mientras sea `true` NO se puede confirmar:
-   * la sesión viajaría `null` y la compra en efectivo se registraría sin
-   * movimiento de caja, en silencio. En la edición nunca es `true` (no hay caja).
+   * `caja-optin-carga`: se ofrece la caja (efectivo) pero todavía se está averiguando si hay sesión
+   * abierta. Mientras sea `true` NO se puede confirmar: la sesión viajaría `null` y la compra en
+   * efectivo se registraría sin movimiento de caja, en silencio.
    */
   cashPending: boolean
-  /** Intención del usuario: arranca PRE-MARCADA (caja-compras-cobranzas D4). */
+  /** Intención del usuario: PRE-MARCADA en el alta (caja-compras-cobranzas D4); al editar, parte de `hadCash`. */
   registerInCash: boolean
   setRegisterInCash: (value: boolean) => void
-  /** Sesión de caja a mandar: sólo con las tres condiciones cumplidas, tildado y fuera de la edición; si no, null. */
+  /** Alta: sesión de caja a mandar, sólo con las tres condiciones cumplidas y tildado; si no, null. Al editar siempre null. */
   cashSessionId: string | null
   /** Saldo actual del proveedor (0 mientras no resolvió su cuenta). */
   supplierBalance: number
-  /** Saldo del proveedor después de esta compra. */
+  /** Saldo del proveedor después de esta compra (al editar, sin contar dos veces el cargo vigente). */
   projectedBalance: number
   /** A crédito y sin proveedor: la deuda no tendría a quién cargarse. */
   creditBlockedNoSupplier: boolean
@@ -81,16 +94,19 @@ export function usePurchaseCheckout({
   supplierId,
   total,
   isEdit = false,
+  hadCash = false,
+  alreadyCharged = 0,
 }: UsePurchaseCheckoutParams): PurchaseCheckoutState {
   const { paymentMethods } = usePaymentMethods(isEdit)
   const kind = paymentMethods.find((pm) => pm.id === paymentMethodId)?.kind ?? null
   const isCredit = kind === "credit"
+  const hadCashFootprint = isEdit && hadCash
 
   // caja-compras-cobranzas (D2): mismo hook que venta y gasto — las tres condiciones
-  // no se reescriben, se reusan.
-  const cash = useCashOptin({ kind, branchId, date, document: "compra" })
-  const [registerInCash, setRegisterInCash] = useState(true)
-  const showCashBlock = !isEdit && cash.isCashSelected
+  // no se reescriben, se reusan. Corregir lo ya registrado en caja no exige la fecha de hoy.
+  const cash = useCashOptin({ kind, branchId, date, document: "compra", requiresDate: !hadCashFootprint })
+  const [registerInCash, setRegisterInCash] = useState(() => (isEdit ? hadCash : true))
+  const showCashBlock = cash.isCashSelected
   const cashPending = showCashBlock && cash.isLoading
   const cashSessionId = !isEdit && cash.eligible && registerInCash ? (cash.session?.id ?? null) : null
 
@@ -102,12 +118,13 @@ export function usePurchaseCheckout({
     isCredit,
     cash,
     showCashBlock,
+    hadCash: hadCashFootprint,
     cashPending,
     registerInCash,
     setRegisterInCash,
     cashSessionId,
     supplierBalance,
-    projectedBalance: supplierBalance + total,
+    projectedBalance: supplierBalance + total - alreadyCharged,
     creditBlockedNoSupplier: isCredit && !supplierId,
     paymentMethods,
   }

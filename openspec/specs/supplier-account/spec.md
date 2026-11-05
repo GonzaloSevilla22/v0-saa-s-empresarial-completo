@@ -229,28 +229,6 @@ El sistema SHALL además validar que el proveedor informado pertenezca a la cuen
 - **WHEN** se registra una compra informando un proveedor inexistente, de otra cuenta, o con `deleted_at` seteado
 - **THEN** la operación es rechazada y no se registra ni la compra ni ningún cargo
 
-### Requirement: La compra con cargo posteado es inmutable y se corrige por borrado
-
-El sistema SHALL impedir la edición de una operación de compra que tenga un movimiento posteado en la cuenta corriente del proveedor, con el mismo código de conflicto de estado que usa para las demás operaciones con dinero posteado, y SHALL exponer ese bloqueo en la superficie **antes** de que el usuario intente editar. El camino de corrección SHALL ser el borrado de la operación, que compensa el cargo, el movimiento bancario y el stock de forma atómica.
-
-#### Scenario: Editar una compra a crédito es rechazado
-
-- **GIVEN** una compra a crédito con su cargo posteado en la cuenta corriente del proveedor
-- **WHEN** se intenta editar la operación
-- **THEN** la operación es rechazada con el conflicto de estado y el mensaje nombra el camino de corrección
-
-#### Scenario: El listado de compras deshabilita la edición con motivo visible
-
-- **GIVEN** una compra con cargo de cuenta corriente posteado
-- **WHEN** el usuario consulta el listado de operaciones de compra
-- **THEN** la acción de editar aparece deshabilitada con el motivo visible, sin necesidad de llegar al error del servidor
-
-#### Scenario: Borrar la compra devuelve el saldo del proveedor a su valor previo
-
-- **GIVEN** un proveedor cuyo saldo pasó de 0 a 8000 por una compra a crédito
-- **WHEN** se borra esa operación de compra
-- **THEN** se registra el movimiento de reversión, el saldo vuelve a 0, el movimiento original permanece en el ledger, y el stock queda repuesto
-
 ### Requirement: Cargo manual de compra a crédito en cta cte de proveedor
 El sistema SHALL proveer `rpc_register_supplier_charge(p_idempotency_key text, p_supplier_id uuid, p_amount numeric, p_reference_id uuid DEFAULT NULL) RETURNS jsonb` (`SECURITY DEFINER`) que postea un movimiento de tipo `purchase` (`amount` positivo) en la `SupplierAccount`, incrementando lo que se le debe al proveedor. Es el camino **manual y complementario**: sirve para cargar deuda con un proveedor que no nace de una operación de compra registrada en el sistema (saldos iniciales, servicios, ajustes de alta), y convive con el camino automático del alta de compra a crédito.
 
@@ -458,6 +436,28 @@ El sistema SHALL postear el cargo en la cuenta corriente del proveedor del remit
 #### Scenario: Borrar la compra revierte el cargo
 - **WHEN** se borra la compra a crédito nacida del remito
 - **THEN** el cargo se compensa en la cuenta corriente del proveedor y el remito vuelve a pendiente
+
+### Requirement: La edición de una compra a crédito reemplaza su cargo
+El sistema SHALL ajustar la cuenta corriente del proveedor cuando se edita una compra cuyo cargo cambia —importe, proveedor o vencimiento—, registrando primero el cargo nuevo con el helper compartido de cargo y después la reversión de la huella neta con el helper compartido de reversión, en la misma transacción que la edición. SHALL NOT escribir ningún movimiento cuando el cargo no cambia.
+
+El cargo nuevo SHALL referenciar la operación. La reversión SHALL llevar la misma referencia que el cargo que revierte. El vencimiento SHALL seguir el contrato tri-estado de la capability `operation-money-edit`.
+
+SHALL rechazarse con `P0425` la edición que dejaría negativo el saldo final de la cuenta corriente de algún proveedor involucrado, con el mensaje de que primero hay que anular el pago.
+
+#### Scenario: Corregir el importe de una compra a crédito
+- **GIVEN** una compra a crédito de 8000 con su cargo en la cuenta corriente del proveedor
+- **WHEN** se edita a 9000
+- **THEN** la cuenta corriente del proveedor recibe un cargo de 9000 y la reversión de 8000, y el saldo sube 1000
+
+#### Scenario: Bajar el importe por debajo de lo ya pagado
+- **GIVEN** una compra a crédito de 8000 de la que ya se pagaron 8000 al proveedor
+- **WHEN** se edita a 6000
+- **THEN** la edición se rechaza con `P0425` y nada cambia
+
+#### Scenario: Pasar una compra de efectivo a crédito postea el cargo
+- **GIVEN** una compra en efectivo con proveedor y sin movimiento de caja
+- **WHEN** se edita a una forma de pago de cuenta corriente
+- **THEN** se registra el cargo del total en la cuenta corriente del proveedor, con el vencimiento resuelto por la cascada
 
 ## Implementation Notes
 

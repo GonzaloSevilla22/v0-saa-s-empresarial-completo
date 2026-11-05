@@ -74,5 +74,5 @@ Se completa a medida que se mergea cada PR. Orden pactado: changes de a uno, sie
 | 18:58 | `fix/stock-edicion-sucursal-y-piso`: editar valida el stock por sucursal, el piso deja un solo movimiento (R2/R4/R5; migración `20261087000001`; va antes del change por diseño) | #646 | mergeado |
 | 19:40 | `edicion-operaciones-con-dinero` tanda A (huella neta, aging, consumidor contable; migración `20261088000001`; sin superficie: nada que probar a mano) | #659 | mergeado |
 | 02:20 (5-nov) | `edicion-operaciones-con-dinero` tanda B (edición con dinero; migración `20261089000001`; sin superficie nueva: la ve la tanda C) | #660 | mergeado |
-| — | `edicion-operaciones-con-dinero` tanda C (superficie: formularios de edición con dinero, diálogo del plan, historial de cambios; sin migración) | #661 | en revisión |
-| — | Archive `edicion-operaciones-con-dinero` | — | pendiente |
+| 04:17 (5-nov) | `edicion-operaciones-con-dinero` tanda C (superficie: formularios de edición con dinero, diálogo del plan, historial de cambios; sin migración) | #661 | mergeado |
+| 05:00 (5-nov) | Archive `edicion-operaciones-con-dinero` (specs sincronizadas, change cerrado) | #662 | en revisión |

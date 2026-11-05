@@ -13,6 +13,11 @@
  *   rafaga → como `saldo`, pero la función responde 429 `rate_limited` (retryAfterSeconds = 40)
  *
  * `?theme=light|dark` escribe la clase `dark` en `<html>` igual que next-themes.
+ *
+ * `window.fetch` hacia el backend se intercepta (mismo patrón que EdicionDineroHarness): el botón
+ * real monta `useProducts`/`usePurchases`, que llaman a FastAPI sin sesión; en CI el backend está
+ * levantado y responde 401, y el transporte navega a /auth/login?reason=expired. Sin backend (local)
+ * el fetch falla por red y no redirige — por eso el spec pasaba acá y fallaba en la CI.
  */
 
 import { useEffect, useState } from "react"
@@ -48,11 +53,28 @@ function limitsFor(ocr: number): PlanLimits {
   }
 }
 
+/** Backend simulado: catálogo y compras vacíos para que el botón real monte sin sesión ni backend. */
+function installFetchIntercept() {
+  const original = window.fetch.bind(window)
+  window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url
+    const backend = process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8000"
+    if (!(url.startsWith(backend) || url.startsWith("/api/"))) return original(input, init)
+    const path = url.slice(backend.length).split("?")[0]
+    const json = (body: unknown) =>
+      new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } })
+    if (path === "/purchases") return json({ items: [], total: 0, page: 1, pages: 0 })
+    return json([])
+  }
+  return () => { window.fetch = original }
+}
+
 export function OcrCuotaHarness() {
   const queryClient = useQueryClient()
   const [ready, setReady] = useState(false)
 
   useEffect(() => {
+    const uninstall = installFetchIntercept()
     const params = new URLSearchParams(window.location.search)
     const state = (params.get("state") as HarnessState | null) ?? "saldo"
     document.documentElement.classList.toggle("dark", params.get("theme") === "dark")
@@ -72,6 +94,7 @@ export function OcrCuotaHarness() {
       }
     }
     setReady(true)
+    return uninstall
   }, [queryClient])
 
   return (

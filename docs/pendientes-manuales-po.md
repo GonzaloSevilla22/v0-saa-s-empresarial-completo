@@ -31,6 +31,7 @@ Cada uno es un chequeo de dos minutos. Son changes verificados en la base, pero 
 - [ ] **`compras-gastos-sucursal-por-defecto`** (PR #635, 2026-10-12): cargá una compra y un gasto **sin elegir sucursal** → los dos quedan en la principal.
 - [ ] **`documentos-marca-empresa`** (PRs #636/#638, 2026-10-11): configurá logo y datos de marca en Configuración y descargá un PDF (recibo, presupuesto o remito): tiene que salir con tu marca.
 - [ ] **`banco-saldo-segun-libro`** (PR #673, 2026-11-05): en **Banco**, elegí una cuenta real y comparé el **Saldo según libro** con el saldo de tu home banking (la diferencia debería ser sólo lo que todavía no cargaste o conciliaste).
+- [ ] **`v31-document-lines-consistency`** (PR #675): cargá una venta y una compra de **servicio** (sin producto) y verificá que aparecen normales en los listados y en Estadísticas; en `/clientes` el total de un cliente con ventas viejas de variantes ya no cuenta doble.
 
 Ya probados por vos y cerrados: `balanza-etiquetas-pos`, `presupuestos-modulo`, `remitos-venta`, `remitos-compra` (2026-10-16).
 
@@ -106,4 +107,5 @@ Se completa a medida que se mergea cada PR. Orden pactado: changes de a uno, sie
 | 08:52 UTC (5-nov) | Archive v31-money-integration-tests (spec integration-test-tier sincronizada, change cerrado) | #669 | en revisión |
 | 14:48 UTC (5-nov) | Propose v31-document-lines-consistency (H-15: retiro del flag y la rama legacy, backfill de 6 documentos sin línea, invariante de líneas; OQs por la recomendada) | #671 | mergeado |
 | 15:20 UTC (5-nov) | Feature: saldo según libro al elegir una cuenta en /banco (saldo inicial + movimientos, como caja) | #673 | en revisión |
-| 16:30 UTC (5-nov) | Apply v31-document-lines-consistency (retiro del flag y la rama legacy, línea de servicio, backfill de 6 documentos y 79 líneas, name_snapshot NOT NULL, fix doble conteo en clientes; migración 20261091000001) | #675 | en revisión |
+| 16:30 UTC (5-nov) | Apply v31-document-lines-consistency (retiro del flag y la rama legacy, línea de servicio, backfill de 6 documentos y 79 líneas, name_snapshot NOT NULL, fix doble conteo en clientes; migración 20261091000001) | #675 | mergeado 16:20 |
+| 16:45 UTC (5-nov) | Archive v31-document-lines-consistency (spec sale-line-items sincronizada, change cerrado) | #676 | en revisión |

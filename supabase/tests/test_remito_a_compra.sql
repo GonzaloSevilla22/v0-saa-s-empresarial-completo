@@ -481,7 +481,9 @@ BEGIN
     v_failures := v_failures || format('FAIL (g0 transfer): retrato distinto del golden. Esperado:%s%sObservado:%s%s', E'\n', v_gold_transfer, E'\n', v_snap);
   END IF;
 
+  -- v31-document-lines-consistency (D3): la línea de servicio TAMBIÉN escribe su fila (nombre = la descripción).
   v_gold_service := E'PU|-|300|1.0000|-|300|X|-|-|-|-|-|-\n'
+                 || E'PI|-|1.0000|-|300|300|golden servicio|-|-' || chr(10)
                  || E'EV|PurchaseCreated|300.00|credit|-';
   v_j := public.rpc_create_purchase_operation(v_tag || 'g-service', v_today, 'golden servicio',
            jsonb_build_array(jsonb_build_object('product_id', NULL, 'unit_id', NULL, 'quantity', 1, 'amount', 300)),

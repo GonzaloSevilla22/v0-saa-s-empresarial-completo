@@ -7,10 +7,12 @@
 --       compra de producto escriben su línea (sale_items / purchase_items).
 --       Esto es lo que hoy (antes de la migración) NO ocurre — ausencia de
 --       fila = legacy — por eso este gate está RED contra el esquema previo.
---   (b) Kill-switch: cuenta con fila enabled=false sigue yendo por el camino
---       legacy (ninguna línea) para venta y compra.
---   (c) Línea de servicio (product_id NULL) NO genera fila en sale_items ni
---       en purchase_items, con o sin flag.
+--   (b) v31-document-lines-consistency (H-15) RETIRÓ el flag: una cuenta con fila
+--       enabled=false escribe la línea igual que una sin fila (ya no hay kill-switch
+--       ni rama legacy) para venta y compra.
+--   (c) v31-document-lines-consistency (D3): la línea de servicio (product_id NULL)
+--       TAMBIÉN escribe su fila en sale_items y purchase_items (nombre = etiqueta
+--       'Ítem sin producto' o la descripción de la compra).
 --   (d) Idempotencia: doble llamada con la misma idempotency_key crea una
 --       sola venta/compra y una sola línea; la segunda llamada es replay.
 --   (e) El stock se mueve igual que antes (stock_movements con el signo y
@@ -133,7 +135,7 @@ BEGIN
     RAISE NOTICE 'PASS (e-sale): stock_movements registra quantity_delta=-3';
   END IF;
 
-  -- ── Gate (c-sale): línea de servicio (product_id NULL) no genera sale_items ──
+  -- ── Gate (c-sale): línea de servicio (product_id NULL) escribe su sale_items (D3) ──
   v_sale_result := public.rpc_create_sale_operation(
     'gate-g1-optout-sale-svc-' || gen_random_uuid()::text, v_client_a, CURRENT_DATE, 'ARS',
     jsonb_build_array(jsonb_build_object('product_id', NULL, 'amount', 500.00, 'quantity', 1, 'unit_id', NULL)),
@@ -142,12 +144,13 @@ BEGIN
   v_op_id := (v_sale_result->>'operation_id')::uuid;
 
   SELECT id INTO v_sale_id FROM public.sales WHERE operation_id = v_op_id AND product_id IS NULL;
-  SELECT COUNT(*) INTO v_count FROM public.sale_items WHERE sale_id = v_sale_id;
-  IF v_count <> 0 THEN
+  SELECT COUNT(*) INTO v_count FROM public.sale_items
+   WHERE sale_id = v_sale_id AND product_id IS NULL AND variant_id IS NULL AND name_snapshot = 'Ítem sin producto' AND subtotal = 500.00;
+  IF v_count <> 1 THEN
     v_failures := array_append(v_failures,
-      format('FAIL (c-sale): línea de servicio (product_id NULL) no debería generar sale_items, hay %s', v_count));
+      format('FAIL (c-sale): la línea de servicio (product_id NULL) debería escribir 1 sale_items con nombre y subtotal 500, hay %s', v_count));
   ELSE
-    RAISE NOTICE 'PASS (c-sale): línea de servicio no genera sale_items';
+    RAISE NOTICE 'PASS (c-sale): línea de servicio escribe su sale_items con nombre';
   END IF;
 
   -- ── Gate (d-sale): idempotencia — misma key dos veces → 1 venta, 1 línea ────
@@ -219,7 +222,7 @@ BEGIN
     RAISE NOTICE 'PASS (e-purchase): branch_stock sumó exactamente 4 unidades';
   END IF;
 
-  -- ── Gate (c-purchase): línea de servicio no genera purchase_items ───────────
+  -- ── Gate (c-purchase): línea de servicio escribe su purchase_items (D3) ──────
   v_purchase_result := public.rpc_create_purchase_operation(
     'gate-g1-optout-purchase-svc-' || gen_random_uuid()::text, CURRENT_DATE, 'Compra gate G1 servicio',
     jsonb_build_array(jsonb_build_object('product_id', NULL, 'amount', 50.00, 'quantity', 1, 'unit_id', NULL)),
@@ -228,12 +231,13 @@ BEGIN
   v_op_id := (v_purchase_result->>'operation_id')::uuid;
 
   SELECT id INTO v_purchase_id FROM public.purchases WHERE operation_id = v_op_id AND product_id IS NULL;
-  SELECT COUNT(*) INTO v_count FROM public.purchase_items WHERE purchase_id = v_purchase_id;
-  IF v_count <> 0 THEN
+  SELECT COUNT(*) INTO v_count FROM public.purchase_items
+   WHERE purchase_id = v_purchase_id AND product_id IS NULL AND variant_id IS NULL AND name_snapshot = 'Compra gate G1 servicio' AND subtotal = 50.00;
+  IF v_count <> 1 THEN
     v_failures := array_append(v_failures,
-      format('FAIL (c-purchase): línea de servicio no debería generar purchase_items, hay %s', v_count));
+      format('FAIL (c-purchase): la línea de servicio debería escribir 1 purchase_items con la descripción como nombre y subtotal 50, hay %s', v_count));
   ELSE
-    RAISE NOTICE 'PASS (c-purchase): línea de servicio no genera purchase_items';
+    RAISE NOTICE 'PASS (c-purchase): línea de servicio escribe su purchase_items con nombre';
   END IF;
 
   -- ── Gate (d-purchase): idempotencia — misma key dos veces → 1 compra, 1 línea ─
@@ -313,7 +317,7 @@ BEGIN
   PERFORM set_config('request.jwt.claims', json_build_object('sub', v_user_b::text)::text, true);
   PERFORM set_config('request.jwt.claim.sub', v_user_b::text, true);
 
-  -- ── Gate (b-sale): flag enabled=false → sigue sin escribir sale_items ───────
+  -- ── Gate (b-sale): flag RETIRADO — enabled=false ya no tiene efecto, escribe la línea ──
   v_sale_result := public.rpc_create_sale_operation(
     'gate-g1-killswitch-sale-' || gen_random_uuid()::text, v_client_b, CURRENT_DATE, 'ARS',
     jsonb_build_array(jsonb_build_object('product_id', v_product_b, 'amount', 20.00, 'quantity', 2, 'unit_id', NULL)),
@@ -322,20 +326,19 @@ BEGIN
   v_op_id := (v_sale_result->>'operation_id')::uuid;
   SELECT id INTO v_sale_id FROM public.sales WHERE operation_id = v_op_id AND product_id = v_product_b;
 
-  SELECT COUNT(*) INTO v_count FROM public.sale_items WHERE sale_id = v_sale_id;
-  IF v_count <> 0 THEN
+  SELECT COUNT(*) INTO v_count FROM public.sale_items WHERE sale_id = v_sale_id AND product_id = v_product_b AND variant_id IS NULL;
+  IF v_count <> 1 THEN
     v_failures := array_append(v_failures,
-      format('FAIL (b-sale): flag enabled=false debería seguir sin escribir sale_items (kill-switch roto), hay %s', v_count));
+      format('FAIL (b-sale): el flag retirado (enabled=false) no debe alterar nada: se esperaba 1 sale_items, hay %s', v_count));
   ELSE
-    RAISE NOTICE 'PASS (b-sale): kill-switch (enabled=false) mantiene el camino legacy para venta';
+    RAISE NOTICE 'PASS (b-sale): la fila enabled=false ya no tiene efecto — la venta escribe su línea';
   END IF;
 
-  -- Venta igual debe existir (header) — el kill-switch apaga la línea, no la operación.
   IF v_sale_id IS NULL THEN
-    v_failures := array_append(v_failures, 'FAIL (b-sale): la venta debería crearse igual (header plano) aunque el flag esté apagado');
+    v_failures := array_append(v_failures, 'FAIL (b-sale): la venta debería crearse con el flag retirado');
   END IF;
 
-  -- ── Gate (b-purchase): flag enabled=false → sigue sin escribir purchase_items ─
+  -- ── Gate (b-purchase): flag RETIRADO — enabled=false ya no tiene efecto ──────
   v_purchase_result := public.rpc_create_purchase_operation(
     'gate-g1-killswitch-purchase-' || gen_random_uuid()::text, CURRENT_DATE, 'Compra gate G1 kill-switch',
     jsonb_build_array(jsonb_build_object('product_id', v_product_b, 'amount', 10.00, 'quantity', 5, 'unit_id', NULL)),
@@ -344,16 +347,16 @@ BEGIN
   v_op_id := (v_purchase_result->>'operation_id')::uuid;
   SELECT id INTO v_purchase_id FROM public.purchases WHERE operation_id = v_op_id AND product_id = v_product_b;
 
-  SELECT COUNT(*) INTO v_count FROM public.purchase_items WHERE purchase_id = v_purchase_id;
-  IF v_count <> 0 THEN
+  SELECT COUNT(*) INTO v_count FROM public.purchase_items WHERE purchase_id = v_purchase_id AND product_id = v_product_b AND variant_id IS NULL;
+  IF v_count <> 1 THEN
     v_failures := array_append(v_failures,
-      format('FAIL (b-purchase): flag enabled=false debería seguir sin escribir purchase_items (kill-switch roto), hay %s', v_count));
+      format('FAIL (b-purchase): el flag retirado (enabled=false) no debe alterar nada: se esperaba 1 purchase_items, hay %s', v_count));
   ELSE
-    RAISE NOTICE 'PASS (b-purchase): kill-switch (enabled=false) mantiene el camino legacy para compra — mismo interruptor que venta';
+    RAISE NOTICE 'PASS (b-purchase): la fila enabled=false ya no tiene efecto — la compra escribe su línea';
   END IF;
 
   IF v_purchase_id IS NULL THEN
-    v_failures := array_append(v_failures, 'FAIL (b-purchase): la compra debería crearse igual (header plano) aunque el flag esté apagado');
+    v_failures := array_append(v_failures, 'FAIL (b-purchase): la compra debería crearse con el flag retirado');
   END IF;
 
   PERFORM set_config('request.jwt.claims', '', true);
@@ -364,7 +367,7 @@ BEGIN
     RAISE EXCEPTION E'GATE SALE_ITEMS_RPC_V2_ACTIVATION FAILED:\n  %', array_to_string(v_failures, E'\n  ');
   END IF;
 
-  RAISE NOTICE 'GATE SALE_ITEMS_RPC_V2_ACTIVATION PASSED: opt-out por defecto (venta y compra), kill-switch explícito, línea de servicio excluida, idempotencia y stock — verificados para ambos RPCs.';
+  RAISE NOTICE 'GATE SALE_ITEMS_RPC_V2_ACTIVATION PASSED: línea universal por defecto (venta y compra), flag retirado sin efecto, línea de servicio con su fila, idempotencia y stock — verificados para ambos RPCs.';
 
   -- ── Limpieza hijo→padre ──────────────────────────────────────────────────
   DELETE FROM public.sale_items     WHERE sale_id IN (SELECT id FROM public.sales WHERE account_id IN (v_account_a, v_account_b));

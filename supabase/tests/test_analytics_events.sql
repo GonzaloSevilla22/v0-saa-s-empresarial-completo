@@ -767,16 +767,16 @@ BEGIN
   BEGIN
     IF v_g4_acct IS NOT NULL THEN
       -- Línea con account_id NULL cuyo padre SÍ tiene account_id → debe heredarlo.
-      INSERT INTO public.sale_items (sale_id, product_id, account_id, quantity, price, subtotal)
-      VALUES (v_g4_real_sale_id, NULL, NULL, 1, 10, 10)
+      INSERT INTO public.sale_items (sale_id, product_id, account_id, quantity, price, subtotal, name_snapshot)
+      VALUES (v_g4_real_sale_id, NULL, NULL, 1, 10, 10, 'Fixture analytics')
       RETURNING id INTO v_g4b_sale_item_id;
 
       INSERT INTO public.purchases (user_id, account_id, branch_id, amount, quantity, date)
       VALUES (v_g4_user, v_g4_acct, v_g4_branch, 500, 1, now())
       RETURNING id INTO v_g4b_purchase_id;
 
-      INSERT INTO public.purchase_items (purchase_id, product_id, account_id, quantity, price, subtotal)
-      VALUES (v_g4b_purchase_id, NULL, NULL, 1, 5, 5)
+      INSERT INTO public.purchase_items (purchase_id, product_id, account_id, quantity, price, subtotal, name_snapshot)
+      VALUES (v_g4b_purchase_id, NULL, NULL, 1, 5, 5, 'Fixture analytics')
       RETURNING id INTO v_g4b_purchase_item_id;
 
       -- ── Misma lógica que 20260925000001 (G4b) ──────────────────────────

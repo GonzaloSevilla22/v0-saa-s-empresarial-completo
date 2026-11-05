@@ -484,3 +484,60 @@ class TestCurrentBalanceInActivity:
         sql = conn.fetchrow.call_args.args[0]
         assert "LEFT JOIN public.customer_accounts ca" in sql
         assert "COALESCE(ca.balance, 0)::numeric AS current_balance" in sql
+
+
+# ── v31-document-lines-consistency (H-15, D8) — línea canónica ──────────────
+
+
+class TestCanonicalLineJoin:
+    """Las 23 ventas de prod con una fila legacy de variante en `sale_items`
+    sumaban dos veces su subtotal en la actividad del cliente: el JOIN unía por
+    `sale_id` sin filtrar. La línea canónica es `variant_id IS NULL` (D4)."""
+
+    CANONICAL_JOIN = "LEFT JOIN sale_items si ON si.sale_id = s.id AND si.variant_id IS NULL"
+
+    @pytest.mark.asyncio
+    async def test_activity_page_joins_only_the_canonical_line(self, client_repo):
+        repo, conn = client_repo
+        conn.fetchval = AsyncMock(return_value=0)
+        conn.fetch = AsyncMock(return_value=[])
+
+        await repo.list_activity_page(ACCOUNT_ID, today=TODAY, page=0, size=25)
+
+        sql = conn.fetch.call_args.args[0]
+        assert self.CANONICAL_JOIN in sql
+
+    @pytest.mark.asyncio
+    async def test_detail_activity_shares_the_canonical_join(self, client_repo):
+        repo, conn = client_repo
+        conn.fetchrow = AsyncMock(return_value=None)
+
+        await repo.get_activity_for(CLIENT_ID, ACCOUNT_ID, today=TODAY)
+
+        sql = conn.fetchrow.call_args.args[0]
+        assert self.CANONICAL_JOIN in sql
+
+    @pytest.mark.asyncio
+    async def test_purchase_history_joins_only_the_canonical_line(self, client_repo):
+        repo, conn = client_repo
+        conn.fetchval = AsyncMock(return_value=0)
+        conn.fetch = AsyncMock(return_value=[])
+
+        await repo.list_purchases_page(CLIENT_ID, ACCOUNT_ID, page=0, size=25)
+
+        sql = conn.fetch.call_args.args[0]
+        assert self.CANONICAL_JOIN in sql
+
+    @pytest.mark.asyncio
+    async def test_every_sale_items_join_carries_the_filter(self, client_repo):
+        """Triangulación: ningún `LEFT JOIN sale_items` queda sin el filtro."""
+        repo, conn = client_repo
+        conn.fetchval = AsyncMock(return_value=0)
+        conn.fetch = AsyncMock(return_value=[])
+
+        await repo.list_activity_page(ACCOUNT_ID, today=TODAY, page=0, size=25)
+        await repo.list_purchases_page(CLIENT_ID, ACCOUNT_ID, page=0, size=25)
+
+        for call in conn.fetch.call_args_list:
+            sql = call.args[0]
+            assert sql.count("LEFT JOIN sale_items si") == sql.count(self.CANONICAL_JOIN)

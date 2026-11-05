@@ -541,8 +541,9 @@ BEGIN
 
   -- B.7 (auditoría post-apply) sexto cuerpo: la rama legacy del kill-switch
   -- sale_items_rpc_v2=false de rpc_create_sale_operation conservaba la
-  -- conversión inline (base del TIPO). Con el flag apagado para la cuenta,
-  -- 450 g sobre el producto en kg descuentan 0.45 igual que la rama vigente.
+  -- conversión inline (base del TIPO). v31-document-lines-consistency retiró el flag y esa rama:
+  -- una fila enabled=false ya no tiene efecto, y 450 g sobre el producto en kg descuentan 0.45
+  -- por el camino único.
   INSERT INTO public.account_feature_flags (account_id, flag_key, enabled)
   VALUES (v_account_a, 'sale_items_rpc_v2', false);
   SELECT quantity INTO v_before FROM public.branch_stock WHERE product_id = v_p_kg AND branch_id = v_branch_a;
@@ -553,7 +554,7 @@ BEGIN
   );
   SELECT quantity INTO v_after FROM public.branch_stock WHERE product_id = v_p_kg AND branch_id = v_branch_a;
   IF v_before - v_after <> 0.45 THEN
-    v_failures := v_failures || format('B.7 rama legacy (kill-switch): stock bajó %s, esperaba 0.45 (antes del fix: 450, base del tipo)', v_before - v_after);
+    v_failures := v_failures || format('B.7 flag retirado (camino único): stock bajó %s, esperaba 0.45 (antes del fix: 450, base del tipo)', v_before - v_after);
   END IF;
   DELETE FROM public.account_feature_flags WHERE account_id = v_account_a AND flag_key = 'sale_items_rpc_v2';
 
@@ -725,8 +726,8 @@ BEGIN
   -- (rpc_create_purchase_operation es su wrapper): los literales se buscan en el núcleo.
   FOREACH v_fn IN ARRAY ARRAY[
     '_c29_confirm_order_core', 'rpc_create_sale_operation_v2', '_purchase_operation_core',
-    'rpc_atomic_update_sale_operation', 'rpc_atomic_update_purchase_operation',
-    'rpc_create_sale_operation'
+    'rpc_atomic_update_sale_operation', 'rpc_atomic_update_purchase_operation'
+    -- v31-document-lines-consistency: rpc_create_sale_operation es un despachador a la v2 (sin cuerpo propio).
   ] LOOP
     SELECT replace(p.prosrc, E'\r', '') INTO v_src
     FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
@@ -829,8 +830,8 @@ BEGIN
   -- (rpc_create_purchase_operation es su wrapper): los literales se buscan en el núcleo.
   FOREACH v_fn IN ARRAY ARRAY[
     '_c29_confirm_order_core', 'rpc_create_sale_operation_v2', '_purchase_operation_core',
-    'rpc_atomic_update_sale_operation', 'rpc_atomic_update_purchase_operation',
-    'rpc_create_sale_operation'
+    'rpc_atomic_update_sale_operation', 'rpc_atomic_update_purchase_operation'
+    -- v31-document-lines-consistency: rpc_create_sale_operation es un despachador a la v2 (sin cuerpo propio).
   ] LOOP
     SELECT replace(p.prosrc, E'\r', '') INTO v_src FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
     WHERE n.nspname = 'public' AND p.proname = v_fn;
@@ -896,10 +897,11 @@ BEGIN
     v_failures := v_failures || 'E fn_uom_in_use_guard: ejecutable por authenticated'::text;
   END IF;
   -- (g) el total de dinero se redondea una vez (sin acumulador numeric(15,2))
-  --     en los cuatro cuerpos que lo acumulan línea a línea.
+  --     en los tres cuerpos que lo acumulan línea a línea.
   FOREACH v_fn IN ARRAY ARRAY[
     'rpc_create_sale_operation_v2', '_purchase_operation_core',
-    'rpc_atomic_update_sale_operation', 'rpc_create_sale_operation'
+    'rpc_atomic_update_sale_operation'
+    -- v31-document-lines-consistency: rpc_create_sale_operation es un despachador a la v2 (sin cuerpo propio).
   ] LOOP
     SELECT replace(p.prosrc, E'\r', '') INTO v_src FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
     WHERE n.nspname = 'public' AND p.proname = v_fn;
@@ -1826,8 +1828,8 @@ BEGIN
   IF v_val IS DISTINCT FROM 665.33 OR v_amount IS DISTINCT FROM 665.33 OR v_total IS DISTINCT FROM 665.33 THEN
     v_failures := v_failures || format('P.1 venta a crédito 2 × 0,333 kg a $999: round(Σ total)=%s cargo=%s evento=%s, esperaba 665.33 los tres', v_val, v_amount, v_total);
   END IF;
-  -- P.2 la misma venta por la rama legacy del kill-switch (sale_items_rpc_v2=false):
-  --     el cargo (la rama legacy no emite evento contable).
+  -- P.2 la misma venta con una fila del flag retirado (sale_items_rpc_v2=false): ya no existe la rama legacy,
+  --     así que el cargo es el mismo del camino único.
   INSERT INTO public.account_feature_flags (account_id, flag_key, enabled)
   VALUES (v_account_a, 'sale_items_rpc_v2', false);
   v_result := public.rpc_create_sale_operation('vuc-p2-' || gen_random_uuid()::text, v_client_a, CURRENT_DATE, 'ARS',
@@ -1836,7 +1838,7 @@ BEGIN
   v_op := (v_result->>'operation_id')::uuid;
   SELECT sum(amount) INTO v_amount FROM public.customer_account_movements WHERE reference_id = v_op;
   IF v_amount IS DISTINCT FROM 665.33 THEN
-    v_failures := v_failures || format('P.2 rama legacy a crédito: cargo=%s, esperaba 665.33', v_amount);
+    v_failures := v_failures || format('P.2 flag retirado a crédito: cargo=%s, esperaba 665.33', v_amount);
   END IF;
   -- P.3 alta de compra a crédito con proveedor: cargo al proveedor y evento = 665,33.
   v_result := public.rpc_create_purchase_operation('vuc-p3-' || gen_random_uuid()::text, CURRENT_DATE, 'Compra gate VUC P.3',

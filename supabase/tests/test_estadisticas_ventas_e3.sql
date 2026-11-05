@@ -245,8 +245,8 @@ BEGIN
   INSERT INTO public.sales (user_id, account_id, branch_id, product_id, amount, quantity, total, date, operation_id)
   VALUES (v_user, v_account, NULL, v_p_v1, 1000, 1, 1000, v_monday::timestamp AT TIME ZONE 'UTC', v_op5)
   RETURNING id INTO v_sale_v1_b;
-  INSERT INTO public.sale_items (sale_id, product_id, account_id, quantity, price, subtotal, unit_cost_snapshot)
-  VALUES (v_sale_v1_b, v_p_v1, v_account, 1, 1000, 1000, 400);
+  INSERT INTO public.sale_items (sale_id, product_id, account_id, quantity, price, subtotal, unit_cost_snapshot, name_snapshot)
+  VALUES (v_sale_v1_b, v_p_v1, v_account, 1, 1000, 1000, 400, 'Fixture estadisticas e3');
   -- Z (hoy-15): V1 $333 — fuera de la ventana.
   INSERT INTO public.sales (user_id, account_id, branch_id, product_id, amount, quantity, total, date, operation_id)
   VALUES (v_user, v_account, NULL, v_p_v1, 333, 1, 333, (v_today - 15)::timestamp AT TIME ZONE 'UTC', v_op6);

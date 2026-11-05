@@ -2,11 +2,11 @@
 
 Hermético: no necesita psql ni red (el wrapper se prueba con un «psql» falso). Fija:
 
-* que el detector reconoce CADA rama de degradación de los 33 gates de dinero (la regla con la que se midieron
+* que el detector reconoce CADA rama de degradación de los 34 gates de dinero (la regla con la que se midieron
   las 202 ramas del `design.md`) y ninguna línea `PASS`/`PASSED`/`degrade-don't-fail`;
 * que el ruido que no escribe el gate (triggers del producto, `DROP … IF EXISTS`, migraciones incluidas) no cuenta;
 * la allow-list (archivo + subcadena, motivo obligatorio);
-* el cableado de `KPI_Validation.yml`: las 33 invocaciones pasan por el wrapper y ninguna sigue con `psql` directo.
+* el cableado de `KPI_Validation.yml`: las 34 invocaciones pasan por el wrapper y ninguna sigue con `psql` directo.
 
 Si este test falla porque apareció un `RAISE NOTICE` de degradación nuevo que el detector no reconoce, la
 degradación se escribió con una redacción que el wrapper no vería: empezala con `GATE` y que contenga
@@ -24,14 +24,14 @@ import pytest
 REPO = Path(__file__).resolve().parents[2]
 MODULE_PATH = REPO / "scripts" / "ci" / "run_gate_strict.py"
 
-# Los 33 gates de dinero (design.md §«Hechos medidos»), en orden alfabético.
+# Los 34 gates de dinero (los 33 de design.md §«Hechos medidos» + test_document_lines_consistency, H-15), en orden alfabético.
 MONEY_GATES = [
     "test_asiento_contable_gastos", "test_asiento_venta_formulario", "test_banco_caja_historial_ajustes",
     "test_bank_default_destination", "test_c30_party_movement_helpers_acl", "test_cash_movement_types",
     "test_charge_due_date", "test_cobranzas_reverso", "test_cobranzas_vencimientos_schema",
     "test_compras_gastos_sucursal_por_defecto", "test_compras_proveedor_cuenta_corriente",
     "test_cuenta_corriente_party_guard", "test_cuentas_billetera_tipo", "test_delete_guard_ledgers",
-    "test_expense_import_batch", "test_gastos_forma_pago", "test_operacion_party_guard",
+    "test_document_lines_consistency", "test_expense_import_batch", "test_gastos_forma_pago", "test_operacion_party_guard",
     "test_pagos_cableados_restantes", "test_party_payment_cash", "test_payment_method_operations",
     "test_payment_method_report", "test_payment_methods_catalog", "test_payment_methods_seed",
     "test_pos_banco_movimientos", "test_pos_confirm_payment_method", "test_pos_payment_vocabulary",
@@ -69,7 +69,7 @@ def _measured_branches(name: str) -> list[str]:
     return out
 
 
-# ── (a) el detector reconoce todas las ramas de degradación de los 33 gates ──────────────────────
+# ── (a) el detector reconoce todas las ramas de degradación de los 34 gates ──────────────────────
 
 
 @pytest.mark.parametrize("gate", MONEY_GATES)
@@ -87,8 +87,8 @@ def test_the_corpus_is_the_one_the_design_measured():
     assert sum(1 for m in branches if m.startswith(("GATE", "SKIP"))) >= 199
 
 
-def test_the_thirty_three_money_gates_exist():
-    assert len(MONEY_GATES) == 33 and len(set(MONEY_GATES)) == 33
+def test_the_thirty_four_money_gates_exist():
+    assert len(MONEY_GATES) == 34 and len(set(MONEY_GATES)) == 34
     for gate in MONEY_GATES:
         assert (REPO / "supabase" / "tests" / f"{gate}.sql").is_file(), gate
 
@@ -282,10 +282,10 @@ def test_a_broken_allowlist_is_a_loud_error(tmp_path, fake_psql, monkeypatch):
 WORKFLOW = (REPO / ".github" / "workflows" / "KPI_Validation.yml").read_text(encoding="utf-8").replace("\r\n", "\n")
 
 
-def test_exactly_the_thirty_three_money_gates_run_through_the_wrapper():
+def test_exactly_the_thirty_four_money_gates_run_through_the_wrapper():
     wrapped = re.findall(r"run: python3 scripts/ci/run_gate_strict\.py supabase/tests/(\w+)\.sql\s*$", WORKFLOW, re.M)
     assert sorted(wrapped) == sorted(MONEY_GATES)
-    assert len(wrapped) == 33
+    assert len(wrapped) == 34
 
 
 @pytest.mark.parametrize("gate", MONEY_GATES)

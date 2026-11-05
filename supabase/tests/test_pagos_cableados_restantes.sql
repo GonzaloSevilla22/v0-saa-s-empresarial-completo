@@ -395,7 +395,9 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS (6d-6e, GATE ESTRELLA): opt-in de caja postea cash_movement + expected_balance; sin opt-in, cero efecto — asimetría D5 intacta.';
 
-  -- ══════════ (5.3/6.2) La rama LEGACY (flag off) queda consistente ═════════
+  -- ══════════ (5.3/6.2) El flag RETIRADO (fila enabled=false) no cambia el camino único ═════════
+  -- v31-document-lines-consistency (D1): la rama legacy ya no existe y la fila del flag no se lee. Estas aserciones
+  -- (crédito, credit_requires_client, opt-in de caja) pasan a probar que el camino ÚNICO las cumple aunque exista la fila.
   INSERT INTO public.account_feature_flags (account_id, flag_key, enabled)
   VALUES (v_account_id, 'sale_items_rpc_v2', false)
   ON CONFLICT (account_id, flag_key) DO UPDATE SET enabled = false;
@@ -411,7 +413,7 @@ BEGIN
   ) INTO v_result;
   SELECT balance INTO v_balance FROM public.customer_accounts WHERE id = v_ca_id;
   IF v_balance <> 1300 THEN  -- 1000 (5a) + 300 (legacy)
-    RAISE EXCEPTION 'GATE PAGOS-CABLEADOS-RESTANTES FAILED (legacy-credit): rama legacy (flag off) debería postear el mismo cargo que la v2 — balance esperado 1300, es %.', v_balance;
+    RAISE EXCEPTION 'GATE PAGOS-CABLEADOS-RESTANTES FAILED (legacy-credit): con la fila del flag retirado (enabled=false) el camino único debería postear el cargo — balance esperado 1300, es %.', v_balance;
   END IF;
 
   v_rejected := false;
@@ -430,7 +432,7 @@ BEGIN
       IF SQLERRM LIKE '%credit_requires_client%' THEN v_rejected := true; ELSE RAISE; END IF;
   END;
   IF NOT v_rejected THEN
-    RAISE EXCEPTION 'GATE PAGOS-CABLEADOS-RESTANTES FAILED (legacy-credit-noclient): la rama legacy debe exigir credit_requires_client igual que la v2.';
+    RAISE EXCEPTION 'GATE PAGOS-CABLEADOS-RESTANTES FAILED (legacy-credit-noclient): el camino único debe exigir credit_requires_client aunque exista la fila del flag retirado.';
   END IF;
 
   SELECT public.rpc_create_sale_operation(
@@ -446,9 +448,9 @@ BEGIN
   v_op_id := (v_result->>'operation_id')::uuid;
   SELECT COUNT(*) INTO v_count FROM public.cash_movements WHERE session_id = v_session_id AND reference_id = v_op_id AND amount = 150;
   IF v_count <> 1 THEN
-    RAISE EXCEPTION 'GATE PAGOS-CABLEADOS-RESTANTES FAILED (legacy-cash): la rama legacy debe honrar el opt-in de caja igual que la v2.';
+    RAISE EXCEPTION 'GATE PAGOS-CABLEADOS-RESTANTES FAILED (legacy-cash): el camino único debe honrar el opt-in de caja aunque exista la fila del flag retirado.';
   END IF;
-  RAISE NOTICE 'PASS (legacy): rpc_create_sale_operation con el flag sale_items_rpc_v2 en false replica crédito + opt-in de caja — ambas ramas del strangler consistentes.';
+  RAISE NOTICE 'PASS (legacy): con la fila del flag retirado sale_items_rpc_v2 en false, rpc_create_sale_operation sigue posteando crédito + opt-in de caja (camino único).';
 
   UPDATE public.account_feature_flags SET enabled = true WHERE account_id = v_account_id AND flag_key = 'sale_items_rpc_v2';
 

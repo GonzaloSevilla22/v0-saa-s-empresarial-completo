@@ -54,7 +54,8 @@
 --   (e) borrado de venta, misma matriz
 --   (f) edición de compra
 --   (g) borrado de compra
---   (h) rama legacy (kill-switch sale_items_rpc_v2 = false) de rpc_create_sale_operation
+--   (h) el flag sale_items_rpc_v2 RETIRADO (v31-document-lines-consistency): una fila enabled = false
+--       ya no abre ninguna rama; rpc_create_sale_operation conserva los mismos guards (rol, cuenta)
 --   (i) rpc_create_purchase_operation_v2 (sin EXECUTE para authenticated)
 --   (j) CANDADO DE CUERPO de las 9 funciones (sin guard por autor; el guard de rol
 --       antes de la primera escritura; el filtro de cuenta DENTRO del FOR UPDATE)
@@ -696,25 +697,27 @@ BEGIN
     RAISE NOTICE 'FAIL %: % [%]', v_blk, SQLERRM, SQLSTATE;
   END;
 
-  -- ── (h) Rama legacy del kill-switch (sale_items_rpc_v2 = false) ────────────
-  v_blk := '(h) rama legacy';
+  -- ── (h) El flag retirado ya no tiene efecto (sale_items_rpc_v2 = false) ────
+  -- v31-document-lines-consistency (D1): la rama legacy desapareció; una fila enabled = false (que ya no se crea
+  -- ni se lee) no cambia ningún guard. El bloque conserva sus aserciones: ahora prueban la rama ÚNICA.
+  v_blk := '(h) flag retirado';
   BEGIN
     INSERT INTO public.account_feature_flags (account_id, flag_key, enabled) VALUES (v_a, 'sale_items_rpc_v2', false)
     ON CONFLICT (account_id, flag_key) DO UPDATE SET enabled = false;
     SELECT * INTO v_r FROM pg_temp.run(v_s, v_a, pg_temp.e_sale('rpc_create_sale_operation', 'gate-mub-h-s', pg_temp.items(v_pa1, 1), v_today));
-    PERFORM pg_temp.expect('rama legacy: el vendedor vende un producto del dueño', v_r.o_state, v_r.o_msg, 'ok');
+    PERFORM pg_temp.expect('flag retirado: el vendedor vende un producto del dueño', v_r.o_state, v_r.o_msg, 'ok');
     SELECT * INTO v_r FROM pg_temp.run(v_ad, v_a, pg_temp.e_sale('rpc_create_sale_operation', 'gate-mub-h-ad', pg_temp.items(v_pa1, 1), v_today));
-    PERFORM pg_temp.expect('rama legacy: el admin vende un producto del dueño', v_r.o_state, v_r.o_msg, 'ok');
+    PERFORM pg_temp.expect('flag retirado: el admin vende un producto del dueño', v_r.o_state, v_r.o_msg, 'ok');
     v_eff0 := pg_temp.eff(v_a, v_b);
     SELECT * INTO v_r FROM pg_temp.run(v_v, v_a, pg_temp.e_sale('rpc_create_sale_operation', 'gate-mub-h-v', pg_temp.items(v_pa_v, 1), v_today));
-    PERFORM pg_temp.expect('rama legacy: el observador vende un producto PROPIO', v_r.o_state, v_r.o_msg, 'P0401', 'unauthorized');
+    PERFORM pg_temp.expect('flag retirado: el observador vende un producto PROPIO', v_r.o_state, v_r.o_msg, 'P0401', 'unauthorized');
     SELECT * INTO v_r FROM pg_temp.run(v_st, v_a, pg_temp.e_sale('rpc_create_sale_operation', 'gate-mub-h-st', pg_temp.items(v_pa1, 1), v_today));
-    PERFORM pg_temp.expect('rama legacy: el depósito vende', v_r.o_state, v_r.o_msg, 'P0403', 'insufficient_role');
+    PERFORM pg_temp.expect('flag retirado: el depósito vende', v_r.o_state, v_r.o_msg, 'P0403', 'insufficient_role');
     SELECT * INTO v_r FROM pg_temp.run(v_s, v_a, pg_temp.e_sale('rpc_create_sale_operation', 'gate-mub-h-pb', pg_temp.items(v_pb, 1), v_today));
-    PERFORM pg_temp.expect('rama legacy: un producto de OTRA cuenta', v_r.o_state, v_r.o_msg, 'P0404', 'Product not found');
-    IF pg_temp.eff(v_a, v_b) <> v_eff0 THEN RAISE EXCEPTION 'un rechazo en la rama legacy dejó efectos'; END IF;
+    PERFORM pg_temp.expect('flag retirado: un producto de OTRA cuenta', v_r.o_state, v_r.o_msg, 'P0404', 'Product not found');
+    IF pg_temp.eff(v_a, v_b) <> v_eff0 THEN RAISE EXCEPTION 'un rechazo con el flag retirado dejó efectos'; END IF;
     DELETE FROM public.account_feature_flags WHERE account_id = v_a AND flag_key = 'sale_items_rpc_v2';
-    RAISE NOTICE 'PASS (h): la rama legacy de rpc_create_sale_operation tiene los mismos guards (producto por cuenta, rol).';
+    RAISE NOTICE 'PASS (h): con una fila enabled = false del flag retirado, rpc_create_sale_operation conserva los mismos guards (producto por cuenta, rol).';
   EXCEPTION WHEN OTHERS THEN
     DELETE FROM public.account_feature_flags WHERE account_id = v_a AND flag_key = 'sale_items_rpc_v2';
     v_fail := v_fail || format('%s %s [%s]', v_blk, SQLERRM, SQLSTATE);
@@ -762,7 +765,8 @@ BEGIN
       IF v_r.src ~* 'FROM\s+(public\.)?products\s+WHERE\s+id\s*=\s*v_item\.product_id\s+FOR UPDATE' THEN
         RAISE EXCEPTION '% toma el producto FOR UPDATE SIN filtrar por la cuenta', v_r.proname;
       END IF;
-      IF v_r.proname NOT IN ('rpc_delete_sale_operation', 'rpc_delete_purchase_operation', 'rpc_create_purchase_operation')
+      -- rpc_create_sale_operation es desde v31-document-lines-consistency un despachador a la v2: no toma el producto.
+      IF v_r.proname NOT IN ('rpc_delete_sale_operation', 'rpc_delete_purchase_operation', 'rpc_create_purchase_operation', 'rpc_create_sale_operation')
          AND v_r.src !~* 'FROM\s+(public\.)?products\s+WHERE\s+id\s*=\s*v_item\.product_id\s+AND\s+account_id\s*=\s*v_account_id\s+FOR UPDATE' THEN
         RAISE EXCEPTION '% no tiene el filtro de cuenta DENTRO del SELECT … FOR UPDATE del producto', v_r.proname;
       END IF;
@@ -786,12 +790,12 @@ BEGIN
         RAISE EXCEPTION '% llama a _account_assert_capability DESPUÉS de la primera escritura o lock', v_r.proname;
       END IF;
     END LOOP;
-    -- La rama legacy del wrapper de venta: el guard antes de su primera escritura.
+    -- El wrapper de venta ya no tiene rama legacy (v31-document-lines-consistency): ninguna escritura propia y
+    -- despacho incondicional a la v2, que lleva el guard de rol (verificado arriba) y el filtro de cuenta.
     SELECT regexp_replace(regexp_replace(regexp_replace(p.prosrc, '/\*.*?\*/', '', 'gs'), '--[^\n\r]*', '', 'g'), '\s+', ' ', 'g') INTO v_txt
     FROM pg_proc p WHERE p.pronamespace = 'public'::regnamespace AND p.proname = 'rpc_create_sale_operation';
-    IF position('_account_assert_capability' IN v_txt) = 0
-       OR position('_account_assert_capability' IN v_txt) > position('INSERT INTO' IN v_txt) THEN
-      RAISE EXCEPTION 'rpc_create_sale_operation: la rama legacy no tiene el guard de rol antes de su primera escritura';
+    IF position('INSERT INTO' IN v_txt) > 0 OR position('rpc_create_sale_operation_v2' IN v_txt) = 0 THEN
+      RAISE EXCEPTION 'rpc_create_sale_operation: debía ser un despachador a la v2 sin escrituras propias (rama legacy retirada)';
     END IF;
     -- La compra: el guard de capacidad lo lleva el wrapper público (el núcleo lo reusa la conversión de remitos, que decide con su propio rol).
     SELECT prosrc INTO v_txt FROM pg_proc WHERE pronamespace = 'public'::regnamespace AND proname = '_purchase_operation_core';

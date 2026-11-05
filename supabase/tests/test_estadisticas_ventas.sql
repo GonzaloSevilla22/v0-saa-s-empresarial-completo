@@ -244,8 +244,8 @@ BEGIN
   INSERT INTO public.sales (user_id, account_id, branch_id, product_id, amount, quantity, total, date, operation_id)
   VALUES (v_user, v_account, v_branch, v_p_simple, 1000, 2, 2000, v_sat::timestamp AT TIME ZONE 'UTC', v_op1)
   RETURNING id INTO v_sale_a;
-  INSERT INTO public.sale_items (sale_id, product_id, account_id, quantity, price, subtotal, unit_cost_snapshot)
-  VALUES (v_sale_a, v_p_simple, v_account, 2, 1000, 2000, 600);
+  INSERT INTO public.sale_items (sale_id, product_id, account_id, quantity, price, subtotal, unit_cost_snapshot, name_snapshot)
+  VALUES (v_sale_a, v_p_simple, v_account, 2, 1000, 2000, 600, 'Fixture estadisticas');
   -- B: variante 1, $500, sábado, MISMA operación op1 (multi-línea cuenta 1).
   INSERT INTO public.sales (user_id, account_id, branch_id, product_id, amount, quantity, total, date, operation_id)
   VALUES (v_user, v_account, v_branch, v_p_v1, 500, 1, 500, v_sat::timestamp AT TIME ZONE 'UTC', v_op1);

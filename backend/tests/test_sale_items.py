@@ -176,15 +176,14 @@ def test_backfill_idempotent_does_not_duplicate():
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Group 3: RPC v2 + feature flag (tests via API, mocking DB)
+# Group 3: camino único de la venta (v31-document-lines-consistency retiró el flag sale_items_rpc_v2)
 # ─────────────────────────────────────────────────────────────────────────────
 
-async def test_create_sale_v2_flag_on_inserts_sale_item(async_client, mock_pool):
+async def test_create_sale_calls_the_single_rpc_path(async_client, mock_pool):
     """
-    3.1: with flag ON, the RPC (via sale_items_rpc_v2=on) must produce a sale_items row.
-    At the backend level: the create_operation call is made and the response includes
-    operation_id. The sale_items insertion happens in the DB RPC.
-    Test validates the backend path: correct RPC call made when flag would be on.
+    3.1: la venta SIEMPRE escribe su línea: el backend llama a `rpc_create_sale_operation` (despachador
+    incondicional a la v2) y la fila de sale_items nace en la RPC, en la misma transacción que el header.
+    No hay despacho por flag: el SQL que emite el backend no lo nombra.
     """
     pool, conn = mock_pool
     owner_token = tenant_token(["owner"])
@@ -205,15 +204,16 @@ async def test_create_sale_v2_flag_on_inserts_sale_item(async_client, mock_pool)
             headers={"Authorization": f"Bearer {owner_token}"},
         )
     assert resp.status_code == 201
-    # The backend always calls rpc_create_sale_operation — the flag dispatch happens in SQL
     assert "rpc_create_sale_operation" in captured["query"]
+    assert "sale_items_rpc_v2" not in captured["query"]
+    assert "account_feature_flags" not in captured["query"]
     assert resp.json()["operation_id"] == "66666666-6666-6666-6666-666666666666"
 
 
 async def test_create_sale_idempotency_preserved_with_v2(async_client, mock_pool):
     """
     3.2: idempotency key already used → same operation_id returned, no second insert.
-    The RPC (v2 or legacy) must honor operation_idempotency.
+    El camino único de la RPC honra operation_idempotency.
     """
     pool, conn = mock_pool
     owner_token = tenant_token(["owner"])
@@ -231,20 +231,19 @@ async def test_create_sale_idempotency_preserved_with_v2(async_client, mock_pool
     conn.fetchrow.assert_called_once()
 
 
-async def test_create_sale_flag_off_legacy_path(async_client, mock_pool):
+async def test_create_sale_has_no_flag_or_legacy_branch_in_the_backend(async_client, mock_pool):
     """
-    3.3: with flag OFF (default), the legacy rpc_create_sale_operation path executes.
-    Backend always calls the same RPC name; the SQL wrapper decides internally.
-    The important thing: the endpoint works correctly and returns 201.
+    3.3: ya no existe una rama legacy (header sin línea) ni un interruptor por cuenta. El endpoint
+    funciona igual y el backend nunca consulta `account_feature_flags` antes ni durante la venta.
     """
     pool, conn = mock_pool
     owner_token = tenant_token(["owner"])
-    captured: dict = {}
+    seen: list[str] = []
 
     async def fetchrow_side_effect(query, *args):
+        seen.append(query)
         if "operation_idempotency" in query:
             return None
-        captured["query"] = query
         return OPERATION_ROW
 
     conn.fetchrow = AsyncMock(side_effect=fetchrow_side_effect)
@@ -255,8 +254,8 @@ async def test_create_sale_flag_off_legacy_path(async_client, mock_pool):
             headers={"Authorization": f"Bearer {owner_token}"},
         )
     assert resp.status_code == 201
-    # Same public RPC name regardless of flag state
-    assert "rpc_create_sale_operation" in captured["query"]
+    assert any("rpc_create_sale_operation" in q for q in seen)
+    assert not any("account_feature_flags" in q or "sale_items_rpc_v2" in q for q in seen)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -277,10 +276,10 @@ PURCHASE_OPERATION_ROW = {
 }
 
 
-async def test_create_purchase_v2_flag_on_inserts_purchase_item(async_client, mock_pool):
+async def test_create_purchase_calls_the_single_rpc_path(async_client, mock_pool):
     """
-    4.1: with flag ON, purchase RPC produces a purchase_items row.
-    Backend path: correct RPC call made.
+    4.1: la compra SIEMPRE escribe su línea (sin flag): el backend llama a `rpc_create_purchase_operation`
+    y la fila de purchase_items nace en la RPC, en la misma transacción que el header.
     """
     pool, conn = mock_pool
     owner_token = tenant_token(["owner"])
@@ -301,6 +300,7 @@ async def test_create_purchase_v2_flag_on_inserts_purchase_item(async_client, mo
         )
     assert resp.status_code == 201
     assert "rpc_create_purchase_operation" in captured["query"]
+    assert "sale_items_rpc_v2" not in captured["query"]
     assert resp.json()["operation_id"] == "77777777-7777-7777-7777-777777777777"
 
 
@@ -831,8 +831,9 @@ def test_dashboard_channel_margin_pre_migration_baseline():
 
 def test_dashboard_channel_margin_null_product_sales_excluded_from_cogs():
     """
-    9.3 TRIANGULATE: sales without product_id (service lines) have no sale_items row
-    (the v2 RPC skips INSERT into sale_items for NULL product_id).
+    9.3 TRIANGULATE: sales without product_id (service lines) never match a product's sale_items
+    row in the channel-margin CTE (since v31-document-lines-consistency they do have their own
+    sale_items row, with product_id NULL, but the CTE joins by product).
     The new CTE must handle NULL si rows gracefully (LEFT JOIN, COALESCE cogs to 0).
     """
     # Sale without product: no sale_items row → si.quantity is NULL after LEFT JOIN

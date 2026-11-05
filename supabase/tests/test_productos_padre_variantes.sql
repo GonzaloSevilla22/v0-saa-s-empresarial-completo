@@ -272,6 +272,59 @@ BEGIN
 END $$;
 
 -- ═══════════════════════════════════════════════════════════════════════════
+-- (G) rpc_bulk_upsert_products: la rama Padre nunca deja precio/costo (D3, 1.3)
+-- ═══════════════════════════════════════════════════════════════════════════
+DO $$
+DECLARE
+  v_a uuid := pg_temp.fx('a');  v_ow uuid := pg_temp.fx('ow');
+  v_res jsonb;  v_id uuid;
+BEGIN
+  PERFORM pg_temp.as_user(v_ow, v_a);
+
+  -- Un producto existente (tracked, con precio y costo) al que el archivo marca como Padre por SKU.
+  INSERT INTO public.products (user_id, account_id, name, sku, price, cost, stock_control_type)
+  VALUES (v_ow, v_a, 'PPV Import existente', 'PPV-IMP-EXIST', 100, 50, 'tracked') RETURNING id INTO v_id;
+  INSERT INTO fx VALUES ('imp_exist', v_id);
+
+  v_res := public.rpc_bulk_upsert_products(jsonb_build_array(
+    -- G1: alta de un Padre con precio y costo en el archivo
+    jsonb_build_object('row_no', 1, 'name', 'PPV Import Padre nuevo', 'sku', 'PPV-IMP-NEW', 'price', '1500', 'cost', '800',
+                       'stock_control_type', 'variant_only'),
+    -- G2: el existente pasa a Padre con el mismo SKU
+    jsonb_build_object('row_no', 2, 'name', 'PPV Import existente', 'sku', 'PPV-IMP-EXIST', 'price', '120', 'cost', '60',
+                       'stock_control_type', 'variant_only'),
+    -- G3: control — un producto simple conserva su precio y su costo
+    jsonb_build_object('row_no', 3, 'name', 'PPV Import simple', 'sku', 'PPV-IMP-SIMPLE', 'price', '200', 'cost', '90',
+                       'stock_control_type', 'tracked')
+  ), v_ow);
+  PERFORM pg_temp.chk(jsonb_array_length(v_res->'errors') = 0, format('(G) el import dio errores de fila: %s', v_res->'errors'));
+  PERFORM pg_temp.chk((v_res->>'inserted')::int = 2 AND (v_res->>'updated')::int = 1, format('(G) contadores inesperados: %s', v_res));
+  PERFORM pg_temp.chk((SELECT price = 0 AND cost IS NULL AND stock_control_type = 'variant_only' FROM public.products
+                        WHERE account_id = v_a AND sku = 'PPV-IMP-NEW'),
+    '(G1) el Padre nuevo del archivo quedó con precio o costo');
+  PERFORM pg_temp.chk((SELECT price = 0 AND cost IS NULL AND stock_control_type = 'variant_only' FROM public.products WHERE id = v_id),
+    '(G2) el producto que pasó a Padre conservó precio o costo');
+  PERFORM pg_temp.chk((SELECT price = 200 AND cost = 90 FROM public.products WHERE account_id = v_a AND sku = 'PPV-IMP-SIMPLE'),
+    '(G3) el producto simple perdió su precio/costo (el forzado sólo aplica al Padre)');
+
+  -- G4: reimportar un Padre ya existente (sólo cambia el nombre) con un precio en el archivo: sigue en 0/NULL.
+  v_res := public.rpc_bulk_upsert_products(jsonb_build_array(
+    jsonb_build_object('row_no', 1, 'name', 'PPV Import Padre nuevo v2', 'sku', 'PPV-IMP-NEW', 'price', '999', 'cost', '1',
+                       'stock_control_type', 'variant_only')), v_ow);
+  PERFORM pg_temp.chk(jsonb_array_length(v_res->'errors') = 0, format('(G4) el reimport dio errores de fila: %s', v_res->'errors'));
+  PERFORM pg_temp.chk((SELECT price = 0 AND cost IS NULL AND name = 'PPV Import Padre nuevo v2' FROM public.products
+                        WHERE account_id = v_a AND sku = 'PPV-IMP-NEW'),
+    '(G4) reimportar un Padre le dejó precio/costo o no actualizó el nombre');
+
+  -- G5: fila sin tipo sobre un Padre existente conserva el tipo (COALESCE) y sigue sin precio.
+  v_res := public.rpc_bulk_upsert_products(jsonb_build_array(
+    jsonb_build_object('row_no', 1, 'name', 'PPV Import Padre nuevo v3', 'sku', 'PPV-IMP-NEW', 'price', '777')), v_ow);
+  PERFORM pg_temp.chk(jsonb_array_length(v_res->'errors') = 0, format('(G5) fila sin tipo sobre un Padre dio error: %s', v_res->'errors'));
+  PERFORM pg_temp.chk((SELECT price = 0 AND cost IS NULL FROM public.products WHERE account_id = v_a AND sku = 'PPV-IMP-NEW'),
+    '(G5) una fila sin tipo le puso precio a un Padre existente');
+END $$;
+
+-- ═══════════════════════════════════════════════════════════════════════════
 -- Cierre: UN solo fallo con todo el detalle
 -- ═══════════════════════════════════════════════════════════════════════════
 DO $$

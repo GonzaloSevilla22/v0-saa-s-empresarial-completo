@@ -4,7 +4,10 @@ import { useState, useCallback, useMemo } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { pythonClient } from "@/lib/api/python-client"
 import { queryKeys } from "@/lib/query-keys"
-import { invalidateAfterSaleDelete } from "@/lib/query-invalidation"
+import { invalidateAfterOperationEdit, invalidateAfterSaleDelete } from "@/lib/query-invalidation"
+import { fetchEditPreview } from "@/lib/operation-edit-api"
+import { moneyIntentPayload, type EditMoneyIntent } from "@/lib/money-intent"
+import type { EditPreview, MoneyPlan } from "@/lib/money-plan"
 import type { Sale } from "@/lib/types"
 import { mapFiscalState, type FiscalReadModelRow } from "@/lib/fiscal-comprobante"
 import { roundUnitPrice, type SaleCartItem } from "@/lib/cart-utils"
@@ -100,6 +103,74 @@ export interface SaleOperationUpdateResponse {
   ok: boolean
   operation_id: string
   voided_fiscal_document: VoidedFiscalDocument | null
+  /** edicion-operaciones-con-dinero (D13): el plan de dinero que el SERVIDOR ejecutó (null en respuestas anteriores). */
+  money?: MoneyPlan | null
+}
+
+/** Variables de la edición de una operación de venta (y de su vista previa: el MISMO payload). */
+export interface SaleOperationUpdateVars {
+  saleIds: string[]
+  newItems: SaleCartItem[]
+  meta: {
+    clientId: string | null
+    date: string
+    currency: string
+    orgId: string
+    /**
+     * metodos-pago-operaciones (D5): tri-estado por AUSENCIA de la clave
+     * — ver el comentario espejo en use-purchases.ts.
+     */
+    paymentMethodId?: string | null
+    /**
+     * edicion-preserva-contexto (F1 §D3): branchId/canal usan el MISMO
+     * contrato tri-estado por ausencia. Omitir la clave del objeto meta
+     * preserva la sucursal/canal vigente; `null` explícito desimputa;
+     * un valor reimputa.
+     */
+    branchId?: string | null
+    canal?: string | null
+  }
+  /**
+   * edicion-operaciones-con-dinero (D6/D7/D9): intenciones de caja, banco y vencimiento, MISMO contrato por ausencia: sólo
+   * viajan las claves que el usuario cambió (`buildEditMoneyIntent`).
+   */
+  money?: EditMoneyIntent
+}
+
+/** El body de `PUT /sales/operation` y de `POST /sales/operation/edit-preview`: una sola definición. */
+export function buildSaleOperationUpdatePayload({ saleIds, newItems, meta: opMeta, money }: SaleOperationUpdateVars): Record<string, unknown> {
+  const items = newItems.map(item => ({
+    product_id: item.productId,
+    // ventas-unidades-conversion (cuarta revisión, D-F′): mismo precio
+    // sin ruido binario que el alta.
+    amount:     roundUnitPrice(item.unitPrice * (1 - item.discount / 100)),
+    quantity:   item.quantity,
+    // edicion-preserva-contexto (F1 §D7): unit_id viaja pegado a la
+    // línea — el form lo prefillea desde SaleItemOut.unit_id y lo
+    // reenvía, igual que quantity/price.
+    unit_id:    item.unitId ?? null,
+  }))
+  const payload: Record<string, unknown> = {
+    sale_ids:  saleIds,
+    client_id: opMeta.clientId ?? null,
+    date:      opMeta.date,
+    currency:  opMeta.currency,
+    items,
+  }
+  if ("paymentMethodId" in opMeta) {
+    payload.payment_method_id = opMeta.paymentMethodId ?? null
+  }
+  // edicion-preserva-contexto: mismo patrón de inclusión condicional —
+  // JSON.stringify omite claves con valor `undefined`, así que "ausente"
+  // viaja literalmente ausente y el backend (model_fields_set) distingue
+  // "preservar" de "informado con null" (desimputar).
+  if ("branchId" in opMeta) {
+    payload.branch_id = opMeta.branchId ?? null
+  }
+  if ("canal" in opMeta) {
+    payload.canal = opMeta.canal ?? null
+  }
+  return { ...payload, ...moneyIntentPayload(money ?? {}) }
 }
 
 function mapSale(s: SaleApiRow): Sale {
@@ -347,82 +418,25 @@ export function useSales() {
   })
 
   const updateSaleOperationMutation = useMutation({
-    mutationFn: async ({
-      saleIds,
-      newItems,
-      meta: opMeta,
-    }: {
-      saleIds: string[]
-      newItems: SaleCartItem[]
-      meta: {
-        clientId: string | null
-        date: string
-        currency: string
-        orgId: string
-        /**
-         * metodos-pago-operaciones (D5): tri-estado por AUSENCIA de la clave
-         * — ver el comentario espejo en use-purchases.ts.
-         */
-        paymentMethodId?: string | null
-        /**
-         * edicion-preserva-contexto (F1 §D3): branchId/canal usan el MISMO
-         * contrato tri-estado por ausencia. Omitir la clave del objeto meta
-         * preserva la sucursal/canal vigente; `null` explícito desimputa;
-         * un valor reimputa.
-         */
-        branchId?: string | null
-        canal?: string | null
-      }
-    }) => {
-      const items = newItems.map(item => ({
-        product_id: item.productId,
-        // ventas-unidades-conversion (cuarta revisión, D-F′): mismo precio
-        // sin ruido binario que el alta.
-        amount:     roundUnitPrice(item.unitPrice * (1 - item.discount / 100)),
-        quantity:   item.quantity,
-        // edicion-preserva-contexto (F1 §D7): unit_id viaja pegado a la
-        // línea — el form lo prefillea desde SaleItemOut.unit_id y lo
-        // reenvía, igual que quantity/price.
-        unit_id:    item.unitId ?? null,
-      }))
-      const payload: Record<string, unknown> = {
-        sale_ids:  saleIds,
-        client_id: opMeta.clientId ?? null,
-        date:      opMeta.date,
-        currency:  opMeta.currency,
-        items,
-      }
-      if ("paymentMethodId" in opMeta) {
-        payload.payment_method_id = opMeta.paymentMethodId ?? null
-      }
-      // edicion-preserva-contexto: mismo patrón de inclusión condicional —
-      // JSON.stringify omite claves con valor `undefined`, así que "ausente"
-      // viaja literalmente ausente y el backend (model_fields_set) distingue
-      // "preservar" de "informado con null" (desimputar).
-      if ("branchId" in opMeta) {
-        payload.branch_id = opMeta.branchId ?? null
-      }
-      if ("canal" in opMeta) {
-        payload.canal = opMeta.canal ?? null
-      }
+    mutationFn: async (vars: SaleOperationUpdateVars) => {
       // venta-editable-sin-cae: la respuesta trae `voided_fiscal_document`
       // cuando la edición anuló el comprobante pendiente. El toast del form se
       // arma con ESTO, nunca con lo que el cliente creía antes de guardar.
-      return pythonClient.put<SaleOperationUpdateResponse>("/sales/operation", payload)
+      // edicion-operaciones-con-dinero: y `money`, el plan que ejecutó el servidor.
+      return pythonClient.put<SaleOperationUpdateResponse>("/sales/operation", buildSaleOperationUpdatePayload(vars))
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.sales.all() })
-      queryClient.invalidateQueries({ queryKey: queryKeys.products.all() })
-      // fix-supplier-account-ui-post-delete (bug 1, lado ventas): editar una
-      // operación de venta puede reimputar/desimputar el cliente o cambiar
-      // montos que ya postearon cargo — ver comentario arriba.
-      queryClient.invalidateQueries({ queryKey: queryKeys.customerAccounts.all() })
-      // cobranzas-panel (D8): el panel /cobranzas y el KPI del Tablero derivan
-      // del mismo saldo — toda mutación que lo altera los invalida acá, en el
-      // hook, nunca en la pantalla.
-      queryClient.invalidateQueries({ queryKey: queryKeys.receivables.all() })
-    },
+    // edicion-operaciones-con-dinero (D17): la edición compensa y registra en cuenta corriente, caja y banco —
+    // una sola definición de lo que invalida (venta: listado, stock, cuenta corriente, cobranzas, caja, banco,
+    // conciliación, libro diario, formas de pago e historial).
+    onSuccess: () => invalidateAfterOperationEdit(queryClient, "sale"),
   })
+
+  /** La vista previa del plan de la edición (D13): la misma RPC en seco. No escribe nada. */
+  const previewSaleOperationEdit = useCallback(
+    (vars: SaleOperationUpdateVars): Promise<EditPreview> =>
+      fetchEditPreview("sale", buildSaleOperationUpdatePayload(vars)),
+    [],
+  )
 
   return {
     sales,
@@ -445,6 +459,7 @@ export function useSales() {
     deleteSale:             deleteSaleMutation.mutateAsync,
     deleteSalesByOperation: deleteSalesByOperationMutation.mutateAsync,
     updateSaleOperation:    updateSaleOperationMutation.mutateAsync,
+    previewSaleOperationEdit,
     addSaleOperationMutation,
     updateSaleMutation,
     deleteSaleMutation,

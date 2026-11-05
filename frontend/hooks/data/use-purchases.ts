@@ -6,7 +6,10 @@ import { pythonClient } from "@/lib/api/python-client"
 import { queryKeys } from "@/lib/query-keys"
 import type { Purchase } from "@/lib/types"
 import type { PurchaseCartItem } from "@/lib/cart-utils"
-import { invalidateAfterPurchaseCreate, invalidateAfterPurchaseDelete } from "@/lib/query-invalidation"
+import { invalidateAfterOperationEdit, invalidateAfterPurchaseCreate, invalidateAfterPurchaseDelete } from "@/lib/query-invalidation"
+import { fetchEditPreview } from "@/lib/operation-edit-api"
+import { moneyIntentPayload, type EditMoneyIntent } from "@/lib/money-intent"
+import type { EditPreview, MoneyPlan } from "@/lib/money-plan"
 import {
   buildPaginationMeta,
   type PaginationMeta,
@@ -114,6 +117,96 @@ function mapPurchase(p: PurchaseApiRow): Purchase {
     bankAccountId:     p.bank_account_id ?? null,
     createdBy:                      p.created_by ?? null,
   }
+}
+
+/** Respuesta de PUT /purchases/operation: el id (estable) y el plan de dinero que el SERVIDOR ejecutó. */
+export interface PurchaseOperationUpdateResponse {
+  ok: boolean
+  operation_id: string | null
+  /** edicion-operaciones-con-dinero (D13): el plan que se ejecutó. */
+  money?: MoneyPlan | null
+}
+
+/** Variables de la edición de una operación de compra (y de su vista previa: el MISMO payload). */
+export interface PurchaseOperationUpdateVars {
+  purchaseIds: string[]
+  newItems: PurchaseCartItem[]
+  meta: {
+    date: string
+    description: string
+    orgId: string
+    /**
+     * metodos-pago-operaciones (D5): tri-estado por AUSENCIA de la clave,
+     * no por valor. Omitir `paymentMethodId` del objeto meta preserva el
+     * vigente (el backend traduce ausencia → JSON sin la clave →
+     * p_payment_method_provided=false). Pasar `null` explícito desimputa
+     * ("Sin especificar"); pasar un uuid reimputa.
+     */
+    paymentMethodId?: string | null
+    /**
+     * edicion-preserva-contexto (F1 §D3): branchId usa el mismo contrato
+     * tri-estado por ausencia — ver el comentario espejo en use-sales.ts.
+     */
+    branchId?: string | null
+    /**
+     * compras-proveedor-cuenta-corriente (D7): supplierId usa el MISMO
+     * contrato tri-estado por AUSENCIA de la clave — ausente preserva el
+     * vigente, `null` desimputa, un uuid reimputa. Nunca por `is None`
+     * en el backend (model_fields_set).
+     */
+    supplierId?: string | null
+    /**
+     * review B (FE-1/OQ-5 A): costCenterId usa el MISMO contrato
+     * tri-estado por AUSENCIA que supplierId/branchId/paymentMethodId —
+     * DB (rpc_atomic_update_purchase_operation, 12 args) y backend
+     * (routers/purchases.py, "cost_center_id" in model_fields_set) ya lo
+     * aceptaban desde OQ-5 opción A; le faltaba el passthrough acá.
+     */
+    costCenterId?: string | null
+  }
+  /**
+   * edicion-operaciones-con-dinero (D6/D7/D9): intenciones de caja, banco y vencimiento, MISMO contrato por ausencia: sólo
+   * viajan las claves que el usuario cambió (`buildEditMoneyIntent`).
+   */
+  money?: EditMoneyIntent
+}
+
+/** El body de `PUT /purchases/operation` y de `POST /purchases/operation/edit-preview`: una sola definición. */
+export function buildPurchaseOperationUpdatePayload({ purchaseIds, newItems, meta: opMeta, money }: PurchaseOperationUpdateVars): Record<string, unknown> {
+  const items = newItems.map(item => ({
+    product_id: item.productId,
+    amount:     item.unitCost,
+    quantity:   item.quantity,
+    // edicion-preserva-contexto (F1 §D7): unit_id viaja pegado a la línea.
+    unit_id:    item.unitId ?? null,
+  }))
+  const payload: Record<string, unknown> = {
+    purchase_ids: purchaseIds,
+    date:         opMeta.date,
+    description:  opMeta.description || null,
+    items,
+  }
+  // metodos-pago-operaciones (D5): la clave solo se incluye en el body si
+  // el caller la mandó explícitamente en meta — JSON.stringify omite las
+  // claves con valor `undefined`, así que "ausente" viaja literalmente
+  // ausente y el backend (model_fields_set) lo distingue de `null`.
+  if ("paymentMethodId" in opMeta) {
+    payload.payment_method_id = opMeta.paymentMethodId ?? null
+  }
+  // edicion-preserva-contexto: mismo patrón de inclusión condicional.
+  if ("branchId" in opMeta) {
+    payload.branch_id = opMeta.branchId ?? null
+  }
+  // compras-proveedor-cuenta-corriente (D7): mismo patrón — ausente del
+  // objeto meta = ausente del body = preservar el vigente.
+  if ("supplierId" in opMeta) {
+    payload.supplier_id = opMeta.supplierId ?? null
+  }
+  // review B (FE-1/OQ-5 A): mismo patrón de inclusión condicional.
+  if ("costCenterId" in opMeta) {
+    payload.cost_center_id = opMeta.costCenterId ?? null
+  }
+  return { ...payload, ...moneyIntentPayload(money ?? {}) }
 }
 
 // ── Hook ─────────────────────────────────────────────────────────────────────
@@ -316,93 +409,19 @@ export function usePurchases() {
   })
 
   const updatePurchaseOperationMutation = useMutation({
-    mutationFn: async ({
-      purchaseIds,
-      newItems,
-      meta: opMeta,
-    }: {
-      purchaseIds: string[]
-      newItems: PurchaseCartItem[]
-      meta: {
-        date: string
-        description: string
-        orgId: string
-        /**
-         * metodos-pago-operaciones (D5): tri-estado por AUSENCIA de la clave,
-         * no por valor. Omitir `paymentMethodId` del objeto meta preserva el
-         * vigente (el backend traduce ausencia → JSON sin la clave →
-         * p_payment_method_provided=false). Pasar `null` explícito desimputa
-         * ("Sin especificar"); pasar un uuid reimputa.
-         */
-        paymentMethodId?: string | null
-        /**
-         * edicion-preserva-contexto (F1 §D3): branchId usa el mismo contrato
-         * tri-estado por ausencia — ver el comentario espejo en use-sales.ts.
-         */
-        branchId?: string | null
-        /**
-         * compras-proveedor-cuenta-corriente (D7): supplierId usa el MISMO
-         * contrato tri-estado por AUSENCIA de la clave — ausente preserva el
-         * vigente, `null` desimputa, un uuid reimputa. Nunca por `is None`
-         * en el backend (model_fields_set).
-         */
-        supplierId?: string | null
-        /**
-         * review B (FE-1/OQ-5 A): costCenterId usa el MISMO contrato
-         * tri-estado por AUSENCIA que supplierId/branchId/paymentMethodId —
-         * DB (rpc_atomic_update_purchase_operation, 12 args) y backend
-         * (routers/purchases.py, "cost_center_id" in model_fields_set) ya lo
-         * aceptaban desde OQ-5 opción A; le faltaba el passthrough acá.
-         */
-        costCenterId?: string | null
-      }
-    }) => {
-      const items = newItems.map(item => ({
-        product_id: item.productId,
-        amount:     item.unitCost,
-        quantity:   item.quantity,
-        // edicion-preserva-contexto (F1 §D7): unit_id viaja pegado a la línea.
-        unit_id:    item.unitId ?? null,
-      }))
-      const payload: Record<string, unknown> = {
-        purchase_ids: purchaseIds,
-        date:         opMeta.date,
-        description:  opMeta.description || null,
-        items,
-      }
-      // metodos-pago-operaciones (D5): la clave solo se incluye en el body si
-      // el caller la mandó explícitamente en meta — JSON.stringify omite las
-      // claves con valor `undefined`, así que "ausente" viaja literalmente
-      // ausente y el backend (model_fields_set) lo distingue de `null`.
-      if ("paymentMethodId" in opMeta) {
-        payload.payment_method_id = opMeta.paymentMethodId ?? null
-      }
-      // edicion-preserva-contexto: mismo patrón de inclusión condicional.
-      if ("branchId" in opMeta) {
-        payload.branch_id = opMeta.branchId ?? null
-      }
-      // compras-proveedor-cuenta-corriente (D7): mismo patrón — ausente del
-      // objeto meta = ausente del body = preservar el vigente.
-      if ("supplierId" in opMeta) {
-        payload.supplier_id = opMeta.supplierId ?? null
-      }
-      // review B (FE-1/OQ-5 A): mismo patrón de inclusión condicional.
-      if ("costCenterId" in opMeta) {
-        payload.cost_center_id = opMeta.costCenterId ?? null
-      }
-      return pythonClient.put<void>("/purchases/operation", payload)
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.purchases.all() })
-      queryClient.invalidateQueries({ queryKey: queryKeys.products.all() })
-      // fix-supplier-account-ui-post-delete (bug 1): editar una operación de
-      // compra puede reimputar/desimputar el proveedor o cambiar montos que
-      // ya postearon cargo — ver comentario arriba.
-      queryClient.invalidateQueries({ queryKey: queryKeys.supplierAccounts.all() })
-      // cobranzas-vencimientos (task 8.7): la compra a crédito crea deuda.
-      queryClient.invalidateQueries({ queryKey: queryKeys.payables.all() })
-    },
+    mutationFn: async (vars: PurchaseOperationUpdateVars) =>
+      pythonClient.put<PurchaseOperationUpdateResponse>("/purchases/operation", buildPurchaseOperationUpdatePayload(vars)),
+    // edicion-operaciones-con-dinero (D17): una sola definición de lo que invalida la edición de una compra (listado, stock,
+    // cuenta corriente del proveedor, por pagar, caja, banco, conciliación, libro diario, formas de pago e historial).
+    onSuccess: () => invalidateAfterOperationEdit(queryClient, "purchase"),
   })
+
+  /** La vista previa del plan de la edición (D13): la misma RPC en seco. No escribe nada. */
+  const previewPurchaseOperationEdit = useCallback(
+    (vars: PurchaseOperationUpdateVars): Promise<EditPreview> =>
+      fetchEditPreview("purchase", buildPurchaseOperationUpdatePayload(vars)),
+    [],
+  )
 
   return {
     purchases,
@@ -427,6 +446,7 @@ export function usePurchases() {
     deletePurchase:             deletePurchaseMutation.mutateAsync,
     deletePurchasesByOperation: deletePurchasesByOperationMutation.mutateAsync,
     updatePurchaseOperation:    updatePurchaseOperationMutation.mutateAsync,
+    previewPurchaseOperationEdit,
     addPurchaseOperationMutation,
     updatePurchaseMutation,
     deletePurchaseMutation,

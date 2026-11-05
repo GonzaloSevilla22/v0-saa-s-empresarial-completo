@@ -378,7 +378,7 @@ DO $$
 DECLARE
   v_user uuid; v_account uuid; v_branch uuid; v_p uuid;
   v_s_nolines uuid; v_s_ledger uuid; v_s_var uuid; v_pu_nolines uuid; v_pu_desc uuid; v_pu_none uuid;
-  v_op uuid := gen_random_uuid();
+  v_op uuid := gen_random_uuid(); v_variant uuid;
 BEGIN
   SELECT m.user_id, m.account_id INTO v_user, v_account FROM public.account_members m
     JOIN auth.users u ON u.id = m.user_id WHERE u.email = 'h15-document-lines@test.local' LIMIT 1;
@@ -389,7 +389,7 @@ BEGIN
   INSERT INTO public.sales (user_id, account_id, product_id, amount, quantity, total, currency, date, operation_id, branch_id)
   VALUES (v_user, v_account, NULL, 31920, 1, 31920, 'ARS', CURRENT_DATE, v_op, v_branch) RETURNING id INTO v_s_nolines;
   INSERT INTO public.stock_movements (user_id, account_id, product_id, product_name, type, quantity_delta, quantity_before, quantity_after, reference_id, reference_type, performed_by, branch_id)
-  VALUES (v_user, v_account, v_p, 'Nombre desde el ledger', 'sale_update', 0, 0, 0, v_s_nolines, 'sale', v_user, v_branch);
+  VALUES (v_user, v_account, v_p, 'Nombre desde el ledger', 'sale', -1, 1, 0, v_s_nolines, 'sale', v_user, v_branch);
 
   -- venta con producto borrado: línea sin nombre, product_id NULL, nombre sólo en el ledger
   INSERT INTO public.sales (user_id, account_id, product_id, amount, quantity, total, currency, date, operation_id, branch_id)
@@ -404,8 +404,9 @@ BEGIN
   VALUES (v_user, v_account, v_p, 20, 1, 20, 'ARS', CURRENT_DATE, gen_random_uuid(), v_branch) RETURNING id INTO v_s_var;
   INSERT INTO public.sale_items (sale_id, account_id, product_id, variant_id, quantity, price, subtotal, name_snapshot)
   VALUES (v_s_var, v_account, v_p, NULL, 1, 20, 20, 'H15 Producto Uno');
+  INSERT INTO public.product_variants (product_id, name) VALUES (v_p, 'Variante H15') RETURNING id INTO v_variant;
   INSERT INTO public.sale_items (sale_id, account_id, product_id, variant_id, quantity, price, subtotal, name_snapshot)
-  VALUES (v_s_var, v_account, NULL, v_p, 1, 20, 20, NULL);
+  VALUES (v_s_var, v_account, NULL, v_variant, 1, 20, 20, NULL);
 
   -- compras: sin línea y sin descripción / sin línea y con descripción / línea sin nombre con descripción
   INSERT INTO public.purchases (user_id, account_id, product_id, amount, quantity, total, description, date, operation_id, branch_id)

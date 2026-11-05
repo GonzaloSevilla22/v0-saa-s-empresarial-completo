@@ -15,27 +15,42 @@
 
 ## 1. Migración `20261091000001_v31_document_lines_consistency.sql`
 
-- [ ] 1.1 Cabecera con el contexto de H-15, los md5 de partida y la referencia al design. Agregar un guard de precondiciones que aborte si falta alguna de las 7 firmas.
-- [ ] 1.2 `rpc_create_sale_operation`: `CREATE OR REPLACE` desde el vivo, quitando el flag y la rama `ELSE` legacy. Queda como despachador incondicional a la v2 con la misma firma (D1). Agregar un COMMENT nuevo que explique el retiro.
-- [ ] 1.3 `_purchase_operation_core`, `rpc_atomic_update_sale_operation` y `rpc_atomic_update_purchase_operation`: quitar la variable, el SELECT y el `IF v_flag_on` (conservando el contenido del IF), y re-emitir el COMMENT vivo con la nota del retiro.
-- [ ] 1.4 Las 6 ramas de servicio escriben su línea (D3), con `name_snapshot` por cascada y la etiqueta constante `'Ítem sin producto'`. Las ramas están en `rpc_create_sale_operation_v2`, `_c29_confirm_order_core`, `_purchase_operation_core`, las dos de edición y `rpc_create_purchase_operation_v2`, si la tiene.
-- [ ] 1.5 `rpc_create_purchase_operation_v2`: el INSERT de producto lleva `name_snapshot` (D6, OQ-5).
-- [ ] 1.6 ACLs explícitas de las 7 funciones, idénticas a las vivas: `REVOKE ALL … FROM PUBLIC, anon` más los `GRANT` de la tabla del design.
-- [ ] 1.7 `DELETE FROM public.account_feature_flags WHERE flag_key = 'sale_items_rpc_v2'` (D2).
-- [ ] 1.8 Rollback en `supabase/migrations_bak/rollback_20261091000001_v31_document_lines_consistency.sql`, con los cuerpos de 0.2, `DROP NOT NULL` y la reinserción de las filas del flag (D10). Probarlo localmente: aplicar, revertir y volver a aplicar.
-- [ ] 1.9 Mostrar en el PR el `diff` de cada función contra su cuerpo vivo de 0.2: sólo deben aparecer los cambios de D1, D3 y D6.
+- [x] 1.1 Cabecera con el contexto de H-15, los md5 de partida y la referencia al design. Agregar un guard de precondiciones que aborte si falta alguna de las 7 firmas.
+  - **Apply 2026-11-05**: cabecera con el contexto, los 7 md5 de partida y un guard `to_regprocedure` de las 7 firmas. La migración se genera con un script que re-verifica el md5 de cada cuerpo vivo y aborta si el texto a reemplazar no aparece exactamente una vez.
+- [x] 1.2 `rpc_create_sale_operation`: `CREATE OR REPLACE` desde el vivo, quitando el flag y la rama `ELSE` legacy. Queda como despachador incondicional a la v2 con la misma firma (D1). Agregar un COMMENT nuevo que explique el retiro.
+  - **Apply 2026-11-05**: `rpc_create_sale_operation` queda como despachador de una línea a la v2 (misma firma, SECURITY DEFINER, ACLs idénticas) con COMMENT nuevo. La rama `ELSE` legacy (cerca de 300 líneas) desaparece.
+- [x] 1.3 `_purchase_operation_core`, `rpc_atomic_update_sale_operation` y `rpc_atomic_update_purchase_operation`: quitar la variable, el SELECT y el `IF v_flag_on` (conservando el contenido del IF), y re-emitir el COMMENT vivo con la nota del retiro.
+  - **Apply 2026-11-05**: se quitan la variable, el SELECT y el `IF v_flag_on` (conservando el contenido) en las tres funciones; los COMMENT vivos se re-emiten con la nota del retiro. Los comentarios internos que nombraban la clave se reformulan para que el gate (c) —que mira `prosrc` completo— no vea la cadena.
+- [x] 1.4 Las 6 ramas de servicio escriben su línea (D3), con `name_snapshot` por cascada y la etiqueta constante `'Ítem sin producto'`. Las ramas están en `rpc_create_sale_operation_v2`, `_c29_confirm_order_core`, `_purchase_operation_core`, las dos de edición y `rpc_create_purchase_operation_v2`, si la tiene.
+  - **Apply 2026-11-05**: las 6 ramas de servicio escriben su línea: `rpc_create_sale_operation_v2` y la edición de venta (etiqueta), `_c29_confirm_order_core` (nombre de `sales_order_items`, etiqueta), `_purchase_operation_core` (ítem, `p_description`, etiqueta), edición de compra y `rpc_create_purchase_operation_v2` (`p_description`, etiqueta). Cascada ajustada a 0.5.
+- [x] 1.5 `rpc_create_purchase_operation_v2`: el INSERT de producto lleva `name_snapshot` (D6, OQ-5).
+  - **Apply 2026-11-05**: `rpc_create_purchase_operation_v2` escribe `name_snapshot` (producto: su nombre; servicio: cascada). Adicional por D6 (fail-closed): el camino remito de `_c29_confirm_order_core` y de `_purchase_operation_core`, y la reinserción de líneas en las dos ediciones, envuelven el nombre con la etiqueta o el nombre del producto vivo por si el snapshot acarreado/del remito es NULL.
+- [x] 1.6 ACLs explícitas de las 7 funciones, idénticas a las vivas: `REVOKE ALL … FROM PUBLIC, anon` más los `GRANT` de la tabla del design.
+  - **Apply 2026-11-05**: `REVOKE ALL … FROM PUBLIC, anon, authenticated, service_role` + `GRANT` exacto (authenticated y service_role; sólo service_role en `_purchase_operation_core` y `rpc_create_purchase_operation_v2`). Verificado: las ACLs resultantes son idénticas a las vivas.
+- [x] 1.7 `DELETE FROM public.account_feature_flags WHERE flag_key = 'sale_items_rpc_v2'` (D2).
+  - **Apply 2026-11-05**: `DELETE FROM public.account_feature_flags WHERE flag_key = 'sale_items_rpc_v2'`.
+- [x] 1.8 Rollback en `supabase/migrations_bak/rollback_20261091000001_v31_document_lines_consistency.sql`, con los cuerpos de 0.2, `DROP NOT NULL` y la reinserción de las filas del flag (D10). Probarlo localmente: aplicar, revertir y volver a aplicar.
+  - **Apply 2026-11-05**: rollback en `supabase/migrations_bak/` con los 7 cuerpos de 0.2, ACLs, COMMENT originales, `DROP NOT NULL` y reinserción del flag. Probado localmente: migrar → rollback (los 7 md5 vuelven EXACTAMENTE a los de producción: cf89a1ce, e552aff0, defe427a, 9d0d68eb, 8219c371, 88b793ad, 1ce48fb3; `name_snapshot` nullable en las 2 tablas) → volver a migrar.
+- [x] 1.9 Mostrar en el PR el `diff` de cada función contra su cuerpo vivo de 0.2: sólo deben aparecer los cambios de D1, D3 y D6.
+  - **Apply 2026-11-05**: diff de cada función contra su cuerpo vivo en el cuerpo del PR (sólo aparecen los cambios de D1, D3, D6, el reformulado de comentarios que nombraban la clave y, en `rpc_create_sale_operation`, el reemplazo del cuerpo por el despachador).
 
 ## 2. Backfill (en la misma migración, después del grupo 1)
 
-- [ ] 2.1 `INSERT` de la línea canónica para los headers que no la tienen, en `sales` y `purchases` (D5.1), con `snapshot_backfilled = true` y `WHERE NOT EXISTS`. Emitir `RAISE NOTICE` con el conteo.
-- [ ] 2.2 `UPDATE` de `name_snapshot` NULL con la cascada del D5.2: producto, `stock_movements.product_name`, `purchases.description` y etiqueta. Marcar `snapshot_backfilled = true` y emitir `RAISE NOTICE` con el conteo.
-- [ ] 2.3 Assert de 0 filas con `name_snapshot` NULL y de 0 headers sin línea canónica, y después `ALTER COLUMN name_snapshot SET NOT NULL` en `sale_items` y `purchase_items` (D6).
-- [ ] 2.4 Aplicar localmente sobre `supabase db reset` y luego re-aplicar el archivo entero: la segunda corrida tiene que ser no-op.
+- [x] 2.1 `INSERT` de la línea canónica para los headers que no la tienen, en `sales` y `purchases` (D5.1), con `snapshot_backfilled = true` y `WHERE NOT EXISTS`. Emitir `RAISE NOTICE` con el conteo.
+  - **Apply 2026-11-05**: `INSERT … WHERE NOT EXISTS` de la línea canónica desde el header (`snapshot_backfilled = true`), con `RAISE NOTICE` de los conteos previos y de las filas afectadas (el log de `db push` queda con los números).
+- [x] 2.2 `UPDATE` de `name_snapshot` NULL con la cascada del D5.2: producto, `stock_movements.product_name`, `purchases.description` y etiqueta. Marcar `snapshot_backfilled = true` y emitir `RAISE NOTICE` con el conteo.
+  - **Apply 2026-11-05**: `UPDATE` del nombre faltante con la cascada producto vivo → `stock_movements.product_name` (sólo si el documento tiene UN nombre distinto) → `purchases.description` (sólo compras) → etiqueta.
+- [x] 2.3 Assert de 0 filas con `name_snapshot` NULL y de 0 headers sin línea canónica, y después `ALTER COLUMN name_snapshot SET NOT NULL` en `sale_items` y `purchase_items` (D6).
+  - **Apply 2026-11-05**: guard que aborta con mensaje claro si queda algún NULL o algún header sin línea canónica, y `ALTER COLUMN name_snapshot SET NOT NULL` en las dos tablas.
+- [x] 2.4 Aplicar localmente sobre `supabase db reset` y luego re-aplicar el archivo entero: la segunda corrida tiene que ser no-op.
+  - **Apply 2026-11-05**: `supabase db reset` aplica la migración limpia (base vacía: 0 / 0 / 0 / 0). Reaplicada dos veces sobre esa base: schema (constraints + firmas + ACLs) idéntico. El caso con datos sucios lo ejercita el gate (f): primera pasada 1 venta + 2 compras sin línea y 2 + 1 nombres completados; segunda pasada 0 y 0, sin ninguna fila modificada.
 
 ## 3. Gates SQL
 
-- [ ] 3.1 RED: escribir `supabase/tests/test_document_lines_consistency.sql` con los bloques (a) a (g) del D7, ejecutando de verdad cada escritor (producto y servicio). Verificar que falla contra el esquema previo a la migración.
-- [ ] 3.2 GREEN: con la migración aplicada, el gate pasa con `python3 scripts/ci/run_gate_strict.py supabase/tests/test_document_lines_consistency.sql`, sin degradaciones.
+- [x] 3.1 RED: escribir `supabase/tests/test_document_lines_consistency.sql` con los bloques (a) a (g) del D7, ejecutando de verdad cada escritor (producto y servicio). Verificar que falla contra el esquema previo a la migración.
+  - **Apply 2026-11-05**: gate escrito ANTES de la migración, en dos etapas dentro de `BEGIN … ROLLBACK` (no deja anclas ni DDL): etapa 1 = bloques (a) a (e) y (g) sobre los seis escritores ejecutados de verdad, producto y servicio (venta por `rpc_create_sale_operation`, `rpc_quick_sale`, `rpc_confirm_sales_order` con servicio nombrado, compra por `rpc_create_purchase_operation`, `rpc_create_purchase_operation_v2`, ediciones de venta y compra, flag ausente y con `enabled=false`); etapa 2 = bloque (f) con fixtures sucias y re-ejecución de la migración entera por `\i`. ROJO contra el esquema previo: 21 fallos de la etapa 1 (servicio sin línea en las 6 ramas, el flag con efecto, 4 funciones con la clave en `prosrc`, headers sin línea, línea sin nombre en la compra v2).
+- [x] 3.2 GREEN: con la migración aplicada, el gate pasa con `python3 scripts/ci/run_gate_strict.py supabase/tests/test_document_lines_consistency.sql`, sin degradaciones.
+  - **Apply 2026-11-05**: con la migración aplicada el gate pasa por `run_gate_strict.py` sin degradaciones: `GATE DOCUMENT_LINES_CONSISTENCY PASSED`. Dos fixtures corregidas durante el GREEN (tipo de `stock_movements` y `product_variants` real para la fila legacy), ninguna del código.
 - [ ] 3.3 Cablear el gate en `KPI_Validation.yml` con `run_gate_strict.py`, junto a los demás gates de dinero.
 - [ ] 3.4 Migrar los 7 gates existentes según el D9: `test_sale_items_rpc_v2_activation`, `test_operation_edit_lines`, `test_multiusuario_operaciones` (h), `test_pagos_cableados_restantes` (legacy), `test_ventas_sucursal_por_defecto` (2), `test_ventas_unidades_conversion` (bloques legacy) y `test_operacion_party_guard` (10). Pasan de «kill-switch → legacy» a «el flag no tiene efecto», y de «servicio sin fila» a «servicio con una línea con nombre». Revisar con `grep -n` cada cleanup que dependa de que el servicio no tenga fila.
 - [ ] 3.5 Paso de reapply de `KPI_Validation.yml`: sacar del FINGERPRINT el contador del flag y sumar la reaplicación de `20261091000001` al final de la reconvergencia (D9). Correr la cadena localmente en el orden real del workflow.

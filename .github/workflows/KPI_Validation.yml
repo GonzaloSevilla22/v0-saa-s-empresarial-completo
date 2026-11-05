@@ -1941,6 +1941,25 @@ jobs:
           fi
           echo "20261091000001 idempotente: schema IDÉNTICO al previo, segunda pasada sin cambios, 0 funciones con el flag y name_snapshot NOT NULL en las dos tablas."
 
+          # mp-cuota-acreditacion-resiliente (2026-11-05, governance CRÍTICO): reaplicación de 20261092000001 AL FINAL de la cadena,
+          # después del eslabón de 20261091000001. Es ADITIVA (una función nueva con CREATE OR REPLACE de la misma firma, sus ACLs
+          # re-aplicadas en el mismo archivo y cron unschedule + schedule): el schema (constraints + firmas + ACLs) tiene que quedar
+          # IDÉNTICO al del eslabón previo y tiene que seguir habiendo UN solo job subscription-reconcile-charges a las 7 de cada hora.
+          MCR_OUT1=$(psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261092000001_mp_cuota_reconciliacion_cron.sql 2>&1) || { echo "$MCR_OUT1"; echo "ERROR: el reapply de 20261092000001 falló (sin tolerancia)."; exit 1; }
+          MCR_OUT2=$(psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261092000001_mp_cuota_reconciliacion_cron.sql 2>&1) || { echo "$MCR_OUT2"; echo "ERROR: la segunda pasada de 20261092000001 falló (sin tolerancia)."; exit 1; }
+          schema_snapshot > /tmp/schema_after_mcr_reapply.txt
+          if ! diff -u /tmp/schema_after_dlc_reapply.txt /tmp/schema_after_mcr_reapply.txt > /tmp/schema_diff_mcr.txt; then
+            echo "NOT IDEMPOTENT: reaplicar 20261092000001 cambió el schema (constraints + firmas de función + ACLs):"
+            cat /tmp/schema_diff_mcr.txt
+            exit 1
+          fi
+          MCR_STATE=$(psql -tA "$DSN" -c "SELECT count(*) || '|' || coalesce(string_agg(schedule, ','), '') FROM cron.job WHERE jobname = 'subscription-reconcile-charges'")
+          if [ "$MCR_STATE" != "1|7 * * * *" ]; then
+            echo "ERROR: estado inesperado tras reaplicar 20261092000001 (jobs|schedule): $MCR_STATE (esperaba 1|7 * * * *)"
+            exit 1
+          fi
+          echo "20261092000001 idempotente: schema IDÉNTICO al previo y un solo job subscription-reconcile-charges (7 * * * *)."
+
       # -v ON_ERROR_STOP=1 is required: without it psql prints RAISE EXCEPTION
       # errors but still exits 0, so failing assertions show green in CI.
       - name: Run deterministic KPI tests
@@ -1997,6 +2016,14 @@ jobs:
       # con fixtures sucias) y name_snapshot NOT NULL. Es un gate de DINERO: corre con el wrapper estricto.
       - name: Run document lines consistency gate (strict)
         run: python3 scripts/ci/run_gate_strict.py supabase/tests/test_document_lines_consistency.sql
+
+      # mp-cuota-acreditacion-resiliente (D5, governance CRÍTICO): el barrido horario que acredita el cobro mensual de una
+      # suscripción aunque MercadoPago no notifique la cuota `processed`. EJECUTA rpc_trigger_subscription_reconcile() sin
+      # secretos (fail-closed: no falla y no encola nada) y con secretos de prueba (encola UN POST firmado a
+      # /payments/subscriptions/reconcile-cron), ambos en subtransacciones que se deshacen; fija ACLs y el job pg_cron.
+      # Es un gate de DINERO: corre con el wrapper estricto.
+      - name: Run subscription reconcile cron gate (strict)
+        run: python3 scripts/ci/run_gate_strict.py supabase/tests/test_mp_cuota_reconciliacion_cron.sql
 
       # edicion-operaciones-lineas (OQ-1 de deudas-menores-agosto): las RPCs de
       # EDICIÓN (rpc_atomic_update_sale_operation / rpc_atomic_update_

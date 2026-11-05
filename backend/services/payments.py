@@ -11,6 +11,7 @@ import httpx
 from fastapi import HTTPException
 
 from backend.core.config import settings
+from backend.repositories.subscriptions_repository import SubscriptionsRepository
 from backend.schemas.payments import WebhookResponse
 from backend.services.receipts import ReceiptData, build_receipt_pdf_base64
 
@@ -185,14 +186,57 @@ def _subscription_charge_marker(payment_data: dict) -> str | None:
     return None
 
 
+async def _accelerate_subscription_charge(
+    payment_data: dict,
+    conn: asyncpg.Connection,
+    shadow: bool,
+    subscriptions_repo: SubscriptionsRepository | None,
+) -> str | None:
+    """mp-cuota-acreditacion-resiliente D6 — acelerador acotado: la
+    notificación `payment` de un cobro de suscripción reconcilia ESE
+    preapproval en el momento, sólo si trae un vínculo POSITIVO a una
+    suscripción conocida con cuenta (`metadata.preapproval_id`). MercadoPago
+    no garantiza la notificación de la cuota `processed` (caso real:
+    noviembre 2026, pago 187789722328, nunca notificada como `processed`).
+
+    Devuelve el `preapproval_id` reconciliado, o `None` si no correspondía
+    (sin el dato, preapproval desconocido, suscripción sin cuenta, palanca
+    apagada, shadow o sin repositorio) — el caller responde entonces como
+    siempre (`ignored`, sin escrituras) y el barrido horario lo cubre.
+
+    El núcleo se importa acá (y no arriba) porque `services.subscriptions`
+    ya importa este módulo: el import de módulo sería circular. Un 502 del
+    núcleo se propaga tal cual para que MercadoPago reintente."""
+    if shadow or subscriptions_repo is None or not settings.billing_subscriptions_enabled:
+        return None
+    _metadata = payment_data.get("metadata")
+    preapproval_id = _metadata.get("preapproval_id") if isinstance(_metadata, dict) else None
+    if not preapproval_id:
+        return None
+    subscription = await subscriptions_repo.find_by_preapproval_id(str(preapproval_id))
+    if subscription is None or subscription["account_id"] is None:
+        return None
+
+    from backend.services import subscriptions as subscriptions_service
+
+    await subscriptions_service.reconcile_preapproval_charges(subscription, subscriptions_repo, conn)
+    return str(preapproval_id)
+
+
 async def process_payment(
     payment_id: str,
     conn: asyncpg.Connection,
     shadow: bool = False,
+    subscriptions_repo: SubscriptionsRepository | None = None,
 ) -> WebhookResponse:
     """Procesa una notificación de pago aprobado de MercadoPago.
 
     En shadow=True ejecuta toda la lógica pero no escribe en la DB.
+
+    `subscriptions_repo` (mp-cuota-acreditacion-resiliente D6): lo inyecta
+    el router sobre la conexión de servicio; habilita el acelerador de
+    cobros de suscripción. Sin él, un cobro de suscripción se ignora como
+    antes.
     """
     # Idempotency check
     existing = await conn.fetchrow(
@@ -221,11 +265,16 @@ async def process_payment(
 
     if not external_ref_valid:
         if marker:
+            reconciled = await _accelerate_subscription_charge(payment_data, conn, shadow, subscriptions_repo)
+            # D8: una sola línea por decisión, retenida en Render (logger
+            # `backend` a INFO, ver main.py). Marcador, preapproval resuelto y
+            # resultado — nunca datos del pagador.
             logger.info(
-                "[payments] notificación payment %s de cobro de suscripción ignorada "
-                "(marker=%s): la acredita el topic subscription_authorized_payment",
-                payment_id, marker,
+                "[payments] payment %s de cobro de suscripción: marker=%s preapproval=%s outcome=%s",
+                payment_id, marker, reconciled, "reconciled" if reconciled else "ignored",
             )
+            if reconciled:
+                return WebhookResponse(ok=True, reconciled="subscription_charge")
             return WebhookResponse(ok=True, ignored="subscription_charge")
         if not external_ref:
             # Fix ad-hoc `mp-webhook-external-reference-vacio` (2026-09-11):

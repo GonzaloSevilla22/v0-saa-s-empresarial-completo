@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import sys
 from contextlib import asynccontextmanager
 
 import asyncpg
@@ -50,6 +51,48 @@ from backend.routers import (
 )
 
 logger = logging.getLogger("app")
+
+
+class _StdoutHandler(logging.StreamHandler):
+    """StreamHandler que escribe SIEMPRE al `sys.stdout` vigente (no al que
+    existía al crearlo): si algo reemplaza stdout después del import (un
+    runner, pytest), las líneas no se pierden en un stream viejo."""
+
+    _backend_app_handler = True
+
+    def __init__(self) -> None:
+        super().__init__(sys.stdout)
+
+    @property
+    def stream(self):  # type: ignore[override]
+        return sys.stdout
+
+    @stream.setter
+    def stream(self, _value) -> None:
+        pass
+
+
+def configure_backend_logging() -> None:
+    """mp-cuota-acreditacion-resiliente D8: el backend no configuraba logging
+    de aplicación (ni `basicConfig` ni `dictConfig`), así que los loggers
+    `backend.*` heredaban el root en WARNING y toda línea `logger.info` se
+    descartaba en Render — no se supo qué marcador detectó el pago
+    187789722328 y la traza de origen del webhook ("Notification origin is
+    observable") nunca se vio en prod.
+
+    Configura SÓLO el logger `backend`: nivel INFO y un handler propio a
+    stdout con `NIVEL logger: mensaje`. No toca el root ni los loggers de
+    uvicorn. Sigue propagando (pytest/caplog o un handler del root siguen
+    viendo las líneas). Idempotente: no agrega un segundo handler."""
+    backend_logger = logging.getLogger("backend")
+    backend_logger.setLevel(logging.INFO)
+    if not any(getattr(h, "_backend_app_handler", False) for h in backend_logger.handlers):
+        handler = _StdoutHandler()
+        handler.setFormatter(logging.Formatter("%(levelname)s %(name)s: %(message)s"))
+        backend_logger.addHandler(handler)
+
+
+configure_backend_logging()
 
 
 @asynccontextmanager

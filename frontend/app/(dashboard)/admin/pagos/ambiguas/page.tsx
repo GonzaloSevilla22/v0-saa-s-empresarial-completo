@@ -366,9 +366,10 @@ function RecentSubscriptionsSection() {
         Suscripciones recientes
       </h2>
       <p className="text-muted-foreground text-sm mb-6">
-        Suscripciones ya resueltas o activas. &quot;Replicar cuotas&quot; consulta MercadoPago y
-        vuelve a aplicar cada cuota aprobada — es idempotente, sirve para completar un cobro
-        que quedó a medio aplicar.
+        Suscripciones ya resueltas o activas. El cobro mensual se acredita solo (un barrido
+        consulta MercadoPago cada hora); &quot;Plan vence&quot; y &quot;Último cobro acreditado&quot;
+        muestran si el mes entró. &quot;Replicar cuotas&quot; consulta MercadoPago y vuelve a aplicar
+        cada cuota aprobada — es idempotente y nunca extiende el plan por un cobro ya acreditado.
       </p>
 
       {isError ? (
@@ -397,6 +398,8 @@ function RecentSubscriptionsSection() {
                 <TableHead>Estado</TableHead>
                 <TableHead>Cuenta</TableHead>
                 <TableHead>Próximo cobro</TableHead>
+                <TableHead>Plan vence</TableHead>
+                <TableHead>Último cobro acreditado</TableHead>
                 <TableHead className="text-right">Acción</TableHead>
               </TableRow>
             </TableHeader>
@@ -415,6 +418,16 @@ function RecentSubscriptionsSection() {
                     <TableCell className="text-foreground">{accountLabel}</TableCell>
                     <TableCell className="text-muted-foreground whitespace-nowrap">
                       {sub.nextPaymentDate ? formatDateTime(sub.nextPaymentDate) : "—"}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground whitespace-nowrap">
+                      {sub.planExpiresAt ? formatDateTime(sub.planExpiresAt) : "—"}
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap">
+                      {sub.lastChargeCreditedAt ? (
+                        <span className="text-foreground">{formatDateTime(sub.lastChargeCreditedAt)}</span>
+                      ) : (
+                        <span className="text-muted-foreground">Sin cobros</span>
+                      )}
                     </TableCell>
                     <TableCell className="text-right">
                       <AlertDialog>

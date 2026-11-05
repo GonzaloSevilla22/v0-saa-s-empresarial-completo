@@ -33,6 +33,82 @@ def mock_service_pool():
     return pool, conn
 
 
+# ── mp-cuota-acreditacion-resiliente 3.7 (D5) — endpoint de máquina del
+#    barrido horario ─────────────────────────────────────────────────────────
+
+RELAY = "relay-secret-de-prueba"
+CRON_URL = "/payments/subscriptions/reconcile-cron"
+
+
+class TestReconcileCronEndpoint:
+    async def test_401_without_or_with_wrong_secret_and_touches_nothing(self, async_client, mock_service_pool):
+        pool, conn = mock_service_pool
+        with (
+            patch("backend.core.database.pool", pool),
+            patch("backend.core.config.settings.relay_secret", RELAY),
+            patch("backend.core.config.settings.billing_subscriptions_enabled", True),
+            patch(
+                "backend.routers.payments.reconcile_due_subscriptions", new_callable=AsyncMock,
+            ) as sweep,
+        ):
+            missing = await async_client.post(CRON_URL)
+            wrong = await async_client.post(CRON_URL, headers={"Authorization": "Bearer otro"})
+            user_jwt = await async_client.post(CRON_URL, headers={"Authorization": f"Bearer {make_token()}"})
+        assert [missing.status_code, wrong.status_code, user_jwt.status_code] == [401, 401, 401]
+        sweep.assert_not_awaited()
+        pool.acquire.assert_not_called()
+
+    async def test_401_when_no_secret_is_configured(self, async_client, mock_service_pool):
+        pool, conn = mock_service_pool
+        with (
+            patch("backend.core.database.pool", pool),
+            patch("backend.core.config.settings.relay_secret", None),
+            patch(
+                "backend.routers.payments.reconcile_due_subscriptions", new_callable=AsyncMock,
+            ) as sweep,
+        ):
+            resp = await async_client.post(CRON_URL, headers={"Authorization": "Bearer "})
+        assert resp.status_code == 401
+        sweep.assert_not_awaited()
+
+    async def test_switch_off_returns_skipped(self, async_client, mock_service_pool):
+        """Con la palanca apagada responde 200 `skipped` (lo decide el
+        servicio, que no consulta nada) — nunca 503: un 5xx haría que
+        `cron.job_run_details` / pg_net lo registren como falla cada hora."""
+        pool, conn = mock_service_pool
+        with (
+            patch("backend.core.database.pool", pool),
+            patch("backend.core.config.settings.relay_secret", RELAY),
+            patch("backend.core.config.settings.billing_subscriptions_enabled", False),
+            patch("httpx.AsyncClient.get", new_callable=AsyncMock) as mp_get,
+        ):
+            resp = await async_client.post(CRON_URL, headers={"Authorization": f"Bearer {RELAY}"})
+        assert resp.status_code == 200
+        assert resp.json() == {"ok": True, "skipped": True, "checked": None, "applied": [], "errors": None}
+        mp_get.assert_not_awaited()
+
+    async def test_valid_secret_runs_sweep_on_service_connection(self, async_client, mock_service_pool):
+        pool, conn = mock_service_pool
+        summary = {"ok": True, "checked": 2, "applied": ["7033613241"], "errors": 1}
+        with (
+            patch("backend.core.database.pool", pool),
+            patch("backend.core.config.settings.relay_secret", RELAY),
+            patch("backend.core.config.settings.billing_subscriptions_enabled", True),
+            patch(
+                "backend.routers.payments.reconcile_due_subscriptions",
+                new_callable=AsyncMock, return_value=summary,
+            ) as sweep,
+        ):
+            resp = await async_client.post(CRON_URL, headers={"Authorization": f"Bearer {RELAY}"})
+        assert resp.status_code == 200
+        assert resp.json() == {"ok": True, "skipped": None, "checked": 2, "applied": ["7033613241"], "errors": 1}
+        sweep.assert_awaited_once()
+        repo_arg, conn_arg = sweep.await_args.args
+        assert conn_arg is conn
+        assert repo_arg._conn is conn
+        pool.acquire.assert_called_once()
+
+
 # ── task 6.0 — palanca apagada por defecto ────────────────────────────────
 
 class TestFeatureFlagGating:

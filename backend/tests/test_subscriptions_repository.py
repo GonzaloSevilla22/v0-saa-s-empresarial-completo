@@ -570,3 +570,62 @@ class TestListRecentSubscriptions:
         sql = conn.fetch.call_args.args[0]
         assert "account_name" in sql
         assert "auth.users" in sql
+
+    @pytest.mark.asyncio
+    async def test_exposes_plan_expiry_and_last_credited_charge(self, subs_repo):
+        """mp-cuota-acreditacion-resiliente 6.1 (D9): la fila trae el
+        vencimiento del plan de la cuenta y el último cobro mensual
+        acreditado DEL MISMO preapproval (no de otro de la cuenta)."""
+        repo, conn = subs_repo
+        conn.fetch = AsyncMock(return_value=[])
+
+        await repo.list_recent_subscriptions(20)
+
+        sql = " ".join(conn.fetch.call_args.args[0].split())
+        assert "a.plan_expires_at" in sql
+        assert "last_charge_credited_at" in sql
+        assert "be.event_type = 'subscription_payment_approved'" in sql
+        assert "be.metadata ->> 'preapproval_id' = s.preapproval_id" in sql
+
+
+class TestFindSubscriptionsDueForReconciliation:
+    """mp-cuota-acreditacion-resiliente 3.1 (D4). El contrato del SQL se
+    fija acá; la selección contra filas reales (ventana, exclusiones, orden)
+    la prueba `test_subscriptions_reconcile_integration.py`."""
+
+    @pytest.mark.asyncio
+    async def test_selects_by_account_paid_period_not_by_next_payment_date(self, subs_repo):
+        import datetime
+
+        repo, conn = subs_repo
+        conn.fetch = AsyncMock(return_value=[])
+        grace = datetime.timedelta(days=10)
+        lookback = datetime.timedelta(days=30)
+
+        await repo.find_subscriptions_due_for_reconciliation(grace=grace, lookback=lookback, limit=50)
+
+        sql, *args = conn.fetch.call_args.args
+        flat = " ".join(sql.split())
+        assert "s.status = 'authorized'" in flat
+        assert "a.plan_expires_at <= now() + $1" in flat
+        assert "a.plan_expires_at > now() - $2" in flat
+        assert "ORDER BY a.plan_expires_at" in flat
+        assert "LIMIT $3" in flat
+        assert "s.next_payment_date" not in flat.split("WHERE", 1)[1]
+        assert args == [grace, lookback, 50]
+
+    @pytest.mark.asyncio
+    async def test_returns_rows_as_dicts(self, subs_repo):
+        """TRIANGULATE: devuelve dicts (el servicio indexa por clave y los
+        pasa al núcleo de reconciliación)."""
+        import datetime
+
+        repo, conn = subs_repo
+        row = {"id": SUBSCRIPTION_ID, "account_id": ACCOUNT_ID, "preapproval_id": PREAPPROVAL_ID, "plan": "inicial"}
+        conn.fetch = AsyncMock(return_value=[row])
+
+        rows = await repo.find_subscriptions_due_for_reconciliation(
+            grace=datetime.timedelta(days=10), lookback=datetime.timedelta(days=30), limit=5
+        )
+
+        assert rows == [row]

@@ -408,13 +408,26 @@ class SubscriptionsRepository(BaseRepository):
 
         `account_name` se resuelve igual que `search_accounts`
         (BillingRepository): `accounts` no tiene nombre de negocio propio,
-        se deriva del owner vía `auth.users`/`profiles`."""
+        se deriva del owner vía `auth.users`/`profiles`.
+
+        mp-cuota-acreditacion-resiliente D9: suma el fin del período pagado
+        de la cuenta (`plan_expires_at`) y la fecha del último cobro mensual
+        acreditado DE ESTE preapproval (`last_charge_credited_at`, NULL si
+        nunca se acreditó ninguno) — el operador ve sin abrir la base si el
+        cobro del mes entró."""
         return await self._conn.fetch(
             """
             SELECT s.id, s.plan, s.status, s.account_id,
                    COALESCE(p.business_name, p.name, u.email) AS account_name,
                    s.next_payment_date, s.last_payment_status, s.retry_state,
-                   s.updated_at
+                   s.updated_at,
+                   a.plan_expires_at,
+                   (
+                       SELECT max(be.created_at)
+                       FROM public.billing_events be
+                       WHERE be.event_type = 'subscription_payment_approved'
+                         AND be.metadata ->> 'preapproval_id' = s.preapproval_id
+                   ) AS last_charge_credited_at
             FROM public.subscriptions s
             LEFT JOIN public.accounts a ON a.id = s.account_id
             LEFT JOIN auth.users u ON u.id = a.owner_user_id
@@ -423,5 +436,41 @@ class SubscriptionsRepository(BaseRepository):
             ORDER BY s.updated_at DESC
             LIMIT $1
             """,
+            limit,
+        )
+
+    async def find_subscriptions_due_for_reconciliation(
+        self, *, grace, lookback, limit: int
+    ) -> list[dict]:
+        """mp-cuota-acreditacion-resiliente D4: suscripciones que el barrido
+        horario tiene que reconciliar contra MercadoPago — autorizadas, con
+        cuenta, cuyo período pagado ya alcanzó su fecha de cobro
+        (`plan_expires_at <= now() + gracia`: el vencimiento es ciclo +
+        gracia) sin que se haya acreditado el cobro del ciclo, y no hace más
+        de `lookback` (30 días, OQ-3).
+
+        El criterio es `accounts.plan_expires_at` — que SÓLO mueve un cobro
+        acreditado por primera vez (D3) — y NUNCA `subscriptions.
+        next_payment_date`: ése lo reescribe la propia reconciliación con el
+        valor del preapproval aunque no haya acreditado nada, y filtrar por
+        él sacaría del barrido una suscripción impaga en cuanto MercadoPago
+        adelanta su fecha. El INNER JOIN deja afuera las suscripciones sin
+        cuenta (la cola manual de ambiguas) y las de vencimiento nulo.
+
+        `grace`/`lookback` los pasa el servicio (constantes únicas, nunca
+        literales acá); `limit` acota el tiempo de una corrida."""
+        return await self.fetch(
+            """
+            SELECT s.id, s.account_id, s.preapproval_id, s.plan, a.plan_expires_at
+            FROM public.subscriptions s
+            JOIN public.accounts a ON a.id = s.account_id
+            WHERE s.status = 'authorized'
+              AND a.plan_expires_at <= now() + $1::interval
+              AND a.plan_expires_at > now() - $2::interval
+            ORDER BY a.plan_expires_at, s.id
+            LIMIT $3
+            """,
+            grace,
+            lookback,
             limit,
         )

@@ -621,34 +621,26 @@ BEGIN
     RAISE EXCEPTION 'GATE CPCC FAILED (7-pre): saldo del proveedor esperado 500, es %.', v_balance;
   END IF;
 
-  -- (7a / task 5.1) P0423: la compra con cargo posteado es INMUTABLE. Este
-  -- guard lo escribio pagos-cableados-restantes (D6) y hasta hoy era
-  -- inalcanzable: ningun camino posteaba un cargo de proveedor.
-  v_rejected := false;
-  v_msg := NULL;
-  BEGIN
-    PERFORM public.rpc_atomic_update_purchase_operation(
+  -- (7a) edicion-operaciones-con-dinero (tanda B, D1): la compra con cargo posteado YA NO es inmutable (se retiro el P0423 de
+  -- dinero). Una edicion SIN cambio economico (mismo total, misma forma de pago y proveedor) no escribe en la cuenta corriente
+  -- (H = E), conserva el operation_id (D2) y emite PurchaseAdjusted. El cambio de importe, de proveedor y de forma de pago se
+  -- ejecuta en test_edicion_dinero_compra_gasto.sql.
+  SELECT count(*) INTO v_movs_before FROM public.supplier_account_movements WHERE account_id = v_account_id;
+  v_msg := (public.rpc_atomic_update_purchase_operation(
       p_purchase_ids => v_purchase_ids,
       p_date         => CURRENT_DATE,
       p_description  => '__gate_cpcc_charged_edit__',
-      p_items        => jsonb_build_array(jsonb_build_object('product_id', v_product_id, 'amount', 260, 'quantity', 2))
-    );
-  EXCEPTION WHEN OTHERS THEN
-    IF SQLSTATE = 'P0423' THEN v_rejected := true; v_msg := SQLERRM; ELSE RAISE; END IF;
-  END;
-  IF NOT v_rejected THEN
-    RAISE EXCEPTION 'GATE CPCC FAILED (7a): una compra a credito con su cargo posteado NO deberia poder editarse (P0423).';
+      p_items        => jsonb_build_array(jsonb_build_object('product_id', v_product_id, 'amount', 250, 'quantity', 2))
+    )->>'operation_id');
+  IF v_msg IS DISTINCT FROM v_op_id::text THEN
+    RAISE EXCEPTION 'GATE CPCC FAILED (7a): la edicion debe CONSERVAR el operation_id (esperado %, es %).', v_op_id, v_msg;
   END IF;
-  -- (7a bis / review A, SPEC-05) el mensaje debe nombrar el camino de
-  -- correccion de COMPRAS (borrar + volver a cargar). El texto heredado del
-  -- lado venta ofrecia "emiti una nota de credito", que en compras no existe.
-  IF position('nota de cr' in COALESCE(v_msg, '')) > 0 THEN
-    RAISE EXCEPTION 'GATE CPCC FAILED (7a bis, SPEC-05): el P0423 de compras no debe ofrecer una nota de credito (camino del lado VENTA) — mensaje: "%".', v_msg;
+  SELECT count(*) INTO v_count FROM public.supplier_account_movements WHERE account_id = v_account_id;
+  IF v_count <> v_movs_before THEN
+    RAISE EXCEPTION 'GATE CPCC FAILED (7a): editar sin cambio economico no debe escribir en la cuenta corriente — habia %, hay %.', v_movs_before, v_count;
   END IF;
-  IF position('borr' in COALESCE(v_msg, '')) = 0 THEN
-    RAISE EXCEPTION 'GATE CPCC FAILED (7a bis, SPEC-05): el P0423 de compras debe nombrar el camino real (borrar la compra y volver a cargarla) — mensaje: "%".', v_msg;
-  END IF;
-  RAISE NOTICE 'PASS (7a): P0423 — la compra a credito con cargo posteado es inmutable (guard de pagos-cableados-restantes D6, alcanzable por primera vez), y su mensaje nombra el camino de correccion de compras.';
+  SELECT array_agg(id) INTO v_purchase_ids FROM public.purchases WHERE operation_id = v_op_id;
+  RAISE NOTICE 'PASS (7a): la compra a credito con cargo posteado se edita (el P0423 de dinero se retiro), sin escribir la cuenta corriente cuando nada cambia y con el operation_id estable.';
 
   -- (7d / task 5.4) no-regresion contable: el asiento acredita 2100
   -- Proveedores. Se verifica ANTES del borrado, sobre la compra viva.
@@ -779,45 +771,41 @@ BEGIN
   SELECT count(*) INTO v_items_before FROM public.purchase_items WHERE purchase_id = ANY(v_purchase_ids);
   SELECT quantity INTO v_qty_before   FROM public.branch_stock WHERE branch_id = v_branch_id AND product_id = v_product_id;
 
-  -- (8a) cash -> credit CON proveedor: P0400 credit_transition_not_allowed.
-  v_rejected := false; v_msg := NULL;
-  BEGIN
-    PERFORM public.rpc_atomic_update_purchase_operation(
-      p_purchase_ids            => v_purchase_ids,
-      p_date                    => CURRENT_DATE,
-      p_description             => '__gate_cpcc_8_to_credit__',
-      p_items                   => jsonb_build_array(jsonb_build_object('product_id', v_product_id, 'amount', 100, 'quantity', 1)),
-      p_payment_method_id       => v_pm_credit,
-      p_payment_method_provided => true
-    );
-  EXCEPTION WHEN OTHERS THEN
-    IF SQLSTATE = 'P0400' THEN v_rejected := true; v_msg := SQLERRM; ELSE RAISE; END IF;
-  END;
-  IF NOT v_rejected THEN
-    RAISE EXCEPTION 'GATE CPCC FAILED (8a, review A): mover una compra a kind=credit desde la EDICION debe rechazarse con P0400 — la edicion no postea cargos y la compra quedaria "a credito" sin deuda registrada.';
+  -- (8a) edicion-operaciones-con-dinero (tanda B, D8): cash -> credit CON proveedor ya NO se rechaza (se retiro
+  -- credit_transition_not_allowed): la edicion postea el cargo con el mismo helper del alta. Sobre una compra propia para no
+  -- mover los conteos de la base de este bloque.
+  SELECT public.rpc_create_purchase_operation(
+    p_idempotency_key   => 'gate-cpcc-8a-cash',
+    p_date              => CURRENT_DATE,
+    p_description       => '__gate_cpcc_8a_cash__',
+    p_items             => jsonb_build_array(jsonb_build_object('product_id', v_product_id, 'amount', 100, 'quantity', 1)),
+    p_branch_id         => v_branch_id,
+    p_payment_method_id => v_pm_cash,
+    p_supplier_id       => v_supplier_id
+  ) INTO v_result;
+  v_op_id := (v_result->>'operation_id')::uuid;
+  SELECT balance INTO v_balance FROM public.supplier_accounts WHERE account_id = v_account_id AND supplier_id = v_supplier_id;
+  PERFORM public.rpc_atomic_update_purchase_operation(
+    p_purchase_ids            => (SELECT array_agg(id) FROM public.purchases WHERE operation_id = v_op_id),
+    p_date                    => CURRENT_DATE,
+    p_description             => '__gate_cpcc_8_to_credit__',
+    p_items                   => jsonb_build_array(jsonb_build_object('product_id', v_product_id, 'amount', 100, 'quantity', 1)),
+    p_payment_method_id       => v_pm_credit,
+    p_payment_method_provided => true
+  );
+  IF NOT EXISTS (SELECT 1 FROM public.supplier_account_movements m JOIN public.supplier_accounts sa ON sa.id = m.supplier_account_id
+                  WHERE sa.account_id = v_account_id AND sa.supplier_id = v_supplier_id AND m.reference_id = v_op_id
+                    AND m.movement_type = 'purchase' AND m.amount = 100) THEN
+    RAISE EXCEPTION 'GATE CPCC FAILED (8a): pasar la compra a credito por la edicion debe postear el cargo de 100.';
   END IF;
-  IF position('credit_transition_not_allowed' in COALESCE(v_msg, '')) = 0 THEN
-    RAISE EXCEPTION 'GATE CPCC FAILED (8a): el rechazo debe identificarse como credit_transition_not_allowed, es "%".', v_msg;
+  -- vuelve a su estado: borrar compensa el cargo (debit_note) y deja el saldo como estaba
+  PERFORM public.rpc_delete_purchase_operation(p_operation_id => v_op_id);
+  IF (SELECT balance FROM public.supplier_accounts WHERE account_id = v_account_id AND supplier_id = v_supplier_id) IS DISTINCT FROM v_balance THEN
+    RAISE EXCEPTION 'GATE CPCC FAILED (8a): borrar la compra pasada a credito debe devolver el saldo del proveedor a %.', v_balance;
   END IF;
-
-  -- El rechazo no dejo efecto parcial: ni lineas, ni stock, ni cta cte, ni la
-  -- forma de pago reimputada (el guard corre ANTES del DELETE/REVERSE).
-  SELECT count(*) INTO v_count FROM public.purchase_items WHERE purchase_id = ANY(v_purchase_ids);
-  IF v_count <> v_items_before THEN
-    RAISE EXCEPTION 'GATE CPCC FAILED (8a): el rechazo no debe tocar las lineas — habia %, hay %.', v_items_before, v_count;
-  END IF;
-  SELECT quantity INTO v_qty FROM public.branch_stock WHERE branch_id = v_branch_id AND product_id = v_product_id;
-  IF v_qty <> v_qty_before THEN
-    RAISE EXCEPTION 'GATE CPCC FAILED (8a): el rechazo no debe tocar el stock — esperado %, es %.', v_qty_before, v_qty;
-  END IF;
-  SELECT count(*) INTO v_count FROM public.supplier_account_movements WHERE account_id = v_account_id;
-  IF v_count <> v_movs_before THEN
-    RAISE EXCEPTION 'GATE CPCC FAILED (8a): el rechazo no debe crear movimientos de cuenta corriente — habia %, hay %.', v_movs_before, v_count;
-  END IF;
-  SELECT payment_method_id INTO v_pm_val FROM public.purchases WHERE id = v_purchase_ids[1];
-  IF v_pm_val IS DISTINCT FROM v_pm_cash THEN
-    RAISE EXCEPTION 'GATE CPCC FAILED (8a): el rechazo no debe reimputar la forma de pago (esperado el cash original).';
-  END IF;
+  -- los conteos de las siguientes pruebas parten de aqui
+  SELECT count(*) INTO v_movs_before  FROM public.supplier_account_movements WHERE account_id = v_account_id;
+  SELECT quantity INTO v_qty_before   FROM public.branch_stock WHERE branch_id = v_branch_id AND product_id = v_product_id;
 
   -- (8b) cash -> credit SIN proveedor (desimputandolo en el mismo payload):
   -- tambien P0400, y tampoco deja efecto parcial.
@@ -1003,8 +991,8 @@ BEGIN
     RAISE EXCEPTION 'GATE CPCC FAILED (8e): salir de credito no debe crear ni revertir movimientos de cuenta corriente — habia %, hay %.', v_movs_before, v_count;
   END IF;
 
-  -- (8f) con cargo POSTEADO, P0423 gana: el guard de inmutabilidad corre antes
-  -- que el de transicion. Se usa la compra de (7c), que sigue viva y cargada.
+  -- (8f) con cargo POSTEADO y ya PAGADO: sacarla de credito revierte el cargo y dejaria el saldo negativo -> P0425 (antes P0423).
+  -- Se usa la compra de (7c), que sigue viva y cargada.
   -- review C (S2): antes esto era `IF v_purchase_ids IS NOT NULL THEN ... END IF`
   -- — si la compra de (7c) desaparecia (renombre de la descripcion, cambio de
   -- orden de los gates, borrado inesperado), el caso se SALTEABA en silencio y
@@ -1027,13 +1015,13 @@ BEGIN
       p_payment_method_provided => true
     );
   EXCEPTION WHEN OTHERS THEN
-    IF SQLSTATE = 'P0423' THEN v_rejected := true; ELSE RAISE; END IF;
+    IF SQLSTATE = 'P0425' THEN v_rejected := true; ELSE RAISE; END IF;
   END;
   IF NOT v_rejected THEN
-    RAISE EXCEPTION 'GATE CPCC FAILED (8f): una compra CON cargo posteado debe rechazarse con P0423 antes que con cualquier guard de transicion.';
+    RAISE EXCEPTION 'GATE CPCC FAILED (8f): sacar a CASH una compra cuyo cargo ya fue pagado debe rechazarse con P0425 (la reversion dejaria negativa la cuenta del proveedor); el P0423 de dinero se retiro.';
   END IF;
 
-  RAISE NOTICE 'PASS (8, review A + C): la edicion no puede convertir una compra en compra a credito (P0400 credit_transition_not_allowed) ni dejarla a credito sin proveedor cuando toca el contrato (P0400 credit_requires_supplier), sin efectos parciales; la compra legacy a credito sin cargo sigue editable INCLUSO sin proveedor (8c-bis) mientras no se toque forma de pago ni proveedor (8d-bis), salir de credito sigue permitido y con cargo posteado P0423 tiene precedencia (8f).';
+  RAISE NOTICE 'PASS (8, review A + C + tanda B): la edicion YA puede pasar una compra a credito (postea el cargo) pero no puede dejarla a credito sin proveedor cuando toca el contrato (P0400 credit_requires_supplier), sin efectos parciales; la compra legacy a credito sin cargo sigue editable INCLUSO sin proveedor (8c-bis) mientras no se toque forma de pago ni proveedor (8d-bis), salir de credito sigue permitido y, con el cargo ya pagado, P0425 (8f).';
 
   -- ═══ (9) [review A — SPEC-06] limite de proveedores por plan ═══════════════
   -- Ejercita de verdad trg_guard_supplier_plan_limit / fn_guard_supplier_plan_

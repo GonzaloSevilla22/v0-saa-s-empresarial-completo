@@ -361,8 +361,8 @@ BEGIN
     PERFORM pg_temp.gate_fail('I.3', 'rpc_reverse_stock_movement debe seguir interna (sin EXECUTE para authenticated/anon) y SECURITY DEFINER');
   END IF;
   FOREACH v_oid IN ARRAY ARRAY[
-    'public.rpc_atomic_update_sale_operation(uuid[], uuid, date, text, jsonb, uuid, boolean, uuid, boolean, text, boolean)'::regprocedure::oid,
-    'public.rpc_atomic_update_purchase_operation(uuid[], date, text, jsonb, uuid, boolean, uuid, boolean, uuid, boolean, uuid, boolean)'::regprocedure::oid] LOOP
+    'public.rpc_atomic_update_sale_operation(uuid[], uuid, date, text, jsonb, uuid, boolean, uuid, boolean, text, boolean, uuid, boolean, uuid, boolean, date, boolean, text, boolean)'::regprocedure::oid,
+    'public.rpc_atomic_update_purchase_operation(uuid[], date, text, jsonb, uuid, boolean, uuid, boolean, uuid, boolean, uuid, boolean, uuid, boolean, uuid, boolean, date, boolean, text, boolean)'::regprocedure::oid] LOOP
     IF NOT has_function_privilege('authenticated', v_oid, 'EXECUTE') OR has_function_privilege('anon', v_oid, 'EXECUTE')
        OR NOT (SELECT prosecdef FROM pg_proc WHERE oid = v_oid) THEN
       PERFORM pg_temp.gate_fail('I.4', format('%s: authenticated con EXECUTE, anon sin EXECUTE y SECURITY DEFINER', v_oid::regprocedure));

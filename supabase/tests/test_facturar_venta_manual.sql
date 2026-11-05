@@ -791,7 +791,7 @@ BEGIN
       -- la edición (el de 1675d3824b79fccd3efba3b256adf89e, que dejó 20261070000001) y le
       -- suma al final la excepción «un branch_id nulo, vigente o informado, se resuelve a
       -- la principal». stock-edicion-sucursal-piso (20261087000001) le suma al final la regla del gate de stock por sucursal y el respaldo de la sucursal desactivada: este md5 es el del comentario de ESA migración (antes 1478b13be13a5da59df25fce328fd0d7).
-      ('public.rpc_atomic_update_sale_operation(uuid[], uuid, date, text, jsonb, uuid, boolean, uuid, boolean, text, boolean)', 'd7a585adaa341d2234b859693bd96226'),
+      ('public.rpc_atomic_update_sale_operation(uuid[], uuid, date, text, jsonb, uuid, boolean, uuid, boolean, text, boolean, uuid, boolean, uuid, boolean, date, boolean, text, boolean)', 'd7a585adaa341d2234b859693bd96226'),
       ('public.rpc_delete_sale_operation(uuid, uuid, text)', 'b3bafc6d5c0a20bbd42b006af8769513')
     ) AS t(sig, md5)
   LOOP
@@ -830,7 +830,7 @@ BEGIN
   -- (mata n7 — N1 exacto — y n9 — doble «Guardar» que duplica la operación).
   SELECT lower(regexp_replace(regexp_replace(prosrc, '--[^' || chr(10) || ']*', '', 'g'), '\s+', ' ', 'g'))
   INTO   v_def
-  FROM   pg_proc WHERE oid = to_regprocedure('public.rpc_atomic_update_sale_operation(uuid[], uuid, date, text, jsonb, uuid, boolean, uuid, boolean, text, boolean)');
+  FROM   pg_proc WHERE oid = to_regprocedure('public.rpc_atomic_update_sale_operation(uuid[], uuid, date, text, jsonb, uuid, boolean, uuid, boolean, text, boolean, uuid, boolean, uuid, boolean, date, boolean, text, boolean)');
   v_def   := COALESCE(v_def, '');
   -- multiusuario-operativo (tanda B, D8): el lock de la edición filtra por la CUENTA ACTIVA (s.account_id = v_account_id),
   -- ya no por el autor (s.user_id = v_uid): un administrador edita la venta del vendedor. El orden de locks no cambia.

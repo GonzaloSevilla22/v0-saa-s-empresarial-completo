@@ -217,14 +217,14 @@ DECLARE
   -- multiusuario-operativo (tanda B, 20261083000001) reescribió las tres desde el vivo: suma el guard de rol y
   -- el filtro de cuenta del producto, sin tocar la sucursal resuelta que fija este gate. Son los md5 de ESA
   -- migración (el `v_rewritten` de su preflight); quien las redefina después rebasa estos valores.
-  v_md5_v2      constant text := '41bfa7554f971d1b386541e01b3cf403';
+  v_md5_v2      constant text := '435b16eeee484c50fb19e62a9b6eab8a';
   v_md5_wrapper constant text := '748c7a7e6cd1c4074bd127ae6e0092ee';
   -- stock-edicion-sucursal-piso (20261087000001) redefine la EDICIÓN (gate de stock por sucursal y
   -- respaldo de la sucursal desactivada) desde el cuerpo de multiusuario-operativo: su md5 pasa a ser el
   -- `v_rewritten` de ESA migración (antes d95db43c5e737c080661c74208595b93, el de 20261083000001). La
   -- lógica de la sucursal por defecto de este change sigue en el cuerpo (las aserciones de contenido de
   -- abajo lo verifican).
-  v_md5_edit    constant text := 'a1681ab330c3aa83e4ee95a16c1d956c';
+  v_md5_edit    constant text := 'f9b8a07f8b453972f801152274fcce7c';
 
   -- Cuenta A (principal + B): bloques (1), (2), (5), (6).
   r_a jsonb; v_user_a uuid; v_acc_a uuid; v_a0 uuid; v_b uuid;
@@ -405,7 +405,7 @@ BEGIN
   IF position('no_branch_found' IN v_src) = 0 OR position('c26_default_branch(v_account_id)' IN v_src) = 0 THEN
     v_failures := array_append(v_failures, 'FAIL (0 edición): la edición no resuelve la principal ni tiene el guard P0422 no_branch_found');
   END IF;
-  SELECT obj_description('public.rpc_atomic_update_sale_operation(uuid[], uuid, date, text, jsonb, uuid, boolean, uuid, boolean, text, boolean)'::regprocedure, 'pg_proc') INTO v_cm;
+  SELECT obj_description('public.rpc_atomic_update_sale_operation(uuid[], uuid, date, text, jsonb, uuid, boolean, uuid, boolean, text, boolean, uuid, boolean, uuid, boolean, date, boolean, text, boolean)'::regprocedure, 'pg_proc') INTO v_cm;
   IF v_cm IS NULL OR position('preserva branch_id/canal/unit_id al editar' IN v_cm) = 0 OR position('ventas-sucursal-por-defecto' IN v_cm) = 0 THEN
     v_failures := array_append(v_failures, 'FAIL (0 COMMENT): el COMMENT de la edición tiene que conservar su texto vivo y sumar la excepción de ventas-sucursal-por-defecto (D5)');
   END IF;

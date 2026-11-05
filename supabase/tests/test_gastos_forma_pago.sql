@@ -1358,44 +1358,28 @@ BEGIN
   VALUES (v_user_a, v_account_a, 'Historico', 4400, v_today - 40)
   RETURNING id INTO v_exp_hist;
 
-  -- ═══ (4.1) INMUTABILIDAD: gasto con MOVIMIENTO DE CAJA → P0423 ═══════════
-  v_rejected := false;
-  BEGIN
-    PERFORM public.rpc_update_expense(p_expense_id => v_exp_cash, p_amount => 9999);
-  EXCEPTION WHEN OTHERS THEN
-    IF SQLSTATE = 'P0423' AND position('caja' in SQLERRM) > 0 THEN v_rejected := true;
-    ELSIF SQLSTATE = 'P0423' THEN
-      RAISE EXCEPTION 'GATE GASTOS FAILED (4.1a-mensaje): el bloqueo por caja no dice de qué libro viene: "%"', SQLERRM;
-    ELSE RAISE; END IF;
-  END;
-  IF NOT v_rejected THEN
-    RAISE EXCEPTION 'GATE GASTOS FAILED (4.1a): se editó un gasto que ya descontó de la caja — la caja es un conteo físico con arqueo firmado (D11).';
+  -- ═══ (4.1) edicion-operaciones-con-dinero (tanda B): el gasto con dinero posteado YA SE EDITA ═════════
+  -- Antes (D11): P0423 por caja y por banco. Los dos bloqueos de dinero se retiraron: la edicion compara la huella neta con el
+  -- efecto deseado y compensa/registra donde difieren. Se prueba aca que el importe cambia Y que la caja/el banco lo siguen
+  -- (el detalle por libro, sesiones cerradas y roles vive en test_edicion_dinero_compra_gasto.sql).
+  PERFORM public.rpc_update_expense(p_expense_id => v_exp_cash, p_amount => 9999);
+  IF (SELECT amount FROM public.expenses WHERE id = v_exp_cash) <> 9999 THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (4.1a): el gasto con caja posteada debia poder editarse.';
   END IF;
-  IF (SELECT amount FROM public.expenses WHERE id = v_exp_cash) <> 4100 THEN
-    RAISE EXCEPTION 'GATE GASTOS FAILED (4.1a-efectos): el gasto cambió pese al P0423.';
-  END IF;
-  SELECT COUNT(*) INTO v_count FROM public.cash_movements WHERE reference_id = v_exp_cash;
-  IF v_count <> 1 THEN
-    RAISE EXCEPTION 'GATE GASTOS FAILED (4.1a-efectos): el movimiento de caja cambió (% movimientos).', v_count;
+  SELECT COALESCE(SUM(net), 0) INTO v_count FROM public.op_money_footprint(v_account_a, 'expense', ARRAY[v_exp_cash]) WHERE book = 'cash';
+  IF v_count <> -9999 THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (4.1a-efectos): la huella neta de caja debia quedar en -9999 (compensacion + movimiento nuevo), es %.', v_count;
   END IF;
 
-  -- ═══ (4.1b) gasto con MOVIMIENTO BANCARIO → P0423 con otro mensaje ═══════
-  v_rejected := false;
-  BEGIN
-    PERFORM public.rpc_update_expense(p_expense_id => v_exp_bank, p_amount => 9999);
-  EXCEPTION WHEN OTHERS THEN
-    IF SQLSTATE = 'P0423' AND position('bancario' in SQLERRM) > 0 THEN v_rejected := true;
-    ELSIF SQLSTATE = 'P0423' THEN
-      RAISE EXCEPTION 'GATE GASTOS FAILED (4.1b-mensaje): el bloqueo por banco no es distinguible del de caja: "%"', SQLERRM;
-    ELSE RAISE; END IF;
-  END;
-  IF NOT v_rejected THEN
-    RAISE EXCEPTION 'GATE GASTOS FAILED (4.1b): se editó un gasto con movimiento bancario posteado — puede estar ya conciliado contra un extracto real (D11).';
+  PERFORM public.rpc_update_expense(p_expense_id => v_exp_bank, p_amount => 9999);
+  IF (SELECT amount FROM public.expenses WHERE id = v_exp_bank) <> 9999 THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (4.1b): el gasto con movimiento bancario debia poder editarse.';
   END IF;
-  IF (SELECT amount FROM public.expenses WHERE id = v_exp_bank) <> 4200 THEN
-    RAISE EXCEPTION 'GATE GASTOS FAILED (4.1b-efectos): el gasto cambió pese al P0423.';
+  SELECT COALESCE(SUM(net), 0) INTO v_count FROM public.op_money_footprint(v_account_a, 'expense', ARRAY[v_exp_bank]) WHERE book = 'bank';
+  IF v_count <> -9999 THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (4.1b-efectos): la huella neta bancaria debia quedar en -9999 (espejo + movimiento nuevo), es %.', v_count;
   END IF;
-  RAISE NOTICE 'PASS (4.1): gasto con caja y gasto con banco son inmutables (P0423), con mensajes distinguibles y sin efectos.';
+  RAISE NOTICE 'PASS (4.1): el gasto con caja y el gasto con banco se editan (el P0423 de dinero se retiro) y los libros siguen al importe.';
 
   -- ═══ (4.3) TRI-ESTADO — ausente conserva · nulo desimputa · uuid reimputa ═
   -- (4.3a) AUSENTE conserva los tres: se edita SÓLO el importe.
@@ -1558,13 +1542,19 @@ BEGIN
     p_payment_method_id => v_pm_transfer_default, p_payment_method_provided => TRUE);
   SELECT COUNT(*) INTO v_count FROM public.bank_movements
   WHERE source_doc_type = 'expense' AND source_doc_ref = v_exp_hist;
-  IF v_count <> 0 THEN
-    RAISE EXCEPTION 'GATE GASTOS FAILED (4.6): imputarle TRANSFERENCIA a un gasto por edición posteó % movimientos bancarios.', v_count;
+  -- edicion-operaciones-con-dinero (tanda B, D8): cambiar la forma de pago CAMBIA EL CONTRATO. Imputar una transferencia a un gasto
+  -- sin movimientos posteaba una ETIQUETA; ahora, con el destino por defecto de la forma de pago, registra el egreso en el banco
+  -- (exactamente uno, por el importe del gasto). El efectivo sigue sin postear: la caja exige una intencion explicita (sesion).
+  IF v_count <> 1 THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (4.6): imputarle TRANSFERENCIA (con destino por defecto) a un gasto por edición debía postear 1 movimiento bancario y posteó %.', v_count;
+  END IF;
+  IF (SELECT sum(amount) FROM public.bank_movements WHERE source_doc_type = 'expense' AND source_doc_ref = v_exp_hist) IS DISTINCT FROM -4450 THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (4.6): el egreso bancario debía ser -4450 (el importe editado en 4.4b).';
   END IF;
   IF (SELECT payment_method_id FROM public.expenses WHERE id = v_exp_hist) IS DISTINCT FROM v_pm_transfer_default THEN
     RAISE EXCEPTION 'GATE GASTOS FAILED (4.6): la imputación por edición no quedó registrada — es una etiqueta, pero es una etiqueta REAL.';
   END IF;
-  RAISE NOTICE 'PASS (4.6): la edición imputa la etiqueta y NO postea movimientos en ningún libro.';
+  RAISE NOTICE 'PASS (4.6): la edición imputa la etiqueta; el efectivo no postea sin sesión y la transferencia con destino por defecto registra el egreso bancario.';
 END $$;
 
 -- ═════════════════ (5) BORRADO — rpc_delete_expense ═════════════════════════
@@ -2069,12 +2059,12 @@ BEGIN
   END IF;
   -- Y las tres RPCs nuevas, con el mismo patrón uniforme.
   IF has_function_privilege('anon', 'public.rpc_create_expense(text, numeric, date, text, uuid, uuid, uuid, uuid, uuid)', 'EXECUTE')
-     OR has_function_privilege('anon', 'public.rpc_update_expense(uuid, text, numeric, date, text, uuid, boolean, uuid, boolean, uuid, boolean)', 'EXECUTE')
+     OR has_function_privilege('anon', 'public.rpc_update_expense(uuid, text, numeric, date, text, uuid, boolean, uuid, boolean, uuid, boolean, uuid, boolean, uuid, boolean, text, boolean)', 'EXECUTE')
      OR has_function_privilege('anon', 'public.rpc_delete_expense(uuid)', 'EXECUTE') THEN
     RAISE EXCEPTION 'GATE GASTOS FAILED (6.3.4): alguna de las 3 RPCs de gasto es ejecutable por anon.';
   END IF;
   IF NOT (has_function_privilege('authenticated', 'public.rpc_create_expense(text, numeric, date, text, uuid, uuid, uuid, uuid, uuid)', 'EXECUTE')
-     AND has_function_privilege('authenticated', 'public.rpc_update_expense(uuid, text, numeric, date, text, uuid, boolean, uuid, boolean, uuid, boolean)', 'EXECUTE')
+     AND has_function_privilege('authenticated', 'public.rpc_update_expense(uuid, text, numeric, date, text, uuid, boolean, uuid, boolean, uuid, boolean, uuid, boolean, uuid, boolean, text, boolean)', 'EXECUTE')
      AND has_function_privilege('authenticated', 'public.rpc_delete_expense(uuid)', 'EXECUTE')) THEN
     RAISE EXCEPTION 'GATE GASTOS FAILED (6.3.4): alguna de las 3 RPCs de gasto NO es ejecutable por authenticated.';
   END IF;
@@ -2293,25 +2283,21 @@ BEGIN
     WHERE e.id = v_exp_cash
   ) d;
 
-  IF NOT v_d.has_cash_movement OR v_d.has_bank_movement OR NOT v_d.is_payment_locked THEN
-    RAISE EXCEPTION 'GATE GASTOS FAILED (7.2): el gasto en efectivo se derivó como caja=%, banco=%, lock=% — esperaba caja=true, banco=false, lock=true. El diálogo de borrado enumera los libros con estos dos flags POR SEPARADO.',
-      v_d.has_cash_movement, v_d.has_bank_movement, v_d.is_payment_locked;
+  IF NOT v_d.has_cash_movement OR v_d.has_bank_movement THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (7.2): el gasto en efectivo se derivó como caja=%, banco=% — esperaba caja=true, banco=false. El diálogo de borrado enumera los libros con estos dos flags POR SEPARADO.',
+      v_d.has_cash_movement, v_d.has_bank_movement;
   END IF;
   IF v_d.is_delete_blocked THEN
     RAISE EXCEPTION 'GATE GASTOS FAILED (7.2): con la sesión ABIERTA el borrado se derivó como bloqueado — el usuario vería el botón deshabilitado pudiendo borrar.';
   END IF;
 
-  v_rejected := false;
-  BEGIN
-    PERFORM public.rpc_update_expense(p_expense_id => v_exp_cash, p_amount => 9999);
-  EXCEPTION WHEN OTHERS THEN
-    IF SQLSTATE = 'P0423' THEN v_rejected := true; ELSE RAISE; END IF;
-  END;
-  IF v_rejected <> v_d.is_payment_locked THEN
-    RAISE EXCEPTION 'GATE GASTOS FAILED (7.2-equivalencia): el derivado is_payment_locked dice % y el guard P0423 %. El listado y el servidor tienen que decir LO MISMO sobre el mismo gasto.',
-      v_d.is_payment_locked, v_rejected;
+  -- edicion-operaciones-con-dinero (tanda B): is_payment_locked se retiro. Lo que el listado dice (has_cash_movement) y lo que el
+  -- servidor hace al editar el importe (el plan de dinero escribe la caja) tienen que ser LO MISMO sobre el mismo gasto.
+  IF (public.rpc_update_expense(p_expense_id => v_exp_cash, p_amount => 9999, p_dry_run => true)->'plan'->'cash'->>'action') IS DISTINCT FROM
+     (CASE WHEN v_d.has_cash_movement THEN 'both' ELSE 'none' END) THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (7.2-equivalencia): has_cash_movement dice % y el plan de edicion (en seco) no coincide sobre la caja.', v_d.has_cash_movement;
   END IF;
-  RAISE NOTICE 'PASS (7.2): gasto con caja → has_cash_movement/is_payment_locked coinciden con el rechazo P0423 real.';
+  RAISE NOTICE 'PASS (7.2): gasto con caja → has_cash_movement coincide con el plan de edicion real.';
 
   -- ── (7.3) gasto con MOVIMIENTO BANCARIO: el otro libro, por separado ──────
   SELECT * INTO v_d FROM (
@@ -2349,25 +2335,19 @@ BEGIN
     WHERE e.id = v_exp_bank
   ) d;
 
-  IF v_d.has_cash_movement OR NOT v_d.has_bank_movement OR NOT v_d.is_payment_locked THEN
-    RAISE EXCEPTION 'GATE GASTOS FAILED (7.3): el gasto bancario se derivó como caja=%, banco=%, lock=% — esperaba caja=false, banco=true, lock=true.',
-      v_d.has_cash_movement, v_d.has_bank_movement, v_d.is_payment_locked;
+  IF v_d.has_cash_movement OR NOT v_d.has_bank_movement THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (7.3): el gasto bancario se derivó como caja=%, banco=% — esperaba caja=false, banco=true.',
+      v_d.has_cash_movement, v_d.has_bank_movement;
   END IF;
   IF v_d.is_delete_blocked THEN
     RAISE EXCEPTION 'GATE GASTOS FAILED (7.3): un gasto SIN movimiento de caja no puede tener el borrado bloqueado — el P0426 es exclusivo de la pata de caja.';
   END IF;
 
-  v_rejected := false;
-  BEGIN
-    PERFORM public.rpc_update_expense(p_expense_id => v_exp_bank, p_amount => 9999);
-  EXCEPTION WHEN OTHERS THEN
-    IF SQLSTATE = 'P0423' THEN v_rejected := true; ELSE RAISE; END IF;
-  END;
-  IF v_rejected <> v_d.is_payment_locked THEN
-    RAISE EXCEPTION 'GATE GASTOS FAILED (7.3-equivalencia): derivado=% vs guard=% sobre el gasto bancario.',
-      v_d.is_payment_locked, v_rejected;
+  IF (public.rpc_update_expense(p_expense_id => v_exp_bank, p_amount => 9999, p_dry_run => true)->'plan'->'bank'->>'action') IS DISTINCT FROM
+     (CASE WHEN v_d.has_bank_movement THEN 'both' ELSE 'none' END) THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (7.3-equivalencia): has_bank_movement dice % y el plan de edicion (en seco) no coincide sobre el banco.', v_d.has_bank_movement;
   END IF;
-  RAISE NOTICE 'PASS (7.3): gasto con banco → has_bank_movement aislado del de caja y coincidente con el P0423 real.';
+  RAISE NOTICE 'PASS (7.3): gasto con banco → has_bank_movement aislado del de caja y coincidente con el plan de edicion real.';
 
   -- ── (7.4) CONTROL NEGATIVO de is_delete_blocked: se cierra la única sesión
   --          de la caja y el derivado tiene que DAR VUELTA junto con el guard ─

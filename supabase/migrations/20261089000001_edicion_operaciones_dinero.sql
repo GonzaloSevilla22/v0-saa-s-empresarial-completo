@@ -1344,7 +1344,7 @@ DECLARE
   v_cash_rev_type text := CASE p_kind WHEN 'sale' THEN 'sale_reversal' WHEN 'purchase' THEN 'purchase_payment_reversal' ELSE 'expense_reversal' END;
   v_cash_type   text := CASE p_kind WHEN 'sale' THEN 'sale' WHEN 'purchase' THEN 'purchase_payment' ELSE 'expense' END;
   -- banco
-  v_h_bank      jsonb;  v_n_bank int;  v_bank_kind boolean := p_final_kind IN ('transfer', 'card', 'check', 'wallet');
+  v_h_bank      jsonb;  v_n_bank int;  v_bank_kind boolean := COALESCE(p_final_kind IN ('transfer', 'card', 'check', 'wallet'), false);
   v_target_bank uuid;  v_bank_e boolean := false;  v_fam text;  v_bank_equal boolean;  v_bank_rev jsonb := '[]'::jsonb;
   v_bank_reg    jsonb := NULL;  v_bank_action text := 'none';  v_state text;  v_msg text;
   v_writes      boolean;
@@ -1375,7 +1375,7 @@ BEGIN
        ORDER BY m.created_at DESC, m.id DESC LIMIT 1;
     END IF;
 
-    v_acc_e := p_final_kind = 'credit' AND (v_n_acc > 0 OR v_changed);
+    v_acc_e := COALESCE(p_final_kind = 'credit', false) AND (v_n_acc > 0 OR v_changed);
     IF v_acc_e AND p_final_party IS NULL THEN
       v_blocks := v_blocks || public._op_edit_block('account', 'P0400',
         CASE p_kind WHEN 'sale' THEN 'credit_requires_client' ELSE 'credit_requires_supplier' END,
@@ -1740,6 +1740,52 @@ REVOKE ALL ON FUNCTION public._op_edit_audit(uuid, uuid, text, text, uuid, jsonb
 GRANT EXECUTE ON FUNCTION public._op_edit_audit(uuid, uuid, text, text, uuid, jsonb, jsonb, jsonb, jsonb, text) TO service_role;
 COMMENT ON FUNCTION public._op_edit_audit(uuid, uuid, text, text, uuid, jsonb, jsonb, jsonb, jsonb, text) IS
   $c$edicion-operaciones-con-dinero (D14): rastro de una edicion en audit_logs (antes, despues, plan de dinero, comprobante anulado, motivo). Interna.$c$;
+
+
+-- =============================================================================
+-- op_money_footprint_state — lo que los listados necesitan de la huella neta, en UNA definicion (D15)
+-- =============================================================================
+-- Los cuatro indicadores de op_money_footprint_flags y los datos vigentes que el formulario de edicion precarga: la parte del
+-- cargo y su vencimiento, la caja de la huella y su sesion abierta, y la cuenta bancaria de la huella. SECURITY INVOKER: corre con
+-- la RLS del que consulta y filtra por la cuenta que recibe, como la funcion de indicadores. Los tres repositorios la consumen
+-- por LATERAL; ninguno re-escribe un EXISTS.
+CREATE OR REPLACE FUNCTION public.op_money_footprint_state(p_account_id uuid, p_kind text, p_reference_ids uuid[])
+ RETURNS TABLE(has_account_charge boolean, has_cash_movement boolean, has_bank_movement boolean, is_delete_blocked boolean,
+               charge_party_id uuid, charge_due_date date, cash_cashbox_id uuid, cash_open_session_id uuid, bank_account_id uuid)
+ LANGUAGE sql
+ STABLE
+ SET search_path TO 'public'
+AS $function$
+  WITH f AS (SELECT * FROM public.op_money_footprint(p_account_id, p_kind, p_reference_ids)),
+       cb AS (SELECT x.ledger_id AS cashbox_id FROM f x WHERE x.book = 'cash' ORDER BY x.ledger_id LIMIT 1)
+  SELECT COALESCE((SELECT bool_or(TRUE) FROM f WHERE f.book = 'account'), FALSE),
+         COALESCE((SELECT bool_or(TRUE) FROM f WHERE f.book = 'cash'), FALSE),
+         COALESCE((SELECT bool_or(TRUE) FROM f WHERE f.book = 'bank'), FALSE),
+         COALESCE((SELECT bool_or(TRUE) FROM f WHERE f.book = 'cash' AND NOT EXISTS (
+                     SELECT 1 FROM public.cash_sessions os WHERE os.cashbox_id = f.ledger_id AND os.status = 'open')), FALSE),
+         (SELECT CASE p_kind
+                   WHEN 'sale'     THEN (SELECT ca.client_id   FROM public.customer_accounts ca WHERE ca.id = a.ledger_id)
+                   WHEN 'purchase' THEN (SELECT sa.supplier_id FROM public.supplier_accounts sa WHERE sa.id = a.ledger_id)
+                 END
+            FROM f a WHERE a.book = 'account' ORDER BY a.ledger_id LIMIT 1),
+         (SELECT CASE p_kind
+                   WHEN 'sale'     THEN (SELECT m.due_date FROM public.customer_account_movements m
+                                          WHERE m.account_id = p_account_id AND m.reference_id = ANY (p_reference_ids)
+                                            AND m.movement_type = 'sale' ORDER BY m.created_at DESC, m.id DESC LIMIT 1)
+                   WHEN 'purchase' THEN (SELECT m.due_date FROM public.supplier_account_movements m
+                                          WHERE m.account_id = p_account_id AND m.reference_id = ANY (p_reference_ids)
+                                            AND m.movement_type = 'purchase' ORDER BY m.created_at DESC, m.id DESC LIMIT 1)
+                 END),
+         (SELECT cb.cashbox_id FROM cb),
+         (SELECT cs.id FROM public.cash_sessions cs, cb WHERE cs.cashbox_id = cb.cashbox_id AND cs.status = 'open'
+            ORDER BY cs.opened_at DESC LIMIT 1),
+         (SELECT b.ledger_id FROM f b WHERE b.book = 'bank' ORDER BY b.ledger_id LIMIT 1);
+$function$;
+
+REVOKE ALL ON FUNCTION public.op_money_footprint_state(uuid, text, uuid[]) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.op_money_footprint_state(uuid, text, uuid[]) TO authenticated, service_role;
+COMMENT ON FUNCTION public.op_money_footprint_state(uuid, text, uuid[]) IS
+  $c$edicion-operaciones-con-dinero (D15): los cuatro indicadores de huella neta y los datos vigentes que el formulario de edicion precarga (parte y vencimiento del cargo, caja de la huella y su sesion abierta, cuenta bancaria de la huella). Siempre devuelve una fila. SECURITY INVOKER.$c$;
 
 -- =============================================================================
 -- rpc_atomic_update_sale_operation — plan de dinero, id estable, p_dry_run y auditoria (tanda B). DROP + CREATE: la firma cambia (sin overload, sin 42725).

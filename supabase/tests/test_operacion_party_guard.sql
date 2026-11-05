@@ -540,7 +540,7 @@ BEGIN
     RAISE EXCEPTION 'GATE OPERACION-PARTY-GUARD FAILED (7-core-orden): el guard de client_id debe ir ANTES del INSERT en operation_idempotency. Posiciones: guard=%, idempotencia=%.', v_pos_guard, v_pos_write;
   END IF;
 
-  v_def := pg_get_functiondef('public.rpc_atomic_update_sale_operation(uuid[], uuid, date, text, jsonb, uuid, boolean, uuid, boolean, text, boolean)'::regprocedure);
+  v_def := pg_get_functiondef('public.rpc_atomic_update_sale_operation(uuid[], uuid, date, text, jsonb, uuid, boolean, uuid, boolean, text, boolean, uuid, boolean, uuid, boolean, date, boolean, text, boolean)'::regprocedure);
   v_pos_guard := position('client_not_found' in v_def);
   -- RONDA 2 (finding NIT): la PRIMERA escritura real de esta función es el
   -- `DELETE FROM public.sales` que revierte las líneas viejas — el
@@ -586,14 +586,14 @@ BEGIN
   -- ═══════════════════════ (8) ACL — sin cambios ════════════════════════════
   IF has_function_privilege('anon', 'public.rpc_create_sale_operation_v2(text, uuid, date, text, jsonb, uuid, text, uuid, uuid, uuid, date)'::regprocedure, 'EXECUTE')
      OR has_function_privilege('anon', 'public._c29_confirm_order_core(text, uuid, text, uuid, text, uuid, text, uuid, uuid)'::regprocedure, 'EXECUTE')
-     OR has_function_privilege('anon', 'public.rpc_atomic_update_sale_operation(uuid[], uuid, date, text, jsonb, uuid, boolean, uuid, boolean, text, boolean)'::regprocedure, 'EXECUTE')
+     OR has_function_privilege('anon', 'public.rpc_atomic_update_sale_operation(uuid[], uuid, date, text, jsonb, uuid, boolean, uuid, boolean, text, boolean, uuid, boolean, uuid, boolean, date, boolean, text, boolean)'::regprocedure, 'EXECUTE')
      OR has_function_privilege('anon', 'public.rpc_accept_quote(uuid)'::regprocedure, 'EXECUTE')
   THEN
     RAISE EXCEPTION 'GATE OPERACION-PARTY-GUARD FAILED (8-acl): ninguna de las 4 funciones debe ser EXECUTE-able por anon.';
   END IF;
   IF NOT (has_function_privilege('authenticated', 'public.rpc_create_sale_operation_v2(text, uuid, date, text, jsonb, uuid, text, uuid, uuid, uuid, date)'::regprocedure, 'EXECUTE')
       AND has_function_privilege('authenticated', 'public._c29_confirm_order_core(text, uuid, text, uuid, text, uuid, text, uuid, uuid)'::regprocedure, 'EXECUTE')
-      AND has_function_privilege('authenticated', 'public.rpc_atomic_update_sale_operation(uuid[], uuid, date, text, jsonb, uuid, boolean, uuid, boolean, text, boolean)'::regprocedure, 'EXECUTE'))
+      AND has_function_privilege('authenticated', 'public.rpc_atomic_update_sale_operation(uuid[], uuid, date, text, jsonb, uuid, boolean, uuid, boolean, text, boolean, uuid, boolean, uuid, boolean, date, boolean, text, boolean)'::regprocedure, 'EXECUTE'))
   THEN
     RAISE EXCEPTION 'GATE OPERACION-PARTY-GUARD FAILED (8-acl-authenticated): las 3 funciones de venta deben seguir siendo EXECUTE-ables por authenticated (CREATE OR REPLACE no debe haber tocado el proacl).';
   END IF;

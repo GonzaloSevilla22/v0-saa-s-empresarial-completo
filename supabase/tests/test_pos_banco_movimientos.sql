@@ -17,7 +17,7 @@
 --       sin doble contabilización.
 --   (5) contrato con la conciliación (C3): import + match 1:1 dejan el
 --       movimiento `matched`; match N:1 de tarjeta+fee contra la línea neta.
---   (6) edición bloqueada P0423 (venta y compra) con movimiento posteado;
+--   (6) edición con movimiento posteado: se EDITA (tanda B de edicion-operaciones-con-dinero retiró el P0423) y la huella sigue al importe;
 --       editable sin movimiento.
 --   (7) P0424 sobre una sesión cerrada del período; el mensaje indica el
 --       ajuste manual.
@@ -329,41 +329,38 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS (5a): el movimiento generado por una operación es conciliable sin piezas nuevas — match 1:1 lo deja matched.';
 
-  -- ═══════════════ (6a) Edición bloqueada con movimiento posteado (venta) ════
-  v_rejected := false;
-  BEGIN
-    PERFORM public.rpc_atomic_update_sale_operation(
-      ARRAY[(SELECT id FROM public.sales WHERE operation_id = (
-        SELECT so2.sale_operation_id FROM public.sales_orders so2 WHERE so2.id = v_so_id
-      ) LIMIT 1)],
-      v_client_id, public.reporting_local_today(), 'ARS',
-      jsonb_build_array(jsonb_build_object('product_id', v_product_id, 'amount', 9999, 'quantity', 1))
-    );
-  EXCEPTION
-    WHEN OTHERS THEN
-      IF SQLERRM LIKE '%operation_has_bank_movement_immutable%' THEN v_rejected := true; ELSE RAISE; END IF;
-  END;
-  IF NOT v_rejected THEN
-    RAISE EXCEPTION 'GATE POS-BANCO-MOVIMIENTOS FAILED (6a): editar una venta con bank_movement posteado debería rechazarse con operation_has_bank_movement_immutable.';
+  -- ═══════════════ (6a) edicion-operaciones-con-dinero (tanda B): la venta con movimiento bancario SE EDITA ═══
+  -- Antes: P0423 operation_has_bank_movement_immutable (un extracto conciliado no se podia ensuciar). Ahora la edicion registra un
+  -- ESPEJO (fecha de hoy, sin conciliar) y el movimiento nuevo; el movimiento original —ya `matched`— no se toca jamas.
+  PERFORM public.rpc_atomic_update_sale_operation(
+    ARRAY[(SELECT id FROM public.sales WHERE operation_id = (
+      SELECT so2.sale_operation_id FROM public.sales_orders so2 WHERE so2.id = v_so_id
+    ) LIMIT 1)],
+    v_client_id, public.reporting_local_today(), 'ARS',
+    jsonb_build_array(jsonb_build_object('product_id', v_product_id, 'amount', 9999, 'quantity', 1))
+  );
+  SELECT reconciliation_status INTO v_recon_status FROM public.bank_movements WHERE id = v_bm1_id;
+  IF v_recon_status <> 'matched' THEN
+    RAISE EXCEPTION 'GATE POS-BANCO-MOVIMIENTOS FAILED (6a): editar la venta no debe tocar el movimiento original ya conciliado, quedo %.', v_recon_status;
   END IF;
-  RAISE NOTICE 'PASS (6a): edición de venta bloqueada (P0423) cuando hay un bank_movement posteado.';
+  IF (SELECT COALESCE(SUM(net), 0) FROM public.op_money_footprint(
+        (SELECT account_id FROM public.sales_orders WHERE id = v_so_id), 'sale',
+        ARRAY[v_so_id, (SELECT sale_operation_id FROM public.sales_orders WHERE id = v_so_id)]) WHERE book = 'bank') <> 9999 THEN
+    RAISE EXCEPTION 'GATE POS-BANCO-MOVIMIENTOS FAILED (6a): la huella bancaria neta de la venta editada debia ser 9999.';
+  END IF;
+  RAISE NOTICE 'PASS (6a): la venta con bank_movement posteado se edita: el original conciliado queda intacto y la huella neta sigue al importe nuevo.';
 
-  -- ═══════════════ (6b) Edición bloqueada con movimiento posteado (compra) ═══
-  v_rejected := false;
-  BEGIN
-    PERFORM public.rpc_atomic_update_purchase_operation(
-      ARRAY[(SELECT id FROM public.purchases WHERE operation_id = v_purchase_op_id LIMIT 1)],
-      public.reporting_local_today(), 'gate edit',
-      jsonb_build_array(jsonb_build_object('product_id', v_product_id, 'amount', 4444, 'quantity', 1))
-    );
-  EXCEPTION
-    WHEN OTHERS THEN
-      IF SQLERRM LIKE '%operation_has_bank_movement_immutable%' THEN v_rejected := true; ELSE RAISE; END IF;
-  END;
-  IF NOT v_rejected THEN
-    RAISE EXCEPTION 'GATE POS-BANCO-MOVIMIENTOS FAILED (6b): editar una compra con bank_movement posteado debería rechazarse con operation_has_bank_movement_immutable.';
+  -- ═══════════════ (6b) la compra con movimiento bancario SE EDITA ═══════════
+  PERFORM public.rpc_atomic_update_purchase_operation(
+    ARRAY[(SELECT id FROM public.purchases WHERE operation_id = v_purchase_op_id LIMIT 1)],
+    public.reporting_local_today(), 'gate edit',
+    jsonb_build_array(jsonb_build_object('product_id', v_product_id, 'amount', 4444, 'quantity', 1))
+  );
+  IF (SELECT COALESCE(SUM(net), 0) FROM public.op_money_footprint(
+        (SELECT account_id FROM public.purchases WHERE operation_id = v_purchase_op_id LIMIT 1), 'purchase', ARRAY[v_purchase_op_id]) WHERE book = 'bank') <> -4444 THEN
+    RAISE EXCEPTION 'GATE POS-BANCO-MOVIMIENTOS FAILED (6b): la huella bancaria neta de la compra editada debia ser -4444.';
   END IF;
-  RAISE NOTICE 'PASS (6b): edición de compra bloqueada (P0423) cuando hay un bank_movement posteado.';
+  RAISE NOTICE 'PASS (6b): la compra con bank_movement posteado se edita y la huella neta sigue al importe nuevo.';
 
   -- ═══════════════ (6c) Editable sin movimiento posteado (control negativo) ═══
   -- (2b) es wallet SIN cuenta resuelta: no generó bank_movement, cash_movement

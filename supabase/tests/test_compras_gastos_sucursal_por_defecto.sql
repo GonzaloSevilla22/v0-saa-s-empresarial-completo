@@ -257,7 +257,7 @@ DECLARE
   -- multiusuario-operativo (tanda B, 20261083000001) reescribió estas tres desde el vivo: suma el guard de rol
   -- (el wrapper y la edición) y el filtro de cuenta del producto (el núcleo y la edición), sin tocar la sucursal
   -- resuelta que fija este gate. Son los md5 de ESA migración; quien las redefina después rebasa estos valores.
-  v_md5_core          constant text := '12d47cda44f3497817cdc2219d886526';
+  v_md5_core          constant text := '7b3707664c0f648921786a8081471ed5';
   v_md5_wrapper       constant text := '9a3b868b883d2f59b3ae1a6908288ea1';
   -- stock-edicion-sucursal-piso (20261087000001) redefine la EDICIÓN de compra (chequeo previo de la
   -- reversa) desde el cuerpo de multiusuario-operativo: su md5 pasa a ser el `v_rewritten` de ESA
@@ -269,8 +269,8 @@ DECLARE
   -- PurchaseAdjusted (antes d934a7d3ee8e35b3969aa3203353f3e1, el de 20261087000001); la edición de gasto lee la fila
   -- FOR UPDATE (antes bb8e7d02f737937fdd120804722a3151). Son los md5 de ESA migración; quien las redefina después
   -- rebasa estos valores.
-  v_md5_edit_purchase constant text := '6693bb7f02c748193dccdbf234fb883e';
-  v_md5_edit_expense  constant text := '2eba5db62637d5597acce12c4ac390fa';
+  v_md5_edit_purchase constant text := '9752458f6e459406c4fdda0060e55c40';
+  v_md5_edit_expense  constant text := '732ac54fb96988d551024e7094de8e5b';
 
   -- Cuenta A (principal A0 + B): bloques (1), (6), (7), (8), (9), (10).
   r_a jsonb; v_user_a uuid; v_acc_a uuid; v_a0 uuid; v_b uuid;
@@ -456,7 +456,7 @@ BEGIN
   IF position('no_branch_found' IN v_src) = 0 OR position('c26_default_branch(v_account_id)' IN v_src) = 0 THEN
     v_failures := array_append(v_failures, 'FAIL (0 edición compra): la edición no resuelve la principal ni tiene el guard P0422 no_branch_found');
   END IF;
-  SELECT obj_description('public.rpc_atomic_update_purchase_operation(uuid[], date, text, jsonb, uuid, boolean, uuid, boolean, uuid, boolean, uuid, boolean)'::regprocedure, 'pg_proc') INTO v_cm;
+  SELECT obj_description('public.rpc_atomic_update_purchase_operation(uuid[], date, text, jsonb, uuid, boolean, uuid, boolean, uuid, boolean, uuid, boolean, uuid, boolean, uuid, boolean, date, boolean, text, boolean)'::regprocedure, 'pg_proc') INTO v_cm;
   IF v_cm IS NULL OR position('caja-compras-cobranzas (D8)' IN v_cm) = 0 THEN
     v_failures := array_append(v_failures, 'FAIL (0 COMMENT): el COMMENT de la edición de compra tiene que conservarse idéntico (el de caja-compras-cobranzas D8)');
   END IF;
@@ -472,7 +472,7 @@ BEGIN
   IF position('no_branch_found' IN v_src) > 0 THEN
     v_failures := array_append(v_failures, 'FAIL (0 edición gasto): la edición de gasto NO lleva guard de sucursal operativa (OQ-3 (a): es la regla literal del alta del gasto)');
   END IF;
-  SELECT obj_description('public.rpc_update_expense(uuid, text, numeric, date, text, uuid, boolean, uuid, boolean, uuid, boolean)'::regprocedure, 'pg_proc') INTO v_cm;
+  SELECT obj_description('public.rpc_update_expense(uuid, text, numeric, date, text, uuid, boolean, uuid, boolean, uuid, boolean, uuid, boolean, uuid, boolean, text, boolean)'::regprocedure, 'pg_proc') INTO v_cm;
   IF v_cm IS NULL OR position('gastos-forma-pago: edición atómica del gasto' IN v_cm) = 0 OR position('compras-gastos-sucursal-por-defecto' IN v_cm) = 0 THEN
     v_failures := array_append(v_failures, 'FAIL (0 COMMENT): el COMMENT de la edición de gasto tiene que conservar su texto vivo y sumar la excepción de compras-gastos-sucursal-por-defecto');
   END IF;

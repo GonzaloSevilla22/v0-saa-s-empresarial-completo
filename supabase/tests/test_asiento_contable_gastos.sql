@@ -573,8 +573,10 @@ BEGIN
   v_exp_id := (v_result->>'expense_id')::uuid;
   PERFORM public.rpc_process_outbox_dispatch(100);
 
-  -- Edición: cambia a una forma de pago BANCARIA. rpc_update_expense jamás
-  -- llama al helper de banco — bank_movements tiene que seguir en CERO.
+  -- Edición: cambia a una forma de pago BANCARIA. edicion-operaciones-con-dinero (tanda B): la edición YA mueve banco
+  -- (D7: registra el egreso en el destino por defecto de la forma de pago), así que la invariante que este bloque protege se
+  -- conserva en su forma original: el asiento nombra la cuenta del libro que EFECTIVAMENTE se movió. Con el movimiento
+  -- bancario real, acredita 1110 Banco; si no hubiera movimiento, seguiría en 1100 Caja.
   PERFORM public.rpc_update_expense(
     p_expense_id => v_exp_id, p_payment_method_id => v_pm_transfer, p_payment_method_provided => true
   );
@@ -582,20 +584,20 @@ BEGIN
 
   SELECT COUNT(*) INTO v_bank_count FROM public.bank_movements
   WHERE source_doc_type = 'expense' AND source_doc_ref = v_exp_id;
-  IF v_bank_count <> 0 THEN
-    RAISE EXCEPTION 'GATE ASIENTO-GASTOS FAILED (F3-setup): la edición escribió % bank_movement(s) — rpc_update_expense no puede mover banco (D6), el fixture no aísla la condición que este bloque controla.', v_bank_count;
-  END IF;
 
   SELECT id INTO v_entry_id FROM public.journal_entries
   WHERE source_doc_type = 'Expense' AND source_doc_ref = v_exp_id
     AND status = 'posted' AND reversal_of IS NULL;
   SELECT * INTO v_credit FROM public.journal_lines WHERE entry_id = v_entry_id AND side = 'credit';
 
-  IF v_credit.account_code <> '1100' THEN
+  IF v_bank_count = 0 AND v_credit.account_code <> '1100' THEN
     RAISE EXCEPTION 'GATE ASIENTO-GASTOS FAILED (F3): editar la forma de pago a transfer acreditó % y esperaba 1100 — no existe ningún bank_movement real que respalde 1110 Banco.', v_credit.account_code;
   END IF;
+  IF v_bank_count > 0 AND v_credit.account_code <> '1110' THEN
+    RAISE EXCEPTION 'GATE ASIENTO-GASTOS FAILED (F3): hay % movimiento(s) bancario(s) reales y el asiento acreditó % (esperaba 1110 Banco).', v_bank_count, v_credit.account_code;
+  END IF;
 
-  RAISE NOTICE 'PASS (F3): editar la forma de pago a un kind bancario NO acredita 1110 sin bank_movement real — sigue en 1100.';
+  RAISE NOTICE 'PASS (F3): el asiento de la edicion acredita la cuenta del libro que efectivamente se movio (movimientos bancarios=%, credito=%).', v_bank_count, v_credit.account_code;
 END $$;
 
 

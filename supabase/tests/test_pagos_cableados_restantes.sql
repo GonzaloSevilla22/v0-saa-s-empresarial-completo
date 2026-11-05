@@ -57,6 +57,7 @@ DECLARE
   v_balance           numeric;
   v_count             integer;
   v_rejected          boolean;
+  v_plan              jsonb;
   v_op_id             uuid;
   v_op2_id            uuid;
   v_so_id             uuid;
@@ -581,21 +582,18 @@ BEGIN
   WHERE s.account_id = v_account_id
   ORDER BY s.created_at DESC LIMIT 1;
 
-  v_rejected := false;
-  BEGIN
-    PERFORM public.rpc_atomic_update_sale_operation(
+  -- edicion-operaciones-con-dinero (tanda B, D1): el P0423 de dinero de la edicion se retiro. Lo que este bloque protegia
+  -- —que la edicion VEA el dinero posteado bajo AMBAS convenciones de reference_id— ahora lo prueba el PLAN en seco: ve el cargo
+  -- de la venta del formulario (reference_id = operation_id) y lo compensa. La edicion real vive en test_edicion_dinero_venta.sql.
+  v_plan := public.rpc_atomic_update_sale_operation(
       p_sale_ids => ARRAY[v_sale_id],
       p_client_id => v_client2_id,
       p_date => public.reporting_local_today(),
       p_currency => 'ARS',
-      p_items => jsonb_build_array(jsonb_build_object('product_id', v_product_id, 'amount', 1000, 'quantity', 1))
-    );
-  EXCEPTION
-    WHEN OTHERS THEN
-      IF SQLSTATE = 'P0423' THEN v_rejected := true; ELSE RAISE; END IF;
-  END;
-  IF NOT v_rejected THEN
-    RAISE EXCEPTION 'GATE PAGOS-CABLEADOS-RESTANTES FAILED (9a, ESTRELLA): editar una venta del FORMULARIO con cargo de cuenta corriente posteado debería fallar con P0423.';
+      p_items => jsonb_build_array(jsonb_build_object('product_id', v_product_id, 'amount', 1777, 'quantity', 1)),
+      p_dry_run => true)->'plan';
+  IF v_plan->'account'->'reverse'->0->>'reference_id' IS DISTINCT FROM v_op_id::text THEN
+    RAISE EXCEPTION 'GATE PAGOS-CABLEADOS-RESTANTES FAILED (9a, ESTRELLA): el plan de editar una venta del FORMULARIO con cargo posteado debia compensar el cargo de la operacion (reference_id=operation_id %), plan: %', v_op_id, v_plan->'account';
   END IF;
 
   -- (9b) venta con movimiento de caja posteado (formulario, reference_id=operation_id) → bloqueada
@@ -605,23 +603,17 @@ BEGIN
   WHERE s.account_id = v_account_id
   ORDER BY s.created_at DESC LIMIT 1;
 
-  v_rejected := false;
-  BEGIN
-    PERFORM public.rpc_atomic_update_sale_operation(
+  v_plan := public.rpc_atomic_update_sale_operation(
       p_sale_ids => ARRAY[v_sale_id],
       p_client_id => NULL,
       p_date => public.reporting_local_today(),
       p_currency => 'ARS',
-      p_items => jsonb_build_array(jsonb_build_object('product_id', v_product_id, 'amount', 200, 'quantity', 1))
-    );
-  EXCEPTION
-    WHEN OTHERS THEN
-      IF SQLSTATE = 'P0423' THEN v_rejected := true; ELSE RAISE; END IF;
-  END;
-  IF NOT v_rejected THEN
-    RAISE EXCEPTION 'GATE PAGOS-CABLEADOS-RESTANTES FAILED (9b, ESTRELLA): editar una venta del FORMULARIO con movimiento de caja posteado debería fallar con P0423.';
+      p_items => jsonb_build_array(jsonb_build_object('product_id', v_product_id, 'amount', 200777, 'quantity', 1)),
+      p_dry_run => true)->'plan';
+  IF v_plan->'cash'->>'action' IS DISTINCT FROM 'both' THEN
+    RAISE EXCEPTION 'GATE PAGOS-CABLEADOS-RESTANTES FAILED (9b, ESTRELLA): el plan de cambiar el importe de una venta del FORMULARIO con movimiento de caja posteado debia compensar y registrar la caja, plan: %', v_plan->'cash';
   END IF;
-  RAISE NOTICE 'PASS (9a-9b, GATE ESTRELLA): D6 bloquea la edición de operaciones del FORMULARIO con cargo o movimiento posteado (reference_id=operation_id).';
+  RAISE NOTICE 'PASS (9a-9b, GATE ESTRELLA): el plan de edicion ve el cargo y la caja de operaciones del FORMULARIO (reference_id=operation_id).';
 
   -- (9c) venta POS a crédito (reference_id = sales_orders.id, NO operation_id) → también bloqueada
   SELECT public.rpc_quick_sale(
@@ -641,23 +633,17 @@ BEGIN
     RAISE EXCEPTION 'GATE PAGOS-CABLEADOS-RESTANTES FAILED (9c-premisa): el cargo del POS debería referenciar sales_orders.id (%), no lo encontré.', v_so_id;
   END IF;
 
-  v_rejected := false;
-  BEGIN
-    PERFORM public.rpc_atomic_update_sale_operation(
+  v_plan := public.rpc_atomic_update_sale_operation(
       p_sale_ids => ARRAY[v_sale_id],
       p_client_id => v_client2_id,
       p_date => public.reporting_local_today(),
       p_currency => 'ARS',
-      p_items => jsonb_build_array(jsonb_build_object('product_id', v_product_id, 'amount', 1000, 'quantity', 1))
-    );
-  EXCEPTION
-    WHEN OTHERS THEN
-      IF SQLSTATE = 'P0423' THEN v_rejected := true; ELSE RAISE; END IF;
-  END;
-  IF NOT v_rejected THEN
-    RAISE EXCEPTION 'GATE PAGOS-CABLEADOS-RESTANTES FAILED (9c, ESTRELLA): editar una venta del POS con cargo referenciado por sales_orders.id (no operation_id) debería fallar con P0423 también — las dos convenciones de reference_id deben cubrirse.';
+      p_items => jsonb_build_array(jsonb_build_object('product_id', v_product_id, 'amount', 1500, 'quantity', 1)),
+      p_dry_run => true)->'plan';
+  IF v_plan->'account'->'reverse'->0->>'reference_id' IS DISTINCT FROM v_so_id::text THEN
+    RAISE EXCEPTION 'GATE PAGOS-CABLEADOS-RESTANTES FAILED (9c, ESTRELLA): el plan de editar una venta del POS debia compensar el cargo que referencia sales_orders.id (%), plan: %', v_so_id, v_plan->'account';
   END IF;
-  RAISE NOTICE 'PASS (9c, GATE ESTRELLA): D6 cubre AMBAS convenciones de reference_id — POS (sales_orders.id) y formulario (operation_id).';
+  RAISE NOTICE 'PASS (9c, GATE ESTRELLA): el plan de edicion cubre AMBAS convenciones de reference_id — POS (sales_orders.id) y formulario (operation_id).';
 
   -- (9d) venta SIN cargo ni movimiento → sigue editable (impacto retroactivo cero)
   SELECT public.rpc_create_sale_operation_v2(
@@ -710,20 +696,14 @@ BEGIN
     RAISE EXCEPTION 'GATE PAGOS-CABLEADOS-RESTANTES FAILED (9e-pre): la compra a crédito con proveedor debería haber posteado el cargo por el camino real (compras-proveedor-cuenta-corriente D8) — sin cargo, el bloqueo P0423 de abajo no probaría nada.';
   END IF;
 
-  v_rejected := false;
-  BEGIN
-    PERFORM public.rpc_atomic_update_purchase_operation(
+  v_plan := public.rpc_atomic_update_purchase_operation(
       p_purchase_ids => ARRAY[v_purchase_id],
       p_date => public.reporting_local_today(),
       p_description => '__gate_pcr_purchase_charged_edit__',
-      p_items => jsonb_build_array(jsonb_build_object('product_id', v_product_id, 'amount', 110, 'quantity', 1))
-    );
-  EXCEPTION
-    WHEN OTHERS THEN
-      IF SQLSTATE = 'P0423' THEN v_rejected := true; ELSE RAISE; END IF;
-  END;
-  IF NOT v_rejected THEN
-    RAISE EXCEPTION 'GATE PAGOS-CABLEADOS-RESTANTES FAILED (9e): editar una compra con cargo de cuenta corriente posteado debería fallar con P0423 (espejo del guard de venta, task 9.3).';
+      p_items => jsonb_build_array(jsonb_build_object('product_id', v_product_id, 'amount', 110, 'quantity', 1)),
+      p_dry_run => true)->'plan';
+  IF v_plan->'account'->>'action' IS DISTINCT FROM 'both' THEN
+    RAISE EXCEPTION 'GATE PAGOS-CABLEADOS-RESTANTES FAILED (9e): el plan de editar una compra con cargo de cuenta corriente posteado debia compensar y registrar el cargo, plan: %', v_plan->'account';
   END IF;
 
   -- (9f) compra SIN cargo → sigue editable
@@ -743,7 +723,7 @@ BEGIN
     p_description => '__gate_pcr_purchase_plain_edit__',
     p_items => jsonb_build_array(jsonb_build_object('product_id', v_product_id, 'amount', 120, 'quantity', 1))
   );
-  RAISE NOTICE 'PASS (9e-9f): rpc_atomic_update_purchase_operation espeja el guard D6 (bloquea con cargo, no bloquea sin él) — impacto retroactivo cero (0 supplier_account_movements en prod hoy).';
+  RAISE NOTICE 'PASS (9e-9f): rpc_atomic_update_purchase_operation ve el cargo posteado (plan: compensa y registra) y edita sin cargo.';
 
-  RAISE NOTICE 'PASS: gate pagos-cableados-restantes completo — helper, formulario a crédito, opt-in de caja, kind real en compras, ruteo bancario con wallet, e inmutabilidad D6 en ambas convenciones de reference_id.';
+  RAISE NOTICE 'PASS: gate pagos-cableados-restantes completo — helper, formulario a crédito, opt-in de caja, kind real en compras, ruteo bancario con wallet, y el plan de edicion que ve el dinero posteado en ambas convenciones de reference_id.';
 END $$;

@@ -1,0 +1,61 @@
+> Implementable por UN agente de apply en ≤ 3 h. Rama `opsx/v31-document-lines-consistency-apply`, todo commit vía PR. Producción en SÓLO LECTURA (`mcp__supabase__execute_sql` con SELECT); la migración la aplica `deploy.yml` al mergear (`supabase db push`), nunca el MCP `apply_migration`. Archivos en LF. Strict TDD: el gate (grupo 3) y el test de `client_repository` (grupo 4) se escriben ROJOS antes del código que los pone verdes.
+
+## 0. Checkpoints de hechos (antes de escribir SQL)
+
+- [ ] 0.1 Medir en prod `max(version)` de `supabase_migrations.schema_migrations` (esperado `20261090000001`) y confirmar que `20261091000001` está libre también en `supabase/migrations/`. Si no lo está, tomar el siguiente número libre y anotarlo en el design.
+- [ ] 0.2 Obtener `pg_get_functiondef` vivo de las 7 funciones y comparar su md5 contra la tabla de design §Hechos medidos. Las 7 son `rpc_create_sale_operation`, `rpc_create_sale_operation_v2`, `_purchase_operation_core`, `_c29_confirm_order_core`, `rpc_atomic_update_sale_operation`, `rpc_atomic_update_purchase_operation` y `rpc_create_purchase_operation_v2`. Guardar los 7 cuerpos (normalizados a LF) como base de la migración y del rollback. **Si algún md5 difiere: detenerse, re-derivar desde el vivo nuevo y anotar el desvío.** Para comparar, usar líneas sin CR: un md5 local distinto puede ser sólo CRLF del checkout.
+- [ ] 0.3 Re-barrer los INSERT de líneas en todos los esquemas (`prosrc ILIKE '%insert into%sale_items%' OR '%insert into%purchase_items%'`) y confirmar que no hay escritores fuera de los 7, aparte de `_sales_order_sync_from_operation`, que escribe `sales_order_items`. Re-barrer `prosrc ILIKE '%sale_items_rpc_v2%'` y confirmar que son las 4 funciones esperadas.
+- [ ] 0.4 Re-medir el backfill: documentos sin línea canónica (esperado 2 ventas y 4 compras), líneas con `name_snapshot` NULL (esperado 50 y 29) y cuántas resuelve cada eslabón de la cascada. Confirmar que `stock_movements` tiene ≤ 1 `product_name` distinto por `reference_id`.
+- [ ] 0.5 Leer el recordset de ítems de `rpc_create_sale_operation_v2` y de las dos RPCs de edición para ver si traen nombre o descripción por ítem (D3), y anotarlo.
+
+## 1. Migración `20261091000001_v31_document_lines_consistency.sql`
+
+- [ ] 1.1 Cabecera con el contexto de H-15, los md5 de partida y la referencia al design. Agregar un guard de precondiciones que aborte si falta alguna de las 7 firmas.
+- [ ] 1.2 `rpc_create_sale_operation`: `CREATE OR REPLACE` desde el vivo, quitando el flag y la rama `ELSE` legacy. Queda como despachador incondicional a la v2 con la misma firma (D1). Agregar un COMMENT nuevo que explique el retiro.
+- [ ] 1.3 `_purchase_operation_core`, `rpc_atomic_update_sale_operation` y `rpc_atomic_update_purchase_operation`: quitar la variable, el SELECT y el `IF v_flag_on` (conservando el contenido del IF), y re-emitir el COMMENT vivo con la nota del retiro.
+- [ ] 1.4 Las 6 ramas de servicio escriben su línea (D3), con `name_snapshot` por cascada y la etiqueta constante `'Ítem sin producto'`. Las ramas están en `rpc_create_sale_operation_v2`, `_c29_confirm_order_core`, `_purchase_operation_core`, las dos de edición y `rpc_create_purchase_operation_v2`, si la tiene.
+- [ ] 1.5 `rpc_create_purchase_operation_v2`: el INSERT de producto lleva `name_snapshot` (D6, OQ-5).
+- [ ] 1.6 ACLs explícitas de las 7 funciones, idénticas a las vivas: `REVOKE ALL … FROM PUBLIC, anon` más los `GRANT` de la tabla del design.
+- [ ] 1.7 `DELETE FROM public.account_feature_flags WHERE flag_key = 'sale_items_rpc_v2'` (D2).
+- [ ] 1.8 Rollback en `supabase/migrations_bak/rollback_20261091000001_v31_document_lines_consistency.sql`, con los cuerpos de 0.2, `DROP NOT NULL` y la reinserción de las filas del flag (D10). Probarlo localmente: aplicar, revertir y volver a aplicar.
+- [ ] 1.9 Mostrar en el PR el `diff` de cada función contra su cuerpo vivo de 0.2: sólo deben aparecer los cambios de D1, D3 y D6.
+
+## 2. Backfill (en la misma migración, después del grupo 1)
+
+- [ ] 2.1 `INSERT` de la línea canónica para los headers que no la tienen, en `sales` y `purchases` (D5.1), con `snapshot_backfilled = true` y `WHERE NOT EXISTS`. Emitir `RAISE NOTICE` con el conteo.
+- [ ] 2.2 `UPDATE` de `name_snapshot` NULL con la cascada del D5.2: producto, `stock_movements.product_name`, `purchases.description` y etiqueta. Marcar `snapshot_backfilled = true` y emitir `RAISE NOTICE` con el conteo.
+- [ ] 2.3 Assert de 0 filas con `name_snapshot` NULL y de 0 headers sin línea canónica, y después `ALTER COLUMN name_snapshot SET NOT NULL` en `sale_items` y `purchase_items` (D6).
+- [ ] 2.4 Aplicar localmente sobre `supabase db reset` y luego re-aplicar el archivo entero: la segunda corrida tiene que ser no-op.
+
+## 3. Gates SQL
+
+- [ ] 3.1 RED: escribir `supabase/tests/test_document_lines_consistency.sql` con los bloques (a) a (g) del D7, ejecutando de verdad cada escritor (producto y servicio). Verificar que falla contra el esquema previo a la migración.
+- [ ] 3.2 GREEN: con la migración aplicada, el gate pasa con `python3 scripts/ci/run_gate_strict.py supabase/tests/test_document_lines_consistency.sql`, sin degradaciones.
+- [ ] 3.3 Cablear el gate en `KPI_Validation.yml` con `run_gate_strict.py`, junto a los demás gates de dinero.
+- [ ] 3.4 Migrar los 7 gates existentes según el D9: `test_sale_items_rpc_v2_activation`, `test_operation_edit_lines`, `test_multiusuario_operaciones` (h), `test_pagos_cableados_restantes` (legacy), `test_ventas_sucursal_por_defecto` (2), `test_ventas_unidades_conversion` (bloques legacy) y `test_operacion_party_guard` (10). Pasan de «kill-switch → legacy» a «el flag no tiene efecto», y de «servicio sin fila» a «servicio con una línea con nombre». Revisar con `grep -n` cada cleanup que dependa de que el servicio no tenga fila.
+- [ ] 3.5 Paso de reapply de `KPI_Validation.yml`: sacar del FINGERPRINT el contador del flag y sumar la reaplicación de `20261091000001` al final de la reconvergencia (D9). Correr la cadena localmente en el orden real del workflow.
+- [ ] 3.6 Correr localmente todos los gates de `KPI_Validation.yml` que tocan ventas, compras, edición, caja, banco, cuenta corriente, presupuestos y remitos, en el orden del workflow, y registrar el resultado en el PR.
+
+## 4. Backend
+
+- [ ] 4.1 RED: test en `backend/tests/` (molde: los tests existentes de `client_repository`, más uno `-m integration` si el patrón ya existe) que fija que una venta con fila legacy de variante cuenta una sola vez en la actividad del cliente (D8).
+- [ ] 4.2 GREEN: agregar `AND si.variant_id IS NULL` a los dos `LEFT JOIN sale_items` de `backend/repositories/client_repository.py` (L146 y L297).
+- [ ] 4.3 Reescribir los tests del flag en `backend/tests/test_sale_items.py` (L179-300) sin el despacho por flag. El backend sigue llamando a `rpc_create_sale_operation`.
+- [ ] 4.4 Suite backend completa (`pytest -m "not integration"`) con coverage ≥ 87 %, más el tier `-m "integration and not arca"` contra el stack local.
+- [ ] 4.5 Grep de confirmación: `sale_items_rpc_v2` no aparece en `frontend/`, salvo en `database.types.ts` si estuviera, y ninguna firma de RPC cambió. Esto sostiene «Sin superficie frontend».
+
+## 5. Docs y verificación en prod post-merge
+
+- [ ] 5.1 `CHANGES.md`: actualizar la ficha de `v31-document-lines-consistency` con lo medido en el apply y los desvíos, y la fila H-15 de la tabla del Roadmap v3.1.
+- [ ] 5.2 `knowledge-base/04_modelo_de_datos.md` (sección `sale_items`/`purchase_items`): `name_snapshot NOT NULL`, la línea de servicio con fila, la línea canónica `variant_id IS NULL` y el retiro del flag.
+- [ ] 5.3 Escribir en `CHANGES.md` (ficha de C-20 Grupo 10) el veredicto del D11: qué bloquea todavía el DROP del header plano. Agregar el inventario de lectores de `sales.product_id/amount/quantity/total` y `purchases.*` (repositorios, RPCs, vistas, Edge Functions) como candidato `c20-grupo10-lectores`.
+- [ ] 5.4 [orquestador] Verificación post-merge en prod, sólo lectura:
+  - `max(version) = 20261091000001`;
+  - 0 `prosrc` con `sale_items_rpc_v2`;
+  - 0 filas del flag;
+  - 0 headers sin línea canónica y 0 con más de una;
+  - 0 `name_snapshot` NULL y las dos columnas `NOT NULL`;
+  - ACLs de las 7 funciones;
+  - las ventas y compras creadas después del deploy tienen su línea;
+  - re-medir la actividad de los 14 clientes afectados.
+- [ ] 5.5 [orquestador] Registro en `docs/pendientes-manuales-po.md` y `mem_save` del cierre.

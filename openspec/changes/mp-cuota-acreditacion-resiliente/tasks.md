@@ -2,10 +2,10 @@
 
 ## 0. Preparación y red de seguridad
 
-- [ ] 0.1 Rama `opsx/mp-cuota-acreditacion-resiliente-apply` desde `origin/main`; `openspec status --change mp-cuota-acreditacion-resiliente` en verde.
-- [ ] 0.2 Re-verificar el número de migración libre (`ls supabase/migrations | tail -1`; al proponer, la última era `20261091000001`, se reservó `20261092000001`). Renumerar si fue tomado.
-- [ ] 0.3 Safety net: correr y anotar baseline de `backend/tests/test_subscriptions_service.py`, `test_subscriptions_router.py`, `test_subscriptions_repository.py`, `test_payments.py`, `test_subscriptions_apply_approved_charge_integration.py`, `test_subscriptions_webhook_handlers_integration.py` (marker `integration`, stack local de Postgres), y la suite de `fiscal` que cubre `process-pending-cron`. Cualquier rojo preexistente se reporta, no se arregla.
-- [ ] 0.4 Releer `_apply_approved_charge`, `replay_subscription_charges`, `_apply_authorized_payment_notification` y `process_payment` en `main` (el diseño cita su forma al 2026-11-05).
+- [x] 0.1 Rama `opsx/mp-cuota-acreditacion-resiliente-apply` desde `origin/main`; `openspec status --change mp-cuota-acreditacion-resiliente` en verde.
+- [x] 0.2 Re-verificar el número de migración libre (`ls supabase/migrations | tail -1`; al proponer, la última era `20261091000001`, se reservó `20261092000001`). Renumerar si fue tomado.
+- [x] 0.3 Safety net: correr y anotar baseline de `backend/tests/test_subscriptions_service.py`, `test_subscriptions_router.py`, `test_subscriptions_repository.py`, `test_payments.py`, `test_subscriptions_apply_approved_charge_integration.py`, `test_subscriptions_webhook_handlers_integration.py` (marker `integration`, stack local de Postgres), y la suite de `fiscal` que cubre `process-pending-cron`. Cualquier rojo preexistente se reporta, no se arregla.
+- [x] 0.4 Releer `_apply_approved_charge`, `replay_subscription_charges`, `_apply_authorized_payment_notification` y `process_payment` en `main` (el diseño cita su forma al 2026-11-05).
 
 ## 1. Núcleo compartido de reconciliación (D2, D3)
 

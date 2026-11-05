@@ -310,6 +310,8 @@ const RECENT_ROW = {
   last_payment_status: "approved",
   retry_state: "none",
   updated_at: "2026-08-01T12:00:00Z",
+  plan_expires_at: "2026-12-14T20:54:19Z",
+  last_charge_credited_at: "2026-11-05T16:37:50Z",
 }
 
 describe("useRecentSubscriptions — list", () => {
@@ -333,8 +335,23 @@ describe("useRecentSubscriptions — list", () => {
         lastPaymentStatus: "approved",
         retryState: "none",
         updatedAt: "2026-08-01T12:00:00Z",
+        planExpiresAt: "2026-12-14T20:54:19Z",
+        lastChargeCreditedAt: "2026-11-05T16:37:50Z",
       },
     ])
+  })
+
+  it("mp-cuota-acreditacion-resiliente 6.3: a subscription with no credited charge maps both new fields to null", async () => {
+    vi.mocked(pythonClient.get).mockResolvedValueOnce([
+      { ...RECENT_ROW, plan_expires_at: null, last_charge_credited_at: null },
+    ])
+    const { Wrapper } = makeWrapper()
+
+    const { result } = renderHook(() => useRecentSubscriptions(), { wrapper: Wrapper })
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+    expect(result.current.data?.[0].planExpiresAt).toBeNull()
+    expect(result.current.data?.[0].lastChargeCreditedAt).toBeNull()
   })
 
   it("§9 GREEN: a custom limit is passed through to the query string", async () => {

@@ -151,6 +151,11 @@ class _RaiseOnMatchingExecute:
     def is_in_transaction(self) -> bool:
         return self._conn.is_in_transaction()
 
+    async def fetchval(self, query: str, *args: object) -> object:
+        # mp-cuota-acreditacion-resiliente D7: `_apply_approved_charge` toma
+        # el lock del preapproval con `fetchval` — se delega sin cambios.
+        return await self._conn.fetchval(query, *args)
+
     async def execute(self, query: str, *args: object) -> str:
         if self._fragment in query:
             raise RuntimeError("simulated failure after the idempotency claim")

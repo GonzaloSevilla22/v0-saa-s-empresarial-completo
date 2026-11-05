@@ -4708,7 +4708,7 @@ El pedido literal (RPC con rol y motivo + quitar `GRANT` y policies) es correcto
 **Candidato lateral (no urgente).** El patrón `checkAiQuota` + `incrementAiUsage` de las otras 9 Edge Functions de IA tiene la misma carrera chequear-luego-incrementar que se cerró acá para el OCR; `rpc_reserve_ai_usage(p_counter)` es el punto de extensión (ramas `queries`/`advice`).
 
 
-## Change `mp-cuota-acreditacion-resiliente` — PROPOSE 2026-11-05 (PR **#677**; **apply bloqueado a sign-off del PO**; governance **CRÍTICO**: webhook de pagos, dinero real)
+## Change `mp-cuota-acreditacion-resiliente` — PROPOSE 2026-11-05 (PR **#677**, mergeado) · **APPLY en PR #678** (sin mergear; governance **CRÍTICO**: webhook de pagos, dinero real)
 
 **Contexto.** Pedido textual del PO: «propone un change para que esto se solucione». El backend acredita el cobro mensual de una suscripción SÓLO desde la notificación `subscription_authorized_payment` en `processed`/`approved` (`_apply_authorized_payment_notification` → `_apply_approved_charge`); la notificación `payment` del mismo cobro se ignora a propósito (`ignored="subscription_charge"`, ítem B(1) de #526). Ficha previa del handler: `billing-webhook-cuota-idempotencia` (#641/#642), que no se reescribe.
 
@@ -4720,8 +4720,20 @@ El pedido literal (RPC con rol y motivo + quitar `GRANT` y policies) es correcto
 
 **OQs (todas por la recomendada; sign-off del PO por mandato, el apply igual espera su OK explícito).** OQ-1 estrategia → C'. OQ-2 secreto → reutilizar `RELAY_SECRET`/Vault `cae_relay_secret` (cero pasos manuales). OQ-3 cadencia → cada hora, ventana 30 días. OQ-4 superficie → dos columnas en `/admin/pagos/ambiguas`. OQ-5 defecto del replay → corregirlo en este change.
 
-**Estado.** Propose — `openspec/changes/mp-cuota-acreditacion-resiliente/` (proposal, design, specs delta `payment-webhook` + `subscription-lifecycle`, tasks), `openspec validate --strict` en verde. **Apply bloqueado a sign-off del PO.** Mientras tanto, red manual: "Replicar cuotas" cada mes después del día 4 (`docs/pendientes-manuales-po.md` §8).
+**Sign-off del PO (2026-11-05)**, textual: «apague la pc asi que continua y avanza con todo lo recomendado» → las cinco OQs por su recomendada (anotado en `design.md`).
 
+**Apply (PR #678, 2026-11-05).** Migración **`20261092000001_mp_cuota_reconciliacion_cron.sql`** (número confirmado libre contra `origin/main`). Implementado tal cual el design, con estas decisiones de implementación:
+- **D2**: el núcleo `reconcile_preapproval_charges` hace las dos consultas a MercadoPago en `_fetch_preapproval_and_charges` ANTES de cualquier transacción; además convierte un corte de red de httpx en **502** (antes era un 500 genérico). `replay_subscription_charges` quedó como envoltorio 404/409.
+- **D3**: ningún test existente del replay asertaba el vencimiento de una cuota ya acreditada — no hubo que ajustar ninguno.
+- **D7**: el lock se toma con `conn.fetchval` (no `execute`) para no alterar el conteo de escrituras que fijan los tests de atomicidad. Hallazgo: la concurrencia de dos aplicaciones de la misma cuota YA se serializaba por el lock de fila del `UPDATE accounts` (primera sentencia) en READ COMMITTED — el test de "una sola fila" pasaba antes del cambio; el RED real de D7 es la prueba de que el advisory lock está tomado mientras la transacción vive. El lock queda como defensa explícita, independiente del orden de las sentencias.
+- **D5**: `require_relay_secret` compara **bytes** (`compare_digest` sobre `str` no-ASCII lanzaba TypeError → 500) y lee `config.settings` en cada llamada para que los tests del relay fiscal sigan parcheándola. El endpoint responde 200 `skipped` con la palanca apagada (nunca 503). La migración revoca EXECUTE también a `service_role` (más estricta que el molde) y fija `timeout_milliseconds = 30000` en `net.http_post` (Render en frío ~50 s; el default de pg_net es 5 s).
+- **D6**: el acelerador también exige la palanca `billing_subscriptions_enabled` y `shadow=false`; el núcleo se importa dentro de la función (`services.subscriptions` ya importa `services.payments`).
+- **D8**: `configure_backend_logging()` en `main.py` — handler propio que siempre escribe al `sys.stdout` vigente, propaga (caplog sigue viendo las líneas), idempotente.
+- **Revisión adversarial (7.2)**: una cuota `processed/approved` **sin `payment.id`** ya no se acredita (warning y se saltea): `billing_events` sólo deduplica por `mercadopago_payment_id` no nulo y el barrido habría insertado un cobro por hora.
+
+**Verificación local.** Backend unitario 4542 passed (los 7 fallos locales de `test_invoice_pdf.py` son preexistentes); integración `-m "integration and not arca"` 144 passed (incluye `test_subscriptions_reconcile_integration.py`, nuevo); migración aplicada dos veces + gate nuevo `test_mp_cuota_reconciliacion_cron.sql` PASSED (cableado estricto en `KPI_Validation.yml`, 35 gates de dinero) + gate de ACLs verde + control negativo (GRANT a anon → falla); vitest de los archivos tocados 43/43; `tsc` sin errores nuevos. **Pendiente**: pasada visual 375 px / claro-oscuro (task 6.5, no se levantó el stack completo) y la verificación post-merge en prod (7.4) y la prueba real con el cobro del 2026-12-04 (7.5).
+
+**Estado.** Apply en **PR #678** (sin mergear). Hasta que mergee, sigue la red manual: "Replicar cuotas" después del día 4 (`docs/pendientes-manuales-po.md` §8).
 
 ## Change `productos-padre-variantes` — PROPOSE 2026-11-05 (PR **#679**; governance **MEDIO** con un tramo **ALTO** acotado al relabel de unidad)
 

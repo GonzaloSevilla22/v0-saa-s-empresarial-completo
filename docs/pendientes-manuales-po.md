@@ -81,9 +81,11 @@ Este change hace que los tests contra una base real y los gates de dinero corran
 
 ---
 
-## 8. `mp-cuota-acreditacion-resiliente` — cobro mensual de la suscripción (propose PR #677)
+## 8. `mp-cuota-acreditacion-resiliente` — cobro mensual de la suscripción (propose PR #677, apply PR #678)
 
-- [ ] **Antes del apply**: dar el OK (o objetar) las cinco decisiones del `design.md` (OQ-1…OQ-5). Recomendadas: barrido horario + webhook `payment` como acelerador; reutilizar el secreto del relay fiscal; cada hora con ventana de 30 días; dos columnas nuevas en `/admin/pagos/ambiguas`; corregir el defecto del replay. Governance CRÍTICO: sin tu OK no se aplica.
+- [x] **Antes del apply**: OK dado el 2026-11-05 («apague la pc asi que continua y avanza con todo lo recomendado») — las cinco OQs por la recomendada.
+- [ ] **Después del merge del #678 (lo verifica el agente, sólo lectura)**: deploy de Render, migración `20261092000001` viva, job `subscription-reconcile-charges` activo con corridas `succeeded`, y la línea `reconcile-cron: checked=…` cada hora en los logs. No necesitás configurar nada: reutiliza los secretos que ya usa el relay fiscal.
+- [ ] **Humo real el 2026-12-04 (o al día siguiente)**: entrá a `/admin/pagos/ambiguas` → "Suscripciones recientes" y fijate en la fila de Aliadata Perfumes: **"Último cobro acreditado"** debe mostrar la fecha de diciembre y **"Plan vence"** ≈ 14/01/2027, **sin** que toques "Replicar cuotas". Si a las ~2 h del cobro no entró, tocá "Replicar cuotas" y avisame.
 - [ ] **Mientras no esté aplicado, cada mes después del día 4**: entrá a `/admin/pagos/ambiguas` → "Suscripciones recientes" y verificá que la suscripción de Aliadata Perfumes tenga el plan extendido (vencimiento ≈ día 14 del mes siguiente). Si no, tocá **"Replicar cuotas"** (es idempotente: no duplica cobros ni correos). Próximo cobro: 2026-12-04.
 
 ---
@@ -116,5 +118,6 @@ Se completa a medida que se mergea cada PR. Orden pactado: changes de a uno, sie
 | 15:20 UTC (5-nov) | Feature: saldo según libro al elegir una cuenta en /banco (saldo inicial + movimientos, como caja) | #673 | en revisión |
 | 16:30 UTC (5-nov) | Apply v31-document-lines-consistency (retiro del flag y la rama legacy, línea de servicio, backfill de 6 documentos y 79 líneas, name_snapshot NOT NULL, fix doble conteo en clientes; migración 20261091000001) | #675 | mergeado 16:20 |
 | 16:45 UTC (5-nov) | Archive v31-document-lines-consistency (spec sale-line-items sincronizada, change cerrado) | #676 | en revisión |
-| 16:55 UTC (5-nov) | Propose mp-cuota-acreditacion-resiliente (cobro mensual de suscripción sin depender de la notificación de la cuota: barrido horario + acelerador en el webhook `payment`; OQs por la recomendada, apply bloqueado a sign-off — governance CRÍTICO) | #677 | en revisión |
+| 16:55 UTC (5-nov) | Propose mp-cuota-acreditacion-resiliente (cobro mensual de suscripción sin depender de la notificación de la cuota: barrido horario + acelerador en el webhook `payment`; OQs por la recomendada, apply bloqueado a sign-off — governance CRÍTICO) | #677 | mergeado |
+| 18:45 UTC (5-nov) | Apply mp-cuota-acreditacion-resiliente (núcleo único de reconciliación, barrido horario `pg_cron` + endpoint de máquina, acelerador en el webhook `payment`, lock por preapproval, logging INFO, dos columnas en `/admin/pagos/ambiguas`; migración 20261092000001; sign-off del PO 5-nov) | #678 | en revisión |
 | 22:25 UTC (5-nov) | Propose productos-padre-variantes (alta diferenciada padre/simple, padre sin precio/costo con CHECK, corrección de unidad de la familia sin convertir, precios en lote con vista previa, sugerencia costo × 1,5; migración reservada 20261093000001; OQs por la recomendada) | #679 | en revisión |

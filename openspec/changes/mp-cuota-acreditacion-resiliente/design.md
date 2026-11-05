@@ -104,6 +104,8 @@ Barrido, webhook de la cuota tardía, webhook `payment` y replay pueden aplicar 
 
 ## Open Questions
 
+**Sign-off explícito del PO para el apply (2026-11-05)**, textual: «apague la pc asi que continua y avanza con todo lo recomendado». Con eso las cinco OQs quedan firmadas por su opción recomendada —OQ-1 (c) C', OQ-2 (a) `RELAY_SECRET`/`cae_relay_secret` con `require_relay_secret` en `backend/core/guards.py`, OQ-3 (a) cada hora al minuto 7 con ventana de 30 días, OQ-4 (b) columnas "Plan vence" y "Último cobro acreditado", OQ-5 (a) fix D3 del replay— y el gate de governance CRÍTICO del apply queda levantado.
+
 Todas resueltas por la opción recomendada. **Sign-off del PO por mandato**: el PO pidió textualmente «propone un change para que esto se solucione»; cada OQ queda resuelta por su recomendada salvo objeción explícita antes del apply (governance CRÍTICO: el apply igual espera el OK del PO).
 
 - **OQ-1 — Estrategia.** (a) A pura · (b) B pura · **(c) C' = B + A acotado a `metadata.preapproval_id` (recomendada)**. → **(c)**, sign-off del PO por mandato.

@@ -253,3 +253,142 @@ class TestApplyApprovedChargeIntegration:
         finally:
             await _cleanup(conn, account_id, user_id)
             await conn.close()
+
+    async def test_none_expiry_keeps_current_expiry_and_completes_pending_email(self):
+        """mp-cuota-acreditacion-resiliente 1.6 (D3): reaplicar una cuota
+        ya acreditada llega con `plan_expires_at=None` — el vencimiento
+        vigente queda intacto contra Postgres real (COALESCE) y el correo
+        que había quedado pendiente se completa, sin duplicar el cobro."""
+        conn = await connect()
+        account_id, user_id, _email = await _make_account(conn)
+        preapproval_id = f"mp-preapproval-{uuid.uuid4()}"
+        mercadopago_payment_id = f"mp-payment-{uuid.uuid4()}"
+        current_expiry = datetime.datetime(2026, 11, 14, 20, 54, 19, tzinfo=datetime.timezone.utc)
+        try:
+            await conn.execute(
+                "UPDATE public.accounts SET plan_expires_at = $2 WHERE id = $1", account_id, current_expiry,
+            )
+            # cobro ya auditado SIN su correo: la aplicación parcial que el
+            # replay H4 existe para completar.
+            await conn.execute(
+                """
+                INSERT INTO public.billing_events
+                    (user_id, event_type, to_plan, reason, metadata, mercadopago_payment_id, amount)
+                VALUES ($1, 'subscription_payment_approved', 'inicial', 'test',
+                        jsonb_build_object('preapproval_id', $2::text, 'authorized_payment_id', 'ap-d3'),
+                        $3, 24900)
+                """,
+                user_id, preapproval_id, mercadopago_payment_id,
+            )
+
+            await _apply_approved_charge(
+                conn,
+                account_id=str(account_id),
+                plan="inicial",
+                preapproval_id=preapproval_id,
+                authorized_payment_id="ap-d3",
+                mercadopago_payment_id=mercadopago_payment_id,
+                amount=24900,
+                plan_expires_at=None,
+            )
+
+            expiry = await conn.fetchval("SELECT plan_expires_at FROM public.accounts WHERE id = $1", account_id)
+            assert expiry == current_expiry
+            assert await conn.fetchval(
+                "SELECT count(*) FROM public.billing_events WHERE mercadopago_payment_id = $1",
+                mercadopago_payment_id,
+            ) == 1
+            assert await conn.fetchval(
+                """
+                SELECT count(*) FROM public.email_logs
+                WHERE user_id = $1 AND event_type = 'subscription_payment_approved'
+                  AND metadata ->> 'authorized_payment_id' = 'ap-d3'
+                """,
+                user_id,
+            ) == 1
+        finally:
+            await _cleanup(conn, account_id, user_id)
+            await conn.close()
+
+    async def test_charge_application_holds_the_per_preapproval_advisory_lock(self):
+        """mp-cuota-acreditacion-resiliente 2.1 RED (D7): mientras una
+        aplicación de la cuota está en curso (transacción abierta), el lock
+        transaccional del preapproval está tomado — otro camino (barrido,
+        webhook, replay) que intente acreditar la misma suscripción espera.
+        Un preapproval distinto NO queda bloqueado."""
+        conn_a = await connect()
+        conn_b = await connect()
+        account_id, user_id, _email = await _make_account(conn_a)
+        preapproval_id = f"mp-preapproval-{uuid.uuid4()}"
+        lock_sql = "SELECT pg_try_advisory_xact_lock(hashtextextended('subscription_charge:' || $1, 0))"
+        try:
+            tx = conn_a.transaction()
+            await tx.start()
+            try:
+                await _apply_approved_charge(
+                    conn_a,
+                    account_id=str(account_id),
+                    plan="inicial",
+                    preapproval_id=preapproval_id,
+                    authorized_payment_id="ap-lock",
+                    mercadopago_payment_id=f"mp-payment-{uuid.uuid4()}",
+                    amount=24900,
+                    plan_expires_at=datetime.datetime(2026, 12, 14, tzinfo=datetime.timezone.utc),
+                )
+                async with conn_b.transaction():
+                    assert await conn_b.fetchval(lock_sql, preapproval_id) is False
+                    assert await conn_b.fetchval(lock_sql, f"otro-{preapproval_id}") is True
+            finally:
+                await tx.rollback()
+        finally:
+            await _cleanup(conn_a, account_id, user_id)
+            await conn_a.close()
+            await conn_b.close()
+
+    async def test_concurrent_applications_of_the_same_cuota_credit_once(self):
+        """mp-cuota-acreditacion-resiliente 2.1 (D7, escenario "Barrido y
+        notificación concurrentes acreditan una sola vez"): dos caminos
+        aplican la MISMA cuota a la vez con vencimientos distintos (el
+        barrido con el ciclo vigente, la notificación con el suyo) → una
+        sola fila de `billing_events` y un solo correo de renovación."""
+        import asyncio
+
+        setup = await connect()
+        account_id, user_id, _email = await _make_account(setup)
+        preapproval_id = f"mp-preapproval-{uuid.uuid4()}"
+        mercadopago_payment_id = f"mp-payment-{uuid.uuid4()}"
+        conns = [await connect(), await connect()]
+        expiries = [
+            datetime.datetime(2026, 12, 14, 20, 54, 19, tzinfo=datetime.timezone.utc),
+            datetime.datetime(2026, 12, 14, 21, 0, 0, tzinfo=datetime.timezone.utc),
+        ]
+        try:
+            await asyncio.gather(*[
+                _apply_approved_charge(
+                    c,
+                    account_id=str(account_id),
+                    plan="inicial",
+                    preapproval_id=preapproval_id,
+                    authorized_payment_id="ap-concurrent",
+                    mercadopago_payment_id=mercadopago_payment_id,
+                    amount=24900,
+                    plan_expires_at=exp,
+                )
+                for c, exp in zip(conns, expiries)
+            ])
+            assert await setup.fetchval(
+                "SELECT count(*) FROM public.billing_events WHERE mercadopago_payment_id = $1",
+                mercadopago_payment_id,
+            ) == 1
+            assert await setup.fetchval(
+                """
+                SELECT count(*) FROM public.email_logs
+                WHERE user_id = $1 AND event_type = 'subscription_payment_approved'
+                """,
+                user_id,
+            ) == 1
+        finally:
+            for c in conns:
+                await c.close()
+            await _cleanup(setup, account_id, user_id)
+            await setup.close()

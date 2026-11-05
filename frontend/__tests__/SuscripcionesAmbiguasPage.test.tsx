@@ -72,6 +72,8 @@ const RECENT_1: RecentSubscription = {
   lastPaymentStatus: "approved",
   retryState: "none",
   updatedAt: "2026-08-01T12:00:00.000Z",
+  planExpiresAt: "2026-12-14T20:54:19.000Z",
+  lastChargeCreditedAt: "2026-11-05T16:37:50.000Z",
 }
 
 // auth-hardening-jwt-cookies (Parte C, tasks 19.7b/19.8d): el gate de esta
@@ -426,6 +428,27 @@ describe("SuscripcionesAmbiguasPage — recent subscriptions section", () => {
     expect(
       screen.getByRole("button", { name: /replicar cuotas de la suscripción pro de buyer test/i }),
     ).toBeInTheDocument()
+  })
+
+  it("mp-cuota-acreditacion-resiliente 6.3: shows 'Plan vence' and 'Último cobro acreditado' for the row", async () => {
+    await renderPage()
+    await screen.findByRole("heading", { name: /suscripciones recientes/i })
+
+    expect(screen.getByRole("columnheader", { name: /plan vence/i })).toBeInTheDocument()
+    expect(screen.getByRole("columnheader", { name: /último cobro acreditado/i })).toBeInTheDocument()
+    const row = screen.getByText("Buyer Test").closest("tr") as HTMLElement
+    expect(within(row).getByText("14/12/2026")).toBeInTheDocument()
+    expect(within(row).getByText("05/11/2026")).toBeInTheDocument()
+    expect(within(row).queryByText(/sin cobros/i)).not.toBeInTheDocument()
+  })
+
+  it("mp-cuota-acreditacion-resiliente 6.3 TRIANGULATE: says 'Sin cobros' explicitly when nothing was credited", async () => {
+    mockRecentState.data = [{ ...RECENT_1, planExpiresAt: null, lastChargeCreditedAt: null }]
+    await renderPage()
+    await screen.findByRole("heading", { name: /suscripciones recientes/i })
+
+    const row = screen.getByText("Buyer Test").closest("tr") as HTMLElement
+    expect(within(row).getByText(/sin cobros/i)).toBeInTheDocument()
   })
 
   it("§10 TRIANGULATE: shows an empty state when there are no recent subscriptions", async () => {

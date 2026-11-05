@@ -36,16 +36,16 @@ C-31 Design ref: W1 (dos PEM), W2 (signed PUT, .key nunca devuelta), W4 (factory
 """
 from __future__ import annotations
 
-import hmac
 import logging
 import uuid
 from typing import Literal
 
 import asyncpg
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Response
 
 from backend.core.auth import get_current_user
-from backend.core.config import settings
+from backend.core.config import settings  # noqa: F401 — los tests del relay lo parchean por este nombre
+from backend.core.guards import require_relay_secret
 from backend.core.database import get_db_conn, get_service_conn
 from backend.core.deps import get_account_id
 from backend.repositories.document_branding_repository import DocumentBrandingRepository
@@ -394,9 +394,8 @@ async def emit_subscription_payment(
     return await svc.emit_subscription_payment_cae(conn, auth, payload)
 
 
-@router.post("/documents/process-pending-cron")
+@router.post("/documents/process-pending-cron", dependencies=[Depends(require_relay_secret)])
 async def process_pending_cae_cron(
-    request: Request,
     conn: asyncpg.Connection = Depends(get_service_conn),
 ):
     """Machine endpoint: relay del CAE cross-account para pg_cron (OQ-1=A, D6).
@@ -412,19 +411,9 @@ async def process_pending_cae_cron(
     TODO: inyectar WSFEAdapter real por cuenta/ambiente cuando el cert AFIP esté
     disponible (ARCA homologación). El stub es seguro — no llama a AFIP real.
     """
-    # ── Auth: shared secret (mirrors payments.py mercadopago_webhook_secret pattern) ──
-    configured_secret = settings.relay_secret
-    if not configured_secret:
-        # fail-closed: if env var is not set, reject ALL calls
-        raise HTTPException(status_code=401, detail="Relay secret not configured")
-
-    auth_header = request.headers.get("Authorization", "")
-    if not auth_header.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Missing Authorization header")
-
-    provided_secret = auth_header[len("Bearer "):]
-    if not hmac.compare_digest(provided_secret, configured_secret):
-        raise HTTPException(status_code=401, detail="Invalid relay secret")
+    # ── Auth: shared secret vía `require_relay_secret` (backend/core/guards.py,
+    # mp-cuota-acreditacion-resiliente D5): la misma dependencia que el barrido
+    # de suscripciones; se evalúa ANTES de adquirir la conexión de servicio.
 
     # ── Process all pending docs cross-account ────────────────────────────────
     # v22: adapter real vs stub → gate de plataforma (cert en env vars).

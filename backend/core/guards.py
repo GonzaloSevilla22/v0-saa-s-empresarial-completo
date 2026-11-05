@@ -1,11 +1,47 @@
 from __future__ import annotations
 
+import hmac
 from typing import Collection
 
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 
+from backend.core import config
 from backend.core.auth import AuthContext
 from backend.core.rbac import is_sensitive_capability
+
+
+_BEARER = "Bearer "
+
+
+def require_relay_secret(request: Request) -> None:
+    """Dependencia de los endpoints de MÁQUINA que dispara `pg_cron` vía
+    `pg_net` (relay del CAE `POST /fiscal/documents/process-pending-cron` y
+    barrido de suscripciones `POST /payments/subscriptions/reconcile-cron`).
+
+    Autenticación sólo por secreto compartido — `Authorization: Bearer
+    <RELAY_SECRET>`, el mismo valor que Vault guarda como `cae_relay_secret`
+    — nunca por JWT. Fail-closed: sin `RELAY_SECRET` configurado (None o
+    vacío) se rechaza TODO, sin cabecera o con un secreto distinto → 401.
+    Comparación en tiempo constante (`hmac.compare_digest`).
+
+    mp-cuota-acreditacion-resiliente D5 / OQ-2 (a): extraída del inline de
+    `routers/fiscal.py` para que los dos endpoints compartan UNA sola
+    verificación. `settings` se lee de `config` en cada llamada (no se
+    importa el nombre): así un `patch("backend.core.config.settings")`
+    alcanza a esta función igual que antes alcanzaba al router."""
+    configured_secret = config.settings.relay_secret
+    if not configured_secret:
+        raise HTTPException(status_code=401, detail="Relay secret not configured")
+
+    auth_header = request.headers.get("Authorization", "") or ""
+    if not auth_header.startswith(_BEARER):
+        raise HTTPException(status_code=401, detail="Missing Authorization header")
+
+    # bytes y no str: `compare_digest` con un str no-ASCII lanza TypeError
+    # (→ 500) en vez de rechazar; una cabecera arbitraria nunca debe dar 5xx.
+    provided_secret = auth_header[len(_BEARER):].encode("utf-8")
+    if not hmac.compare_digest(provided_secret, configured_secret.encode("utf-8")):
+        raise HTTPException(status_code=401, detail="Invalid relay secret")
 
 
 def require_role(auth: AuthContext, allowed: list[str]) -> None:

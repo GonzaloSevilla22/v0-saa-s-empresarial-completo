@@ -2503,3 +2503,309 @@ class TestListRecentSubscriptions:
         result = await list_recent_subscriptions(20, repo)
 
         assert result == []
+
+
+# ── mp-cuota-acreditacion-resiliente D2/D3 — núcleo compartido de
+#    reconciliación (`reconcile_preapproval_charges`) ─────────────────────────
+# Caso real que lo motivó: la cuota de noviembre (7033613241 / pago
+# 187789722328, $24.900) se cobró el 2026-11-04 y MercadoPago nunca notificó
+# la cuota `processed`. El replay admin ya hacía lo correcto; ahora lo hace un
+# núcleo único que comparten el replay, el barrido horario y el webhook
+# `payment`.
+
+_SUB_WITH_ACCOUNT = {
+    "id": SUBSCRIPTION_ID, "account_id": ACCOUNT_ID, "preapproval_id": PREAPPROVAL_ID,
+    "plan": "inicial",
+}
+
+
+def _preapproval_resp(next_payment_date="2026-12-04T16:54:19.000-04:00", status="authorized"):
+    resp = MagicMock()
+    resp.status_code = 200
+    resp.json.return_value = {"status": status, "next_payment_date": next_payment_date}
+    return resp
+
+
+def _search_resp(results):
+    resp = MagicMock()
+    resp.status_code = 200
+    resp.json.return_value = {"results": results}
+    return resp
+
+
+def _approved(authorized_payment_id, mp_payment_id, amount=24900):
+    return {
+        "id": authorized_payment_id,
+        "status": "processed",
+        "payment": {"id": mp_payment_id, "status": "approved"},
+        "transaction_amount": amount,
+    }
+
+
+def _expiry_args(conn) -> list:
+    return [c.args[2] for c in conn.execute.call_args_list if "SET plan_expires_at" in c.args[0]]
+
+
+class TestReconcilePreapprovalCharges:
+    @pytest.mark.asyncio
+    async def test_new_approved_cuota_is_applied_with_next_cycle_plus_grace(self):
+        """1.1 RED: la cuota de noviembre, cobrada y nunca notificada, se
+        acredita con el vencimiento = siguiente ciclo del preapproval +
+        gracia, y se reporta en `applied`."""
+        from backend.services.subscriptions import reconcile_preapproval_charges
+
+        repo = _mock_repo(has_billing_event_for_payment=AsyncMock(return_value=False))
+        conn = _mock_conn()
+        responses = [_preapproval_resp(), _search_resp([_approved("7033613241", "187789722328")])]
+        with patch("httpx.AsyncClient.get", new_callable=AsyncMock, side_effect=responses):
+            result = await reconcile_preapproval_charges(_SUB_WITH_ACCOUNT, repo, conn)
+
+        next_cycle = datetime.datetime(2026, 12, 4, 20, 54, 19, tzinfo=datetime.timezone.utc)
+        assert result == {"applied": ["7033613241"], "already_applied": []}
+        assert _expiry_args(conn) == [next_cycle + GRACE_PERIOD]
+        billing_call = next(c for c in conn.execute.call_args_list if "INSERT INTO public.billing_events" in c.args[0])
+        assert "187789722328" in billing_call.args
+
+    @pytest.mark.asyncio
+    async def test_already_credited_cuota_never_moves_the_expiry(self):
+        """1.2 RED (D3): MercadoPago ya adelantó `next_payment_date` al mes
+        siguiente mientras la cuota del mes en curso sigue `scheduled`.
+        Reaplicar la cuota de octubre (ya acreditada) con el vencimiento del
+        ciclo vigente extendería el plan un mes SIN cobro: se aplica con
+        `plan_expires_at=None` (el COALESCE conserva el vencimiento)."""
+        from backend.services.subscriptions import reconcile_preapproval_charges
+
+        repo = _mock_repo(has_billing_event_for_payment=AsyncMock(return_value=True))
+        conn = _mock_conn()
+        scheduled_nov = {"id": "7033613241", "status": "scheduled", "payment": {}}
+        responses = [
+            _preapproval_resp(next_payment_date="2026-12-04T16:54:19.000-04:00"),
+            _search_resp([_approved("7032577415", "182393490148"), scheduled_nov]),
+        ]
+        with patch("httpx.AsyncClient.get", new_callable=AsyncMock, side_effect=responses):
+            result = await reconcile_preapproval_charges(_SUB_WITH_ACCOUNT, repo, conn)
+
+        assert result == {"applied": [], "already_applied": ["7032577415"]}
+        assert _expiry_args(conn) == [None]
+        accounts_sql = next(c.args[0] for c in conn.execute.call_args_list if "SET plan_expires_at" in c.args[0])
+        assert "COALESCE($2, plan_expires_at)" in accounts_sql
+
+    @pytest.mark.asyncio
+    async def test_mixed_run_only_the_new_cuota_moves_the_expiry(self):
+        """TRIANGULATE (D3): octubre ya acreditada + noviembre nueva en la
+        misma corrida → sólo noviembre lleva vencimiento."""
+        from backend.services.subscriptions import reconcile_preapproval_charges
+
+        existed = {"182393490148": True, "187789722328": False}
+        repo = _mock_repo(
+            has_billing_event_for_payment=AsyncMock(side_effect=lambda pid: existed[pid])
+        )
+        conn = _mock_conn()
+        responses = [
+            _preapproval_resp(),
+            _search_resp([_approved("7032577415", "182393490148"), _approved("7033613241", "187789722328")]),
+        ]
+        with patch("httpx.AsyncClient.get", new_callable=AsyncMock, side_effect=responses):
+            result = await reconcile_preapproval_charges(_SUB_WITH_ACCOUNT, repo, conn)
+
+        next_cycle = datetime.datetime(2026, 12, 4, 20, 54, 19, tzinfo=datetime.timezone.utc)
+        assert result == {"applied": ["7033613241"], "already_applied": ["7032577415"]}
+        assert _expiry_args(conn) == [None, next_cycle + GRACE_PERIOD]
+
+    @pytest.mark.asyncio
+    async def test_approved_cuota_without_payment_id_is_never_credited(self):
+        """7.2 (revisión adversarial): sin `payment.id` no hay forma de saber
+        si el cobro ya se acreditó — `billing_events` sólo deduplica por
+        `mercadopago_payment_id` NO nulo, así que cada corrida horaria
+        insertaría otro cobro y volvería a mover el vencimiento. Se saltea
+        (no se acredita) y la cuota bien formada de la misma corrida sí."""
+        from backend.services.subscriptions import reconcile_preapproval_charges
+
+        repo = _mock_repo(has_billing_event_for_payment=AsyncMock(return_value=False))
+        conn = _mock_conn()
+        broken = {"id": "7033613240", "status": "processed", "payment": {"status": "approved"},
+                  "transaction_amount": 24900}
+        responses = [_preapproval_resp(), _search_resp([broken, _approved("7033613241", "187789722328")])]
+        with patch("httpx.AsyncClient.get", new_callable=AsyncMock, side_effect=responses):
+            result = await reconcile_preapproval_charges(_SUB_WITH_ACCOUNT, repo, conn)
+
+        assert result == {"applied": ["7033613241"], "already_applied": []}
+        assert len(_expiry_args(conn)) == 1
+
+    @pytest.mark.asyncio
+    async def test_mp_5xx_on_preapproval_raises_502_before_any_write(self):
+        """1.3 RED: un 5xx de MercadoPago corta con 502 sin escribir nada."""
+        from backend.services.subscriptions import reconcile_preapproval_charges
+
+        repo = _mock_repo()
+        conn = _mock_conn()
+        error_resp = MagicMock()
+        error_resp.status_code = 503
+        with patch("httpx.AsyncClient.get", new_callable=AsyncMock, return_value=error_resp):
+            with pytest.raises(HTTPException) as exc:
+                await reconcile_preapproval_charges(_SUB_WITH_ACCOUNT, repo, conn)
+        assert exc.value.status_code == 502
+        conn.execute.assert_not_awaited()
+        repo.update_subscription_status.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_mp_network_error_raises_502_before_any_write(self):
+        """TRIANGULATE (1.3): un corte de red (timeout de httpx) también es
+        502 — no un 500 genérico — y tampoco escribe nada: el barrido lo
+        cuenta como error y MercadoPago reintenta el webhook."""
+        import httpx
+
+        from backend.services.subscriptions import reconcile_preapproval_charges
+
+        repo = _mock_repo()
+        conn = _mock_conn()
+        responses = [_preapproval_resp(), httpx.ReadTimeout("timeout")]
+        with patch("httpx.AsyncClient.get", new_callable=AsyncMock, side_effect=responses):
+            with pytest.raises(HTTPException) as exc:
+                await reconcile_preapproval_charges(_SUB_WITH_ACCOUNT, repo, conn)
+        assert exc.value.status_code == 502
+        conn.execute.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_replay_reports_already_applied_without_moving_expiry(self):
+        """Escenario de spec "Replay admin sobre cuotas ya acreditadas": la
+        respuesta las informa como ya aplicadas y el vencimiento no cambia."""
+        repo = _mock_repo(
+            find_subscription_by_id=AsyncMock(return_value=_SUB_WITH_ACCOUNT),
+            has_billing_event_for_payment=AsyncMock(return_value=True),
+        )
+        conn = _mock_conn()
+        responses = [_preapproval_resp(), _search_resp([_approved("7032577415", "182393490148")])]
+        with patch("httpx.AsyncClient.get", new_callable=AsyncMock, side_effect=responses):
+            result = await replay_subscription_charges(SUBSCRIPTION_ID, repo, conn)
+
+        assert result == {"ok": True, "applied": [], "already_applied": ["7032577415"]}
+        assert _expiry_args(conn) == [None]
+
+
+# ── mp-cuota-acreditacion-resiliente D4/D5 — barrido programado
+#    (`reconcile_due_subscriptions`) ───────────────────────────────────────────
+
+class TestReconcileDueSubscriptions:
+    def _sub(self, n: int) -> dict:
+        return {
+            "id": f"sub-{n}", "account_id": ACCOUNT_ID, "preapproval_id": f"pre-{n}", "plan": "inicial",
+        }
+
+    @pytest.mark.asyncio
+    async def test_switch_off_queries_nothing(self):
+        """3.3: con la palanca `billing_subscriptions_enabled` apagada no se
+        consulta la base ni MercadoPago."""
+        from backend.services.subscriptions import reconcile_due_subscriptions
+
+        repo = _mock_repo(find_subscriptions_due_for_reconciliation=AsyncMock(return_value=[self._sub(1)]))
+        with (
+            patch("backend.services.subscriptions.settings.billing_subscriptions_enabled", False),
+            patch("backend.services.subscriptions.reconcile_preapproval_charges", new_callable=AsyncMock) as core,
+        ):
+            result = await reconcile_due_subscriptions(repo, _mock_conn())
+
+        assert result == {"ok": True, "skipped": True}
+        repo.find_subscriptions_due_for_reconciliation.assert_not_awaited()
+        core.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_selects_with_service_constants_and_reconciles_each(self):
+        """3.3: la selección usa las constantes del servicio (gracia,
+        ventana de 30 días, tope por corrida) y el núcleo corre una vez por
+        suscripción; el resumen junta las cuotas acreditadas."""
+        from backend.services.subscriptions import (
+            RECONCILE_BATCH_LIMIT,
+            RECONCILE_LOOKBACK,
+            reconcile_due_subscriptions,
+        )
+
+        subs = [self._sub(1), self._sub(2)]
+        repo = _mock_repo(find_subscriptions_due_for_reconciliation=AsyncMock(return_value=subs))
+        conn = _mock_conn()
+        outcomes = [
+            {"applied": ["7033613241"], "already_applied": ["7032577415"]},
+            {"applied": [], "already_applied": []},
+        ]
+        with (
+            patch("backend.services.subscriptions.settings.billing_subscriptions_enabled", True),
+            patch(
+                "backend.services.subscriptions.reconcile_preapproval_charges",
+                new_callable=AsyncMock, side_effect=outcomes,
+            ) as core,
+        ):
+            result = await reconcile_due_subscriptions(repo, conn)
+
+        assert result == {"ok": True, "checked": 2, "applied": ["7033613241"], "errors": 0}
+        repo.find_subscriptions_due_for_reconciliation.assert_awaited_once_with(
+            grace=GRACE_PERIOD, lookback=RECONCILE_LOOKBACK, limit=RECONCILE_BATCH_LIMIT
+        )
+        assert RECONCILE_LOOKBACK == datetime.timedelta(days=30)
+        assert [c.args[0] for c in core.await_args_list] == subs
+        assert all(c.args[1] is repo and c.args[2] is conn for c in core.await_args_list)
+
+    @pytest.mark.asyncio
+    async def test_mp_failure_on_one_subscription_does_not_stop_the_next(self):
+        """Escenario "Error de MercadoPago en una suscripción no frena al
+        resto": el 502 de la primera se cuenta como error y la segunda se
+        reconcilia igual."""
+        from backend.services.subscriptions import reconcile_due_subscriptions
+
+        subs = [self._sub(1), self._sub(2)]
+        repo = _mock_repo(find_subscriptions_due_for_reconciliation=AsyncMock(return_value=subs))
+        outcomes = [
+            HTTPException(status_code=502, detail="No se pudo consultar MercadoPago"),
+            {"applied": ["7033613241"], "already_applied": []},
+        ]
+        with (
+            patch("backend.services.subscriptions.settings.billing_subscriptions_enabled", True),
+            patch(
+                "backend.services.subscriptions.reconcile_preapproval_charges",
+                new_callable=AsyncMock, side_effect=outcomes,
+            ) as core,
+        ):
+            result = await reconcile_due_subscriptions(repo, _mock_conn())
+
+        assert result == {"ok": True, "checked": 2, "applied": ["7033613241"], "errors": 1}
+        assert core.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_unexpected_error_is_counted_not_raised(self):
+        """TRIANGULATE: un error inesperado (p.ej. de la base) en una
+        suscripción tampoco corta el barrido — su transacción ya se deshizo
+        y vuelve a ser elegible en la corrida siguiente."""
+        from backend.services.subscriptions import reconcile_due_subscriptions
+
+        subs = [self._sub(1), self._sub(2), self._sub(3)]
+        repo = _mock_repo(find_subscriptions_due_for_reconciliation=AsyncMock(return_value=subs))
+        outcomes = [
+            {"applied": [], "already_applied": []},
+            RuntimeError("connection reset"),
+            {"applied": ["a-3"], "already_applied": []},
+        ]
+        with (
+            patch("backend.services.subscriptions.settings.billing_subscriptions_enabled", True),
+            patch(
+                "backend.services.subscriptions.reconcile_preapproval_charges",
+                new_callable=AsyncMock, side_effect=outcomes,
+            ),
+        ):
+            result = await reconcile_due_subscriptions(repo, _mock_conn())
+
+        assert result == {"ok": True, "checked": 3, "applied": ["a-3"], "errors": 1}
+
+    @pytest.mark.asyncio
+    async def test_nothing_due_reports_zero(self):
+        """TRIANGULATE: sin suscripciones vencidas (el estado normal de la
+        mayor parte del mes) el barrido no consulta MercadoPago."""
+        from backend.services.subscriptions import reconcile_due_subscriptions
+
+        repo = _mock_repo(find_subscriptions_due_for_reconciliation=AsyncMock(return_value=[]))
+        with (
+            patch("backend.services.subscriptions.settings.billing_subscriptions_enabled", True),
+            patch("backend.services.subscriptions.reconcile_preapproval_charges", new_callable=AsyncMock) as core,
+        ):
+            result = await reconcile_due_subscriptions(repo, _mock_conn())
+
+        assert result == {"ok": True, "checked": 0, "applied": [], "errors": 0}
+        core.assert_not_awaited()

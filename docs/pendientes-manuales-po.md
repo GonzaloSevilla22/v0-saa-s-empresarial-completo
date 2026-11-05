@@ -108,4 +108,4 @@ Se completa a medida que se mergea cada PR. Orden pactado: changes de a uno, sie
 | 14:48 UTC (5-nov) | Propose v31-document-lines-consistency (H-15: retiro del flag y la rama legacy, backfill de 6 documentos sin línea, invariante de líneas; OQs por la recomendada) | #671 | mergeado |
 | 15:20 UTC (5-nov) | Feature: saldo según libro al elegir una cuenta en /banco (saldo inicial + movimientos, como caja) | #673 | en revisión |
 | 16:30 UTC (5-nov) | Apply v31-document-lines-consistency (retiro del flag y la rama legacy, línea de servicio, backfill de 6 documentos y 79 líneas, name_snapshot NOT NULL, fix doble conteo en clientes; migración 20261091000001) | #675 | mergeado 16:20 |
-| 16:45 UTC (5-nov) | Archive v31-document-lines-consistency (spec sale-line-items sincronizada, change cerrado) | #PRN | en revisión |
+| 16:45 UTC (5-nov) | Archive v31-document-lines-consistency (spec sale-line-items sincronizada, change cerrado) | #676 | en revisión |

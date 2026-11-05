@@ -28,6 +28,10 @@ const org = vi.hoisted(() => ({
 }))
 const data = vi.hoisted(() => ({ sales: [] as unknown[], purchases: [] as unknown[] }))
 
+// edicion-operaciones-con-dinero (tanda C): el detalle expandido monta el historial de cambios, que consulta por react-query + python-client.
+vi.mock("@/hooks/data/use-operation-edit", () => ({
+  useOperationEditHistory: () => ({ data: [], isLoading: false, isError: false, refetch: vi.fn() }),
+}))
 vi.mock("@/hooks/useOrgRole", () => ({ useOrgRole: () => org.value }))
 vi.mock("@/contexts/auth-context", () => ({ useAuth: () => ({ isAdmin: false, user: { id: "me", accountId: "acc" } }) }))
 vi.mock("@/hooks/data/use-clients", () => ({ useClients: () => ({ clients: [] }) }))

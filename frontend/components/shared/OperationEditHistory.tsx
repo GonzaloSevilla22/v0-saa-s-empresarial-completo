@@ -54,10 +54,38 @@ function EntryRow({ entry, document }: { entry: OperationEditEntry; document: Ed
   )
 }
 
+/** El cuerpo del historial: recién acá se consulta (el hook se monta cuando el usuario abre el historial). */
+function HistoryBody({ kind, entityId, document }: { kind: EditableDocumentKind; entityId: string | null | undefined; document: EditedDocument }) {
+  const history = useOperationEditHistory(kind, entityId, true)
+  if (history.isLoading) {
+    return <p role="status" className="text-xs text-muted-foreground">Cargando el historial…</p>
+  }
+  if (history.isError) {
+    return (
+      <div role="alert" className="flex items-center gap-2 text-xs text-destructive">
+        <span>No se pudo cargar el historial.</span>
+        <button type="button" onClick={() => void history.refetch()} className="underline underline-offset-2">
+          Reintentar
+        </button>
+      </div>
+    )
+  }
+  const entries = history.data ?? []
+  if (entries.length === 0) {
+    return <p className="text-xs text-muted-foreground">Esta operación no tiene cambios registrados.</p>
+  }
+  return (
+    <ul className="space-y-2">
+      {entries.map((entry) => (
+        <EntryRow key={entry.id} entry={entry} document={document} />
+      ))}
+    </ul>
+  )
+}
+
 export function OperationEditHistory({ kind, entityId, document, defaultOpen = false, className }: OperationEditHistoryProps) {
   const [open, setOpen] = useState(defaultOpen)
   const regionId = useId()
-  const history = useOperationEditHistory(kind, entityId, open)
 
   return (
     <div className={cn("space-y-2", className)}>
@@ -78,26 +106,7 @@ export function OperationEditHistory({ kind, entityId, document, defaultOpen = f
       </button>
 
       <div id={regionId} role="region" aria-label="Historial de cambios" hidden={!open} onClick={(e) => e.stopPropagation()}>
-        {open && (
-          history.isLoading ? (
-            <p role="status" className="text-xs text-muted-foreground">Cargando el historial…</p>
-          ) : history.isError ? (
-            <div role="alert" className="flex items-center gap-2 text-xs text-destructive">
-              <span>No se pudo cargar el historial.</span>
-              <button type="button" onClick={() => void history.refetch()} className="underline underline-offset-2">
-                Reintentar
-              </button>
-            </div>
-          ) : (history.data ?? []).length === 0 ? (
-            <p className="text-xs text-muted-foreground">Esta operación no tiene cambios registrados.</p>
-          ) : (
-            <ul className="space-y-2">
-              {(history.data ?? []).map((entry) => (
-                <EntryRow key={entry.id} entry={entry} document={document} />
-              ))}
-            </ul>
-          )
-        )}
+        {open && <HistoryBody kind={kind} entityId={entityId} document={document} />}
       </div>
     </div>
   )

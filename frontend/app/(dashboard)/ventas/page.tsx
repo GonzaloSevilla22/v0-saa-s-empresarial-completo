@@ -9,7 +9,7 @@ import { SaleOperationsList } from "@/components/ventas/sale-operations-list"
 import { useAuth } from "@/contexts/auth-context"
 import { useUnitsOfMeasure } from "@/hooks/use-units-of-measure"
 import { useOrgRole } from "@/hooks/useOrgRole"
-import { CAN_SELL, canModifyDocument, hasCapability } from "@/lib/rbac-capabilities"
+import { CAN_CORRECT_MONEY, CAN_SELL, canModifyDocument, hasCapability } from "@/lib/rbac-capabilities"
 import { NoWriteAccessBanner } from "@/components/shared/NoWriteAccessBanner"
 import { ModuleMetricsWrapper } from "@/components/admin/ModuleMetricsWrapper"
 import { ExportButton } from "@/components/export/ExportButton"
@@ -111,6 +111,8 @@ export default function VentasPage() {
         onDeleteOperation={handleDeleteOperation}
         onEditOperation={handleEdit}
         canModifyOperation={canModifySale}
+        // edicion-operaciones-con-dinero (OQ-4): corregir dinero ya registrado es del dueño o un administrador (sólo qué se muestra; la barrera es la RPC).
+        canCorrectMoney={hasCapability(roles, CAN_CORRECT_MONEY, rolesResolved)}
         onRefetch={refetch}
         unitsById={unitsById}
       />

@@ -129,7 +129,7 @@ describe("detalle expandido — Historial de cambios", () => {
     render(<SaleOperationsList {...saleProps([sale()])} />)
     // Cerrada la fila, no hay historial a la vista.
     expect(screen.queryByRole("button", { name: /historial de cambios/i })).toBeNull()
-    fireEvent.click(screen.getAllByRole("button", { expanded: false })[0])
+    fireEvent.click(screen.getAllByText("Producto Test")[0])
     const toggle = screen.getByRole("button", { name: /historial de cambios/i })
     fireEvent.click(toggle)
     expect(historyMock).toHaveBeenLastCalledWith("sale", "op-sale-1", true)
@@ -137,14 +137,14 @@ describe("detalle expandido — Historial de cambios", () => {
 
   it("compras: ídem, con el operation_id de la compra", () => {
     render(<PurchaseOperationsList {...purchaseProps([purchase()])} />)
-    fireEvent.click(screen.getAllByRole("button", { expanded: false })[0])
+    fireEvent.click(screen.getAllByText("Insumo Test")[0])
     fireEvent.click(screen.getByRole("button", { name: /historial de cambios/i }))
     expect(historyMock).toHaveBeenLastCalledWith("purchase", "op-purchase-1", true)
   })
 
   it("una venta sin operation_id (fila histórica) no ofrece historial: no hay a qué atarlo", () => {
     render(<SaleOperationsList {...saleProps([sale({ operationId: undefined })])} />)
-    fireEvent.click(screen.getAllByRole("button", { expanded: false })[0])
+    fireEvent.click(screen.getAllByText("Producto Test")[0])
     expect(screen.queryByRole("button", { name: /historial de cambios/i })).toBeNull()
   })
 })

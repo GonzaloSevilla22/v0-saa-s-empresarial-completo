@@ -9,6 +9,10 @@ import type { PaginationMeta } from "@/lib/pagination-utils"
 // los badges de centro de costo / forma de pago ya existentes), y muestra
 // "Sin proveedor" cuando la operación no tiene uno.
 
+// edicion-operaciones-con-dinero (tanda C): el detalle expandido monta el historial de cambios, que consulta por react-query + python-client.
+vi.mock("@/hooks/data/use-operation-edit", () => ({
+  useOperationEditHistory: () => ({ data: [], isLoading: false, isError: false, refetch: vi.fn() }),
+}))
 vi.mock("@/components/cost-centers/CostCenterSelect", () => ({ CostCenterSelect: () => null }))
 vi.mock("@/components/payment-methods/PaymentMethodSelect", () => ({ PaymentMethodSelect: () => null }))
 
@@ -55,7 +59,7 @@ describe("PurchaseOperationsList — la compra con cargo del proveedor se edita 
   it("con el cargo de cuenta corriente del proveedor posteado, 'Editar' queda habilitado y sin motivo de bloqueo por dinero", () => {
     render(<PurchaseOperationsList {...baseProps([makePurchase({ hasAccountCharge: true })])} />)
     expect(screen.queryAllByTitle(/No editable.*cargo de cuenta corriente/i)).toHaveLength(0)
-    const edit = screen.getAllByRole("button", { name: "" }).filter((b) => b.querySelector("svg.lucide-pencil"))
+    const edit = screen.getAllByRole("button").filter((b) => b.tagName === "BUTTON" && b.querySelector("svg.lucide-pencil"))
     expect(edit.length).toBeGreaterThan(0)
     for (const b of edit) expect(b).not.toBeDisabled()
   })

@@ -48,7 +48,7 @@ beforeEach(() => {
 describe("OperationEditHistory — carga diferida", () => {
   it("no consulta nada hasta que el usuario abre el historial", () => {
     render(<OperationEditHistory kind="sale" entityId="op1" document="venta" />)
-    expect(historyMock).toHaveBeenLastCalledWith("sale", "op1", false)
+    expect(historyMock).not.toHaveBeenCalled()
     expect(screen.getByRole("button", { name: /historial de cambios/i })).toHaveAttribute("aria-expanded", "false")
   })
 

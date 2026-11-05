@@ -9,7 +9,7 @@ import { InvoiceAIButton } from "@/components/invoice/InvoiceAIButton"
 import { useAuth } from "@/contexts/auth-context"
 import { useUnitsOfMeasure } from "@/hooks/use-units-of-measure"
 import { useOrgRole } from "@/hooks/useOrgRole"
-import { CAN_PURCHASE, CAN_VOID_DELIVERY_NOTE, canModifyDocument, hasCapability } from "@/lib/rbac-capabilities"
+import { CAN_CORRECT_MONEY, CAN_PURCHASE, CAN_VOID_DELIVERY_NOTE, canModifyDocument, hasCapability } from "@/lib/rbac-capabilities"
 import { NoWriteAccessBanner } from "@/components/shared/NoWriteAccessBanner"
 import { ModuleMetricsWrapper } from "@/components/admin/ModuleMetricsWrapper"
 import { ExportButton } from "@/components/export/ExportButton"
@@ -114,6 +114,8 @@ export default function ComprasPage() {
         onDeleteOperation={handleDeleteOperation}
         onEditOperation={handleEdit}
         canModifyOperation={canModifyPurchase}
+        // edicion-operaciones-con-dinero (OQ-4): corregir dinero ya registrado es del dueño o un administrador (sólo qué se muestra; la barrera es la RPC).
+        canCorrectMoney={hasCapability(roles, CAN_CORRECT_MONEY, rolesResolved)}
         onRefetch={refetch}
         canVoidDeliveryNote={canVoidDeliveryNote}
         unitsById={unitsById}

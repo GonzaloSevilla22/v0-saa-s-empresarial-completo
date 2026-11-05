@@ -34,6 +34,8 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { PaginationBar } from "@/components/ui/pagination-bar"
 import { groupSalesByOperation, type SaleOperation } from "@/lib/group-operations"
 import { getDeleteCompensation } from "@/lib/delete-compensation"
+import { OperationEditHistory } from "@/components/shared/OperationEditHistory"
+import { moneyEditAffordance } from "@/lib/money-plan"
 import { DeleteOperationDialog } from "@/components/shared/delete-operation-dialog"
 import { exportToCSV } from "@/lib/excel"
 import { formatMoney, formatUnitPrice, formatDate, type Currency } from "@/lib/format"
@@ -181,6 +183,12 @@ interface SaleOperationsListProps {
    */
   canModifyOperation?: (op: SaleOperation) => boolean
   /**
+   * edicion-operaciones-con-dinero (tanda C, OQ-4): ¿el usuario puede corregir dinero YA registrado (dueño o administrador)? Sin la
+   * capacidad, "Editar" de una operación con dinero queda deshabilitado con el motivo; una sin dinero registrado sigue editable.
+   * Es sólo informativo —la autoridad es la RPC (P0403)—. Default `true`: sin la prop nada cambia.
+   */
+  canCorrectMoney?: boolean
+  /**
    * ventas-unidades-conversion (cuarta revisión, D-F′): unidades de medida por
    * id, para mostrar la cantidad con el símbolo de SU línea ("450 g") y
    * exportarlo en el CSV. La página lo pasa desde useUnitsOfMeasure (el
@@ -208,6 +216,7 @@ export function SaleOperationsList({
   onPageChange, onPageSizeChange,
   clients, onAdd, onDeleteOperation, onEditOperation, onRefetch,
   canModifyOperation,
+  canCorrectMoney = true,
   unitsById,
 }: SaleOperationsListProps) {
   const clientMap    = useMemo(() => new Map(clients.map((c) => [c.id, c])), [clients])
@@ -495,11 +504,19 @@ export function SaleOperationsList({
             op.sourceDeliveryNoteNumber === null || op.sourceDeliveryNoteNumber === undefined
               ? null
               : formatDeliveryNoteNumber("sale", op.sourceDeliveryNoteNumber)
+          // edicion-operaciones-con-dinero (tanda C, D17/OQ-4): el dinero registrado ya no deshabilita «Editar»; sólo avisa en el
+          // título que se va a ver qué se ajusta, y para un rol sin la capacidad de corregir dinero la deshabilita con el motivo.
+          const money = moneyEditAffordance({
+            hasMoney: op.hasAccountCharge || op.hasCashMovement || op.hasBankMovement,
+            canCorrectMoney,
+          })
           const editBlockedReason =
             editLockedReasonText(op.editLockedReason, remitoLabel) ??
             fiscalReason ??
-            (op.hasServiceLines || op.editLockedReason === SERVICE_LINES_LOCKED ? SERVICE_LINES_REASON : null)
+            (op.hasServiceLines || op.editLockedReason === SERVICE_LINES_LOCKED ? SERVICE_LINES_REASON : null) ??
+            money.blockedReason
           const voidHint = voidableEditHint(op.fiscal)
+          const editTitle = [voidHint, money.hint].filter(Boolean).join(" · ") || null
           // multiusuario-operativo tanda B (D9): sin la capacidad de venta, o sobre lo ajeno sin ser dueño ni administrador, no se ofrece ni Editar ni Eliminar.
           const canModify = canModifyOperation ? canModifyOperation(op) : true
           // venta-editable-vs-promocion-legacy: "Emitir comprobante" sólo
@@ -547,8 +564,8 @@ export function SaleOperationsList({
                         ) : (
                           <Button type="button" variant="ghost" size="icon"
                             onClick={(e) => { e.stopPropagation(); onEditOperation(op) }}
-                            title={voidHint ?? undefined}
-                            aria-label={voidHint ?? "Editar esta venta"}
+                            title={editTitle ?? undefined}
+                            aria-label={editTitle ?? "Editar esta venta"}
                             className="h-8 w-8 text-muted-foreground hover:text-primary hover:bg-primary/10">
                             <Pencil className="h-3.5 w-3.5" />
                           </Button>
@@ -623,8 +640,8 @@ export function SaleOperationsList({
                         </Button>
                       : <Button type="button" variant="ghost" size="icon"
                           onClick={(e) => { e.stopPropagation(); onEditOperation(op) }}
-                          title={voidHint ?? undefined}
-                          aria-label={voidHint ?? "Editar esta venta"}
+                          title={editTitle ?? undefined}
+                          aria-label={editTitle ?? "Editar esta venta"}
                           className="h-8 w-8 text-muted-foreground hover:text-primary hover:bg-primary/10">
                           <Pencil className="h-3.5 w-3.5" />
                         </Button>
@@ -667,6 +684,11 @@ export function SaleOperationsList({
                       </div>
                     )}
                   </div>
+                  {/* edicion-operaciones-con-dinero (tanda C, D14/D17): quién cambió qué, con carga diferida. Una fila histórica sin
+                      operation_id no tiene a qué atarse. */}
+                  {op.operationId && (
+                    <OperationEditHistory kind="sale" entityId={op.operationId} document="venta" className="mt-3" />
+                  )}
                   {/* qa-integral-modulos G2 (H2/2.4): flex-wrap — la fila
                       Facturar/Comprobante/WhatsApp medía 399 px de mínimo. */}
                   <div className="flex flex-wrap items-center justify-between gap-2 mt-3" onClick={(e) => e.stopPropagation()}>

@@ -275,3 +275,25 @@ export function summarizeEdit(entry: EditHistorySource, document: EditedDocument
   const summary = parts.length > 0 ? `${parts.join("; ")}.` : "Sin cambios de importe ni de fecha."
   return entry.reason ? `${summary} Motivo: ${entry.reason}` : summary
 }
+
+/** Motivo visible cuando un rol sin la capacidad intenta corregir dinero ya registrado (OQ-4: dueño o administrador). */
+export const MONEY_EDIT_ADMIN_REASON =
+  "Solo el dueño o un administrador pueden corregir dinero ya registrado en esta operación."
+
+/** `title` del lápiz de una operación con dinero registrado: se edita, y se va a ver qué se ajusta antes de guardar. */
+export const MONEY_EDIT_HINT =
+  "Editar — la operación tiene dinero registrado; vas a ver qué se ajusta antes de guardar"
+
+/**
+ * Cómo se ofrece «Editar» según el dinero registrado y el rol (OQ-4). Sin dinero registrado no hay nada que corregir en los
+ * libros: la edición sigue con la capacidad de su dominio y no se avisa nada. Con dinero, quien puede corregirlo ve el aviso
+ * y quien no, ve el lápiz deshabilitado con el motivo. Es sólo informativo: la autoridad es la RPC (`P0403`).
+ */
+export function moneyEditAffordance(args: { hasMoney: boolean; canCorrectMoney: boolean }): {
+  blockedReason: string | null
+  hint: string | null
+} {
+  if (!args.hasMoney) return { blockedReason: null, hint: null }
+  if (!args.canCorrectMoney) return { blockedReason: MONEY_EDIT_ADMIN_REASON, hint: null }
+  return { blockedReason: null, hint: MONEY_EDIT_HINT }
+}

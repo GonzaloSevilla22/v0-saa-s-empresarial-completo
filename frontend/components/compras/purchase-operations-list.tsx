@@ -16,6 +16,8 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { PaginationBar } from "@/components/ui/pagination-bar"
 import { groupPurchasesByOperation, type PurchaseOperation } from "@/lib/group-operations"
 import { getDeleteCompensation } from "@/lib/delete-compensation"
+import { OperationEditHistory } from "@/components/shared/OperationEditHistory"
+import { moneyEditAffordance } from "@/lib/money-plan"
 import { DeleteOperationDialog } from "@/components/shared/delete-operation-dialog"
 import { SourceDocumentBadge } from "@/components/ventas/SourceDocumentBadge"
 import { formatDeliveryNoteNumber } from "@/lib/internal-document-number"
@@ -113,6 +115,12 @@ interface PurchaseOperationsListProps {
    */
   canModifyOperation?: (op: PurchaseOperation) => boolean
   /**
+   * edicion-operaciones-con-dinero (tanda C, OQ-4): ¿el usuario puede corregir dinero YA registrado (dueño o administrador)? Sin la
+   * capacidad, "Editar" de una compra con dinero queda deshabilitado con el motivo; una sin dinero registrado sigue editable. Es
+   * sólo informativo —la autoridad es la RPC (P0403)—. Default `true`: sin la prop nada cambia.
+   */
+  canCorrectMoney?: boolean
+  /**
    * ventas-unidades-conversion (cuarta revisión, D-F′): unidades de medida por
    * id, para mostrar la cantidad con el símbolo de SU línea ("450 g") y
    * exportarlo en el CSV. La página lo pasa desde useUnitsOfMeasure (el
@@ -131,6 +139,7 @@ export function PurchaseOperationsList({
   onAdd, onDeleteOperation, onEditOperation, onRefetch,
   canVoidDeliveryNote = true,
   canModifyOperation,
+  canCorrectMoney = true,
   unitsById,
 }: PurchaseOperationsListProps) {
   const unitSymbolFor = useCallback(
@@ -367,8 +376,14 @@ export function PurchaseOperationsList({
             op.sourceDeliveryNoteNumber === null || op.sourceDeliveryNoteNumber === undefined
               ? null
               : formatDeliveryNoteNumber("purchase", op.sourceDeliveryNoteNumber)
+          // edicion-operaciones-con-dinero (tanda C, D17/OQ-4): el dinero registrado ya no deshabilita «Editar»; sólo avisa en el
+          // título que se va a ver qué se ajusta, y para un rol sin la capacidad de corregir dinero la deshabilita con el motivo.
+          const money = moneyEditAffordance({
+            hasMoney: op.hasAccountCharge || op.hasCashMovement || op.hasBankMovement,
+            canCorrectMoney,
+          })
           const editBlockedReason =
-            editLockedReasonText(op.editLockedReason, remitoLabel)
+            editLockedReasonText(op.editLockedReason, remitoLabel) ?? money.blockedReason
           // multiusuario-operativo tanda B (D9): sin la capacidad de compra, o sobre lo ajeno sin ser dueño ni administrador, no se ofrece ni Editar ni Eliminar.
           const canModify = canModifyOperation ? canModifyOperation(op) : true
           const deleteInfo = getDeleteCompensation(
@@ -418,6 +433,8 @@ export function PurchaseOperationsList({
                         ) : (
                           <Button type="button" variant="ghost" size="icon"
                             onClick={(e) => { e.stopPropagation(); onEditOperation(op) }}
+                            title={money.hint ?? undefined}
+                            aria-label={money.hint ?? "Editar esta compra"}
                             className="h-8 w-8 text-muted-foreground hover:text-primary hover:bg-primary/10">
                             <Pencil className="h-3.5 w-3.5" />
                           </Button>
@@ -511,6 +528,8 @@ export function PurchaseOperationsList({
                         </Button>
                       : <Button type="button" variant="ghost" size="icon"
                           onClick={(e) => { e.stopPropagation(); onEditOperation(op) }}
+                          title={money.hint ?? undefined}
+                          aria-label={money.hint ?? "Editar esta compra"}
                           className="h-8 w-8 text-muted-foreground hover:text-primary hover:bg-primary/10">
                           <Pencil className="h-3.5 w-3.5" />
                         </Button>
@@ -558,6 +577,10 @@ export function PurchaseOperationsList({
                       </div>
                     )}
                   </div>
+                  {/* edicion-operaciones-con-dinero (tanda C, D14/D17): quién cambió qué, con carga diferida. */}
+                  {op.operationId && (
+                    <OperationEditHistory kind="purchase" entityId={op.operationId} document="compra" className="mt-3" />
+                  )}
                 </div>
               )}
             </div>

@@ -8,6 +8,10 @@ import type { PaginationMeta } from "@/lib/pagination-utils"
 // cargo de cuenta corriente posteado (indicador de bloqueo por pago). Ese bloqueo se RETIRÓ: el servidor compara la huella neta con
 // el efecto deseado y ajusta cada libro, así que la compra con dinero registrado se edita.
 
+// edicion-operaciones-con-dinero (tanda C): el detalle expandido monta el historial de cambios, que consulta por react-query + python-client.
+vi.mock("@/hooks/data/use-operation-edit", () => ({
+  useOperationEditHistory: () => ({ data: [], isLoading: false, isError: false, refetch: vi.fn() }),
+}))
 vi.mock("@/components/cost-centers/CostCenterSelect", () => ({ CostCenterSelect: () => null }))
 vi.mock("@/components/payment-methods/PaymentMethodSelect", () => ({ PaymentMethodSelect: () => null }))
 
@@ -42,7 +46,7 @@ function baseProps(purchases: Purchase[]) {
 
 describe("PurchaseOperationsList — la compra con cargo posteado se edita", () => {
   function editButtons() {
-    return screen.getAllByRole("button", { name: "" }).filter((b) => b.querySelector("svg.lucide-pencil"))
+    return screen.getAllByRole("button").filter((b) => b.tagName === "BUTTON" && b.querySelector("svg.lucide-pencil"))
   }
 
   it("compra SIN cargo posteado: el botón Editar está habilitado", () => {

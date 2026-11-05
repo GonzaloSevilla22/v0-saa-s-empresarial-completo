@@ -39,6 +39,11 @@ vi.mock("@/hooks/data/use-purchases", () => ({
   usePurchases: () => ({ addPurchaseOperation: addPurchaseOperationMock, updatePurchaseOperation: vi.fn() }),
 }))
 vi.mock("@tanstack/react-query", () => ({ useQueryClient: () => ({ invalidateQueries: vi.fn() }) }))
+// edicion-operaciones-con-dinero (tanda C): el formulario de compra monta useDueDateCascade (vencimiento de la deuda al
+// editar), que consulta el plazo por defecto de la cuenta — sin este mock importa python-client, que exige NEXT_PUBLIC_BACKEND_URL.
+vi.mock("@/hooks/data/use-collection-settings", () => ({
+  useCollectionSettings: () => ({ data: { defaultPaymentTermsDays: null }, isLoading: false }),
+}))
 vi.mock("@/contexts/auth-context", () => ({ useAuth: () => ({ user: { id: "u1", accountId: "acc-1" } }) }))
 vi.mock("@/hooks/use-units-of-measure", () => ({ useUnitsOfMeasure: () => ({ units: [], unitsById: new Map() }) }))
 vi.mock("@/components/branches/BranchSelect", () => ({ BranchSelect: () => null }))
@@ -181,7 +186,9 @@ describe("PurchaseForm — opt-in de caja (D2/D4)", () => {
     expect(screen.getByRole("checkbox")).toHaveAttribute("data-state", "unchecked")
   })
 
-  it("la edición NO ofrece el bloque de caja (D8: inmutable con caja posteada)", () => {
+  // edicion-operaciones-con-dinero (tanda C): la compra con caja posteada dejó de ser inmutable (la edición compensa y registra);
+  // el bloque se ofrece al editar y parte de lo que HAY — sin movimiento de caja vigente, desmarcado.
+  it("la edición SÍ ofrece el bloque de caja, desmarcado si la compra no tiene movimiento de caja", () => {
     paymentMethodsMock = [PM_CASH]
     currentSessionMock = { id: "session-abc12345" }
     useCashboxesMock.mockReturnValue({ data: [{ id: "cashbox-1" }] })
@@ -190,7 +197,7 @@ describe("PurchaseForm — opt-in de caja (D2/D4)", () => {
       <PurchaseForm
         onSuccess={vi.fn()}
         editingOperation={{
-          key: "op-1", operationId: "op-1", date: "2026-08-20",
+          key: "op-1", operationId: "op-1", date: argentinaToday(),
           items: [{ id: "p1", date: "2026-08-20", productId: "prod-1", productName: "X", quantity: 1, unitCost: 10, total: 10, operationId: "op-1" }],
           total: 10, description: "", isGrouped: false, paymentMethodId: PM_CASH.id, branchId: null, unitId: null,
           hasAccountCharge: false, hasBankMovement: false,
@@ -200,8 +207,7 @@ describe("PurchaseForm — opt-in de caja (D2/D4)", () => {
       />,
     )
 
-    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument()
-    expect(screen.queryByText(/Registrar en caja/i)).not.toBeInTheDocument()
+    expect(screen.getByRole("checkbox")).toHaveAttribute("data-state", "unchecked")
   })
 })
 

@@ -100,7 +100,7 @@ Se completa a medida que se mergea cada PR. Orden pactado: changes de a uno, sie
 | 06:04 (5-nov) | Apply v31-ia-ratelimit-budget (cuota mensual + ráfaga + techo por llamada del OCR; migración 20261090000001) | #664 | mergeado (07:00, 5-nov) |
 | 07:05 (5-nov) | Archive v31-ia-ratelimit-budget (specs sincronizadas, change cerrado) | #665 | en revisión |
 | 14:30 UTC (5-nov) | Fix: el temporizador del lector de código de barras no sobrevive al desmontaje (flake de vitest, chip del 17-10) | #670 | en revisión |
-| 15:10 UTC (5-nov) | Fix: fecha real en el historial de compras del cliente (doble corrimiento de zona) + enlace a la venta | #672 | en revisión |
+| 15:10 UTC (5-nov) | Fix: fecha real en el historial de compras del cliente (doble corrimiento de zona) + enlace a la venta | #674 (reemplaza al #672) | en revisión |
 | 07:17 (5-nov) | Propose v31-money-integration-tests (H-34: tier de integración real contra Postgres en CI; todas las OQs por la recomendada) | #666 | en revisión |
 | 08:20 UTC (5-nov) | Apply v31-money-integration-tests (tier de integración real contra Postgres en KPI_Validation + 33 gates de dinero estrictos; sin migración) | #667 | mergeado 08:41 |
 | 08:52 UTC (5-nov) | Archive v31-money-integration-tests (spec integration-test-tier sincronizada, change cerrado) | #669 | en revisión |

@@ -4570,3 +4570,5 @@ El pedido literal (RPC con rol y motivo + quitar `GRANT` y policies) es correcto
 - Los campos `cashCashboxId`/`cashOpenSessionId` ya llegan al frontend (tanda B) pero los formularios todavía no los usan: la decisión de caja es del plan.
 
 **Pendiente del orquestador**: 17.3 (revisión) y el merge; y del PO, 17.4 (humo real; pasos en `docs/pendientes-manuales-po.md` §5).
+
+**ARCHIVE 2026-11-05** (PR **#662**): change archivado en `openspec/changes/archive/2026-11-05-edicion-operaciones-con-dinero/`. Specs sincronizadas: 1 capability nueva (`operation-money-edit`) + 15 modificadas (`openspec validate --specs --strict` 114 → 115). Tareas cerradas 5.3, 5.4, 11.3, 11.4 y 17.3 (verificación post-merge en prod 2026-11-05: 336 migraciones, `max(version)=20261089000001`, 15 funciones con una sola firma y ACLs esperadas, 0 eventos pendientes, invariante de aging sin violaciones). Pendiente 17.4: humo real del PO (`docs/pendientes-manuales-po.md` §5); no bloquea el archive.

@@ -203,6 +203,7 @@ export function InvoiceAIButton({ onPurchasesCreated }: Props) {
       {/* ── Trigger button ───────────────────────────────────────────────────── */}
       <Button
         variant="outline"
+        aria-label="Subir factura IA"
         className="gap-2 border-primary/30 text-primary hover:bg-primary/10 hover:border-primary"
         onClick={() => {
           setSession(INITIAL_STATE)

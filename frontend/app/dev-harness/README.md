@@ -107,3 +107,12 @@ layout ni scroll ante `wheel`/`touchmove` (RED de `tasks.md` 1.1/2.1).
   (1366 / 375 × claro / oscuro). Spec: `e2e/harness/edicion-dinero-visual.spec.ts`
   (capturas en `EDICION_DINERO_SHOT_DIR`, por defecto
   `openspec/changes/edicion-operaciones-con-dinero/evidence/tanda-c`).
+- `/dev-harness/ocr-cuota?theme=light|dark&state=saldo|cero|rafaga` —
+  v31-ia-ratelimit-budget (task 4.9): el `InvoiceAIButton` REAL de `/compras` (el
+  diálogo «Leer factura con IA») sin sesión ni backend. El saldo se siembra en la
+  caché de react-query con las claves que usan `useAiUsage`/`usePlanLimits` sin
+  usuario, y el rechazo por ráfaga reemplaza `invoiceOcrService.processInvoice`.
+  `saldo` (12 de 30 usadas), `cero` (5 de 5: aviso de límite + renovación + «Ver
+  planes») y `rafaga` (429 `rate_limited`, «Esperá 40 segundos…»). Spec:
+  `e2e/harness/ocr-cuota-visual.spec.ts` (capturas en `OCR_CUOTA_SHOT_DIR`, por
+  defecto `../openspec/changes/v31-ia-ratelimit-budget/evidence`).

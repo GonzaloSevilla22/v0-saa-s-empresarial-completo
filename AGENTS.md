@@ -66,10 +66,10 @@
 | Capa | Tecnología | Notas |
 |------|------------|-------|
 | **BaaS** | Supabase (Auth, DB, Edge Functions, Storage, Realtime) | Proyecto real: `gxdhpxvdjjkmxhdkkwyb` |
-| **DB** | PostgreSQL vía Supabase, con RLS org-based | 336 migraciones en prod, última `20261089000001_edicion_operaciones_dinero` (PR #660; verificada en prod 2026-11-05: `max(version)=20261089000001`, 336 filas; antes, `20261085000001_multiusuario_invitaciones` (PR #654; verificada en prod 2026-10-17: `max(version)=20261085000001`, 332 filas — las de `multiusuario-operativo` `20261082000001`/`20261083000001`/`20261084000001` verificadas junto con ella); antes, `20261081000001_remitos_compra_conversion` (PR #647; verificada en prod 2026-10-16: 328 filas)) |
+| **DB** | PostgreSQL vía Supabase, con RLS org-based | 337 migraciones (336 en prod), última `20261090000001_ia_ocr_cuota_reserva` (PR #__PR__; verificación en prod pendiente; antes, `20261089000001_edicion_operaciones_dinero` (PR #660; verificada en prod 2026-11-05: `max(version)=20261089000001`, 336 filas; antes, `20261085000001_multiusuario_invitaciones` (PR #654; verificada en prod 2026-10-17: `max(version)=20261085000001`, 332 filas — las de `multiusuario-operativo` `20261082000001`/`20261083000001`/`20261084000001` verificadas junto con ella); antes, `20261081000001_remitos_compra_conversion` (PR #647; verificada en prod 2026-10-16: 328 filas))) |
 | **Extensiones PG** | `pg_cron` (grace period, relay outbox) · `pg_net` / DB webhooks (email, outbox, relay CAE) | — |
 | **Edge Functions** | Deno (Supabase) — 12 funciones | `ai-insights`, `ai-resumen`, `ai-precio`, `ai-rentabilidad`, `ai-comparativo`, `ai-prediccion`, `ai-simulador`, `ai-estadisticas`, `fair-advisor`, `invoice-ocr`, `generate-export`, `send-email` |
-| **IA** | OpenAI API | `gpt-4o-mini` en las 9 funciones de IA; **`gpt-4o`** (visión) en `invoice-ocr` |
+| **IA** | OpenAI API | `gpt-4o-mini` en las 9 funciones de IA; **`gpt-4o-mini`** también por defecto en `invoice-ocr` (visión; `INVOICE_AI_MODEL`, allow-list `gpt-4o-mini`/`gpt-4o`, tope de 6 MiB por imagen, cuota mensual por plan y ráfaga de 3 por 60 s con reserva atómica previa a la llamada: `rpc_reserve_ai_usage`) |
 | **Email** | Resend (via Edge Function + DB Webhook) | — |
 | **Pagos** | MercadoPago | Webhook en el backend Python: `POST /payments/webhook` (governance CRÍTICO) |
 | **Deploy frontend** | Vercel | `vercel.json`: build `cd frontend && pnpm run build`, output `frontend/.next` |

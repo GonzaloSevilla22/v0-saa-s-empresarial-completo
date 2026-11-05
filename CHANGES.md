@@ -4614,3 +4614,40 @@ El pedido literal (RPC con rol y motivo + quitar `GRANT` y policies) es correcto
 - la visibilidad de admin del uso de OCR.
 
 **Pendiente del PO** (`docs/pendientes-manuales-po.md` §6, no bloqueante): fijar un tope mensual de gasto en el proyecto de OpenAI (OQ-8), y los límites 5/30/120/300, que aplican salvo objeción.
+
+### APPLY 2026-11-05 (PR **#__PR__**, en revisión; migración `20261090000001_ia_ocr_cuota_reserva.sql`; una sola tanda, un solo agente)
+
+**Qué cambió** (todo lo del propose, sin desvíos de alcance):
+
+- **Base de datos.** `profiles.ai_ocr_used`/`ai_ocr_window_count`/`ai_ocr_window_started_at` y `plan_limits.max_ai_ocr_per_month` (seed 5/30/120/300, sólo filas sin valor: una reaplicación no pisa un ajuste del PO). `rpc_reserve_ai_usage(text)`: `SECURITY DEFINER`, `search_path = ''`, `REVOKE ALL FROM PUBLIC, anon` + `GRANT EXECUTE TO authenticated` + `COMMENT`, un solo `UPDATE` condicional; el plan sale de `public.rpc_my_effective_plan()`. El cron `reset-ai-counters` (mismo nombre y schedule) resetea también las tres columnas. Gate `supabase/tests/test_ia_ocr_cuota_reserva.sql`, cableado en `KPI_Validation.yml` junto con su eslabón de reaplicación (schema idéntico, un solo job, seed intacto).
+- **Núcleo puro** (`_shared/invoice-ocr-core.ts`): `checkInvoiceImageBudget` (6 MiB → 413; objeto vacío → 422), `resolveOcrModel` (allow-list, valor ignorado → aviso en el log), `encodeBase64Chunked`, candado de doble clic de 90 s en `resolveInvoiceDownload`, y las constantes nombradas. `_shared/ai-quota.ts`: `mapAiReservation`/`reserveAiUsage` (fail-closed, 503 `quota_unavailable`).
+- **Edge Function `invoice-ocr`**: rechazos baratos (404/409/422/413) → reserva atómica (429 con `Retry-After`, 503; la fila no se toca) → `processing` → OpenAI. `ai_model` persiste el modelo efectivo.
+- **Frontend** (`/compras` → «Subir factura IA»): `OcrQuotaNotice` (saldo, y en 0 el límite + renovación + «Ver planes»), `useAiUsage`/`usePlanLimits` con el OCR, `lib/ai-usage.ts` (`nextAiResetDate`), `InvoiceOcrError` + `toInvoiceOcrError` (sin `as any`), refresco del saldo tras cada intento.
+- **Docs**: `CLAUDE.md`/`AGENTS.md` (el OCR usa `gpt-4o-mini` por defecto), KB RN-54 y la fila de límites de `03_actores_y_roles.md`.
+
+**Hallazgos del apply (no previstos por el propose).**
+
+1. **El error de la función nunca se leía.** El código viejo leía `fnErr.context.response`, pero en `@supabase/functions-js` 2.104 el `context` de un `FunctionsHttpError` **es** la `Response`, no un objeto con `.response`: el cuerpo del 4xx/5xx jamás llegaba a la UI y el usuario veía siempre «Edge Function returned a non-2xx status code». `toInvoiceOcrError` acepta las dos formas. Sin este arreglo, los mensajes nuevos de cuota habrían sido invisibles.
+2. **El botón «Subir factura IA» no tenía nombre accesible a menos de 640 px** (el texto es `hidden sm:inline`): sólo íconos. Se agregó `aria-label`; lo encontró el spec de Playwright en 375 px.
+3. **`plan_limits` no tiene ACL de columnas.** `authenticated` tiene privilegios de tabla (default de Supabase) y la protección es RLS (lectura pública, escritura sólo con `profiles.role = 'admin'`). El gate asserta esa postura en vez de una ACL de columna que no existe; las tres columnas de `profiles` sí nacen sin escritura de cliente (allow-list de columnas) y el gate de `test_accounts_privilege_columns.sql` las enumera.
+4. **`dblink` exige credencial real.** Por el socket unix (trust) la conexión de `dblink` falla con «password or GSSAPI delegated credentials required», incluso siendo `postgres`: el bloque (l) del gate (carrera real de dos reservas sobre un cupo) sólo corre por TCP (CI lo hace). Por el socket se degrada con un `NOTICE` y la cota dura queda cubierta por el bloque secuencial («8 intentos con límite 5 conceden exactamente 5»).
+5. **`deno check` atrapó un tipo** (`Record<string, string>` vs `{ 'Retry-After'?: undefined }`) que vitest no ve; corregido antes del PR.
+
+**Verificación.**
+
+- Gate SQL: 4 bloques PASS, incluida la carrera real con `dblink` (la 2ª reserva espera el lock de fila y re-evalúa → `quota_exceeded`). Reaplicada dos veces: schema idéntico. Gates vecinos en verde: `test_function_acl_gate`, `test_accounts_privilege_columns`, `test_errcode_5char_gate`.
+- Vitest completo: 598 archivos y 7292 tests en verde (los del apply: 25 + 17 en el núcleo, 7 + 5 + 11 + 4 + 7 en el frontend; safety net inicial 27/27). `tsc --noEmit`: 8 errores preexistentes en 5 archivos de test, ninguno nuevo (el apply sumó y corrigió uno propio en `planes/page.tsx`).
+- `deno check` (copia fuera del monorepo, `DENO_NO_PACKAGE_JSON=1`): `invoice-ocr`, `invoice-ocr-core`, `ai-quota`, `ai-estadisticas`, `ai-resumen`, `ai-insights` sin errores.
+- **Humo local de la Edge Function** (stack local + `functions serve`, clave de OpenAI dummy, llamadas reales hasta OpenAI): sin cupo → 429 `quota_exceeded` (`used 300 / limit 300`, trial pro) y la fila sigue `pending`; 4 llamadas en menos de 60 s → 502, 502, 502 y la 4ª **429 `rate_limited` con `Retry-After: 59`**, `ai_ocr_used = 3/3` y fila `pending`; imagen de 6 MiB + 1 → **413**, fila `failed`, contador intacto; con cupo, la reserva **incrementa aunque OpenAI falle** (`1/1`, fila `failed`); fila `processing` de hace segundos → **409** «La factura ya se está leyendo» y contador intacto.
+- **Pasada visual** (`e2e/harness/ocr-cuota-visual.spec.ts`, arnés `/dev-harness/ocr-cuota`): 12 capturas (saldo / cero / ráfaga × 1366 / 375 × claro / oscuro) en `openspec/changes/v31-ia-ratelimit-budget/evidence/`; contraste AA ≥ 4,5:1 medido del aviso en ambos temas, sin desborde horizontal a 375 px, «Ver planes» dentro del viewport.
+
+**Candidatos que deja (task 5.3).**
+
+- **Migrar las otras 9 funciones de IA a la reserva atómica** (`v3-ia-hygiene-baseline` / H-20): la firma `rpc_reserve_ai_usage(p_counter)` ya es el punto de extensión (hoy sólo `'ocr'`).
+- **`resetAt` de `checkAiQuota` es el último reset, no el próximo** (`usage_reset_at`): el OCR devuelve la próxima renovación, el resto de la IA no.
+- **El bucket `invoices` admite PDF y 20 MiB**, contra los 6 MiB y el 422 por no-imagen de la función; y la zona de subida del cliente dice «máx 20 MB» (`InvoiceUploadZone`). Alinear los tres.
+- **Visibilidad de admin del uso de OCR** por usuario (H-20).
+- **Colores literales preexistentes de `InvoiceProcessingCard`** (`red-500`/`red-400`/`emerald-400`): el estado de error del diálogo usa un texto rojo claro sobre fondo rojo claro de contraste bajo en tema claro. No es de este change (sólo se muestra el mensaje nuevo ahí); migrarlo a tokens semánticos es un cambio chico.
+- **El handler `invoice-ocr/index.ts` no tiene tests** (sólo el núcleo puro): el humo de arriba se hizo a mano contra `functions serve`; un arnés Deno para `index.ts` sigue sin existir.
+
+**Pendiente.** Task 5.5 (verificación post-merge en prod, sólo lectura) y 5.6 **[PO]** (humo real en `/compras` y tope de gasto en OpenAI, `docs/pendientes-manuales-po.md` §6).

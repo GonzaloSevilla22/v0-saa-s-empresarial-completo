@@ -61,6 +61,6 @@
 
 - [x] 7.1 Backend completo (`pytest`, cobertura ≥ umbral de CI) + tier `integration` + `tsc` + vitest de los archivos tocados.
 - [x] 7.2 Revisión adversarial del diff enfocada en: escrituras de dinero fuera de `_apply_approved_charge`, transacciones abiertas durante llamadas HTTP, caminos que extiendan el vencimiento sin cuota nueva, respuestas 4xx/5xx que dejen a MercadoPago reintentando para siempre.
-- [ ] 7.3 Ficha de apply en `CHANGES.md` + fila en `docs/pendientes-manuales-po.md`. PR con conventional commit, sin auto-merge.
+- [x] 7.3 Ficha de apply en `CHANGES.md` + fila en `docs/pendientes-manuales-po.md`. PR con conventional commit, sin auto-merge.
 - [ ] 7.4 Post-merge (sólo lectura): deploy de Render confirmado; migración viva; `cron.job` activo y `cron.job_run_details` con corridas `succeeded`; línea INFO del barrido en los logs de Render.
 - [ ] 7.5 Prueba real con el cobro del 2026-12-04 de la suscripción `fa624f9b-32e5-4b5c-ad0d-fc64e6dc16b1`: `billing_event` del pago de diciembre y `plan_expires_at` ≈ 2027-01-14 SIN replay manual (si llegó por el barrido o por la notificación, anotarlo).

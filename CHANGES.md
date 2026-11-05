@@ -4708,7 +4708,7 @@ El pedido literal (RPC con rol y motivo + quitar `GRANT` y policies) es correcto
 **Candidato lateral (no urgente).** El patrón `checkAiQuota` + `incrementAiUsage` de las otras 9 Edge Functions de IA tiene la misma carrera chequear-luego-incrementar que se cerró acá para el OCR; `rpc_reserve_ai_usage(p_counter)` es el punto de extensión (ramas `queries`/`advice`).
 
 
-## Change `mp-cuota-acreditacion-resiliente` — PROPOSE 2026-11-05 (PR **#677**, mergeado) · **APPLY en PR #678** (sin mergear; governance **CRÍTICO**: webhook de pagos, dinero real)
+## Change `mp-cuota-acreditacion-resiliente` — PROPOSE 2026-11-05 (PR **#677**, mergeado) · APPLY PR **#678** (mergeado 22:10 UTC) · **✅ COMPLETADA Y ARCHIVADA 2026-11-05/06** (archive PR **#680**; governance **CRÍTICO**: webhook de pagos, dinero real)
 
 **Contexto.** Pedido textual del PO: «propone un change para que esto se solucione». El backend acredita el cobro mensual de una suscripción SÓLO desde la notificación `subscription_authorized_payment` en `processed`/`approved` (`_apply_authorized_payment_notification` → `_apply_approved_charge`); la notificación `payment` del mismo cobro se ignora a propósito (`ignored="subscription_charge"`, ítem B(1) de #526). Ficha previa del handler: `billing-webhook-cuota-idempotencia` (#641/#642), que no se reescribe.
 
@@ -4733,7 +4733,11 @@ El pedido literal (RPC con rol y motivo + quitar `GRANT` y policies) es correcto
 
 **Verificación local.** Backend unitario 4542 passed (los 7 fallos locales de `test_invoice_pdf.py` son preexistentes); integración `-m "integration and not arca"` 144 passed (incluye `test_subscriptions_reconcile_integration.py`, nuevo); migración aplicada dos veces + gate nuevo `test_mp_cuota_reconciliacion_cron.sql` PASSED (cableado estricto en `KPI_Validation.yml`, 35 gates de dinero) + gate de ACLs verde + control negativo (GRANT a anon → falla); vitest de los archivos tocados 43/43; `tsc` sin errores nuevos. **Pendiente**: pasada visual 375 px / claro-oscuro (task 6.5, no se levantó el stack completo) y la verificación post-merge en prod (7.4) y la prueba real con el cobro del 2026-12-04 (7.5).
 
-**Estado.** Apply en **PR #678** (sin mergear). Hasta que mergee, sigue la red manual: "Replicar cuotas" después del día 4 (`docs/pendientes-manuales-po.md` §8).
+**Verificación post-merge en prod (sólo lectura, orquestador, 2026-11-05).** Render live 22:12 UTC y `Build and Deploy` verde; `max(version) = 20261092000001` (339 migraciones); `cron.job` `subscription-reconcile-charges` activo con `7 * * * *` → `SELECT public.rpc_trigger_subscription_reconcile();`, función `SECURITY DEFINER` con `search_path = public, vault` y sin `EXECUTE` para `anon`/`authenticated`/`service_role`. **Primera corrida real 2026-11-05 23:07:00 UTC**: `cron.job_run_details` `succeeded`; `net._http_response` **200** `{"ok":true,"skipped":null,"checked":0,"applied":[],"errors":0}` → el secreto de Render y el de Vault coinciden. `checked=0` es lo esperado (D4): la única suscripción real tiene `plan_expires_at = 2026-12-14`, fuera de la ventana de ≤10 días; entra al barrido desde el 2026-12-04 20:54 UTC.
+
+**Pasada visual (task 6.5) no corrida en vivo.** Revisada por diff: celdas aditivas en la tabla existente de `/admin/pagos/ambiguas` con scroll horizontal y tokens semánticos. Queda pendiente la pasada 375 px claro/oscuro.
+
+**Estado.** Archivada: specs sincronizadas (`payment-webhook` +1 requirement, ~1 modificado; `subscription-lifecycle` +3 requirements; 13→14 y 13→16 requirements; `openspec validate --specs --strict` 117/117). Directorio `openspec/changes/archive/2026-11-05-mp-cuota-acreditacion-resiliente/`. Quedan 3 tasks abiertas en `tasks.md` a propósito: 6.5 (pasada visual en vivo, ver arriba), 7.4 (verificada por el orquestador, ver arriba) y **7.5**, la prueba real con el cobro del **2026-12-04**: anotar por qué camino se acreditó (barrido / notificación de cuota / webhook `payment`) y confirmar `plan_expires_at ≈ 2027-01-14` sin replay manual. Mientras tanto, la red manual sigue siendo "Replicar cuotas" si el cobro no entró (`docs/pendientes-manuales-po.md` §8).
 
 ## Change `productos-padre-variantes` — PROPOSE 2026-11-05 (PR **#679**; governance **MEDIO** con un tramo **ALTO** acotado al relabel de unidad)
 

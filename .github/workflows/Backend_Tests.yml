@@ -35,6 +35,14 @@ on:
       # PRs que lo rompen (hotfix del outbox, 2026-08-24). El job es hermetico
       # (asyncpg mockeado, sin servicios) y corre en ~30s: no encarece nada.
       - 'supabase/migrations/**'
+      # v31-money-integration-tests (H-34): test_gate_strict_detector.py recorre los 33 gates de dinero
+      # (supabase/tests/**), el wrapper run_gate_strict.py + su allow-list y el cableado de KPI_Validation.yml.
+      # Sin estos paths, un PR que agregue una rama de degradación que el detector no reconoce (o saque un gate
+      # del wrapper) no dispararía el job que lo atrapa. Es hermético y barato.
+      - 'supabase/tests/**'
+      - 'scripts/ci/run_gate_strict.py'
+      - 'scripts/ci/gate_degradation_allowlist.txt'
+      - '.github/workflows/KPI_Validation.yml'
 
 concurrency:
   group: backend-tests-${{ github.ref }}

@@ -21,6 +21,9 @@ function preview(over: Partial<MoneyPlan> = {}, voided: EditPreview["voided_fisc
   return { dry_run: true, plan: { ...EMPTY, ...over }, voided_fiscal_document: voided }
 }
 
+// El texto del DOM llega normalizado (el espacio duro de Intl pasa a espacio común).
+const moneyText = (n: number) => (content: string) => content.replace(/\s/g, " ").includes(formatMoney(n).replace(/\s/g, " "))
+
 const SALE_CASH_UP: Partial<MoneyPlan> = {
   writes_money: true,
   cash: { action: "register", register: { session_id: "s", cashbox_id: "b", amount: "200.00", movement_type: "sale" }, reverse: [] },
@@ -55,7 +58,7 @@ describe("OperationEditPlanDialog — el plan del servidor", () => {
     renderDialog()
     expect(screen.getByRole("alertdialog")).toBeInTheDocument()
     expect(screen.getByText(/entran/i)).toBeInTheDocument()
-    expect(screen.getByText(new RegExp(formatMoney(200).replace(/[$]/g, "\\$")))).toBeInTheDocument()
+    expect(screen.getByText(moneyText(200))).toBeInTheDocument()
     expect(screen.getByText(/^Caja:/)).toBeInTheDocument()
   })
 
@@ -76,7 +79,7 @@ describe("OperationEditPlanDialog — el plan del servidor", () => {
     const { rerender } = render(
       <OperationEditPlanDialog open onOpenChange={() => {}} preview={preview(SALE_CASH_UP)} party="cliente" documentLabel="esta venta" onConfirm={() => {}} />,
     )
-    expect(screen.getByText(new RegExp(formatMoney(200).replace(/[$]/g, "\\$")))).toBeInTheDocument()
+    expect(screen.getByText(moneyText(200))).toBeInTheDocument()
     rerender(
       <OperationEditPlanDialog
         open
@@ -87,7 +90,7 @@ describe("OperationEditPlanDialog — el plan del servidor", () => {
         onConfirm={() => {}}
       />,
     )
-    expect(screen.getByText(new RegExp(formatMoney(999).replace(/[$]/g, "\\$")))).toBeInTheDocument()
+    expect(screen.getByText(moneyText(999))).toBeInTheDocument()
   })
 
   it("confirmar llama onConfirm", () => {

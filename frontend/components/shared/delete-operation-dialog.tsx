@@ -33,6 +33,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
+import { MoneyPlanList } from "@/components/shared/MoneyPlanList"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Lock, Trash2 } from "lucide-react"
@@ -114,16 +115,8 @@ export function DeleteOperationDialog({
               {info.notes?.map((note) => (
                 <p key={note} className="text-foreground">{note}</p>
               ))}
-              {info.compensations.length > 0 && (
-                <div className="rounded-md border border-border bg-accent/30 p-3">
-                  <p className="mb-1.5 font-medium text-foreground">Se va a compensar:</p>
-                  <ul className="list-disc space-y-1 pl-4">
-                    {info.compensations.map((item) => (
-                      <li key={item}>{item}</li>
-                    ))}
-                  </ul>
-                </div>
-              )}
+              {/* edicion-operaciones-con-dinero (tanda C, D17): la lista es la misma que muestra el diálogo de edición. */}
+              <MoneyPlanList title="Se va a compensar:" items={info.compensations} />
               {reasonField && (
                 <div className="space-y-1.5 pt-1">
                   <Label htmlFor="delete-operation-reason" className="text-foreground">

@@ -183,6 +183,16 @@ export function moneyPlanHasEffect(plan: MoneyPlan | null | undefined): boolean 
   return plan.account.action !== "none" || plan.cash.action !== "none" || plan.bank.action !== "none"
 }
 
+/**
+ * ¿La edición necesita que el usuario confirme el plan? Sí si escribe en algún libro, si tiene un bloqueo (que debe
+ * ver, no descubrir con un error) o si anula un comprobante pendiente. Una edición que no toca ningún libro se guarda
+ * directo: el diálogo no aparece.
+ */
+export function planNeedsConfirmation(preview: EditPreview | null | undefined): boolean {
+  if (!preview) return false
+  return moneyPlanHasEffect(preview.plan) || preview.plan.blocks.length > 0 || !!preview.voided_fiscal_document
+}
+
 /** El plan por libro, en el orden de la edición: cuenta corriente → caja → banco. */
 export function moneyPlanItems(plan: MoneyPlan, ctx: MoneyPlanContext): MoneyPlanItem[] {
   return [...accountItems(plan.account, ctx.party), ...cashItems(plan.cash), ...bankItems(plan.bank)]

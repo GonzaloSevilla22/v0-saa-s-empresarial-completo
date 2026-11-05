@@ -29,6 +29,14 @@ import jwt
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+# v31-money-integration-tests (D2): hooks fail-closed del tier de integración. Inactivos sin
+# CI_REQUIRE_INTEGRATION=1. Re-export explícito (no `pytest_plugins`: no se admite fuera del conftest de la raíz).
+from backend.tests.integration_guard import (  # noqa: F401
+    pytest_collection_finish,
+    pytest_runtest_makereport,
+    pytest_sessionstart,
+)
+
 TEST_SECRET = "test-secret-key-de-32-bytes-o-mas!!"
 TEST_USER_ID = "11111111-1111-1111-1111-111111111111"
 TEST_ACCOUNT_ID = uuid.UUID("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")

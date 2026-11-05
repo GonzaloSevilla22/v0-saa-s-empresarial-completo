@@ -1,8 +1,7 @@
 """
 venta-editable-vs-promocion-legacy (20261061000001) — integración contra el
 Postgres LOCAL real (stack de `supabase start`). Marcado
-`@pytest.mark.integration`: excluido del gate de CI (`pytest backend/tests -m
-"not integration"`, Backend_Tests.yml); correr a mano con `-m integration`
+`@pytest.mark.integration`: corre en el tier de integración de `KPI_Validation.yml`; correr a mano con `-m integration`
 con el stack local levantado. La evidencia de CI de que la RPC corre es el
 gate SQL supabase/tests/test_facturar_venta_manual.sql.
 
@@ -17,7 +16,6 @@ la transacción como hace `backend/core/database.py`.
 from __future__ import annotations
 
 import json
-import os
 import uuid
 
 import asyncpg
@@ -25,7 +23,7 @@ import pytest
 
 from backend.repositories.sales_repository import SalesRepository
 
-DSN = os.environ.get("DATABASE_URL", "postgresql://postgres:postgres@127.0.0.1:54322/postgres")
+from backend.tests.integration_db import connect
 
 pytestmark = pytest.mark.integration
 
@@ -112,10 +110,7 @@ async def _cleanup(conn: asyncpg.Connection, user_id: uuid.UUID, account_id: uui
 
 @pytest.fixture
 async def conn():
-    try:
-        c = await asyncpg.connect(DSN)
-    except (OSError, asyncpg.PostgresError) as exc:  # pragma: no cover - depende del entorno
-        pytest.skip(f"Postgres local no disponible ({exc}); levantá `supabase start`")
+    c = await connect()
     try:
         yield c
     finally:

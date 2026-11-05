@@ -1,8 +1,7 @@
 """
 remitos-venta (tanda A, task 2.1, "RED que persiste de verdad") — integración
 contra el Postgres LOCAL real (stack de `supabase start`, con 20261069000001
-aplicada). Marcado `@pytest.mark.integration`: excluido del gate de CI
-(`-m "not integration"`); correr a mano con `-m integration`. La evidencia de CI
+aplicada). Marcado `@pytest.mark.integration`: corre en el tier de integración de `KPI_Validation.yml`; correr a mano con `-m integration`. La evidencia de CI
 del esquema es el gate SQL supabase/tests/test_remitos_venta.sql.
 
 Por qué además de test_delivery_notes_module.py: aquel prueba el repositorio
@@ -17,7 +16,6 @@ from __future__ import annotations
 import contextlib
 import io
 import json
-import os
 import uuid
 from decimal import Decimal
 
@@ -35,7 +33,7 @@ from backend.schemas.delivery_notes import (
 )
 from backend.services import delivery_notes as svc
 
-DSN = os.environ.get("DATABASE_URL", "postgresql://postgres:postgres@127.0.0.1:54322/postgres")
+from backend.tests.integration_db import connect
 
 pytestmark = pytest.mark.integration
 
@@ -208,10 +206,7 @@ async def _cleanup(conn: asyncpg.Connection, w: World) -> None:
 
 @pytest.fixture
 async def conn():
-    try:
-        c = await asyncpg.connect(DSN)
-    except (OSError, asyncpg.PostgresError) as exc:  # pragma: no cover - depende del entorno
-        pytest.skip(f"Postgres local no disponible ({exc}); levantá `supabase start`")
+    c = await connect()
     try:
         yield c
     finally:

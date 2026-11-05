@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import inspect
 import json
-import os
 import re
 import uuid
 
@@ -36,7 +35,7 @@ from backend.repositories.expense_repository import ExpenseRepository
 from backend.repositories.purchase_repository import PurchaseRepository
 from backend.repositories.sales_repository import SalesRepository
 
-DSN = os.environ.get("DATABASE_URL", "postgresql://postgres:postgres@127.0.0.1:54322/postgres")
+from backend.tests.integration_db import connect
 
 _FLAGS = ("has_account_charge", "has_cash_movement", "has_bank_movement", "is_delete_blocked")
 
@@ -88,10 +87,7 @@ async def _set_claims(conn: asyncpg.Connection, user_id: uuid.UUID) -> None:
 @pytest.fixture
 async def seeded():
     """Fixture dentro de UNA transacción que se revierte: no deja residuo (nada que limpiar)."""
-    try:
-        conn = await asyncpg.connect(DSN)
-    except (OSError, asyncpg.PostgresError) as exc:  # pragma: no cover - depende del entorno
-        pytest.skip(f"Postgres local no disponible ({exc}); levantá `supabase start`")
+    conn = await connect()
     tr = conn.transaction()
     await tr.start()
     try:

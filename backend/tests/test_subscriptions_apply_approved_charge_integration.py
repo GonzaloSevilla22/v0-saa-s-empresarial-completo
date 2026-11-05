@@ -1,8 +1,7 @@
 """
 H4 hotfix (2026-09-04) — test de integración contra la DB local real
 (Supabase local stack, `supabase start`). Marcado `@pytest.mark.integration`:
-excluido del gate de CI (`pytest backend/tests -m "not integration"`,
-Backend_Tests.yml) — correr a mano con `-m integration` cuando el stack local
+corre en el tier de integración de `KPI_Validation.yml` — correr a mano con `-m integration` cuando el stack local
 esté levantado.
 
 Por qué hace falta un test de integración además de los mocks: el bug real
@@ -24,7 +23,6 @@ from __future__ import annotations
 import datetime
 import decimal
 import json
-import os
 import uuid
 
 import asyncpg
@@ -32,7 +30,7 @@ import pytest
 
 from backend.services.subscriptions import _apply_approved_charge
 
-DSN = os.environ.get("DATABASE_URL", "postgresql://postgres:postgres@127.0.0.1:54322/postgres")
+from backend.tests.integration_db import connect
 
 
 class _RaiseOnNthExecute:
@@ -138,7 +136,7 @@ class TestApplyApprovedChargeIntegration:
         fa624f9b-32e5-4b5c-ad0d-fc64e6dc16b1/176341057469/$24.900) contra
         Postgres real — antes del fix esto reventaba con 42P18 en el 3er
         INSERT."""
-        conn = await asyncpg.connect(DSN)
+        conn = await connect()
         account_id, user_id, email = await _make_account(conn)
         preapproval_id = f"mp-preapproval-{uuid.uuid4()}"
         authorized_payment_id = "7031580844"
@@ -204,7 +202,7 @@ class TestApplyApprovedChargeIntegration:
         la aplicación parcial que se midió en prod para
         fa624f9b-32e5-4b5c-ad0d-fc64e6dc16b1 (accounts/billing_events
         escritos, email_logs faltante)."""
-        conn = await asyncpg.connect(DSN)
+        conn = await connect()
         account_id, user_id, email = await _make_account(conn)
         preapproval_id = f"mp-preapproval-{uuid.uuid4()}"
         mercadopago_payment_id = f"mp-payment-{uuid.uuid4()}"

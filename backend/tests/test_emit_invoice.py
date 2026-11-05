@@ -403,6 +403,7 @@ class TestEmitInvoiceEndpoint:
 # ══════════════════════════════════════════════════════════════════════════════
 
 @pytest.mark.integration
+@pytest.mark.arca
 def test_e2e_afip_emit_factura_c_homologacion():
     """
     Test de integración E2E contra ARCA homologación.

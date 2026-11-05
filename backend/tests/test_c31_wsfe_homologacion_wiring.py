@@ -686,6 +686,7 @@ class TestBuildCaeAdapterFactory:
 # =============================================================================
 
 @pytest.mark.integration
+@pytest.mark.arca
 class TestWSFEHomologacionE2E:
     """7.1 Test E2E de homologación real contra ARCA.
 

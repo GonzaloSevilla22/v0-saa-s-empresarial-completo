@@ -1,0 +1,9 @@
+# Allow-list de run_gate_strict.py (v31-money-integration-tests, D6).
+#
+# Una entrada por línea:  <archivo.sql>|<subcadena del mensaje>|<motivo>
+# El archivo es el nombre del gate (sin directorio) y la subcadena se busca dentro del mensaje del NOTICE.
+#
+# REGLA: el motivo tiene que ser una causa de ENTORNO (algo que el gate no puede construir por sí mismo).
+# «Falta un dato sembrado», «no hay cuenta ancla» o «no hay caja» NO son motivos admitidos: el gate crea su propia
+# cuenta ancla y, si no puede aprovisionarla, tiene que fallar, no degradar.
+test_payment_methods_catalog.sql|el entorno no otorga GRANT base|GRANT base de authenticated ausente en entornos sin el rol estándar; en el stack de CI no dispara

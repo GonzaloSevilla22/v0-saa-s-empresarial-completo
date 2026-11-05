@@ -6,8 +6,8 @@
 -- 2026-10-03) agregó 'Cheque' como 7º método — el seed pasó de 6 a 7:
 --   (1) toda cuenta existente tiene las 7 formas sembradas (backfill Parte A
 --       original + el backfill de 'Cheque' de limpiezas-pagos-admin —
---       verificado sobre las cuentas reales del stack, degrada si no hay
---       ninguna);
+--       verificado sobre las cuentas del stack MÁS una cuenta ancla propia
+--       del gate con exactamente 7: ya no degrada, v31-money-integration-tests D7);
 --   (2) re-ejecutar AMBOS backfills no duplica (idempotencia real,
 --       fingerprint antes/después);
 --   (3) un signup nuevo nace con las 7 formas de pago sin intervención
@@ -19,30 +19,104 @@
 -- =============================================================================
 
 -- ── (1) Toda cuenta existente tiene las 7 formas sembradas ───────────────────
+-- v31-money-integration-tests (D7, H-34): este bloque ya NO degrada. Antes salía en verde sin asertar nada
+-- cuando el stack no tenía ninguna cuenta ("no hay cuentas en el stack — nada que verificar"), que es lo
+-- que pasaba en CI. Ahora crea SU PROPIA cuenta ancla (usuario sintético -> handle_new_user), exige que
+-- tenga exactamente las 7 formas vivas y recién después verifica todas las cuentas del stack (la ancla
+-- incluida), así que siempre verifica al menos una. Si handle_new_user no aprovisiona la cuenta es un
+-- bug de siembra, no una excusa para saltear el bloque.
 DO $$
 DECLARE
+  v_anchor_email     text := 'payment-methods-seed-gate-anchor@test.local';
+  v_user_id          uuid := gen_random_uuid();
+  v_account_id       uuid;
+  v_anchor_count     integer;
   v_total_accounts   integer;
   v_accounts_missing integer;
 BEGIN
+  INSERT INTO auth.users (id, aud, role, email, created_at, updated_at, raw_user_meta_data)
+  VALUES (v_user_id, 'authenticated', 'authenticated', v_anchor_email, now(), now(),
+          jsonb_build_object('name', 'Gate PM Seed Anchor'))
+  ON CONFLICT (id) DO NOTHING;
+
+  SELECT account_id INTO v_account_id
+  FROM   public.account_members
+  WHERE  user_id = v_user_id
+  ORDER  BY created_at
+  LIMIT  1;
+
+  IF v_account_id IS NULL THEN
+    RAISE EXCEPTION 'GATE PAYMENT-METHODS-SEED FAILED (1-anchor): handle_new_user no aprovisionó una cuenta para el anchor sintético — el bloque (1) no puede verificar la siembra.';
+  END IF;
+
+  -- (1a) la cuenta ancla tiene EXACTAMENTE las 7 formas de pago vivas.
+  SELECT COUNT(*) INTO v_anchor_count
+  FROM public.payment_methods
+  WHERE account_id = v_account_id AND deleted_at IS NULL;
+
+  IF v_anchor_count <> 7 THEN
+    RAISE EXCEPTION 'GATE PAYMENT-METHODS-SEED FAILED (1a): la cuenta ancla debía nacer con exactamente 7 formas de pago vivas, tiene %.', v_anchor_count;
+  END IF;
+
+  -- (1) todas las cuentas del stack (la ancla incluida: v_total_accounts >= 1 siempre).
   SELECT COUNT(*) INTO v_total_accounts FROM public.accounts;
 
-  IF v_total_accounts = 0 THEN
-    RAISE NOTICE 'GATE PAYMENT-METHODS-SEED (1) degradado: no hay cuentas en el stack — nada que verificar.';
-  ELSE
-    SELECT COUNT(*) INTO v_accounts_missing
-    FROM public.accounts a
-    WHERE (
-      SELECT COUNT(*) FROM public.payment_methods pm
-      WHERE pm.account_id = a.id AND pm.deleted_at IS NULL
-    ) < 7;
+  SELECT COUNT(*) INTO v_accounts_missing
+  FROM public.accounts a
+  WHERE (
+    SELECT COUNT(*) FROM public.payment_methods pm
+    WHERE pm.account_id = a.id AND pm.deleted_at IS NULL
+  ) < 7;
 
-    IF v_accounts_missing > 0 THEN
-      RAISE EXCEPTION 'GATE PAYMENT-METHODS-SEED FAILED (1): % de % cuentas tienen menos de 7 formas de pago vivas (backfill Parte A + Cheque incompleto).',
-        v_accounts_missing, v_total_accounts;
-    END IF;
-
-    RAISE NOTICE 'PASS (1): las % cuentas existentes tienen las 7 formas de pago sembradas.', v_total_accounts;
+  IF v_accounts_missing > 0 THEN
+    RAISE EXCEPTION 'GATE PAYMENT-METHODS-SEED FAILED (1): % de % cuentas tienen menos de 7 formas de pago vivas (backfill Parte A + Cheque incompleto).',
+      v_accounts_missing, v_total_accounts;
   END IF;
+
+  RAISE NOTICE 'PASS (1): las % cuentas del stack (incluida la ancla del gate, con exactamente 7) tienen las 7 formas de pago sembradas.', v_total_accounts;
+
+  -- Cleanup hijo→padre
+  DELETE FROM public.payment_methods WHERE account_id = v_account_id;
+  DELETE FROM public.branch_stock WHERE branch_id IN (SELECT id FROM public.branches WHERE account_id = v_account_id);
+  DELETE FROM public.cashboxes    WHERE branch_id IN (SELECT id FROM public.branches WHERE account_id = v_account_id);
+  -- sucursal-guard-vaciado-auditoria: branches ahora prohibe el borrado fisico SIEMPRE (trigger trg_guard_branch_decommission, P0428). Bypass explicito para el cleanup del fixture sintetico -- session_replication_role solo lo puede fijar un rol con privilegio de superusuario (postgres en CI); no abre ningun camino para authenticated/anon via PostgREST.
+  SET session_replication_role = replica;
+  DELETE FROM public.branches               WHERE account_id = v_account_id;
+  SET session_replication_role = DEFAULT;
+  DELETE FROM public.account_members        WHERE user_id = v_user_id;
+  -- sucursal-guard-vaciado-auditoria: DELETE FROM accounts cascadea a branches (ON DELETE CASCADE) y el trigger trg_guard_branch_decommission prohibe TODO borrado fisico de una sucursal (P0428) -- bypass explicito para el cleanup del fixture sintetico. session_replication_role solo lo puede fijar un rol con privilegio de superusuario (postgres en CI); no abre ningun camino para authenticated/anon via PostgREST.
+  SET session_replication_role = replica;
+  DELETE FROM public.accounts               WHERE owner_user_id = v_user_id;
+  SET session_replication_role = DEFAULT;
+  DELETE FROM public.profiles               WHERE id = v_user_id;
+  DELETE FROM public.email_logs             WHERE user_id = v_user_id;
+  DELETE FROM public.operation_idempotency  WHERE user_id = v_user_id;
+  DELETE FROM auth.users                    WHERE id = v_user_id;
+
+EXCEPTION
+  WHEN OTHERS THEN
+    BEGIN
+      IF v_account_id IS NOT NULL THEN
+        DELETE FROM public.payment_methods WHERE account_id = v_account_id;
+        DELETE FROM public.branch_stock WHERE branch_id IN (SELECT id FROM public.branches WHERE account_id = v_account_id);
+        DELETE FROM public.cashboxes    WHERE branch_id IN (SELECT id FROM public.branches WHERE account_id = v_account_id);
+        -- sucursal-guard-vaciado-auditoria: branches ahora prohibe el borrado fisico SIEMPRE (trigger trg_guard_branch_decommission, P0428). Bypass explicito para el cleanup del fixture sintetico -- session_replication_role solo lo puede fijar un rol con privilegio de superusuario (postgres en CI); no abre ningun camino para authenticated/anon via PostgREST.
+        SET session_replication_role = replica;
+        DELETE FROM public.branches               WHERE account_id = v_account_id;
+        SET session_replication_role = DEFAULT;
+        DELETE FROM public.account_members        WHERE user_id = v_user_id;
+        -- sucursal-guard-vaciado-auditoria: DELETE FROM accounts cascadea a branches (ON DELETE CASCADE) y el trigger trg_guard_branch_decommission prohibe TODO borrado fisico de una sucursal (P0428) -- bypass explicito para el cleanup del fixture sintetico. session_replication_role solo lo puede fijar un rol con privilegio de superusuario (postgres en CI); no abre ningun camino para authenticated/anon via PostgREST.
+        SET session_replication_role = replica;
+        DELETE FROM public.accounts               WHERE owner_user_id = v_user_id;
+        SET session_replication_role = DEFAULT;
+      END IF;
+      DELETE FROM public.profiles               WHERE id = v_user_id;
+      DELETE FROM public.email_logs             WHERE user_id = v_user_id;
+      DELETE FROM public.operation_idempotency  WHERE user_id = v_user_id;
+      DELETE FROM auth.users                    WHERE id = v_user_id;
+    EXCEPTION WHEN OTHERS THEN NULL;
+    END;
+    RAISE;
 END $$;
 
 

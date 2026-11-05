@@ -1,8 +1,7 @@
 """
 presupuestos-modulo (tanda A, task 2.1, "RED que persiste de verdad") —
 integración contra el Postgres LOCAL real (stack de `supabase start`, con
-20261067000001 aplicada). Marcado `@pytest.mark.integration`: excluido del gate
-de CI (`-m "not integration"`); correr a mano con `-m integration`. La
+20261067000001 aplicada). Marcado `@pytest.mark.integration`: corre en el tier de integración de `KPI_Validation.yml`; correr a mano con `-m integration`. La
 evidencia de CI del esquema es el gate SQL
 supabase/tests/test_presupuestos_modulo.sql.
 
@@ -21,7 +20,6 @@ import contextlib
 import datetime
 import io
 import json
-import os
 import uuid
 
 import asyncpg
@@ -57,7 +55,7 @@ RPC_COMMERCIAL_ISSUER_KEYS = {
     "palette_preset", "accent_color", "logo_sha256",
 }
 
-DSN = os.environ.get("DATABASE_URL", "postgresql://postgres:postgres@127.0.0.1:54322/postgres")
+from backend.tests.integration_db import connect
 
 pytestmark = pytest.mark.integration
 
@@ -198,10 +196,7 @@ async def _cleanup(conn: asyncpg.Connection, w: World) -> None:
 
 @pytest.fixture
 async def conn():
-    try:
-        c = await asyncpg.connect(DSN)
-    except (OSError, asyncpg.PostgresError) as exc:  # pragma: no cover - depende del entorno
-        pytest.skip(f"Postgres local no disponible ({exc}); levantá `supabase start`")
+    c = await connect()
     try:
         yield c
     finally:

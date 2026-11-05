@@ -2,7 +2,7 @@
 multiusuario-operativo TANDA C (grupo 15, "integración contra Postgres local") — la invitación de
 punta a punta contra la base REAL.
 
-Marcado `@pytest.mark.integration`: excluido del gate de CI (`-m "not integration"`); correr a mano con
+Marcado `@pytest.mark.integration`: corre en el tier de integración de `KPI_Validation.yml`; correr a mano con
 `-m integration` contra el stack local con 20261085000001 aplicada. La evidencia de CI del esquema es el
 gate SQL supabase/tests/test_multiusuario_invitaciones.sql.
 
@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import contextlib
 import json
-import os
 import uuid
 
 import asyncpg
@@ -31,7 +30,7 @@ from fastapi import HTTPException
 from backend.repositories.invitation_repository import InvitationRepository
 from backend.services import invitations as svc
 
-DSN = os.environ.get("DATABASE_URL", "postgresql://postgres:postgres@127.0.0.1:54322/postgres")
+from backend.tests.integration_db import connect
 
 pytestmark = pytest.mark.integration
 
@@ -129,10 +128,7 @@ async def _cleanup(conn: asyncpg.Connection, w: World) -> None:
 
 @pytest.fixture
 async def conn():
-    try:
-        c = await asyncpg.connect(DSN)
-    except (OSError, asyncpg.PostgresError) as exc:  # pragma: no cover - depende del entorno
-        pytest.skip(f"Postgres local no disponible ({exc}); levantá `supabase start`")
+    c = await connect()
     try:
         yield c
     finally:

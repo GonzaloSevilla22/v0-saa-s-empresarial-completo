@@ -1,8 +1,7 @@
 """
 fix(billing) 2026-10-13 — tests de integración de los handlers REALES de los
 topics de suscripción de MercadoPago contra la DB local (Supabase local stack,
-`supabase start`). Marcados `@pytest.mark.integration`: excluidos del gate de
-CI (`pytest backend/tests -m "not integration"`) — correr a mano con
+`supabase start`). Marcados `@pytest.mark.integration`: corren en el tier de integración de `KPI_Validation.yml` — correr a mano con
 `-m integration` cuando el stack local esté levantado.
 
 Por qué existen: hasta este fix ningún test ejecutaba
@@ -48,8 +47,8 @@ from backend.services.subscriptions import (
     process_subscription_preapproval_notification,
     replay_subscription_charges,
 )
+from backend.tests.integration_db import connect
 from backend.tests.test_subscriptions_apply_approved_charge_integration import (
-    DSN,
     _cleanup,
     _make_account,
 )
@@ -238,7 +237,7 @@ class TestAuthorizedPaymentWebhookIntegration:
         cuota queda aplicada entera y el plan vence en el SIGUIENTE ciclo +
         gracia (04-11 + 10 d = 14-11), no en el débito de esta cuota + gracia
         (que lo dejaría venciendo el mismo 14-10 que ya tenía)."""
-        conn = await asyncpg.connect(DSN)
+        conn = await connect()
         account_id, user_id, email = await _make_active_account(conn)
         preapproval_id = f"mp-preapproval-{uuid.uuid4().hex}"
         cuota_id, payment_id = _unique_mp_id(), _unique_mp_id()
@@ -308,7 +307,7 @@ class TestAuthorizedPaymentWebhookIntegration:
         todavía — el cobro queda guardado en la fila para que
         `resolve_ambiguous_subscription` lo replique, con el siguiente ciclo
         como `next_payment_date` (de ahí sale el vencimiento al resolver)."""
-        conn = await asyncpg.connect(DSN)
+        conn = await connect()
         preapproval_id = f"mp-preapproval-{uuid.uuid4().hex}"
         cuota_id, payment_id = _unique_mp_id(), _unique_mp_id()
         idem_key = f"authorized_payment:{cuota_id}:processed:approved"
@@ -354,7 +353,7 @@ class TestAuthorizedPaymentWebhookIntegration:
         comiteada — si queda, el reintento de MercadoPago recibe
         `idempotent` y el cobro se pierde. Tampoco puede dejar la fila de
         `subscriptions` a medio actualizar. El segundo intento SÍ aplica."""
-        conn = await asyncpg.connect(DSN)
+        conn = await connect()
         account_id, user_id, _ = await _make_active_account(conn)
         preapproval_id = f"mp-preapproval-{uuid.uuid4().hex}"
         cuota_id, payment_id = _unique_mp_id(), _unique_mp_id()
@@ -407,7 +406,7 @@ class TestAuthorizedPaymentWebhookIntegration:
         """Triangulación de la idempotencia: mover la marca adentro de la
         transacción no puede debilitarla. Una vez aplicada la cuota, la
         redelivery devuelve `idempotent` y no duplica recibo ni correo."""
-        conn = await asyncpg.connect(DSN)
+        conn = await connect()
         account_id, user_id, _ = await _make_active_account(conn)
         preapproval_id = f"mp-preapproval-{uuid.uuid4().hex}"
         cuota_id, payment_id = _unique_mp_id(), _unique_mp_id()
@@ -446,7 +445,7 @@ class TestAuthorizedPaymentWebhookIntegration:
         `plan_expires_at` nulo significa "sin vencimiento" para
         `get_effective_plan`). La cuenta y la suscripción conservan las
         fechas que tenían."""
-        conn = await asyncpg.connect(DSN)
+        conn = await connect()
         account_id, user_id, _ = await _make_active_account(conn)
         preapproval_id = f"mp-preapproval-{uuid.uuid4().hex}"
         cuota_id, payment_id = _unique_mp_id(), _unique_mp_id()
@@ -496,7 +495,7 @@ class TestReplaySubscriptionChargesIntegration:
         reaplicaba con una fecha distinta a la original y el cliente recibía
         un segundo "Renovamos tu suscripción" por un cobro viejo — en cada
         replay posterior a un cambio de ciclo."""
-        conn = await asyncpg.connect(DSN)
+        conn = await connect()
         account_id, user_id, _ = await _make_active_account(conn)
         preapproval_id = f"mp-preapproval-{uuid.uuid4().hex}"
         september_id = _unique_mp_id()
@@ -566,7 +565,7 @@ class TestIdempotencyClaimIntegration:
         exactamente la condición en la que la marca quedaba comiteada antes
         que los efectos. Contra una conexión real sin transacción abierta el
         reclamo se niega y no inserta nada."""
-        conn = await asyncpg.connect(DSN)
+        conn = await connect()
         idem_key = f"authorized_payment:{_unique_mp_id()}:processed:approved"
         try:
             with pytest.raises(RuntimeError, match="transacción"):
@@ -593,7 +592,7 @@ class TestPreapprovalWebhookIntegration:
         quedaban comiteadas la marca, la fila `cancelled` y la cuenta en
         `cancelling`, sin auditoría ni correo, y el reintento no completaba
         nada. Ahora no queda nada escrito y el reintento aplica todo."""
-        conn = await asyncpg.connect(DSN)
+        conn = await connect()
         account_id, user_id, _ = await _make_active_account(conn)
         preapproval_id = f"mp-preapproval-{uuid.uuid4().hex}"
         idem_key = f"preapproval:{preapproval_id}:cancelled"

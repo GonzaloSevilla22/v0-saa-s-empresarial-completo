@@ -63,6 +63,10 @@ vi.mock("@/components/dashboard/ai-alerts", () => ({ AiAlerts: () => null }))
 vi.mock("@/components/dashboard/TrialBanner", () => ({ TrialBanner: () => null }))
 vi.mock("@/components/branches/BranchFilter", () => ({ BranchFilter: () => null }))
 vi.mock("@/components/dashboard/KpiSummaryBlock", () => ({ KpiSummaryBlock: () => null }))
+// tablero-explicable: el nombre de la sucursal activa lo resuelve useBranches (React Query).
+vi.mock("@/hooks/data/use-active-branch-name", () => ({
+  useActiveBranchName: () => null,
+}))
 vi.mock("@/components/dashboard/PeriodFilter", () => ({ PeriodFilter: () => null }))
 // cobranzas-panel: la 5ta tarjeta consume useReceivablesSummary via
 // python-client, que lanza en import-time sin NEXT_PUBLIC_BACKEND_URL —

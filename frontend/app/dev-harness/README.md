@@ -142,3 +142,11 @@ layout ni scroll ante `wheel`/`touchmove` (RED de `tasks.md` 1.1/2.1).
   pantalla pública `/invitacion/<token>` sin sesión; capturas en
   `INVITACIONES_SHOT_DIR`, por defecto
   `../openspec/changes/invitaciones-hardening/evidence/visual`).
+- `/dev-harness/tablero-explicable?theme=light|dark&clamped=1&ai=loading|ok|429` —
+  tablero-explicable: el gráfico de ventas, las tarjetas KPI con «de dónde
+  sale», la campana y el Resumen IA del día REALES, sin sesión ni backend. Sin
+  cuenta activa los hooks no consultan: el arnés siembra la caché de react-query
+  con las mismas claves (`accountId = null`) y `window.fetch` hacia Supabase y el
+  backend se intercepta. Spec: `e2e/harness/tablero-explicable-visual.spec.ts`
+  (capturas en `TABLERO_SHOT_DIR`, por defecto
+  `../openspec/changes/tablero-explicable/evidence`).

@@ -57,9 +57,12 @@ export interface UseSalesEvolutionParams {
   bucket: EvolutionBucket
   branchId?: string | null
   canal?: string | null
+  /** tablero-explicable (D1): permite encadenar una segunda lectura que
+   *  depende de la primera (los puntos del período anterior). */
+  enabled?: boolean
 }
 
-export function useSalesEvolution({ start, end, bucket, branchId = null, canal = null }: UseSalesEvolutionParams) {
+export function useSalesEvolution({ start, end, bucket, branchId = null, canal = null, enabled = true }: UseSalesEvolutionParams) {
   const { user } = useAuth()
   const accountId = user?.accountId ?? null
 
@@ -70,7 +73,7 @@ export function useSalesEvolution({ start, end, bucket, branchId = null, canal =
       const raw = await pythonClient.get<SalesEvolutionRaw>(`/reports/statistics/evolution?${qs}`)
       return mapSalesEvolution(raw)
     },
-    enabled: !!accountId && !!start && !!end,
+    enabled: enabled && !!accountId && !!start && !!end,
     placeholderData: keepPreviousData,
   })
 }

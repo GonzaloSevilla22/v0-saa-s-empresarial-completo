@@ -1,19 +1,15 @@
 "use client"
 
-import { useMemo, useState } from "react"
-import { Bell } from "lucide-react"
+import { useState } from "react"
+import { useRouter } from "next/navigation"
+import { Bell, X } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import { createClient } from "@/lib/supabase/client"
-import { useNotifications, markNotificationRead } from "@/hooks/data/use-notifications"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { useNotifications } from "@/hooks/data/use-notifications"
+import { notificationDestinationLabel, notificationHref } from "@/lib/notification-routes"
 import type { Notification, NotificationSeverity } from "@/lib/types"
 
 const SEVERITY_DOT_CLASS: Record<NotificationSeverity, string> = {
@@ -38,40 +34,27 @@ const TYPE_LABELS: Record<Notification["type"], string> = {
   PayablesOverdueDigest: "Deuda vencida con proveedores",
 }
 
+function labelOf(notification: Notification): string {
+  return TYPE_LABELS[notification.type] ?? notification.type
+}
+
 /**
- * v3-notifications-realtime (D7 design.md): campana de notificaciones en el
- * header. Badge de no-leídas + dropdown con las últimas N + marcar-como-leída.
- * Alimentada por useNotifications (React Query + Supabase Realtime
- * postgres_changes) — sin polling.
+ * v3-notifications-realtime (D7 design.md) + tablero-explicable (D6): campana
+ * de notificaciones en el header. Badge de no leídas (total exacto) + panel con
+ * las últimas N no leídas, cada una descartable o navegable a su alerta.
+ * Alimentada por useNotifications (React Query + Supabase Realtime) — sin
+ * polling. Descartar y navegar marcan leída de forma optimista.
  */
 export function NotificationBell() {
-  const { notifications, unreadCount, isLoading } = useNotifications()
-  const supabase = useMemo(() => createClient(), [])
-  const [pendingIds, setPendingIds] = useState<Set<string>>(new Set())
-
-  async function handleMarkRead(notification: Notification) {
-    if (notification.read || pendingIds.has(notification.id)) return
-
-    setPendingIds((prev) => new Set(prev).add(notification.id))
-    try {
-      await markNotificationRead(supabase, notification.id)
-    } catch {
-      // best-effort: si falla, el badge simplemente no baja hasta el próximo resync
-    } finally {
-      setPendingIds((prev) => {
-        const next = new Set(prev)
-        next.delete(notification.id)
-        return next
-      })
-    }
-  }
+  const { notifications, unreadCount, isLoading, markRead, markAllRead } = useNotifications()
 
   return (
     <NotificationBellView
       notifications={notifications}
       unreadCount={unreadCount}
       isLoading={isLoading}
-      onMarkRead={handleMarkRead}
+      onMarkRead={(notification) => markRead(notification.id)}
+      onMarkAllRead={markAllRead}
     />
   )
 }
@@ -86,15 +69,26 @@ export function NotificationBellView({
   unreadCount,
   isLoading,
   onMarkRead,
+  onMarkAllRead,
 }: {
   notifications: Notification[]
   unreadCount: number
   isLoading: boolean
   onMarkRead: (notification: Notification) => void
+  onMarkAllRead: () => void
 }) {
+  const router = useRouter()
+  const [open, setOpen] = useState(false)
+
+  function openNotification(notification: Notification, href: string) {
+    onMarkRead(notification)
+    router.push(href)
+    setOpen(false)
+  }
+
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
         <Button
           variant="ghost"
           size="icon"
@@ -111,41 +105,96 @@ export function NotificationBellView({
           )}
           <span className="sr-only">Notificaciones</span>
         </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-80 bg-popover border-border">
+      </PopoverTrigger>
+      <PopoverContent
+        align="end"
+        className="w-80 max-w-[calc(100vw-2rem)] bg-popover border-border p-0"
+        aria-label="Notificaciones"
+      >
+        <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
+          <div className="flex flex-col">
+            <span className="text-sm font-medium text-foreground">Notificaciones</span>
+            {unreadCount > 0 && (
+              <span className="text-xs text-muted-foreground">{unreadCount} sin leer</span>
+            )}
+          </div>
+          {notifications.length > 0 && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs"
+              onClick={onMarkAllRead}
+            >
+              Marcar todas como leídas
+            </Button>
+          )}
+        </div>
+
         {isLoading && (
-          <DropdownMenuItem disabled>Cargando notificaciones…</DropdownMenuItem>
+          <p className="px-3 py-4 text-sm text-muted-foreground">Cargando notificaciones…</p>
         )}
         {!isLoading && notifications.length === 0 && (
-          <DropdownMenuItem disabled>Sin notificaciones</DropdownMenuItem>
+          <p className="px-3 py-4 text-sm text-muted-foreground">Sin notificaciones</p>
         )}
         {!isLoading && notifications.length > 0 && (
           // qa-integral-modulos (G5/H5): el límite de alto va en el VIEWPORT
           // interno, no en el root — en el root (overflow-hidden) recortaba el
           // panel a 6 de 15 notificaciones sin habilitar ningún scroll.
           <ScrollArea viewportClassName="max-h-80">
-            {notifications.map((notification) => (
-              <DropdownMenuItem
-                key={notification.id}
-                onClick={() => onMarkRead(notification)}
-                className="flex items-start gap-2 py-2"
-              >
-                <span
-                  className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${SEVERITY_DOT_CLASS[notification.severity]} ${notification.read ? "opacity-30" : ""}`}
-                />
-                <span className="flex flex-col gap-0.5">
-                  <span className={notification.read ? "text-muted-foreground" : "font-medium"}>
-                    {TYPE_LABELS[notification.type] ?? notification.type}
-                  </span>
-                  <span className="text-xs text-muted-foreground">
-                    {new Date(notification.createdAt).toLocaleString("es-AR")}
-                  </span>
-                </span>
-              </DropdownMenuItem>
-            ))}
+            <ul className="flex flex-col">
+              {notifications.map((notification) => {
+                const label = labelOf(notification)
+                const href = notificationHref(notification)
+                const destination = notificationDestinationLabel(notification.type)
+                const date = new Date(notification.createdAt).toLocaleString("es-AR")
+                const content = (
+                  <>
+                    <span
+                      className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${SEVERITY_DOT_CLASS[notification.severity]}`}
+                    />
+                    <span className="flex min-w-0 flex-col gap-0.5">
+                      <span className="text-sm font-medium text-foreground">{label}</span>
+                      <span className="text-xs text-muted-foreground">{date}</span>
+                      {href && destination && (
+                        <span className="text-xs font-medium text-primary">{destination}</span>
+                      )}
+                    </span>
+                  </>
+                )
+
+                return (
+                  <li
+                    key={notification.id}
+                    className="flex items-start gap-1 border-b border-border/60 last:border-b-0 px-1"
+                  >
+                    {href ? (
+                      <button
+                        type="button"
+                        onClick={() => openNotification(notification, href)}
+                        className="flex min-w-0 flex-1 items-start gap-2 rounded-sm px-2 py-2 text-left hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      >
+                        {content}
+                      </button>
+                    ) : (
+                      <div className="flex min-w-0 flex-1 items-start gap-2 px-2 py-2">{content}</div>
+                    )}
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="mt-1 h-7 w-7 shrink-0 text-muted-foreground hover:text-foreground"
+                      aria-label={`Descartar: ${label}`}
+                      onClick={() => onMarkRead(notification)}
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </Button>
+                  </li>
+                )
+              })}
+            </ul>
           </ScrollArea>
         )}
-      </DropdownMenuContent>
-    </DropdownMenu>
+      </PopoverContent>
+    </Popover>
   )
 }

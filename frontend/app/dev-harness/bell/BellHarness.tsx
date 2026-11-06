@@ -7,6 +7,10 @@
  * 6 visibles, 9 inalcanzables) y un control sano con 3.
  *
  * Los specs de e2e/harness/g5-bell-scroll.spec.ts fijan el contrato acá.
+ *
+ * tablero-explicable (D6): la campana pasó de DropdownMenu a Popover con filas
+ * accionables — el contrato de scroll de G5 se conserva (15 filas, viewport
+ * con scroll); el panel ahora es un `dialog` y las filas son `listitem`.
  */
 
 import { NotificationBellView } from "@/components/dashboard/NotificationBell"
@@ -52,6 +56,7 @@ export function BellHarness() {
           unreadCount={MANY.filter((n) => !n.read).length}
           isLoading={false}
           onMarkRead={() => {}}
+          onMarkAllRead={() => {}}
         />
       </section>
 
@@ -62,6 +67,7 @@ export function BellHarness() {
           unreadCount={1}
           isLoading={false}
           onMarkRead={() => {}}
+          onMarkAllRead={() => {}}
         />
       </section>
     </div>

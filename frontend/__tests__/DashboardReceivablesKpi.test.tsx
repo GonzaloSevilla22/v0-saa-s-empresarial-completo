@@ -42,7 +42,9 @@ vi.mock("@/components/three/Celebration3D", () => ({
   Celebration3D: () => null,
 }))
 vi.mock("@/components/dashboard/sales-chart", () => ({
-  SalesChart: () => <div data-testid="sales-chart-stub" />,
+  SalesChart: ({ branchId }: { branchId?: string | null }) => (
+    <div data-testid="sales-chart-stub" data-branch={branchId ?? ""} />
+  ),
 }))
 vi.mock("@/components/dashboard/ai-summary-card", () => ({
   AiSummaryCard: () => null,
@@ -73,6 +75,10 @@ vi.mock("@/components/branches/BranchFilter", () => ({
 }))
 vi.mock("@/components/dashboard/KpiSummaryBlock", () => ({
   KpiSummaryBlock: () => <div data-testid="kpi-summary-block-stub" />,
+}))
+// tablero-explicable: el nombre de la sucursal activa lo resuelve useBranches (React Query).
+vi.mock("@/hooks/data/use-active-branch-name", () => ({
+  useActiveBranchName: () => null,
 }))
 vi.mock("@/components/dashboard/PeriodFilter", () => ({
   PeriodFilter: () => null,
@@ -159,5 +165,18 @@ describe("DashboardPage — KPI Por cobrar", () => {
     }
     // …y el total mostrado es el de la cuenta, intacto bajo el filtro.
     expect(screen.getAllByText(/567\.000/).length).toBeGreaterThan(0)
+  })
+
+  // tablero-explicable (task 1.4): el gráfico de ventas respeta la sucursal
+  // activa del Tablero (antes ignoraba el BranchFilter).
+  it("el gráfico de ventas recibe la sucursal activa del Tablero", () => {
+    searchParams = new URLSearchParams("branch=branch-99")
+    render(<DashboardPage />)
+    expect(screen.getByTestId("sales-chart-stub")).toHaveAttribute("data-branch", "branch-99")
+  })
+
+  it("sin sucursal elegida el gráfico recibe null (todas)", () => {
+    render(<DashboardPage />)
+    expect(screen.getByTestId("sales-chart-stub")).toHaveAttribute("data-branch", "")
   })
 })

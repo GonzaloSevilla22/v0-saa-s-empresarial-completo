@@ -13,7 +13,6 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { NumericInput } from "@/components/ui/numeric-input"
 import { Label } from "@/components/ui/label"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useUnitsOfMeasure } from "@/hooks/use-units-of-measure"
 import { useBarcodeScanner } from "@/hooks/use-barcode-scanner"
 import { useScaleSettings } from "@/hooks/data/use-scale-settings"
@@ -25,25 +24,14 @@ import { formatStock } from "@/lib/format-unit"
 import { CAN_CONFIGURE, hasCapability } from "@/lib/rbac-capabilities"
 import { nextPriceOnCostChange, SUGGESTED_MARKUP_FACTOR } from "@/lib/product-pricing"
 import { cn } from "@/lib/utils"
+import { NO_BASE_UNIT, UnitSelect } from "@/components/forms/UnitSelect"
 import { toast } from "sonner"
 import { Barcode, ScanLine, SlidersHorizontal, X } from "lucide-react"
 
-/**
- * ventas-unidades-conversion (decisión 7, OK del PO 2026-09-27): valor del
- * selector para la opción explícita "Sin unidad". Radix no admite un
- * `SelectItem` con `value=""` (el vacío queda reservado para el placeholder
- * "Seleccionar unidad", que significa "no lo toqué"); los ids de unidad son
- * uuid, así que el centinela no colisiona.
- */
-export const NO_BASE_UNIT = "none"
 
-const UNIT_TYPE_LABELS: Record<string, string> = {
-  unit: "Unidades",
-  weight: "Peso",
-  volume: "Volumen",
-  length: "Longitud",
-  custom: "Personalizadas",
-}
+
+// `NO_BASE_UNIT` vive con el selector; se re-exporta para los formularios.
+export { NO_BASE_UNIT }
 
 // ── Nombre ───────────────────────────────────────────────────────────────────
 
@@ -320,16 +308,6 @@ export function ProductUnitField({ label = "Unidad de medida", value, onChange, 
   const { roles, rolesResolved } = useOrgRole()
   const canConfigure = hasCapability(roles, CAN_CONFIGURE, rolesResolved)
 
-  const unitGroups = useMemo(() => {
-    const groupMap = new Map<string, typeof units>()
-    for (const u of units) {
-      const arr = groupMap.get(u.type) ?? []
-      arr.push(u)
-      groupMap.set(u.type, arr)
-    }
-    return groupMap
-  }, [units])
-
   if (units.length === 0) return null
 
   if (hasHistory) {
@@ -359,27 +337,7 @@ export function ProductUnitField({ label = "Unidad de medida", value, onChange, 
   return (
     <div className="flex flex-col gap-2">
       <Label className="text-foreground">{label}</Label>
-      <Select value={value} onValueChange={onChange}>
-        <SelectTrigger className="bg-background border-border text-foreground">
-          <SelectValue placeholder="Seleccionar unidad" />
-        </SelectTrigger>
-        <SelectContent className="bg-popover border-border max-h-56">
-          {/* Decisión 7: opción explícita para desasignar la unidad base. */}
-          <SelectItem value={NO_BASE_UNIT}>Sin unidad</SelectItem>
-          {Array.from(unitGroups.entries()).map(([type, groupUnits]) => (
-            <div key={type}>
-              <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                {UNIT_TYPE_LABELS[type] ?? type}
-              </div>
-              {groupUnits.map((u) => (
-                <SelectItem key={u.id} value={u.id}>
-                  {u.name} <span className="text-muted-foreground">({u.symbol})</span>
-                </SelectItem>
-              ))}
-            </div>
-          ))}
-        </SelectContent>
-      </Select>
+      <UnitSelect value={value} onChange={onChange} />
       {/* Decisión 7: quitar la unidad sigue sujeto a D11/D-C — se avisa antes de
           guardar, con el mismo molde que la ayuda del costo. */}
       {savedUnitId && value === NO_BASE_UNIT && (

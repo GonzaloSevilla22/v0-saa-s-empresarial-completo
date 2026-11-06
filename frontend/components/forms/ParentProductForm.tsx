@@ -7,6 +7,7 @@ import { ProductCategorySelect } from "@/components/product-categories/ProductCa
 import { toast } from "sonner"
 import { isBaseUnitLockedError, productSaveErrorMessage } from "@/lib/product-form-errors"
 import { NO_BASE_UNIT, ProductNameField, ProductUnitField } from "@/components/forms/ProductFormFields"
+import { RelabelUnitDialog } from "@/components/products/RelabelUnitDialog"
 import type { ParentSummary } from "@/components/forms/VariantProductForm"
 import type { Product } from "@/lib/types"
 
@@ -34,6 +35,7 @@ export function ParentProductForm({ onSuccess, initialData, onCreated }: ParentP
   const [name, setName] = useState(initialData?.name || "")
   const [categoryId, setCategoryId] = useState<string | null>(initialData?.categoryId ?? null)
   const [baseUnitId, setBaseUnitId] = useState(initialData?.baseUnitId ?? "")
+  const [relabelOpen, setRelabelOpen] = useState(false)
 
   // La unidad es de la FAMILIA: si alguna variante tiene stock el selector libre
   // se reemplaza por «Corregir unidad» (D12). Sin historial conocido en el
@@ -43,6 +45,8 @@ export function ParentProductForm({ onSuccess, initialData, onCreated }: ParentP
     ? products.filter((p) => p.parentId === initialData.id).reduce((sum, p) => sum + p.stock, 0)
     : 0
   const hasHistory = !!initialData && familyStock !== 0
+  // El listado se refresca tras «Corregir unidad»: la unidad guardada es la VIVA, no la foto con la que se abrió.
+  const savedUnitId = (initialData && products.find((p) => p.id === initialData.id)?.baseUnitId) ?? initialData?.baseUnitId
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -103,6 +107,7 @@ export function ParentProductForm({ onSuccess, initialData, onCreated }: ParentP
   }
 
   return (
+    <>
     <form onSubmit={handleSubmit} className="flex flex-col gap-4">
       <ProductNameField value={name} onChange={setName} />
 
@@ -112,8 +117,9 @@ export function ParentProductForm({ onSuccess, initialData, onCreated }: ParentP
         label="Unidad de la familia"
         value={baseUnitId}
         onChange={setBaseUnitId}
-        savedUnitId={initialData?.baseUnitId}
+        savedUnitId={savedUnitId}
         hasHistory={hasHistory}
+        onCorrectUnit={() => setRelabelOpen(true)}
       />
       <p className="text-[11px] text-muted-foreground">
         Un producto con variantes no tiene precio, costo ni stock propios: cada variante carga los suyos.
@@ -123,5 +129,17 @@ export function ParentProductForm({ onSuccess, initialData, onCreated }: ParentP
         {initialData ? "Actualizar producto" : "Crear y agregar variantes"}
       </Button>
     </form>
+
+    {/* «Corregir unidad» se monta FUERA del <form>: un portal de React propaga los eventos sintéticos al form padre. */}
+    {initialData && relabelOpen && (
+      <RelabelUnitDialog
+        open
+        onOpenChange={setRelabelOpen}
+        product={initialData}
+        exampleQuantity={familyStock}
+        onDone={setBaseUnitId}
+      />
+    )}
+    </>
   )
 }

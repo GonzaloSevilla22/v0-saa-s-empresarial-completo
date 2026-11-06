@@ -13,6 +13,7 @@ import { useOrgRole } from "@/hooks/useOrgRole"
 import { CAN_STOCK, hasCapability } from "@/lib/rbac-capabilities"
 import { isBaseUnitLockedError, productSaveErrorMessage } from "@/lib/product-form-errors"
 import { StockAdjustmentModal } from "@/components/stock/stock-adjustment-modal"
+import { RelabelUnitDialog } from "@/components/products/RelabelUnitDialog"
 import {
   BarcodeField,
   CostPriceFields,
@@ -52,6 +53,7 @@ export function SimpleProductForm({ onSuccess, initialData }: SimpleProductFormP
   const { roles, rolesResolved } = useOrgRole()
   const canAdjust = hasCapability(roles, CAN_STOCK, rolesResolved)
   const [adjustOpen, setAdjustOpen] = useState(false)
+  const [relabelOpen, setRelabelOpen] = useState(false)
 
   const [name, setName] = useState(initialData?.name || "")
   // productos-categorias-sku (D1): la categoría se elige del catálogo de la
@@ -82,7 +84,15 @@ export function SimpleProductForm({ onSuccess, initialData }: SimpleProductFormP
   // lo refleja (initialData es la foto del momento en que se abrió).
   const liveStock = (initialData && products.find((p) => p.id === initialData.id)?.stock) ?? initialData?.stock ?? 0
   const currentUnitSymbol = units.find((u) => u.id === initialData?.baseUnitId)?.symbol
-  const hasVariants = !!initialData && products.some((p) => p.parentId === initialData.id)
+  const children = initialData ? products.filter((p) => p.parentId === initialData.id) : []
+  const hasVariants = children.length > 0
+  // productos-padre-variantes (D12): con stock en la familia la unidad ya no se elige libremente —
+  // se corrige con «Corregir unidad» (dueño/administrador). Sin stock conocido, el selector de siempre
+  // (si el servidor igual lo traba, 409 base_unit_locked, el selector vuelve a la unidad guardada).
+  const familyStock = liveStock + children.reduce((sum, p) => sum + p.stock, 0)
+  const hasUnitHistory = !!initialData && stockControlType === "tracked" && familyStock !== 0
+  // El listado se refresca tras «Corregir unidad»: la unidad guardada es la VIVA, no la foto con la que se abrió.
+  const savedUnitId = (initialData && products.find((p) => p.id === initialData.id)?.baseUnitId) ?? initialData?.baseUnitId
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -216,7 +226,9 @@ export function SimpleProductForm({ onSuccess, initialData }: SimpleProductFormP
             <ProductUnitField
               value={baseUnitId}
               onChange={setBaseUnitId}
-              savedUnitId={initialData?.baseUnitId}
+              savedUnitId={savedUnitId}
+              hasHistory={hasUnitHistory}
+              onCorrectUnit={() => setRelabelOpen(true)}
             />
           )}
         </div>
@@ -246,6 +258,16 @@ export function SimpleProductForm({ onSuccess, initialData }: SimpleProductFormP
           sintéticos al form padre). Al cerrarlo el foco vuelve al botón «Ajustar stock». */}
       {initialData && adjustOpen && (
         <StockAdjustmentModal open onOpenChange={setAdjustOpen} product={{ ...initialData, stock: liveStock }} />
+      )}
+
+      {initialData && relabelOpen && (
+        <RelabelUnitDialog
+          open
+          onOpenChange={setRelabelOpen}
+          product={initialData}
+          exampleQuantity={familyStock}
+          onDone={setBaseUnitId}
+        />
       )}
     </>
   )

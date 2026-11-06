@@ -154,12 +154,15 @@ describe("ProductForm — \"Sin unidad\" rechazado por D11 (409 base_unit_locked
     vi.clearAllMocks()
   })
 
+  // productos-padre-variantes (D12): con stock en la familia el selector libre se reemplaza por «Corregir unidad»
+  // (ver product-form-corregir-unidad.test.tsx). Estos casos son la CARRERA: el formulario se abrió con stock 0
+  // y otro escritor lo movió antes de guardar, así que el servidor igual responde 409.
   it("muestra el mensaje accionable del backend y vuelve el selector a la unidad que conserva", async () => {
     updateProductMock.mockRejectedValueOnce(
       new PythonApiError(LOCKED_DETAIL, 409, { code: "base_unit_locked", field: "base_unit_id" }),
     )
     const onSuccess = vi.fn()
-    render(<ProductForm onSuccess={onSuccess} initialData={{ ...EXISTING_KG, stock: 12 }} />)
+    render(<ProductForm onSuccess={onSuccess} initialData={EXISTING_KG} />)
     await chooseNoUnit(/kilogramo/i)
     fireEvent.click(screen.getByRole("button", { name: /actualizar producto/i }))
 
@@ -173,7 +176,7 @@ describe("ProductForm — \"Sin unidad\" rechazado por D11 (409 base_unit_locked
     const triggerDetail =
       "base_unit_locked: el producto p1 ya tiene stock o movimientos en su unidad base actual"
     updateProductMock.mockRejectedValueOnce(new PythonApiError(triggerDetail, 409, { code: "P0409" }))
-    render(<ProductForm onSuccess={vi.fn()} initialData={{ ...EXISTING_KG, stock: 12 }} />)
+    render(<ProductForm onSuccess={vi.fn()} initialData={EXISTING_KG} />)
     await chooseNoUnit(/kilogramo/i)
     fireEvent.click(screen.getByRole("button", { name: /actualizar producto/i }))
 

@@ -3,21 +3,16 @@
 import Link from "next/link"
 import { Card, CardContent } from "@/components/ui/card"
 import { cn } from "@/lib/utils"
+import { Info } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
+import { KpiExplainTrigger, type KpiExplanationProp } from "@/components/dashboard/KpiExplainTrigger"
 
-interface KpiCardProps {
+interface KpiCardBaseProps {
   title: string
   value: string
   change?: number
   icon: LucideIcon
   iconColor?: string
-  /**
-   * cobranzas-panel (D7): convierte la tarjeta entera en un enlace con foco
-   * visible. Definido acá, en la capa canónica, para que el área clickeable
-   * y el aria queden resueltos UNA vez para todas las tarjetas — no envolver
-   * en <Link> ad-hoc desde las páginas.
-   */
-  href?: string
   /**
    * estadisticas-ventas E1 (task 4.4): rótulo de la variación. Las tarjetas
    * del Tablero comparan contra ayer; las del módulo de estadísticas, contra
@@ -32,7 +27,32 @@ interface KpiCardProps {
   caption?: string
 }
 
-export function KpiCard({ title, value, change, icon: Icon, iconColor = "text-primary", href, changeLabel = "vs ayer", caption }: KpiCardProps) {
+/**
+ * `href` y `explanation` son mutuamente excluyentes (tablero-explicable D4):
+ * una tarjeta o lleva a otra pantalla («Por cobrar» → /cobranzas) o abre «de
+ * dónde sale este número», no las dos cosas.
+ */
+type KpiCardProps = KpiCardBaseProps &
+  (
+    | {
+        /**
+         * cobranzas-panel (D7): convierte la tarjeta entera en un enlace con
+         * foco visible. Definido acá, en la capa canónica, para que el área
+         * clickeable y el aria queden resueltos UNA vez para todas las
+         * tarjetas — no envolver en <Link> ad-hoc desde las páginas.
+         */
+        href?: string
+        explanation?: never
+      }
+    | {
+        href?: never
+        /** tablero-explicable (D4): la tarjeta es un botón que abre el
+         *  diálogo «de dónde sale este número». */
+        explanation?: KpiExplanationProp
+      }
+  )
+
+export function KpiCard({ title, value, change, icon: Icon, iconColor = "text-primary", href, explanation, changeLabel = "vs ayer", caption }: KpiCardProps) {
   const card = (
     <Card
       className={cn(
@@ -43,8 +63,9 @@ export function KpiCard({ title, value, change, icon: Icon, iconColor = "text-pr
       <CardContent className="p-4 md:p-6">
         <div className="flex items-start justify-between">
           <div className="flex flex-col gap-1">
-            <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+            <span className="flex items-center gap-1 text-xs font-medium text-muted-foreground uppercase tracking-wider">
               {title}
+              {explanation && <Info aria-hidden="true" className="h-3 w-3 shrink-0 opacity-70" />}
             </span>
             <span className="text-2xl font-bold text-card-foreground tracking-tight">
               {value}
@@ -80,6 +101,14 @@ export function KpiCard({ title, value, change, icon: Icon, iconColor = "text-pr
       >
         {card}
       </Link>
+    )
+  }
+
+  if (explanation) {
+    return (
+      <KpiExplainTrigger explanation={explanation} title={title} value={value} className="rounded-lg">
+        {card}
+      </KpiExplainTrigger>
     )
   }
 

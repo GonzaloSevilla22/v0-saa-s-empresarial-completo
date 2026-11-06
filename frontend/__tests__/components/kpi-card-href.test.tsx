@@ -8,7 +8,8 @@
 
 import React from "react"
 import { describe, it, expect, vi } from "vitest"
-import { render, screen } from "@testing-library/react"
+import { render, screen, within } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
 import "@testing-library/jest-dom"
 import { DollarSign } from "lucide-react"
 
@@ -60,5 +61,59 @@ describe("KpiCard — prop changeLabel", () => {
     render(<KpiCard title="Facturación neta" value="$5.900" change={-8} icon={DollarSign} changeLabel="vs período anterior" />)
     expect(screen.getByText(/-8% vs período anterior/)).toBeInTheDocument()
     expect(screen.queryByText(/vs ayer/)).not.toBeInTheDocument()
+  })
+})
+
+// tablero-explicable (D4, task 2.4): `explanation` convierte la tarjeta en un
+// botón que abre «de dónde sale»; es excluyente con `href` (Por cobrar).
+describe("KpiCard — prop explanation (tablero-explicable)", () => {
+  const CONTEXT = { periodDate: new Date("2026-11-15T15:00:00.000Z"), branchName: null }
+
+  it("con explanation es un botón con aria-haspopup y nombre «<título>: <valor>. Ver de dónde sale»", () => {
+    render(
+      <KpiCard
+        title="Gastos del mes"
+        value="$80.000"
+        icon={DollarSign}
+        explanation={{ id: "month_expenses", context: CONTEXT }}
+      />,
+    )
+    const button = screen.getByRole("button", { name: "Gastos del mes: $80.000. Ver de dónde sale" })
+    expect(button).toHaveAttribute("aria-haspopup", "dialog")
+    expect(screen.queryByRole("link")).not.toBeInTheDocument()
+  })
+
+  it("abre el diálogo de la tarjeta y lo cierra con la cruz", async () => {
+    const user = userEvent.setup()
+    render(
+      <KpiCard
+        title="Productos en alerta"
+        value="3"
+        icon={DollarSign}
+        explanation={{ id: "critical_stock", context: CONTEXT }}
+      />,
+    )
+    await user.click(screen.getByRole("button", { name: /Productos en alerta/ }))
+    const dialog = await screen.findByRole("dialog", { name: "Productos en alerta" })
+    expect(within(dialog).getByText(/Es una foto de ahora/)).toBeInTheDocument()
+
+    await user.click(within(dialog).getByRole("button", { name: "Cerrar" }))
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+  })
+
+  it("con href (Por cobrar) sigue siendo un enlace y NO abre ningún diálogo", async () => {
+    const user = userEvent.setup()
+    render(<KpiCard title="Por cobrar" value="$1" icon={DollarSign} href="/cobranzas" />)
+    await user.click(screen.getByRole("link"))
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    expect(screen.queryByRole("button")).not.toBeInTheDocument()
+  })
+
+  it("el tipo impide pasar href y explanation juntos", () => {
+    const element = (
+      // @ts-expect-error href y explanation son mutuamente excluyentes
+      <KpiCard title="X" value="1" icon={DollarSign} href="/cobranzas" explanation={{ id: "month_sales", context: CONTEXT }} />
+    )
+    expect(element).toBeTruthy()
   })
 })

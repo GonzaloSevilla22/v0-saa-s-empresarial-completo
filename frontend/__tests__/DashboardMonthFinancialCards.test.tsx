@@ -120,6 +120,10 @@ const kpiSummaryBlockMock = vi.fn((_props: KpiSummaryBlockProps) => null)
 vi.mock("@/components/dashboard/KpiSummaryBlock", () => ({
   KpiSummaryBlock: (props: KpiSummaryBlockProps) => kpiSummaryBlockMock(props),
 }))
+// tablero-explicable: el nombre de la sucursal activa lo resuelve useBranches (React Query).
+vi.mock("@/hooks/data/use-active-branch-name", () => ({
+  useActiveBranchName: () => null,
+}))
 vi.mock("@/components/dashboard/PeriodFilter", () => ({ PeriodFilter: () => null }))
 
 vi.mock("@/lib/services/aiInsightService", () => ({

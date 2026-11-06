@@ -76,6 +76,10 @@ vi.mock("@/components/branches/BranchFilter", () => ({
 vi.mock("@/components/dashboard/KpiSummaryBlock", () => ({
   KpiSummaryBlock: () => <div data-testid="kpi-summary-block-stub" />,
 }))
+// tablero-explicable: el nombre de la sucursal activa lo resuelve useBranches (React Query).
+vi.mock("@/hooks/data/use-active-branch-name", () => ({
+  useActiveBranchName: () => null,
+}))
 vi.mock("@/components/dashboard/PeriodFilter", () => ({
   PeriodFilter: () => null,
 }))

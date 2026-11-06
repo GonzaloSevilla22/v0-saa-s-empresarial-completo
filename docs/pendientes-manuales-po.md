@@ -4,7 +4,7 @@
 >
 > Convención: una sección por change o tema, con los pasos concretos y qué esperar en cada uno. Cuando lo hagas, marcá `[x]` o decime «pasó» / «falló en el paso N» y lo cierro.
 >
-> Última actualización: 2026-11-05.
+> Última actualización: 2026-11-06.
 
 ---
 
@@ -12,16 +12,16 @@
 
 En prod desde el 2026-10-17 (PRs #651, #652, #653, #654; archivado en #655). Nadie usó todavía una invitación real: hoy hay 0 invitaciones y 0 emails de invitación en la historia. Necesitás un **segundo email propio** (el de tu familiar), distinto del tuyo.
 
-- [ ] 1. Desde tu cuenta: **Organización → Invitar miembro**, cargá el email y elegí los roles. Tiene que llegarle un email «Te invitaron a sumarte a un equipo» con el botón **Ver la invitación**.
-- [ ] 2. Que abra el link **sin sesión** (ventana de incógnito): tiene que ver un mensaje genérico, sin el nombre del negocio, con «Ingresar» y «Crear cuenta».
-- [ ] 3. Que elija «Crear cuenta» y se registre **con ese mismo email**. Al verificar el email vuelve solo a la invitación.
-- [ ] 4. Con sesión ve la vista previa (tu negocio, quién invita, roles, vencimiento). Al **Aceptar** cae en el Tablero de tu negocio y el selector de cuentas del menú muestra las dos (la suya y la tuya).
+- [x] 1. Desde tu cuenta: **Organización → Invitar miembro**, cargá el email y elegí los roles. Tiene que llegarle un email «Te invitaron a sumarte a un equipo» con el botón **Ver la invitación**.
+- [x] 2. Que abra el link **sin sesión** (ventana de incógnito): tiene que ver un mensaje genérico, sin el nombre del negocio, con «Ingresar» y «Crear cuenta».
+- [x] 3. Que elija «Crear cuenta» y se registre **con ese mismo email**. Al verificar el email vuelve solo a la invitación.
+- [x] 4. Con sesión ve la vista previa (tu negocio, quién invita, roles, vencimiento). Al **Aceptar** cae en el Tablero de tu negocio y el selector de cuentas del menú muestra las dos (la suya y la tuya).
   - Nota (2026-11-06): el fix de cuenta cacheada al cambiar de negocio está en `main` desde #682 (Ventas y Stock mostraban la cuenta anterior). Repetí este paso estando parado en **Ventas** o **Productos** y también con «Nueva venta» abierta (2ª ronda #685: sucursal y caja), **recargando la página primero**.
-- [ ] 5. Que registre una **venta de prueba**: tiene que quedar en tu negocio, no en su cuenta personal. Después borrala.
-- [ ] 6. De vuelta en tu cuenta, en **Organización → Invitar miembro**: creá otra invitación a un email cualquiera, probá **Reenviar** (el link del primer email deja de servir) y **Revocar** (el link queda «no disponible»).
-- [ ] 7. Si todo pasó: decidí cuándo activar **«Enforce single session per user»** en el Dashboard de Supabase (Authentication → Settings). Con eso cada persona tiene que usar su propio usuario: dos dispositivos con el mismo login se desconectan entre sí.
+- [x] 5. Que registre una **venta de prueba**: tiene que quedar en tu negocio, no en su cuenta personal. Después borrala.
+- [x] 6. De vuelta en tu cuenta, en **Organización → Invitar miembro**: creá otra invitación a un email cualquiera, probá **Reenviar** (el link del primer email deja de servir) y **Revocar** (el link queda «no disponible»).
+- [x] 7. Si todo pasó: decidí cuándo activar **«Enforce single session per user»** en el Dashboard de Supabase (Authentication → Settings). Con eso cada persona tiene que usar su propio usuario: dos dispositivos con el mismo login se desconectan entre sí.
 
-Si algo falla, decime el número de paso: va en un PR de fix aparte.
+**✅ DEMO REAL PASÓ (PO, 2026-11-06)**: los 7 pasos confirmados. El paso 4 falló dos veces en el camino (Ventas/Stock de la cuenta anterior → #682; «Sin sucursal disponible» y caja cerrada → #685) y pasó tras recargar con #685 desplegado. El paso 7 quedó hecho: **«Enforce single session per user» = ON** en el Dashboard de Supabase (Authentication → Sessions), con «Time-box user sessions» y «Inactivity timeout» en 0 (nunca). Desde ahora, dos dispositivos con el mismo login se desconectan entre sí: cada persona usa su propio usuario.
 
 ## 2. Humos reales pendientes de changes ya en prod
 
@@ -138,3 +138,4 @@ Se completa a medida que se mergea cada PR. Orden pactado: changes de a uno, sie
 | 23:30 ART (5-nov) | Fix ad-hoc: al cambiar de negocio, Ventas y Stock mostraban la cuenta anterior (cache cargada con el token viejo; resincroniza antes de descartar; sin migración) | #682 | mergeado |
 | 23:59 ART (5-nov) | Archive productos-padre-variantes (specs `product-variants` y `product-bulk-pricing` nuevas; `units-of-measure`, `product-sku`, `product-category` modificadas; change cerrado) | #684 | mergeado |
 | 00:45 ART (6-nov) | Fix ad-hoc, 2ª ronda: «Sin sucursal disponible» y caja cerrada al cambiar de negocio (el descarte de caché corría antes del commit de React; ahora va en un efecto; sin migración). Recargar la página antes de probar | #685 | mergeado |
+| 01:15 ART (6-nov) | Demo real de `multiusuario-operativo` PASÓ (7/7, segundo usuario real; `Enforce single session per user` activado por el PO) — sólo docs | PR de docs | mergeado |

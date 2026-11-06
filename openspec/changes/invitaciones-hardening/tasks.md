@@ -1,4 +1,4 @@
-> Governance **CRÍTICO** (auth / invitaciones). Sign-off del PO por mandato (2026-11-06: *«dale hacelo»*), OQ-1..OQ-9 por la opción recomendada (`design.md` §Open Questions). **Tanda única** (D9): un PR de apply con DB + backend + Edge Function + frontend.
+> Governance **CRÍTICO** (auth / invitaciones). Sign-off del PO por mandato (2026-11-06: *«dale hacelo»*), OQ-2..OQ-9 por la opción recomendada (`design.md` §Open Questions). **Tanda única** (D9): un PR de apply con DB + backend + frontend (la Edge Function no cambia). **OQ-1 resuelta por el PO (2026-11-06): la URL pública `/invitacion/<token>` se conserva** (D6).
 >
 > **TDD estricto**: cada grupo arranca en RED (test o gate que falla por la razón correcta contra el código de `main`), luego GREEN, triangulación y refactor. Evidencia en `openspec/changes/invitaciones-hardening/evidence/` (`red.log`, `mutantes.log`, cadena de KPI, capturas).
 >
@@ -57,10 +57,9 @@
 - [ ] 4.3 `backend/tests/test_invitations_integration.py` contra la base real: el token sale del envío; la fila guarda el hash; reenviar invalida el anterior; el registro del envío conserva el token mientras está `pending` y lo pierde al marcarlo `sent`; el listado trae el estado de entrega.
 - [ ] 4.4 Backend completo como en CI (coverage ≥ 87 %, módulos de invitación al 100 %) e integración contra la base local.
 
-## 5. Edge Function `send-email` (plantilla)
+## 5. Plantilla del email (sin cambios, regresión)
 
-- [ ] 5.1 RED en `frontend/__tests__/send-email-templates.test.ts`: el botón de `org_invite` es `APP_URL + "/invitacion#" + encodeURIComponent(token)`; la ruta del enlace no contiene el token; los casos existentes (token sin forma → sin botón, URL ajena en metadata ignorada, escape del nombre) siguen.
-- [ ] 5.2 GREEN en `supabase/functions/_shared/email-templates.ts` (`inviteLink`). `deno check` desde una copia fuera del monorepo con `DENO_NO_PACKAGE_JSON=1`.
+- [ ] 5.1 Confirmar con `frontend/__tests__/send-email-templates.test.ts` (sin tocar la plantilla) que el botón de `org_invite` sigue siendo `APP_URL + "/invitacion/" + encodeURIComponent(token)` con el token del envío, y que los casos existentes (token sin forma → sin botón, URL ajena ignorada, escape del nombre) siguen verdes. Si la plantilla no cambia, `send-email` no necesita redeploy.
 
 ## 6. CI (`KPI_Validation.yml`)
 
@@ -69,16 +68,14 @@
 - [ ] 6.3 Cablear `test_invitaciones_hardening.sql` como paso del job (estricto, `ON_ERROR_STOP=1`), después de los gates de invitación existentes.
 - [ ] 6.4 Cadena completa de `KPI_Validation.yml` sobre `db reset` limpio en local: todo verde (guardar `evidence/cadena-kpi.txt`); `check_backend_table_refs` y `check_frontend_table_refs` OK.
 
-## 7. Frontend — pantalla pública `/invitacion` (D6)
+## 7. Frontend — la pantalla pública habla con la API por el cuerpo (D5, D6)
 
-- [ ] 7.1 RED en `__tests__/lib/invitation-next.test.ts`: `safeInvitationNext` acepta exactamente `/invitacion` y rechaza `/invitacion/<token>`, `/invitacion?x`, `/invitacion#t`, `/invitaciones` y rutas ajenas; `invitationLink(token, origin)` = `<origin>/invitacion#<token codificado>`; `isInvitationPath` = sólo `/invitacion`.
-- [ ] 7.2 GREEN en `lib/auth/invitation-next.ts`, `lib/auth/route-access.ts`, `lib/supabase/middleware.ts` (`no-referrer` + `noindex` sobre `/invitacion`).
-- [ ] 7.3 RED de las Server Actions (`app/invitacion/actions.ts`): `stashInvitationTokenAction` rechaza un token sin forma sin escribir cookie y, con uno válido, escribe `aliadata_invitation` `httpOnly`, `SameSite=Lax`, `Path=/invitacion`, `Max-Age` 7 días, `Secure` en producción (opciones de `lib/supabase/cookie-options.ts`); `previewInvitationAction` / `acceptInvitationAction` leen la cookie, llaman `POST /invitations/preview|accept` con el token en el CUERPO y el token de acceso de la sesión, nunca devuelven el token al cliente; la aceptación exitosa y un 404 borran la cookie; sin cookie responden «sin invitación» sin llamar al backend.
-- [ ] 7.4 GREEN de las Server Actions.
-- [ ] 7.5 RED en los tests de `components/invitations/InvitationAcceptance`: al montar con `#<token>` llama `stash` y hace `history.replaceState` a `/invitacion` (el hash desaparece); sin hash y sin cookie muestra «Abrí el enlace del email de invitación»; los estados actuales (sin sesión genérico con «Ingresar»/«Crear cuenta» que vuelven a `/invitacion`, identidad correcta con vista previa y Aceptar → `adoptActiveAccount`, otra identidad / vencida con un solo mensaje y «Cerrar sesión e ingresar con otro email», ya miembro) siguen; el token no aparece en el DOM ni en ningún `href`.
-- [ ] 7.6 GREEN: `app/invitacion/page.tsx` (nueva, metadatos `noindex`/`no-referrer` de la actual), `InvitationAcceptance` sobre las Server Actions, retiro de `app/invitacion/[token]/` y de `useInvitationPreview`/`useAcceptInvitation` si quedan sin consumidores (o adaptados); `queryKeys.invitations.preview` sin el token.
-- [ ] 7.7 Registro, ingreso y verificación de email: `app/auth/register/page.tsx`, `app/auth/verify-email/page.tsx`, `signUpAction` y el login usan el `next` constante `/invitacion`; tests de `signUpAction` (un `next` con token se descarta) y `protected-routes-coverage.test.ts` ajustados.
-- [ ] 7.8 «Copiar link» en `PendingInvitations` / `InviteMemberForm` copia `invitationLink(token, origin)` (fragmento).
+La ruta `/invitacion/[token]`, `safeInvitationNext`, `signUpAction`, `route-access`, el middleware (`no-referrer` + `noindex`), registro, ingreso, verificación de email y «Copiar link» **no cambian** (decisión del PO, D6). Nada de Server Actions ni cookie.
+
+- [ ] 7.1 RED en los tests de `hooks/data/use-invitations`: `useInvitationPreview(token)` hace `POST /invitations/preview` con `{ token }` en el cuerpo y `useAcceptInvitation(token)` hace `POST /invitations/accept` con `{ token }`; la URL de ninguna de las dos solicitudes contiene el token (aserción sobre la ruta del mock de `pythonClient`); la vista previa sigue sin reintentar ante un 404; `queryKeys.invitations.preview` no incluye el token en la clave.
+- [ ] 7.2 GREEN en `hooks/data/use-invitations.ts` y `lib/query-keys.ts` (la caché de la vista previa se distingue por un resumen no reversible o por la ruta actual, nunca por el token en claro; documentar la elección).
+- [ ] 7.3 Tests de `components/invitations/InvitationAcceptance` en verde sin cambios de comportamiento: sin sesión genérico con «Ingresar»/«Crear cuenta» que vuelven a `/invitacion/<token>`, identidad correcta con vista previa y Aceptar → `adoptActiveAccount`, otra identidad / vencida con un solo mensaje, ya miembro; ajustar sólo los mocks de red a las rutas nuevas.
+- [ ] 7.4 Grep de `/invitations/${` y `/invitations/{` en `frontend/`: ningún caller queda en las rutas viejas.
 
 ## 8. Frontend — estado de entrega en `/organizacion/invitar` (D7)
 
@@ -88,13 +85,13 @@
 
 ## 9. Humo local y verificación visual
 
-- [ ] 9.1 Humo local con build de producción (GoTrue, FastAPI real, PostgREST, Mailpit con el puente de correo de la tanda C): invitar → correo con enlace `/invitacion#…` → abrir sin sesión (la barra queda en `/invitacion`) → crear cuenta → volver a la invitación → aceptar → Tablero del negocio; reenviar (el enlace viejo da el mensaje único); revocar; forzar una entrega `failed` (fila a mano en el puente) → la lista la muestra y «Reenviar» no espera el enfriamiento. Verificar en los logs de FastAPI y de `next start` que **ninguna línea** contiene el token (`grep` del token en los logs = 0).
+- [ ] 9.1 Humo local con build de producción (GoTrue, FastAPI real, PostgREST, Mailpit con el puente de correo de la tanda C): invitar → correo con enlace `/invitacion/<token>` → abrir sin sesión → crear cuenta → volver a la invitación → aceptar → Tablero del negocio; ingresar con el mismo usuario desde un segundo navegador sin tocar la invitación → entra al negocio; reenviar (el enlace viejo da el mensaje único); revocar; forzar una entrega `failed` (fila a mano en el puente) → la lista la muestra y «Reenviar» no espera el enfriamiento. Verificar en el access log de FastAPI que **ninguna línea** contiene el token (`grep` del token = 0); en el de `next start` aparece sólo en la ruta de la pantalla (riesgo aceptado, D6).
 - [ ] 9.2 Red-team: `POST` directo a PostgREST sobre `account_invitations` con tokens de dueño, administrador, invitado y anónimo (`SELECT`/`INSERT`/`PATCH`/`DELETE` → 401/403, 0 filas); rutas viejas de la API → 404/405; token malformado, vencido y de otra identidad con cuerpo de error idéntico byte a byte.
-- [ ] 9.3 Capturas de `/organizacion/invitar` (con los cuatro estados de entrega) y de `/invitacion` (sin sesión, vista previa, mensaje único, «abrí el enlace») en 375 px y ≥1024 px, tema claro y oscuro, sin desborde horizontal; contraste AA de los distintivos (gate `token-contrast-aa`).
+- [ ] 9.3 Capturas de `/organizacion/invitar` (con los cuatro estados de entrega) en 375 px y ≥1024 px, tema claro y oscuro, sin desborde horizontal; contraste AA de los distintivos (gate `token-contrast-aa`); y una pasada de regresión de `/invitacion/<token>` (sin sesión, vista previa, mensaje único) en las mismas cuatro combinaciones.
 
 ## 10. Cierre del apply
 
 - [ ] 10.1 PR del apply con la evidencia, `CHANGES.md` (ficha del change pasa a APPLY) y `docs/pendientes-manuales-po.md` (sección del humo real del PO). `CLAUDE.md` no se toca (se actualiza en el archive).
-- [ ] 10.2 Post-merge en prod (sólo `SELECT`, a cargo del orquestador): `MAX(version) = 20261094000001`; sin `token`, con `token_hash`; 0 policies y 0 privilegios de tabla para `anon`/`authenticated` en `account_invitations`; 0 filas `org_invite` no pendientes con `metadata ? 'token'`; md5 de los cinco cuerpos = los del PR; ACLs; disparador presente; deploy de Render del commit (sin él las rutas nuevas dan 404) y redeploy de `send-email` (sin él el enlace sale con el path viejo).
-- [ ] 10.3 [PO] Humo real: invitar a un email propio, abrir el enlace sin sesión, registrarse o ingresar, aceptar, ver «Enviado» en la lista, reenviar.
-- [ ] 10.4 Archive del change (specs `account-invitation-flow` y `transactional-email-delivery` sincronizadas, `CLAUDE.md` ítem nuevo y fila de migraciones).
+- [ ] 10.2 Post-merge en prod (sólo `SELECT`, a cargo del orquestador): `MAX(version) = 20261094000001`; sin `token`, con `token_hash`; 0 policies y 0 privilegios de tabla para `anon`/`authenticated` en `account_invitations`; 0 filas `org_invite` no pendientes con `metadata ? 'token'`; md5 de los cinco cuerpos = los del PR; ACLs; disparador presente; deploy de Render del commit (sin él las rutas nuevas dan 404).
+- [ ] 10.3 [PO] Humo real: invitar a un email propio, abrir el enlace sin sesión (en la PC o el celular), registrarse o ingresar, aceptar, ingresar desde otro dispositivo sin volver a tocar la invitación, ver «Enviado» en la lista, reenviar.
+- [ ] 10.4 Archive del change (spec `account-invitation-flow` sincronizada, `CLAUDE.md` ítem nuevo y fila de migraciones).

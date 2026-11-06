@@ -57,24 +57,19 @@ La creación, el reenvío, la revocación y el listado de invitaciones SHALL exp
 ### Requirement: La pantalla de aceptación está ligada a la identidad invitada
 El sistema SHALL ofrecer una pantalla pública de aceptación, a la que se llega por el enlace del email, que NOT SHALL enviar la dirección de la página a terceros como referencia ni SHALL ser indexable.
 
-El token SHALL viajar en el fragmento del enlace (la parte que el navegador no envía al servidor) y NOT SHALL aparecer en la ruta ni en los parámetros de ninguna dirección: ni en la de la pantalla, ni en la API del backend —que SHALL recibirlo en el cuerpo de la solicitud—, ni en el destino de retorno del ingreso, del registro o de la verificación de email. Al abrir el enlace, la pantalla SHALL quitar el token de la dirección visible y conservarlo sólo en un almacenamiento del navegador no legible por el código de la página, de vida acotada, que SHALL borrarse al aceptar o ante una invitación no disponible.
+La pantalla SHALL enviar el token al backend en el cuerpo de la solicitud de vista previa y de aceptación, y el backend NOT SHALL recibirlo en la ruta ni en los parámetros de su dirección. El enlace de la pantalla SHALL poder abrirse desde cualquier dispositivo mientras la invitación esté vigente.
 
-- **Visitante sin sesión**: la pantalla SHALL mostrar un mensaje genérico, sin el nombre del negocio ni el de quien invita, con accesos para ingresar o crear una cuenta que, al completarse en el mismo navegador, SHALL devolverlo a la misma invitación.
+- **Visitante sin sesión**: la pantalla SHALL mostrar un mensaje genérico, sin el nombre del negocio ni el de quien invita, con accesos para ingresar o crear una cuenta que, al completarse, SHALL devolverlo a la misma invitación.
 - **Usuario autenticado cuyo email coincide con el invitado**: la pantalla SHALL mostrar el negocio, quien invita, los roles y el vencimiento, y SHALL ofrecer aceptar.
 - **Usuario autenticado cuyo email no coincide, o invitación vencida, revocada o ya utilizada**: la pantalla SHALL mostrar un único mensaje, indistinguible entre esos casos, con la opción de cerrar sesión e ingresar con otro email.
-- **Sin token** (la pantalla se abrió sin el enlace, o en otro navegador): la pantalla SHALL pedir que se abra el enlace del email de invitación.
 
 #### Scenario: Un visitante sin sesión no ve datos del negocio
 - **WHEN** alguien sin sesión abre el enlace de una invitación vigente
 - **THEN** ve un mensaje genérico con accesos para ingresar o registrarse, sin el nombre del negocio ni el de quien invita
 
-#### Scenario: El token no queda en la dirección
-- **WHEN** alguien abre el enlace de una invitación
-- **THEN** la dirección visible y el historial del navegador quedan en la pantalla de invitación sin el token, y ninguna solicitud al servidor lleva el token en su ruta o sus parámetros
-
 #### Scenario: Registrarse desde la invitación vuelve a la invitación
 - **GIVEN** un visitante sin cuenta que abrió el enlace de una invitación
-- **WHEN** crea su cuenta con el email invitado y completa el acceso en el mismo navegador
+- **WHEN** crea su cuenta con el email invitado y completa el acceso
 - **THEN** vuelve a la pantalla de esa invitación con la vista previa y la opción de aceptar
 
 #### Scenario: La identidad correcta ve la vista previa
@@ -86,6 +81,10 @@ El token SHALL viajar en el fragmento del enlace (la parte que el navegador no e
 - **GIVEN** una invitación vigente dirigida a un email
 - **WHEN** un usuario autenticado con otro email abre el enlace
 - **THEN** ve el mismo mensaje que vería con un enlace vencido o inexistente
+
+#### Scenario: El token no viaja en la ruta de la API
+- **WHEN** la pantalla pide la vista previa o acepta una invitación
+- **THEN** la solicitud al backend lleva el token en su cuerpo, y ni la ruta ni los parámetros de la solicitud lo contienen
 
 #### Scenario: Un token malformado responde igual que uno vencido
 - **WHEN** el backend recibe una vista previa o una aceptación con un token sin forma de token

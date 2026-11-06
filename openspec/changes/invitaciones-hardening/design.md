@@ -32,12 +32,13 @@ Los dos primeros `md5(prosrc)` coinciden con los que la tanda C dejó registrado
 ## Goals / Non-Goals
 
 **Goals:**
-- Que ningún almacenamiento persistente del sistema (tablas, logs de Render y Vercel, historial del navegador, parámetros `next`, enlace de confirmación de Supabase) conserve un token de invitación vigente en claro más allá del intento de entrega.
+- Que ninguna tabla ni el log de la API (Render) conserve un token de invitación vigente en claro más allá del intento de entrega. La URL pública conserva el token en el path por decisión del PO (D6): el log de Vercel, el historial del navegador, los `next` y el enlace de confirmación de Supabase lo siguen viendo, con el riesgo acotado por D1, D2 y la ligadura por identidad.
 - Que `account_invitations` sólo se escriba por las funciones `SECURITY DEFINER` del dominio, con un gate permanente.
 - Que el invitador vea si la última entrega falló y pueda reenviar sin esperar el enfriamiento.
-- Cero regresión del flujo que el PO probó: invitar, link sin sesión, registro, aceptar, Tablero del negocio, reenviar y revocar.
+- Cero regresión del flujo que el PO probó: invitar, link sin sesión, registro, aceptar, Tablero del negocio, reenviar y revocar. El enlace se sigue abriendo igual desde la PC o el celular.
 
 **Non-Goals:**
+- Cambiar la URL pública `/invitacion/<token>` (decisión del PO, D6).
 - La ligadura por email exacto (minúsculas): queda como está.
 - Rebotes posteriores a la aceptación del proveedor (no hay webhook de eventos de Resend).
 - Revocar `TRUNCATE` de `authenticated` en las otras 62 tablas (candidato `revoke-truncate-app-roles`).
@@ -77,19 +78,14 @@ Gate permanente nuevo `supabase/tests/test_invitaciones_hardening.sql` (molde `t
 ### D5 — La API recibe el token en el cuerpo
 `POST /invitations/preview` y `POST /invitations/accept` con `InvitationTokenRequest { token: str }` (Pydantic v2, `max_length=256`). La forma del token se sigue validando en el **service** (`_reject_malformed_token`) para que un token malformado responda el **mismo 404** que uno vencido, no un 422 distinguible. Se retiran `GET /invitations/{token}` y `POST /invitations/{token}/accept` en el mismo PR, sin convivencia: hay 0 invitaciones pendientes en prod y el único cliente es el frontend propio (ventana de deploy aceptada, ver Riesgos). El access log de Uvicorn/Render registra método y path, nunca el cuerpo. Ningún `logger` del módulo imprime el token (gate por grep en el test del router).
 
-### D6 — La pantalla pública: fragmento + cookie `httpOnly` + Server Actions
-El enlace pasa a **`APP_URL/invitacion#<token>`** (plantilla y «Copiar link»). El fragmento no viaja en ninguna request HTTP, así que no queda en Vercel, Render ni en el `Referer`.
+### D6 — URL pública: se conserva el path (decisión del PO 2026-11-06)
+La pantalla pública sigue en **`/invitacion/<token>`**, sin cambios: `no-referrer` + `noindex` sólo en esa ruta (middleware y metadatos), `safeInvitationNext`, `signUpAction`, `route-access`, registro, ingreso, verificación de email y «Copiar link» quedan como están, y la plantilla del email sigue armando `APP_URL/invitacion/<token>`. Lo único que cambia en la pantalla es que `InvitationAcceptance` manda el token —que sigue leyendo del path— en el **cuerpo** de `POST /invitations/preview` y `POST /invitations/accept` (D5).
 
-- `app/invitacion/page.tsx` (Server Component, público, `noindex` + `no-referrer` como hoy) monta un componente cliente que, al montar, lee `location.hash`, hace `history.replaceState(null, "", "/invitacion")` (el token sale del historial) y llama la Server Action `stashInvitationTokenAction(token)`, que valida la forma y guarda la cookie **`aliadata_invitation`** (`httpOnly`, `Secure` en producción, `SameSite=Lax`, `Path=/invitacion`, `Max-Age` 7 días, opciones desde `lib/supabase/cookie-options.ts`). Sin hash y sin cookie: estado «Abrí el enlace del email de invitación».
-- La vista previa y la aceptación son Server Actions (`previewInvitationAction`, `acceptInvitationAction`) que leen la cookie y llaman a FastAPI desde el servidor con el token de acceso de la sesión (mismo patrón que las rutas de `app/api/billing/`); el token nunca vuelve al JS del navegador. La aceptación exitosa y un 404 definitivo **borran la cookie**. Después de aceptar, el cliente sigue con `adoptActiveAccount` como hoy.
-- El `next` del ingreso, del registro y de la verificación de email pasa a ser la constante **`/invitacion`**: `safeInvitationNext` acepta exactamente esa cadena (más estrecha que la allow-list actual); `signUpAction` la re-valida. El enlace de confirmación de Supabase deja de llevar el token.
-- `isInvitationPath` pasa a `pathname === "/invitacion"`; `/invitacion` sigue en `PUBLIC_PREFIXES`. Se retira `app/invitacion/[token]/`.
-- Abrir la confirmación del registro en otro dispositivo o navegador ya no devuelve a la invitación (no hay cookie): la pantalla pide abrir de nuevo el enlace del email, que sigue vigente. Mismo navegador, otra pestaña: funciona (la cookie es del navegador, no de la pestaña).
+El PO lo pidió textual: *«deja la url como esta para que se pueda abrir tanto en pc como en celular sin tener que ir tocando la invitación cada vez; una vez aceptada la invitación, en cada dispositivo que se logue tiene que tener permitido entrar»*. Lo segundo ya es así: aceptar persiste la membresía en `account_members` y la cuenta activa en `profiles.active_account_id`; desde entonces el acceso depende sólo de iniciar sesión, en cualquier dispositivo, y la invitación no se vuelve a usar.
 
-**Alternativas (con costo/beneficio)**:
-- (a) **Dejar el path** con `no-referrer`/`noindex` (lo de hoy, más el arreglo de la API del D5): costo cero en el frontend; el token sigue en el log de Vercel (retención corta), el historial del navegador, los `next` y el enlace de confirmación de Supabase. Aceptable porque el token solo no alcanza (identidad), pero no cumple el objetivo.
-- (b-lite) **Fragmento + `sessionStorage`** y llamadas directas del navegador a FastAPI: menos piezas que la cookie, pero `sessionStorage` es por pestaña y el correo de confirmación del registro abre una pestaña nueva — se rompe justo el camino del invitado nuevo, que es el principal; `localStorage` lo arreglaría a costa de dejar el token legible por JS durante días.
-- (b) **Fragmento + cookie `httpOnly` + Server Actions** (elegida): costo moderado (tres Server Actions, un componente cliente chico, reescritura del camino de datos de `InvitationAcceptance`); saca el token de todo log y almacenamiento legible por JS, y conserva el camino del registro en el mismo navegador.
+**Riesgo aceptado**: el token queda en el log de requests de Vercel, en el historial del navegador, en el `next` del ingreso/registro y en el enlace de confirmación de Supabase. Lo mitigan el hash en reposo (D1: nada en la base sirve para reconstruirlo), la rotación por envío (D2: reenviar invalida los enlaces anteriores), el vencimiento a 7 días, el uso único (una aceptada ya no matchea) y la ligadura por identidad (sin la sesión del email invitado el token no sirve para nada, y la respuesta no confirma que exista).
+
+**Alternativas descartadas** (registradas para el archive): fragmento `#<token>` + cookie `httpOnly` + Server Actions (sacaba el token de todo log, pero el enlace dejaba de funcionar al confirmar el registro en otro dispositivo: justo lo que el PO no quiere) y fragmento + `sessionStorage` (se rompía al abrir el correo de confirmación en otra pestaña).
 
 ### D7 — Estado de la última entrega en el listado
 `rpc_list_account_invitations` cambia su tipo de retorno (suma dos columnas al final) → **`DROP FUNCTION` + `CREATE`**, nunca `CREATE OR REPLACE` (no se puede cambiar `RETURNS TABLE`), con `REVOKE`/`GRANT`/`COMMENT` re-emitidos. Columnas nuevas, derivadas del envío más reciente de esa invitación en `email_logs` (`ORDER BY created_at DESC LIMIT 1` en el mismo `LATERAL`):
@@ -106,30 +102,29 @@ El enfriamiento de 10 minutos por invitación ignora los envíos cuya fila qued�
 ### D9 — Migración única, tanda única
 `20261094000001_invitaciones_hardening.sql`: (0) preflight por `md5(prosrc)` de las cinco funciones (acepta el de partida de la tabla de arriba o el propio; aborta con el md5 observado si no); (1) columna, backfill y `DROP COLUMN` guardados por existencia (idempotente); (2) helper; (3) cinco reescrituras desde el cuerpo vivo (cuatro `CREATE OR REPLACE` con la misma firma, el listado con `DROP` + `CREATE`); (4) disparador de `email_logs` y purga; (5) policy y privilegios; (6) ACLs re-emitidas; (7) introspección que aborta si algo no quedó (sin `token`, sin policy, sin privilegios de tabla, una sola definición viva por función, ACLs sin `anon`/`PUBLIC`, el helper sin `EXECUTE` para `authenticated`, el disparador presente).
 
-**Tanda única** (un PR de apply con DB + backend + Edge Function + frontend): son cuatro piezas que cambian juntas el mismo contrato (el enlace, las rutas de la API y el retorno del listado), con 0 invitaciones pendientes en prod; separarlas obligaría a convivencia de rutas y de formatos de enlace para proteger un tráfico que no existe. Los cambios que sí cruzan deploys son compatibles en cualquier orden: el listado suma columnas opcionales y `rpc_invite_member` sin `token` no rompe al backend viejo (ya no lo usa).
+**Tanda única** (un PR de apply con DB + backend + frontend; la Edge Function no cambia): son piezas que cambian juntas el mismo contrato (las rutas de la API, el retorno del listado y el token que nace en el envío), con 0 invitaciones pendientes en prod; separarlas obligaría a convivencia de rutas para proteger un tráfico que no existe. Los cambios que sí cruzan deploys son compatibles en cualquier orden: el listado suma columnas opcionales y `rpc_invite_member` sin `token` no rompe al backend viejo (ya no lo usa).
 
 ## Risks / Trade-offs
 
-- [Ventana de deploy: Render (backend), Vercel (frontend) y la Edge Function salen a minutos de distancia; un invitado que abra un enlace en esa ventana puede ver un 404 o el estado «abrí el enlace del email»] → 0 pendientes hoy; el enlace sigue vigente y basta reabrirlo; el apply verifica el orden real de `deploy.yml` y lo anota.
+- [Ventana de deploy: Render (backend) y Vercel (frontend) salen a minutos de distancia; un invitado que abra un enlace en esa ventana puede ver un error al previsualizar o aceptar] → 0 pendientes hoy; el enlace sigue vigente y basta reintentar; el apply verifica el orden real de `deploy.yml` y lo anota.
 - [La cadena de reaplicación de `KPI_Validation.yml` y el `\i` de `test_membership_rpcs_pivot_rewrite.sql` reinstalan cuerpos viejos que leen `token`] → la tarea 6 retira el eslabón de `20261085000001` (regla escrita en el propio workflow: tiene preflight md5 sobre funciones que esta migración redefine), suma el de `20261094000001` al final y el reconverge-5 del gate; el preflight de esta migración acepta los cuerpos de la tanda C como partida, así que reconverge solo.
-- [Un escáner de enlaces del correo (Safe Links) descarta el fragmento] → la pantalla sin hash ni cookie explica que hay que abrir el enlace desde el email; la mayoría de los reescritores conserva el fragmento. Si el humo real lo contradice, la alternativa (a) es un retroceso barato (OQ-1).
-- [Confirmar el registro en otro dispositivo ya no vuelve a la invitación] → mensaje explícito y el enlace del email sigue vigente.
+- [El token sigue en el path de la URL pública (log de Vercel, historial, `next`, confirmación de Supabase)] → riesgo aceptado por el PO (D6), acotado por D1, D2, el vencimiento, el uso único y la ligadura por identidad.
 - [El disparador nuevo sobre `email_logs` toca una tabla con tráfico de todos los correos] → `WHEN` filtra por `event_type = 'org_invite'` antes de ejecutar nada; `EXPLAIN` no aplica (disparador por fila), se mide en el humo.
 - [Ventana `pending` con el token en `email_logs` y en la cola de `pg_net`] → aceptada y declarada (D3); sólo la leen administradores de plataforma.
 
 ## Migration Plan
 
-1. Merge del PR de apply → `deploy.yml`: build de Next, `supabase db push --include-all` (`20261094000001`), `functions deploy` (plantilla) y deploy de Render.
+1. Merge del PR de apply → `deploy.yml`: build de Next, `supabase db push --include-all` (`20261094000001`) y deploy de Render.
 2. Verificación post-merge en prod (sólo `SELECT`): `MAX(version) = 20261094000001`; columna `token` ausente y `token_hash` presente; 0 policies y 0 privilegios de tabla de `anon`/`authenticated` sobre `account_invitations`; 0 filas `org_invite` no pendientes con `metadata ? 'token'`; `md5(prosrc)` de las cinco funciones = los del PR; una sola definición viva por función; ACLs sin `anon`/`PUBLIC`; disparador presente; deploy de Render del commit.
-3. Humo real del PO (`docs/pendientes-manuales-po.md`): invitar, abrir el enlace sin sesión (la URL queda en `/invitacion`), registrarse, aceptar; ver el estado «Enviado»; reenviar.
+3. Humo real del PO (`docs/pendientes-manuales-po.md`): invitar, abrir el enlace sin sesión, registrarse, aceptar; ingresar desde un segundo dispositivo sin volver a tocar la invitación; ver el estado «Enviado»; reenviar.
 
 **Rollback**: restaurar los cinco cuerpos de partida (guardados en `evidence/cuerpos-previos/` por el apply), la policy original y los privilegios previos; `ADD COLUMN token text` vuelve vacía (los tokens en claro no se pueden reconstruir: las invitaciones pendientes al momento del rollback se reenvían). Frontend/backend por revert del PR.
 
 ## Open Questions
 
-Todas resueltas por la opción recomendada — **Sign-off del PO por mandato (2026-11-06: "dale hacelo")**. Las marcadas con ⚠ cambiarían el diseño si el PO opinara distinto.
+OQ-1 la resolvió el PO explícitamente; el resto, por la opción recomendada — **Sign-off del PO por mandato (2026-11-06: "dale hacelo")**. Las marcadas con ⚠ cambiarían el diseño si el PO opinara distinto.
 
-- ⚠ **OQ-1 — Forma del enlace público.** (a) dejar el path; (b-lite) fragmento + `sessionStorage`; **(b) fragmento + cookie `httpOnly` + Server Actions** ← recomendada y firmada (D6). Con (a) desaparecen D6 y la mitad del frontend; con (b-lite) se pierde el camino del registro con confirmación.
+- **OQ-1 — Forma del enlace público. RESUELTA POR EL PO (2026-11-06): (a) dejar el path** («deja la url como esta para que se pueda abrir tanto en pc como en celular…»), en contra de la recomendación original (b) fragmento + cookie `httpOnly` + Server Actions; descartada también (b-lite) fragmento + `sessionStorage`. Ver D6. No reabrir.
 - ⚠ **OQ-2 — Columna en claro.** **(a) `DROP COLUMN token`** ← firmada (D1); (b) conservarla vacía con `CHECK (token IS NULL)`. (b) sólo cambia la tarea 2.1.
 - **OQ-3 — Backfill.** **(a) hashear en el lugar** ← firmada (hoy 1 fila aceptada; una pendiente al momento de aplicar seguiría funcionando con su enlace); (b) invalidar las pendientes (obliga a reenviar).
 - **OQ-4 — `email_logs.metadata.token`.** **(a) disparador `BEFORE UPDATE` que lo retira al salir de `pending`** ← firmada (D3); (b) que lo haga la Edge Function; (c) guardar el link armado.

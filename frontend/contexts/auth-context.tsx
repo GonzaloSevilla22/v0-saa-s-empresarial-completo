@@ -426,6 +426,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [loadSession])
 
   /**
+   * Descarta TODO lo cacheado (era de la cuenta anterior) y vuelve a pedir lo que está montado.
+   *
+   * Va SIEMPRE **después** de `refreshSession()`, nunca antes (fix de la demo del PO del
+   * 2026-11-05, paso 4 de multiusuario-operativo). Antes se hacía `queryClient.clear()` y recién
+   * después se resolvía la cuenta: vaciar la caché hace que cualquier pantalla abierta vuelva a
+   * pedir sus datos en el acto, y en ese instante el token nuevo (cookies ya renovadas) todavía no
+   * había llegado a memoria y la cuenta declarada (`X-Account-Id`) estaba vacía por la transición.
+   * El backend respondía, correctamente, con los datos de la cuenta VIEJA para ese token viejo, el
+   * guard 409 no tenía con qué compararlo, y esa respuesta quedaba cacheada bajo las claves de
+   * Ventas y Stock (frescura de 30 y 60 s): el usuario veía las ventas de un negocio con el nombre
+   * del otro. El Tablero no lo sufría porque sus hooks usan `refetchOnMount: "always"`.
+   *
+   * `resetQueries()` y no `clear()`: deja cada query en su estado inicial (sin datos) y vuelve a
+   * pedir las ACTIVAS cancelando lo que estuviera en vuelo — así la pantalla abierta se refresca
+   * con el token nuevo y la cuenta nueva declarada sin depender de un re-render. No se espera a las
+   * respuestas: la navegación al Tablero no puede quedar colgada de un backend frío.
+   */
+  const discardCachedData = useCallback((): void => {
+    void queryClient.resetQueries()
+  }, [queryClient])
+
+  /**
    * Resincroniza con la cuenta activa de la base. Lo piden: otra pestaña que cambió de
    * cuenta (bus), el 409 `account_switched` y el 403 "sin cuenta activa" del cliente HTTP.
    *
@@ -435,8 +457,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
    */
   const resync = useCallback(
     async (reason: AccountResyncReason): Promise<void> => {
-      queryClient.clear()
       await refreshSession()
+      discardCachedData()
       const name = activeNameRef.current
       if (!name) return // sin cuenta activa: lo muestra la pantalla de error
       router.replace("/dashboard")
@@ -446,7 +468,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           : `Actualizamos tu cuenta activa. Ahora estás en ${name}.`,
       )
     },
-    [queryClient, refreshSession, router],
+    [discardCachedData, refreshSession, router],
   )
 
   useEffect(() => registerAccountResync(resync), [resync])
@@ -647,16 +669,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         throw new Error("No se pudo renovar la sesión para cambiar de cuenta")
       }
 
-      // 3) Descartar lo que había en caché (es de la cuenta anterior) y re-resolver la cuenta con el token nuevo.
-      queryClient.clear()
+      // 3) Re-resolver la cuenta con el token nuevo y, RECIÉN DESPUÉS, descartar lo cacheado (ver
+      //    `discardCachedData`: en el orden inverso, lo montado se volvía a pedir con el token viejo).
       await refreshSession()
+      discardCachedData()
 
       // 4) Avisar a las otras pestañas (sin token en el mensaje) y llevar al Tablero.
       announceAccountSwitched()
       router.replace("/dashboard")
       toast.success(welcome)
     },
-    [queryClient, refreshSession, router],
+    [discardCachedData, refreshSession, router],
   )
 
   const switchAccount = useCallback(

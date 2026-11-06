@@ -81,7 +81,7 @@ describe("ProductForm — el stock mínimo 0 sobrevive a una edición", () => {
 
   it("triangulación: un alta nueva sin tocar el mínimo sigue arrancando en 10", async () => {
     addProductMock.mockResolvedValue(undefined)
-    render(<ProductForm onSuccess={vi.fn()} />)
+    render(<ProductForm onSuccess={vi.fn()} initialKind="simple" />)
     await fillNewProductWithKg()
     fireEvent.click(screen.getByRole("button", { name: /crear producto/i }))
     await waitFor(() => expect(addProductMock).toHaveBeenCalled())

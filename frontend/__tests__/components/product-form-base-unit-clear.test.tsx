@@ -111,7 +111,7 @@ describe("ProductForm — opción \"Sin unidad\" (decisión 7)", () => {
     expect(screen.getByText(hint)).toBeInTheDocument()
     unmount()
 
-    render(<ProductForm onSuccess={vi.fn()} />)
+    render(<ProductForm onSuccess={vi.fn()} initialKind="simple" />)
     await chooseNoUnit(/seleccionar unidad/i)
     expect(screen.queryByText(hint)).not.toBeInTheDocument()
   })
@@ -127,7 +127,7 @@ describe("ProductForm — opción \"Sin unidad\" (decisión 7)", () => {
   })
 
   it("alta con \"Sin unidad\" → el producto se crea sin unidad base (igual que hoy)", async () => {
-    render(<ProductForm onSuccess={vi.fn()} />)
+    render(<ProductForm onSuccess={vi.fn()} initialKind="simple" />)
     fireEvent.change(screen.getByPlaceholderText(/remera afa/i), { target: { value: "Bolsa" } })
     fireEvent.change(screen.getByLabelText(/categoría/i), { target: { value: "cat-food" } })
     await chooseNoUnit(/seleccionar unidad/i)

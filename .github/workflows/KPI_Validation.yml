@@ -1950,6 +1950,28 @@ jobs:
           fi
           echo "20261093000001 idempotente: schema IDÉNTICO al previo, 0 padres con precio/costo, CHECK validado y guard con el corte de la unidad."
 
+          # ia-copilot-v2 (tanda A, 2026-11-06, governance MEDIO): reaplicación de 20261095000001 AL FINAL de la cadena. Es OBLIGATORIA:
+          # el eslabón de 20261090000001 (arriba) reaplica el CREATE OR REPLACE ORIGINAL de rpc_reserve_ai_usage, sin la rama 'queries'
+          # (la migración de ia-copilot-v2 la reescribe con CREATE OR REPLACE de la misma firma); sólo esta pasada, DESPUÉS de todas,
+          # la deja con las dos ramas. No hay preflight por md5 que retirar: 20261090000001 nunca fijó el cuerpo por md5 (grep del
+          # workflow por rpc_reserve_ai_usage: sólo ese eslabón y el gate del OCR). La migración es ADITIVA (ADD COLUMN IF NOT EXISTS,
+          # CHECK y policy con guarda, tabla IF NOT EXISTS, cron unschedule + schedule): el schema (constraints + firmas + ACLs) tiene
+          # que quedar IDÉNTICO al del eslabón previo, con UNA sola definición de la RPC con las dos ramas y UN solo job con la ventana.
+          ICV_OUT1=$(psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261095000001_ia_copilot_v2.sql 2>&1) || { echo "$ICV_OUT1"; echo "ERROR: el reapply de 20261095000001 falló (sin tolerancia)."; exit 1; }
+          ICV_OUT2=$(psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261095000001_ia_copilot_v2.sql 2>&1) || { echo "$ICV_OUT2"; echo "ERROR: la segunda pasada de 20261095000001 falló (sin tolerancia)."; exit 1; }
+          schema_snapshot > /tmp/schema_after_icv_reapply.txt
+          if ! diff -u /tmp/schema_after_ppv_reapply.txt /tmp/schema_after_icv_reapply.txt > /tmp/schema_diff_icv.txt; then
+            echo "NOT IDEMPOTENT: reaplicar 20261095000001 cambió el schema (constraints + firmas de función + ACLs):"
+            cat /tmp/schema_diff_icv.txt
+            exit 1
+          fi
+          ICV_STATE=$(psql -tA "$DSN" -c "SELECT (SELECT count(*) FROM pg_proc WHERE proname = 'rpc_reserve_ai_usage' AND pronamespace = 'public'::regnamespace AND prosrc LIKE '%ai_queries_window_count%' AND prosrc LIKE '%ai_ocr_window_count%') || '|' || (SELECT count(*) FROM cron.job WHERE jobname = 'reset-ai-counters' AND command LIKE '%ai_queries_window_count = 0%' AND command LIKE '%ai_ocr_window_count = 0%') || '|' || (SELECT count(*) FROM public.ai_feedback)")
+          if [ "$ICV_STATE" != "1|1|0" ]; then
+            echo "ERROR: estado inesperado tras reaplicar 20261095000001 (RPC con las dos ramas|job con la ventana|filas de ai_feedback): $ICV_STATE (esperaba 1|1|0)"
+            exit 1
+          fi
+          echo "20261095000001 idempotente: schema IDÉNTICO al previo, rpc_reserve_ai_usage con las dos ramas y un solo job reset-ai-counters con la ventana de consultas."
+
       # -v ON_ERROR_STOP=1 is required: without it psql prints RAISE EXCEPTION
       # errors but still exits 0, so failing assertions show green in CI.
       - name: Run deterministic KPI tests
@@ -4010,6 +4032,12 @@ jobs:
       # reservas concurrentes sobre un único cupo. Asserta además el comando VIVO del cron reset-ai-counters.
       - name: Run OCR quota reservation gate (v31-ia-ratelimit-budget)
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_ia_ocr_cuota_reserva.sql
+
+      # ia-copilot-v2 (tanda A): columnas de ai_conversations y profiles, ai_feedback (RLS, sin escritura de cliente), rpc_set_ai_feedback
+      # (P0401/22023/P0404, alta, cambio, borrado), el guardado con account_id (la causa del registro roto) y rpc_reserve_ai_usage('queries')
+      # (cuota, ráfaga de 5, precedencia, OCR intacto, carrera de dos reservas por dblink). EJECUTA las RPCs.
+      - name: Run Copilot v2 gate (ia-copilot-v2)
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_ia_copilot_v2.sql
 
       # ─────────────────────────────────────────────────────────────────────────
       # v31-money-integration-tests (H-34): TIER DE INTEGRACIÓN contra el Postgres real de este job.

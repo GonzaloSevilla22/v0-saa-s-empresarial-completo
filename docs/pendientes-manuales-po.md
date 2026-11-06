@@ -68,10 +68,10 @@ Si algo falla o el diálogo muestra algo que no coincide con los libros, decime 
 
 Este change pone un tope a la lectura de facturas con IA (`/compras` → «Subir factura IA»). Hoy no tiene ninguno: cualquier usuario, incluso del plan gratis, puede dispararla sin límite, y es la llamada de IA más cara. Uso real: 2 facturas leídas en toda la historia y ninguna en los últimos 90 días, así que nadie se va a cruzar con estos límites.
 
-- [ ] **Lecturas de factura por mes y por usuario**: gratis **5** · inicial **30** · avanzado **120** · pro **300**, el mismo número que las consultas IA. Si querés otros números, decímelo; se cambian sin deploy (es una fila de `plan_limits`).
-- [ ] **Ráfaga**: como máximo **3 lecturas por minuto** por usuario. Una lectura que falla del lado de OpenAI **cuenta igual**, porque OpenAI la cobra igual.
-- [ ] **Tope de gasto en OpenAI** (recomendado, sólo lo podés hacer vos): en el panel de OpenAI → *Settings → Limits* del proyecto que usa la app, fijá un **tope mensual de gasto**. Te sugiero unos US$20 hoy, y lo ajustás cuando crezca el uso. Es la red de último recurso si algo se escapa. No bloquea el change.
-- [ ] **Humo real del OCR con clave real de OpenAI** (sólo se hizo humo local con clave dummy): en `/compras` → «Subir factura IA», ver «Te quedan N lecturas…», leer una factura y verificar que el contador baja de N a N-1. Opcional: 4 lecturas en un minuto → aviso «Esperá N segundos».
+- [x] **Lecturas de factura por mes y por usuario**: gratis **5** · inicial **30** · avanzado **120** · pro **300**, el mismo número que las consultas IA. Si querés otros números, decímelo; se cambian sin deploy (es una fila de `plan_limits`).
+- [x] **Ráfaga**: como máximo **3 lecturas por minuto** por usuario. Una lectura que falla del lado de OpenAI **cuenta igual**, porque OpenAI la cobra igual.
+- [x] **Tope de gasto en OpenAI** (recomendado, sólo lo podés hacer vos): en el panel de OpenAI → *Settings → Limits* del proyecto que usa la app, fijá un **tope mensual de gasto**. Te sugiero unos US$20 hoy, y lo ajustás cuando crezca el uso. Es la red de último recurso si algo se escapa. No bloquea el change.
+- [ ] **Humo real del OCR con clave real de OpenAI** (sólo se hizo humo local con clave dummy): en `/compras` → «Subir factura IA», ver «Te quedan N lecturas…», leer una factura y verificar que el contador baja de N a N-1. Opcional: 4 lecturas en un minuto → aviso «Esperá N segundos». (pendiente: el PO no tiene una factura para probar (2026-11-06); queda abierto sin bloquear)
 
 ---
 
@@ -141,3 +141,4 @@ Se completa a medida que se mergea cada PR. Orden pactado: changes de a uno, sie
 | 00:45 ART (6-nov) | Fix ad-hoc, 2ª ronda: «Sin sucursal disponible» y caja cerrada al cambiar de negocio (el descarte de caché corría antes del commit de React; ahora va en un efecto; sin migración). Recargar la página antes de probar | #685 | mergeado |
 | 01:15 ART (6-nov) | Demo real de `multiusuario-operativo` PASÓ (7/7, segundo usuario real; `Enforce single session per user` activado por el PO) — sólo docs | PR de docs | mergeado |
 | 01:40 ART (6-nov) | Humos §2: 5/6 PASARON; `stock-movimientos-sucursal-origen` falló por panel sin sucursal → fix ad-hoc `stock-movimientos-sucursal-visible` (sucursal por movimiento + columna CSV; sin migración) | #688 | en revisión |
+| 6-nov (hora ART a confirmar) | Explore `mejora-ia`: inventario de las funciones de IA, causas de por qué el Copilot exige preguntas específicas, opciones de modelo con costo y plan en 3 changes (`openspec/explore/2026-11-06-mejora-ia.md`; sólo análisis) | PR de este explore | en revisión |

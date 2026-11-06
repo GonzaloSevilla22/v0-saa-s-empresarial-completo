@@ -382,6 +382,47 @@ describe("auth-context — switchAccount", () => {
     expect(trasRenovar.every((p) => p.cuenta === "acc-a")).toBe(true)
   })
 
+  it("REGRESIÓN (demo del PO 2026-11-06, «Sin sucursal disponible»): un dato con clave SIN cuenta que lee user.accountId del cierre se vuelve a pedir con la cuenta NUEVA — el descarte de la caché va después del commit de React, nunca antes", async () => {
+    // `useBranches` y parecidos: clave fija, filtro por `user.accountId` dentro del queryFn.
+    const pedidos: string[] = []
+    function SondaSucursales() {
+      const { user } = useAuth()
+      const accountId = user?.accountId ?? null
+      const { data } = useQuery({
+        queryKey: ["sucursales"],
+        queryFn: async () => {
+          pedidos.push(accountId ?? "")
+          return accountId ?? ""
+        },
+        enabled: !!accountId,
+        staleTime: 5 * 60_000,
+      })
+      return <span data-testid="sucursales">{data ?? ""}</span>
+    }
+    rows = [
+      accountRow({ account_id: "acc-p", is_active: true, brand_display_name: "Mi Kiosco" }),
+      accountRow({ account_id: "acc-a", is_active: false, is_owner: false, member_role: "member", roles: ["seller"], brand_display_name: "Ferretería Roca" }),
+    ]
+    queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <Consumer />
+          <SondaSucursales />
+        </AuthProvider>
+      </QueryClientProvider>,
+    )
+    await waitFor(() => expect(screen.getByTestId("sucursales").textContent).toBe("acc-p"))
+    dbSwitchesTo("acc-a")
+
+    fireEvent.click(screen.getByRole("button", { name: "cambiar" }))
+    await waitFor(() => expect(screen.getByTestId("account-id").textContent).toBe("acc-a"))
+    // Lo que muestra la pantalla es de la cuenta nueva, y ningún pedido posterior al cambio
+    // salió con la cuenta vieja (eso, con el token nuevo, devuelve vacío por RLS y queda cacheado).
+    await waitFor(() => expect(screen.getByTestId("sucursales").textContent).toBe("acc-a"))
+    expect(pedidos.slice(1)).toEqual(["acc-a"])
+  })
+
   it("el orden importa: la preferencia se guarda ANTES de renovar el token (si no, el hook emite la cuenta vieja)", async () => {
     await renderTwoAccounts()
     dbSwitchesTo("acc-a")

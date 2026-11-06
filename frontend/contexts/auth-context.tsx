@@ -442,10 +442,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
    * pedir las ACTIVAS cancelando lo que estuviera en vuelo — así la pantalla abierta se refresca
    * con el token nuevo y la cuenta nueva declarada sin depender de un re-render. No se espera a las
    * respuestas: la navegación al Tablero no puede quedar colgada de un backend frío.
+   *
+   * Y corre DESPUÉS del commit de React, no en el mismo tick que resolvió la cuenta (segunda
+   * demo del PO, 2026-11-06, «Sin sucursal disponible»): hooks como `useBranches` tienen una clave
+   * SIN cuenta y leen `user.accountId` dentro del `queryFn`. Si el reset corre antes de que React
+   * confirme el render con la cuenta nueva, el refetch usa el cierre VIEJO (cuenta anterior) con el
+   * token NUEVO: la RLS devuelve vacío y ese vacío queda cacheado cinco minutos. Por eso el pedido
+   * sube un contador de época y el reset vive en un efecto: los efectos de los hijos (donde cada
+   * observer de React Query toma sus opciones nuevas) corren antes que el del proveedor.
    */
+  const [cacheEpoch, setCacheEpoch] = useState(0)
   const discardCachedData = useCallback((): void => {
+    setCacheEpoch((epoch) => epoch + 1)
+  }, [])
+  useEffect(() => {
+    if (cacheEpoch === 0) return
     void queryClient.resetQueries()
-  }, [queryClient])
+  }, [cacheEpoch, queryClient])
 
   /**
    * Resincroniza con la cuenta activa de la base. Lo piden: otra pestaña que cambió de

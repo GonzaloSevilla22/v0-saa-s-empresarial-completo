@@ -164,7 +164,7 @@ describe("ProductCatalog — «Modificar precios» (barra de acciones en lote)",
     expect(within(dialog).getByText(/1 queda igual/i)).toBeInTheDocument()
     expect(within(dialog).getByText(/1 producto con variantes omitido/i)).toBeInTheDocument()
     expect(within(dialog).getByText(/1 acotado a \$0/i)).toBeInTheDocument()
-    const row = within(dialog).getByText("Aceite de oliva").closest("tr")!
+    const row = within(dialog).getByText("Aceite de oliva").closest("li")!
     expect(within(row).getByText("$20")).toBeInTheDocument()
     expect(within(row).getByText("$22")).toBeInTheDocument()
     expect(within(dialog).getByText(/no es exacto/i)).toBeInTheDocument()

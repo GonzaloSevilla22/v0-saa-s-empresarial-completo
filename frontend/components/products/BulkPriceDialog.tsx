@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { NumericInput } from "@/components/ui/numeric-input"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import type {
   BulkPriceDirection,
@@ -215,25 +214,22 @@ export function BulkPriceDialog({ open, onOpenChange, productIds, onAdjust, onAp
             </ul>
 
             {result.sample.length > 0 && (
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Producto</TableHead>
-                      <TableHead className="text-right">Antes</TableHead>
-                      <TableHead className="text-right">Después</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {result.sample.map((row) => (
-                      <TableRow key={row.id}>
-                        <TableCell className="max-w-[10rem] truncate text-foreground">{row.name}</TableCell>
-                        <TableCell className="text-right tabular-nums text-muted-foreground">{formatMoney(row.priceBefore)}</TableCell>
-                        <TableCell className="text-right tabular-nums font-medium text-foreground">{formatMoney(row.priceAfter)}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+              <div>
+                {/* Lista y no tabla: a 375 px una tabla de tres columnas recortaba justo el precio
+                    nuevo, que es lo único que la vista previa tiene que mostrar. */}
+                <ul className="flex flex-col divide-y divide-border" aria-label="Ejemplos de precios">
+                  {result.sample.map((row) => (
+                    <li key={row.id} className="flex items-baseline justify-between gap-3 py-1.5">
+                      <span className="min-w-0 flex-1 truncate text-foreground">{row.name}</span>
+                      <span className="shrink-0 whitespace-nowrap tabular-nums">
+                        <span className="text-muted-foreground">{formatMoney(row.priceBefore)}</span>
+                        <span aria-hidden="true" className="px-1 text-muted-foreground">→</span>
+                        <span className="sr-only">pasa a</span>
+                        <span className="font-medium text-foreground">{formatMoney(row.priceAfter)}</span>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
                 {result.changed > result.sample.length && (
                   <p className="mt-1 text-[11px] text-muted-foreground">{`Se muestran ${result.sample.length} ejemplos.`}</p>
                 )}

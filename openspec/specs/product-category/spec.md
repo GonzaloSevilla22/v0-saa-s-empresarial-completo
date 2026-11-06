@@ -2,9 +2,7 @@
 
 ## Purpose
 Da a cada cuenta un catálogo plano y editable de categorías de producto (`product_categories`), sembrado con siete valores por defecto en el provisioning y usado como fuente única de verdad por todo el sistema — reemplazando la lista fija de 7 categorías que antes vivía horneada en el cliente y en el importador. La columna `products.category_id` es la **única representación física** de la categoría del producto; no existe ninguna columna con el nombre de la categoría en la tabla de productos — el nombre legible se deriva del catálogo en el momento de la lectura. Incluye la gestión del catálogo (alta, renombre, reorden, baja como soft delete), la herencia automática de categoría de variante a partir de su padre, la resolución/creación de categorías durante la carga masiva, y la recategorización en lote de productos desde el listado.
-
 ## Requirements
-
 ### Requirement: Catálogo de categorías de producto por cuenta
 
 El sistema SHALL persistir un catálogo plano de categorías de producto en la tabla `product_categories` (`id` UUID PK, `account_id` UUID FK `accounts` NOT NULL, `name` TEXT NOT NULL, `is_active` BOOLEAN NOT NULL DEFAULT TRUE, `sort_order` INTEGER NOT NULL DEFAULT 0, `created_at` TIMESTAMPTZ NOT NULL DEFAULT now(), `deleted_at` TIMESTAMPTZ NULL, `deleted_by` UUID NULL). El catálogo SHALL ser **plano** (sin jerarquía ni subcategorías) y enteramente editable por el usuario en su `name` y su `sort_order`. El sistema SHALL impedir nombres duplicados dentro de una misma cuenta de forma case-insensitive sobre las filas vivas (`UNIQUE(account_id, lower(name)) WHERE deleted_at IS NULL`). La tabla SHALL tener RLS por `account_id` con tenancy account-direct, igual que `cost_centers` y `payment_methods`.
@@ -112,7 +110,7 @@ La categoría informada SHALL validarse contra la cuenta del producto **en la ba
 
 ### Requirement: La variante hereda la categoría de su producto padre
 
-El sistema SHALL asignar a un producto variante la misma categoría que su producto padre, resolviéndola en el servidor a partir del padre y no del payload del cliente. El formulario NO SHALL pedir la categoría cuando se está creando una variante.
+El sistema SHALL asignar a un producto variante la misma categoría que su producto padre, resolviéndola en el servidor a partir del padre y no del payload del cliente. El formulario NO SHALL pedir la categoría cuando se está creando o editando una variante: SHALL mostrarla como sólo lectura, tomada del padre. Una edición de variante que informe una categoría SHALL ignorarla sin validarla ni escribirla. El producto padre `variant_only` SHALL crearse con su categoría (es uno de los tres datos que pide el formulario del padre, junto con el nombre y la unidad de la familia).
 
 #### Scenario: Alta de variante hereda la categoría
 
@@ -124,6 +122,17 @@ El sistema SHALL asignar a un producto variante la misma categoría que su produ
 
 - **WHEN** una solicitud crea una variante informando una categoría distinta a la del padre
 - **THEN** el sistema aplica la categoría del padre
+
+#### Scenario: La edición de una variante no cambia su categoría
+
+- **GIVEN** una variante de un padre imputado a "Indumentaria"
+- **WHEN** una edición de la variante informa otra categoría
+- **THEN** la variante conserva "Indumentaria" y el formulario la muestra como sólo lectura
+
+#### Scenario: El padre se crea con categoría
+
+- **WHEN** se crea un producto con variantes eligiendo la categoría "Bebidas"
+- **THEN** el padre queda imputado a "Bebidas" y su primera variante la hereda
 
 ### Requirement: Gestión del catálogo gateada por rol
 

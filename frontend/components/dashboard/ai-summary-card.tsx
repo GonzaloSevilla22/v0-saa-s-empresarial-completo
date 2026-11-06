@@ -42,10 +42,13 @@ export function AiSummaryCard({ todaySales = 0, branchId = null }: AiSummaryCard
       if (error) throw error
 
       // ai-resumen returns { ok, data } where data is either:
-      //   - an insights DB row  { content, type, ... }  (when RPC succeeds)
-      //   - a raw OpenAI string                          (when RPC fails gracefully)
+      //   - an insights DB row (to_jsonb(insights): the text lives in `message`,
+      //     the real column of the table — reading `content` here left the card
+      //     on the fallback for months: PO 2026-11-06, «nunca muestra nada»)
+      //   - a raw OpenAI string (when the RPC fails gracefully)
+      const row = data?.data
       const text: string =
-        (typeof data?.data === 'string' ? data.data : data?.data?.content) ??
+        (typeof row === 'string' ? row : (row?.message ?? row?.content)) ??
         "No se pudo generar el resumen en este momento."
 
       setSummary(text)

@@ -25,11 +25,11 @@ En prod desde el 2026-10-17 (PRs #651, #652, #653, #654; archivado en #655). Nad
 
 ## 2. Humos reales pendientes de changes ya en prod
 
-Cada uno es un chequeo de dos minutos. Son changes verificados en la base, pero sin tu prueba de uso real. **2026-11-06: cinco de seis PASARON** (sucursal por defecto en ventas, compras y gastos; marca en PDFs; saldo según libro; líneas de servicio).
+Cada uno es un chequeo de dos minutos. Son changes verificados en la base, pero sin tu prueba de uso real. **2026-11-06: los seis PASARON** (el sexto tras el fix #688) (sucursal por defecto en ventas, compras y gastos; marca en PDFs; saldo según libro; líneas de servicio).
 
 - [x] **`ventas-sucursal-por-defecto`** (PR #627, 2026-10-10): hacé una venta por el formulario **sin elegir sucursal** → en el detalle tiene que figurar tu sucursal principal (nunca «sin sucursal»).
-- [ ] **`stock-movimientos-sucursal-origen`** (PR #631, 2026-10-11): abrí **Stock → Movimientos** y mirá un movimiento viejo de una venta o compra: tiene que mostrar la sucursal de origen.
-  - **Falló el 2026-11-06 («no veo la sucursal en los movimientos»)**: no era una regresión — el change completó la sucursal en la base pero declaró «sin superficie frontend» y el panel nunca la mostró; el humo estaba mal redactado. Fix ad-hoc `stock-movimientos-sucursal-visible` (PR #688): cada movimiento muestra su sucursal (o «Sin sucursal» cuando el ledger no la registra) y el CSV gana la columna. **Repetí este chequeo con el fix desplegado (recargá primero).**
+- [x] **`stock-movimientos-sucursal-origen`** (PR #631, 2026-10-11): abrí **Stock → Movimientos** y mirá un movimiento viejo de una venta o compra: tiene que mostrar la sucursal de origen.
+  - **Falló el 2026-11-06 («no veo la sucursal en los movimientos»)**: no era una regresión — el change completó la sucursal en la base pero declaró «sin superficie frontend» y el panel nunca la mostró; el humo estaba mal redactado. Fix ad-hoc `stock-movimientos-sucursal-visible` (PR #688): cada movimiento muestra su sucursal (o «Sin sucursal» cuando el ledger no la registra) y el CSV gana la columna. **Repetí este chequeo con el fix desplegado (recargá primero).** → **PASÓ el 2026-11-06** con el fix #688 (`cda6bbfb`) desplegado.
 - [x] **`compras-gastos-sucursal-por-defecto`** (PR #635, 2026-10-12): cargá una compra y un gasto **sin elegir sucursal** → los dos quedan en la principal.
 - [x] **`documentos-marca-empresa`** (PRs #636/#638, 2026-10-11): configurá logo y datos de marca en Configuración y descargá un PDF (recibo, presupuesto o remito): tiene que salir con tu marca.
 - [x] **`banco-saldo-segun-libro`** (PR #673, 2026-11-05): en **Banco**, elegí una cuenta real y comparé el **Saldo según libro** con el saldo de tu home banking (la diferencia debería ser sólo lo que todavía no cargaste o conciliaste).
@@ -39,14 +39,16 @@ Ya probados por vos y cerrados: `balanza-etiquetas-pos`, `presupuestos-modulo`, 
 
 ## 3. Decisiones de negocio abiertas
 
-- [ ] **Cuenta `danielsevilla64`**: su plan Pro venció el 2026-10-09 y pasó a gratis por la regla general. Decidí si le das una cortesía (se configura desde `/admin`, exención o plan con vencimiento) o si queda en gratis.
-- [ ] **Candidatos de seguridad que dejó `multiusuario-operativo`** (ninguno es urgente; decidí si querés que los haga en un change chico): el token de invitación se guarda en claro en dos tablas; el dueño puede escribir invitaciones por PostgREST saltando la RPC (sólo en su propia cuenta); el token viaja en el path de la API; la lista no muestra entregas de email fallidas.
+- [x] **Cuenta `danielsevilla64`**: su plan Pro venció el 2026-10-09 y pasó a gratis por la regla general. Decidí si le das una cortesía (se configura desde `/admin`, exención o plan con vencimiento) o si queda en gratis.
+  - **Decidido 2026-11-06: queda en gratis** («dejalo así»), sin cortesía.
+- [x] **Candidatos de seguridad que dejó `multiusuario-operativo`** (ninguno es urgente; decidí si querés que los haga en un change chico): el token de invitación se guarda en claro en dos tablas; el dueño puede escribir invitaciones por PostgREST saltando la RPC (sólo en su propia cuenta); el token viaja en el path de la API; la lista no muestra entregas de email fallidas.
+  - **Decidido 2026-11-06: hacerlo** («dale hacelo») → change `invitaciones-hardening` (propose en revisión; governance CRÍTICO, los cuatro candidatos en una sola tanda).
 
 ## 4. Externos (paneles de terceros)
 
-- [ ] **ARCA — homologación de la facturación electrónica** con el certificado real de producción (prerequisito para facturar de verdad a todos los clientes; hoy sólo Sumar factura real).
-- [ ] **Supabase Auth — verificación de email**: revisar que «Confirm email» esté como lo querés en Authentication → Providers → Email (pendiente desde hace meses).
-- [ ] **MercadoPago — cobro de noviembre** de la suscripción `fa624f9b-…` (tubecoventas6): la cuota de octubre se reparó a mano el 2026-10-14; la de noviembre debería acreditarse sola. Si no aparece en `/admin/pagos` la primera semana de noviembre, avisame y lo investigo.
+- [x] **ARCA — homologación de la facturación electrónica** con el certificado real de producción (prerequisito para facturar de verdad a todos los clientes; hoy sólo Sumar factura real). (confirmado por el PO 2026-11-06)
+- [x] **Supabase Auth — verificación de email**: revisar que «Confirm email» esté como lo querés en Authentication → Providers → Email (pendiente desde hace meses). (confirmado por el PO 2026-11-06)
+- [x] **MercadoPago — cobro de noviembre** de la suscripción `fa624f9b-…` (tubecoventas6): la cuota de octubre se reparó a mano el 2026-10-14; la de noviembre debería acreditarse sola. Si no aparece en `/admin/pagos` la primera semana de noviembre, avisame y lo investigo. (confirmado por el PO 2026-11-06)
 
 ---
 
@@ -54,13 +56,15 @@ Ya probados por vos y cerrados: `balanza-etiquetas-pos`, `presupuestos-modulo`, 
 
 Las tres tandas (#659 cimientos, #660 edición con dinero, #661 superficie) deshabilitaron el bloqueo por dinero: ahora se puede **editar** una venta, compra o gasto con cuenta corriente, caja o banco, y antes de guardar la pantalla muestra **qué se va a ajustar en cada libro**. Esto sólo lo podés probar vos, con datos reales. Usá operaciones **tuyas de prueba** (después las borrás) y mirá siempre tres cosas en cada caso: el **plan** del diálogo, los **libros** resultantes (Caja, Banco, cuenta corriente del cliente o proveedor) y el **«Historial de cambios»** del detalle de la operación.
 
-- [ ] 1. **Venta a crédito, subir el total y cambiar el vencimiento.** Cargá una venta a una cuenta corriente de un cliente de prueba, abrila con el lápiz, subí el total y cambiá el vencimiento. Al guardar tiene que aparecer el diálogo: «se revertirá el cargo de $X» + «se registrará un cargo de $Y, con vencimiento el …» + el saldo antes → después. Confirmá: el saldo del cliente queda en el total nuevo, el vencimiento es el elegido, y el historial muestra «Total $X → $Y».
-- [ ] 2. **Venta en efectivo del día.** Con la caja abierta, cargá una venta en efectivo tildando «Registrar en caja», editala (cambiá el importe): el diálogo dice que **salen** $X de la caja y **entran** $Y. En `/caja` el arqueo de hoy tiene que reflejar el cambio. Probá también destildar «Registrado en caja»: el efectivo sale de la caja y la venta queda sin movimiento de caja.
-- [ ] 3. **Compra por transferencia.** Cargá una compra por transferencia con cuenta bancaria, editala (cambiá el importe): el diálogo muestra el **egreso** nuevo y el movimiento inverso, ambos «pendientes de conciliar». En `/banco` tienen que aparecer los dos.
-- [ ] 4. **Gasto en efectivo de una sesión ya cerrada, con la caja de hoy abierta.** Elegí un gasto en efectivo de un día cuya caja ya cerraste, editá su importe: el diálogo tiene que decir que la corrección se asienta en la **sesión abierta de hoy** (no toca la cerrada). Cerrá la caja de hoy, repetí la edición y verificá que el diálogo **bloquea** con «Abrí la caja para poder corregir esta operación» y el botón de confirmar deshabilitado.
-- [ ] 5. **Rol.** Si tenés un usuario vendedor o cajero de prueba: sobre una operación con dinero registrado, el lápiz tiene que aparecer deshabilitado con «Solo el dueño o un administrador pueden corregir dinero ya registrado».
+- [x] 1. **Venta a crédito, subir el total y cambiar el vencimiento.** Cargá una venta a una cuenta corriente de un cliente de prueba, abrila con el lápiz, subí el total y cambiá el vencimiento. Al guardar tiene que aparecer el diálogo: «se revertirá el cargo de $X» + «se registrará un cargo de $Y, con vencimiento el …» + el saldo antes → después. Confirmá: el saldo del cliente queda en el total nuevo, el vencimiento es el elegido, y el historial muestra «Total $X → $Y».
+- [x] 2. **Venta en efectivo del día.** Con la caja abierta, cargá una venta en efectivo tildando «Registrar en caja», editala (cambiá el importe): el diálogo dice que **salen** $X de la caja y **entran** $Y. En `/caja` el arqueo de hoy tiene que reflejar el cambio. Probá también destildar «Registrado en caja»: el efectivo sale de la caja y la venta queda sin movimiento de caja.
+- [x] 3. **Compra por transferencia.** Cargá una compra por transferencia con cuenta bancaria, editala (cambiá el importe): el diálogo muestra el **egreso** nuevo y el movimiento inverso, ambos «pendientes de conciliar». En `/banco` tienen que aparecer los dos.
+- [x] 4. **Gasto en efectivo de una sesión ya cerrada, con la caja de hoy abierta.** Elegí un gasto en efectivo de un día cuya caja ya cerraste, editá su importe: el diálogo tiene que decir que la corrección se asienta en la **sesión abierta de hoy** (no toca la cerrada). Cerrá la caja de hoy, repetí la edición y verificá que el diálogo **bloquea** con «Abrí la caja para poder corregir esta operación» y el botón de confirmar deshabilitado.
+- [x] 5. **Rol.** Si tenés un usuario vendedor o cajero de prueba: sobre una operación con dinero registrado, el lápiz tiene que aparecer deshabilitado con «Solo el dueño o un administrador pueden corregir dinero ya registrado».
 
 Si algo falla o el diálogo muestra algo que no coincide con los libros, decime el número de paso.
+
+**✅ PASÓ (PO, 2026-11-06)**, los cinco casos con operaciones reales de prueba.
 
 ---
 
@@ -141,3 +145,4 @@ Se completa a medida que se mergea cada PR. Orden pactado: changes de a uno, sie
 | 00:45 ART (6-nov) | Fix ad-hoc, 2ª ronda: «Sin sucursal disponible» y caja cerrada al cambiar de negocio (el descarte de caché corría antes del commit de React; ahora va en un efecto; sin migración). Recargar la página antes de probar | #685 | mergeado |
 | 01:15 ART (6-nov) | Demo real de `multiusuario-operativo` PASÓ (7/7, segundo usuario real; `Enforce single session per user` activado por el PO) — sólo docs | PR de docs | mergeado |
 | 01:40 ART (6-nov) | Humos §2: 5/6 PASARON; `stock-movimientos-sucursal-origen` falló por panel sin sucursal → fix ad-hoc `stock-movimientos-sucursal-visible` (sucursal por movimiento + columna CSV; sin migración) | #688 | en revisión |
+| 12:21 ART (6-nov) | Propose invitaciones-hardening (token de invitación sólo como hash, `account_invitations` sólo por RPC, token fuera del path de la API y de la URL, estado de entrega del email en `/organizacion/invitar`; migración reservada 20261094000001; OQs por la recomendada, sign-off del PO «dale hacelo»). Docs: §3 decisiones del PO (danielsevilla64 queda en gratis; candidatos de seguridad → este change), §4 externos confirmados por el PO, §5 humo de `edicion-operaciones-con-dinero` PASÓ 5/5, §2 `stock-movimientos-sucursal-origen` PASÓ tras #688 | PR propose | en revisión |

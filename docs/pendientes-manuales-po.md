@@ -108,6 +108,17 @@ La tanda A (padre sin precio/costo, relabel de unidad, precios en lote) ya está
 
 **✅ PASÓ (PO, 2026-11-06)**: los cuatro pasos («funciona bien» en cada uno).
 
+## 11. `tablero-explicable` — humo real (frontend; propose #692, apply: ver registro)
+
+Cuando el PR esté mergeado y desplegado, en el Tablero (`/dashboard`) con la cuenta de un negocio real:
+
+- [ ] **Rango y comparación del gráfico**: en «Ventas · últimos 7 días» elegí «30 días» y después «Personalizado» con dos fechas. Tiene que verse la línea del período anterior (punteada) y la variación contra ese período. Si tu plan no llega a ese historial, tiene que avisarlo con el enlace a Planes en vez de comparar.
+- [ ] **«De dónde sale»**: tocá «Ganancia neta del mes» (y otras dos tarjetas). Se abre un cuadro con la cuenta, el mes y la sucursal que tenés elegidos, de dónde salen los datos y qué no incluye; se cierra con la cruz, con `Esc` o tocando afuera. «Por cobrar» tiene que seguir llevándote a Cobranzas.
+- [ ] **Campana**: tocá una notificación de stock: tiene que llevarte a Stock con el producto elegido, cerrarse sola y bajar el contador. Descartá otra con la cruz (desaparece sin navegar) y probá «Marcar todas como leídas».
+- [ ] **Resumen IA del día**: recargá el Tablero. Tiene que mostrar «Generando el resumen… suele tardar unos segundos» y después el texto del día. «Regenerar» pide uno nuevo; volver al Tablero desde otra pantalla no vuelve a generarlo.
+
+---
+
 ## Registro de la corrida autónoma del 2026-11-04 (lo que hizo el agente)
 
 Se completa a medida que se mergea cada PR. Orden pactado: changes de a uno, siempre con la opción recomendada en cada OQ.
@@ -152,3 +163,4 @@ Se completa a medida que se mergea cada PR. Orden pactado: changes de a uno, sie
 | 13:30 ART (6-nov) | Propose tablero-explicable (Tablero: gráfico de ventas con rango 7/30/90/personalizado y comparación desde la fuente canónica; las 9 tarjetas KPI abren «de dónde sale» con cruz; campana con descartar / ir a la alerta / cierre solo / marcar todas; Resumen IA con carga visible, error legible y sin gastar cuota por visita —el fix del campo va en el PR ad-hoc del orquestador—; 100 % frontend, sin migración; OQs por la recomendada) | PR propose | en revisión |
 | 17:10 ART (6-nov) | Humo real de `productos-padre-variantes` (§9) PASÓ 4/4 — sólo docs | PR de docs | mergeado |
 | 16:17 ART (6-nov) | Propose `ia-copilot-v2` (change 1 del explore `mejora-ia`): Edge Function `ai-copilot` con herramientas de sólo lectura sobre las RPCs canónicas, prompt de asistente con la fecha de hoy, memoria corta, modelo por variable (`gpt-6.1-terra` sujeto a verificación con la clave real), cuota con reserva y ráfaga de 5/min, valoración «me sirvió / no» en `ai_feedback` (reutilizable por los insights), registro de conversaciones arreglado (el guardado fallaba por RLS desde junio) y ~40 evals; migración reservada `20261095000001`; OQs por la recomendada. Docs: §7 regla de `main` con `validate-kpis` hecha por el PO | PR propose | en revisión |
+| 15:10 ART (6-nov) | Apply `tablero-explicable` (gráfico con rango y comparación, 9 tarjetas «de dónde sale», campana accionable, Resumen IA con estados y tope; sin migración; humo del PO en §11) | PR de apply | en revisión |

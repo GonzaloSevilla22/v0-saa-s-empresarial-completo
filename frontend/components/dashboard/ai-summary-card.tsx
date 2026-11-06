@@ -52,7 +52,7 @@ export function AiSummaryCard({ todaySales = 0, branchId = null }: AiSummaryCard
           variant="ghost"
           size="sm"
           onClick={() => void refetch()}
-          disabled={isFetching}
+          disabled={isLoading}
           className="h-7 text-xs text-muted-foreground hover:text-foreground"
         >
           <RefreshCw className={`h-3 w-3 mr-1 ${isFetching ? "animate-spin" : ""}`} />

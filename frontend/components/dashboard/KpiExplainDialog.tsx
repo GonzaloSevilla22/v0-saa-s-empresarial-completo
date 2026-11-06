@@ -56,6 +56,7 @@ export function KpiExplainDialog({ kpi, context, open, onOpenChange, returnFocus
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         className="max-w-md"
+        closeLabel="Cerrar"
         onCloseAutoFocus={(event) => {
           if (returnFocusRef?.current) {
             event.preventDefault()

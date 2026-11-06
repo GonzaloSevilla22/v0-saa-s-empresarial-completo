@@ -131,7 +131,7 @@ describe("useAiDailySummary", () => {
     const { result } = renderHook(() => useAiDailySummary(), { wrapper: wrapperFor(makeClient()) })
 
     await waitFor(() => expect(result.current.isError).toBe(true))
-    expect((result.current.error as { context: { status: number } }).context.status).toBe(429)
+    expect((result.current.error as unknown as { context: { status: number } }).context.status).toBe(429)
   })
 
   it("con invoke que no resuelve, a los 30 s la query queda en error de tope", async () => {

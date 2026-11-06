@@ -15,6 +15,7 @@ import {
   checkAiQuota,
   incrementAiUsage,
   mapAiReservation,
+  RESERVE_COUNTERS,
   reserveAiUsage,
   type AiQuotaClient,
 } from "../../supabase/functions/_shared/ai-quota"
@@ -256,5 +257,26 @@ describe("reserveAiUsage — llama a la RPC con el contador pedido", () => {
     await checkAiQuota(client, "u", "queries")
     await incrementAiUsage(client, "u", "queries")
     expect(rpcMock.mock.calls.map((c) => c[0])).not.toContain("rpc_reserve_ai_usage")
+  })
+})
+
+describe("ia-copilot-v2 — el contador queries se reserva igual que el OCR", () => {
+  it("RESERVE_COUNTERS declara exactamente ocr y queries (advice sigue sin reserva)", () => {
+    expect([...RESERVE_COUNTERS]).toEqual(["ocr", "queries"])
+  })
+
+  it("invoca rpc_reserve_ai_usage con p_counter queries y mapea cada forma de respuesta", async () => {
+    const rpc = vi.fn(async () => ({ data: { allowed: true, used: 3, limit: 30, reset_at: "x" }, error: null }))
+    const out = await reserveAiUsage({ rpc } as unknown as AiQuotaClient, "queries")
+    expect(rpc).toHaveBeenCalledWith("rpc_reserve_ai_usage", { p_counter: "queries" })
+    expect(out).toEqual({ kind: "allowed" })
+
+    const rate = vi.fn(async () => ({ data: { allowed: false, reason: "rate_limited", retry_after_seconds: 12 }, error: null }))
+    const denied = await reserveAiUsage({ rpc: rate } as unknown as AiQuotaClient, "queries")
+    expect(denied).toMatchObject({ kind: "denied", status: 429, retryAfterSeconds: 12 })
+
+    const quota = vi.fn(async () => ({ data: { allowed: false, reason: "quota_exceeded", used: 5, limit: 5, reset_at: "2026-12-01T00:00:00Z" }, error: null }))
+    const over = await reserveAiUsage({ rpc: quota } as unknown as AiQuotaClient, "queries")
+    expect(over).toMatchObject({ kind: "denied", body: { error: "quota_exceeded", used: 5, limit: 5 } })
   })
 })

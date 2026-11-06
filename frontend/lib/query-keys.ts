@@ -203,6 +203,11 @@ export const queryKeys = {
     report: (accountId: string | null, start: string, end: string) =>
       ["paymentMethods", "report", accountId, start, end] as const,
   },
+  // tablero-explicable (D7): Resumen IA del día — una consulta por cuenta y día
+  // argentino, para no gastar cuota de IA en cada montaje del Tablero.
+  aiSummary: {
+    daily: (accountId: string | null, day: string) => ["aiSummary", "daily", accountId, day] as const,
+  },
   // estadisticas-ventas E1 (task 4.3): read-models del módulo de estadísticas.
   // Prefijo propio; la clave lleva la ventana, la granularidad y (ranking) el
   // orden, la agrupación y la página — el orden lo resuelve el servidor.

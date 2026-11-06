@@ -1,12 +1,12 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Sparkles, RefreshCw } from "lucide-react"
 import { useCriticalStock } from "@/hooks/data/use-critical-stock"
-import { createClient } from "@/lib/supabase/client"
-import { utcDayRange } from "@/lib/date-range"
+import { useAiDailySummary } from "@/hooks/data/use-ai-daily-summary"
+import { aiSummaryErrorMessage } from "@/lib/ai-summary"
 import { formatKpiCurrency } from "@/lib/kpi-format"
 
 // ─── Props ────────────────────────────────────────────────────────────────────
@@ -25,51 +25,16 @@ interface AiSummaryCardProps {
 export function AiSummaryCard({ todaySales = 0, branchId = null }: AiSummaryCardProps) {
   const { data: criticalStockCount } = useCriticalStock(branchId)
 
-  const [summary, setSummary] = useState("Cargando resumen inteligente...")
-  const [isLoading, setIsLoading] = useState(false)
+  // tablero-explicable (D7): el resumen es una consulta por cuenta y día
+  // (cacheada en la sesión: volver al Tablero no gasta otra consulta de IA).
+  // «Regenerar» es `refetch()`. El estado de carga es un estado propio, no un
+  // texto de resumen provisorio.
+  const { data: summary, error, isPending, isFetching, isError, refetch } = useAiDailySummary()
+  const isLoading = isFetching || isPending
 
-  async function handleRegenerate() {
-    setIsLoading(true)
-    const supabase = createClient()
-    try {
-      // Pass an explicit UTC day range — the Edge Function runs in UTC and can't
-      // infer the user's local "today" (rows are stored at midnight UTC).
-      const { from: dateFrom, to: dateTo } = utcDayRange()
-      const { data, error } = await supabase.functions.invoke('ai-resumen', {
-        body: { period: 'daily', dateFrom, dateTo },
-      })
-
-      if (error) throw error
-
-      // ai-resumen returns { ok, data } where data is either:
-      //   - an insights DB row (to_jsonb(insights): the text lives in `message`,
-      //     the real column of the table — reading `content` here left the card
-      //     on the fallback for months: PO 2026-11-06, «nunca muestra nada»)
-      //   - a raw OpenAI string (when the RPC fails gracefully)
-      const row = data?.data
-      const text: string =
-        (typeof row === 'string' ? row : (row?.message ?? row?.content)) ??
-        "No se pudo generar el resumen en este momento."
-
-      setSummary(text)
-    } catch (err: unknown) {
-      console.error('[AiSummaryCard] Error:', err)
-      const status = (err as { context?: { status?: number } })?.context?.status
-      if (status === 429) {
-        setSummary("Límite mensual de consultas IA alcanzado. El contador se reinicia el 1° de cada mes.")
-      } else {
-        setSummary("Error al conectar con la IA de ALIADATA. Reintentá en unos minutos.")
-      }
-    } finally {
-      setIsLoading(false)
-    }
-  }
-
-  // Initial load on mount
   useEffect(() => {
-    handleRegenerate()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+    if (error) console.error("[AiSummaryCard] Error:", error)
+  }, [error])
 
   return (
     <Card className="border-primary/20 bg-card relative overflow-hidden">
@@ -86,18 +51,31 @@ export function AiSummaryCard({ todaySales = 0, branchId = null }: AiSummaryCard
         <Button
           variant="ghost"
           size="sm"
-          onClick={handleRegenerate}
-          disabled={isLoading}
+          onClick={() => void refetch()}
+          disabled={isFetching}
           className="h-7 text-xs text-muted-foreground hover:text-foreground"
         >
-          <RefreshCw className={`h-3 w-3 mr-1 ${isLoading ? "animate-spin" : ""}`} />
+          <RefreshCw className={`h-3 w-3 mr-1 ${isFetching ? "animate-spin" : ""}`} />
           Regenerar
         </Button>
       </CardHeader>
       <CardContent className="relative">
-        <p className="text-sm text-muted-foreground leading-relaxed">
-          {summary}
-        </p>
+        {isLoading ? (
+          <div role="status" aria-live="polite" className="flex flex-col gap-2">
+            <span className="flex items-center gap-2 text-sm text-muted-foreground">
+              <RefreshCw className="h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden="true" />
+              Generando el resumen… suele tardar unos segundos
+            </span>
+            <span aria-hidden="true" className="h-3 w-full animate-pulse rounded bg-muted" />
+            <span aria-hidden="true" className="h-3 w-2/3 animate-pulse rounded bg-muted" />
+          </div>
+        ) : isError ? (
+          <p role="alert" className="text-sm text-destructive leading-relaxed">
+            {aiSummaryErrorMessage(error)}
+          </p>
+        ) : (
+          <p className="text-sm text-muted-foreground leading-relaxed">{summary}</p>
+        )}
         <div className="mt-3 flex items-center gap-4 text-xs text-muted-foreground/70">
           <span>Ventas hoy: <span className="text-primary font-medium">{formatKpiCurrency(todaySales)}</span></span>
           <span>Stock bajo: <span className={`font-medium ${criticalStockCount > 0 ? "text-destructive" : "text-success"}`}>{criticalStockCount} productos</span></span>

@@ -97,6 +97,8 @@ const ROW = {
   invited_by_name: "Dueño",
   last_sent_at: "2026-10-17T12:00:05+00:00",
   send_count: 1,
+  last_delivery_status: "sent",
+  last_delivery_at: "2026-10-17T12:00:09+00:00",
 }
 
 let rows: unknown[] = []
@@ -321,5 +323,72 @@ describe("Revocar", () => {
 
     await waitFor(() => expect(screen.queryByText(/¿revocar la invitación\?/i)).toBeNull())
     expect(h.del).not.toHaveBeenCalled()
+  })
+})
+
+// ── invitaciones-hardening (D7): el estado de la última entrega ──────────────────────────────────────────
+
+describe("Estado de la entrega", () => {
+  const CASES: Array<[string | null, RegExp | null]> = [
+    ["sent", /^enviado$/i],
+    ["queued", /^en cola$/i],
+    ["failed", /^no se pudo enviar$/i],
+    ["unconfirmed", /^sin confirmación$/i],
+  ]
+
+  it.each(CASES)("un envío «%s» muestra su distintivo", async (status, label) => {
+    rows = [{ ...ROW, last_delivery_status: status }]
+    renderPage()
+    expect(await screen.findByText(label as RegExp)).toBeInTheDocument()
+    // Y sólo ése: los otros tres no aparecen.
+    for (const [other, otherLabel] of CASES) {
+      if (other !== status) expect(screen.queryByText(otherLabel as RegExp)).toBeNull()
+    }
+  })
+
+  it("una invitación nunca enviada (null) no muestra ningún distintivo de entrega", async () => {
+    rows = [{ ...ROW, send_count: 0, last_sent_at: null, last_delivery_status: null, last_delivery_at: null }]
+    renderPage()
+    expect(await screen.findByText("pendiente@test.local")).toBeInTheDocument()
+    for (const [, label] of CASES) expect(screen.queryByText(label as RegExp)).toBeNull()
+  })
+
+  it("con «No se pudo enviar» o «Sin confirmación» destaca «Reenviar» y explica qué pasó", async () => {
+    for (const status of ["failed", "unconfirmed"]) {
+      rows = [{ ...ROW, last_delivery_status: status }]
+      const { unmount } = renderPage()
+      const resend = await screen.findByRole("button", { name: /reenviar la invitación a pendiente@test\.local/i })
+      expect(resend.className).toMatch(/bg-primary/)
+      expect(screen.getByText(/el email no llegó a salir\. revisá la dirección y reenviala\./i)).toBeInTheDocument()
+      unmount()
+    }
+  })
+
+  it("con un envío entregado «Reenviar» sigue siendo secundario y no hay texto de ayuda", async () => {
+    rows = [{ ...ROW, last_delivery_status: "sent" }]
+    renderPage()
+    const resend = await screen.findByRole("button", { name: /reenviar la invitación a pendiente@test\.local/i })
+    expect(resend.className).not.toMatch(/bg-primary/)
+    expect(screen.queryByText(/el email no llegó a salir/i)).toBeNull()
+  })
+
+  it("el estado está en el nombre accesible de la fila", async () => {
+    rows = [{ ...ROW, last_delivery_status: "failed" }]
+    renderPage()
+    expect(await screen.findByRole("listitem", { name: /pendiente@test\.local.*no se pudo enviar/i })).toBeInTheDocument()
+  })
+
+  it("nunca muestra texto del proveedor aunque el backend lo trajera", async () => {
+    rows = [{ ...ROW, last_delivery_status: "failed", error_details: "SMTP 550 mailbox unavailable (resend)" }]
+    renderPage()
+    expect(await screen.findByText(/no se pudo enviar/i)).toBeInTheDocument()
+    expect(document.body.textContent).not.toMatch(/smtp|mailbox|resend\)/i)
+  })
+
+  it("un reenvío tras un fallo NO espera el enfriamiento en pantalla: llama a la API de inmediato", async () => {
+    rows = [{ ...ROW, last_delivery_status: "failed" }]
+    renderPage()
+    fireEvent.click(await screen.findByRole("button", { name: /reenviar la invitación a pendiente@test\.local/i }))
+    await waitFor(() => expect(h.post).toHaveBeenCalledWith("/members/invitations/inv-1/resend", {}))
   })
 })

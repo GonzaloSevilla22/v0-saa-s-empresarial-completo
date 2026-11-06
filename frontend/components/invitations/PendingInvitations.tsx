@@ -14,6 +14,11 @@
  *   · «Revocar» pide confirmación y deja la invitación inutilizable (la aceptación falla como un token vencido).
  *   · Los topes de envío (1 cada 10 minutos por invitación, 20 por día por cuenta) llegan como 429 y se
  *     traducen a un mensaje que dice qué esperar.
+ *
+ * invitaciones-hardening (D7, D8): cada fila muestra el ESTADO DE LA ÚLTIMA ENTREGA del email («Enviado»,
+ * «En cola», «No se pudo enviar», «Sin confirmación») y nunca el detalle del proveedor. Si la entrega falló o
+ * quedó sin confirmación, «Reenviar» pasa a primario con una explicación (un envío fallido no cuenta para el
+ * enfriamiento de 10 minutos, así que el reenvío funciona de inmediato).
  */
 
 import { useState } from "react"
@@ -24,6 +29,7 @@ import {
   useInvitations,
   useResendInvitation,
   useRevokeInvitation,
+  type DeliveryStatus,
   type InvitationRow,
   type InvitationState,
 } from "@/hooks/data/use-invitations"
@@ -57,6 +63,25 @@ function StateBadge({ state }: { state: InvitationState }) {
     return <Badge variant="outline" className="border-warning/50 text-xs text-warning">{STATE_LABEL.expired}</Badge>
   }
   return <Badge variant="outline" className="text-xs text-muted-foreground">{STATE_LABEL.revoked}</Badge>
+}
+
+/** Distintivo de la última entrega: tokens semánticos (claro y oscuro salen de las variables). */
+const DELIVERY: Record<DeliveryStatus, { label: string; className: string }> = {
+  sent: { label: "Enviado", className: "border-success/30 bg-success/10 text-success" },
+  queued: { label: "En cola", className: "border-border bg-muted text-muted-foreground" },
+  failed: { label: "No se pudo enviar", className: "border-destructive/30 bg-destructive/10 text-destructive" },
+  unconfirmed: { label: "Sin confirmación", className: "border-warning/50 bg-warning/10 text-warning" },
+}
+
+function DeliveryBadge({ status }: { status: DeliveryStatus | null }) {
+  if (!status || !(status in DELIVERY)) return null
+  const { label, className } = DELIVERY[status]
+  return <Badge variant="outline" className={`text-xs ${className}`}>{label}</Badge>
+}
+
+/** La entrega no salió o quedó sin respuesta: la acción que corresponde es reenviar. */
+function needsResend(row: InvitationRow): boolean {
+  return row.last_delivery_status === "failed" || row.last_delivery_status === "unconfirmed"
 }
 
 function formatDate(iso: string | null): string {
@@ -165,12 +190,19 @@ export function PendingInvitations() {
           const actionable = row.state === "pending" || row.state === "expired"
           const busy = busyId === row.id
           const fresh = freshLinks[row.id]
+          const delivery = row.last_delivery_status && row.last_delivery_status in DELIVERY ? DELIVERY[row.last_delivery_status] : null
+          const highlightResend = actionable && needsResend(row)
           return (
-            <li key={row.id} className="flex flex-col gap-3 rounded-lg border border-border bg-card p-3 sm:flex-row sm:items-start sm:justify-between">
+            <li
+              key={row.id}
+              aria-label={`Invitación a ${row.email}${delivery ? `: ${delivery.label}` : ""}`}
+              className="flex flex-col gap-3 rounded-lg border border-border bg-card p-3 sm:flex-row sm:items-start sm:justify-between"
+            >
               <div className="flex min-w-0 flex-col gap-1.5">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="min-w-0 break-all text-sm font-medium text-foreground">{row.email}</span>
                   <StateBadge state={row.state} />
+                  <DeliveryBadge status={row.last_delivery_status} />
                 </div>
                 <div className="flex flex-wrap gap-1.5">
                   {row.role_labels.map((label) => (
@@ -182,6 +214,9 @@ export function PendingInvitations() {
                 <p className="text-xs text-muted-foreground">
                   {sentSummary(row)} · {row.state === "expired" ? "venció" : "vence"} {formatDate(row.expires_at)}
                 </p>
+                {highlightResend && (
+                  <p className="text-xs text-foreground">El email no llegó a salir. Revisá la dirección y reenviala.</p>
+                )}
                 {fresh && (
                   <Button
                     type="button"
@@ -200,8 +235,8 @@ export function PendingInvitations() {
                 <div className="flex shrink-0 flex-wrap gap-2">
                   <Button
                     size="sm"
-                    variant="outline"
-                    className="min-h-11 border-border text-foreground sm:min-h-8"
+                    variant={highlightResend ? "default" : "outline"}
+                    className={highlightResend ? "min-h-11 sm:min-h-8" : "min-h-11 border-border text-foreground sm:min-h-8"}
                     disabled={busy}
                     onClick={() => void handleResend(row)}
                     aria-label={`Reenviar la invitación a ${row.email}`}

@@ -10,6 +10,16 @@ import type { QuoteListFilters } from "@/lib/quote-types"
  *   will invalidate ALL courses queries (list, detail, summary, etc.)
  * - Keys are const tuples for type safety.
  */
+/** Huella corta y no reversible de un token de invitación (FNV-1a 32 bits, hex). Ver `queryKeys.invitations.preview`. */
+function invitationTokenFingerprint(token: string): string {
+  let hash = 0x811c9dc5
+  for (let i = 0; i < token.length; i++) {
+    hash ^= token.charCodeAt(i)
+    hash = Math.imul(hash, 0x01000193) >>> 0
+  }
+  return hash.toString(16).padStart(8, "0")
+}
+
 export const queryKeys = {
   courses: {
     all:    () => ["courses"] as const,
@@ -243,7 +253,10 @@ export const queryKeys = {
   invitations: {
     all:     () => ["invitations"] as const,
     list:    (accountId: string | null) => ["invitations", "list", accountId] as const,
-    preview: (token: string) => ["invitations", "preview", token] as const,
+    // invitaciones-hardening (D5, D6): la clave de la caché NUNCA lleva el token en claro (React Query la expone
+    // en las devtools y en cualquier volcado de la caché). Se distingue por una huella no reversible: FNV-1a de
+    // 32 bits sobre el token (no criptográfica, pero de un token de 256 bits no se recupera nada con 32).
+    preview: (token: string) => ["invitations", "preview", invitationTokenFingerprint(token)] as const,
   },
   // bank-payment-routing C2 (V2.5 BankReconciliation)
   bankAccounts: {

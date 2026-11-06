@@ -4834,3 +4834,25 @@ El pedido literal (RPC con rol y motivo + quitar `GRANT` y policies) es correcto
 **Fuera de alcance (declarado).** La ligadura por email exacto (minúsculas) sigue igual; los rebotes posteriores a la aceptación de Resend no se registran.
 
 **Hallazgo lateral (candidato, no se toca acá).** `revoke-truncate-app-roles`: `authenticated` tiene `TRUNCATE` en 63 de 81 tablas de `public` (`anon` en 0). `TRUNCATE` no pasa por RLS; PostgREST no lo emite y el backend sólo corre sus consultas, así que hoy no es alcanzable, pero ninguna tabla lo necesita. Este change lo revoca sólo en `account_invitations`.
+
+## Change `tablero-explicable` — PROPOSE 2026-11-06 (propose PR en revisión; sin migración; governance **MEDIO**; 100 % frontend)
+
+**Pedido y sign-off.** Cuatro pedidos textuales del PO del 2026-11-06 sobre el Tablero: elegir fechas en el gráfico de ventas y comparar; que las tarjetas KPI sean botones que abran «de dónde sale la información» y se cierren con una cruz (menos «Por cobrar»); que los avisos de la campana se puedan cerrar, lleven a la alerta y se cierren solos; y que el «Resumen IA del día» funcione. OQ-1 a OQ-7 firmadas por mandato por su opción recomendada (`openspec/changes/tablero-explicable/design.md` §Open Questions; las que cambiarían el diseño si el PO opinara distinto: OQ-1 estado «descartada» con migración, OQ-5 no generar el resumen al montar). Tanda única (D8).
+
+**Qué propone.**
+- **Gráfico** (D1-D3): `components/dashboard/sales-chart.tsx` pasa a la fuente canónica de `/estadisticas` (`useSalesEvolution` → `rpc_sales_evolution`), con presets 7/30/90 días + personalizado, serie del período anterior y variación, `BranchFilter`, y el gráfico compartido `ReportTimeSeriesChart`. La comparación se oculta si el período anterior cae fuera del historial del plan.
+- **Tarjetas explicables** (D4-D5): catálogo único `lib/dashboard-kpi-explanations.ts` con los textos de las 9 tarjetas (escritos en el design contra los cuerpos vivos de las RPCs, md5 anotados), `KpiExplainDialog` sobre `ui/dialog`, prop opcional `explanation` en `KpiSummaryCard`/`KpiCard` (las otras pantallas no cambian; «Por cobrar» conserva su `href`).
+- **Campana** (D6): `Popover` con filas accionables (cuerpo navega al destino, `X` descarta), sólo no leídas con contador exacto, «Marcar todas como leídas», actualización optimista; mapeo `type`/`payload` → ruta en `lib/notification-routes.ts`; `/cobranzas?tab=payables`. Sin migración (descartar = leer).
+- **Resumen IA** (D7): sólo la experiencia —estado de carga propio con «suele tardar unos segundos», error legible por causa, «Regenerar» siempre operable (tope de 30 s), consulta de React Query cacheada por día que deja de gastar una consulta de IA por visita—. **El fix del campo (`message` vs `content`) va en un PR ad-hoc del orquestador** y es precondición del apply.
+
+**Mediciones de producción (2026-11-06, sólo `SELECT`).**
+- El gráfico actual usa `useSales()` (`GET /sales?page=0&page_size=25`): suma sólo las 25 filas de venta más recientes, sin sucursal ni notas de crédito.
+- `notifications`: `StockBelowMinimum` 273 (3 leídas), `CashSessionClosed` 2, `FiscalDocumentRejected` 1, `QuoteAccepted` 1; los otros 6 tipos sin filas. `markNotificationRead` no actualizaba la caché (el aviso no cambiaba en pantalla hasta un resync).
+- `ai-resumen`: `insight_generated` 42 (nov), 199 (oct), 300 (sep), 341 (ago) — la función genera y gasta cuota en cada montaje del Tablero; `insights` no tiene columna `content` desde `20260629000001_unify_insights` (la RPC devuelve la fila con `message`).
+- md5 de `pg_get_functiondef`: `rpc_dashboard_kpi_summary` `3947671c…`, `rpc_dashboard_channel_margin` `7ddc661b…`, `get_dashboard_financials` `b32ce1c0…`, `get_dashboard_critical_stock` `055c8d84…`, `rpc_atomic_log_ai_insight` `dcdefe0f…` (completos en el design).
+
+**Hallazgos de definición que el diálogo dice tal cual (no se corrigen acá).** «Ticket Promedio» y «Margen por Canal» no restan notas de crédito; «Gastos del mes» no incluye compras pero «Ganancia neta del mes» sí las resta; «Stock sin Rotación» valúa a costo actual; «Productos en alerta» es una foto de ahora, no del mes.
+
+**Hallazgo lateral (candidato, no se toca acá).** `estadisticas-prev-sin-recorte`: `rpc_sales_evolution` calcula los totales del período anterior (`v_prev_*`) sin pasar por `reporting_plan_window`, así que `/estadisticas` puede comparar contra datos fuera del historial del plan. El Tablero lo evita ocultando la comparación (D3).
+
+**Fuera de alcance (declarado).** Calidad/contexto del contenido de IA (explore `openspec/explore/2026-11-06-mejora-ia.md`, change futuro `ia-insights-tablero`); cambios de RPC, endpoint o Edge Function; historial de notificaciones leídas.

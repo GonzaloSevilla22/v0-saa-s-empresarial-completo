@@ -89,7 +89,7 @@ Este change hace que los tests contra una base real y los gates de dinero corran
 
 ---
 
-## 9. `productos-padre-variantes` — humo real de la tanda B (frontend; propose #679, tanda A #681, tanda B PR #TBD)
+## 9. `productos-padre-variantes` — humo real de la tanda B (frontend; propose #679, tanda A #681, tanda B PR #683)
 
 La tanda A (padre sin precio/costo, relabel de unidad, precios en lote) ya está en prod y verificada; la tanda B es la pantalla. Cuando el PR esté mergeado y desplegado, en `/productos` con la cuenta de un negocio real (dueño o administrador):
 
@@ -133,4 +133,4 @@ Se completa a medida que se mergea cada PR. Orden pactado: changes de a uno, sie
 | 5-nov (tras #678) | Archive mp-cuota-acreditacion-resiliente (specs `payment-webhook` y `subscription-lifecycle` sincronizadas, change cerrado; humo real del cobro 2026-12-04 pendiente, §8) | #680 | en revisión |
 | 22:25 UTC (5-nov) | Propose productos-padre-variantes (alta diferenciada padre/simple, padre sin precio/costo con CHECK, corrección de unidad de la familia sin convertir, precios en lote con vista previa, sugerencia costo × 1,5; migración reservada 20261093000001; OQs por la recomendada) | #679 | en revisión |
 | 00:25 UTC (6-nov) | Apply tanda A productos-padre-variantes (padre sin precio/costo con CHECK, corrección de unidad de la familia sin convertir, precios en lote con vista previa; DB + backend, sin cambio visible; migración 20261093000001) | #681 | en revisión |
-| 23:10 ART (5-nov) | Apply tanda B productos-padre-variantes (frontend: paso «¿Qué querés crear?», formularios de padre / simple / variante, sugerencia costo × 1,5, «Corregir unidad» con vista previa, «Modificar precios» en lote; sin migración; pasada visual en 4 combinaciones) | #TBD | en revisión |
+| 23:10 ART (5-nov) | Apply tanda B productos-padre-variantes (frontend: paso «¿Qué querés crear?», formularios de padre / simple / variante, sugerencia costo × 1,5, «Corregir unidad» con vista previa, «Modificar precios» en lote; sin migración; pasada visual en 4 combinaciones) | #683 | en revisión |

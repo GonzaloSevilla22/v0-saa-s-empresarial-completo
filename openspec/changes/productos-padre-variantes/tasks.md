@@ -78,5 +78,5 @@
 
 - [x] 12.1 `pnpm vitest run` completo y `tsc --noEmit` sin errores nuevos contra el baseline.
 - [x] 12.2 Verificación visual de `/productos` (paso "¿Qué querés crear?", los tres formularios, "Corregir unidad", "Modificar precios") a 375 px y en desktop, tema claro y oscuro (4 combinaciones), con contraste por tokens semánticos.
-- [ ] 12.3 PR de la tanda B; humo real del PO anotado en `docs/pendientes-manuales-po.md` (crear producto con variantes, corregir la unidad de una familia con historia, aumentar precios de una selección, sugerencia × 1,5).
+- [x] 12.3 PR de la tanda B; humo real del PO anotado en `docs/pendientes-manuales-po.md` (crear producto con variantes, corregir la unidad de una familia con historia, aumentar precios de una selección, sugerencia × 1,5).
 - [ ] 12.4 Archive: specs sincronizadas (`product-variants` y `product-bulk-pricing` nuevas; `units-of-measure`, `product-sku`, `product-category` modificadas); candidatos `markup-por-cuenta`, `v3-uom-conversion` y conversión asistida de padres `tracked` en `CHANGES.md`.

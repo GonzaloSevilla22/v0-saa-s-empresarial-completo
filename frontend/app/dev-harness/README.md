@@ -150,3 +150,12 @@ layout ni scroll ante `wheel`/`touchmove` (RED de `tasks.md` 1.1/2.1).
   backend se intercepta. Spec: `e2e/harness/tablero-explicable-visual.spec.ts`
   (capturas en `TABLERO_SHOT_DIR`, por defecto
   `../openspec/changes/tablero-explicable/evidence`).
+- `/dev-harness/copiloto-chat?theme=light|dark&state=vacio|respuesta|repregunta|cuota|rafaga|error|espera[&historial=1]` —
+  ia-copilot-v2 (task 8.3): la pantalla REAL `/copiloto-ia` sin sesión ni backend. La cuota y
+  el historial se siembran en la caché de react-query con las claves de los hooks reales
+  (`["aiUsage", undefined]`, `["planLimits", "gratis"]`, `queryKeys.copilot.history(null)`); la
+  sesión (`/api/auth/token`), la Edge Function `ai-copilot` y el RPC de valoración se
+  interceptan en `window.fetch`, y `state` decide qué responde la función (respuesta con «Miré: …»,
+  repregunta, 429 por ráfaga, 502, o sin respuesta para ver los pasos de espera).
+  Spec: `e2e/harness/copiloto-visual.spec.ts` (7 estados x 4 combinaciones; capturas en
+  `COPILOTO_SHOT_DIR`, por defecto `../openspec/changes/ia-copilot-v2/evidence/tanda-b`).

@@ -342,13 +342,15 @@ describe("D21 — los transportes no arman el Bearer a mano", () => {
      * `auth-headers.ts` es el helper: es el único que compone el encabezado de la
      * sesión del usuario.
      *
-     * `app/api/ai/copilot/route.ts` compone un Bearer que **no es la sesión**: es
-     * la clave de OpenAI, en el servidor, hacia un tercero. Va nombrado en vez de
-     * afinar la expresión para que no cuente como sesión: una expresión que
-     * distinga "clave de tercero" de "token de usuario" por el nombre de la
-     * variable es la clase de detector que después deja pasar el caso real.
+     * La ruta de Next del Copiloto componía un Bearer que no era la sesión (la clave
+     * de OpenAI, hacia un tercero) y por eso estaba nombrada acá; `ia-copilot-v2` la
+     * retiró (la llamada a OpenAI vive ahora en la Edge Function `ai-copilot`, fuera de
+     * este árbol). Si un caso legítimo vuelve a aparecer, se nombra en esta lista en
+     * vez de afinar la expresión: una expresión que distinga "clave de tercero" de
+     * "token de usuario" por el nombre de la variable es la clase de detector que
+     * después deja pasar el caso real.
      */
-    const ALLOWED = ["lib/api/auth-headers.ts", "app/api/ai/copilot/route.ts"]
+    const ALLOWED = ["lib/api/auth-headers.ts"]
 
     function walk(dir: string, found: string[] = []): string[] {
       for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {

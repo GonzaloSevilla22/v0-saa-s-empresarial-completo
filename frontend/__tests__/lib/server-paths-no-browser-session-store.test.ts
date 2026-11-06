@@ -11,7 +11,8 @@
  * porque los dos sitios que lo llamaban estaban dentro de un `try/catch` y de un
  * `.catch()`.
  *
- * El síntoma medido en la revisión: `POST /api/ai/copilot` dejaba de persistir
+ * El síntoma medido en la revisión: la ruta de Next del Copiloto (retirada por
+ * `ia-copilot-v2`, que lo movió a la Edge Function `ai-copilot`) dejaba de persistir
  * **toda** conversación (`ai_conversations`) y de incluir el bloque de top
  * productos en el contexto de la IA.
  *
@@ -198,14 +199,15 @@ describe("ningún camino de servidor importa el store de token del navegador", (
   })
 
   it("el recorrido atraviesa el grafo de verdad (no es vacuo por no resolver nada)", () => {
-    const fromCopilot = reachableFrom(path.join(FRONTEND, "app/api/ai/copilot/route.ts"))
-    const alcanzados = [...fromCopilot].map(relative)
+    const fromPreferences = reachableFrom(path.join(FRONTEND, "app/api/billing/preferences/route.ts"))
+    const alcanzados = [...fromPreferences].map(relative)
 
-    // Dos saltos reales: la ruta importa el snapshot, que importa el canon de
-    // ingresos. Si el resolvedor dejara de resolver `@/…`, esto cae.
-    expect(alcanzados).toContain("lib/ai/buildBusinessSnapshot.ts")
-    expect(alcanzados).toContain("lib/reporting/revenue-canon.ts")
-    expect(fromCopilot.size).toBeGreaterThan(10)
+    // Dos saltos reales: la ruta importa el cliente de servidor de Supabase, que
+    // importa las opciones de cookie. Si el resolvedor dejara de resolver `@/…`,
+    // esto cae.
+    expect(alcanzados).toContain("lib/supabase/server.ts")
+    expect(alcanzados).toContain("lib/supabase/cookie-options.ts")
+    expect(fromPreferences.size).toBeGreaterThan(3)
   })
 
   it("ninguna entrada de servidor alcanza el store", () => {

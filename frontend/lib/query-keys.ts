@@ -239,6 +239,11 @@ export const queryKeys = {
       ["salesStatistics", "productDetail", accountId, productId, start, end, bucket, branchId, canal] as const,
     aiInsight: (userId: string | null) => ["salesStatistics", "aiInsight", userId] as const,
   },
+  // ia-copilot-v2 (tanda B): historial de turnos propios del Copiloto + su valoración
+  copilot: {
+    all:     () => ["copilot"] as const,
+    history: (accountId: string | null) => ["copilot", "history", accountId] as const,
+  },
   // productos-categorias-sku
   productCategories: {
     all:     () => ["productCategories"] as const,

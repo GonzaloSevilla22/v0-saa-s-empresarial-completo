@@ -86,7 +86,6 @@ describe("updateSession — gate por sesión", () => {
 describe("updateSession — /api/** no recibe redirect", () => {
   it.each([
     "/api/auth/token",
-    "/api/ai/copilot",
     "/api/billing/cancel",
     "/api/billing/preferences",
   ])("%s sin sesión NO recibe 307 al login", async (pathname) => {
@@ -108,7 +107,7 @@ describe("updateSession — /api/** no recibe redirect", () => {
   // `/api/**` incluido — es decir, el propio manejador de token de la Parte C
   // habría recibido un 307 a HTML donde espera JSON, que es exactamente lo que
   // D4 declara que no puede pasar.
-  // Se mide sobre `/api/ai/copilot` y no sobre `/api/auth/token`: desde la revisión
+  // Se mide sobre `/api/billing/cancel` y no sobre `/api/auth/token`: desde la revisión
   // adversarial de la Parte C, `/api/auth/*` **no llega** a esta rama porque el
   // middleware la cortocircuita antes de `getUser()` (D19-5, ver
   // `middleware-api-auth-shortcircuit.test.ts`). La garantía de D4 que este caso
@@ -121,7 +120,7 @@ describe("updateSession — /api/** no recibe redirect", () => {
     harness.authError = { message: "AuthApiError: Refresh Token Not Found" }
 
     const response = await updateSession(
-      buildRequest("/api/ai/copilot", { "sb-project-auth-token": "base64-muerta" }),
+      buildRequest("/api/billing/cancel", { "sb-project-auth-token": "base64-muerta" }),
     )
 
     expect(isRedirect(response)).toBe(false)

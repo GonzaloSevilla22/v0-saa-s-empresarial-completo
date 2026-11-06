@@ -5,7 +5,8 @@
  * kpi-ia-canonical-revenue, D7: nace acá (extraído de
  * `hooks/data/use-dashboard-kpi-summary.ts`, que es un hook de cliente y no
  * se puede reusar desde una ruta de servidor) para que el Copiloto
- * (`frontend/lib/ai/buildBusinessSnapshot.ts`) y el hook del Tablero
+ * (entonces `frontend/lib/ai/buildBusinessSnapshot.ts`, retirado por `ia-copilot-v2`: hoy
+ * lee las mismas RPCs canónicas desde la Edge Function `ai-copilot`) y el hook del Tablero
  * consuman exactamente el mismo mapeo — nunca dos copias que puedan divergir.
  */
 

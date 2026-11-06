@@ -1,0 +1,15 @@
+            ("GET", "/members/invitations"),
+            ("POST", "/members/invitations/{invitation_id}/resend"),
+            ("DELETE", "/members/invitations/{invitation_id}"),
+            ("POST", "/invitations/preview"),
+            ("POST", "/invitations/accept"),
+        ):
+>           assert expected in routes, expected
+E           AssertionError: ('POST', '/invitations/preview')
+E           assert ('POST', '/invitations/preview') in {('DELETE', '/clients/{client_id}'), ('DELETE', '/clients/{client_id}/addresses/{address_id}'), ('DELETE', '/customer-...', '/document-branding/logo'), ('DELETE', '/expenses/{expense_id}'), ('DELETE', '/fiscal/points-of-sale/default'), ...}
+
+backend\tests\test_invitations.py:171: AssertionError
+=========================== short test summary info ===========================
+FAILED backend\tests\test_invitations.py::test_las_seis_rutas_estan_registradas
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed in 9.65s

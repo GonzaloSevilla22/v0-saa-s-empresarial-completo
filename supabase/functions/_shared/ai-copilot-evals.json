@@ -1,0 +1,942 @@
+{
+  "meta": {
+    "version": 1,
+    "change": "ia-copilot-v2",
+    "cases_total": 40,
+    "descripcion": "Set de evals del Copiloto (D12). Se corre A MANO con scripts/ai/copilot-evals.ts y la clave real; nunca en CI. El número esperado sale de ejecutar la RPC canónica con el MISMO JWT (rpc_check). Las filas de ai_conversations de prod aportan las 9 preguntas reales distintas (el diseño anticipaba 10; al 2026-11-06 hay 9 textos distintos en 11 filas).",
+    "placeholders": "$today $yesterday $week_start $last_week_start $last_week_end $month_start $last_month_start $last_month_end (día de Mendoza); $account_id (cuenta activa del JWT); $top_product_id y $top_product_name (primera fila de rpc_product_ranking del mes por unidades; los resuelve el script).",
+    "fixtures": "La cuenta de prueba necesita datos reales del mes en curso (ventas, gastos, stock bajo mínimo, cuentas por cobrar y por pagar) y, para las repreguntas C01-C03, AL MENOS DOS productos activos que coincidan con remera, con gorra y con campera. Un caso cuya RPC no devuelve filas se OMITE (no cuenta como acierto ni como error).",
+    "extract": "extract.path = <fila>.<columna> sobre las filas de la RPC; sort_desc ordena las filas por esa columna antes de elegir; sum suma una columna sobre todas las filas. as: money (el monto, redondeado a peso, tiene que aparecer en formato es-AR), integer (ídem, sin decimales), text (el texto, sin tildes ni mayúsculas)."
+  },
+  "cases": [
+    {
+      "id": "R01",
+      "group": "real",
+      "question": "¿Cuál es mi producto con menos stock?",
+      "expect": {
+        "tools_any_of": [
+          "stock_critico"
+        ],
+        "rpc_check": {
+          "fn": "get_dashboard_critical_stock_items",
+          "args": {
+            "p_branch_id": null,
+            "p_limit": 50
+          },
+          "extract": {
+            "path": "0.name",
+            "as": "text"
+          }
+        }
+      }
+    },
+    {
+      "id": "R02",
+      "group": "real",
+      "question": "¿Qué producto me conviene reponer?",
+      "expect": {
+        "tools_any_of": [
+          "stock_critico",
+          "ranking_productos"
+        ],
+        "rpc_check": {
+          "fn": "get_dashboard_critical_stock_items",
+          "args": {
+            "p_branch_id": null,
+            "p_limit": 50
+          },
+          "extract": {
+            "path": "0.name",
+            "as": "text"
+          }
+        }
+      }
+    },
+    {
+      "id": "R03",
+      "group": "real",
+      "question": "¿Cuáles fueron mis gastos de hoy?",
+      "expect": {
+        "tools_any_of": [
+          "comparar_periodos"
+        ],
+        "rpc_check": {
+          "fn": "rpc_period_comparison",
+          "args": {
+            "p_a_start": "$today",
+            "p_a_end": "$today",
+            "p_b_start": "$yesterday",
+            "p_b_end": "$yesterday"
+          },
+          "extract": {
+            "path": "0.period_a_expenses",
+            "as": "money"
+          }
+        }
+      }
+    },
+    {
+      "id": "R04",
+      "group": "real",
+      "question": "¿Cuál fue mi ganancia neta?",
+      "expect": {
+        "tools_any_of": [
+          "resumen_periodo"
+        ],
+        "rpc_check": {
+          "fn": "rpc_dashboard_kpi_summary",
+          "window": {
+            "from": "$month_start",
+            "to": "$today"
+          },
+          "extract": {
+            "path": "0.net_profit",
+            "as": "money"
+          }
+        }
+      }
+    },
+    {
+      "id": "R05",
+      "group": "real",
+      "question": "Dame tres consejos para mejorar mi negocio.",
+      "expect": {
+        "tools_any_of": [
+          "resumen_periodo",
+          "ranking_productos",
+          "cuentas_por_cobrar",
+          "stock_critico"
+        ],
+        "must_contain_number": true
+      }
+    },
+    {
+      "id": "R06",
+      "group": "real",
+      "question": "¿Qué producto tiene mejor margen?",
+      "expect": {
+        "tools_any_of": [
+          "ranking_productos",
+          "rentabilidad_productos"
+        ],
+        "rpc_check": {
+          "fn": "rpc_product_ranking",
+          "args": {
+            "p_account_id": "$account_id",
+            "p_start": "$month_start",
+            "p_end": "$today",
+            "p_order_by": "margin",
+            "p_group_variants": true,
+            "p_branch_id": null,
+            "p_canal": null,
+            "p_limit": 1,
+            "p_offset": 0
+          },
+          "extract": {
+            "path": "0.product_name",
+            "as": "text"
+          }
+        }
+      }
+    },
+    {
+      "id": "R07",
+      "group": "real",
+      "question": "¿Qué cliente compró más?",
+      "expect": {
+        "tools_any_of": [
+          "mejores_clientes"
+        ],
+        "rpc_check": {
+          "fn": "rpc_sales_top_clients",
+          "args": {
+            "p_account_id": "$account_id",
+            "p_start": "$month_start",
+            "p_end": "$today",
+            "p_branch_id": null,
+            "p_limit": 1
+          },
+          "extract": {
+            "path": "0.client_name",
+            "as": "text"
+          }
+        }
+      }
+    },
+    {
+      "id": "R08",
+      "group": "real",
+      "question": "¿Cuánto vendí hoy?",
+      "expect": {
+        "tools_any_of": [
+          "resumen_periodo"
+        ],
+        "rpc_check": {
+          "fn": "rpc_dashboard_kpi_summary",
+          "window": {
+            "from": "$today",
+            "to": "$today"
+          },
+          "extract": {
+            "path": "0.invoiced_revenue",
+            "as": "money"
+          }
+        }
+      }
+    },
+    {
+      "id": "R09",
+      "group": "real",
+      "question": "¿Qué producto tiene menos stock?",
+      "expect": {
+        "tools_any_of": [
+          "stock_critico"
+        ],
+        "rpc_check": {
+          "fn": "get_dashboard_critical_stock_items",
+          "args": {
+            "p_branch_id": null,
+            "p_limit": 50
+          },
+          "extract": {
+            "path": "0.name",
+            "as": "text"
+          }
+        }
+      }
+    },
+    {
+      "id": "V01",
+      "group": "vague",
+      "question": "ventas de ayer",
+      "expect": {
+        "tools_any_of": [
+          "resumen_periodo"
+        ],
+        "rpc_check": {
+          "fn": "rpc_dashboard_kpi_summary",
+          "window": {
+            "from": "$yesterday",
+            "to": "$yesterday"
+          },
+          "extract": {
+            "path": "0.invoiced_revenue",
+            "as": "money"
+          }
+        }
+      }
+    },
+    {
+      "id": "V02",
+      "group": "vague",
+      "question": "cómo vengo",
+      "expect": {
+        "tools_any_of": [
+          "resumen_periodo"
+        ],
+        "rpc_check": {
+          "fn": "rpc_dashboard_kpi_summary",
+          "window": {
+            "from": "$month_start",
+            "to": "$today"
+          },
+          "extract": {
+            "path": "0.invoiced_revenue",
+            "as": "money"
+          }
+        }
+      }
+    },
+    {
+      "id": "V03",
+      "group": "vague",
+      "question": "cómo venimos este mes vs el anterior",
+      "expect": {
+        "tools_any_of": [
+          "comparar_periodos",
+          "resumen_periodo"
+        ],
+        "rpc_check": {
+          "fn": "rpc_dashboard_kpi_summary",
+          "window": {
+            "from": "$month_start",
+            "to": "$today"
+          },
+          "extract": {
+            "path": "0.invoiced_revenue",
+            "as": "money"
+          }
+        }
+      }
+    },
+    {
+      "id": "V04",
+      "group": "vague",
+      "question": "qué producto no se mueve",
+      "expect": {
+        "tools_any_of": [
+          "resumen_periodo",
+          "rentabilidad_productos"
+        ],
+        "rpc_check": {
+          "fn": "rpc_dashboard_kpi_summary",
+          "window": {
+            "from": "$month_start",
+            "to": "$today"
+          },
+          "extract": {
+            "path": "0.stagnant_stock_count",
+            "as": "integer"
+          }
+        }
+      }
+    },
+    {
+      "id": "V05",
+      "group": "vague",
+      "question": "a quién le tengo que cobrar",
+      "expect": {
+        "tools_any_of": [
+          "cuentas_por_cobrar"
+        ],
+        "rpc_check": {
+          "fn": "rpc_receivables_report",
+          "args": {
+            "p_account_id": "$account_id"
+          },
+          "extract": {
+            "path": "0.client_name",
+            "sort_desc": "balance",
+            "as": "text"
+          }
+        }
+      }
+    },
+    {
+      "id": "V06",
+      "group": "vague",
+      "question": "cuánto me deben en total",
+      "expect": {
+        "tools_any_of": [
+          "cuentas_por_cobrar"
+        ],
+        "rpc_check": {
+          "fn": "rpc_receivables_report",
+          "args": {
+            "p_account_id": "$account_id"
+          },
+          "extract": {
+            "sum": "balance",
+            "as": "money"
+          }
+        }
+      }
+    },
+    {
+      "id": "V07",
+      "group": "vague",
+      "question": "a quién le debo",
+      "expect": {
+        "tools_any_of": [
+          "cuentas_por_pagar"
+        ],
+        "rpc_check": {
+          "fn": "rpc_payables_report",
+          "args": {
+            "p_account_id": "$account_id"
+          },
+          "extract": {
+            "path": "0.supplier_name",
+            "sort_desc": "balance",
+            "as": "text"
+          }
+        }
+      }
+    },
+    {
+      "id": "V08",
+      "group": "vague",
+      "question": "cuánto le debo a mis proveedores",
+      "expect": {
+        "tools_any_of": [
+          "cuentas_por_pagar"
+        ],
+        "rpc_check": {
+          "fn": "rpc_payables_report",
+          "args": {
+            "p_account_id": "$account_id"
+          },
+          "extract": {
+            "sum": "balance",
+            "as": "money"
+          }
+        }
+      }
+    },
+    {
+      "id": "V09",
+      "group": "vague",
+      "question": "qué me falta comprar",
+      "expect": {
+        "tools_any_of": [
+          "stock_critico"
+        ],
+        "rpc_check": {
+          "fn": "get_dashboard_critical_stock_items",
+          "args": {
+            "p_branch_id": null,
+            "p_limit": 50
+          },
+          "extract": {
+            "path": "0.name",
+            "as": "text"
+          }
+        }
+      }
+    },
+    {
+      "id": "V10",
+      "group": "vague",
+      "question": "ventas de esta semana",
+      "expect": {
+        "tools_any_of": [
+          "resumen_periodo"
+        ],
+        "rpc_check": {
+          "fn": "rpc_dashboard_kpi_summary",
+          "window": {
+            "from": "$week_start",
+            "to": "$today"
+          },
+          "extract": {
+            "path": "0.invoiced_revenue",
+            "as": "money"
+          }
+        }
+      }
+    },
+    {
+      "id": "V11",
+      "group": "vague",
+      "question": "ventas del mes pasado",
+      "expect": {
+        "tools_any_of": [
+          "resumen_periodo"
+        ],
+        "rpc_check": {
+          "fn": "rpc_dashboard_kpi_summary",
+          "window": {
+            "from": "$last_month_start",
+            "to": "$last_month_end"
+          },
+          "extract": {
+            "path": "0.invoiced_revenue",
+            "as": "money"
+          }
+        }
+      }
+    },
+    {
+      "id": "V12",
+      "group": "vague",
+      "question": "cuánto gané este mes",
+      "expect": {
+        "tools_any_of": [
+          "resumen_periodo"
+        ],
+        "rpc_check": {
+          "fn": "rpc_dashboard_kpi_summary",
+          "window": {
+            "from": "$month_start",
+            "to": "$today"
+          },
+          "extract": {
+            "path": "0.net_profit",
+            "as": "money"
+          }
+        }
+      }
+    },
+    {
+      "id": "V13",
+      "group": "vague",
+      "question": "mi ticket promedio",
+      "expect": {
+        "tools_any_of": [
+          "resumen_periodo"
+        ],
+        "rpc_check": {
+          "fn": "rpc_dashboard_kpi_summary",
+          "window": {
+            "from": "$month_start",
+            "to": "$today"
+          },
+          "extract": {
+            "path": "0.avg_ticket",
+            "as": "money"
+          }
+        }
+      }
+    },
+    {
+      "id": "V14",
+      "group": "vague",
+      "question": "cuántas ventas hice hoy",
+      "expect": {
+        "tools_any_of": [
+          "resumen_periodo"
+        ],
+        "rpc_check": {
+          "fn": "rpc_dashboard_kpi_summary",
+          "window": {
+            "from": "$today",
+            "to": "$today"
+          },
+          "extract": {
+            "path": "0.sales_count",
+            "as": "integer"
+          }
+        }
+      }
+    },
+    {
+      "id": "V15",
+      "group": "vague",
+      "question": "qué producto vendí más este mes",
+      "expect": {
+        "tools_any_of": [
+          "ranking_productos"
+        ],
+        "rpc_check": {
+          "fn": "rpc_product_ranking",
+          "args": {
+            "p_account_id": "$account_id",
+            "p_start": "$month_start",
+            "p_end": "$today",
+            "p_order_by": "units",
+            "p_group_variants": true,
+            "p_branch_id": null,
+            "p_canal": null,
+            "p_limit": 1,
+            "p_offset": 0
+          },
+          "extract": {
+            "path": "0.product_name",
+            "as": "text"
+          }
+        }
+      }
+    },
+    {
+      "id": "V16",
+      "group": "vague",
+      "question": "qué producto me deja más plata",
+      "expect": {
+        "tools_any_of": [
+          "ranking_productos",
+          "rentabilidad_productos"
+        ],
+        "rpc_check": {
+          "fn": "rpc_product_ranking",
+          "args": {
+            "p_account_id": "$account_id",
+            "p_start": "$month_start",
+            "p_end": "$today",
+            "p_order_by": "margin",
+            "p_group_variants": true,
+            "p_branch_id": null,
+            "p_canal": null,
+            "p_limit": 1,
+            "p_offset": 0
+          },
+          "extract": {
+            "path": "0.product_name",
+            "as": "text"
+          }
+        }
+      }
+    },
+    {
+      "id": "V17",
+      "group": "vague",
+      "question": "por qué canal vendo más",
+      "expect": {
+        "tools_any_of": [
+          "desglose_ventas"
+        ],
+        "rpc_check": {
+          "fn": "rpc_sales_breakdown",
+          "args": {
+            "p_account_id": "$account_id",
+            "p_start": "$month_start",
+            "p_end": "$today",
+            "p_dimension": "canal",
+            "p_branch_id": null,
+            "p_canal": null
+          },
+          "extract": {
+            "path": "0.bucket_label",
+            "sort_desc": "revenue",
+            "as": "text"
+          }
+        }
+      }
+    },
+    {
+      "id": "V18",
+      "group": "vague",
+      "question": "qué día de la semana vendo más",
+      "expect": {
+        "tools_any_of": [
+          "desglose_ventas"
+        ],
+        "rpc_check": {
+          "fn": "rpc_sales_breakdown",
+          "args": {
+            "p_account_id": "$account_id",
+            "p_start": "$month_start",
+            "p_end": "$today",
+            "p_dimension": "weekday",
+            "p_branch_id": null,
+            "p_canal": null
+          },
+          "extract": {
+            "path": "0.bucket_label",
+            "sort_desc": "revenue",
+            "as": "text"
+          }
+        }
+      }
+    },
+    {
+      "id": "V19",
+      "group": "vague",
+      "question": "qué categoría vende más",
+      "expect": {
+        "tools_any_of": [
+          "desglose_ventas"
+        ],
+        "rpc_check": {
+          "fn": "rpc_sales_breakdown",
+          "args": {
+            "p_account_id": "$account_id",
+            "p_start": "$month_start",
+            "p_end": "$today",
+            "p_dimension": "category",
+            "p_branch_id": null,
+            "p_canal": null
+          },
+          "extract": {
+            "path": "0.bucket_label",
+            "sort_desc": "revenue",
+            "as": "text"
+          }
+        }
+      }
+    },
+    {
+      "id": "V20",
+      "group": "vague",
+      "question": "cuánto gasté este mes",
+      "expect": {
+        "tools_any_of": [
+          "comparar_periodos"
+        ],
+        "rpc_check": {
+          "fn": "rpc_period_comparison",
+          "args": {
+            "p_a_start": "$month_start",
+            "p_a_end": "$today",
+            "p_b_start": "$last_month_start",
+            "p_b_end": "$last_month_end"
+          },
+          "extract": {
+            "path": "0.period_a_expenses",
+            "as": "money"
+          }
+        }
+      }
+    },
+    {
+      "id": "V21",
+      "group": "vague",
+      "question": "cómo estuvo mi semana comparada con la anterior",
+      "expect": {
+        "tools_any_of": [
+          "comparar_periodos"
+        ],
+        "rpc_check": {
+          "fn": "rpc_period_comparison",
+          "args": {
+            "p_a_start": "$week_start",
+            "p_a_end": "$today",
+            "p_b_start": "$last_week_start",
+            "p_b_end": "$last_week_end"
+          },
+          "extract": {
+            "path": "0.period_a_revenue",
+            "as": "money"
+          }
+        }
+      }
+    },
+    {
+      "id": "F01",
+      "group": "followup",
+      "question": "¿y el mes pasado?",
+      "expect": {
+        "tools_any_of": [
+          "resumen_periodo",
+          "evolucion_ventas"
+        ],
+        "rpc_check": {
+          "fn": "rpc_dashboard_kpi_summary",
+          "window": {
+            "from": "$last_month_start",
+            "to": "$last_month_end"
+          },
+          "extract": {
+            "path": "0.invoiced_revenue",
+            "as": "money"
+          }
+        }
+      },
+      "history": [
+        {
+          "role": "user",
+          "content": "¿cuánto vendí este mes?"
+        },
+        {
+          "role": "assistant",
+          "content": "Tomé este mes hasta hoy. Vendiste un monto que ya te mostré arriba."
+        }
+      ],
+      "state": {
+        "period": {
+          "start": "$month_start",
+          "end": "$today"
+        },
+        "product": null,
+        "client": null
+      }
+    },
+    {
+      "id": "F02",
+      "group": "followup",
+      "question": "¿y este mes?",
+      "expect": {
+        "tools_any_of": [
+          "resumen_periodo",
+          "evolucion_ventas"
+        ],
+        "rpc_check": {
+          "fn": "rpc_dashboard_kpi_summary",
+          "window": {
+            "from": "$month_start",
+            "to": "$today"
+          },
+          "extract": {
+            "path": "0.invoiced_revenue",
+            "as": "money"
+          }
+        }
+      },
+      "history": [
+        {
+          "role": "user",
+          "content": "¿cuánto vendí el mes pasado?"
+        },
+        {
+          "role": "assistant",
+          "content": "Consulté el mes pasado completo."
+        }
+      ],
+      "state": {
+        "period": {
+          "start": "$last_month_start",
+          "end": "$last_month_end"
+        },
+        "product": null,
+        "client": null
+      }
+    },
+    {
+      "id": "F03",
+      "group": "followup",
+      "question": "¿cuántas unidades vendí de ese producto este mes?",
+      "expect": {
+        "tools_any_of": [
+          "detalle_producto",
+          "ranking_productos"
+        ],
+        "rpc_check": {
+          "fn": "rpc_product_ranking",
+          "args": {
+            "p_account_id": "$account_id",
+            "p_start": "$month_start",
+            "p_end": "$today",
+            "p_order_by": "units",
+            "p_group_variants": true,
+            "p_branch_id": null,
+            "p_canal": null,
+            "p_limit": 1,
+            "p_offset": 0
+          },
+          "extract": {
+            "path": "0.units",
+            "as": "integer"
+          }
+        }
+      },
+      "history": [
+        {
+          "role": "user",
+          "content": "¿qué producto vendí más este mes?"
+        },
+        {
+          "role": "assistant",
+          "content": "Tu producto más vendido es el que figura primero en el ranking."
+        }
+      ],
+      "state": {
+        "period": {
+          "start": "$month_start",
+          "end": "$today"
+        },
+        "product": {
+          "id": "$top_product_id",
+          "name": "$top_product_name"
+        },
+        "client": null
+      }
+    },
+    {
+      "id": "F04",
+      "group": "followup",
+      "question": "¿y la semana pasada?",
+      "expect": {
+        "tools_any_of": [
+          "resumen_periodo",
+          "evolucion_ventas"
+        ],
+        "rpc_check": {
+          "fn": "rpc_dashboard_kpi_summary",
+          "window": {
+            "from": "$last_week_start",
+            "to": "$last_week_end"
+          },
+          "extract": {
+            "path": "0.invoiced_revenue",
+            "as": "money"
+          }
+        }
+      },
+      "history": [
+        {
+          "role": "user",
+          "content": "¿cuánto vendí esta semana?"
+        },
+        {
+          "role": "assistant",
+          "content": "Tomé de lunes a hoy."
+        }
+      ],
+      "state": {
+        "period": {
+          "start": "$week_start",
+          "end": "$today"
+        },
+        "product": null,
+        "client": null
+      }
+    },
+    {
+      "id": "F05",
+      "group": "followup",
+      "question": "¿y las ventas?",
+      "expect": {
+        "tools_any_of": [
+          "resumen_periodo"
+        ],
+        "rpc_check": {
+          "fn": "rpc_dashboard_kpi_summary",
+          "window": {
+            "from": "$month_start",
+            "to": "$today"
+          },
+          "extract": {
+            "path": "0.invoiced_revenue",
+            "as": "money"
+          }
+        }
+      },
+      "history": [
+        {
+          "role": "user",
+          "content": "¿cuál fue mi ganancia neta?"
+        },
+        {
+          "role": "assistant",
+          "content": "Tomé este mes hasta hoy. Tu ganancia neta es la que ya te informé."
+        }
+      ],
+      "state": {
+        "period": {
+          "start": "$month_start",
+          "end": "$today"
+        },
+        "product": null,
+        "client": null
+      }
+    },
+    {
+      "id": "C01",
+      "group": "clarification",
+      "question": "¿cuántas remeras vendí?",
+      "expect": {
+        "must_ask_clarification": true
+      }
+    },
+    {
+      "id": "C02",
+      "group": "clarification",
+      "question": "¿cuánto gané con la gorra?",
+      "expect": {
+        "must_ask_clarification": true
+      }
+    },
+    {
+      "id": "C03",
+      "group": "clarification",
+      "question": "¿cuánto stock tengo de campera?",
+      "expect": {
+        "must_ask_clarification": true
+      }
+    },
+    {
+      "id": "W01",
+      "group": "write",
+      "question": "anotame un gasto de $5.000 en nafta",
+      "expect": {
+        "must_refuse_write": {
+          "tables": [
+            "expenses"
+          ]
+        }
+      }
+    },
+    {
+      "id": "W02",
+      "group": "write",
+      "question": "cargá una venta de 2 remeras a Juan por $20.000",
+      "expect": {
+        "must_refuse_write": {
+          "tables": [
+            "sales",
+            "sales_orders"
+          ]
+        }
+      }
+    }
+  ]
+}

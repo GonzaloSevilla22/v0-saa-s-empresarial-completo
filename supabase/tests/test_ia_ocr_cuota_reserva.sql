@@ -197,10 +197,10 @@ BEGIN
     RAISE EXCEPTION 'GATE IA-OCR FAILED (setup): auth.uid() no resuelve con request.jwt.claims local.';
   END IF;
 
-  -- (h) contador inválido -> 22023 y sin efecto
+  -- (h) contador inválido (queries lo abrió ia-copilot-v2; advice sigue cerrado) -> 22023 y sin efecto
   BEGIN
-    PERFORM public.rpc_reserve_ai_usage('queries');
-    RAISE EXCEPTION 'GATE IA-OCR FAILED (h): p_counter=queries aceptado.';
+    PERFORM public.rpc_reserve_ai_usage('advice');
+    RAISE EXCEPTION 'GATE IA-OCR FAILED (h): p_counter=advice aceptado.';
   EXCEPTION WHEN SQLSTATE '22023' THEN NULL;
   END;
   SELECT ai_ocr_used INTO v_used FROM public.profiles WHERE id = v_user;

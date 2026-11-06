@@ -29,6 +29,7 @@ import { useEffect, useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import CopilotoPage from "@/app/(dashboard)/copiloto-ia/page"
 import { queryKeys } from "@/lib/query-keys"
+import { resolveAccessToken } from "@/lib/auth/access-token-store"
 import type { CopilotHistoryTurn } from "@/hooks/data/use-copilot"
 import type { PlanLimits } from "@/lib/types"
 
@@ -154,7 +155,9 @@ export function CopilotoChatHarness() {
       usage_reset_at: null,
     })
     queryClient.setQueryData(queryKeys.copilot.history(null), params.get("historial") === "1" ? SAVED_TURNS : [])
-    setReady(true)
+    // El proveedor de sesión ya pudo haber cacheado «sin sesión» antes de instalar el intercept:
+    // se fuerza la lectura contra el token simulado para que `getAuthHeaders()` arme el Bearer.
+    void resolveAccessToken({ force: true }).finally(() => setReady(true))
     return uninstall
   }, [queryClient])
 

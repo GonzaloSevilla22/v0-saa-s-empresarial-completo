@@ -113,7 +113,8 @@ for (const vp of VIEWPORTS) {
 
         if (state === 'error') {
           await ask('¿Cómo vengo?')
-          await expect(page.getByRole('alert')).toContainText('No pude responder ahora')
+          // Next monta su propio role=alert (route announcer): se excluye.
+          await expect(page.locator('[role="alert"]:not(#__next-route-announcer__)')).toContainText('No pude responder ahora')
           await expect(input).toHaveValue('¿Cómo vengo?')
         }
 

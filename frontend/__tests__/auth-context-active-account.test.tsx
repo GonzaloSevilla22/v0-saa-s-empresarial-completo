@@ -17,7 +17,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { render, screen, waitFor, act, fireEvent } from "@testing-library/react"
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query"
 import React from "react"
 
 const h = vi.hoisted(() => ({
@@ -291,13 +291,15 @@ describe("auth-context — switchAccount", () => {
   it("persiste, renueva el token, limpia la caché, avisa a las otras pestañas y lleva al Tablero", async () => {
     await renderTwoAccounts()
     dbSwitchesTo("acc-a")
-    const clearSpy = vi.spyOn(queryClient, "clear")
+    const clearSpy = vi.spyOn(queryClient, "resetQueries")
     h.refreshAccessToken.mockClear()
 
     fireEvent.click(screen.getByRole("button", { name: "cambiar" }))
 
     await waitFor(() => expect(screen.getByTestId("account-id").textContent).toBe("acc-a"))
     expect(h.rpc).toHaveBeenCalledWith("rpc_set_active_account", { p_account_id: "acc-a" })
+    // La caché se descarta DESPUÉS de leer el token nuevo (regla del fix del 2026-11-05).
+    expect(clearSpy.mock.invocationCallOrder[0]).toBeGreaterThan(h.refreshAccessToken.mock.invocationCallOrder[0])
     // El token se RENUEVA (forzado) para que sus claims describan la cuenta nueva.
     expect(h.refreshAccessToken).toHaveBeenCalled()
     // ... y la renovación es ANTE EL PROVEEDOR: el token handler sólo renueva un token por vencer,
@@ -308,6 +310,76 @@ describe("auth-context — switchAccount", () => {
     expect(h.replace).toHaveBeenCalledWith("/dashboard")
     expect(h.toast.success).toHaveBeenCalledWith(expect.stringContaining("Ferretería Roca"))
     expect(getDisplayedAccountId()).toBe("acc-a")
+  })
+
+  it("REGRESIÓN (demo del PO 2026-11-05, paso 4): la caché se descarta DESPUÉS de tener el token nuevo en memoria y la cuenta nueva declarada — si se vacía antes, lo montado se vuelve a pedir con el token viejo y las ventas de la cuenta anterior quedan cacheadas bajo el nombre de la nueva", async () => {
+    // Un dato montado (lo que hace cualquier hook de datos de una pantalla abierta) que registra
+    // con qué token en memoria y qué cuenta declarada salió cada pedido.
+    const pedidos: Array<{ token: string; cuenta: string | null; trasRenovar: boolean }> = []
+    let tokenEnMemoria = "tok-viejo"
+    let renovado = false
+    let entregarTokenNuevo: (() => void) | null = null
+    h.refreshSessionAction.mockImplementation(async () => {
+      renovado = true
+      return { ok: true }
+    })
+    // El manejador tarda (red): el token nuevo llega a memoria recién cuando el test lo libera.
+    h.refreshAccessToken.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          const entregar = () => {
+            tokenEnMemoria = renovado ? "tok-nuevo" : "tok-viejo"
+            resolve({ ...ACTIVE_SESSION, token: tokenEnMemoria })
+          }
+          if (renovado) entregarTokenNuevo = entregar
+          else entregar()
+        }),
+    )
+    function Sonda({ marca }: { marca: number }) {
+      const { data } = useQuery({
+        queryKey: ["ventas"],
+        queryFn: async () => {
+          pedidos.push({ token: tokenEnMemoria, cuenta: getDisplayedAccountId(), trasRenovar: renovado })
+          return tokenEnMemoria
+        },
+        staleTime: 60_000,
+      })
+      return <span data-testid="sonda">{`${marca}:${data ?? ""}`}</span>
+    }
+    rows = [
+      accountRow({ account_id: "acc-p", is_active: true, brand_display_name: "Mi Kiosco" }),
+      accountRow({ account_id: "acc-a", is_active: false, is_owner: false, member_role: "member", roles: ["seller"], brand_display_name: "Ferretería Roca" }),
+    ]
+    queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const arbol = (marca: number) => (
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <Consumer />
+          <Sonda marca={marca} />
+        </AuthProvider>
+      </QueryClientProvider>
+    )
+    const { rerender } = render(arbol(1))
+    await waitFor(() => expect(screen.getByTestId("account-id").textContent).toBe("acc-p"))
+    await waitFor(() => expect(screen.getByTestId("sonda").textContent).toBe("1:tok-viejo"))
+    dbSwitchesTo("acc-a")
+
+    fireEvent.click(screen.getByRole("button", { name: "cambiar" }))
+    // Ventana real del incidente: cookies ya renovadas, token nuevo todavía en viaje hacia memoria,
+    // y la pantalla abierta vuelve a renderizar (en prod lo hizo la propia pantalla del Tablero).
+    await waitFor(() => expect(entregarTokenNuevo).not.toBeNull())
+    rerender(arbol(2))
+    await act(async () => {
+      entregarTokenNuevo!()
+    })
+    await waitFor(() => expect(screen.getByTestId("account-id").textContent).toBe("acc-a"))
+    await waitFor(() => expect(screen.getByTestId("sonda").textContent).toBe("2:tok-nuevo"))
+
+    const trasRenovar = pedidos.filter((p) => p.trasRenovar)
+    expect(trasRenovar.length).toBeGreaterThan(0)
+    // Ningún pedido posterior a la renovación salió con el token viejo ni sin la cuenta nueva declarada.
+    expect(trasRenovar.every((p) => p.token === "tok-nuevo")).toBe(true)
+    expect(trasRenovar.every((p) => p.cuenta === "acc-a")).toBe(true)
   })
 
   it("el orden importa: la preferencia se guarda ANTES de renovar el token (si no, el hook emite la cuenta vieja)", async () => {
@@ -364,7 +436,7 @@ describe("auth-context — switchAccount", () => {
     await renderTwoAccounts()
     dbSwitchesTo("acc-a")
     h.refreshSessionAction.mockResolvedValue({ ok: false, error: "Invalid Refresh Token" })
-    const clearSpy = vi.spyOn(queryClient, "clear")
+    const clearSpy = vi.spyOn(queryClient, "resetQueries")
 
     fireEvent.click(screen.getByRole("button", { name: "cambiar" }))
 
@@ -398,7 +470,7 @@ describe("auth-context — switchAccount", () => {
       if (name === "rpc_my_accounts") return Promise.resolve({ data: rows, error: null })
       return Promise.resolve({ data: null, error: null })
     })
-    const clearSpy = vi.spyOn(queryClient, "clear")
+    const clearSpy = vi.spyOn(queryClient, "resetQueries")
     h.rpc.mockClear()
 
     fireEvent.click(screen.getByRole("button", { name: "cambiar" }))
@@ -427,7 +499,7 @@ describe("auth-context — una pestaña desfasada se resincroniza", () => {
     await renderOneActive()
     // La otra pestaña cambió: ahora la base marca a acc-a como activa.
     rows = rows.map((r) => ({ ...r, is_active: r.account_id === "acc-a" }))
-    const clearSpy = vi.spyOn(queryClient, "clear")
+    const clearSpy = vi.spyOn(queryClient, "resetQueries")
 
     await act(async () => {
       for (const handler of [...h.busHandlers]) handler("account:switched")
@@ -443,7 +515,7 @@ describe("auth-context — una pestaña desfasada se resincroniza", () => {
   it("un 409 account_switched (pedido de resincronización del cliente HTTP) hace lo mismo y avisa al usuario", async () => {
     await renderOneActive()
     rows = rows.map((r) => ({ ...r, is_active: r.account_id === "acc-a" }))
-    const clearSpy = vi.spyOn(queryClient, "clear")
+    const clearSpy = vi.spyOn(queryClient, "resetQueries")
 
     await act(async () => {
       await requestAccountResync("switched")
@@ -645,7 +717,7 @@ describe("auth-context — adoptActiveAccount (aceptar una invitación)", () => 
   it("renueva ante el proveedor, limpia la caché, avisa a las otras pestañas, lleva al Tablero y da la bienvenida", async () => {
     await renderJoined()
     dbAlreadySwitchedTo("acc-a")
-    const clearSpy = vi.spyOn(queryClient, "clear")
+    const clearSpy = vi.spyOn(queryClient, "resetQueries")
 
     fireEvent.click(screen.getByRole("button", { name: "adoptar" }))
 

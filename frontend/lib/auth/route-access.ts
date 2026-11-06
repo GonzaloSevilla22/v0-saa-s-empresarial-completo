@@ -119,7 +119,7 @@ function isStaticAssetPath(pathname: string): boolean {
  * Tercera categoría, ni pública ni protegida-por-redirect: **ninguna** ruta bajo
  * `app/api/` recibe un redirect del middleware. Cada handler decide por su
  * cuenta y responde `401` con cuerpo JSON cuando no hay sesión, como ya hacen
- * los tres existentes (`api/ai/copilot`, `api/billing/cancel`,
+ * los existentes (`api/billing/cancel`,
  * `api/billing/preferences`). Redirigirlas devolvería HTML donde el consumidor
  * espera JSON — y dejaría inutilizable el manejador que entrega el access token
  * (Parte C de este mismo change).

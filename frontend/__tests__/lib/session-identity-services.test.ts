@@ -130,15 +130,12 @@ describe("services.ts — createClient y createExpense escriben el user_id de la
   })
 })
 
-// ── lib/services/aiCopilotService.ts ────────────────────────────────────────
+// ── lib/services/aiCopilotService.ts (retirado por ia-copilot-v2) ───────────
 //
-// Sus dos métodos NO están acá: la revisión adversarial de la Parte C encontró que
-// el único caller de `saveConversation` es `POST /api/ai/copilot`, un Route Handler
-// sin `window`, donde el store devuelve `null` en el 100% de las peticiones. La
-// identidad pasó a viajar por parámetro y sus casos viven en
-// `__tests__/ai/copilot-server-identity.test.ts`, que corre en entorno **node** y
-// **no** mockea el store — la única forma de que el test observe lo que observa el
-// servidor.
+// El servicio y su Route Handler (`POST /api/ai/copilot`) ya no existen: el Copiloto
+// corre en la Edge Function `ai-copilot`, que registra cada turno con el JWT del
+// usuario y su `account_id`, y la pantalla lee el historial con `useCopilotHistory`
+// (`hooks/data/use-copilot.ts`, cubierto por `__tests__/hooks/use-copilot.test.tsx`).
 
 // ── lib/services/fairAdvisorService.ts:46 ──────────────────────────────────
 describe("fairAdvisorService — la última recomendación es la del usuario de la sesión", () => {

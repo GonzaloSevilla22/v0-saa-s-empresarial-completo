@@ -133,48 +133,36 @@ describe("consumidores del KPI canónico de stock crítico", () => {
     expect(source).not.toContain("@/lib/product-stock")
   })
 
-  it("Copilot e ai-insights no reconstruyen criticidad desde v_products_with_stock", () => {
-    const copilotSource = readFileSync(
-      join(process.cwd(), "lib/ai/buildBusinessSnapshot.ts"),
-      "utf8",
-    )
+  it("ai-insights no reconstruye criticidad desde v_products_with_stock", () => {
     const insightsSource = readFileSync(
       join(process.cwd(), "../supabase/functions/ai-insights/index.ts"),
       "utf8",
     )
 
-    for (const source of [copilotSource, insightsSource]) {
+    for (const source of [insightsSource]) {
       expect(source).toContain("fetchCriticalStockCount")
       expect(source).not.toMatch(/Number\(p\.stock\)\s*<=\s*Number\(p\.min_stock/)
     }
   })
 
-  it("Copilot e ai-insights consumen el detalle canónico (fetchCriticalStockItems), no lo reconstruyen (kpi-canonicalization S5)", () => {
-    const copilotSource = readFileSync(
-      join(process.cwd(), "lib/ai/buildBusinessSnapshot.ts"),
-      "utf8",
-    )
+  it("ai-insights consume el detalle canónico (fetchCriticalStockItems), no lo reconstruye (kpi-canonicalization S5)", () => {
     const insightsSource = readFileSync(
       join(process.cwd(), "../supabase/functions/ai-insights/index.ts"),
       "utf8",
     )
 
-    for (const source of [copilotSource, insightsSource]) {
+    for (const source of [insightsSource]) {
       expect(source).toContain("fetchCriticalStockItems")
     }
   })
 
-  it("Copilot e ai-insights no reconstruyen top productos desde v_sales_flat/v_products_with_stock (migrar-top-productos-canon)", () => {
-    const copilotSource = readFileSync(
-      join(process.cwd(), "lib/ai/buildBusinessSnapshot.ts"),
-      "utf8",
-    )
+  it("ai-insights no reconstruye top productos desde v_sales_flat/v_products_with_stock (migrar-top-productos-canon)", () => {
     const insightsSource = readFileSync(
       join(process.cwd(), "../supabase/functions/ai-insights/index.ts"),
       "utf8",
     )
 
-    for (const source of [copilotSource, insightsSource]) {
+    for (const source of [insightsSource]) {
       expect(source).toContain("fetchTopProducts")
       // La agregación local vieja armaba un Map keyed por product_id sumando
       // lineRevenue/quantity sobre las filas de sales/v_sales_flat ya en

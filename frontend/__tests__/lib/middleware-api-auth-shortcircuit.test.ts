@@ -79,7 +79,7 @@ describe("updateSession — /api/auth/* no toca al proveedor", () => {
   it("el resto de /api/** conserva su camino (el cortocircuito es angosto)", async () => {
     harness.user = CONFIRMED
 
-    await updateSession(buildRequest("/api/ai/copilot"))
+    await updateSession(buildRequest("/api/billing/cancel"))
 
     expect(harness.events).toContain("getUser")
   })

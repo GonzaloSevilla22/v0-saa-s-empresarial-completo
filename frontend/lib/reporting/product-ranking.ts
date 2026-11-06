@@ -4,8 +4,8 @@
  * (`supabase/functions/_shared/export-ranking.ts`).
  *
  * migrar-top-productos-canon: reemplaza las agregaciones locales de "top
- * productos" que `buildBusinessSnapshot.ts` (Copiloto) y
- * `supabase/functions/ai-insights/index.ts` reconstruían cada una por su
+ * productos" que `buildBusinessSnapshot.ts` (Copiloto, retirado por
+ * `ia-copilot-v2`) y `supabase/functions/ai-insights/index.ts` reconstruían cada una por su
  * cuenta sobre `sales`/`v_sales_flat` — la 2ª y 3ª definición de la misma
  * agregación que esta RPC ya canoniza (regla de reutilización antes que
  * repetición). Gemelo Deno: `supabase/functions/_shared/reporting-canon.ts`.

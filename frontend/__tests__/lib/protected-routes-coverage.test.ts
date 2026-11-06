@@ -278,7 +278,6 @@ describe("D4 — las rutas de autenticación nunca se gatean", () => {
 describe("D4 — las rutas de API del propio dominio no se redirigen", () => {
   it.each([
     "/api/auth/token",
-    "/api/ai/copilot",
     "/api/billing/cancel",
     "/api/billing/preferences",
   ])("%s queda fuera del gate por redirect", (pathname) => {

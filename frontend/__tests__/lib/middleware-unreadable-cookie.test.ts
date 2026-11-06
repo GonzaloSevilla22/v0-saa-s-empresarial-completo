@@ -84,7 +84,7 @@ describe("updateSession — cookie de sesión ilegible", () => {
   })
 
   it("una ruta de API no recibe redirect, pero igual se le borran las cookies (D4)", async () => {
-    const response = await updateSession(buildRequest("/api/ai/copilot", DEAD_JAR))
+    const response = await updateSession(buildRequest("/api/billing/cancel", DEAD_JAR))
 
     expect(isRedirect(response)).toBe(false)
     const sessionLines = response.headers

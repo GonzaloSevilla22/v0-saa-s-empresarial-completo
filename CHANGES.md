@@ -4834,3 +4834,26 @@ El pedido literal (RPC con rol y motivo + quitar `GRANT` y policies) es correcto
 **Fuera de alcance (declarado).** La ligadura por email exacto (minúsculas) sigue igual; los rebotes posteriores a la aceptación de Resend no se registran.
 
 **Hallazgo lateral (candidato, no se toca acá).** `revoke-truncate-app-roles`: `authenticated` tiene `TRUNCATE` en 63 de 81 tablas de `public` (`anon` en 0). `TRUNCATE` no pasa por RLS; PostgREST no lo emite y el backend sólo corre sus consultas, así que hoy no es alcanzable, pero ninguna tabla lo necesita. Este change lo revoca sólo en `account_invitations`.
+
+---
+
+## Change `ia-copilot-v2` — PROPOSE 2026-11-06 (propose PR en revisión; migración reservada `20261095000001_ia_copilot_v2.sql`; governance **MEDIO**)
+
+**Pedido y sign-off.** Change 1 del plan del explore `openspec/explore/2026-11-06-mejora-ia.md` (PR #690). El PO: *«los insights del tablero y el copilot son los más flojos, más que nada el copiloto: tenés que ser muy específico para que entienda lo que querés; tenemos que mejorar el modelo y el prompt»*. Decisiones del PO del 2026-11-06 (textuales, no se reabren): **«solo responde»** (el Copiloto es de sólo lectura, nunca registra nada) y **«sí»** (se guarda por usuario la valoración «me sirvió / no me sirvió» y se reutiliza para los insights en el change 2). OQ-1 a OQ-7 firmadas por mandato por su opción recomendada (`openspec/changes/ia-copilot-v2/design.md` §Open Questions); las que cambiarían el diseño: OQ-1 (una consulta por pregunta), OQ-2 (ráfaga de 5 por minuto), OQ-3 (tabla genérica `ai_feedback`).
+
+**Qué propone.**
+- **Edge Function `ai-copilot`** (DEC-15) que reemplaza a `POST /api/ai/copilot`: 12 herramientas de **sólo lectura** sobre las RPCs canónicas (`rpc_dashboard_kpi_summary`, `rpc_sales_evolution`, `rpc_product_ranking`, `rpc_sales_breakdown`, `rpc_sales_top_clients`, `get_dashboard_critical_stock_items`, `rpc_product_sales_evolution`, `rpc_receivables_report`, `rpc_payables_report`, `rpc_period_comparison`, `rpc_product_profitability` y búsqueda de producto), con schema estricto, cuenta inyectada por el servidor, topes de filas y techo por pregunta (3 rondas, 8 llamadas, 45 s, 700 tokens de salida). Núcleo puro en `_shared/ai-copilot-{core,tools,prompt}.ts`, testeado desde vitest (molde de `ai-estadisticas`).
+- **Prompt de asistente** con la fecha, el día y la hora de hoy en Mendoza, ARS `es-AR`, mes en curso por defecto, una sola repregunta corta, ningún número que no venga de una herramienta y few-shot de las preguntas reales. **Memoria corta** con presupuesto de 6.000 tokens (sin cortar mensajes a 500) y estado de foco `{período, producto, cliente}`.
+- **Modelo** `COPILOT_AI_MODEL` con allow-list (default `gpt-6.1-terra`); la task 0 lo verifica con la clave de producción y el design fija el fallback (`gpt-5-mini` → `gpt-4.1-mini`).
+- **Cuota**: `rpc_reserve_ai_usage` gana la rama `'queries'` (reescrita desde el cuerpo vivo; la de `'ocr'` no cambia), ventana de ráfaga propia de 5 por 60 s, una reserva por pregunta antes de leer datos.
+- **`ai_feedback`** (tabla genérica por `subject_type` `copilot_answer`/`insight`, escritura sólo por `rpc_set_ai_feedback`, rama `insight` reservada para `ia-insights-tablero`).
+- **Registro** en `ai_conversations` con `account_id`, modelo, herramientas, latencia, tokens, resultado y `thread_id`.
+- **Evals**: ≥ 40 casos verificados numéricamente contra las RPCs, script manual con la clave real (no en CI); el default del modelo se decide con esas corridas.
+- **Superficie**: `/copiloto-ia` reescrita (sugerencias, «Miré: …», «Me sirvió / No me sirvió», contador de consultas, estados legibles), arnés `dev-harness/copiloto-chat` y e2e de arnés; se retiran la ruta Next, `buildBusinessSnapshot.ts` y `aiCopilotService.ts`.
+- **Tandas**: A = DB + Edge Function + evals (sin cambio visible); B = frontend + retiro de la ruta vieja.
+
+**Mediciones de producción (2026-11-06, sólo `SELECT`).** `MAX(version) = 20261093000001`; `ai_conversations` 11 filas, la última del 2026-05-11, 0 con `account_id` nulo; límites de `queries` gratis 5 · inicial 30 · avanzado 120 · pro 300; las 12 RPCs de las herramientas son `SECURITY DEFINER` con `EXECUTE` para `authenticated` y no para `anon`.
+
+**Hallazgo (causa probable del Copiloto «sin uso»).** Desde `20260606000004_rls_tenant_scoping` la policy de `INSERT` de `ai_conversations` exige `account_id IN current_account_ids()`, y `aiCopilotService.saveConversation` inserta sin `account_id` (columna sin default ni trigger): la RLS rechaza cada guardado y el error se tira al log. Cuadra con la última fila del 11 de mayo. La task 1 lo confirma con evidencia antes del arreglo.
+
+**Fuera de alcance (declarado).** Escribir datos del negocio desde el Copiloto; los insights del Tablero (change 2); migrar las demás funciones de IA a la reserva atómica; lecturas de caja, banco y productos sin movimiento (no hay RPC canónica: candidato).

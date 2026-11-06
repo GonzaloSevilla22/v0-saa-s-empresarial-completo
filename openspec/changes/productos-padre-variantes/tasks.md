@@ -46,7 +46,7 @@
 
 ## 7. Cierre de la tanda A
 
-- [ ] 7.1 `supabase db reset` local limpio + gates del grupo en el orden real del workflow.
+- [x] 7.1 `supabase db reset` local limpio + gates del grupo en el orden real del workflow.
 - [x] 7.2 KB: RN-25 (padre sin precio/costo/stock/códigos; alta diferenciada) e inciso (g) de la regla de unidades (D-C firmado + excepción del relabel) en `knowledge-base/05_reglas_de_negocio.md`; `04_modelo_de_datos.md` con el CHECK y las dos RPCs.
 - [ ] 7.3 PR de la tanda A (declara "sin cambio visible"); tras el merge, verificación en prod sólo `SELECT`: `MAX(version) = 20261093000001`, 0 padres con precio/costo, CHECK validado, ACLs, cuerpo vivo del guard con el corte.
 

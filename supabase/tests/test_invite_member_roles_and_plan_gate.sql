@@ -217,7 +217,7 @@ BEGIN
     -- era un email cualquiera y el canje funcionaba igual -- ese era el
     -- agujero). Lo que el bloque prueba no cambia.
     v_result_json := public.rpc_invite_member('gate-invite-a4-filler@test.local'::text, v_a2_account, NULL::text[]);
-    v_inv_token := (SELECT token FROM account_invitations WHERE id = (v_result_json->>'id')::uuid);
+    v_inv_token := (public.rpc_send_invitation_email((v_result_json->>'id')::uuid, 'Negocio Gate', false)->>'token');
 
     PERFORM set_config('request.jwt.claims', json_build_object('sub', v_a4_filler_uid::text, 'role', 'authenticated')::text, true);
     IF auth.uid() IS DISTINCT FROM v_a4_filler_uid THEN
@@ -243,7 +243,7 @@ BEGIN
     -- era un email cualquiera y el canje funcionaba igual -- ese era el
     -- agujero). Lo que el bloque prueba no cambia.
     v_result_json := public.rpc_invite_member('gate-invite-a4-owner@test.local'::text, v_a2_account, ARRAY['seller','cashier']::text[]);
-    v_inv_token := (SELECT token FROM account_invitations WHERE id = (v_result_json->>'id')::uuid);
+    v_inv_token := (public.rpc_send_invitation_email((v_result_json->>'id')::uuid, 'Negocio Gate', false)->>'token');
 
     PERFORM set_config('request.jwt.claims', json_build_object('sub', v_a4_owner_uid::text, 'role', 'authenticated')::text, true);
     -- v_a4_owner_uid es owner de SU PROPIA cuenta (A4) -- puede aceptar una
@@ -295,7 +295,7 @@ BEGIN
     -- La invitacion del bloque 9 para este mismo email quedo 'accepted', asi
     -- que el chequeo de invitacion pendiente duplicada no interfiere.
     v_result_json := public.rpc_invite_member('gate-invite-a4-owner@test.local'::text, v_a2_account, ARRAY['viewer']::text[]);
-    v_inv_token := (SELECT token FROM account_invitations WHERE id = (v_result_json->>'id')::uuid);
+    v_inv_token := (public.rpc_send_invitation_email((v_result_json->>'id')::uuid, 'Negocio Gate', false)->>'token');
 
     PERFORM set_config('request.jwt.claims', json_build_object('sub', v_a4_owner_uid::text, 'role', 'authenticated')::text, true);
     IF auth.uid() IS DISTINCT FROM v_a4_owner_uid THEN
@@ -333,7 +333,7 @@ BEGIN
     IF v_result_json IS NULL THEN
       RAISE EXCEPTION 'GATE FAILED (13): invitar en una cuenta gratis con trial pro VIGENTE fue rechazado -- el cupo debe ser el del plan EFECTIVO (bug 1, membership-quota-effective-plan).';
     END IF;
-    v_inv_token := (SELECT token FROM account_invitations WHERE id = (v_result_json->>'id')::uuid);
+    v_inv_token := (public.rpc_send_invitation_email((v_result_json->>'id')::uuid, 'Negocio Gate', false)->>'token');
     v_blocks_run := v_blocks_run + 1;
     RAISE NOTICE 'PASS (13): rpc_invite_member -- cuenta gratis con trial pro vigente invita sin cupo agotado (plan EFECTIVO, no billing_plan crudo).';
 
@@ -526,7 +526,9 @@ BEGIN
   END IF;
 
   -- ═══ Bloque 10: carrera invite/accept en A4 (inicial, max=2) ═══════════
-  PERFORM set_config('request.jwt.claims', json_build_object('sub', v_a4_owner_uid::text, 'role', 'authenticated')::text, true);
+  -- invitaciones-hardening: el envío resuelve la cuenta ACTIVA del caller; este dueño ya aceptó una
+  -- invitación (aceptar fija profiles.active_account_id), así que el claim fija la cuenta de ESTE bloque.
+  PERFORM set_config('request.jwt.claims', json_build_object('sub', v_a4_owner_uid::text, 'role', 'authenticated', 'app_metadata', json_build_object('account_id', v_a4_account::text))::text, true);
   IF auth.uid() IS DISTINCT FROM v_a4_owner_uid THEN
     RAISE NOTICE 'GATE DEGRADED: auth.uid() no resuelve al owner de A4 -- se omite el bloque 10.';
   ELSE
@@ -536,7 +538,7 @@ BEGIN
     -- era un email cualquiera y el canje funcionaba igual -- ese era el
     -- agujero). Lo que el bloque prueba no cambia.
     v_result_json := public.rpc_invite_member('gate-invite-a2-owner@test.local'::text, v_a4_account, ARRAY['viewer']::text[]);
-    v_inv_token := (SELECT token FROM account_invitations WHERE id = (v_result_json->>'id')::uuid);
+    v_inv_token := (public.rpc_send_invitation_email((v_result_json->>'id')::uuid, 'Negocio Gate', false)->>'token');
 
     -- Entre la invitación y la aceptación, la cuenta se llena con otro
     -- miembro real (v_a4_filler_uid, que en el bloque 8 ya aceptó una

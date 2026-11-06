@@ -15,6 +15,11 @@ vi.mock("@/lib/supabase/client", () => ({
   createClient: () => ({}),
 }))
 
+// tablero-explicable: el panel navega a la alerta con el router de Next.
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn() }),
+}))
+
 const PLAN_LIMIT_NOTIFICATION: Notification = {
   id: "notif-1",
   accountId: "acc-1",
@@ -33,6 +38,8 @@ function mockUseNotifications(notifications: Notification[]) {
       notifications,
       unreadCount: notifications.filter((n) => !n.read).length,
       isLoading: false,
+      markRead: vi.fn(),
+      markAllRead: vi.fn(),
     }),
     markNotificationRead: vi.fn(),
   }))

@@ -191,9 +191,9 @@ La RLS de INSERT en `posts` y `replies` SHALL verificar `billing_plan IN ('avanz
 
 ### Requirement: Cuota IA aplica a todas las Edge Functions de IA (C-04)
 
-El sistema SHALL verificar la cuota IA **antes** de llamar a OpenAI y SHALL incrementar el contador **después** de una llamada exitosa, en **todas** las Edge Functions de IA del proyecto: `ai-insights`, `ai-comparativo`, `ai-precio`, `ai-prediccion`, `ai-rentabilidad`, `ai-resumen`, `ai-simulador` (counter `'queries'`) y `fair-advisor` (counter `'advice'`). La Edge Function `invoice-ocr` SHALL quedar gobernada por la cuota de lecturas de factura (counter `'ocr'`, capability `invoice-ocr-budget`): en lugar del par verificar-antes / incrementar-después, SHALL **reservar** el cupo de forma atómica con `rpc_reserve_ai_usage('ocr')` antes de llamar a OpenAI.
+El sistema SHALL verificar la cuota IA **antes** de llamar a OpenAI y SHALL incrementar el contador **después** de una llamada exitosa, en **todas** las Edge Functions de IA del proyecto: `ai-insights`, `ai-comparativo`, `ai-precio`, `ai-prediccion`, `ai-rentabilidad`, `ai-resumen`, `ai-simulador` (counter `'queries'`) y `fair-advisor` (counter `'advice'`). La Edge Function `invoice-ocr` SHALL quedar gobernada por la cuota de lecturas de factura (counter `'ocr'`, capability `invoice-ocr-budget`): en lugar del par verificar-antes / incrementar-después, SHALL **reservar** el cupo de forma atómica con `rpc_reserve_ai_usage('ocr')` antes de llamar a OpenAI. La Edge Function `ai-copilot` SHALL **reservar** una unidad del counter `'queries'` por pregunta con `rpc_reserve_ai_usage('queries')` antes de leer datos y de llamar a OpenAI (capability `ai-copilot`).
 
-El incremento SHALL realizarse mediante el RPC atómico `rpc_increment_ai_usage` (no read-modify-write desde el cliente), salvo para `invoice-ocr`, cuyo incremento ocurre dentro de la reserva atómica.
+El incremento SHALL realizarse mediante el RPC atómico `rpc_increment_ai_usage` (no read-modify-write desde el cliente), salvo para `invoice-ocr` y `ai-copilot`, cuyo incremento ocurre dentro de la reserva atómica.
 
 El límite contra el que se compara el contador SHALL corresponder al **plan efectivo de la cuenta**, resuelto según la definición normativa de la base de datos. La verificación de cuota NOT SHALL derivar el plan de `public.profiles`.
 
@@ -226,6 +226,12 @@ El límite contra el que se compara el contador SHALL corresponder al **plan efe
 - **GIVEN** un usuario `gratis` con `ai_ocr_used = 5` (límite = 5)
 - **WHEN** llama a `invoice-ocr`
 - **THEN** la función retorna HTTP 429 con `{ ok: false, error: 'quota_exceeded' }` sin llamar a OpenAI, y `ai_queries_used` no cambia
+
+#### Scenario: ai-copilot reserva antes de leer datos
+
+- **GIVEN** un usuario `gratis` con `ai_queries_used = 5` (límite = 5)
+- **WHEN** le pregunta algo a `ai-copilot`
+- **THEN** la función retorna HTTP 429 con `{ ok: false, error: 'quota_exceeded' }` sin leer datos ni llamar a OpenAI, y `ai_queries_used` sigue en 5
 
 ### Requirement: Límite de sucursales por plan (C-07)
 

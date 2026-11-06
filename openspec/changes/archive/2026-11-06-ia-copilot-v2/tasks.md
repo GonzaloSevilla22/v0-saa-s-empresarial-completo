@@ -53,7 +53,7 @@
 ### 6. Cierre de la tanda A
 
 - [x] 6.1 Backend/frontend tests completos en verde (vitest del frontend incluye los núcleos), `tsc` sin errores nuevos, gates SQL del workflow en el orden real. _Vitest de lo tocado (339/339), `tsc` sin errores nuevos, gates SQL de la tanda, ACL y OCR en verde._
-- [ ] 6.2 Verificación post-merge en prod (sólo `SELECT`): `MAX(version) = 20261095000001`, columnas, `ai_feedback` con RLS y ACLs, una sola definición de `rpc_reserve_ai_usage` con la rama nueva, cron, función `ai-copilot` activa.
+- [x] 6.2 Verificación post-merge en prod (sólo `SELECT`): `MAX(version) = 20261095000001`, columnas, `ai_feedback` con RLS y ACLs, una sola definición de `rpc_reserve_ai_usage` con la rama nueva, cron, función `ai-copilot` activa.
 - [x] 6.3 `CHANGES.md` (ficha) y `docs/pendientes-manuales-po.md` (fila del registro con hora ART).
 
 ## Tanda B — Frontend y retiro de la ruta vieja

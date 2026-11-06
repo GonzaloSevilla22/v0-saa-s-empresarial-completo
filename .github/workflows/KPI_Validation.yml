@@ -1786,41 +1786,12 @@ jobs:
             exit 1
           fi
           echo "20261085000001 idempotente: 0+2 en las dos pasadas, introspección OK, cuerpos presentes, una sola rpc_invite_member y schema IDÉNTICO al previo a este paso."
-          # importador-productos-stock-apertura (2026-10-14, governance MEDIA con
-          # tramo ALTO): reaplicación de 20261086000001 (rpc_bulk_upsert_products: el
-          # stock del archivo es de apertura, sólo del producto que el lote crea) AL
-          # FINAL de la cadena, DESPUÉS de 20261085. Ninguna migración reaplicada
-          # después de la reconvergencia (`supabase db reset`) redefine
-          # rpc_bulk_upsert_products (el reapply de 20261066000001, que sí la define,
-          # es anterior a ese reset), así que ya después del reset el cuerpo vivo ES el
-          # de esta migración: las DOS pasadas imprimen el NOTICE «ya es el cuerpo de
-          # esta migración» (reaplicación pura). SIN tolerancia, y el schema
-          # (constraints + firmas + ACLs) tiene que quedar IDÉNTICO tras cada pasada.
-          # NO hay migración de datos.
-          #
-          # REGLA PARA EL PR SIGUIENTE: una migración posterior que redefina
-          # rpc_bulk_upsert_products tiene que RETIRAR este bloque en el mismo PR (su
-          # preflight abortaría, igual que el de 20261076000001).
-          IAP_OUT1=$(psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261086000001_importador_productos_stock_apertura.sql 2>&1) || { echo "$IAP_OUT1"; echo "ERROR: el reapply de 20261086000001 falló (sin tolerancia)."; exit 1; }
-          echo "$IAP_OUT1"
-          IAP_OUT2=$(psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261086000001_importador_productos_stock_apertura.sql 2>&1) || { echo "$IAP_OUT2"; echo "ERROR: la segunda pasada de 20261086000001 falló (sin tolerancia)."; exit 1; }
-          echo "$IAP_OUT2"
-          IAP_REAPPLIED=$(echo "$IAP_OUT2" | grep -cF 'ya es el cuerpo de esta migración' || true)
-          if [ "$IAP_REAPPLIED" != "1" ]; then
-            echo "ERROR: la segunda pasada de 20261086000001 imprimió $IAP_REAPPLIED de 1 NOTICE de reaplicación (ya es el cuerpo de esta migración)."
-            exit 1
-          fi
-          if ! echo "$IAP_OUT2" | grep -qF 'importador-productos-stock-apertura (introspecci'; then
-            echo "ERROR: el reapply de 20261086000001 no imprimió el OK de su bloque de introspección."
-            exit 1
-          fi
-          schema_snapshot > /tmp/schema_after_iap_reapply.txt
-          if ! diff -u /tmp/schema_before_reapply.txt /tmp/schema_after_iap_reapply.txt > /tmp/schema_diff_iap.txt; then
-            echo "NOT IDEMPOTENT: reaplicar 20261086000001 cambió el schema (constraints + firmas de función + ACLs):"
-            cat /tmp/schema_diff_iap.txt
-            exit 1
-          fi
-          echo "20261086000001 idempotente: NOTICE de reaplicación, introspección OK y schema IDÉNTICO al previo a este paso."
+          # importador-productos-stock-apertura (20261086000001): su bloque de reaplicación se RETIRÓ en
+          # productos-padre-variantes (tanda A, 2026-11-05), siguiendo la regla que el propio bloque dejaba escrita:
+          # 20261093000001 redefine rpc_bulk_upsert_products (la rama Padre fuerza price = 0 y cost = NULL), así
+          # que el preflight por md5 de 20261086000001 abortaría contra el cuerpo vivo. La idempotencia de la
+          # función la cubre ahora el eslabón de 20261093000001 (más abajo) y su gate de introspección.
+
 
           # edicion-operaciones-con-dinero TANDA A (2026-11-04, governance ALTA): reaplicación de 20261088000001 AL FINAL
           # de la cadena, DESPUÉS de todos los eslabones anteriores. Redefine, desde el cuerpo vivo de producción, las
@@ -1960,6 +1931,25 @@ jobs:
           fi
           echo "20261092000001 idempotente: schema IDÉNTICO al previo y un solo job subscription-reconcile-charges (7 * * * *)."
 
+          # productos-padre-variantes (tanda A, 2026-11-05, governance MEDIO con tramo ALTO): reaplicación de 20261093000001 AL FINAL de
+          # la cadena. El backfill de padres con precio/costo sólo toca filas fuera de forma (0 la segunda vez), el CHECK se agrega si
+          # falta, y las funciones se re-emiten con la MISMA firma y las mismas ACLs: el schema (constraints + firmas + ACLs) tiene que
+          # quedar IDÉNTICO al del eslabón previo, sin padres con precio/costo, con el CHECK validado y con el corte del guard.
+          PPV_OUT1=$(psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261093000001_productos_padre_variantes.sql 2>&1) || { echo "$PPV_OUT1"; echo "ERROR: el reapply de 20261093000001 falló (sin tolerancia)."; exit 1; }
+          PPV_OUT2=$(psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261093000001_productos_padre_variantes.sql 2>&1) || { echo "$PPV_OUT2"; echo "ERROR: la segunda pasada de 20261093000001 falló (sin tolerancia)."; exit 1; }
+          schema_snapshot > /tmp/schema_after_ppv_reapply.txt
+          if ! diff -u /tmp/schema_after_mcr_reapply.txt /tmp/schema_after_ppv_reapply.txt > /tmp/schema_diff_ppv.txt; then
+            echo "NOT IDEMPOTENT: reaplicar 20261093000001 cambió el schema (constraints + firmas de función + ACLs):"
+            cat /tmp/schema_diff_ppv.txt
+            exit 1
+          fi
+          PPV_STATE=$(psql -tA "$DSN" -c "SELECT (SELECT count(*) FROM public.products WHERE stock_control_type = 'variant_only' AND (price IS DISTINCT FROM 0 OR cost IS NOT NULL)) || '|' || (SELECT count(*) FROM pg_constraint WHERE conrelid = 'public.products'::regclass AND conname = 'products_variant_only_no_price_cost' AND convalidated) || '|' || (position('products.unit_relabel_root' in pg_get_functiondef('public.fn_product_base_unit_guard()'::regprocedure)) > 0)::text")
+          if [ "$PPV_STATE" != "0|1|true" ]; then
+            echo "ERROR: estado inesperado tras reaplicar 20261093000001 (padres con precio/costo|CHECK validado|corte del guard): $PPV_STATE (esperaba 0|1|true)"
+            exit 1
+          fi
+          echo "20261093000001 idempotente: schema IDÉNTICO al previo, 0 padres con precio/costo, CHECK validado y guard con el corte de la unidad."
+
       # -v ON_ERROR_STOP=1 is required: without it psql prints RAISE EXCEPTION
       # errors but still exits 0, so failing assertions show green in CI.
       - name: Run deterministic KPI tests
@@ -2024,6 +2014,22 @@ jobs:
       # Es un gate de DINERO: corre con el wrapper estricto.
       - name: Run subscription reconcile cron gate (strict)
         run: python3 scripts/ci/run_gate_strict.py supabase/tests/test_mp_cuota_reconciliacion_cron.sql
+
+      # productos-padre-variantes (tanda A, governance MEDIO con tramo ALTO en la salida del guard de unidad base): EJECUTA product_round_price
+      # contra la tabla de casos compartida con el vitest de la tanda B, el backfill auditado de padres con precio/costo y el CHECK
+      # products_variant_only_no_price_cost (reaplicando el archivo de la migración con \i), rpc_relabel_product_unit (relabel con historia
+      # sin convertir, conflicto, dry-run, idempotencia, roles, tenencia, auditoría y que el UPDATE directo siga dando P0409 también con el
+      # GUC apuntando a otra raíz o con re-parent), rpc_bulk_adjust_prices (redondeo, piso 0, expansión, tenencia, rangos, roles,
+      # auditoría) y la rama Padre del importador. Es un gate de DINERO (cambia precios): corre con el wrapper estricto. Se corre desde la
+      # raíz del repo (usa \i y \set con rutas relativas).
+      - name: Run productos padre variantes gate (strict)
+        run: python3 scripts/ci/run_gate_strict.py supabase/tests/test_productos_padre_variantes.sql
+
+      # productos-padre-variantes (tanda A, tareas 4.3/4.4): carrera con DOS conexiones reales entre la corrección de la unidad de una familia
+      # y una compra de una variante, en los dos órdenes: la que llega segunda espera la fila y decide sobre lo commiteado (P0400
+      # unit_type_mismatch o P0409 unit_relabel_conflict); nunca queda stock en una unidad distinta de la base efectiva.
+      - name: Run productos padre variantes race gate (dos conexiones)
+        run: DB_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres bash supabase/tests/test_productos_padre_variantes_race.sh
 
       # edicion-operaciones-lineas (OQ-1 de deudas-menores-agosto): las RPCs de
       # EDICIÓN (rpc_atomic_update_sale_operation / rpc_atomic_update_

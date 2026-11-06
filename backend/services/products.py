@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import asyncpg
 import uuid
+from collections.abc import Mapping
 from decimal import Decimal
 from fastapi import HTTPException
 
-from backend.core.errors import ProblemHTTPException
-from backend.core.guards import require_account_role, require_role
-from backend.core.rbac import CAN_STOCK
+from backend.core.errors import ProblemHTTPException, problem_from_pg_error
+from backend.core.guards import require_account_capability, require_account_role, require_role
+from backend.core.rbac import CAN_CONFIGURE, CAN_STOCK
 from backend.repositories.plan_limits_repository import PlanLimitsRepository
 from backend.repositories.product_category_repository import ProductCategoryRepository
 from backend.repositories.product_repository import ProductRepository
@@ -51,12 +52,93 @@ def _scale_plu_parent_error() -> ProblemHTTPException:
     )
 
 
+# productos-padre-variantes (D1/D2/D3): un padre `variant_only` no lleva precio,
+# costo, stock, stock mínimo, SKU ni código de barras — se cargan en cada
+# variante. La base sostiene precio/costo con este CHECK; el servidor da el 422
+# legible ANTES de escribir.
+_PARENT_PRICE_COST_CHECK = "products_variant_only_no_price_cost"
+PARENT_FIELD_NOT_ALLOWED_CODE = "parent_field_not_allowed"
+STOCK_CONTROL_TYPE_LOCKED_CODE = "stock_control_type_locked"
+# Orden fijo: define cuál campo se informa cuando vienen varios.
+_PARENT_FIELDS = ("price", "cost", "stock", "min_stock", "sku", "barcode")
+_PARENT_FIELD_LABELS = {
+    "price": "precio",
+    "cost": "costo",
+    "stock": "stock",
+    "min_stock": "stock mínimo",
+    "sku": "SKU",
+    "barcode": "código de barras",
+    "parent_id": "producto padre",
+}
+
+
+def _parent_field_error(field: str) -> ProblemHTTPException:
+    label = _PARENT_FIELD_LABELS.get(field, field)
+    return ProblemHTTPException(
+        status_code=422,
+        detail=(
+            f"Un producto con variantes no lleva {label}: se carga en cada variante. "
+            "Quitalo de este producto y cargalo en la variante."
+        ),
+        code=PARENT_FIELD_NOT_ALLOWED_CODE,
+        field=field,
+    )
+
+
+def _is_variant_only(stock_control_type: object) -> bool:
+    return stock_control_type == _VARIANT_ONLY
+
+
+def _is_neutral_parent_value(field: str, value: object) -> bool:
+    """El neutro de cada campo: lo que un padre sí puede tener (0 / nulo / vacío)."""
+    if value is None:
+        return True
+    if field in ("sku", "barcode"):
+        return not str(value).strip()
+    if field == "cost":
+        return False  # el neutro del costo es NULL (el 0 se normaliza antes)
+    return Decimal(str(value)) == 0
+
+
+def _same_as_current_parent_value(field: str, value: object, current: object) -> bool:
+    if current is None:
+        return False
+    if field in ("sku", "barcode"):
+        return str(value).strip() == str(current).strip()
+    return Decimal(str(value)) == Decimal(str(current))
+
+
+def _guard_parent_contract(candidate: dict, current: Mapping | None = None) -> None:
+    """productos-padre-variantes (D1): UN solo helper de «campo prohibido en un
+    padre» para el alta y la edición (molde de `_guard_scale_plu_not_parent`).
+
+    En el alta (`current is None`) cualquier valor no neutro se rechaza. En la
+    edición se acepta además el valor VIGENTE: el formulario anterior manda todos
+    los valores actuales en cada guardado, y los padres con código de barras
+    legado lo conservan (OQ-2)."""
+    for field in _PARENT_FIELDS:
+        if field not in candidate:
+            continue
+        value = candidate[field]
+        if _is_neutral_parent_value(field, value):
+            continue
+        if current is not None:
+            current_value = current[field] if field in current.keys() else None
+            if _same_as_current_parent_value(field, value, current_value):
+                continue
+        raise _parent_field_error(field)
+
+
 def _translate_check_violation(exc: asyncpg.CheckViolationError) -> HTTPException | None:
     """balanza-etiquetas-pos (D2): la regla del padre vive en la base
     (products_scale_plu_not_parent); si el 23514 llega igual (carrera o un
-    camino que el guard previo no cubrió), sale el mismo 422 legible."""
-    if getattr(exc, "constraint_name", None) == _SCALE_PLU_NOT_PARENT_CHECK:
+    camino que el guard previo no cubrió), sale el mismo 422 legible.
+    productos-padre-variantes (D3): ídem para products_variant_only_no_price_cost."""
+    constraint = getattr(exc, "constraint_name", None)
+    if constraint == _SCALE_PLU_NOT_PARENT_CHECK:
         return _scale_plu_parent_error()
+    if constraint == _PARENT_PRICE_COST_CHECK:
+        return _parent_field_error("price")
     return None
 
 
@@ -237,6 +319,21 @@ async def create_product(
     conn=None,
 ) -> dict:
     require_role(auth, ["user", "admin"])
+    is_parent = _is_variant_only(payload.stock_control_type)
+    if is_parent:
+        # productos-padre-variantes (D1): el 422 del padre ANTES de cualquier otra
+        # cosa (rol de stock, límite del plan, escritura). Un padre no es variante
+        # de otro (un solo nivel). `min_stock` se TOLERA y se neutraliza (DV-1 de
+        # design.md): el formulario anterior lo manda siempre en el alta.
+        if payload.parent_id:
+            raise _parent_field_error("parent_id")
+        _guard_parent_contract({
+            "price": payload.price,
+            "cost": payload.cost,
+            "stock": payload.stock,
+            "sku": normalize_sku(payload.sku),
+            "barcode": payload.barcode,
+        })
     # stock-ledger-solo-rpc (D9, OQ-2): el stock inicial es un AJUSTE MANUAL, así
     # que exige CAN_STOCK (owner/admin/stock) — y se evalúa ANTES de contar contra
     # el límite del plan o insertar nada: sin el rol, 403 y el producto no se crea.
@@ -261,11 +358,20 @@ async def create_product(
 
     data = payload.model_dump()
     data["sku"] = normalize_sku(payload.sku)
-    # ventas-unidades-conversion (D10): la unidad base viaja como str y tiene
-    # que ser visible para la cuenta (del sistema o propia).
-    data["base_unit_id"] = await _resolve_base_unit_for_account(repo, payload.base_unit_id, account_id)
-
+    if is_parent:
+        # El padre nace sin precio/costo/stock/códigos (los neutros ya se validaron).
+        data.update(price=Decimal("0"), cost=None, stock=Decimal("0"), min_stock=Decimal("0"), barcode=None)
     parent_id = data.get("parent_id")
+    if parent_id:
+        # productos-padre-variantes (D4): la variante HEREDA la unidad del padre
+        # (base_unit_id NULL, COALESCE(propia, padre)); lo que mande el cliente se
+        # ignora, igual que la categoría.
+        data["base_unit_id"] = None
+    else:
+        # ventas-unidades-conversion (D10): la unidad base viaja como str y tiene
+        # que ser visible para la cuenta (del sistema o propia).
+        data["base_unit_id"] = await _resolve_base_unit_for_account(repo, payload.base_unit_id, account_id)
+
     if parent_id:
         # D11/9.7: la variante hereda la categoría del PADRE resuelta en el
         # servidor — lo que mande el cliente se ignora.
@@ -334,17 +440,19 @@ async def update_product(
     changes_stock_control_type = payload.stock_control_type is not None
     stock_informed = payload.stock is not None
 
-    # La fila actual sólo hace falta para los campos que dependen del estado
-    # vivo (herencia de categoría, guard de unidad base, guard del PLU en un
-    # padre, comparación del stock): una sola lectura.
-    existing: asyncpg.Record | None = None
-    if (
-        category_provided or base_unit_provided or scale_plu_provided
-        or changes_stock_control_type or stock_informed
-    ):
-        existing = await repo.get_by_id(product_id, account_id)
-        if existing is None:
-            raise HTTPException(status_code=404, detail="Producto no encontrado")
+    # La fila actual hace falta para los campos que dependen del estado vivo
+    # (herencia de categoría y de unidad, guard de unidad base, guard del PLU y
+    # contrato del padre, comparación del stock): una sola lectura.
+    # productos-padre-variantes: se lee SIEMPRE — saber si el producto es un
+    # padre variant_only o una variante condiciona casi todo lo que se escribe
+    # (el formulario anterior manda precio, costo, SKU y código en cada guardado).
+    existing: asyncpg.Record | None = await repo.get_by_id(product_id, account_id)
+    if existing is None:
+        raise HTTPException(status_code=404, detail="Producto no encontrado")
+    existing_keys = existing.keys()
+    existing_type = existing["stock_control_type"] if "stock_control_type" in existing_keys else None
+    existing_is_parent = _is_variant_only(existing_type)
+    existing_is_variant = ("parent_id" in existing_keys) and existing["parent_id"] is not None
 
     # stock-ledger-solo-rpc (D9): un `stock` distinto del saldo actual NO se
     # aplica — 422 ANTES de escribir ningún campo. El MISMO valor se ignora
@@ -360,17 +468,47 @@ async def update_product(
                 field="stock",
             )
 
-    if existing is not None and (scale_plu_provided or changes_stock_control_type):
-        existing_keys = existing.keys()
+    if scale_plu_provided or changes_stock_control_type:
         effective_plu = (
             payload.scale_plu if scale_plu_provided
             else (existing["scale_plu"] if "scale_plu" in existing_keys else None)
         )
-        effective_type = (
-            payload.stock_control_type if changes_stock_control_type
-            else (existing["stock_control_type"] if "stock_control_type" in existing_keys else None)
-        )
+        effective_type = payload.stock_control_type if changes_stock_control_type else existing_type
         _guard_scale_plu_not_parent(effective_type, effective_plu)
+
+    # productos-padre-variantes (D2): el modo «con variantes» se elige al crear.
+    # Hacia o desde variant_only no se cambia por la API (mandar el MISMO tipo, como
+    # hace el formulario en cada guardado, se acepta).
+    if changes_stock_control_type and _is_variant_only(payload.stock_control_type) != existing_is_parent:
+        raise ProblemHTTPException(
+            status_code=422,
+            detail=(
+                "No se puede convertir un producto en uno con variantes (ni al revés): "
+                "creá un producto nuevo del tipo que necesitás."
+            ),
+            code=STOCK_CONTROL_TYPE_LOCKED_CODE,
+            field="stock_control_type",
+        )
+
+    # productos-padre-variantes (D1): un padre no lleva precio/costo/stock mínimo/SKU/
+    # código de barras. Se acepta el valor vigente y el neutro; un valor distinto es 422
+    # antes de escribir nada. El costo 0 es el neutro y se escribe como NULL (CHECK).
+    cost_to_write = payload.cost
+    if existing_is_parent:
+        if cost_provided and cost_to_write is not None and Decimal(str(cost_to_write)) == 0:
+            cost_to_write = None
+        candidate: dict = {}
+        if payload.price is not None:
+            candidate["price"] = payload.price
+        if cost_provided:
+            candidate["cost"] = cost_to_write
+        if payload.min_stock is not None:
+            candidate["min_stock"] = payload.min_stock
+        if sku_provided:
+            candidate["sku"] = normalize_sku(payload.sku)
+        if payload.barcode is not None:
+            candidate["barcode"] = payload.barcode
+        _guard_parent_contract(candidate, existing)
 
     if scale_plu_provided:
         data["scale_plu"] = payload.scale_plu
@@ -379,14 +517,18 @@ async def update_product(
         data["sku"] = normalize_sku(payload.sku)
 
     if cost_provided:
-        data["cost"] = payload.cost
+        data["cost"] = cost_to_write
 
-    if base_unit_provided and existing is not None:
+    # productos-padre-variantes (D4): la unidad de una variante es la de su padre
+    # (hereda por COALESCE): una edición que la informa se ignora sin validar ni
+    # escribir, espejo del tratamiento de la categoría. La unidad de la familia se
+    # corrige en el padre (rpc_relabel_product_unit).
+    if base_unit_provided and not existing_is_variant:
         new_base_unit = await _resolve_base_unit_for_account(repo, payload.base_unit_id, account_id)
         await _guard_base_unit_change(repo, existing, new_base_unit, product_id, account_id)
         data["base_unit_id"] = new_base_unit
 
-    if category_provided and existing is not None:
+    if category_provided:
         # D11/9.7: una variante hereda del padre — el cliente no puede
         # contradecirlo; se ignora sin validar ni escribir.
         if existing["parent_id"] is None:
@@ -438,6 +580,60 @@ async def bulk_set_category(
         raise HTTPException(status_code=404, detail="Categoría no encontrada o inactiva")
     updated = await repo.bulk_set_category(unique_ids, account_id, category_id)
     return {"requested": len(unique_ids), "updated": updated}
+
+
+# ── productos-padre-variantes: corrección de unidad de una familia y precios en lote ──
+
+
+async def relabel_product_unit(
+    repo: ProductRepository,
+    auth: dict,
+    conn,
+    product_id: str,
+    base_unit_id: str,
+    dry_run: bool,
+) -> dict:
+    """D7: CERO reglas de dominio acá — la RPC resuelve cuenta, rol, tenencia, conflicto y auditoría.
+    `require_role` es el guard de PLATAFORMA; `require_account_capability(CAN_CONFIGURE)` repite el rol de
+    la cuenta ANTES de llamar la RPC (defensa en profundidad: la base es la autoridad, y es sensible).
+    Los errores de negocio de la RPC salen como RFC 7807 con el literal estable de su mensaje
+    (`unit_relabel_conflict` 409, `product_not_found` / `base_unit_not_found` 404, `insufficient_role` 403)."""
+    require_role(auth, ["user", "admin"])
+    await require_account_capability(conn, auth, CAN_CONFIGURE)
+    try:
+        return await repo.relabel_unit(product_id, base_unit_id, dry_run)
+    except asyncpg.PostgresError as exc:
+        problem = problem_from_pg_error(exc)
+        if problem is None:
+            raise
+        raise problem from exc
+
+
+async def bulk_adjust_prices(
+    repo: ProductRepository,
+    auth: dict,
+    conn,
+    product_ids: list[str],
+    mode: str,
+    direction: str,
+    value: Decimal,
+    dry_run: bool,
+) -> dict:
+    """D10: la misma llamada da la vista previa (`dry_run`) y la aplicación. Los ids ajenos o borrados
+    no producen error (la RPC los filtra por cuenta). Un P0400 de la RPC (la base repite la validación de
+    Pydantic) sale como 422, igual que un payload inválido."""
+    require_role(auth, ["user", "admin"])
+    await require_account_capability(conn, auth, CAN_CONFIGURE)
+    unique_ids = list(dict.fromkeys(product_ids))
+    try:
+        return await repo.bulk_adjust_prices(unique_ids, mode, direction, value, dry_run)
+    except asyncpg.PostgresError as exc:
+        problem = problem_from_pg_error(exc)
+        if problem is None:
+            raise
+        if problem.status_code == 400:
+            problem.status_code = 422
+        raise problem from exc
 
 
 # ── importador-productos-fastapi ────────────────────────────────────────────

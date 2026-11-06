@@ -337,7 +337,7 @@ BEGIN
   INSERT INTO public.products (user_id, account_id, name, sku, cost, price, base_unit_id)
   VALUES (v_owner_a, v_account_a, 'Gate RC Helper', 'GRC-H', 3, 6, v_u) RETURNING id INTO v_ph;
   INSERT INTO public.products (user_id, account_id, name, sku, cost, price, stock_control_type)
-  VALUES (v_owner_a, v_account_a, 'Gate RC Padre', 'GRC-PADRE', 0, 0, 'variant_only') RETURNING id INTO v_parent;
+  VALUES (v_owner_a, v_account_a, 'Gate RC Padre', 'GRC-PADRE', NULL, 0, 'variant_only') RETURNING id INTO v_parent;
   INSERT INTO public.products (user_id, account_id, name, sku, cost, price, parent_id, is_variant)
   VALUES (v_owner_a, v_account_a, 'Gate RC Variante', 'GRC-VAR', 10, 20, v_parent, true) RETURNING id INTO v_variant;
   INSERT INTO public.products (user_id, account_id, name, sku, cost, price, base_unit_id, deleted_at)

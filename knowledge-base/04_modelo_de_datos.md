@@ -126,6 +126,8 @@ scale_plu           INTEGER     NULL  -- balanza-etiquetas-pos (2026-09-28): có
 created_at          TIMESTAMP
 ```
 
+> **`productos-padre-variantes` (2026-11-05, migración `20261093000001`)** — CHECK `products_variant_only_no_price_cost` (`stock_control_type IS DISTINCT FROM 'variant_only' OR (price = 0 AND cost IS NULL)`): un padre no tiene precio ni costo para ningún escritor; la migración llevó a esa forma a los padres existentes (18 al medirlo, con una fila `product.parent_price_cleared` en `audit_logs` por producto y los valores anteriores en `metadata`) y no reescribió ninguna línea de venta, compra ni presupuesto. Funciones nuevas (todas `SECURITY DEFINER` salvo la pura, sin `EXECUTE` para `anon`): `product_round_price(numeric)` (`round(x, 0)`, `IMMUTABLE`; la única definición SQL del redondeo de precios), `rpc_relabel_product_unit(p_product_id, p_new_unit_id, p_dry_run)` (corrige la unidad de una familia sin convertir cantidades; sólo dueño/administrador; audita `product.unit_relabel`) y `rpc_bulk_adjust_prices(p_product_ids, p_mode, p_direction, p_value, p_dry_run)` (precios en lote; audita `product.bulk_price_adjusted`). `fn_product_base_unit_guard` gana un único corte para el relabel (GUC local `products.unit_relabel_root`, atado a la raíz). `rpc_bulk_upsert_products` fuerza `price = 0` y `cost = NULL` en la rama Padre del importador. Ver RN-24 (g) y RN-25.
+
 #### `product_attributes` — Atributos de Variantes
 ```sql
 id          UUID    PK

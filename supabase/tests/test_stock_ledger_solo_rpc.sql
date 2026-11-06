@@ -919,7 +919,7 @@ BEGIN
   INSERT INTO public.products (user_id, account_id, name, sku, cost, price)
   VALUES (v_owner_a, v_acc_a, 'Gate SLR B PK', 'SLRB-PK', 10, 20) RETURNING id INTO v_pk;
   INSERT INTO public.products (user_id, account_id, name, sku, cost, price, stock_control_type)
-  VALUES (v_owner_a, v_acc_a, 'Gate SLR B PV', 'SLRB-PV', 10, 20, 'variant_only') RETURNING id INTO v_pv;
+  VALUES (v_owner_a, v_acc_a, 'Gate SLR B PV', 'SLRB-PV', NULL, 0, 'variant_only') RETURNING id INTO v_pv;
   INSERT INTO public.products (user_id, account_id, name, sku, cost, price)
   VALUES (v_owner_c, v_acc_c, 'Gate SLR B PC', 'SLRB-PC', 10, 20) RETURNING id INTO v_pc;
   INSERT INTO public.products (user_id, account_id, name, sku, cost, price)

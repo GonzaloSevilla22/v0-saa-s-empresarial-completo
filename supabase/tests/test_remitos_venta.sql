@@ -311,7 +311,7 @@ BEGIN
   INSERT INTO public.products (user_id, account_id, name, sku, cost, price, base_unit_id)
   VALUES (v_owner_a, v_account_a, 'Gate RV Q', 'GRV-Q', 1, 2, v_u) RETURNING id INTO v_pq;
   INSERT INTO public.products (user_id, account_id, name, sku, cost, price, stock_control_type)
-  VALUES (v_owner_a, v_account_a, 'Gate RV Padre', 'GRV-PADRE', 0, 0, 'variant_only') RETURNING id INTO v_parent;
+  VALUES (v_owner_a, v_account_a, 'Gate RV Padre', 'GRV-PADRE', NULL, 0, 'variant_only') RETURNING id INTO v_parent;
   INSERT INTO public.products (user_id, account_id, name, sku, cost, price, parent_id, is_variant)
   VALUES (v_owner_a, v_account_a, 'Gate RV Variante', 'GRV-VAR', 10, 20, v_parent, true) RETURNING id INTO v_variant;
   INSERT INTO public.products (user_id, account_id, name, sku, cost, price, base_unit_id, deleted_at)

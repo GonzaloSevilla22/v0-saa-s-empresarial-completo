@@ -124,3 +124,44 @@ Todas resueltas — **Sign-off del PO 2026-11-05** (opción recomendada en las t
 - **OQ-2 — 71 padres `variant_only` con código de barras**: lo conservan; no se limpia ni se vuelve a pedir en el formulario; el servidor sólo rechaza asignar uno distinto. → D1.
 - **OQ-3 — 233 padres `tracked` con hijos (38 con stock propio)**: se muestran como padre sin conversión; la conversión asistida es candidato posterior. → D2, D12.
 - Resueltas por el PO en la revisión 2: sin herencia de precio/costo; entran el modificador en lote (sólo precio) y la sugerencia × 1,5 (sin importador).
+
+## Notas de implementación de la tanda A
+
+Tanda A = grupos 1-7 (DB + backend, sin cambio visible). Migración **`20261093000001_productos_padre_variantes.sql`** (`20261092000001` ya estaba en `main` y en prod desde #678; `20261093000001` verificado libre). Lo que el apply midió, decidió o desvió respecto de este documento:
+
+**Mediciones del checkpoint 1.1 (prod, 2026-11-05, sólo `SELECT`).** Padres `variant_only` con precio/costo: **18** (el propose midió 17: apareció uno entre medio; el backfill los limpia a todos y audita cada uno). Grupos padre + variantes vivos por conflicto de unidad, sumando las siete tablas de líneas: **341 libres / 149 con una unidad / 1 mixta** (491 grupos vivos; el propose contó 344/149/1 sobre 494: tres grupos se borraron o quedaron sin hijos vivos). `schema_migrations`: `max(version) = 20261092000001`.
+
+**Checkpoint 1.2 — guard.** El `pg_get_functiondef` vivo de `fn_product_base_unit_guard` tiene md5 (sin CR) `89b462c5169f867da49610d84b4d4962`, **idéntico** al de la base local construida desde `20261069000001_remitos_venta.sql` L1331: sin divergencia. La migración parte del cuerpo vivo y agrega **un solo bloque** (D6): inmediatamente después del chequeo de tenencia de la unidad y antes del primer `RETURN NEW` de la rama UPDATE,
+
+```sql
+IF TG_OP = 'UPDATE' THEN
+  IF NULLIF(current_setting('products.unit_relabel_root', true), '') = COALESCE(NEW.parent_id, NEW.id)::text THEN
+    IF NEW.parent_id IS NOT DISTINCT FROM OLD.parent_id AND NEW.account_id = OLD.account_id THEN
+      RETURN NEW;
+    END IF;
+  END IF;
+END IF;
+```
+
+Anidado y no con `AND`: `OLD` no existe en un `INSERT` y el orden de evaluación de un `AND` no está garantizado. COMMENT, ACL y disparador se conservan (`CREATE OR REPLACE`, misma firma `()`); el COMMENT vivo todavía dice «provisorio hasta el sign-off del PO» (D-C ya está firmado): queda como candidato de limpieza, no se tocó por la regla de conservar el COMMENT. Control negativo ejecutado: con el corte sin atar a la raíz (`<> ''` y sin la condición de padre/cuenta) fallan los tres casos de D7 del gate (GUC de otra raíz, re-parent, desenganche).
+
+**Checkpoint 1.3 — importador: SÍ cambia.** `rpc_bulk_upsert_products` (md5 vivo `30730c94469dc0a5ad98f1905608af46`, igual al de `20261086000001`) dejaba un `variant_only` con precio/costo en dos ramas: el alta de la fila Padre (`price`/`cost` del archivo) y la edición por SKU de un producto existente que pasa a Padre (`COALESCE(price, price)`). Con el CHECK, ambas habrían dado un error de fila críptico. Se rederivó del vivo (misma firma, `CREATE OR REPLACE`, ACL intacta: sólo `service_role`) forzando `price = 0` y `cost = NULL` cuando el tipo **efectivo** de la fila es `variant_only` (el de la fila si viene; si no, el vigente). Un producto simple no cambia. Convertir por el importador un producto con precio en Padre le borra el precio (el CHECK no admite otra cosa; queda en la fila de audit del backfill sólo para el que ya estaba así).
+
+**Checkpoint 1.4 — callers.** Ocho gates SQL insertaban padres `variant_only` con precio/costo (o costo 0) y dejaron de poder correr con el CHECK: `test_remitos_venta`, `test_remitos_compra`, `test_presupuestos_modulo`, `test_stock_ledger_solo_rpc`, `test_kpis_edge_cases`, `test_dashboard_critical_stock_items`, `test_ventas_unidades_conversion` (9 inserts) y `test_ventas_unidades_conversion_race.sh` (5 inserts): sus fixtures pasan a `price = 0, cost = NULL`. Los gates del importador (`test_bulk_upsert_products_categories`, `test_importador_stock_apertura`) y `test_balanza_etiquetas_pos` corren sin cambios. Un test del backend cambió de premisa a propósito: `test_convert_to_variant_only_clearing_plu_passes` (`test_products_scale_plu.py`) convertía un producto en padre por `PUT`, lo que D2 ahora prohíbe; pasó a probar que un padre que reenvía `variant_only` puede limpiar un PLU heredado.
+
+**Desvíos respecto del design.**
+
+- **DV-1 — `min_stock` en el alta de un padre se tolera (D1).** D1/tasks 3.1 piden rechazar `min_stock ≠ 0`. El formulario **anterior** (`product-form.tsx`, `minStock` con default 10) lo manda siempre al crear un padre: rechazarlo rompería el alta de padres desde la UI entre el deploy de la tanda A y el de la B, que es justo la ventana que D1 quiso proteger para la edición ("mismo criterio de compatibilidad"). El servidor lo acepta y lo **neutraliza a 0** (un padre no usa stock mínimo). Los demás campos (precio, costo, stock, SKU, código de barras, `parent_id`) se rechazan tal cual D1. En la **edición** no hay desvío: `min_stock` con un valor distinto del vigente es 422. Para volver a la letra del design basta quitar `min_stock` del `data.update(...)` de `create_product` y pasarlo al `_guard_parent_contract`.
+- **DV-2 — el relabel sin efecto se evalúa antes del conflicto (D5 pasos 4-5).** D5 pone el chequeo de conflicto antes del «sin cambio»; una llamada idempotente sobre una familia que **ya** tiene esa unidad pero con líneas en otra unidad habría dado `unit_relabel_conflict` aunque nada fuera a cambiar. Se invirtió: primero `changed = false` (nada se escribe ni se audita), después el conflicto. No cambia ningún escenario del spec.
+- **DV-3 — `requested` de `rpc_bulk_adjust_prices` cuenta ids distintos** (igual que `bulk_set_category`), y `clamped` cuenta sólo las filas que cambian y se acotaron (bajar lo que ya vale 0 no es «acotado»).
+- **Relabel y la fila de la raíz borrada.** Un id de una variante cuya raíz está borrada responde `P0404 product_not_found` (la raíz no se puede tomar viva).
+
+**Decisiones de implementación.**
+
+- El gate SQL **reaplica el archivo de la migración con `\i`** dentro de su transacción (quita el CHECK, arma el estado viejo con un padre borrado, y la corre dos veces): así el backfill, la idempotencia y las funciones se ejercitan de verdad sin una función auxiliar permanente. Requiere correr desde la raíz del repo (el `\i` y el `\set` con backtick usan rutas relativas) y la migración no puede traer `BEGIN`/`COMMIT`.
+- La tabla de casos del redondeo (`supabase/tests/fixtures/product_round_price_cases.json`) la lee el gate con `\set … `cat``; la tanda B la lee el vitest: una sola fuente.
+- Reutilizado: `_account_assert_capability` (P0401/P0403 en las dos RPCs), `has_lines_in_other_unit` (su UNION de siete tablas, replicado en SQL con el mismo conjunto), `current_account_ids()`, `problem_from_pg_error`, `CAN_CONFIGURE`, `require_account_role`, el molde de `_translate_check_violation` / `_guard_scale_plu_not_parent` (el helper nuevo `_guard_parent_contract` sirve al alta y a la edición) y el molde de `test_ventas_unidades_conversion_race.sh`. **Extraído**: `require_account_capability` en `backend/core/guards.py` (el envoltorio «403 como RFC 7807 con `code=insufficient_role`» ya existía duplicado en `services/quotes.py` y `services/delivery_notes.py`; ésta es la tercera copia, así que nace en la capa canónica; migrar las otras dos queda como candidato).
+- CI: el gate corre con el wrapper estricto (`run_gate_strict.py`) y por eso entra a `MONEY_GATES` de `backend/tests/test_gate_strict_detector.py` (35 → 36); la migración se suma al paso de reaplicación idempotente (`Verify G1/G4 migrations are idempotent on reapply`), con el diff de schema, 0 padres con precio/costo, CHECK validado y el corte del guard presente.
+- Los `Decimal` de `ProductBulkPriceOut` / `ProductUnitRelabelOut` salen como **string** en el JSON (convención del proyecto): la tanda B los parsea.
+
+**Ventana tanda A → tanda B (formulario anterior).** El formulario anterior sigue funcionando: edita padres reenviando los valores vigentes (D1), crea padres (precio 0, costo `null`, código `""`, `minStock` tolerado por DV-1) y no manda `baseUnitId` en una variante. Lo único que cambia para el usuario: un padre al que se le **escriba** precio, costo, SKU o código de barras nuevo ahora responde `422 parent_field_not_allowed` (el comportamiento buscado), y convertir un producto en padre por la API ya no se puede.

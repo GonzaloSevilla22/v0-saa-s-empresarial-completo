@@ -7,6 +7,7 @@ from fastapi import HTTPException, Request
 
 from backend.core import config
 from backend.core.auth import AuthContext
+from backend.core.errors import ProblemHTTPException
 from backend.core.rbac import is_sensitive_capability
 
 
@@ -137,6 +138,24 @@ async def require_account_role(conn, auth: AuthContext, allowed: Collection[str]
         account_roles = list(row) if row else []
 
     _assert_intersects(account_roles, allowed)
+
+
+async def require_account_capability(conn, auth: AuthContext, allowed: Collection[str]) -> None:
+    """`require_account_role` con el 403 como RFC 7807 y `code` estable `insufficient_role`.
+
+    `require_account_role` levanta un `HTTPException` plano, que el handler global aplanaría a
+    `code="http_error"`. Los endpoints que además llaman una RPC con su propio guard de rol (la RPC
+    lanza `P0403 insufficient_role`) usan ésta, así el 403 del servicio y el de la base son el MISMO
+    problema para el frontend. Tercera copia de este envoltorio (`services/quotes.py` y
+    `services/delivery_notes.py` tienen la suya, sin migrar: candidato de limpieza)."""
+    try:
+        await require_account_role(conn, auth, allowed)
+    except HTTPException as exc:
+        if exc.status_code == 403 and not isinstance(exc, ProblemHTTPException):
+            raise ProblemHTTPException(
+                status_code=403, detail=str(exc.detail), code="insufficient_role"
+            ) from exc
+        raise
 
 
 async def has_account_role(conn, auth: AuthContext, allowed: Collection[str]) -> bool:

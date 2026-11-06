@@ -3,12 +3,18 @@ from __future__ import annotations
 import datetime
 import uuid
 from decimal import Decimal
+from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 # productos-categorias-sku (D14): tope de ids por request de recategorización
 # en lote — límite de TRANSPORTE, no de producto: el cliente trocea y agrega.
 BULK_CATEGORY_MAX_IDS = 500
+# productos-padre-variantes (D10): tope de ids por request de modificación de precios en lote
+# (límite de TRANSPORTE: el cliente trocea) y rango del porcentaje efectivo (la base lo repite).
+BULK_PRICE_MAX_IDS = 500
+BULK_PRICE_MAX_DECREASE_PERCENT = Decimal("90")
+BULK_PRICE_MAX_INCREASE_PERCENT = Decimal("1000")
 
 
 class ProductCreate(BaseModel):
@@ -132,6 +138,75 @@ class ProductBulkCategoryOut(BaseModel):
 
     requested: int
     updated: int
+
+
+# ── productos-padre-variantes: corrección de unidad de una familia y precios en lote ──
+
+class ProductUnitRelabelIn(BaseModel):
+    """Payload de POST /products/{id}/relabel-unit (D7). `dry_run` = vista previa del impacto."""
+
+    base_unit_id: uuid.UUID = Field(..., description="Unidad nueva de la familia (del sistema o de la cuenta)")
+    dry_run: bool = False
+
+
+class ProductUnitRelabelOut(BaseModel):
+    """El jsonb de `rpc_relabel_product_unit`, tipado (igual en dry-run)."""
+
+    changed: bool
+    root_id: uuid.UUID
+    unit_before: uuid.UUID | None = None
+    unit_after: uuid.UUID
+    variants: int
+    variants_with_own_unit: int
+    products_with_stock: int
+    movements: int
+    conflict_unit: uuid.UUID | None = None
+
+
+class ProductBulkPriceIn(BaseModel):
+    """Payload de PATCH /products/bulk-price (D10). Sólo cambia el PRECIO; el costo nunca."""
+
+    product_ids: list[uuid.UUID] = Field(
+        ..., min_length=1, max_length=BULK_PRICE_MAX_IDS,
+        description="Productos a modificar (un padre se expande a sus variantes; una variante suelta se normaliza a su familia)",
+    )
+    mode: Literal["percent", "amount"]
+    direction: Literal["increase", "decrease"]
+    value: Decimal = Field(..., gt=0)
+    dry_run: bool = False
+
+    @model_validator(mode="after")
+    def _percent_in_range(self) -> "ProductBulkPriceIn":
+        # Porcentaje efectivo entre -90 y +1000 (la base repite la regla).
+        if self.mode == "percent":
+            limit = BULK_PRICE_MAX_DECREASE_PERCENT if self.direction == "decrease" else BULK_PRICE_MAX_INCREASE_PERCENT
+            if self.value > limit:
+                raise ValueError(
+                    f"El porcentaje tiene que estar entre una baja del {BULK_PRICE_MAX_DECREASE_PERCENT}% "
+                    f"y un aumento del {BULK_PRICE_MAX_INCREASE_PERCENT}%"
+                )
+        return self
+
+
+class ProductBulkPriceSampleOut(BaseModel):
+    id: uuid.UUID
+    name: str
+    price_before: Decimal
+    price_after: Decimal
+
+
+class ProductBulkPriceOut(BaseModel):
+    """`requested` = ids distintos pedidos; `eligible` = productos con precio alcanzados; `changed` /
+    `unchanged` los que cambian y los que quedan igual; `skipped_parents` los padres omitidos;
+    `clamped` los acotados a $0; `sample` hasta 10 con precio anterior y nuevo."""
+
+    requested: int
+    eligible: int
+    changed: int
+    unchanged: int
+    skipped_parents: int
+    clamped: int
+    sample: list[ProductBulkPriceSampleOut]
 
 
 # ── importador-productos-fastapi ──────────────────────────────────────────

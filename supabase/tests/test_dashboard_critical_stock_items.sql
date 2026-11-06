@@ -140,7 +140,7 @@ BEGIN
   INSERT INTO public.products (user_id, account_id, name, price, cost, sku, stock_control_type)
   VALUES (v_user_id, v_account_id, '__gate_csi_untracked__', 1000, 400, 'GATE-CSI-U', 'untracked') RETURNING id INTO v_p_untracked;
   INSERT INTO public.products (user_id, account_id, name, price, cost, sku, stock_control_type)
-  VALUES (v_user_id, v_account_id, '__gate_csi_variant__', 1000, 400, 'GATE-CSI-V', 'variant_only') RETURNING id INTO v_p_variant;
+  VALUES (v_user_id, v_account_id, '__gate_csi_variant__', 0, NULL, 'GATE-CSI-V', 'variant_only') RETURNING id INTO v_p_variant;
   INSERT INTO public.products (user_id, account_id, name, price, cost, sku, stock_control_type, deleted_at, deleted_by)
   VALUES (v_user_id, v_account_id, '__gate_csi_deleted__', 1000, 400, 'GATE-CSI-DEL', 'tracked', now(), v_user_id) RETURNING id INTO v_p_deleted;
   INSERT INTO public.products (user_id, account_id, name, price, cost, sku, stock_control_type)

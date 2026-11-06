@@ -102,6 +102,20 @@ describe("AiSummaryCard — errores", () => {
     })
   })
 
+  it("REGRESIÓN (PO 2026-11-06, «nunca muestra nada»): cuando la función devuelve la fila de insights, el texto está en `message` (columna real de la tabla), no en `content`", async () => {
+    invokeMock.mockResolvedValue({
+      data: { ok: true, data: { id: "i-1", type: "general", message: "Hoy vendiste $200 y gastaste $0.", priority: "media" } },
+      error: null,
+    })
+
+    render(<AiSummaryCard todaySales={200} />)
+
+    await waitFor(() => {
+      expect(screen.getByText("Hoy vendiste $200 y gastaste $0.")).toBeInTheDocument()
+    })
+    expect(screen.queryByText(/No se pudo generar/)).not.toBeInTheDocument()
+  })
+
   it("muestra el resumen cuando la función responde bien", async () => {
     invokeMock.mockResolvedValue({
       data: { ok: true, data: "Buen día: ventas estables." },

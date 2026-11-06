@@ -3,6 +3,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { useProducts } from "@/hooks/data/use-products"
 import { useSales } from "@/hooks/data/use-sales"
+import type { Product } from "@/lib/types"
 import { AlertCircle, TrendingUp, TrendingDown, DollarSign, History, LineChart } from "lucide-react"
 
 export function AiAlerts() {
@@ -13,9 +14,19 @@ export function AiAlerts() {
     // productos-costo-nullable: sin costo cargado no hay margen que evaluar
     // — NUNCA se sustituye por cero (eso produciría un falso "margen del
     // 100%" y dispararía la alerta de oportunidad para el peor caso).
+    // Un padre no tiene precio propio: el margen vive en cada variante (humo del PO
+    // 2026-11-06: «salen los productos padres, cosas que no sirven que salgan»).
+    // Vale para el padre `variant_only` (precio 0, costo nulo) y para el padre
+    // `tracked` con hijos, que conserva valores legacy que no se venden.
+    const parentIds = new Set(products.map(p => p.parentId).filter((id): id is string => !!id))
+    const isParent = (p: Product) => p.stockControlType === "variant_only" || parentIds.has(p.id)
+
     const marginAlerts = products.map(p => {
         if (p.cost == null) return null
-        const margin = p.price > 0 ? ((p.price - p.cost) / p.price) * 100 : 0
+        if (isParent(p)) return null
+        // Sin precio no hay margen que evaluar (un «0 %» acá era precio 0, no margen 0).
+        if (!(p.price > 0)) return null
+        const margin = ((p.price - p.cost) / p.price) * 100
 
         if (margin < 20) {
             return {

@@ -310,9 +310,12 @@ async def test_repo_queries_are_tenant_scoped_and_cover_the_variant_group():
 
 # ── Segunda revisión del PR #584 ────────────────────────────────────────────
 # (g) VARIANTE: su unidad "actual" es la heredada del padre (v_products_with_stock
-#     expone COALESCE(p.base_unit_id, pp.base_unit_id)). Cambiarla con stock en
-#     el grupo también es un cambio → 409. Ninguna fixture tenía una variante.
-async def test_variant_with_inherited_base_unit_and_stock_is_rejected_409(async_client, mock_pool):
+#     expone COALESCE(p.base_unit_id, pp.base_unit_id)). productos-padre-variantes
+#     (D4): la unidad de una variante se corrige en el PADRE (rpc_relabel_product_unit);
+#     una edición de la variante que informa una unidad se IGNORA — ni se valida, ni se
+#     escribe, ni pasa por el guard del 409 (antes: 409 base_unit_locked). La base sigue
+#     bloqueando cualquier escritura directa (gate test_ventas_unidades_conversion.sql).
+async def test_variant_edit_ignores_the_informed_unit_instead_of_locking(async_client, mock_pool):
     pool, conn = mock_pool
     stock_checks, movement_checks, updates = _wire(conn, current_base=UNIT_KG, has_stock=True, has_movements=False)
     variant_row = {**_product_row(UNIT_KG), "parent_id": "33333333-3333-3333-3333-333333333333", "is_variant": True}
@@ -326,9 +329,9 @@ async def test_variant_with_inherited_base_unit_and_stock_is_rejected_409(async_
 
     resp = await _put(async_client, pool, {"base_unit_id": UNIT_UN})
 
-    _assert_locked(resp)
-    assert updates == []
-    assert len(stock_checks) == 1
+    assert resp.status_code == 200, resp.text
+    assert all("base_unit_id" not in query for query, _ in updates), "la unidad de una variante no se escribe"
+    assert stock_checks == [] and movement_checks == []
 
 
 # (h) El guard de la BASE (trg_product_base_unit_guard, P0409) es el que decide

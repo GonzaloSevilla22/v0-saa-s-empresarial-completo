@@ -85,6 +85,13 @@ export function RelabelUnitDialog({ open, onOpenChange, product, exampleQuantity
   }, [open, unitId, product.id])
 
   const result = preview.status === "ready" ? preview.result : null
+
+  // En un teléfono el diálogo scrollea por dentro y el pie pegado tapa lo de abajo: al llegar la vista
+  // previa se la trae a la vista (el margen deja lugar al pie).
+  const impactRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (result) impactRef.current?.scrollIntoView?.({ block: "nearest", behavior: "smooth" })
+  }, [result])
   const conflictUnit = result?.conflictUnit ? unitOf(result.conflictUnit) : null
   const hasConflict = !!result?.conflictUnit
   const nothingToChange = !!result && !result.changed && !hasConflict
@@ -112,7 +119,8 @@ export function RelabelUnitDialog({ open, onOpenChange, product, exampleQuantity
 
   return (
     <Dialog open={open} onOpenChange={(next) => { if (!applying) onOpenChange(next) }}>
-      <DialogContent className="bg-card border-border">
+      {/* `[&>*]:min-w-0`: los hijos del grid del diálogo no pueden ensancharlo (la tabla de la vista previa, los textos largos). */}
+      <DialogContent className="bg-card border-border [&>*]:min-w-0">
         <DialogHeader>
           <DialogTitle className="text-card-foreground">Corregir unidad</DialogTitle>
           <DialogDescription>
@@ -140,7 +148,7 @@ export function RelabelUnitDialog({ open, onOpenChange, product, exampleQuantity
         )}
 
         {hasConflict && (
-          <div role="alert" className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+          <div ref={impactRef} role="alert" className="flex scroll-mb-56 items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
             <span>
               {`Hay ventas, compras u otros comprobantes de esta familia registrados en otra unidad: ${
@@ -155,7 +163,7 @@ export function RelabelUnitDialog({ open, onOpenChange, product, exampleQuantity
         )}
 
         {result && result.changed && !hasConflict && (
-          <div className="flex flex-col gap-3 rounded-lg border border-border bg-accent/40 p-3 text-sm">
+          <div ref={impactRef} className="flex scroll-mb-56 flex-col gap-3 rounded-lg border border-border bg-accent/40 p-3 text-sm">
             <p className="font-medium text-foreground">Esto es lo que va a cambiar de rótulo:</p>
             <ul className="flex list-disc flex-col gap-1 pl-5 text-foreground">
               <li>{plural(result.variants, "variante", "variantes")}</li>
@@ -181,7 +189,8 @@ export function RelabelUnitDialog({ open, onOpenChange, product, exampleQuantity
           </div>
         )}
 
-        <DialogFooter className="gap-2 sm:gap-0">
+        {/* Pie pegado al borde inferior: en un teléfono el diálogo scrollea por dentro y el CTA tiene que quedar a la vista. */}
+        <DialogFooter className="sticky bottom-0 -mx-6 -mb-6 gap-2 border-t border-border bg-card px-6 pb-6 pt-3 sm:gap-0">
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={applying}>
             Cancelar
           </Button>

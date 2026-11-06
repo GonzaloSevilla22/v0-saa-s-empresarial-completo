@@ -677,6 +677,7 @@ export function ProductCatalog({
                         variant="ghost"
                         size="icon"
                         className="h-8 w-8 text-muted-foreground hover:text-primary"
+                        aria-label={`Editar ${g.parent.name}`}
                         onClick={() => onEdit(g.parent)}
                       >
                         <Pencil className="h-3.5 w-3.5" />
@@ -736,6 +737,7 @@ export function ProductCatalog({
                           variant="ghost"
                           size="icon"
                           className="h-8 w-8 text-muted-foreground hover:text-primary"
+                          aria-label={`Editar ${child.name}`}
                           onClick={() => onEdit(child)}
                         >
                           <Pencil className="h-3.5 w-3.5" />
@@ -814,6 +816,7 @@ export function ProductCatalog({
                     variant="ghost"
                     size="icon"
                     className="h-8 w-8 text-muted-foreground hover:text-primary"
+                    aria-label={`Editar ${p.name}`}
                     onClick={() => onEdit(p)}
                   >
                     <Pencil className="h-3.5 w-3.5" />
@@ -986,6 +989,7 @@ export function ProductCatalog({
                             variant="ghost"
                             size="icon"
                             className="h-7 w-7 text-muted-foreground hover:text-primary"
+                            aria-label={`Editar ${g.parent.name}`}
                             onClick={() => onEdit(g.parent)}
                           >
                             <Pencil className="h-3.5 w-3.5" />
@@ -1099,6 +1103,7 @@ export function ProductCatalog({
                                   variant="ghost"
                                   size="icon"
                                   className="h-7 w-7 text-muted-foreground hover:text-primary"
+                                  aria-label={`Editar ${child.name}`}
                                   onClick={() => onEdit(child)}
                                 >
                                   <Pencil className="h-3.5 w-3.5" />
@@ -1220,6 +1225,7 @@ export function ProductCatalog({
                         variant="ghost"
                         size="icon"
                         className="h-7 w-7 text-muted-foreground hover:text-primary"
+                        aria-label={`Editar ${p.name}`}
                         onClick={() => onEdit(p)}
                       >
                         <Pencil className="h-3.5 w-3.5" />

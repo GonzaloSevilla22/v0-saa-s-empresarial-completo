@@ -116,3 +116,19 @@ layout ni scroll ante `wheel`/`touchmove` (RED de `tasks.md` 1.1/2.1).
   planes») y `rafaga` (429 `rate_limited`, «Esperá 40 segundos…»). Spec:
   `e2e/harness/ocr-cuota-visual.spec.ts` (capturas en `OCR_CUOTA_SHOT_DIR`, por
   defecto `../openspec/changes/v31-ia-ratelimit-budget/evidence`).
+- `/dev-harness/productos-padre?theme=light|dark` — productos-padre-variantes
+  (task 12.2): la PÁGINA REAL de `/productos` (catálogo, diálogo de alta,
+  formularios de padre / simple / variante, «Corregir unidad» y «Modificar
+  precios») sin sesión ni backend. `window.fetch` se intercepta (obligatorio: en
+  CI el backend real responde 401 y el transporte navegaría al login) con un
+  catálogo sintético —decimales como STRING, como FastAPI—, un `POST /products`
+  que suma la fila creada, un relabel donde «Zapatillas Nike» tiene una venta
+  grabada en «Unidad» (elegir otra unidad da conflicto) y un `PATCH
+  /products/bulk-price` que aplica la regla REAL (redondeo a pesos, piso 0, padres
+  omitidos). Los roles quedan sin resolver (las capacidades fallan abiertas: se ve
+  todo); el gating por rol lo cubre vitest. Spec:
+  `e2e/harness/productos-padre-variantes-visual.spec.ts` (capturas en
+  `PRODUCTOS_PADRE_SHOT_DIR`, por defecto
+  `../openspec/changes/productos-padre-variantes/evidence/tanda-b`). Gotcha: los
+  botones de editar del catálogo no tenían nombre accesible; ahora llevan
+  `aria-label="Editar <producto>"`.

@@ -1,6 +1,6 @@
 "use client"
 
-import { useId, useState } from "react"
+import { useEffect, useId, useRef, useState } from "react"
 import { AlertTriangle, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
@@ -75,6 +75,13 @@ export function BulkPriceDialog({ open, onOpenChange, productIds, onAdjust, onAp
   const outcome = current?.status === "ready" ? current.outcome : null
   const result = outcome?.result ?? null
 
+  // En un teléfono el diálogo scrollea por dentro y el pie pegado tapa lo de abajo: al llegar la vista
+  // previa se la trae a la vista (el margen deja lugar al pie).
+  const previewRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (result) previewRef.current?.scrollIntoView?.({ block: "nearest", behavior: "smooth" })
+  }, [result])
+
   const canPreview = value > 0 && !applying && current?.status !== "loading"
   const canApply = !!result && result.changed > 0 && !applying
 
@@ -132,7 +139,8 @@ export function BulkPriceDialog({ open, onOpenChange, productIds, onAdjust, onAp
 
   return (
     <Dialog open={open} onOpenChange={reset}>
-      <DialogContent className="bg-card border-border">
+      {/* `[&>*]:min-w-0`: los hijos del grid del diálogo no pueden ensancharlo (la tabla de la vista previa, los textos largos). */}
+      <DialogContent className="bg-card border-border [&>*]:min-w-0">
         <DialogHeader>
           <DialogTitle className="text-card-foreground">Modificar precios</DialogTitle>
           <DialogDescription>
@@ -189,7 +197,7 @@ export function BulkPriceDialog({ open, onOpenChange, productIds, onAdjust, onAp
         )}
 
         {result && (
-          <div className="flex flex-col gap-3 rounded-lg border border-border bg-accent/40 p-3 text-sm" data-testid="bulk-price-preview">
+          <div ref={previewRef} className="flex scroll-mb-56 flex-col gap-3 rounded-lg border border-border bg-accent/40 p-3 text-sm" data-testid="bulk-price-preview">
             <ul className="flex flex-col gap-1 text-foreground">
               {result.changed > 0 ? (
                 <li className="font-medium">{count(result.changed, "producto cambia", "productos cambian")}</li>
@@ -245,7 +253,8 @@ export function BulkPriceDialog({ open, onOpenChange, productIds, onAdjust, onAp
           </div>
         )}
 
-        <DialogFooter className="gap-2 sm:gap-0">
+        {/* Pie pegado al borde inferior: en un teléfono el diálogo scrollea por dentro y el CTA tiene que quedar a la vista. */}
+        <DialogFooter className="sticky bottom-0 -mx-6 -mb-6 gap-2 border-t border-border bg-card px-6 pb-6 pt-3 sm:gap-0">
           <Button type="button" variant="outline" onClick={() => reset(false)} disabled={applying}>
             {applyMessage ? "Cerrar" : "Cancelar"}
           </Button>

@@ -48,35 +48,35 @@
 
 - [x] 7.1 `supabase db reset` local limpio + gates del grupo en el orden real del workflow.
 - [x] 7.2 KB: RN-25 (padre sin precio/costo/stock/códigos; alta diferenciada) e inciso (g) de la regla de unidades (D-C firmado + excepción del relabel) en `knowledge-base/05_reglas_de_negocio.md`; `04_modelo_de_datos.md` con el CHECK y las dos RPCs.
-- [ ] 7.3 PR de la tanda A (declara "sin cambio visible"); tras el merge, verificación en prod sólo `SELECT`: `MAX(version) = 20261093000001`, 0 padres con precio/costo, CHECK validado, ACLs, cuerpo vivo del guard con el corte.
+- [x] 7.3 PR de la tanda A (#681, declara "sin cambio visible"); tras el merge, verificación en prod sólo `SELECT` (2026-11-05): `max(version) = 20261093000001` (340 migraciones), 0 padres con precio/costo, CHECK validado, 18 filas `product.parent_price_cleared`, cuerpo vivo del guard con el corte, ACLs sin `anon`, una sola firma por función.
 
 ## 8. Lógica pura del frontend (Tanda B)
 
-- [ ] 8.1 RED: `frontend/lib/__tests__/product-pricing.test.ts` — `roundToPesos` contra `product_round_price_cases.json`, `suggestPriceFromCost` (1000 → 1500, nulo/0/negativo/NaN → null) y `nextPriceOnCostChange` (precio vacío o igual a la última sugerencia → sugerencia; precio escrito → sin cambio; edición con precio → sin cambio).
-- [ ] 8.2 GREEN: `frontend/lib/product-pricing.ts` con `SUGGESTED_MARKUP_FACTOR`, `roundToPesos`, `suggestPriceFromCost`, `nextPriceOnCostChange`.
-- [ ] 8.3 RED → GREEN: generalizar `lib/product-bulk-category.ts` (`runInChunks` genérico con agregación y reporte de bloques fallidos); los tests existentes de la recategorización siguen en verde sin cambios de comportamiento.
-- [ ] 8.4 RED → GREEN: hooks en `hooks/data/use-products.ts` — `useRelabelProductUnit` (dry-run y aplicación) y `useBulkAdjustPrices` (troceo, suma de dry-runs, invalidación del listado de productos).
+- [x] 8.1 RED: `frontend/lib/__tests__/product-pricing.test.ts` — `roundToPesos` contra `product_round_price_cases.json`, `suggestPriceFromCost` (1000 → 1500, nulo/0/negativo/NaN → null) y `nextPriceOnCostChange` (precio vacío o igual a la última sugerencia → sugerencia; precio escrito → sin cambio; edición con precio → sin cambio).
+- [x] 8.2 GREEN: `frontend/lib/product-pricing.ts` con `SUGGESTED_MARKUP_FACTOR`, `roundToPesos`, `suggestPriceFromCost`, `nextPriceOnCostChange`.
+- [x] 8.3 RED → GREEN: generalizar `lib/product-bulk-category.ts` (`runInChunks` genérico con agregación y reporte de bloques fallidos); los tests existentes de la recategorización siguen en verde sin cambios de comportamiento.
+- [x] 8.4 RED → GREEN: hooks en `hooks/data/use-products.ts` — `useRelabelProductUnit` (dry-run y aplicación) y `useBulkAdjustPrices` (troceo, suma de dry-runs, invalidación del listado de productos).
 
 ## 9. Alta y edición diferenciadas
 
-- [ ] 9.1 RED: tests de componente — `ProductKindStep` (dos opciones, teclado); `ParentProductForm` muestra sólo nombre, categoría y unidad y su payload no lleva precio/costo/stock/SKU/barcode/PLU; tras crear el padre pasa a "Agregar la primera variante" con el padre fijo; `VariantProductForm` con categoría y unidad de sólo lectura y sin selector de padre; `SimpleProductForm` sin selector de padre; elección del formulario por modo en la edición, incluido el aviso del padre `tracked` con hijos.
-- [ ] 9.2 GREEN: partir `components/forms/product-form.tsx` por composición (D12), extrayendo los bloques de campos compartidos; cablear el paso en `app/(dashboard)/productos/page.tsx` y "Nueva variante" desde la fila.
-- [ ] 9.3 RED → GREEN: sugerencia de precio conectada en `SimpleProductForm` y `VariantProductForm` (escribir costo completa precio; precio escrito no se pisa; ayuda visible).
-- [ ] 9.4 RED → GREEN: traducción de `parent_field_not_allowed` y `stock_control_type_locked` en `lib/operation-errors.ts` (o el traductor de errores de producto existente) con mensaje accionable.
+- [x] 9.1 RED: tests de componente — `ProductKindStep` (dos opciones, teclado); `ParentProductForm` muestra sólo nombre, categoría y unidad y su payload no lleva precio/costo/stock/SKU/barcode/PLU; tras crear el padre pasa a "Agregar la primera variante" con el padre fijo; `VariantProductForm` con categoría y unidad de sólo lectura y sin selector de padre; `SimpleProductForm` sin selector de padre; elección del formulario por modo en la edición, incluido el aviso del padre `tracked` con hijos.
+- [x] 9.2 GREEN: partir `components/forms/product-form.tsx` por composición (D12), extrayendo los bloques de campos compartidos; cablear el paso en `app/(dashboard)/productos/page.tsx` y "Nueva variante" desde la fila.
+- [x] 9.3 RED → GREEN: sugerencia de precio conectada en `SimpleProductForm` y `VariantProductForm` (escribir costo completa precio; precio escrito no se pisa; ayuda visible).
+- [x] 9.4 RED → GREEN: traducción de `parent_field_not_allowed` y `stock_control_type_locked` en `lib/operation-errors.ts` (o el traductor de errores de producto existente) con mensaje accionable.
 
 ## 10. Diálogo "Corregir unidad"
 
-- [ ] 10.1 RED: test del diálogo — vista previa con variantes, stock, movimientos y ejemplo de cantidad real; `conflict_unit` deshabilita confirmar; confirmar llama sin dry-run; oculto para roles sin `CAN_CONFIGURE`; el selector de unidad libre se reemplaza por la acción sólo cuando el grupo tiene historia.
-- [ ] 10.2 GREEN: componente del diálogo en `components/products/` y su conexión en el formulario de padre/simple.
+- [x] 10.1 RED: test del diálogo — vista previa con variantes, stock, movimientos y ejemplo de cantidad real; `conflict_unit` deshabilita confirmar; confirmar llama sin dry-run; oculto para roles sin `CAN_CONFIGURE`; el selector de unidad libre se reemplaza por la acción sólo cuando el grupo tiene historia.
+- [x] 10.2 GREEN: componente del diálogo en `components/products/` y su conexión en el formulario de padre/simple.
 
 ## 11. Modificar precios en lote y rango del padre
 
-- [ ] 11.1 RED: test de `product-catalog.tsx` — acción "Modificar precios" junto a "Recategorizar" sólo con `CAN_CONFIGURE`; diálogo con dirección, modo y valor; confirmación habilitada sólo después de la vista previa; resultado por bloques con falla parcial informada; fila del padre `variant_only` con "desde $X".
-- [ ] 11.2 GREEN: diálogo y acción en `components/products/product-catalog.tsx` (prop `onBulkAdjustPrices` espejo de `onBulkRecategorize`), conexión en `productos/page.tsx`, rango "desde $X".
+- [x] 11.1 RED: test de `product-catalog.tsx` — acción "Modificar precios" junto a "Recategorizar" sólo con `CAN_CONFIGURE`; diálogo con dirección, modo y valor; confirmación habilitada sólo después de la vista previa; resultado por bloques con falla parcial informada; fila del padre `variant_only` con "desde $X".
+- [x] 11.2 GREEN: diálogo y acción en `components/products/product-catalog.tsx` (prop `onBulkAdjustPrices` espejo de `onBulkRecategorize`), conexión en `productos/page.tsx`, rango "desde $X".
 
 ## 12. Verificación y cierre de la tanda B
 
-- [ ] 12.1 `pnpm vitest run` completo y `tsc --noEmit` sin errores nuevos contra el baseline.
+- [x] 12.1 `pnpm vitest run` completo y `tsc --noEmit` sin errores nuevos contra el baseline.
 - [ ] 12.2 Verificación visual de `/productos` (paso "¿Qué querés crear?", los tres formularios, "Corregir unidad", "Modificar precios") a 375 px y en desktop, tema claro y oscuro (4 combinaciones), con contraste por tokens semánticos.
 - [ ] 12.3 PR de la tanda B; humo real del PO anotado en `docs/pendientes-manuales-po.md` (crear producto con variantes, corregir la unidad de una familia con historia, aumentar precios de una selección, sugerencia × 1,5).
 - [ ] 12.4 Archive: specs sincronizadas (`product-variants` y `product-bulk-pricing` nuevas; `units-of-measure`, `product-sku`, `product-category` modificadas); candidatos `markup-por-cuenta`, `v3-uom-conversion` y conversión asistida de padres `tracked` en `CHANGES.md`.

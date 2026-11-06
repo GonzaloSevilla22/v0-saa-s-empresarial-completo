@@ -4793,6 +4793,15 @@ El pedido literal (RPC con rol y motivo + quitar `GRANT` y policies) es correcto
 
 ---
 
+## Fix ad-hoc `stock-movimientos-sucursal-visible` - 2026-11-06 (PR **#688**; sin change OPSX, sin migración ni backend)
+
+**fix(stock): el panel de movimientos muestra la sucursal de cada movimiento.** Hallado en el humo real del PO de `stock-movimientos-sucursal-origen` («no veo la sucursal en los movimientos»).
+
+- **Qué pasaba.** No era una regresión: ese change completó `stock_movements.branch_id` en la base y declaró explícitamente «sin superficie frontend» — `components/stock/stock-movements-panel.tsx` nunca renderizó la sucursal. El ítem de humo prometía algo que ninguna pantalla hacía.
+- **Fix.** La lectura del panel embebe `branches(name)` en la misma consulta (FK `stock_movements_branch_id_fkey`, sin consulta por fila); cada fila muestra la sucursal debajo del producto (o «Sin sucursal» cuando el ledger no la registra: los movimientos no demostrables siguen así por diseño) y el CSV del kardex gana la columna «Sucursal». `StockMovement` gana `branchId`/`branchName`.
+- **Verificación.** Test de componente RED→GREEN (`StockMovementsPanelBranch.test.tsx`), suites del panel y del export en verde, `tsc` limpio en lo tocado.
+- **Humos §2 del mismo día**: `ventas-sucursal-por-defecto`, `compras-gastos-sucursal-por-defecto`, `documentos-marca-empresa`, `banco-saldo-segun-libro` y `v31-document-lines-consistency` PASARON.
+
 ## Fix ad-hoc `cambio-de-negocio-cache-vieja` - 2026-11-06 (PR **#682** `1cbb863b`; sin change OPSX, sin migración ni backend)
 
 **fix(auth): al cambiar de negocio, Ventas y Stock mostraban la cuenta anterior.** Hallado en la demo real de `multiusuario-operativo` (paso 4).

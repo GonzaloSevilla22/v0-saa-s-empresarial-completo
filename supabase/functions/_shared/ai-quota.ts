@@ -20,8 +20,9 @@ import { resolveEffectivePlan, type EffectivePlanClient } from "./effective-plan
 
 type Counter = "queries" | "advice"
 
-/** Contadores que se consumen por RESERVA atómica (v31-ia-ratelimit-budget). Hoy sólo el OCR. */
-export type ReserveCounter = "ocr"
+/** Contadores que se consumen por RESERVA atómica: el OCR (v31-ia-ratelimit-budget) y las consultas del Copiloto (ia-copilot-v2). */
+export const RESERVE_COUNTERS = ["ocr", "queries"] as const
+export type ReserveCounter = (typeof RESERVE_COUNTERS)[number]
 
 interface QueryResult<T> {
   data: T | null

@@ -4,7 +4,7 @@ import { useCallback } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { pythonClient } from "@/lib/api/python-client"
 import { queryKeys } from "@/lib/query-keys"
-import { bulkRecategorizeInChunks, type BulkCategoryResult } from "@/lib/product-bulk-category"
+import { bulkRecategorizeInChunks, runInChunks, type BulkCategoryResult, type ChunkRunFailure } from "@/lib/product-bulk-category"
 import type { Product, ProductImportInput, ProductImportResult } from "@/lib/types"
 
 // ── Types for API responses ───────────────────────────────────────────────────
@@ -358,4 +358,162 @@ export function useProducts() {
     deleteProductMutation,
     bulkSetCategoryMutation,
   }
+}
+
+// ── productos-padre-variantes ─────────────────────────────────────────────────
+
+/** Respuesta de `POST /products/{id}/relabel-unit` (igual en dry-run), en camelCase. */
+export interface ProductUnitRelabelResult {
+  changed: boolean
+  rootId: string
+  unitBefore: string | null
+  unitAfter: string
+  /** Variantes vivas de la familia. */
+  variants: number
+  /** Variantes que tenían unidad propia (pasan a heredar la de la raíz). */
+  variantsWithOwnUnit: number
+  /** Productos de la familia con stock distinto de 0. */
+  productsWithStock: number
+  /** Movimientos de stock de la familia. */
+  movements: number
+  /** Unidad de una línea que impide el relabel (sólo en dry-run); `null` si no hay conflicto. */
+  conflictUnit: string | null
+}
+
+interface ProductUnitRelabelApiRow {
+  changed: boolean
+  root_id: string
+  unit_before: string | null
+  unit_after: string
+  variants: number
+  variants_with_own_unit: number
+  products_with_stock: number
+  movements: number
+  conflict_unit: string | null
+}
+
+/**
+ * Corregir la unidad de una familia (D5/D7). `dryRun: true` es la vista previa
+ * (no escribe: no refresca nada); al aplicar se invalida el listado. Un
+ * conflicto en dry-run llega en `conflictUnit`; al aplicar, el servidor
+ * responde 409 `unit_relabel_conflict` y el error se propaga.
+ */
+export function useRelabelProductUnit() {
+  const queryClient = useQueryClient()
+  const mutation = useMutation({
+    mutationFn: async (params: { productId: string; baseUnitId: string; dryRun: boolean }): Promise<ProductUnitRelabelResult> => {
+      const r = await pythonClient.post<ProductUnitRelabelApiRow>(`/products/${params.productId}/relabel-unit`, {
+        base_unit_id: params.baseUnitId,
+        dry_run: params.dryRun,
+      })
+      return {
+        changed: r.changed,
+        rootId: r.root_id,
+        unitBefore: r.unit_before ?? null,
+        unitAfter: r.unit_after,
+        variants: r.variants,
+        variantsWithOwnUnit: r.variants_with_own_unit,
+        productsWithStock: r.products_with_stock,
+        movements: r.movements,
+        conflictUnit: r.conflict_unit ?? null,
+      }
+    },
+    onSuccess: (_result, params) => {
+      if (!params.dryRun) queryClient.invalidateQueries({ queryKey: queryKeys.products.all() })
+    },
+  })
+  return { relabel: mutation.mutateAsync, mutation }
+}
+
+export type BulkPriceMode = "percent" | "amount"
+export type BulkPriceDirection = "increase" | "decrease"
+
+export interface ProductBulkPriceSample {
+  id: string
+  name: string
+  priceBefore: number
+  priceAfter: number
+}
+
+/** Contadores de `PATCH /products/bulk-price`, sumados sobre todos los bloques. */
+export interface ProductBulkPriceResult {
+  requested: number
+  eligible: number
+  changed: number
+  unchanged: number
+  skippedParents: number
+  clamped: number
+  /** Hasta 10 filas del PRIMER bloque. */
+  sample: ProductBulkPriceSample[]
+}
+
+export interface ProductBulkPriceOutcome {
+  /** Suma de los bloques que se aplicaron (o se previsualizaron). */
+  result: ProductBulkPriceResult
+  /** El bloque que cortó el lote (sólo al aplicar), o `null`. */
+  failure: ChunkRunFailure | null
+  appliedIds: number
+  totalIds: number
+}
+
+interface ProductBulkPriceApiRow {
+  requested: number
+  eligible: number
+  changed: number
+  unchanged: number
+  skipped_parents: number
+  clamped: number
+  sample: { id: string; name: string; price_before: string | number; price_after: string | number }[]
+}
+
+const EMPTY_BULK_PRICE_RESULT: ProductBulkPriceResult = {
+  requested: 0, eligible: 0, changed: 0, unchanged: 0, skippedParents: 0, clamped: 0, sample: [],
+}
+
+/**
+ * Modificar precios en lote (D8/D10). Trocea en requests de 500; cada bloque es
+ * atómico en el servidor y el lote completo no. La vista previa (`dryRun`) suma
+ * los bloques y falla entera si uno falla; al aplicar, un bloque que falla
+ * CORTA el lote y el resultado informa el avance parcial en vez de lanzar. El
+ * listado se refresca siempre que se haya intentado aplicar (puede haber
+ * escritura parcial).
+ */
+export function useBulkAdjustPrices() {
+  const queryClient = useQueryClient()
+  const mutation = useMutation({
+    mutationFn: async (params: {
+      productIds: string[]
+      mode: BulkPriceMode
+      direction: BulkPriceDirection
+      value: number
+      dryRun: boolean
+    }): Promise<ProductBulkPriceOutcome> => {
+      const outcome = await runInChunks(params.productIds, (chunk) =>
+        pythonClient.patch<ProductBulkPriceApiRow>("/products/bulk-price", {
+          product_ids: chunk,
+          mode: params.mode,
+          direction: params.direction,
+          value: params.value,
+          dry_run: params.dryRun,
+        }),
+      )
+      if (outcome.failure && params.dryRun) throw outcome.failure.error
+      const result = outcome.results.reduce<ProductBulkPriceResult>((total, r, i) => ({
+        requested: total.requested + r.requested,
+        eligible: total.eligible + r.eligible,
+        changed: total.changed + r.changed,
+        unchanged: total.unchanged + r.unchanged,
+        skippedParents: total.skippedParents + r.skipped_parents,
+        clamped: total.clamped + r.clamped,
+        sample: i === 0
+          ? r.sample.map((s) => ({ id: s.id, name: s.name, priceBefore: Number(s.price_before), priceAfter: Number(s.price_after) }))
+          : total.sample,
+      }), EMPTY_BULK_PRICE_RESULT)
+      return { result, failure: outcome.failure, appliedIds: outcome.appliedIds, totalIds: outcome.totalIds }
+    },
+    onSettled: (_data, _error, params) => {
+      if (!params.dryRun) queryClient.invalidateQueries({ queryKey: queryKeys.products.all() })
+    },
+  })
+  return { adjust: mutation.mutateAsync, mutation }
 }

@@ -467,8 +467,8 @@ describe("registro del turno", () => {
 
 describe("modelo por variable con allow-list (3.6)", () => {
   it("allow-list, default y cadena de salto definidos", () => {
-    expect([...COPILOT_ALLOWED_MODELS]).toEqual(["gpt-6.1-terra", "gpt-6-luna", "gpt-4o-mini", "gpt-5-mini", "gpt-4.1-mini"])
-    expect(COPILOT_DEFAULT_MODEL).toBe("gpt-6.1-terra")
+    expect([...COPILOT_ALLOWED_MODELS]).toEqual(["gpt-5-mini", "gpt-4.1-mini", "gpt-4o-mini"])
+    expect(COPILOT_DEFAULT_MODEL).toBe("gpt-5-mini")
     expect([...COPILOT_FALLBACK_ORDER].sort()).toEqual([...COPILOT_ALLOWED_MODELS].sort())
     expect(COPILOT_FALLBACK_ORDER[COPILOT_FALLBACK_ORDER.length - 1]).toBe("gpt-4o-mini")
   })
@@ -501,13 +501,14 @@ describe("modelo por variable con allow-list (3.6)", () => {
     expect(mini.tool_choice).toBeUndefined()
     expect((mini.response_format as { type: string }).type).toBe("json_schema")
 
-    const terra = buildOpenAiBody("gpt-6.1-terra", { ...req, tools: [{ type: "function", function: { name: "stock_critico", description: "d", strict: true, parameters: { type: "object", properties: {}, required: [], additionalProperties: false } } }] }, COPILOT_MODEL_PARAMS["gpt-6.1-terra"])
-    expect(terra.max_completion_tokens).toBe(700)
-    expect(terra.max_tokens).toBeUndefined()
-    expect(terra.temperature).toBeUndefined()
-    expect(terra.tool_choice).toBe("auto")
-    expect(terra.parallel_tool_calls).toBe(true)
-    expect(terra.model).toBe("gpt-6.1-terra")
+    const reasoning = buildOpenAiBody("gpt-5-mini", { ...req, tools: [{ type: "function", function: { name: "stock_critico", description: "d", strict: true, parameters: { type: "object", properties: {}, required: [], additionalProperties: false } } }] }, COPILOT_MODEL_PARAMS["gpt-5-mini"])
+    expect(reasoning.max_completion_tokens).toBe(700)
+    expect(reasoning.max_tokens).toBeUndefined()
+    expect(reasoning.temperature).toBeUndefined()
+    expect(reasoning.reasoning_effort).toBe("minimal")
+    expect(reasoning.tool_choice).toBe("auto")
+    expect(reasoning.parallel_tool_calls).toBe(true)
+    expect(reasoning.model).toBe("gpt-5-mini")
   })
 
   it("isUnknownModelError sólo reconoce el modelo inexistente, no cualquier 400/404", () => {
@@ -537,16 +538,16 @@ describe("salto de modelo (el modelo por defecto puede no existir)", () => {
     const logs: string[] = []
     const send = vi.fn(async (model: string): Promise<SendResult> => {
       seen.push(model)
-      return model === "gpt-6.1-terra" ? { kind: "http_error", status: 404, message: "The model `gpt-6.1-terra` does not exist" } : okSend
+      return model === "gpt-5-mini" ? { kind: "http_error", status: 404, message: "The model `gpt-6.1-terra` does not exist" } : okSend
     })
-    const call = createModelFailover({ candidates: ["gpt-6.1-terra", "gpt-6-luna", "gpt-4o-mini"], send, log: (_l, m) => { logs.push(m) } })
+    const call = createModelFailover({ candidates: ["gpt-5-mini", "gpt-6-luna", "gpt-4o-mini"], send, log: (_l, m) => { logs.push(m) } })
     const first = await call(req)
     expect(first).toMatchObject({ kind: "ok", model: "gpt-6-luna" })
-    expect(seen).toEqual(["gpt-6.1-terra", "gpt-6-luna"])
-    expect(logs.some((m) => m.includes("gpt-6.1-terra") && m.includes("gpt-6-luna"))).toBe(true)
+    expect(seen).toEqual(["gpt-5-mini", "gpt-6-luna"])
+    expect(logs.some((m) => m.includes("gpt-5-mini") && m.includes("gpt-6-luna"))).toBe(true)
     const second = await call(req)
     expect(second).toMatchObject({ model: "gpt-6-luna" })
-    expect(seen).toEqual(["gpt-6.1-terra", "gpt-6-luna", "gpt-6-luna"]) // no vuelve a golpear al inexistente
+    expect(seen).toEqual(["gpt-5-mini", "gpt-6-luna", "gpt-6-luna"]) // no vuelve a golpear al inexistente
   })
 
   it("si todos los modelos son desconocidos devuelve el último error", async () => {

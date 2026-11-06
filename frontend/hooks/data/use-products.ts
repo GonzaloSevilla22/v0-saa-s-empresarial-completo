@@ -447,6 +447,15 @@ export interface ProductBulkPriceResult {
   sample: ProductBulkPriceSample[]
 }
 
+/** Parámetros de un cambio de precios en lote (la vista previa y la aplicación comparten todo salvo `dryRun`). */
+export interface ProductBulkPriceParams {
+  productIds: string[]
+  mode: BulkPriceMode
+  direction: BulkPriceDirection
+  value: number
+  dryRun: boolean
+}
+
 export interface ProductBulkPriceOutcome {
   /** Suma de los bloques que se aplicaron (o se previsualizaron). */
   result: ProductBulkPriceResult
@@ -481,13 +490,7 @@ const EMPTY_BULK_PRICE_RESULT: ProductBulkPriceResult = {
 export function useBulkAdjustPrices() {
   const queryClient = useQueryClient()
   const mutation = useMutation({
-    mutationFn: async (params: {
-      productIds: string[]
-      mode: BulkPriceMode
-      direction: BulkPriceDirection
-      value: number
-      dryRun: boolean
-    }): Promise<ProductBulkPriceOutcome> => {
+    mutationFn: async (params: ProductBulkPriceParams): Promise<ProductBulkPriceOutcome> => {
       const outcome = await runInChunks(params.productIds, (chunk) =>
         pythonClient.patch<ProductBulkPriceApiRow>("/products/bulk-price", {
           product_ids: chunk,

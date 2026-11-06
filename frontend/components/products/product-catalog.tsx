@@ -31,6 +31,8 @@ import { ProductImportDialog } from "@/components/products/product-import-dialog
 import { ProductCategorySelect } from "@/components/product-categories/ProductCategorySelect"
 import { useProductCategories } from "@/hooks/data/use-product-categories"
 import type { BulkCategoryResult } from "@/lib/product-bulk-category"
+import type { ProductBulkPriceOutcome, ProductBulkPriceParams } from "@/hooks/data/use-products"
+import { BulkPriceDialog } from "@/components/products/BulkPriceDialog"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -62,6 +64,13 @@ interface ProductCatalogProps {
    * la acción queda deshabilitada.
    */
   onBulkRecategorize?: (productIds: string[], categoryId: string) => Promise<BulkCategoryResult>
+  /**
+   * productos-padre-variantes (D13): «Modificar precios» en lote, sobre la MISMA
+   * selección que la recategorización. Sin este prop la acción no se ofrece: la
+   * pantalla sólo lo pasa a dueño/administrador (CAN_CONFIGURE). `dryRun: true`
+   * es la vista previa del servidor, `false` la aplicación (troceada en bloques).
+   */
+  onBulkAdjustPrices?: (params: ProductBulkPriceParams) => Promise<ProductBulkPriceOutcome>
   /**
    * estadisticas-ventas E3: texto inicial del buscador (el detalle por
    * producto enlaza al catálogo con /productos?q=<sku|nombre>). Sólo valor
@@ -131,12 +140,27 @@ function groupMinStock(g: ProductGroup): number {
   return g.children.reduce((s, c) => s + c.minStock, 0)
 }
 
-function groupPriceLabel(g: ProductGroup): string {
+/**
+ * productos-padre-variantes (D13): el padre `variant_only` NO tiene precio (la
+ * base lo fija en 0) — su fila muestra «desde $X», el menor precio de sus
+ * variantes vivas, aunque todas valgan lo mismo. `minChildPrice` se calcula
+ * sobre TODAS las variantes del listado (no sobre las que deja a la vista la
+ * búsqueda). Un padre `tracked` armado a mano conserva su regla de siempre.
+ */
+function groupPriceLabel(g: ProductGroup, minChildPrice: number | undefined): string {
+  if (g.parent.stockControlType === "variant_only") {
+    return minChildPrice == null ? "Sin variantes" : `desde ${formatMoney(minChildPrice)}`
+  }
   if (g.children.length === 0) return formatMoney(g.parent.price)
   const prices = g.children.map((c) => c.price)
   const min = Math.min(...prices)
   const max = Math.max(...prices)
   return min === max ? formatMoney(min) : `desde ${formatMoney(min)}`
+}
+
+/** Precio de una fila de producto sin variantes a la vista: un padre sin variantes no tiene precio que mostrar. */
+function standalonePriceLabel(p: Product): string {
+  return p.stockControlType === "variant_only" ? "Sin variantes" : formatMoney(p.price)
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
@@ -151,6 +175,7 @@ export function ProductCatalog({
   onImportComplete,
   onSuggestPrice,
   onBulkRecategorize,
+  onBulkAdjustPrices,
   initialSearch,
 }: ProductCatalogProps) {
   // estadisticas-ventas E3: el detalle por producto enlaza al catálogo con
@@ -166,8 +191,20 @@ export function ProductCatalog({
   const [bulkCategoryId, setBulkCategoryId] = useState<string | null>(null)
   const [bulkConfirmOpen, setBulkConfirmOpen] = useState(false)
   const [bulkApplying, setBulkApplying] = useState(false)
+  const [priceDialogOpen, setPriceDialogOpen] = useState(false)
   const { productCategories } = useProductCategories(true)
   const bulkTargetName = productCategories.find((c) => c.id === bulkCategoryId)?.name ?? null
+
+  // Menor precio de las variantes de cada padre, sobre el listado COMPLETO.
+  const minChildPriceByParent = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const p of products) {
+      if (!p.parentId) continue
+      const current = map.get(p.parentId)
+      if (current == null || p.price < current) map.set(p.parentId, p.price)
+    }
+    return map
+  }, [products])
 
   // ── Unit-of-measure resolution ─────────────────────────────────────────────
   // unitsById comes pre-built from the hook — no local useMemo needed
@@ -545,6 +582,11 @@ export function ProductCatalog({
             >
               Cambiar categoría
             </Button>
+            {onBulkAdjustPrices && (
+              <Button size="sm" variant="outline" onClick={() => setPriceDialogOpen(true)} disabled={bulkApplying}>
+                Modificar precios
+              </Button>
+            )}
           </div>
         </section>
       )}
@@ -615,7 +657,7 @@ export function ProductCatalog({
                         {g.parent.category}
                       </Badge>
                       <div className="flex items-center gap-2">
-                        <span className="text-xs text-muted-foreground">{groupPriceLabel(g)}</span>
+                        <span className="text-xs text-muted-foreground">{groupPriceLabel(g, minChildPriceByParent.get(g.parent.id))}</span>
                         <span className="text-xs text-muted-foreground">{groupStockLabel(g)}</span>
                       </div>
                     </div>
@@ -741,7 +783,7 @@ export function ProductCatalog({
                     {p.category}
                   </Badge>
                   <div className="flex items-center gap-2 text-xs">
-                    <span className="text-success font-medium">{formatMoney(p.price)}</span>
+                    <span className="text-success font-medium">{standalonePriceLabel(p)}</span>
                     {marginCell(p.margin)}
                     <span className="text-muted-foreground text-xs">{stockLabel(p)}</span>
                   </div>
@@ -910,7 +952,7 @@ export function ProductCatalog({
 
                       {/* Price range */}
                       <TableCell className="text-sm text-muted-foreground">
-                        {groupPriceLabel(g)}
+                        {groupPriceLabel(g, minChildPriceByParent.get(g.parent.id))}
                       </TableCell>
 
                       {/* Margin — not meaningful at parent level */}
@@ -1124,7 +1166,7 @@ export function ProductCatalog({
                   {/* Price */}
                   <TableCell>
                     <span className="font-medium text-success">
-                      {formatMoney(p.price)}
+                      {standalonePriceLabel(p)}
                     </span>
                   </TableCell>
 
@@ -1232,6 +1274,18 @@ export function ProductCatalog({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* ── productos-padre-variantes (D13): modificar precios en lote. Se monta sólo
+          abierto, así cada apertura arranca limpia (sin vista previa vieja). */}
+      {onBulkAdjustPrices && priceDialogOpen && (
+        <BulkPriceDialog
+          open
+          onOpenChange={setPriceDialogOpen}
+          productIds={[...selectedIds]}
+          onAdjust={onBulkAdjustPrices}
+          onApplied={clearSelection}
+        />
+      )}
 
       {/* Import dialog. Finding de revisión: `onComplete` NO cierra el
           diálogo (a diferencia de `onOpenChange`) — el paso 3 (resultado

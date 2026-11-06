@@ -78,7 +78,7 @@ describe("ProductForm — la unidad base sólo viaja con inventario físico", ()
   })
 
   it("alta con Inventario físico + Kilogramo → viaja baseUnitId", async () => {
-    render(<ProductForm onSuccess={vi.fn()} />)
+    render(<ProductForm onSuccess={vi.fn()} initialKind="simple" />)
     await fillNewProductWithKg()
     fireEvent.click(screen.getByRole("button", { name: /crear producto/i }))
     await waitFor(() => expect(addProductMock).toHaveBeenCalled())
@@ -86,7 +86,7 @@ describe("ProductForm — la unidad base sólo viaja con inventario físico", ()
   })
 
   it("alta: elegir Kilogramo y pasar a Servicio / Digital → NO viaja la unidad", async () => {
-    render(<ProductForm onSuccess={vi.fn()} />)
+    render(<ProductForm onSuccess={vi.fn()} initialKind="simple" />)
     const user = await fillNewProductWithKg()
     await user.click(comboboxShowing(/inventario físico/i))
     await user.click(await screen.findByRole("option", { name: /servicio \/ digital/i }))
@@ -129,7 +129,7 @@ describe("ProductForm — stock y stock mínimo decimales se pueden guardar", ()
   })
 
   it("alta con stock inicial 0,55 y mínimo 0,25 → se guarda con esos valores", async () => {
-    render(<ProductForm onSuccess={vi.fn()} />)
+    render(<ProductForm onSuccess={vi.fn()} initialKind="simple" />)
     await fillNewProductWithKg()
     const [stockInput, minInput] = screen.getAllByRole("spinbutton").slice(-2)
     fireEvent.change(stockInput, { target: { value: "0.55" } })

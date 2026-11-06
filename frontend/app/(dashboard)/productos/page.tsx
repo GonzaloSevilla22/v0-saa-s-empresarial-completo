@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import { useSearchParams } from "next/navigation"
-import { useProducts } from "@/hooks/data/use-products"
+import { useProducts, useBulkAdjustPrices } from "@/hooks/data/use-products"
 import { useQueryClient } from "@tanstack/react-query"
 import { useAuth } from "@/contexts/auth-context"
 import { ProductCatalog } from "@/components/products/product-catalog"
@@ -12,6 +12,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { ModuleMetricsWrapper } from "@/components/admin/ModuleMetricsWrapper"
 import { usePlanLimits } from "@/hooks/auth/use-plan-limits"
 import { usePlanGate } from "@/hooks/auth/use-plan-gate"
+import { useOrgRole } from "@/hooks/useOrgRole"
+import { CAN_CONFIGURE, hasCapability } from "@/lib/rbac-capabilities"
 import { MAX_PRODUCTS_FREE } from "@/lib/constants"
 import type { Product } from "@/lib/types"
 
@@ -22,6 +24,12 @@ export default function ProductosPage() {
   const refreshData = () => queryClient.invalidateQueries()
   const { user } = useAuth()
   const { limits } = usePlanLimits()
+
+  // productos-padre-variantes (D13): «Modificar precios» en lote es de dueño y administrador
+  // (CAN_CONFIGURE, la misma capacidad que exige el servidor): al resto la acción ni se le ofrece.
+  const { roles, rolesResolved } = useOrgRole()
+  const canConfigure = hasCapability(roles, CAN_CONFIGURE, rolesResolved)
+  const { adjust: adjustPrices } = useBulkAdjustPrices()
 
   // Plan gate for AI price suggestion (task 3.2-3.3)
   const { hasAccess: hasPriceSuggestionAccess } = usePlanGate("avanzado")
@@ -111,6 +119,8 @@ export default function ProductosPage() {
         // productos-categorias-sku (D14): recategorización en lote — el hook
         // trocea en requests de 500 y agrega; la barra de acción vive en el catálogo.
         onBulkRecategorize={(ids, categoryId) => bulkSetCategory({ productIds: ids, categoryId })}
+        // productos-padre-variantes (D10): el hook trocea en 500, suma las vistas previas y informa la falla parcial.
+        onBulkAdjustPrices={canConfigure ? adjustPrices : undefined}
       />
 
       <Dialog open={open} onOpenChange={(v) => { if (!v) handleClose() }}>

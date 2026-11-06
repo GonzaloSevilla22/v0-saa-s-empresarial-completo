@@ -76,7 +76,7 @@ describe("ProductForm — código de balanza (PLU)", () => {
   })
 
   it("muestra el campo Código de balanza para un producto estándar", () => {
-    render(<ProductForm onSuccess={vi.fn()} />)
+    render(<ProductForm onSuccess={vi.fn()} initialKind="simple" />)
     expect(screen.getByLabelText(/código de balanza/i)).toBeInTheDocument()
   })
 
@@ -92,7 +92,7 @@ describe("ProductForm — código de balanza (PLU)", () => {
   })
 
   it("alta con PLU: el payload manda scalePlu", async () => {
-    render(<ProductForm onSuccess={vi.fn()} />)
+    render(<ProductForm onSuccess={vi.fn()} initialKind="simple" />)
     fireEvent.change(screen.getByPlaceholderText(/remera afa/i), { target: { value: "Producto nuevo" } })
     fireEvent.change(screen.getByLabelText(/categoría/i), { target: { value: "cat-verd" } })
     fireEvent.change(screen.getByLabelText(/código de balanza/i), { target: { value: "509" } })
@@ -103,7 +103,7 @@ describe("ProductForm — código de balanza (PLU)", () => {
   })
 
   it("alta sin tocar el PLU: el payload manda scalePlu null", async () => {
-    render(<ProductForm onSuccess={vi.fn()} />)
+    render(<ProductForm onSuccess={vi.fn()} initialKind="simple" />)
     fireEvent.change(screen.getByPlaceholderText(/remera afa/i), { target: { value: "Producto nuevo" } })
     fireEvent.change(screen.getByLabelText(/categoría/i), { target: { value: "cat-verd" } })
     fireEvent.click(screen.getByRole("button", { name: /crear producto/i }))
@@ -182,7 +182,7 @@ describe("ProductForm — código de balanza (PLU)", () => {
   })
 
   it("aviso no bloqueante: un código de barras que decodifica como etiqueta de balanza sugiere el PLU", () => {
-    render(<ProductForm onSuccess={vi.fn()} />)
+    render(<ProductForm onSuccess={vi.fn()} initialKind="simple" />)
     const barcodeInput = screen.getByPlaceholderText("Código")
     // Tomate, PLU 261, importe 13,63 (D5 del design) — cabecera de fábrica "20".
     fireEvent.change(barcodeInput, { target: { value: "2002610013638" } })
@@ -190,7 +190,7 @@ describe("ProductForm — código de balanza (PLU)", () => {
   })
 
   it("sin aviso para un código de barras común", () => {
-    render(<ProductForm onSuccess={vi.fn()} />)
+    render(<ProductForm onSuccess={vi.fn()} initialKind="simple" />)
     const barcodeInput = screen.getByPlaceholderText("Código")
     fireEvent.change(barcodeInput, { target: { value: "7790001234567" } })
     expect(screen.queryByText(/es una etiqueta de balanza/i)).not.toBeInTheDocument()

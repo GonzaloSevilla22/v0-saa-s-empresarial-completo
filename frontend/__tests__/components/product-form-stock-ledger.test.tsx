@@ -67,7 +67,7 @@ function renderForm(props: Partial<React.ComponentProps<typeof ProductForm>> = {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={client}>
-      <ProductForm onSuccess={vi.fn()} {...props} />
+      <ProductForm onSuccess={vi.fn()} initialKind="simple" {...props} />
     </QueryClientProvider>,
   )
 }

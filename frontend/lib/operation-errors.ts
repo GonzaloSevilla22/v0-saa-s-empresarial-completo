@@ -258,6 +258,15 @@ const STOCK_ADJUSTMENT_PRODUCT_NOT_ADJUSTABLE_ERROR = /stock_adjustment_product_
 const STOCK_ADJUSTMENT_SIGN_INVALID_ERROR = /stock_adjustment_sign_invalid/
 const STOCK_INTERNAL_FLAGS_NOT_ALLOWED_ERROR = /stock_internal_flags_not_allowed/
 const STOCK_ADJUST_REQUIRED_ERROR = /stock_adjust_required/
+// productos-padre-variantes: rechazos tipados del catálogo (padre sin precio/costo/stock/códigos, tipo del producto,
+// corrección de unidad de la familia y precios en lote).
+const PARENT_FIELD_NOT_ALLOWED_ERROR = /parent_field_not_allowed/
+const STOCK_CONTROL_TYPE_LOCKED_ERROR = /stock_control_type_locked/
+const UNIT_RELABEL_CONFLICT_ERROR = /unit_relabel_conflict/
+const BASE_UNIT_NOT_FOUND_ERROR = /base_unit_not_found/
+const BULK_PRICE_OUT_OF_RANGE_ERROR = /bulk_price_out_of_range/
+const BULK_PRICE_TOO_MANY_IDS_ERROR = /bulk_price_too_many_ids/
+const BULK_PRICE_INVALID_ERROR = /bulk_price_[a-z_]+/
 // `_stock_apply_delta`: "Stock insuficiente. Disponible: 5.0000, delta: -9".
 const STOCK_ADJUSTMENT_INSUFFICIENT_ERROR = /Stock insuficiente\. Disponible:\s*(-?[\d.]+),\s*delta:\s*(-?[\d.]+)/
 
@@ -278,8 +287,10 @@ export interface OperationErrorContext {
    * stock-ledger-solo-rpc: `"ajuste de stock"` para el modal y el CSV de /stock, el
    * inventario por sucursal y el alta de producto con stock inicial — cambia el
    * texto de `insufficient_role` y de `product_not_found`.
+   * productos-padre-variantes: `"producto"` para el catálogo (corregir la unidad de una familia y modificar
+   * precios en lote) — cambia el texto de `insufficient_role`.
    */
-  documentLabel?: "venta" | "remito" | "ajuste de stock"
+  documentLabel?: "venta" | "remito" | "ajuste de stock" | "producto"
   /**
    * remitos-compra (D11): el SENTIDO del remito. Sólo cambia el texto de los
    * literales que hablaban de venta o de mercadería que sale (`"purchase"`);
@@ -356,6 +367,7 @@ export function humanizeOperationError(
   const isRemito = context?.documentLabel === "remito"
   const isPurchaseRemito = isRemito && context?.direction === "purchase"
   const isStockAdjustment = context?.documentLabel === "ajuste de stock"
+  const isCatalog = context?.documentLabel === "producto"
 
   const moneyEdit = humanizeMoneyEditError(message, context)
   if (moneyEdit) return moneyEdit
@@ -408,6 +420,50 @@ export function humanizeOperationError(
         "el movimiento en el historial.",
       action: { label: "Ajustar stock", href: "/stock" },
     }
+  }
+
+  if (PARENT_FIELD_NOT_ALLOWED_ERROR.test(message)) {
+    return {
+      message:
+        "Un producto con variantes no lleva precio, costo, stock, SKU ni código de barras propios: esos datos se " +
+        "cargan en cada variante. No se guardó nada.",
+    }
+  }
+
+  if (STOCK_CONTROL_TYPE_LOCKED_ERROR.test(message)) {
+    return {
+      message:
+        "El tipo de producto (simple o con variantes) se elige al crearlo y no se puede cambiar después. " +
+        "Si necesitás el otro tipo, creá un producto nuevo.",
+    }
+  }
+
+  if (UNIT_RELABEL_CONFLICT_ERROR.test(message)) {
+    return {
+      message:
+        "No se puede corregir la unidad: hay ventas, compras u otros comprobantes de este producto o de sus variantes " +
+        "registrados en otra unidad. Sólo se puede corregir hacia la unidad de esos comprobantes. No se cambió nada.",
+    }
+  }
+
+  if (BASE_UNIT_NOT_FOUND_ERROR.test(message)) {
+    return { message: "La unidad elegida ya no está disponible. Elegí otra y volvé a intentar." }
+  }
+
+  if (BULK_PRICE_OUT_OF_RANGE_ERROR.test(message)) {
+    return {
+      message:
+        "El valor está fuera del rango permitido: el porcentaje va entre una baja del 90 % y un aumento del 1.000 %. " +
+        "No se cambió ningún precio.",
+    }
+  }
+
+  if (BULK_PRICE_TOO_MANY_IDS_ERROR.test(message)) {
+    return { message: "Son demasiados productos para una sola vez (máximo 500 por tanda). No se cambió ningún precio." }
+  }
+
+  if (BULK_PRICE_INVALID_ERROR.test(message)) {
+    return { message: "El modo, la dirección o el valor del cambio de precios no es válido. No se cambió ningún precio." }
   }
 
   const stockAdjustmentInsufficient = message.match(STOCK_ADJUSTMENT_INSUFFICIENT_ERROR)
@@ -826,6 +882,13 @@ export function humanizeOperationError(
   }
 
   if (INSUFFICIENT_ROLE_ERROR.test(message)) {
+    if (isCatalog) {
+      return {
+        message:
+          "Tu rol no permite esta acción sobre el catálogo: corregir la unidad de un producto y modificar precios en " +
+          "lote es de los administradores y del dueño. Pedile a uno de ellos que lo haga.",
+      }
+    }
     if (isStockAdjustment) {
       return {
         message:

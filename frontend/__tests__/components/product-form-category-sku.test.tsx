@@ -68,14 +68,14 @@ describe("ProductForm — categoría del catálogo + SKU", () => {
   })
 
   it("el selector de categoría es ProductCategorySelect (catálogo de la cuenta)", () => {
-    render(<ProductForm onSuccess={vi.fn()} />)
+    render(<ProductForm onSuccess={vi.fn()} initialKind="simple" />)
     expect(screen.getByTestId("category-select")).toBeInTheDocument()
     expect(screen.getByLabelText(/^sku/i)).toBeInTheDocument()
   })
 
   it("alta base envía categoryId y el SKU recortado", async () => {
     const onSuccess = vi.fn()
-    render(<ProductForm onSuccess={onSuccess} />)
+    render(<ProductForm onSuccess={onSuccess} initialKind="simple" />)
 
     fireEvent.change(screen.getByPlaceholderText(/remera afa/i), { target: { value: "Remera" } })
     fireEvent.change(screen.getByTestId("category-select"), { target: { value: "cat-ropa" } })
@@ -90,7 +90,7 @@ describe("ProductForm — categoría del catálogo + SKU", () => {
   })
 
   it("sin categoría en un producto base no envía y avisa", async () => {
-    render(<ProductForm onSuccess={vi.fn()} />)
+    render(<ProductForm onSuccess={vi.fn()} initialKind="simple" />)
     fireEvent.change(screen.getByPlaceholderText(/remera afa/i), { target: { value: "Remera" } })
     fireEvent.click(screen.getByRole("button", { name: /crear producto/i }))
 
@@ -103,7 +103,8 @@ describe("ProductForm — categoría del catálogo + SKU", () => {
 
     expect(screen.queryByTestId("category-select")).not.toBeInTheDocument()
     fireEvent.change(screen.getByPlaceholderText(/remera afa/i), { target: { value: "Zapatillas 41" } })
-    fireEvent.click(screen.getByRole("button", { name: /crear producto/i }))
+    // productos-padre-variantes: el formulario de variante tiene su propio botón.
+    fireEvent.click(screen.getByRole("button", { name: /crear variante/i }))
 
     await waitFor(() => expect(addProductMock).toHaveBeenCalledTimes(1))
     const sent = addProductMock.mock.calls[0][0]
@@ -118,7 +119,7 @@ describe("ProductForm — categoría del catálogo + SKU", () => {
   })
 
   it("alta sin SKU envía sku undefined (NULL en la base, nunca cadena vacía)", async () => {
-    render(<ProductForm onSuccess={vi.fn()} />)
+    render(<ProductForm onSuccess={vi.fn()} initialKind="simple" />)
     fireEvent.change(screen.getByPlaceholderText(/remera afa/i), { target: { value: "Remera" } })
     fireEvent.change(screen.getByTestId("category-select"), { target: { value: "cat-ropa" } })
     fireEvent.click(screen.getByRole("button", { name: /crear producto/i }))
@@ -151,7 +152,7 @@ describe("ProductForm — categoría del catálogo + SKU", () => {
   it("el 409 de SKU se muestra con su mensaje y conserva lo cargado", async () => {
     const onSuccess = vi.fn()
     addProductMock.mockRejectedValueOnce(new Error('El SKU "REM-001" ya pertenece a otro producto de tu cuenta'))
-    render(<ProductForm onSuccess={onSuccess} />)
+    render(<ProductForm onSuccess={onSuccess} initialKind="simple" />)
 
     fireEvent.change(screen.getByPlaceholderText(/remera afa/i), { target: { value: "Remera" } })
     fireEvent.change(screen.getByTestId("category-select"), { target: { value: "cat-ropa" } })

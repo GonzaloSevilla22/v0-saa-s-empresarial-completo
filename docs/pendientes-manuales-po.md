@@ -89,6 +89,17 @@ Este change hace que los tests contra una base real y los gates de dinero corran
 
 ---
 
+## 9. `productos-padre-variantes` — humo real de la tanda B (frontend; propose #679, tanda A #681, tanda B PR #683)
+
+La tanda A (padre sin precio/costo, relabel de unidad, precios en lote) ya está en prod y verificada; la tanda B es la pantalla. Cuando el PR esté mergeado y desplegado, en `/productos` con la cuenta de un negocio real (dueño o administrador):
+
+- [ ] **Crear un producto con variantes**: «Nuevo producto» → «Producto con variantes» → completá nombre, categoría y unidad (por ejemplo kg) → «Crear y agregar variantes». Tiene que pasar solo a «Agregar la primera variante» con el padre ya fijado; el formulario del padre **no** debe mostrar precio, costo, stock, SKU, código de barras ni código de balanza. Cargá una variante con su precio y costo.
+- [ ] **Sugerencia × 1,5**: en esa variante (o en un producto simple) escribí un costo de 1.000 → el precio tiene que completarse con 1.500. Cambiá el precio a mano (1.700) y volvé a cambiar el costo: el precio **no** se pisa.
+- [ ] **Corregir la unidad de una familia con historia**: editá un padre cuyas variantes tengan stock → en lugar del selector de unidad tiene que aparecer «Corregir unidad». Elegí la unidad nueva: antes de confirmar tienen que verse las variantes, los productos con stock, los movimientos y un ejemplo con una cantidad real («12 u pasarán a leerse 12 kg»). Confirmá y revisá que el padre **y todas sus variantes** muestren la unidad nueva y que el stock siga igual (no se convierte ninguna cantidad). Con una familia que tenga ventas en otra unidad, el diálogo tiene que explicar el conflicto y no dejar confirmar.
+- [ ] **Aumentar precios de una selección**: tildá 3 o 4 productos (con un padre entre ellos) → «Modificar precios» → Aumentar, Porcentaje, 10 → «Ver vista previa» (revisá antes → después y el aviso de que el padre se omite) → «Aplicar cambio de precios». Los precios del listado tienen que cambiar y el padre debe seguir mostrando «desde $X» con el mínimo de sus variantes. Probá también que con un usuario que **no** sea dueño ni administrador la acción «Modificar precios» no aparezca.
+
+---
+
 ## Registro de la corrida autónoma del 2026-11-04 (lo que hizo el agente)
 
 Se completa a medida que se mergea cada PR. Orden pactado: changes de a uno, siempre con la opción recomendada en cada OQ.
@@ -122,3 +133,4 @@ Se completa a medida que se mergea cada PR. Orden pactado: changes de a uno, sie
 | 5-nov (tras #678) | Archive mp-cuota-acreditacion-resiliente (specs `payment-webhook` y `subscription-lifecycle` sincronizadas, change cerrado; humo real del cobro 2026-12-04 pendiente, §8) | #680 | en revisión |
 | 22:25 UTC (5-nov) | Propose productos-padre-variantes (alta diferenciada padre/simple, padre sin precio/costo con CHECK, corrección de unidad de la familia sin convertir, precios en lote con vista previa, sugerencia costo × 1,5; migración reservada 20261093000001; OQs por la recomendada) | #679 | en revisión |
 | 00:25 UTC (6-nov) | Apply tanda A productos-padre-variantes (padre sin precio/costo con CHECK, corrección de unidad de la familia sin convertir, precios en lote con vista previa; DB + backend, sin cambio visible; migración 20261093000001) | #681 | en revisión |
+| 23:10 ART (5-nov) | Apply tanda B productos-padre-variantes (frontend: paso «¿Qué querés crear?», formularios de padre / simple / variante, sugerencia costo × 1,5, «Corregir unidad» con vista previa, «Modificar precios» en lote; sin migración; pasada visual en 4 combinaciones) | #683 | en revisión |

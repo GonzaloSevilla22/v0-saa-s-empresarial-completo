@@ -68,7 +68,7 @@ describe("ProductForm — costo opcional", () => {
   })
 
   it("muestra el texto de ayuda para dejar el costo vacío", () => {
-    render(<ProductForm onSuccess={vi.fn()} />)
+    render(<ProductForm onSuccess={vi.fn()} initialKind="simple" />)
     expect(screen.getByText(/dejalo vacío si todavía no sabés el costo/i)).toBeInTheDocument()
   })
 
@@ -86,7 +86,7 @@ describe("ProductForm — costo opcional", () => {
   })
 
   it("alta sin tocar el costo: el payload manda cost null", async () => {
-    render(<ProductForm onSuccess={vi.fn()} />)
+    render(<ProductForm onSuccess={vi.fn()} initialKind="simple" />)
     fireEvent.change(screen.getByPlaceholderText(/remera afa/i), { target: { value: "Producto Nuevo" } })
     fireEvent.change(screen.getByLabelText(/categoría/i), { target: { value: "cat-food" } })
     fireEvent.click(screen.getByRole("button", { name: /crear producto/i }))

@@ -8,8 +8,11 @@ multiusuario-operativo TANDA C (grupo 15) — la invitación de punta a punta po
   GET    /members/invitations                 pendientes y vencidas/revocadas recientes (sin token)
   POST   /members/invitations/{id}/resend     reenvía: ROTA el token
   DELETE /members/invitations/{id}            revoca
-  GET    /invitations/{token}                 vista previa (ligada a la identidad, en la base)
-  POST   /invitations/{token}/accept          acepta y deja el negocio como cuenta activa
+  POST   /invitations/preview                 vista previa (ligada a la identidad, en la base); token en el CUERPO
+  POST   /invitations/accept                  acepta y deja el negocio como cuenta activa; token en el CUERPO
+
+invitaciones-hardening (D5): el token ya NO viaja en la ruta de la API (quedaba en el access log de Render);
+las rutas viejas `GET /invitations/{token}` y `POST /invitations/{token}/accept` se retiraron.
 
 Los P04xx de las RPCs se traducen a RFC 7807 por el handler global: P0404 -> 404, P0409 -> 409,
 P0402/P0403/P0401 -> 403 y P0439 (topes de envío) -> 429.
@@ -17,6 +20,7 @@ P0402/P0403/P0401 -> 403 y P0439 (topes de envío) -> 429.
 from __future__ import annotations
 
 import json
+import re
 from unittest.mock import AsyncMock, patch
 
 import asyncpg
@@ -32,9 +36,9 @@ NEW_TOKEN = "b" * 64
 
 ISSUER = {"brand_display_name": "Panadería Sol", "business_name": "Dueño S.A."}
 
+# invitaciones-hardening (D2): rpc_invite_member ya NO devuelve el token; lo emite el envío.
 INVITE_RESULT = {
     "id": INVITATION_ID,
-    "token": TOKEN,
     "email": "invitado@test.local",
     "roles": ["seller"],
     "expires_at": "2026-10-24T12:00:00+00:00",
@@ -59,6 +63,8 @@ LIST_ROW = {
     "invited_by_name": "Dueño",
     "last_sent_at": "2026-10-17T12:00:05+00:00",
     "send_count": 1,
+    "last_delivery_status": "sent",
+    "last_delivery_at": "2026-10-17T12:00:09+00:00",
 }
 PREVIEW = {
     "account_id": ACCOUNT_ID,
@@ -159,10 +165,20 @@ def test_las_seis_rutas_estan_registradas():
         ("GET", "/members/invitations"),
         ("POST", "/members/invitations/{invitation_id}/resend"),
         ("DELETE", "/members/invitations/{invitation_id}"),
-        ("GET", "/invitations/{token}"),
-        ("POST", "/invitations/{token}/accept"),
+        ("POST", "/invitations/preview"),
+        ("POST", "/invitations/accept"),
     ):
         assert expected in routes, expected
+
+
+def test_el_token_ya_no_viaja_en_la_ruta_de_la_api():
+    """invitaciones-hardening (D5): ninguna ruta de la API lleva el token como parámetro de path."""
+    from backend.main import app
+
+    paths = {route.path for route in effective_routes(app)}
+    assert "/invitations/{token}" not in paths
+    assert "/invitations/{token}/accept" not in paths
+    assert not [p for p in paths if p.startswith("/invitations") and "{" in p], paths
 
 
 # ── POST /members/invitations ────────────────────────────────────────────────
@@ -485,7 +501,7 @@ class TestRevocarInvitacion:
         assert resp.json()["code"] == "P0404"
 
 
-# ── GET /invitations/{token} ─────────────────────────────────────────────────
+# ── POST /invitations/preview ────────────────────────────────────────────────
 
 
 class TestVistaPrevia:
@@ -499,7 +515,7 @@ class TestVistaPrevia:
         token = make_token({})
 
         with patch("backend.core.database.pool", pool):
-            resp = await async_client.get(f"/invitations/{TOKEN}", headers=_headers(token))
+            resp = await async_client.post("/invitations/preview", json={"token": TOKEN}, headers=_headers(token))
 
         assert resp.status_code == 200, resp.text
         body = resp.json()
@@ -521,8 +537,9 @@ class TestVistaPrevia:
         wire(conn, roles=[])
 
         with patch("backend.core.database.pool", pool):
-            resp = await async_client.get(
-                f"/invitations/{TOKEN}", headers=_headers(make_token({}), **{"X-Account-Id": OTHER_ACCOUNT_ID}),
+            resp = await async_client.post(
+                "/invitations/preview", json={"token": TOKEN},
+                headers=_headers(make_token({}), **{"X-Account-Id": OTHER_ACCOUNT_ID}),
             )
 
         assert resp.status_code == 200, resp.text
@@ -533,7 +550,7 @@ class TestVistaPrevia:
         wire(conn, roles=[], fail_on=("rpc_invitation_preview", pg_error("P0404", "P404: invalid or expired invitation token")))
 
         with patch("backend.core.database.pool", pool):
-            resp = await async_client.get(f"/invitations/{TOKEN}", headers=_headers(make_token({})))
+            resp = await async_client.post("/invitations/preview", json={"token": TOKEN}, headers=_headers(make_token({})))
 
         assert resp.status_code == 404
         assert resp.json()["code"] == "P0404"
@@ -544,22 +561,57 @@ class TestVistaPrevia:
         pool, conn = mock_pool
         calls = wire(conn, roles=[])
         with patch("backend.core.database.pool", pool):
-            resp = await async_client.get(f"/invitations/{TOKEN}")
+            resp = await async_client.post("/invitations/preview", json={"token": TOKEN})
         assert resp.status_code == 401
         assert calls == []
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("token", ["corto", "z" * 200, "tok en con espacios"])
+    @pytest.mark.parametrize("token", ["corto", "z" * 200, "z" * 5000, "tok en con espacios", "../../etc/passwd" + "a" * 40])
     async def test_un_token_con_forma_invalida_es_404_sin_tocar_la_base(self, async_client, mock_pool, token):
+        """Un token sin forma de token responde el MISMO 404 que uno vencido (no un 422 distinguible)."""
         pool, conn = mock_pool
         calls = wire(conn, roles=[])
         with patch("backend.core.database.pool", pool):
-            resp = await async_client.get(f"/invitations/{token}", headers=_headers(make_token({})))
+            resp = await async_client.post("/invitations/preview", json={"token": token}, headers=_headers(make_token({})))
         assert resp.status_code == 404
+        assert resp.json()["code"] == "P0404"
+        assert resp.json()["detail"] == "P404: invalid or expired invitation token"
+        assert calls == []
+
+    @pytest.mark.asyncio
+    async def test_malformado_y_vencido_responden_exactamente_igual(self, async_client, mock_pool):
+        pool, conn = mock_pool
+        wire(conn, roles=[], fail_on=("rpc_invitation_preview", pg_error("P0404", "P404: invalid or expired invitation token")))
+        with patch("backend.core.database.pool", pool):
+            malformed = await async_client.post("/invitations/preview", json={"token": "corto"}, headers=_headers(make_token({})))
+            expired = await async_client.post("/invitations/preview", json={"token": TOKEN}, headers=_headers(make_token({})))
+        assert malformed.status_code == expired.status_code == 404
+        assert malformed.json()["detail"] == expired.json()["detail"]
+        assert malformed.json()["code"] == expired.json()["code"]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("body", [{}, {"token": None}, {"token": 123}, {"otro": "x"}])
+    async def test_un_cuerpo_sin_token_de_texto_es_422(self, async_client, mock_pool, body):
+        pool, conn = mock_pool
+        calls = wire(conn, roles=[])
+        with patch("backend.core.database.pool", pool):
+            resp = await async_client.post("/invitations/preview", json=body, headers=_headers(make_token({})))
+        assert resp.status_code == 422
+        assert calls == []
+
+    @pytest.mark.asyncio
+    async def test_las_rutas_viejas_con_el_token_en_el_path_ya_no_existen(self, async_client, mock_pool):
+        pool, conn = mock_pool
+        calls = wire(conn, roles=[])
+        with patch("backend.core.database.pool", pool):
+            old_preview = await async_client.get(f"/invitations/{TOKEN}", headers=_headers(make_token({})))
+            old_accept = await async_client.post(f"/invitations/{TOKEN}/accept", headers=_headers(make_token({})))
+        assert old_preview.status_code in (404, 405)
+        assert old_accept.status_code in (404, 405)
         assert calls == []
 
 
-# ── POST /invitations/{token}/accept ─────────────────────────────────────────
+# ── POST /invitations/accept ─────────────────────────────────────────────────
 
 
 class TestAceptarInvitacion:
@@ -569,7 +621,7 @@ class TestAceptarInvitacion:
         calls = wire(conn, roles=[])
 
         with patch("backend.core.database.pool", pool):
-            resp = await async_client.post(f"/invitations/{TOKEN}/accept", headers=_headers(make_token({})))
+            resp = await async_client.post("/invitations/accept", json={"token": TOKEN}, headers=_headers(make_token({})))
 
         assert resp.status_code == 200, resp.text
         body = resp.json()
@@ -586,7 +638,7 @@ class TestAceptarInvitacion:
 
         with patch("backend.core.database.pool", pool):
             resp = await async_client.post(
-                f"/invitations/{TOKEN}/accept",
+                "/invitations/accept", json={"token": TOKEN},
                 headers=_headers(make_token({}), **{"X-Account-Id": OTHER_ACCOUNT_ID}),
             )
 
@@ -604,7 +656,7 @@ class TestAceptarInvitacion:
         wire(conn, roles=[], fail_on=("rpc_accept_invitation", pg_error(sqlstate, message)))
 
         with patch("backend.core.database.pool", pool):
-            resp = await async_client.post(f"/invitations/{TOKEN}/accept", headers=_headers(make_token({})))
+            resp = await async_client.post("/invitations/accept", json={"token": TOKEN}, headers=_headers(make_token({})))
 
         assert resp.status_code == status
         assert resp.json()["code"] == sqlstate
@@ -614,18 +666,66 @@ class TestAceptarInvitacion:
         pool, conn = mock_pool
         calls = wire(conn, roles=[])
         with patch("backend.core.database.pool", pool):
-            resp = await async_client.post(f"/invitations/{TOKEN}/accept")
+            resp = await async_client.post("/invitations/accept", json={"token": TOKEN})
         assert resp.status_code == 401
         assert calls == []
 
     @pytest.mark.asyncio
-    async def test_un_token_con_forma_invalida_es_404_sin_tocar_la_base(self, async_client, mock_pool):
+    @pytest.mark.parametrize("token", ["corto", "z" * 5000, "tok en con espacios"])
+    async def test_un_token_con_forma_invalida_es_404_sin_tocar_la_base(self, async_client, mock_pool, token):
         pool, conn = mock_pool
         calls = wire(conn, roles=[])
         with patch("backend.core.database.pool", pool):
-            resp = await async_client.post("/invitations/corto/accept", headers=_headers(make_token({})))
+            resp = await async_client.post("/invitations/accept", json={"token": token}, headers=_headers(make_token({})))
         assert resp.status_code == 404
+        assert resp.json()["detail"] == "P404: invalid or expired invitation token"
         assert calls == []
+
+    @pytest.mark.asyncio
+    async def test_un_cuerpo_sin_token_es_422(self, async_client, mock_pool):
+        pool, conn = mock_pool
+        calls = wire(conn, roles=[])
+        with patch("backend.core.database.pool", pool):
+            resp = await async_client.post("/invitations/accept", json={}, headers=_headers(make_token({})))
+        assert resp.status_code == 422
+        assert calls == []
+
+
+# ── el token nunca llega a un log del backend (D5) ───────────────────────────
+
+
+class TestElTokenNoSeLoguea:
+    @pytest.mark.asyncio
+    async def test_ningun_logger_recibe_el_token_en_preview_accept_crear_ni_reenviar(self, async_client, mock_pool, caplog):
+        import logging
+
+        pool, conn = mock_pool
+        wire(conn, roles=["owner"])
+        caplog.set_level(logging.DEBUG)
+
+        with patch("backend.core.database.pool", pool):
+            await async_client.post("/invitations/preview", json={"token": TOKEN}, headers=_headers(make_token({})))
+            await async_client.post("/invitations/accept", json={"token": TOKEN}, headers=_headers(make_token({})))
+            await async_client.post("/invitations/preview", json={"token": "corto-" + NEW_TOKEN}, headers=_headers(make_token({})))
+            await async_client.post(
+                "/members/invitations", json={"email": "a@b.co", "roles": ["seller"]},
+                headers=_headers(tenant_token(["owner"])),
+            )
+            await async_client.post(f"/members/invitations/{INVITATION_ID}/resend", headers=_headers(tenant_token(["owner"])))
+
+        assert TOKEN not in caplog.text
+        assert NEW_TOKEN not in caplog.text
+
+    def test_el_codigo_del_modulo_no_loguea_el_token(self):
+        """Ningún `logger.*` de los módulos de invitación recibe el token (revisión del código fuente)."""
+        import pathlib
+
+        base = pathlib.Path(__file__).resolve().parent.parent
+        for rel in ("routers/invitations.py", "services/invitations.py", "repositories/invitation_repository.py"):
+            src = (base / rel).read_text(encoding="utf-8")
+            for line in src.splitlines():
+                if re.search(r"\blogger\.|\blogging\.|\bprint\(", line):
+                    assert "token" not in line, f"{rel}: {line.strip()}"
 
 
 # ── P0439 en el mapa de errores ──────────────────────────────────────────────

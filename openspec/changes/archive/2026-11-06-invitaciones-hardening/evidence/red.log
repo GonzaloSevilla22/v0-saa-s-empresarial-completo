@@ -1,0 +1,10 @@
+NOTICE:  FAIL (a) token_hash en la fila, token sólo en el retorno del envío: account_invitations todavía tiene la columna token en claro [P0001]
+NOTICE:  FAIL (b) cada envío rota el token: el reenvío debía funcionar, dio P0404 P404: invitation not found [P0001]
+NOTICE:  FAIL (c) retiro del token en email_logs: el envío vigente debía llevar metadata.token mientras está pending [P0001]
+NOTICE:  FAIL (d) account_invitations sin privilegios ni policies de aplicación: anon conserva SELECT de tabla sobre account_invitations [P0001]
+NOTICE:  FAIL (e) el dueño no escribe ni lee la tabla por fuera de las RPCs: INSERT directo del dueño debía dar 42501, dio 23502 null value in column "token" of relation "account_invitations" violates not-null constraint [P0001]
+NOTICE:  FAIL (f) invitar, listar, revocar, previsualizar y aceptar siguen funcionando: el listado debía traer las invitaciones pendientes (hay 1) [P0001]
+NOTICE:  FAIL (g) last_delivery_status / last_delivery_at: pending reciente debía ser queued, es <NULL> [P0001]
+NOTICE:  FAIL (h) un envío fallido no cuenta para el enfriamiento (sí para el tope diario): reenviar tras un envío fallido debía funcionar, dio P0439 invitation_cooldown: esperá unos minutos antes de reenviar esta invitación [P0001]
+NOTICE:  FAIL (i) ACLs: falta el helper _invitation_token_hash [P0001]
+ERROR:  GATE INVITACIONES-HARDENING FALLÓ (0 de 9 bloques OK): (a) token_hash en la fila, token sólo en el retorno del envío account_invitations todavía tiene la columna token en claro [P0001] || (b) cada envío rota el token el reenvío debía funcionar, dio P0404 P404: invitation not found [P0

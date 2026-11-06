@@ -4,7 +4,12 @@
  * multiusuario-operativo tanda C (grupo 17) — la invitación de punta a punta, vía FastAPI.
  *
  *   /members/invitations      crear, listar, reenviar y revocar (dueño o administrador de la cuenta activa)
- *   /invitations/{token}      vista previa y aceptación del invitado
+ *   /invitations/preview      vista previa del invitado   (POST, token en el CUERPO)
+ *   /invitations/accept       aceptación del invitado     (POST, token en el CUERPO)
+ *
+ * invitaciones-hardening (D5, D6): el token NO viaja en la ruta de la API (el access log de Render registra el
+ * path, no el cuerpo). La URL pública de la pantalla (/invitacion/<token>) se conserva tal cual: la pantalla lee el
+ * token de ahí y lo manda en el cuerpo. La clave de la caché de la vista previa tampoco lleva el token en claro.
  *
  * Por qué FastAPI y no supabase-js: el `P0404` y el `P0409` de la aceptación tienen que llegar
  * como 404 y 409 y no como un 500 de PostgREST (dato medido por v3-rbac-multirole), y crear +
@@ -22,6 +27,12 @@ import type { OrgRole } from "@/lib/types"
 /** Estado derivado en la base: `pending` vigente, `expired` (venció sin aceptarse) o `revoked`. */
 export type InvitationState = "pending" | "expired" | "revoked"
 
+/**
+ * Estado de la última entrega: `sent` (el proveedor aceptó el correo), `queued` (en cola), `failed` (no se pudo
+ * enviar) o `unconfirmed` (quedó en cola más de 15 minutos sin respuesta).
+ */
+export type DeliveryStatus = "sent" | "queued" | "failed" | "unconfirmed"
+
 /** Una fila del listado de pendientes. NO trae el token. */
 export interface InvitationRow {
   id: string
@@ -35,6 +46,9 @@ export interface InvitationRow {
   invited_by_name: string | null
   last_sent_at: string | null
   send_count: number
+  /** Estado de la ÚLTIMA entrega del email; `null` = nunca se envió. Nunca trae el detalle del proveedor. */
+  last_delivery_status: DeliveryStatus | null
+  last_delivery_at: string | null
 }
 
 /** Respuesta de crear o reenviar: lo único que lleva el token es esto (para «Copiar link»). */
@@ -122,7 +136,7 @@ export function useRevokeInvitation(accountId: string | null) {
 export function useInvitationPreview(token: string, enabled: boolean) {
   return useQuery({
     queryKey: queryKeys.invitations.preview(token),
-    queryFn: () => pythonClient.get<InvitationPreview>(`/invitations/${encodeURIComponent(token)}`),
+    queryFn: () => pythonClient.post<InvitationPreview>("/invitations/preview", { token }),
     enabled,
     retry: false,
     staleTime: 0,
@@ -132,6 +146,6 @@ export function useInvitationPreview(token: string, enabled: boolean) {
 
 export function useAcceptInvitation(token: string) {
   return useMutation({
-    mutationFn: () => pythonClient.post<InvitationAccepted>(`/invitations/${encodeURIComponent(token)}/accept`, {}),
+    mutationFn: () => pythonClient.post<InvitationAccepted>("/invitations/accept", { token }),
   })
 }

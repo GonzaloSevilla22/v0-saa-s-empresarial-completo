@@ -31,8 +31,9 @@ const h = vi.hoisted(() => ({
   switchAccount: vi.fn(),
   push: vi.fn(),
   replace: vi.fn(),
-  get: vi.fn(),
+  preview: vi.fn(),
   post: vi.fn(),
+  getCalls: vi.fn(),
   toastError: vi.fn(),
 }))
 
@@ -46,8 +47,14 @@ vi.mock("@/contexts/auth-context", () => ({
   }),
 }))
 
+// invitaciones-hardening (D5): el token viaja en el CUERPO de POST /invitations/preview y /invitations/accept;
+// ninguna solicitud lo lleva en la ruta. `get` registra cualquier uso (no debe haber ninguno).
 vi.mock("@/lib/api/python-client", () => ({
-  pythonClient: { get: (...a: unknown[]) => h.get(...a), post: (...a: unknown[]) => h.post(...a) },
+  pythonClient: {
+    get: (...a: unknown[]) => h.getCalls(...a),
+    post: (path: string, body: unknown) =>
+      path === "/invitations/preview" ? h.preview(path, body) : h.post(path, body),
+  },
 }))
 
 const routerDoble = { push: h.push, replace: h.replace }
@@ -93,7 +100,8 @@ beforeEach(() => {
   h.switchAccount.mockReset().mockResolvedValue(undefined)
   h.push.mockReset()
   h.replace.mockReset()
-  h.get.mockReset().mockResolvedValue(PREVIEW)
+  h.getCalls.mockReset()
+  h.preview.mockReset().mockResolvedValue(PREVIEW)
   h.post.mockReset().mockResolvedValue({ account_id: "acc-negocio", active_account_id: "acc-negocio", roles: ["seller", "cashier"] })
   h.toastError.mockReset()
 })
@@ -109,7 +117,7 @@ describe("sin sesión — mensaje genérico", () => {
     expect(screen.getByText(/tenés una invitación para sumarte a un negocio en aliadata/i)).toBeInTheDocument()
     expect(screen.queryByText("Panadería Sol")).toBeNull()
     expect(screen.queryByText("Ana Gómez")).toBeNull()
-    expect(h.get).not.toHaveBeenCalled()
+    expect(h.preview).not.toHaveBeenCalled()
   })
 
   it("«Ingresar» y «Crear cuenta» vuelven a ESTA invitación", () => {
@@ -136,7 +144,10 @@ describe("con sesión y la identidad correcta — vista previa", () => {
     expect(screen.getByText("Cajero")).toBeInTheDocument()
     expect(screen.getByText("24/10/2026")).toBeInTheDocument()
     expect(screen.getByRole("button", { name: /aceptar invitación/i })).toBeInTheDocument()
-    expect(h.get).toHaveBeenCalledWith(`/invitations/${TOKEN}`)
+    expect(h.preview).toHaveBeenCalledWith("/invitations/preview", { token: TOKEN })
+    expect(h.getCalls).not.toHaveBeenCalled()
+    // La ruta de ninguna solicitud contiene el token.
+    for (const [path] of [...h.preview.mock.calls, ...h.post.mock.calls]) expect(String(path)).not.toContain(TOKEN)
   })
 
   it("«Ahora no» lleva al Tablero sin aceptar", async () => {
@@ -160,7 +171,7 @@ describe("aceptar", () => {
     fireEvent.click(await screen.findByRole("button", { name: /aceptar invitación/i }))
 
     await waitFor(() => expect(h.adoptActiveAccount).toHaveBeenCalledTimes(1))
-    expect(h.post).toHaveBeenCalledWith(`/invitations/${TOKEN}/accept`, {})
+    expect(h.post).toHaveBeenCalledWith("/invitations/accept", { token: TOKEN })
     expect(h.adoptActiveAccount).toHaveBeenCalledWith({ message: "Te sumaste a Panadería Sol como Vendedor, Cajero" })
   })
 
@@ -224,7 +235,7 @@ describe("con sesión y OTRA identidad, o token vencido / revocado / usado — U
   const UNAVAILABLE = /esta invitación no está disponible para tu usuario: puede haber vencido o ser para otro email/i
 
   it("la vista previa 404 muestra el mensaje único con «Cerrar sesión e ingresar con otro email»", async () => {
-    h.get.mockRejectedValue(problem("P404: invalid or expired invitation token", 404, "P0404"))
+    h.preview.mockRejectedValue(problem("P404: invalid or expired invitation token", 404, "P0404"))
     renderScreen()
 
     expect(await screen.findByText(UNAVAILABLE)).toBeInTheDocument()
@@ -235,7 +246,7 @@ describe("con sesión y OTRA identidad, o token vencido / revocado / usado — U
   it("el mensaje es EL MISMO ante cualquier 404 (no distingue vencida de ajena)", async () => {
     const mensajes = new Set<string>()
     for (const detail of ["P404: invalid or expired invitation token", "otro texto de la base", "token revocado"]) {
-      h.get.mockRejectedValue(problem(detail, 404, "P0404"))
+      h.preview.mockRejectedValue(problem(detail, 404, "P0404"))
       const { container, unmount } = renderScreen()
       await screen.findByText(UNAVAILABLE)
       mensajes.add(container.textContent ?? "")
@@ -254,7 +265,7 @@ describe("con sesión y OTRA identidad, o token vencido / revocado / usado — U
   })
 
   it("«Cerrar sesión e ingresar con otro email» cierra la sesión y vuelve a ESTA invitación", async () => {
-    h.get.mockRejectedValue(problem("P404: invalid or expired invitation token", 404, "P0404"))
+    h.preview.mockRejectedValue(problem("P404: invalid or expired invitation token", 404, "P0404"))
     renderScreen()
     fireEvent.click(await screen.findByRole("button", { name: /cerrar sesión e ingresar con otro email/i }))
 
@@ -264,7 +275,7 @@ describe("con sesión y OTRA identidad, o token vencido / revocado / usado — U
 
 describe("ya es miembro", () => {
   it("la vista previa informa «Ya sos parte» y ofrece cambiar a esa cuenta (no ofrece aceptar)", async () => {
-    h.get.mockResolvedValue({ ...PREVIEW, already_member: true })
+    h.preview.mockResolvedValue({ ...PREVIEW, already_member: true })
     renderScreen()
 
     expect(await screen.findByText(/ya sos parte de panadería sol/i)).toBeInTheDocument()
@@ -293,12 +304,12 @@ describe("otros fallos", () => {
   })
 
   it("un fallo de red al cargar NO se hace pasar por «no disponible»: ofrece reintentar", async () => {
-    h.get.mockRejectedValueOnce(new Error("Failed to fetch"))
+    h.preview.mockRejectedValueOnce(new Error("Failed to fetch"))
     renderScreen()
 
     expect(await screen.findByText(/no pudimos cargar la invitación/i)).toBeInTheDocument()
     expect(screen.queryByText(/no está disponible para tu usuario/i)).toBeNull()
-    h.get.mockResolvedValue(PREVIEW)
+    h.preview.mockResolvedValue(PREVIEW)
     fireEvent.click(screen.getByRole("button", { name: /reintentar/i }))
     expect(await screen.findByText(/te invitaron a sumarte a panadería sol/i)).toBeInTheDocument()
   })

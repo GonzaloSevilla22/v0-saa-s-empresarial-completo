@@ -3,7 +3,7 @@ multiusuario-operativo TANDA C (grupo 15, "integración contra Postgres local") 
 punta a punta contra la base REAL.
 
 Marcado `@pytest.mark.integration`: corre en el tier de integración de `KPI_Validation.yml`; correr a mano con
-`-m integration` contra el stack local con 20261085000001 aplicada. La evidencia de CI del esquema es el
+`-m integration` contra el stack local con 20261094000001 aplicada. La evidencia de CI del esquema es el
 gate SQL supabase/tests/test_multiusuario_invitaciones.sql.
 
 Por qué además de test_invitations.py: aquel mockea la conexión y sólo asserta que el SQL NOMBRA las RPCs
@@ -13,13 +13,16 @@ el endpoint contra la base, con los claims del JWT puestos en la transacción co
 `SET LOCAL ROLE authenticated`, y verifica lo que el mock no puede:
 
   * crear + enviar son ATÓMICOS: un tope P0439 en el envío revierte la invitación (en la misma conexión);
-  * el email queda encolado con el destinatario y el token de la FILA;
+  * el email queda encolado con el destinatario y el token de la FILA, y la tabla guarda SÓLO el hash
+    (invitaciones-hardening D1); el registro del envío pierde el token al terminar el intento (D3);
+  * el listado trae el estado de la última entrega y un envío fallido no frena el reenvío (D7, D8);
   * la vista previa y la aceptación van ligadas a la identidad, resuelta contra `auth.users`;
   * aceptar deja el negocio como cuenta activa y conserva la personal.
 """
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import json
 import uuid
 
@@ -161,12 +164,15 @@ async def test_crear_encola_el_email_con_el_destinatario_y_el_token_de_la_fila(c
 
     row = await conn.fetchrow("SELECT * FROM public.account_invitations WHERE id = $1", uuid.UUID(str(sent["id"])))
     assert row["email"] == email and row["status"] == "pending" and row["roles"] == ["seller"]
-    assert row["token"] == sent["token"] and row["account_id"] == w.account
+    # invitaciones-hardening (D1): la fila guarda SÓLO el hash; el token vuelve del envío y no está en ninguna columna.
+    assert row["token_hash"] == hashlib.sha256(sent["token"].encode()).hexdigest() and row["account_id"] == w.account
+    assert sent["token"] not in json.dumps(dict(row), default=str)
+    assert "token" not in row.keys()
     mail = await conn.fetchrow(
         "SELECT * FROM public.email_logs WHERE event_type = 'org_invite' AND recipient = $1", email)
     assert mail is not None and mail["status"] == "pending" and mail["user_id"] == w.owner
     meta = json.loads(mail["metadata"]) if isinstance(mail["metadata"], str) else mail["metadata"]
-    assert meta["token"] == row["token"] and meta["invitation_id"] == str(row["id"])
+    assert meta["token"] == sent["token"] and meta["invitation_id"] == str(row["id"])
     assert meta["role_labels"] == ["Vendedor"]
     # El nombre sale de la cascada canónica del emisor (sin marca ni perfil fiscal: el nombre del dueño).
     assert meta["account_name"] and row["account_display_name"] == meta["account_name"]
@@ -276,3 +282,76 @@ async def test_la_vista_previa_y_la_aceptacion_estan_ligadas_a_la_identidad(conn
         accounts = await conn.fetch("SELECT account_id, is_active FROM public.rpc_my_accounts()")
     assert {r["account_id"] for r in accounts} == {w.account, w.invitee_personal}
     assert [r["account_id"] for r in accounts if r["is_active"]] == [w.account]
+
+
+# ── invitaciones-hardening: el registro del envío, el estado de entrega y el reenvío tras un fallo ──────────
+
+
+async def test_el_registro_del_envio_conserva_el_token_mientras_esta_pending_y_lo_pierde_al_terminar(conn, world: World):
+    w = world
+    email = _email("invitee", w.invitee)
+    sent = await _create(conn, w, email, ["seller"])
+
+    pending = await conn.fetchrow("SELECT id, metadata FROM public.email_logs WHERE event_type = 'org_invite' AND recipient = $1", email)
+    meta = json.loads(pending["metadata"]) if isinstance(pending["metadata"], str) else pending["metadata"]
+    assert meta["token"] == sent["token"]           # la plantilla lo necesita mientras el envío está en curso
+
+    # La Edge Function marca el resultado: el disparador retira el token en CUALQUIER desenlace.
+    await conn.execute("UPDATE public.email_logs SET status = 'sent', sent_at = now() WHERE id = $1", pending["id"])
+    after = await conn.fetchrow("SELECT metadata FROM public.email_logs WHERE id = $1", pending["id"])
+    meta = json.loads(after["metadata"]) if isinstance(after["metadata"], str) else after["metadata"]
+    assert "token" not in meta and meta["invitation_id"] == str(sent["id"])
+    assert sent["token"] not in json.dumps(meta)
+    # Y el token sigue sirviendo para aceptar (la fila de la invitación guarda su hash).
+    async with _as(conn, w.invitee, w.invitee_personal):
+        preview = await svc.preview_invitation(InvitationRepository(conn), sent["token"])
+    assert preview["account_id"] == str(w.account)
+
+
+async def test_el_listado_trae_el_estado_de_la_ultima_entrega_y_un_fallo_no_frena_el_reenvio(conn, world: World):
+    w = world
+    email = _email("invitee", w.invitee)
+    sent = await _create(conn, w, email, ["seller"])
+
+    async def _estado() -> dict:
+        async with _as(conn, w.owner, w.account):
+            rows = await svc.list_invitations(InvitationRepository(conn), _auth(w.owner), str(w.account), conn=conn)
+        assert len(rows) == 1 and "token" not in rows[0] and "error_details" not in rows[0]
+        return rows[0]
+
+    assert (await _estado())["last_delivery_status"] == "queued"
+    await conn.execute("UPDATE public.email_logs SET status = 'sent', sent_at = now() WHERE event_type = 'org_invite' AND recipient = $1", email)
+    row = await _estado()
+    assert row["last_delivery_status"] == "sent" and row["last_delivery_at"] is not None
+
+    # La entrega falla (el proveedor rechazó el correo): se ve, y «Reenviar» NO espera el enfriamiento.
+    await conn.execute(
+        "UPDATE public.email_logs SET status = 'failed', error_details = 'detalle del proveedor' WHERE event_type = 'org_invite' AND recipient = $1",
+        email)
+    row = await _estado()
+    assert row["last_delivery_status"] == "failed"
+    assert "detalle del proveedor" not in json.dumps(row, default=str)
+    async with _as(conn, w.owner, w.account):
+        again = await svc.resend_invitation(
+            InvitationRepository(conn), _auth(w.owner), str(w.account), str(sent["id"]), conn=conn)
+    assert again["token"] != sent["token"]
+    assert (await _estado())["last_delivery_status"] == "queued"
+    # El envío nuevo no fallido SÍ vuelve a activar el enfriamiento.
+    with pytest.raises(asyncpg.PostgresError) as info:
+        async with _as(conn, w.owner, w.account):
+            await svc.resend_invitation(
+                InvitationRepository(conn), _auth(w.owner), str(w.account), str(sent["id"]), conn=conn)
+    assert info.value.sqlstate == "P0439" and "invitation_cooldown" in str(info.value)
+
+
+async def test_la_tabla_no_se_escribe_por_fuera_de_las_rpcs(conn, world: World):
+    """invitaciones-hardening (D4): el dueño autenticado no inserta ni lee la tabla directamente."""
+    w = world
+    with pytest.raises(asyncpg.InsufficientPrivilegeError):
+        async with _as(conn, w.owner, w.account):
+            await conn.execute(
+                "INSERT INTO public.account_invitations (account_id, email, role, status, invited_by, expires_at) "
+                "VALUES ($1, 'ataque@test.local', 'owner', 'pending', $2, now() + interval '1 day')", w.account, w.owner)
+    with pytest.raises(asyncpg.InsufficientPrivilegeError):
+        async with _as(conn, w.owner, w.account):
+            await conn.fetch("SELECT * FROM public.account_invitations")

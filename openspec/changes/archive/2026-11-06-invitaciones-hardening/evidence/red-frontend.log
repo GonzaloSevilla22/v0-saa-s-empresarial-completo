@@ -1,0 +1,40 @@
+     × pide la vista previa por POST con el token en el cuerpo y NO en la ruta 1066ms
+     × no reintenta ante un 404 (una sola consulta con el token) 63ms
+     × acepta por POST con el token en el cuerpo y NO en la ruta 10ms
+     × no incluye el token en claro y distingue dos tokens distintos 6ms
+     × muestra el negocio, quién invita, los roles y el vencimiento, con «Aceptar» 1026ms
+     × «Ahora no» lleva al Tablero sin aceptar 1012ms
+     × no imprime el token en pantalla 1012ms
+     × acepta por FastAPI, deja el negocio como cuenta activa y da la bienvenida con los roles 1021ms
+     × el orden importa: primero aceptar, recién después activar la cuenta 1066ms
+     × mientras acepta deshabilita el botón (no se acepta dos veces) 1024ms
+     × mientras activa la cuenta (renovar el token tarda) el botón sigue ocupado: no se acepta dos veces 1019ms
+     × si aceptó pero no pudo cambiar de cuenta, lo dice y ofrece reintentar el cambio (la membresía ya existe) 1007ms
+     × la vista previa 404 muestra el mensaje único con «Cerrar sesión e ingresar con otro email» 1027ms
+     × el mensaje es EL MISMO ante cualquier 404 (no distingue vencida de ajena) 1008ms
+     × aceptar con un 404 (se revocó mientras miraba) cae en el mismo mensaje 1009ms
+     × «Cerrar sesión e ingresar con otro email» cierra la sesión y vuelve a ESTA invitación 1030ms
+     × la vista previa informa «Ya sos parte» y ofrece cambiar a esa cuenta (no ofrece aceptar) 1027ms
+     × aceptar y recibir 409 (ya era miembro) cae en el mismo estado, sin duplicar la membresía 1011ms
+     × el cupo del plan del negocio lo dice claro 1017ms
+     × un fallo de red al cargar NO se hace pasar por «no disponible»: ofrece reintentar 1034ms
+⎯⎯⎯⎯⎯⎯ Failed Tests 20 ⎯⎯⎯⎯⎯⎯⎯
+ FAIL  __tests__/components/InvitationAcceptance.test.tsx > con sesión y la identidad correcta — vista previa > muestra el negocio, quién invita, los roles y el vencimiento, con «Aceptar»
+ FAIL  __tests__/components/InvitationAcceptance.test.tsx > con sesión y la identidad correcta — vista previa > «Ahora no» lleva al Tablero sin aceptar
+ FAIL  __tests__/components/InvitationAcceptance.test.tsx > con sesión y la identidad correcta — vista previa > no imprime el token en pantalla
+ FAIL  __tests__/components/InvitationAcceptance.test.tsx > aceptar > acepta por FastAPI, deja el negocio como cuenta activa y da la bienvenida con los roles
+ FAIL  __tests__/components/InvitationAcceptance.test.tsx > aceptar > el orden importa: primero aceptar, recién después activar la cuenta
+ FAIL  __tests__/components/InvitationAcceptance.test.tsx > aceptar > mientras acepta deshabilita el botón (no se acepta dos veces)
+ FAIL  __tests__/components/InvitationAcceptance.test.tsx > aceptar > mientras activa la cuenta (renovar el token tarda) el botón sigue ocupado: no se acepta dos veces
+ FAIL  __tests__/components/InvitationAcceptance.test.tsx > aceptar > si aceptó pero no pudo cambiar de cuenta, lo dice y ofrece reintentar el cambio (la membresía ya existe)
+ FAIL  __tests__/components/InvitationAcceptance.test.tsx > con sesión y OTRA identidad, o token vencido / revocado / usado — UN solo mensaje > la vista previa 404 muestra el mensaje único con «Cerrar sesión e ingresar con otro email»
+     × un envío «sent» muestra su distintivo 1029ms
+     × un envío «queued» muestra su distintivo 1034ms
+     × un envío «failed» muestra su distintivo 1035ms
+     × un envío «unconfirmed» muestra su distintivo 1047ms
+     × con «No se pudo enviar» o «Sin confirmación» destaca «Reenviar» y explica qué pasó 55ms
+     × el estado está en el nombre accesible de la fila 1032ms
+     × nunca muestra texto del proveedor aunque el backend lo trajera 1033ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 7 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  1 failed (1)
+      Tests  7 failed | 26 passed (33)

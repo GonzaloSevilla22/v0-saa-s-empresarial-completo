@@ -107,8 +107,14 @@ describe("StockImportAdjustmentDialog — motivo obligatorio", () => {
     "«%s» bloquea la fila y deriva a «Transferir stock»: jamás llega a la RPC",
     async (alias) => {
       await uploadCsv(`${HEADER}\nHarina 000;${alias};4;Movimiento de depósito`)
-      expect(await screen.findByText(/Transferir stock/i, { selector: "p" })).toBeInTheDocument()
-      expect(screen.getByRole("button", { name: /Aplicar 0 ajustes/ })).toBeDisabled()
+      // Primero el paso 2 (el botón sólo existe ahí): el paso 1 ya muestra un párrafo de ayuda
+      // con «Transferir stock», y esperar ese texto a secas encontraba ese párrafo, que se
+      // desmonta al cambiar de paso — era la causa del fallo intermitente en CI (nodo fuera
+      // del documento si el FileReader terminaba entre la búsqueda y la aserción).
+      expect(await screen.findByRole("button", { name: /Aplicar 0 ajustes/ })).toBeDisabled()
+      expect(
+        screen.getByText(/es una transferencia entre sucursales, no un ajuste: usá «Transferir stock»/i),
+      ).toBeInTheDocument()
       expect(rpcMock).not.toHaveBeenCalled()
     },
   )

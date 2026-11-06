@@ -187,8 +187,8 @@ BEGIN
     RAISE NOTICE 'PASS (6): rpc_remove_member cascada correctamente al pivot';
 
     -- ── (7) rpc_accept_invitation crea la asignación equivalente ───────────
-    INSERT INTO account_invitations (id, account_id, email, token, role, status, invited_by, created_at, expires_at)
-    VALUES (gen_random_uuid(), v_account, 'gate-rpc-rewrite-invitee@test.local', v_token, 'admin', 'pending', v_owner_uid, now(), now() + interval '7 days');
+    INSERT INTO account_invitations (id, account_id, email, token_hash, role, status, invited_by, created_at, expires_at)
+    VALUES (gen_random_uuid(), v_account, 'gate-rpc-rewrite-invitee@test.local', encode(sha256(convert_to(v_token, 'UTF8')), 'hex'), 'admin', 'pending', v_owner_uid, now(), now() + interval '7 days');
 
     INSERT INTO auth.users (id, email) VALUES (v_invitee_uid, 'gate-rpc-rewrite-invitee@test.local');
     PERFORM set_config('request.jwt.claims', json_build_object('sub', v_invitee_uid::text, 'role', 'authenticated')::text, true);
@@ -462,7 +462,22 @@ END $$;
 --    parte del cuerpo vivo con preflight por md5: acepta el de producción previo (el
 --    que dejó el \i de arriba) o el propio, y su DROP FUNCTION IF EXISTS elimina el
 --    overload resucitado.
+-- invitaciones-hardening (D9): cuando este gate corre con 20261094000001 YA aplicada (el reset de CI la incluye),
+-- rpc_list_account_invitations tiene el tipo de retorno de 13 columnas y el CREATE OR REPLACE de 20261085000001
+-- (11 columnas) fallaría con «cannot change return type». Se retira acá; la migración la recrea con su tipo de
+-- partida y el reconverge-5 de abajo la deja con el definitivo.
+DROP FUNCTION IF EXISTS public.rpc_list_account_invitations(uuid);
+
 \i supabase/migrations/20261085000001_multiusuario_invitaciones.sql
+
+-- ── Fase 13b-reconverge-5 (invitaciones-hardening, D9): el \i de arriba reinstala los cuerpos
+--    de la tanda C —que leen account_invitations.token, columna que invitaciones-hardening
+--    eliminó— y rpc_invite_member que todavía devuelve el token. Sin este reconverge, el resto de la
+--    corrida de CI (test_invitaciones_hardening.sql, test_multiusuario_invitaciones.sql) vería las
+--    funciones viejas contra una tabla sin `token`. Quinto eslabón de la misma cadena. La migración
+--    parte del cuerpo vivo con preflight por md5: acepta el que dejó el \i de arriba (la tanda C) o
+--    el propio.
+\i supabase/migrations/20261094000001_invitaciones_hardening.sql
 
 -- ── Fase 13c: assert contra lo que la migración REAL dejó ───────────────────
 DO $$

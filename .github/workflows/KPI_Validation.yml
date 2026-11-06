@@ -1730,62 +1730,14 @@ jobs:
           fi
           echo "20261084000001 idempotente: dos pasadas, introspección OK, cuerpo presente, email_logs cerrada y schema IDÉNTICO al previo a este paso."
 
-          # multiusuario-operativo TANDA C (2026-10-17, governance CRÍTICO): reaplicación de 20261085000001 AL FINAL de la
-          # cadena, después de la de 20261084000001. La invitación de punta a punta: rpc_send_invitation_email (encola el
-          # email org_invite dentro de la transacción, con el destinatario y el token de la FILA, rota el token al reenviar y
-          # aplica los topes P0439), rpc_list_account_invitations, rpc_revoke_invitation y rpc_invitation_preview (ligada a la
-          # identidad); reescribe rpc_accept_invitation (deja el negocio como cuenta ACTIVA del invitado) y rpc_invite_member
-          # (3 args: P0401 y email válido); RETIRA el overload de 2 argumentos de rpc_invite_member. Suma tres columnas a
-          # account_invitations, `revoked` al CHECK de estado (POR AGREGADO al vivo, nunca una lista fija) y un índice parcial
-          # sobre email_logs. Idempotente: ADD COLUMN / CREATE INDEX IF NOT EXISTS, CHECK ampliado sólo si falta el valor,
-          # CREATE OR REPLACE con firmas fijas (sin overload, sin 42725), DROP FUNCTION IF EXISTS del overload retirado,
-          # REVOKE/GRANT/COMMENT re-emitidos.
-          #
-          # El preflight de la migración exige que cada cuerpo sea el de partida (md5 de producción) o el suyo. Para este punto
-          # de la cadena el reset de reconvergencia de arriba ya reconstruyó la base con la historia completa, que incluye esta
-          # migración en su orden: la PRIMERA pasada ve los 2 cuerpos ya reaplicados, y la SEGUNDA, igual. SIN tolerancia.
-          # schema_snapshot() no compara cuerpos: por eso se re-consultan. El gate test_membership_rpcs_pivot_rewrite.sql suma
-          # su propio eslabón (reconverge-4) porque su \i de las migraciones viejas revive el overload de 2 args.
-          #
-          # REGLA PARA EL PR SIGUIENTE: una migración posterior que redefina rpc_invite_member, rpc_accept_invitation o cualquiera
-          # de las cuatro funciones nuevas tiene que partir del cuerpo VIVO (preflight por md5) y rebasar este paso en el mismo PR;
-          # y NADIE puede volver a crear rpc_invite_member(text, uuid) ni otorgar EXECUTE de ninguna de las seis a anon / PUBLIC.
-          MTC_OUT1=$(psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261085000001_multiusuario_invitaciones.sql 2>&1) || { echo "$MTC_OUT1"; echo "ERROR: el reapply de 20261085000001 falló (sin tolerancia)."; exit 1; }
-          echo "$MTC_OUT1"
-          if ! echo "$MTC_OUT1" | grep -qF '0 cuerpos de partida verificados por md5, 2 ya reaplicados'; then
-            echo "ERROR: la primera pasada de 20261085000001 debía ver los 2 cuerpos ya reaplicados (el reset de reconvergencia incluye la migración)."
-            exit 1
-          fi
-          MTC_OUT2=$(psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261085000001_multiusuario_invitaciones.sql 2>&1) || { echo "$MTC_OUT2"; echo "ERROR: la segunda pasada de 20261085000001 falló (sin tolerancia)."; exit 1; }
-          echo "$MTC_OUT2"
-          if ! echo "$MTC_OUT2" | grep -qF '0 cuerpos de partida verificados por md5, 2 ya reaplicados'; then
-            echo "ERROR: la segunda pasada de 20261085000001 debía ver los 2 cuerpos ya reaplicados."
-            exit 1
-          fi
-          if ! echo "$MTC_OUT2" | grep -qF 'multiusuario-operativo tanda C (introspecci'; then
-            echo "ERROR: el reapply de 20261085000001 no imprimió el OK de su bloque de introspección."
-            exit 1
-          fi
-          MTC_BODIES=$(psql -tA "$DSN" -c "SELECT count(*) FROM pg_proc p JOIN (VALUES
-              ('rpc_invite_member', 'ff9d4a38e7dad25455d13249195263ec'),
-              ('rpc_accept_invitation', '92abe7e8e0c66314ff6d47230a8a913c')) AS e(fn, h) ON e.fn = p.proname AND e.h = md5(replace(p.prosrc, E'\r', ''))
-              WHERE p.pronamespace = 'public'::regnamespace")
-          if [ "$MTC_BODIES" != "2" ]; then
-            echo "ERROR: después de reaplicar 20261085000001, los 2 cuerpos de multiusuario-operativo tanda C no quedaron (md5): $MTC_BODIES de 2."
-            exit 1
-          fi
-          MTC_OVERLOAD=$(psql -tA "$DSN" -c "SELECT count(*) FROM pg_proc WHERE pronamespace = 'public'::regnamespace AND proname = 'rpc_invite_member'")
-          if [ "$MTC_OVERLOAD" != "1" ]; then
-            echo "ERROR: después de reaplicar 20261085000001 rpc_invite_member debía tener UNA sola definición viva (el overload de 2 args se retiró), tiene $MTC_OVERLOAD."
-            exit 1
-          fi
-          schema_snapshot > /tmp/schema_after_mtc_reapply.txt
-          if ! diff -u /tmp/schema_before_reapply.txt /tmp/schema_after_mtc_reapply.txt > /tmp/schema_diff_mtc.txt; then
-            echo "NOT IDEMPOTENT: reaplicar 20261085000001 cambió el schema (constraints + firmas de función + ACLs):"
-            cat /tmp/schema_diff_mtc.txt
-            exit 1
-          fi
-          echo "20261085000001 idempotente: 0+2 en las dos pasadas, introspección OK, cuerpos presentes, una sola rpc_invite_member y schema IDÉNTICO al previo a este paso."
+          # multiusuario-operativo TANDA C (20261085000001): su bloque de reaplicación se RETIRÓ en invitaciones-hardening
+          # (2026-11-06), siguiendo la regla que el propio bloque dejaba escrita («una migración posterior que redefina
+          # rpc_invite_member, rpc_accept_invitation o cualquiera de las cuatro funciones nuevas tiene que rebasar este paso en
+          # el mismo PR»): 20261094000001 redefine rpc_invite_member, rpc_send_invitation_email, rpc_invitation_preview,
+          # rpc_accept_invitation y rpc_list_account_invitations (esta última con otro tipo de retorno), así que el preflight por
+          # md5 de 20261085000001 abortaría contra los cuerpos vivos. La idempotencia de las cinco funciones la cubre ahora el
+          # eslabón de 20261094000001 (más abajo) y su gate de introspección; las ACLs sin anon/PUBLIC y la única definición
+          # viva de rpc_invite_member las sostienen test_invitaciones_hardening.sql y test_multiusuario_invitaciones.sql.
           # importador-productos-stock-apertura (20261086000001): su bloque de reaplicación se RETIRÓ en
           # productos-padre-variantes (tanda A, 2026-11-05), siguiendo la regla que el propio bloque dejaba escrita:
           # 20261093000001 redefine rpc_bulk_upsert_products (la rama Padre fuerza price = 0 y cost = NULL), así
@@ -1949,6 +1901,60 @@ jobs:
             exit 1
           fi
           echo "20261093000001 idempotente: schema IDÉNTICO al previo, 0 padres con precio/costo, CHECK validado y guard con el corte de la unidad."
+
+          # invitaciones-hardening (2026-11-06, governance CRÍTICO): reaplicación de 20261094000001 AL FINAL de la cadena. Reemplaza
+          # account_invitations.token por token_hash (backfill guardado por existencia: 0 filas la segunda vez), crea el helper interno
+          # _invitation_token_hash, reescribe rpc_invite_member / rpc_send_invitation_email / rpc_invitation_preview /
+          # rpc_accept_invitation con la MISMA firma (CREATE OR REPLACE) y rpc_list_account_invitations con DROP FUNCTION IF EXISTS +
+          # CREATE (cambia el RETURNS), recrea el disparador de retiro del token de email_logs, y deja account_invitations sin policy
+          # ni privilegios de tabla para anon/authenticated. Para este punto el reset de reconvergencia ya reconstruyó la base con la
+          # historia completa, que incluye esta migración: las DOS pasadas ven los 5 cuerpos ya reaplicados. SIN tolerancia: exige el
+          # OK de su introspección, el md5 de los cinco cuerpos, una sola definición viva por función y el schema IDÉNTICO.
+          #
+          # REGLA PARA EL PR SIGUIENTE: una migración posterior que redefina rpc_invite_member, rpc_send_invitation_email,
+          # rpc_invitation_preview, rpc_accept_invitation o rpc_list_account_invitations tiene que partir del cuerpo VIVO (preflight
+          # por md5) y rebasar este paso en el mismo PR; NADIE puede volver a crear la columna account_invitations.token, ni una
+          # policy o un privilegio de tabla de anon/authenticated sobre account_invitations, ni otorgar EXECUTE de las seis funciones
+          # de invitación a anon / PUBLIC (lo atrapa test_invitaciones_hardening.sql).
+          IHD_OUT1=$(psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261094000001_invitaciones_hardening.sql 2>&1) || { echo "$IHD_OUT1"; echo "ERROR: el reapply de 20261094000001 falló (sin tolerancia)."; exit 1; }
+          echo "$IHD_OUT1"
+          if ! echo "$IHD_OUT1" | grep -qF '0 cuerpos de partida verificados por md5, 5 ya reaplicados'; then
+            echo "ERROR: la primera pasada de 20261094000001 debía ver los 5 cuerpos ya reaplicados (el reset de reconvergencia incluye la migración)."
+            exit 1
+          fi
+          IHD_OUT2=$(psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261094000001_invitaciones_hardening.sql 2>&1) || { echo "$IHD_OUT2"; echo "ERROR: la segunda pasada de 20261094000001 falló (sin tolerancia)."; exit 1; }
+          echo "$IHD_OUT2"
+          if ! echo "$IHD_OUT2" | grep -qF '0 cuerpos de partida verificados por md5, 5 ya reaplicados'; then
+            echo "ERROR: la segunda pasada de 20261094000001 debía ver los 5 cuerpos ya reaplicados."
+            exit 1
+          fi
+          if ! echo "$IHD_OUT2" | grep -qF 'invitaciones-hardening (introspecci'; then
+            echo "ERROR: el reapply de 20261094000001 no imprimió el OK de su bloque de introspección."
+            exit 1
+          fi
+          IHD_BODIES=$(psql -tA "$DSN" -c "SELECT count(*) FROM pg_proc p JOIN (VALUES
+              ('rpc_invite_member', 'dc843ced0ae286dd8a2c01232e767636'),
+              ('rpc_send_invitation_email', '24aa689205a31a8c1dcef5f6c9d7a1c5'),
+              ('rpc_invitation_preview', 'b3686d1fc76a651143dc2aca78d90287'),
+              ('rpc_accept_invitation', 'a484e092fadaca365f9a68ef026e766c'),
+              ('rpc_list_account_invitations', '8d96bc9f8cfd070b5bd2158117f22060')) AS e(fn, h) ON e.fn = p.proname AND e.h = md5(replace(p.prosrc, E'\r', ''))
+              WHERE p.pronamespace = 'public'::regnamespace")
+          if [ "$IHD_BODIES" != "5" ]; then
+            echo "ERROR: después de reaplicar 20261094000001, los 5 cuerpos de invitaciones-hardening no quedaron (md5): $IHD_BODIES de 5."
+            exit 1
+          fi
+          IHD_DEFS=$(psql -tA "$DSN" -c "SELECT count(*) FROM pg_proc WHERE pronamespace = 'public'::regnamespace AND proname IN ('rpc_invite_member','rpc_send_invitation_email','rpc_invitation_preview','rpc_accept_invitation','rpc_list_account_invitations','rpc_revoke_invitation')")
+          if [ "$IHD_DEFS" != "6" ]; then
+            echo "ERROR: después de reaplicar 20261094000001 las seis funciones de invitación debían tener UNA definición viva cada una, hay $IHD_DEFS."
+            exit 1
+          fi
+          schema_snapshot > /tmp/schema_after_ihd_reapply.txt
+          if ! diff -u /tmp/schema_after_ppv_reapply.txt /tmp/schema_after_ihd_reapply.txt > /tmp/schema_diff_ihd.txt; then
+            echo "NOT IDEMPOTENT: reaplicar 20261094000001 cambió el schema (constraints + firmas de función + ACLs):"
+            cat /tmp/schema_diff_ihd.txt
+            exit 1
+          fi
+          echo "20261094000001 idempotente: 0+5 en las dos pasadas, introspección OK, cinco cuerpos presentes, una definición viva por función y schema IDÉNTICO al previo a este paso."
 
       # -v ON_ERROR_STOP=1 is required: without it psql prints RAISE EXCEPTION
       # errors but still exits 0, so failing assertions show green in CI.
@@ -3911,6 +3917,18 @@ jobs:
       # test_membership_rpcs_pivot_rewrite.sql (suma su reconverge-4 con esta migración).
       - name: Run multiusuario invitaciones gate
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_multiusuario_invitaciones.sql
+      # invitaciones-hardening (2026-11-06, governance CRÍTICO): EJECUTA, como `authenticated` con claims armados a mano, los cuatro
+      # cierres de la invitación: (a) la tabla guarda sólo token_hash (sha256 hex del token del envío) y la fila no contiene el token
+      # en claro; (b) cada envío —el primero incluido— emite un token distinto y sólo el último acepta; (c) email_logs retira
+      # metadata.token al pasar a sent/failed/partial (sólo de org_invite), y el reenvío lo retira de los pending anteriores; (d) sin
+      # privilegios de tabla/columna ni policies para anon/authenticated; (e) ataque real del dueño por PostgREST (INSERT/UPDATE/
+      # DELETE/SELECT/TRUNCATE = 42501, 0 filas cambiadas); (f) las RPCs del dominio de punta a punta; (g) last_delivery_status
+      # (queued/unconfirmed/failed/sent, partial = sent, el envío más reciente, sin error_details); (h) un envío fallido no cuenta
+      # para el enfriamiento y sí para el tope diario; (i) ACLs y una sola definición viva por función. Corre dentro de
+      # BEGIN..ROLLBACK. Plano (no run_gate_strict.py): no es un gate de dinero (el detector de MONEY_GATES fija 36) y no tiene ramas
+      # de degradación: cierra con una aserción de 9 bloques OK.
+      - name: Run invitaciones hardening gate
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_invitaciones_hardening.sql
       # importador-productos-stock-apertura (fix ad-hoc 2026-10-14, governance MEDIA
       # con tramo ALTO): el stock del archivo de importación de productos es de
       # APERTURA. `supabase start` ya aplicó 20261086000001; este paso EJECUTA

@@ -4819,7 +4819,7 @@ El pedido literal (RPC con rol y motivo + quitar `GRANT` y policies) es correcto
 
 ---
 
-## Change `invitaciones-hardening` — PROPOSE 2026-11-06 (propose PR en revisión; migración reservada `20261094000001_invitaciones_hardening.sql`; governance **CRÍTICO**)
+## Change `invitaciones-hardening` — APPLY 2026-11-06 (propose #689 mergeado; apply #696 en revisión; migración `20261094000001_invitaciones_hardening.sql`; governance **CRÍTICO**; tanda única)
 
 **Pedido y sign-off.** El PO, el 2026-11-06, sobre los cuatro candidatos de seguridad que dejó `multiusuario-operativo` (§«Hallazgos laterales» de su tanda C): *«dale hacelo»*. OQ-2 a OQ-9 firmadas por mandato por su opción recomendada (`openspec/changes/invitaciones-hardening/design.md` §Open Questions; las que cambiarían el diseño si el PO opinara distinto: OQ-2 columna en claro, OQ-6 convivencia de rutas). **OQ-1 la resolvió el PO el mismo día, en contra de la recomendación**: *«deja la url como esta para que se pueda abrir tanto en pc como en celular sin tener que ir tocando la invitación cada vez; una vez aceptada la invitación, en cada dispositivo que se logue tiene que tener permitido entrar»* → la URL pública `/invitacion/<token>` se conserva (D6). Tanda única (D9).
 
@@ -4834,6 +4834,15 @@ El pedido literal (RPC con rol y motivo + quitar `GRANT` y policies) es correcto
 **CI.** El apply retira el eslabón de reaplicación de `20261085000001` de `KPI_Validation.yml` (su preflight md5 cubre funciones que esta migración redefine), suma el de `20261094000001` al final de la cadena y el reconverge-5 de `test_membership_rpcs_pivot_rewrite.sql`.
 
 **Fuera de alcance (declarado).** La ligadura por email exacto (minúsculas) sigue igual; los rebotes posteriores a la aceptación de Resend no se registran.
+
+**Apply (2026-11-06).** #696. Tanda única con DB + backend + frontend (la Edge Function `send-email` no cambia). Evidencia en `openspec/changes/invitaciones-hardening/evidence/` (`red.log`, `green.log`, `mutantes.log` con 10 mutantes matados, `red-backend.log`, `red-frontend.log`, `tsc.txt`, `cuerpos-previos/` y las capturas de `visual/`). Resumen de lo que quedó:
+- **Migración `20261094000001`**: preflight por md5 de las cinco funciones (los md5 de partida de `design.md` coincidieron con prod y con la base local al empezar), `token_hash` sha256 con índice único parcial y `DROP COLUMN token`, helper interno `_invitation_token_hash`, disparador `trg_email_logs_strip_invite_token` (retira `metadata.token` al salir de `pending`; sólo `org_invite`), listado con `last_delivery_status`/`last_delivery_at` (`DROP` + `CREATE`), enfriamiento que ignora los `failed`, `account_invitations` sin policy ni privilegios de tabla para `anon`/`authenticated`. Aplicada dos veces: la segunda informa `0 cuerpos de partida … 5 ya reaplicados` y el `schema_snapshot` no cambia.
+- **Gate `test_invitaciones_hardening.sql`** (9 bloques, ataque real del dueño por PostgREST → `42501`) y gates existentes ajustados a propósito (`test_multiusuario_invitaciones.sql`, `test_accept_invitation_binding.sql`, `test_invite_member_roles_and_plan_gate.sql`, `test_membership_rpcs_pivot_rewrite.sql` con su reconverge-5).
+- **Backend**: `POST /invitations/preview` y `POST /invitations/accept` con `{token}` en el cuerpo (rutas viejas retiradas sin convivencia); el 404 de un token sin forma es idéntico al de uno vencido; ningún `logger` recibe el token.
+- **Frontend**: los hooks hablan por el cuerpo, la clave de caché de la vista previa lleva una huella no reversible (no el token); `PendingInvitations` muestra el distintivo de entrega y destaca «Reenviar»; la pantalla pública y todos sus flujos no cambian.
+- **CI**: `KPI_Validation.yml` retira el eslabón de `20261085000001`, suma el de `20261094000001` y el gate nuevo.
+
+**Hallazgos del apply** (detalle en `design.md` §Notas de implementación): (1) `test_membership_rpcs_pivot_rewrite.sql` hace `\i` de `20261085000001` con `20261094000001` ya aplicada y el `CREATE OR REPLACE` de `rpc_list_account_invitations` fallaría por el tipo de retorno: se retira la función antes del `\i`; (2) un `IF NOT (… = …)` con un operando NULL no dispara: el primer mutante vivo (disparador sin filtro de `event_type`) lo reveló y el gate lo asserta con `IS DISTINCT FROM`; (3) aceptar fija `profiles.active_account_id`, así que un gate que acepta con un usuario y después envía como ese mismo usuario necesita fijar la cuenta por claim.
 
 **Hallazgo lateral (candidato, no se toca acá).** `revoke-truncate-app-roles`: `authenticated` tiene `TRUNCATE` en 63 de 81 tablas de `public` (`anon` en 0). `TRUNCATE` no pasa por RLS; PostgREST no lo emite y el backend sólo corre sus consultas, así que hoy no es alcanzable, pero ninguna tabla lo necesita. Este change lo revoca sólo en `account_invitations`.
 

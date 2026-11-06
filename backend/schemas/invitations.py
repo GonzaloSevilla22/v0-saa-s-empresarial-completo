@@ -6,6 +6,9 @@ El email del invitado se valida acá con la misma forma conservadora que la base
 sale de la fila, así que no puede ser `all_users`, ni llevar espacios o saltos de línea.
 El token NUNCA está en `InvitationOut` (el listado no lo expone); sólo la creación y el
 reenvío lo devuelven, para el «Copiar link» del invitador (OQ-6).
+
+invitaciones-hardening (D5): la vista previa y la aceptación reciben el token en el CUERPO
+(`InvitationTokenRequest`), nunca en la ruta: el access log de Render registra método y path, no el cuerpo.
 """
 from __future__ import annotations
 
@@ -52,6 +55,16 @@ class InvitationCreateRequest(BaseModel):
         return list(dict.fromkeys(value))
 
 
+class InvitationTokenRequest(BaseModel):
+    """Cuerpo de POST /invitations/preview y POST /invitations/accept.
+
+    Sin `max_length`: la FORMA del token la valida el service (`TOKEN_PATTERN`) para que un token sin forma
+    de token —de cualquier largo— responda el MISMO 404 que uno vencido, y no un 422 distinguible.
+    """
+
+    token: str = Field(..., description="Token del enlace de invitación (el del email)")
+
+
 class InvitationSent(BaseModel):
     """Respuesta de crear o reenviar: la invitación y el link para copiar (token vigente)."""
 
@@ -79,6 +92,12 @@ class InvitationOut(BaseModel):
     invited_by_name: str | None = None
     last_sent_at: datetime.datetime | None = None
     send_count: int = 0
+    last_delivery_status: str | None = Field(
+        default=None,
+        description="Estado del último envío: sent | queued | failed | unconfirmed; null = nunca enviada. "
+        "Nunca expone el detalle del proveedor de correo.",
+    )
+    last_delivery_at: datetime.datetime | None = None
 
 
 class InvitationRevoked(BaseModel):

@@ -51,6 +51,13 @@
 --   (i) validación del email y "Not authenticated" = P0401
 --   (j) ESTRUCTURAL: overload de 2 args retirado, CHECK con `revoked`, ACLs, una
 --       definición viva por función, candado de cuerpo, email_logs sigue cerrada
+--
+-- AJUSTADO por invitaciones-hardening (migración 20261094000001): la tabla guarda sólo `token_hash`;
+-- rpc_invite_member ya NO devuelve el token; CADA envío —el primero incluido— emite uno nuevo
+-- (antes, el bloque (a) afirmaba «el primer envío NO rota el token»); todo lugar que leía
+-- account_invitations.token toma el token del retorno de rpc_send_invitation_email. El resto
+-- de los bloques es idéntico. El cierre de la tabla y el estado de entrega los candadea
+-- test_invitaciones_hardening.sql.
 -- =============================================================================
 
 BEGIN;
@@ -232,15 +239,20 @@ BEGIN
     SELECT * INTO v_r FROM pg_temp.run(v_o, v_a, pg_temp.e_invite('mu-c-invitee@test.local', v_a, ARRAY['seller']));
     PERFORM pg_temp.expect('el dueño invita', v_r.o_state, v_r.o_msg, 'ok');
     v_inv := (v_r.o_res ->> 'id')::uuid;
-    v_tok := v_r.o_res ->> 'token';
+    -- invitaciones-hardening (D2): rpc_invite_member ya NO devuelve el token; lo emite el envío.
+    IF v_r.o_res ? 'token' THEN RAISE EXCEPTION 'rpc_invite_member ya no devuelve el token (lo emite el envío)'; END IF;
     IF pg_temp.n_mail(v_inv) <> 0 THEN
       RAISE EXCEPTION 'crear la invitación NO envía el email por sí sola (lo hace rpc_send_invitation_email): hay % filas', pg_temp.n_mail(v_inv);
     END IF;
 
     SELECT * INTO v_r FROM pg_temp.run(v_o, v_a, pg_temp.e_send(v_inv, 'Panadería <b>Sol</b> & Hijos', false));
     PERFORM pg_temp.expect('el dueño envía el email', v_r.o_state, v_r.o_msg, 'ok');
-    IF (v_r.o_res ->> 'token') IS DISTINCT FROM v_tok THEN
-      RAISE EXCEPTION 'el primer envío NO rota el token (era %, volvió %)', v_tok, v_r.o_res ->> 'token';
+    -- invitaciones-hardening (D2): CADA envío (el primero incluido) emite un token nuevo y la fila
+    -- guarda sólo su hash (antes: «el primer envío NO rota el token»).
+    v_tok := v_r.o_res ->> 'token';
+    IF v_tok IS NULL THEN RAISE EXCEPTION 'el primer envío debía devolver el token'; END IF;
+    IF (SELECT token_hash FROM public.account_invitations WHERE id = v_inv) IS DISTINCT FROM encode(sha256(convert_to(v_tok, 'UTF8')), 'hex') THEN
+      RAISE EXCEPTION 'la fila debía guardar sólo el hash del token del envío';
     END IF;
 
     SELECT * INTO v_row FROM public.email_logs WHERE event_type = 'org_invite' AND metadata ->> 'invitation_id' = v_inv::text;
@@ -352,7 +364,7 @@ BEGIN
     SELECT * INTO v_r FROM pg_temp.run(v_o, v_a, pg_temp.e_send(v_inv, 'Panadería Sol', true));
     PERFORM pg_temp.expect('reenviar enseguida', v_r.o_state, v_r.o_msg, 'P0439', 'invitation_cooldown');
     IF pg_temp.n_mail(v_inv) <> v_n0 THEN RAISE EXCEPTION 'el reenvío rechazado por enfriamiento encoló un email'; END IF;
-    IF (SELECT token FROM public.account_invitations WHERE id = v_inv) IS DISTINCT FROM v_tok THEN
+    IF (SELECT token_hash FROM public.account_invitations WHERE id = v_inv) IS DISTINCT FROM encode(sha256(convert_to(v_tok, 'UTF8')), 'hex') THEN
       RAISE EXCEPTION 'el reenvío rechazado por enfriamiento rotó el token';
     END IF;
 
@@ -364,8 +376,8 @@ BEGIN
     PERFORM pg_temp.expect('reenviar pasado el enfriamiento', v_r.o_state, v_r.o_msg, 'ok');
     v_tok2 := v_r.o_res ->> 'token';
     IF v_tok2 IS NULL OR v_tok2 = v_tok THEN RAISE EXCEPTION 'reenviar debía ROTAR el token (era %, es %)', v_tok, v_tok2; END IF;
-    IF (SELECT token FROM public.account_invitations WHERE id = v_inv) IS DISTINCT FROM v_tok2 THEN
-      RAISE EXCEPTION 'la fila debía quedar con el token nuevo';
+    IF (SELECT token_hash FROM public.account_invitations WHERE id = v_inv) IS DISTINCT FROM encode(sha256(convert_to(v_tok2, 'UTF8')), 'hex') THEN
+      RAISE EXCEPTION 'la fila debía quedar con el hash del token nuevo';
     END IF;
     IF (SELECT expires_at FROM public.account_invitations WHERE id = v_inv) < now() + interval '6 days 23 hours' THEN
       RAISE EXCEPTION 'reenviar debía renovar el vencimiento a 7 días, quedó en %', (SELECT expires_at FROM public.account_invitations WHERE id = v_inv);
@@ -495,6 +507,9 @@ BEGIN
     SELECT * INTO v_r FROM pg_temp.run(v_o, v_a, pg_temp.e_invite('mu-c-invitee@test.local', v_a, ARRAY['seller']));
     PERFORM pg_temp.expect('invitar de nuevo tras revocar', v_r.o_state, v_r.o_msg, 'ok');
     v_inv := (v_r.o_res ->> 'id')::uuid;
+    -- invitaciones-hardening: el token sale del envío, no de la creación.
+    SELECT * INTO v_r FROM pg_temp.run(v_o, v_a, pg_temp.e_send(v_inv, 'Panadería Sol', false));
+    PERFORM pg_temp.expect('enviar la reinvitación', v_r.o_state, v_r.o_msg, 'ok');
     v_tok := v_r.o_res ->> 'token';
     RAISE NOTICE 'PASS (e): vendedor P0403, observador P0401, otra cuenta P0404, sin sesión P0401; revocar es un estado idempotente con revoked_at; aceptar y previsualizar fallan IGUAL que un token inexistente; no se reenvía; se puede reinvitar.';
   EXCEPTION WHEN OTHERS THEN
@@ -585,7 +600,12 @@ BEGIN
 
     -- Ya es miembro: el dueño de A tiene una invitación a su propio email (la duplicada sólo mira las pendientes).
     UPDATE public.account_invitations SET email = 'mu-c-seller@test.local' WHERE id = v_inv2;
-    SELECT token INTO v_tok2 FROM public.account_invitations WHERE id = v_inv2;
+    -- invitaciones-hardening: el token sale del envío (la tabla sólo guarda su hash).
+    UPDATE public.email_logs SET created_at = created_at - interval '11 minutes'
+     WHERE event_type = 'org_invite' AND metadata ->> 'invitation_id' = v_inv2::text;
+    SELECT * INTO v_r FROM pg_temp.run(v_o, v_a, pg_temp.e_send(v_inv2, 'Panadería Sol', false));
+    PERFORM pg_temp.expect('reenviar la invitación del administrador', v_r.o_state, v_r.o_msg, 'ok');
+    v_tok2 := v_r.o_res ->> 'token';
     SELECT * INTO v_r FROM pg_temp.run(v_s, v_a, pg_temp.e_preview(v_tok2));
     PERFORM pg_temp.expect('un miembro previsualiza una invitación a su email', v_r.o_state, v_r.o_msg, 'ok');
     IF (v_r.o_res ->> 'already_member')::boolean IS DISTINCT FROM true THEN RAISE EXCEPTION 'already_member debía ser true: %', v_r.o_res; END IF;

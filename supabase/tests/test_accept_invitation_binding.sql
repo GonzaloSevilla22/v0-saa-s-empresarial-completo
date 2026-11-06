@@ -131,7 +131,7 @@ BEGIN
   END IF;
 
   v_result := public.rpc_invite_member('gate-accept-bind-invitee@test.local'::text, v_account, ARRAY['seller']::text[]);
-  v_token  := (SELECT token FROM account_invitations WHERE id = (v_result->>'id')::uuid);
+  v_token  := (public.rpc_send_invitation_email((v_result->>'id')::uuid, 'Negocio Gate', false)->>'token');
 
   SELECT COUNT(*) INTO v_members_before FROM account_members WHERE account_id = v_account;
   SELECT COUNT(*) INTO v_roles_before   FROM account_member_roles WHERE account_id = v_account;
@@ -170,7 +170,7 @@ BEGIN
     IF EXISTS (SELECT 1 FROM account_members WHERE account_id = v_account AND user_id = v_intruder_uid) THEN
       RAISE EXCEPTION 'GATE ACCEPT-INVITATION-BINDING FAILED (1): el intruso quedó como miembro de la cuenta.';
     END IF;
-    IF (SELECT status FROM account_invitations WHERE token = v_token) <> 'pending' THEN
+    IF (SELECT status FROM account_invitations WHERE token_hash = encode(sha256(convert_to(v_token, 'UTF8')), 'hex')) <> 'pending' THEN
       RAISE EXCEPTION 'GATE ACCEPT-INVITATION-BINDING FAILED (1): el rechazo consumió la invitación -- el invitado legítimo ya no podría usarla.';
     END IF;
     v_blocks_run := v_blocks_run + 1;
@@ -217,8 +217,8 @@ BEGIN
   --     la fila en MAYÚSCULAS sólo puede nacer de un alta histórica o de otro
   --     camino -- exactamente el caso que el binding no debe rechazar.
   v_token_upper := encode(extensions.gen_random_bytes(32), 'hex');
-  INSERT INTO account_invitations (id, account_id, email, token, role, roles, status, invited_by, created_at, expires_at)
-  VALUES (gen_random_uuid(), v_account, 'GATE-ACCEPT-BIND-UPPER@TEST.LOCAL', v_token_upper,
+  INSERT INTO account_invitations (id, account_id, email, token_hash, role, roles, status, invited_by, created_at, expires_at)
+  VALUES (gen_random_uuid(), v_account, 'GATE-ACCEPT-BIND-UPPER@TEST.LOCAL', encode(sha256(convert_to(v_token_upper, 'UTF8')), 'hex'),
           'member', ARRAY['viewer']::text[], 'pending', v_owner_uid, now(), now() + interval '7 days');
 
   PERFORM set_config('request.jwt.claims', json_build_object('sub', v_upper_uid::text, 'role', 'authenticated')::text, true);
@@ -236,7 +236,7 @@ BEGIN
   -- ═══ (4) la forma de claims REAL del backend propio ({sub, role}) ════════
   PERFORM set_config('request.jwt.claims', json_build_object('sub', v_owner_uid::text, 'role', 'authenticated')::text, true);
   v_result := public.rpc_invite_member('gate-accept-bind-backend@test.local'::text, v_account, ARRAY['cashier']::text[]);
-  v_token_backend := (SELECT token FROM account_invitations WHERE id = (v_result->>'id')::uuid);
+  v_token_backend := (public.rpc_send_invitation_email((v_result->>'id')::uuid, 'Negocio Gate', false)->>'token');
 
   -- EXACTAMENTE la reconstrucción que empuja backend/core/database.py: sólo
   -- `sub` y `role`, nada más. La forma se assertea ANTES de llamar a la RPC.
@@ -267,7 +267,7 @@ BEGIN
   -- ═══ (5) dos aceptaciones del mismo token ════════════════════════════════
   PERFORM set_config('request.jwt.claims', json_build_object('sub', v_owner_uid::text, 'role', 'authenticated')::text, true);
   v_result := public.rpc_invite_member('gate-accept-bind-twice@test.local'::text, v_account, ARRAY['viewer']::text[]);
-  v_token_twice := (SELECT token FROM account_invitations WHERE id = (v_result->>'id')::uuid);
+  v_token_twice := (public.rpc_send_invitation_email((v_result->>'id')::uuid, 'Negocio Gate', false)->>'token');
 
   PERFORM set_config('request.jwt.claims', json_build_object('sub', v_twice_uid::text, 'role', 'authenticated')::text, true);
   IF auth.uid() IS DISTINCT FROM v_twice_uid THEN
@@ -294,7 +294,7 @@ BEGIN
     IF v_count <> 1 THEN
       RAISE EXCEPTION 'GATE ACCEPT-INVITATION-BINDING FAILED (5): el doble canje dejó % membresías para el mismo usuario (esperaba 1).', v_count;
     END IF;
-    IF (SELECT status FROM account_invitations WHERE token = v_token_twice) <> 'accepted' THEN
+    IF (SELECT status FROM account_invitations WHERE token_hash = encode(sha256(convert_to(v_token_twice, 'UTF8')), 'hex')) <> 'accepted' THEN
       RAISE EXCEPTION 'GATE ACCEPT-INVITATION-BINDING FAILED (5): la invitación canjeada no quedó marcada como aceptada.';
     END IF;
     v_blocks_run := v_blocks_run + 1;
@@ -491,9 +491,9 @@ BEGIN
   ALTER TABLE public.account_invitations ALTER COLUMN email DROP NOT NULL;
 
   INSERT INTO public.account_invitations
-    (id, account_id, email, token, role, roles, status, expires_at, invited_by)
+    (id, account_id, email, token_hash, role, roles, status, expires_at, invited_by)
   VALUES
-    (gen_random_uuid(), v_account, NULL, v_token, 'member', ARRAY['viewer'], 'pending', now() + interval '7 days', v_owner);
+    (gen_random_uuid(), v_account, NULL, encode(sha256(convert_to(v_token, 'UTF8')), 'hex'), 'member', ARRAY['viewer'], 'pending', now() + interval '7 days', v_owner);
 
   PERFORM set_config('request.jwt.claims', json_build_object('sub', v_stranger::text, 'role', 'authenticated')::text, true);
   IF auth.uid() IS DISTINCT FROM v_stranger THEN
@@ -549,7 +549,7 @@ EXCEPTION
   WHEN OTHERS THEN
     RESET request.jwt.claims;
     SET session_replication_role = replica;
-    DELETE FROM account_invitations  WHERE token = v_token;
+    DELETE FROM account_invitations  WHERE token_hash = encode(sha256(convert_to(v_token, 'UTF8')), 'hex');
     DELETE FROM account_member_roles WHERE account_id IN (SELECT id FROM accounts WHERE owner_user_id = ANY(v_uids));
     DELETE FROM account_members      WHERE account_id IN (SELECT id FROM accounts WHERE owner_user_id = ANY(v_uids));
     DELETE FROM cashboxes WHERE branch_id IN (

@@ -15,6 +15,8 @@ interface AiUsage {
   ocrRemaining: number
   /** Lecturas de factura por mes del plan (0 mientras el plan no cargó). */
   ocrLimit: number
+  /** Consultas de IA por mes del plan (0 mientras el plan no cargó). */
+  queriesLimit: number
   resetAt: string | null
   isLoading: boolean
 }
@@ -55,6 +57,7 @@ export function useAiUsage(): AiUsage {
     ocrUsed,
     ocrRemaining:     Math.max(0, maxOcr - ocrUsed),
     ocrLimit:         maxOcr,
+    queriesLimit:     maxQueries,
     resetAt:          query.data?.usage_reset_at ?? null,
     isLoading:        query.isLoading,
   }

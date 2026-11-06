@@ -25,14 +25,15 @@ En prod desde el 2026-10-17 (PRs #651, #652, #653, #654; archivado en #655). Nad
 
 ## 2. Humos reales pendientes de changes ya en prod
 
-Cada uno es un chequeo de dos minutos. Son changes verificados en la base, pero sin tu prueba de uso real.
+Cada uno es un chequeo de dos minutos. Son changes verificados en la base, pero sin tu prueba de uso real. **2026-11-06: cinco de seis PASARON** (sucursal por defecto en ventas, compras y gastos; marca en PDFs; saldo según libro; líneas de servicio).
 
-- [ ] **`ventas-sucursal-por-defecto`** (PR #627, 2026-10-10): hacé una venta por el formulario **sin elegir sucursal** → en el detalle tiene que figurar tu sucursal principal (nunca «sin sucursal»).
+- [x] **`ventas-sucursal-por-defecto`** (PR #627, 2026-10-10): hacé una venta por el formulario **sin elegir sucursal** → en el detalle tiene que figurar tu sucursal principal (nunca «sin sucursal»).
 - [ ] **`stock-movimientos-sucursal-origen`** (PR #631, 2026-10-11): abrí **Stock → Movimientos** y mirá un movimiento viejo de una venta o compra: tiene que mostrar la sucursal de origen.
-- [ ] **`compras-gastos-sucursal-por-defecto`** (PR #635, 2026-10-12): cargá una compra y un gasto **sin elegir sucursal** → los dos quedan en la principal.
-- [ ] **`documentos-marca-empresa`** (PRs #636/#638, 2026-10-11): configurá logo y datos de marca en Configuración y descargá un PDF (recibo, presupuesto o remito): tiene que salir con tu marca.
-- [ ] **`banco-saldo-segun-libro`** (PR #673, 2026-11-05): en **Banco**, elegí una cuenta real y comparé el **Saldo según libro** con el saldo de tu home banking (la diferencia debería ser sólo lo que todavía no cargaste o conciliaste).
-- [ ] **`v31-document-lines-consistency`** (PR #675): cargá una venta y una compra de **servicio** (sin producto) y verificá que aparecen normales en los listados y en Estadísticas; en `/clientes` el total de un cliente con ventas viejas de variantes ya no cuenta doble.
+  - **Falló el 2026-11-06 («no veo la sucursal en los movimientos»)**: no era una regresión — el change completó la sucursal en la base pero declaró «sin superficie frontend» y el panel nunca la mostró; el humo estaba mal redactado. Fix ad-hoc `stock-movimientos-sucursal-visible` (PR #688): cada movimiento muestra su sucursal (o «Sin sucursal» cuando el ledger no la registra) y el CSV gana la columna. **Repetí este chequeo con el fix desplegado (recargá primero).**
+- [x] **`compras-gastos-sucursal-por-defecto`** (PR #635, 2026-10-12): cargá una compra y un gasto **sin elegir sucursal** → los dos quedan en la principal.
+- [x] **`documentos-marca-empresa`** (PRs #636/#638, 2026-10-11): configurá logo y datos de marca en Configuración y descargá un PDF (recibo, presupuesto o remito): tiene que salir con tu marca.
+- [x] **`banco-saldo-segun-libro`** (PR #673, 2026-11-05): en **Banco**, elegí una cuenta real y comparé el **Saldo según libro** con el saldo de tu home banking (la diferencia debería ser sólo lo que todavía no cargaste o conciliaste).
+- [x] **`v31-document-lines-consistency`** (PR #675): cargá una venta y una compra de **servicio** (sin producto) y verificá que aparecen normales en los listados y en Estadísticas; en `/clientes` el total de un cliente con ventas viejas de variantes ya no cuenta doble.
 
 Ya probados por vos y cerrados: `balanza-etiquetas-pos`, `presupuestos-modulo`, `remitos-venta`, `remitos-compra` (2026-10-16).
 
@@ -139,3 +140,4 @@ Se completa a medida que se mergea cada PR. Orden pactado: changes de a uno, sie
 | 23:59 ART (5-nov) | Archive productos-padre-variantes (specs `product-variants` y `product-bulk-pricing` nuevas; `units-of-measure`, `product-sku`, `product-category` modificadas; change cerrado) | #684 | mergeado |
 | 00:45 ART (6-nov) | Fix ad-hoc, 2ª ronda: «Sin sucursal disponible» y caja cerrada al cambiar de negocio (el descarte de caché corría antes del commit de React; ahora va en un efecto; sin migración). Recargar la página antes de probar | #685 | mergeado |
 | 01:15 ART (6-nov) | Demo real de `multiusuario-operativo` PASÓ (7/7, segundo usuario real; `Enforce single session per user` activado por el PO) — sólo docs | PR de docs | mergeado |
+| 01:40 ART (6-nov) | Humos §2: 5/6 PASARON; `stock-movimientos-sucursal-origen` falló por panel sin sucursal → fix ad-hoc `stock-movimientos-sucursal-visible` (sucursal por movimiento + columna CSV; sin migración) | #688 | en revisión |

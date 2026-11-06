@@ -1152,6 +1152,10 @@ export interface StockMovement {
   operationGroupId?: string
   /** Global sequential counter for fiscal compliance and gap detection (item 9). */
   movementNumber?:   number
+  /** Sucursal de la que salió o a la que entró el stock (`stock_movements.branch_id`); nula en el ledger viejo no demostrable. */
+  branchId?:      string
+  /** Nombre de esa sucursal, embebido en la misma lectura (`branches(name)`). */
+  branchName?:    string
   createdAt:      string
 }
 

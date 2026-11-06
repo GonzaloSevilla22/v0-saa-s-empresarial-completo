@@ -34,8 +34,7 @@ import { Badge } from "@/components/ui/badge"
 import {
   ChevronDown, ChevronRight, History, ArrowUpCircle, ArrowDownCircle,
   ClipboardList, AlertTriangle, Wrench, Timer, ArrowRightLeft,
-  ShoppingCart, Store, RefreshCw, Download, Loader2,
-} from "lucide-react"
+  ShoppingCart, Store, RefreshCw, Download, Loader2, MapPin } from "lucide-react"
 import type { StockMovement, MovementType } from "@/lib/types"
 import { cn } from "@/lib/utils"
 import { format, parseISO, subDays } from "date-fns"
@@ -113,6 +112,8 @@ function mapMovement(row: any): StockMovement {
     metadata:        row.metadata        ?? undefined,
     operationGroupId: row.operation_group_id ?? undefined,
     movementNumber:  row.movement_number != null ? Number(row.movement_number) : undefined,
+    branchId:        row.branch_id ?? undefined,
+    branchName:      row.branches?.name ?? undefined,
     createdAt:       row.created_at,
   }
 }
@@ -179,11 +180,15 @@ export const MovementRow = memo(function MovementRow({
       {/* Product */}
       <div className="flex-1 min-w-0 pt-0.5">
         <p className="text-sm font-medium text-foreground truncate">{m.productName}</p>
-        {(m.reason || m.notes) && (
-          <p className="text-xs text-muted-foreground truncate mt-0.5">
-            {m.reason ?? m.notes}
-          </p>
-        )}
+        <p className="text-xs text-muted-foreground truncate mt-0.5">
+          <span className="inline-flex items-center gap-1">
+            <MapPin className="h-3 w-3 shrink-0" aria-hidden="true" />
+            <span className="sr-only">Sucursal: </span>
+            {m.branchName ?? "Sin sucursal"}
+          </span>
+          {(m.reason || m.notes) && <span aria-hidden="true"> · </span>}
+          {(m.reason || m.notes) && <span>{m.reason ?? m.notes}</span>}
+        </p>
       </div>
 
       {/* Before → After */}
@@ -209,7 +214,7 @@ export const MovementRow = memo(function MovementRow({
 // ── CSV export ────────────────────────────────────────────────────────────────
 
 function exportCsv(movements: StockMovement[], deliveryNotes?: ReadonlyMap<string, DeliveryNoteMovementRef>) {
-  const header = ["N°", "Fecha", "Hora", "Tipo", "Producto", "Delta", "Antes", "Después", "Motivo", "Notas", "Grupo operación"]
+  const header = ["N°", "Fecha", "Hora", "Tipo", "Producto", "Sucursal", "Delta", "Antes", "Después", "Motivo", "Notas", "Grupo operación"]
   const rows = movements.map((m) => [
     m.movementNumber ?? "",
     format(parseISO(m.createdAt), "dd/MM/yyyy"),
@@ -218,6 +223,7 @@ function exportCsv(movements: StockMovement[], deliveryNotes?: ReadonlyMap<strin
     // "Dev. venta" para un movimiento del remito.
     labelOf(m, deliveryNotes).text,
     m.productName ?? "",
+    m.branchName ?? "",
     m.quantityDelta,
     m.quantityBefore ?? "",
     m.quantityAfter  ?? "",
@@ -330,7 +336,10 @@ export function StockMovementsPanel({ productId }: StockMovementsPanelProps) {
     // (migration does this on deploy) this JOIN becomes a no-op overhead.
     let query = supabase
       .from("stock_movements")
-      .select("*, products(name)")
+      // `branches(name)`: la sucursal del movimiento viaja embebida (humo del PO 2026-11-06:
+      // «no veo la sucursal en los movimientos» — el ledger la registra desde
+      // stock-movimientos-sucursal-origen pero el panel nunca la mostró).
+      .select("*, products(name), branches(name)")
       .order("created_at", { ascending: false })
       .range(from, to)
 

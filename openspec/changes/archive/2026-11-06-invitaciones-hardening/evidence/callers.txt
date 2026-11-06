@@ -1,0 +1,45 @@
+# Consumidores de account_invitations / de /invitations/ y /invitacion/ (grep del checkpoint 0.4, 2026-11-06).
+# Todo caller de la lista se migra en este PR (regla: al endurecer un contrato, migrar TODOS los callers).
+
+## account_invitations
+.github/workflows/KPI_Validation.yml
+backend/repositories/invitation_repository.py
+backend/tests/test_invitations.py
+backend/tests/test_invitations_integration.py
+frontend/lib/database.types.ts
+supabase/tests/test_accept_invitation_binding.sql
+supabase/tests/test_invitaciones_hardening.sql
+supabase/tests/test_invite_member_roles_and_plan_gate.sql
+supabase/tests/test_membership_rpcs_pivot_rewrite.sql
+supabase/tests/test_multiusuario_invitaciones.sql
+
+## /invitations/ (API) y /invitacion/ (pantalla)
+backend/main.py
+backend/routers/invitations.py
+backend/schemas/invitations.py
+backend/tests/test_invitations.py
+frontend/__tests__/RegisterPage.test.tsx
+frontend/__tests__/a11y/invitaciones.a11y.test.tsx
+frontend/__tests__/app/VerifyEmailPage-invitation-next.test.tsx
+frontend/__tests__/app/auth-actions.test.ts
+frontend/__tests__/auth-context-active-account.test.tsx
+frontend/__tests__/components/InvitationAcceptance.test.tsx
+frontend/__tests__/hooks/use-invitations.test.tsx
+frontend/__tests__/lib/invitation-next.test.ts
+frontend/__tests__/lib/middleware-invitation-route.test.ts
+frontend/__tests__/lib/protected-routes-coverage.test.ts
+frontend/__tests__/pages/organizacion-invitar.test.tsx
+frontend/__tests__/send-email-templates.test.ts
+frontend/app/(dashboard)/organizacion/invitar/page.tsx
+frontend/app/auth/actions.ts
+frontend/app/auth/register/page.tsx
+frontend/app/invitacion/[token]/page.tsx
+frontend/components/invitations/InvitationAcceptance.tsx
+frontend/components/settings/TeamSection.tsx
+frontend/contexts/auth-context.tsx
+frontend/e2e/harness/invitaciones-visual.spec.ts
+frontend/hooks/data/use-invitations.ts
+frontend/lib/auth/invitation-next.ts
+frontend/lib/auth/route-access.ts
+frontend/lib/supabase/middleware.ts
+supabase/functions/_shared/email-templates.ts

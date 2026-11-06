@@ -733,7 +733,7 @@ export type Database = {
           invited_by: string
           role: string
           status: string
-          token: string
+          token_hash: string | null
         }
         Insert: {
           account_id: string
@@ -744,7 +744,7 @@ export type Database = {
           invited_by: string
           role?: string
           status?: string
-          token: string
+          token_hash?: string | null
         }
         Update: {
           account_id?: string
@@ -755,7 +755,7 @@ export type Database = {
           invited_by?: string
           role?: string
           status?: string
-          token?: string
+          token_hash?: string | null
         }
         Relationships: [
           {

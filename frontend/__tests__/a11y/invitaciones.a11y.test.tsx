@@ -18,6 +18,7 @@ const TOKEN = "0123456789abcdef".repeat(4)
 const h = vi.hoisted(() => ({
   user: null as null | { id: string; accountId: string; accountRole: string },
   get: vi.fn(),
+  preview: vi.fn(),
   post: vi.fn(),
   del: vi.fn(),
 }))
@@ -39,7 +40,12 @@ vi.mock("@/hooks/data/use-role-catalog", () => ({
   }),
 }))
 vi.mock("@/lib/api/python-client", () => ({
-  pythonClient: { get: (...a: unknown[]) => h.get(...a), post: (...a: unknown[]) => h.post(...a), delete: (...a: unknown[]) => h.del(...a) },
+  // invitaciones-hardening (D5): la vista previa va por POST /invitations/preview con el token en el cuerpo.
+  pythonClient: {
+    get: (...a: unknown[]) => h.get(...a),
+    post: (path: string, body: unknown) => (path === "/invitations/preview" ? h.preview(path, body) : h.post(path, body)),
+    delete: (...a: unknown[]) => h.del(...a),
+  },
 }))
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), replace: vi.fn() }) }))
 vi.mock("next/link", () => ({
@@ -72,7 +78,8 @@ const PREVIEW = {
 
 beforeEach(() => {
   h.user = { id: "u1", accountId: "acc-1", accountRole: "owner" }
-  h.get.mockReset().mockResolvedValue(PREVIEW)
+  h.get.mockReset()
+  h.preview.mockReset().mockResolvedValue(PREVIEW)
   h.post.mockReset()
   h.del.mockReset()
 })
@@ -94,7 +101,7 @@ describe("/invitacion/[token] — a11y de los cuatro estados", () => {
   })
 
   it("cargando: se anuncia como estado", () => {
-    h.get.mockReturnValue(new Promise(() => undefined))
+    h.preview.mockReturnValue(new Promise(() => undefined))
     wrap(<InvitationAcceptance token={TOKEN} />)
     expect(screen.getByRole("status")).toHaveTextContent(/cargando la invitación/i)
   })
@@ -112,7 +119,7 @@ describe("/invitacion/[token] — a11y de los cuatro estados", () => {
   })
 
   it("no disponible: se anuncia como alerta y la salida tiene nombre", async () => {
-    h.get.mockRejectedValue(new PythonApiError("P404: invalid or expired invitation token", 404, { code: "P0404" }))
+    h.preview.mockRejectedValue(new PythonApiError("P404: invalid or expired invitation token", 404, { code: "P0404" }))
     wrap(<InvitationAcceptance token={TOKEN} />)
 
     const alert = await screen.findByRole("alert")
@@ -122,7 +129,7 @@ describe("/invitacion/[token] — a11y de los cuatro estados", () => {
   })
 
   it("error de carga: alerta con «Reintentar»", async () => {
-    h.get.mockRejectedValue(new Error("Failed to fetch"))
+    h.preview.mockRejectedValue(new Error("Failed to fetch"))
     wrap(<InvitationAcceptance token={TOKEN} />)
     expect(within(await screen.findByRole("alert")).getByRole("button", { name: "Reintentar" })).toBeInTheDocument()
   })
@@ -160,7 +167,7 @@ describe("PendingInvitations — a11y", () => {
   const ROW = {
     id: "inv-1", email: "pendiente@test.local", roles: ["seller"], role_labels: ["Vendedor"], state: "pending",
     created_at: "2026-10-17T12:00:00+00:00", expires_at: "2026-10-24T12:00:00+00:00", invited_by: "u1", invited_by_name: "Dueño",
-    last_sent_at: "2026-10-17T12:00:05+00:00", send_count: 1,
+    last_sent_at: "2026-10-17T12:00:05+00:00", send_count: 1, last_delivery_status: "sent", last_delivery_at: "2026-10-17T12:00:09+00:00",
   }
 
   it("cada acción nombra a QUIÉN afecta (no hay dos «Reenviar» indistinguibles)", async () => {
@@ -181,6 +188,16 @@ describe("PendingInvitations — a11y", () => {
     expect(within(dialog).getByText("¿Revocar la invitación?")).toBeInTheDocument()
     expect(dialog).toHaveAccessibleDescription(/ya no va a poder sumarse/i)
     expect(within(dialog).getByRole("button", { name: "Cancelar" }).className).toMatch(/min-h-11/)
+  })
+
+  it("una entrega fallida se anuncia en la fila y «Reenviar» destacado conserva el alto táctil de 44 px (invitaciones-hardening)", async () => {
+    h.get.mockResolvedValue([{ ...ROW, last_delivery_status: "failed" }])
+    wrap(<PendingInvitations />)
+
+    const row = await screen.findByRole("listitem", { name: "Invitación a pendiente@test.local: No se pudo enviar" })
+    const resend = within(row).getByRole("button", { name: "Reenviar la invitación a pendiente@test.local" })
+    expect(resend.className).toMatch(/min-h-11/)
+    expect(within(row).getByText("No se pudo enviar")).toBeInTheDocument()
   })
 
   it("la lista tiene nombre y la carga se anuncia", async () => {

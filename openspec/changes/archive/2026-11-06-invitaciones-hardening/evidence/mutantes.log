@@ -1,0 +1,11 @@
+MATADO    M1 policy FOR ALL restaurada ['(d)']
+MATADO    M2 GRANT SELECT a authenticated ['(d)', '(e)']
+MATADO    M3 GRANT TRUNCATE a authenticated ['(d)', '(e)']
+MATADO    M4 columna token restaurada y escrita ['(a)', '(b)', '(c)', '(e)', '(f)']
+MATADO    M5 el envío reusa token_hash existente en el primer envío ['(b)', '(c)']
+MATADO    M6 disparador sin partial ['(c)']
+MATADO    M7 disparador borra token de cualquier event_type ['(c)']
+MATADO    M8 enfriamiento cuenta failed ['(h)']
+MATADO    M9 listado no ordena por el envío más reciente ['(g)']
+MATADO    M10 helper ejecutable por authenticated ['(i)']
+control (restaurado): OK

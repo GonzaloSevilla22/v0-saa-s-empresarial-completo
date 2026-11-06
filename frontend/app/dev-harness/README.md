@@ -132,6 +132,16 @@ layout ni scroll ante `wheel`/`touchmove` (RED de `tasks.md` 1.1/2.1).
   `../openspec/changes/productos-padre-variantes/evidence/tanda-b`). Gotcha: los
   botones de editar del catálogo no tenían nombre accesible; ahora llevan
   `aria-label="Editar <producto>"`.
+- `/dev-harness/invitaciones?theme=light|dark` — invitaciones-hardening (task 9.3):
+  el `PendingInvitations` REAL de `/organizacion/invitar` sin sesión ni backend. El
+  listado (cuatro entregas: «Enviado», «En cola», «No se pudo enviar», «Sin
+  confirmación»; una nunca enviada; una vencida) se siembra en la caché de
+  react-query con la clave que usa `useInvitations` sin cuenta (la consulta queda
+  deshabilitada y sirve lo sembrado) y `window.fetch` hacia el backend se intercepta.
+  Spec: `e2e/harness/invitaciones-visual.spec.ts` (también hace la regresión de la
+  pantalla pública `/invitacion/<token>` sin sesión; capturas en
+  `INVITACIONES_SHOT_DIR`, por defecto
+  `../openspec/changes/invitaciones-hardening/evidence/visual`).
 - `/dev-harness/tablero-explicable?theme=light|dark&clamped=1&ai=loading|ok|429` —
   tablero-explicable: el gráfico de ventas, las tarjetas KPI con «de dónde
   sale», la campana y el Resumen IA del día REALES, sin sesión ni backend. Sin

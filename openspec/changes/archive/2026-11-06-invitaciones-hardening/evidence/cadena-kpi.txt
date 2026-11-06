@@ -1,0 +1,8 @@
+Eslabon de reaplicacion de 20261094000001 (el bloque de KPI_Validation.yml) emulado contra la base local tras `supabase db reset`:
+pasada 1 rc=0
+pasada 2 rc=0
+preflight 0+5 en las dos pasadas, introspeccion OK
+cuerpos por md5: 5 de 5
+definiciones vivas: 6 de 6
+schema_snapshot identico: True
+20261094000001 idempotente: 0+5 en las dos pasadas, introspeccion OK, cinco cuerpos presentes, una definicion viva por funcion y schema IDENTICO

@@ -7,9 +7,13 @@ multiusuario-operativo TANDA C (grupo 15) — endpoints de la invitación a una 
       POST /{id}/resend     reenvía: rota el token y renueva el vencimiento
       DELETE /{id}          revoca
 
-  /invitations/{token}      (el invitado, ya autenticado; no exige rol ni cuenta activa)
-      GET                   vista previa ligada a su identidad
-      POST /accept          acepta y deja el negocio como cuenta activa
+  /invitations              (el invitado, ya autenticado; no exige rol ni cuenta activa)
+      POST /preview         vista previa ligada a su identidad; el token va en el CUERPO
+      POST /accept          acepta y deja el negocio como cuenta activa; el token va en el CUERPO
+
+invitaciones-hardening (D5): el token NO viaja en la ruta (el access log de Render registra el path, no
+el cuerpo). `GET /invitations/{token}` y `POST /invitations/{token}/accept` se retiraron sin convivencia
+(0 invitaciones pendientes en producción; el único cliente es el frontend propio).
 
 Los P04xx de las RPCs los traduce a RFC 7807 el handler global (`asyncpg_error_handler`):
 P0404 -> 404, P0409 -> 409, P0401/P0402/P0403 -> 403, P0400 -> 400, P0407 -> 409 y
@@ -34,6 +38,7 @@ from backend.schemas.invitations import (
     InvitationPreview,
     InvitationRevoked,
     InvitationSent,
+    InvitationTokenRequest,
 )
 from backend.services import invitations as invitations_service
 
@@ -100,21 +105,21 @@ async def revoke_invitation(
     )
 
 
-@token_router.get("/{token}", response_model=InvitationPreview)
+@token_router.post("/preview", response_model=InvitationPreview)
 async def preview_invitation(
-    token: str,
+    payload: InvitationTokenRequest,
     auth: dict = Depends(get_current_user),
     repo: InvitationRepository = Depends(get_repo),
 ):
-    """Vista previa para quien abrió el link, SOLO si su identidad es la invitada."""
-    return await invitations_service.preview_invitation(repo, token)
+    """Vista previa para quien abrió el link, SOLO si su identidad es la invitada. Token en el cuerpo."""
+    return await invitations_service.preview_invitation(repo, payload.token)
 
 
-@token_router.post("/{token}/accept", response_model=InvitationAccepted)
+@token_router.post("/accept", response_model=InvitationAccepted)
 async def accept_invitation(
-    token: str,
+    payload: InvitationTokenRequest,
     auth: dict = Depends(get_current_user),
     repo: InvitationRepository = Depends(get_repo),
 ):
-    """Acepta la invitación: crea la membresía y deja el negocio como cuenta activa."""
-    return await invitations_service.accept_invitation(repo, token)
+    """Acepta la invitación: crea la membresía y deja el negocio como cuenta activa. Token en el cuerpo."""
+    return await invitations_service.accept_invitation(repo, payload.token)

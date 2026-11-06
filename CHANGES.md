@@ -4779,3 +4779,24 @@ El pedido literal (RPC con rol y motivo + quitar `GRANT` y policies) es correcto
 - **Verificación.** `pnpm vitest run` completo: 7.426 pasaron, 1 falló (`banco-conciliacion-import-warnings`, ajeno: timeout bajo carga, aislado 8/8). `tsc --noEmit`: 8 errores preexistentes en 5 archivos de tests ajenos, ninguno en la tanda. Pasada visual: arnés `/dev-harness/productos-padre` + spec `harness` 20/20 (5 flujos × 1366/375 × claro/oscuro), 40 capturas en `openspec/changes/productos-padre-variantes/evidence/tanda-b/`.
 
 **Estado.** Tanda B en **PR #683** (sin mergear). Siguiente: merge → humo real del PO (`docs/pendientes-manuales-po.md` §9: crear producto con variantes, corregir la unidad de una familia con historia, aumentar precios de una selección, sugerencia × 1,5) → archive (specs `product-variants` y `product-bulk-pricing` nuevas; `units-of-measure`, `product-sku` y `product-category` modificadas; candidatos `markup-por-cuenta`, `v3-uom-conversion`, conversión asistida de los 233 padres `tracked` y `ocultar-variante-en-simple` en este archivo).
+
+**Archive 2026-11-06 (PR de archive, `opsx/productos-padre-variantes-archive`).** Humo real del PO pendiente (`docs/pendientes-manuales-po.md` §9). Specs sincronizadas: `product-variants` (**capability nueva**, 5 requirements) y `product-bulk-pricing` (**capability nueva**, 5 requirements); `units-of-measure` (+2 ADDED, ~1 MODIFIED), `product-sku` (~1 MODIFIED), `product-category` (~1 MODIFIED). Totales del archive: +12, ~3, -0. `openspec validate --specs --strict`: 119/119. Archivada en `openspec/changes/archive/2026-11-06-productos-padre-variantes/`.
+
+**Candidatos que deja `productos-padre-variantes`** (ninguno urgente):
+
+- **`markup-por-cuenta`** - la sugerencia de precio usa costo x 1,5 fijo; hacer el multiplicador configurable por cuenta.
+- **`v3-uom-conversion`** - conversión real de cantidades entre unidades (hoy la corrección de unidad es relabel sin convertir).
+- **Conversión asistida de padres `tracked` con hijos** - los 233 padres `tracked` armados a mano con 1.075 hijos no pasan solos a `variant_only`.
+- **`ocultar-variante-en-simple`** - la fila de un producto simple sigue ofreciendo la acción «Variante».
+- **Limpieza del COMMENT «provisorio» de `fn_product_base_unit_guard`** - el comentario de la función quedó con la marca de provisorio.
+- **Envoltorio 403 a RFC 7807 duplicado** en `services/quotes.py` y `services/delivery_notes.py` - migrarlo a `require_account_capability`.
+
+---
+
+## Fix ad-hoc `cambio-de-negocio-cache-vieja` - 2026-11-06 (PR **#682** `1cbb863b`; sin change OPSX, sin migración ni backend)
+
+**fix(auth): al cambiar de negocio, Ventas y Stock mostraban la cuenta anterior.** Hallado en la demo real de `multiusuario-operativo` (paso 4).
+
+- **Causa.** `finishAccountChange` hacía `queryClient.clear()` antes de `refreshSession()`. El refetch inmediato de la pantalla abierta salía con el token viejo todavía en memoria y sin `X-Account-Id`; el backend respondía la cuenta vieja para ese token, el guard 409 (`account_switched`) no tenía con qué comparar y la respuesta quedaba cacheada bajo las claves de Ventas y Stock (frescura de 30/60 s). El Tablero se salvaba por `refetchOnMount: "always"`.
+- **Fix.** Resincronizar primero la sesión y descartar/refrescar después con `resetQueries()`, en un helper único para `switchAccount`, `adoptActiveAccount` y el resync.
+- **Verificación.** Test de regresión RED contra el código anterior.

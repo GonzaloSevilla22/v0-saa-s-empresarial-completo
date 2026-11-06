@@ -211,7 +211,7 @@ export default function DashboardPage() {
 
       <div className="grid gap-4 grid-cols-1 lg:grid-cols-7">
         <div className="lg:col-span-4">
-          <SalesChart />
+          <SalesChart branchId={branchId} />
         </div>
         <div className="lg:col-span-3 flex flex-col gap-4">
           <AiSummaryCard todaySales={todaySales} branchId={branchId} />

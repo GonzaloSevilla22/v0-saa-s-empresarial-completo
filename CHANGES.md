@@ -4795,6 +4795,8 @@ El pedido literal (RPC con rol y motivo + quitar `GRANT` y policies) es correcto
 
 ---
 
+- **Humo real del PO: PASÓ 2026-11-06 (4/4)** — alta de producto con variantes, sugerencia × 1,5, corrección de unidad de una familia con historia, precios en lote con vista previa.
+
 ## Fix ad-hoc `stock-movimientos-sucursal-visible` - 2026-11-06 (PR **#688**; sin change OPSX, sin migración ni backend)
 
 **fix(stock): el panel de movimientos muestra la sucursal de cada movimiento.** Hallado en el humo real del PO de `stock-movimientos-sucursal-origen` («no veo la sucursal en los movimientos»).

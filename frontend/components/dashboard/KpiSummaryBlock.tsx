@@ -4,6 +4,8 @@ import { TrendingUp, Share2, PackageX, Receipt, Tag } from "lucide-react"
 import { KpiSummaryCard } from "@/components/dashboard/KpiSummaryCard"
 import { useDashboardKpiSummary } from "@/hooks/data/use-dashboard-kpi-summary"
 import { useChannelMargin } from "@/hooks/data/use-channel-margin"
+import type { KpiExplanationProp } from "@/components/dashboard/KpiExplainTrigger"
+import type { DashboardKpiId } from "@/lib/dashboard-kpi-explanations"
 import {
   kpiDeltaPct,
   kpiBadgeTone,
@@ -20,6 +22,9 @@ interface KpiSummaryBlockProps {
   periodDate: Date
   /** Filtro de sucursal activo (searchParam ?branch=). */
   branchId?: string | null
+  /** Nombre de la sucursal activa (para el contexto de «de dónde sale»);
+   *  `null` = todas. El Tablero lo resuelve una sola vez y lo comparte. */
+  branchName?: string | null
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -29,7 +34,7 @@ interface KpiSummaryBlockProps {
  * variación contra el mes anterior. Grilla 2 col mobile (5ta ancho completo),
  * 3 col tablet, 5 col web.
  */
-export function KpiSummaryBlock({ periodDate, branchId = null }: KpiSummaryBlockProps) {
+export function KpiSummaryBlock({ periodDate, branchId = null, branchName = null }: KpiSummaryBlockProps) {
   const { data, isLoading } = useDashboardKpiSummary(periodDate, branchId)
   const { data: channelData, isLoading: channelLoading } = useChannelMargin(periodDate, branchId)
 
@@ -67,6 +72,13 @@ export function KpiSummaryBlock({ periodDate, branchId = null }: KpiSummaryBlock
     ? null
     : kpiDeltaPct(channelData.marginPct, channelData.prevMarginPct)
 
+  // tablero-explicable (D4): contexto vigente que el diálogo «de dónde sale»
+  // muestra tal cual (mes del selector, sucursal activa).
+  const explain = (id: DashboardKpiId): KpiExplanationProp => ({
+    id,
+    context: { periodDate, branchName },
+  })
+
   return (
     <div
       data-testid="kpi-summary-block"
@@ -74,6 +86,7 @@ export function KpiSummaryBlock({ periodDate, branchId = null }: KpiSummaryBlock
     >
       <KpiSummaryCard
         label="Ganancia Neta"
+        explanation={explain("net_profit")}
         value={noActivity ? "—" : formatKpiCurrency(data.netProfit)}
         badge={formatKpiDelta(netDelta)}
         tone={kpiBadgeTone(netDelta, "up_good")}
@@ -83,6 +96,7 @@ export function KpiSummaryBlock({ periodDate, branchId = null }: KpiSummaryBlock
       />
       <KpiSummaryCard
         label="Margen por Canal"
+        explanation={explain("channel_margin")}
         value={channelEmpty ? "—" : formatChannelMargin(channelData.channels)}
         badge={
           channelEmpty || !channelData.leader
@@ -95,6 +109,7 @@ export function KpiSummaryBlock({ periodDate, branchId = null }: KpiSummaryBlock
       />
       <KpiSummaryCard
         label="Stock sin Rotación"
+        explanation={explain("stagnant_stock")}
         value={empty ? "—" : formatKpiCurrency(data.stagnantStockValue)}
         badge={empty || data.stagnantStockCount == null ? "—" : `${data.stagnantStockCount} productos`}
         tone={kpiBadgeTone(stockDelta, "up_bad")}
@@ -114,6 +129,7 @@ export function KpiSummaryBlock({ periodDate, branchId = null }: KpiSummaryBlock
       />
       <KpiSummaryCard
         label="Costo por Venta"
+        explanation={explain("cost_per_sale")}
         value={empty ? "—" : formatKpiCurrency(data.costPerSale)}
         badge={formatKpiDelta(costDelta)}
         tone={kpiBadgeTone(costDelta, "up_bad")}
@@ -122,6 +138,7 @@ export function KpiSummaryBlock({ periodDate, branchId = null }: KpiSummaryBlock
       />
       <KpiSummaryCard
         label="Ticket Promedio"
+        explanation={explain("avg_ticket")}
         value={empty ? "—" : formatKpiCurrency(data.avgTicket)}
         badge={formatKpiDelta(ticketDelta)}
         tone={kpiBadgeTone(ticketDelta, "up_good")}

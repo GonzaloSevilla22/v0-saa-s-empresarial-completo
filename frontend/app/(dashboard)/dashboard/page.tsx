@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation"
 import { useInsights } from "@/hooks/data/use-insights"
 import { useCriticalStock } from "@/hooks/data/use-critical-stock"
 import { useDashboardFinancials } from "@/hooks/data/use-dashboard-financials"
+import { useActiveBranchName } from "@/hooks/data/use-active-branch-name"
 import { useGreeting } from "@/hooks/use-greeting"
 import { useGoalMilestone } from "@/hooks/three/useGoalMilestone"
 import { Celebration3D } from "@/components/three/Celebration3D"
@@ -22,6 +23,8 @@ import { KpiSummaryBlock } from "@/components/dashboard/KpiSummaryBlock"
 import { PeriodFilter } from "@/components/dashboard/PeriodFilter"
 import { utcDayRange, utcMonthRange, parseMonthKey, argentinaToday } from "@/lib/date-range"
 import { formatKpiCurrency } from "@/lib/kpi-format"
+import type { KpiExplanationProp } from "@/components/dashboard/KpiExplainTrigger"
+import type { DashboardKpiId } from "@/lib/dashboard-kpi-explanations"
 
 // Celebración "meta alcanzada" (v4-visual-3d-refresh 3.6) — umbrales redondos
 // de "ventas hoy". Referencia estable a nivel de módulo (useGoalMilestone la
@@ -50,6 +53,13 @@ export default function DashboardPage() {
   const { data: receivablesSummary, isLoading: loadingReceivables } = useReceivablesSummary()
   // Período del Bloque Resumen KPI (?period=YYYY-MM, mes en curso por defecto).
   const periodDate = parseMonthKey(searchParams.get("period"))
+  // tablero-explicable (D4): contexto que muestra «de dónde sale» en cada
+  // tarjeta — el mismo mes y la misma sucursal que gobiernan los números.
+  const branchName = useActiveBranchName(branchId)
+  const explain = (id: DashboardKpiId): KpiExplanationProp => ({
+    id,
+    context: { periodDate, branchName },
+  })
 
   // ── Tarjetas financieras del MES (tablero-kpis-mes-vigente, D3) ─────────────
   // "Ventas / Gastos / Ganancia neta del mes": get_dashboard_financials sobre la
@@ -166,7 +176,7 @@ export default function DashboardPage() {
 
       {/* Bloque Resumen KPI (spec ALIADATA v1.1) — SIEMPRE arriba del contenido
           existente (Consejos IA / AiSummaryCard quedan más abajo, sin moverse). */}
-      <KpiSummaryBlock periodDate={periodDate} branchId={branchId} />
+      <KpiSummaryBlock periodDate={periodDate} branchId={branchId} branchName={branchName} />
 
       {/* cobranzas-panel (D6): 5 tarjetas — espejo del breakpoint del bloque
           mensual (md:grid-cols-3 xl:grid-cols-5): 5 tarjetas a 1024px quedan
@@ -174,22 +184,26 @@ export default function DashboardPage() {
       <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         <KpiCard
           title="Ventas del mes"
+          explanation={explain("month_sales")}
           value={loadingMonth ? "—" : formatKpiCurrency(monthSales)}
           icon={DollarSign}
         />
         <KpiCard
           title="Gastos del mes"
+          explanation={explain("month_expenses")}
           value={loadingMonth ? "—" : formatKpiCurrency(monthExpenses)}
           icon={TrendingDown}
           iconColor="text-destructive"
         />
         <KpiCard
           title="Ganancia neta del mes"
+          explanation={explain("month_net_profit")}
           value={loadingMonth ? "—" : formatKpiCurrency(monthNetProfit)}
           icon={TrendingUp}
         />
         <KpiCard
           title="Productos en alerta"
+          explanation={explain("critical_stock")}
           value={loadingCriticalStock ? "—" : criticalStockCount.toString()}
           icon={AlertTriangle}
           iconColor="text-warning"
@@ -211,7 +225,7 @@ export default function DashboardPage() {
 
       <div className="grid gap-4 grid-cols-1 lg:grid-cols-7">
         <div className="lg:col-span-4">
-          <SalesChart />
+          <SalesChart branchId={branchId} />
         </div>
         <div className="lg:col-span-3 flex flex-col gap-4">
           <AiSummaryCard todaySales={todaySales} branchId={branchId} />

@@ -8,6 +8,10 @@
  * antes de medir, asertar el contrato literal ("sin necesidad de scroll": el
  * viewport no desborda) y tolerancia de 2 px para el chequeo de cajas.
  *
+ * tablero-explicable (D6): la campana pasó de `DropdownMenu` (role `menu` /
+ * `menuitem`) a `Popover` (role `dialog` / `listitem`); el contrato de scroll
+ * de abajo se conserva tal cual.
+ *
  * qa-integral-modulos G5 (H5): la campana mostraba 6 de 15 notificaciones y el
  * panel no scrolleaba — el max-h-80 vivía en el ROOT del ScrollArea
  * (overflow-hidden, recorta) en vez del viewport interno (habilita el scroll).
@@ -30,9 +34,9 @@ test.describe('G5 — campana de notificaciones', () => {
     await page.goto(HARNESS)
     await page.getByTestId('campana-15').getByRole('button').click()
 
-    const menu = page.getByRole('menu')
+    const menu = page.getByRole('dialog')
     await expect(menu).toBeVisible()
-    const items = menu.getByRole('menuitem')
+    const items = menu.getByRole('listitem')
     await expect(items).toHaveCount(15)
 
     const viewport = menu.locator(VIEWPORT_SEL)
@@ -73,7 +77,7 @@ test.describe('G5 — campana de notificaciones', () => {
     await page.goto(HARNESS)
     await page.getByTestId('campana-15').getByRole('button').click()
 
-    const menu = page.getByRole('menu')
+    const menu = page.getByRole('dialog')
     await expect(menu).toBeVisible()
     const viewport = menu.locator(VIEWPORT_SEL)
 
@@ -89,9 +93,9 @@ test.describe('G5 — campana de notificaciones', () => {
     await page.goto(HARNESS)
     await page.getByTestId('campana-3').getByRole('button').click()
 
-    const menu = page.getByRole('menu')
+    const menu = page.getByRole('dialog')
     await expect(menu).toBeVisible()
-    const items = menu.getByRole('menuitem')
+    const items = menu.getByRole('listitem')
     await expect(items).toHaveCount(3)
 
     // El contenido del menú entra animado (`animate-in zoom-in-95`): medir las

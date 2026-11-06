@@ -4,10 +4,16 @@
  * responsive (grilla 2/3/5, 5ta tarjeta full-width en mobile), "—" sin datos.
  */
 
+import React from "react"
 import { describe, it, expect, vi, beforeEach } from "vitest"
-import { render, screen } from "@testing-library/react"
+import { render, screen, within } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
 import { KpiSummaryBlock } from "@/components/dashboard/KpiSummaryBlock"
 import type { DashboardKpiSummary } from "@/hooks/data/use-dashboard-kpi-summary"
+
+vi.mock("next/link", () => ({
+  default: ({ href, children }: { href: string; children: React.ReactNode }) => <a href={href}>{children}</a>,
+}))
 
 // ── Mocks de los hooks de datos ───────────────────────────────────────────────
 
@@ -227,5 +233,45 @@ describe("KpiSummaryBlock", () => {
     render(<KpiSummaryBlock periodDate={new Date(2026, 5, 15)} />)
 
     expect(screen.queryByText("Por cobrar")).not.toBeInTheDocument()
+  })
+})
+
+// tablero-explicable (D4, task 2.5): las 5 tarjetas del bloque abren «de dónde
+// sale» con el mes del selector de período y la sucursal vigente.
+describe("KpiSummaryBlock — tarjetas explicables (tablero-explicable)", () => {
+  const OCT = new Date("2026-10-01T03:00:00.000Z")
+
+  it("las 5 tarjetas son botones con su explicación", () => {
+    useDashboardKpiSummaryMock.mockReturnValue({ data: fullData, isLoading: false })
+    render(<KpiSummaryBlock periodDate={OCT} />)
+
+    for (const label of ["Ganancia Neta", "Margen por Canal", "Stock sin Rotación", "Costo por Venta", "Ticket Promedio"]) {
+      expect(screen.getByRole("button", { name: new RegExp(`^${label}: .*Ver de dónde sale$`) })).toBeInTheDocument()
+    }
+    expect(screen.getAllByRole("button")).toHaveLength(5)
+  })
+
+  it("abrir «Margen por Canal» muestra la sucursal activa y el mes elegido", async () => {
+    const user = userEvent.setup()
+    useDashboardKpiSummaryMock.mockReturnValue({ data: fullData, isLoading: false })
+    render(<KpiSummaryBlock periodDate={OCT} branchId="b-1" branchName="Centro" />)
+
+    await user.click(screen.getByRole("button", { name: /^Margen por Canal/ }))
+
+    const dialog = await screen.findByRole("dialog", { name: "Margen por Canal" })
+    expect(within(dialog).getByText("Sucursal: Centro")).toBeInTheDocument()
+    expect(within(dialog).getByText("Mes: octubre de 2026 (hora de Argentina)")).toBeInTheDocument()
+    expect(within(dialog).getByText("Comparado con: septiembre de 2026")).toBeInTheDocument()
+  })
+
+  it("sin sucursal elegida el diálogo dice «Todas»", async () => {
+    const user = userEvent.setup()
+    useDashboardKpiSummaryMock.mockReturnValue({ data: fullData, isLoading: false })
+    render(<KpiSummaryBlock periodDate={OCT} />)
+
+    await user.click(screen.getByRole("button", { name: /^Ticket Promedio/ }))
+
+    const dialog = await screen.findByRole("dialog", { name: "Ticket Promedio" })
+    expect(within(dialog).getByText("Sucursal: Todas")).toBeInTheDocument()
   })
 })

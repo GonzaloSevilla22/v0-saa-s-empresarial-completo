@@ -19,10 +19,16 @@
  * still lands on the direct child + animation settles) → REFACTOR.
  */
 
-import { describe, it, expect } from "vitest"
-import { render, screen, waitFor } from "@testing-library/react"
+import React from "react"
+import { describe, it, expect, vi } from "vitest"
+import { render, screen, waitFor, within } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
 import { KpiSummaryCard } from "@/components/dashboard/KpiSummaryCard"
 import { DollarSign } from "lucide-react"
+
+vi.mock("next/link", () => ({
+  default: ({ href, children }: { href: string; children: React.ReactNode }) => <a href={href}>{children}</a>,
+}))
 
 describe("KpiSummaryCard", () => {
   it("still renders label, value and badge (task 1.10 must not change data/content)", () => {
@@ -98,5 +104,81 @@ describe("KpiSummaryCard", () => {
     )
     const outermost = screen.getByText("Ganancia Neta").closest('[style*="opacity"]') as HTMLElement
     await waitFor(() => expect(outermost).toHaveStyle({ opacity: "1" }), { timeout: 2000 })
+  })
+})
+
+// tablero-explicable (D4, task 2.4): con `explanation` la tarjeta es un botón
+// que abre el diálogo «de dónde sale»; sin ella el DOM es el de siempre.
+describe("KpiSummaryCard — explanation (tablero-explicable)", () => {
+  const CONTEXT = { periodDate: new Date("2026-10-01T03:00:00.000Z"), branchName: "Centro" }
+
+  it("sin explanation no hay botón: el DOM es el de antes", () => {
+    render(<KpiSummaryCard label="Ganancia Neta" value="$100" badge="+1%" tone="green" icon={DollarSign} />)
+    expect(screen.queryByRole("button")).not.toBeInTheDocument()
+  })
+
+  it("con explanation es un botón con aria-haspopup y nombre «<título>: <valor>. Ver de dónde sale»", () => {
+    render(
+      <KpiSummaryCard
+        label="Ticket Promedio"
+        value="$4.200"
+        badge="+3%"
+        tone="green"
+        icon={DollarSign}
+        explanation={{ id: "avg_ticket", context: CONTEXT }}
+      />,
+    )
+    const button = screen.getByRole("button", { name: "Ticket Promedio: $4.200. Ver de dónde sale" })
+    expect(button).toHaveAttribute("aria-haspopup", "dialog")
+    expect(button).toHaveAttribute("type", "button")
+    expect(button.className).toMatch(/focus-visible:/)
+  })
+
+  it("abre el diálogo con el contexto del Tablero y devuelve el foco a la tarjeta al cerrar con Esc", async () => {
+    const user = userEvent.setup()
+    render(
+      <KpiSummaryCard
+        label="Ticket Promedio"
+        value="$4.200"
+        badge="+3%"
+        tone="green"
+        icon={DollarSign}
+        explanation={{ id: "avg_ticket", context: CONTEXT }}
+      />,
+    )
+    const button = screen.getByRole("button", { name: /Ticket Promedio/ })
+    await user.click(button)
+
+    const dialog = await screen.findByRole("dialog", { name: "Ticket Promedio" })
+    expect(within(dialog).getByText("Sucursal: Centro")).toBeInTheDocument()
+    expect(within(dialog).getByText("Comparado con: septiembre de 2026")).toBeInTheDocument()
+
+    await user.keyboard("{Escape}")
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    expect(button).toHaveFocus()
+  })
+
+  it("es operable con teclado (Enter y Espacio abren el diálogo)", async () => {
+    const user = userEvent.setup()
+    render(
+      <KpiSummaryCard
+        label="Costo por Venta"
+        value="$900"
+        badge="-2%"
+        tone="green"
+        icon={DollarSign}
+        explanation={{ id: "cost_per_sale", context: CONTEXT }}
+      />,
+    )
+    const button = screen.getByRole("button", { name: /Costo por Venta/ })
+    button.focus()
+    await user.keyboard("{Enter}")
+    expect(await screen.findByRole("dialog", { name: "Costo por Venta" })).toBeInTheDocument()
+    await user.keyboard("{Escape}")
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+
+    button.focus()
+    await user.keyboard(" ")
+    expect(await screen.findByRole("dialog", { name: "Costo por Venta" })).toBeInTheDocument()
   })
 })

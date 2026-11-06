@@ -18,7 +18,7 @@
 
 import { useState } from "react"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import {
   ArrowDown,
   ArrowUp,
@@ -113,7 +113,13 @@ function dueStatusClass(row: { overdueTotal: number; amountCurrent: number }): s
 
 export default function CobranzasPage() {
   const router = useRouter()
-  const [tab, setTab] = useState<"receivables" | "payables">("receivables")
+  // tablero-explicable (D6): la notificación PayablesOverdueDigest enlaza a
+  // `?tab=payables`. Sólo fija la pestaña INICIAL; cambiar de pestaña no
+  // reescribe la URL, y un valor desconocido abre «Por cobrar».
+  const searchParams = useSearchParams()
+  const [tab, setTab] = useState<"receivables" | "payables">(
+    searchParams.get("tab") === "payables" ? "payables" : "receivables",
+  )
   const [bucket, setBucket] = useState<AgingBucketFilter | null>(null)
 
   // ── Por cobrar ──────────────────────────────────────────────────────────

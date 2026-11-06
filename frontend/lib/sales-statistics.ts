@@ -17,6 +17,7 @@
  */
 
 import { formatMoney } from "@/lib/format"
+import { argentinaDaysAgo, argentinaToday } from "@/lib/date-range"
 import { SALE_CHANNELS } from "@/lib/kpi-format"
 
 export type EvolutionBucket = "day" | "week" | "month"
@@ -743,4 +744,59 @@ export function mapProductSalesDetail(raw: ProductSalesDetailRaw): ProductSalesD
       ...mapProductMetrics(m),
     })),
   }
+}
+
+// ═══ tablero-explicable — rango y comparación del gráfico del Tablero ════════
+// D2: presets 7 / 30 / 90 días + rango personalizado. Todo en día argentino y
+// por partes de la fecha de negocio (sin `Date` local).
+
+export type ChartPreset = "7d" | "30d" | "90d" | "custom"
+
+const CHART_PRESET_DAYS: Record<Exclude<ChartPreset, "custom">, number> = {
+  "7d": 7,
+  "30d": 30,
+  "90d": 90,
+}
+
+/** Días calendario del rango [start, end], ambos incluidos. */
+function inclusiveDays(start: string, end: string): number {
+  const toUtc = (iso: string) => {
+    const { yyyy, mm, dd } = businessDateParts(iso)
+    return Date.UTC(Number(yyyy), Number(mm) - 1, Number(dd))
+  }
+  return Math.round((toUtc(end) - toUtc(start)) / 86_400_000) + 1
+}
+
+/** Granularidad automática por el largo del rango: ≤ 31 días → día;
+ *  ≤ 180 → semana; más → mes. */
+export function chartBucketFor(start: string, end: string): EvolutionBucket {
+  const days = inclusiveDays(start, end)
+  if (days <= 31) return "day"
+  if (days <= 180) return "week"
+  return "month"
+}
+
+/** «Últimos N días» = [hoy − (N−1), hoy], con «hoy» el día argentino. */
+export function chartPresetRange(
+  preset: Exclude<ChartPreset, "custom">,
+  now: Date = new Date(),
+): { start: string; end: string } {
+  return { start: argentinaDaysAgo(CHART_PRESET_DAYS[preset] - 1, now), end: argentinaToday(now) }
+}
+
+/** Título del gráfico: nombra el rango, porque el selector mensual del
+ *  Tablero NO lo gobierna. */
+export function chartPresetLabel(preset: ChartPreset, start: string, end: string): string {
+  if (preset === "custom") return `Ventas · ${formatBusinessDate(start)} → ${formatBusinessDate(end)}`
+  return `Ventas · últimos ${CHART_PRESET_DAYS[preset]} días`
+}
+
+/** Alinea por índice los valores del período anterior con los del actual:
+ *  nunca más largo que el actual y `null` donde el anterior no tiene punto
+ *  (el corte de semana/mes puede dar distinta cantidad de puntos). */
+export function alignComparisonSeries(
+  current: readonly number[],
+  previous: readonly number[],
+): (number | null)[] {
+  return current.map((_, i) => (i < previous.length ? previous[i] : null))
 }

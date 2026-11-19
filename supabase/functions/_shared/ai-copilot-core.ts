@@ -54,17 +54,25 @@ export const COPILOT_FALLBACK_MESSAGE = "No pude responder ahora. Probá de nuev
 
 // ─── Modelo por variable con allow-list (D8) ──────────────────────────────────
 
-export const COPILOT_ALLOWED_MODELS: readonly string[] = [
-  "gpt-6.1-terra", "gpt-6-luna", "gpt-4o-mini", "gpt-5-mini", "gpt-4.1-mini",
-]
-export const COPILOT_DEFAULT_MODEL = "gpt-6.1-terra"
 /**
- * Cadena de salto cuando OpenAI contesta que el modelo no existe (la task 0 aún no verificó el
- * default con la clave real): el resuelto primero y después el resto de la allow-list en este orden.
- * `gpt-4o-mini` es el último recurso: es el que ya usan las demás funciones de IA.
+ * Task 0 corrida por el PO con la clave real (2026-11-06, `scripts/ai/verify-copilot-models.ts`):
+ * `gpt-6.1-terra` y `gpt-6-luna` existen pero RECHAZAN las herramientas en /v1/chat/completions
+ * («Function tools with reasoning_effort are not supported for gpt-6.1-terra in
+ * /v1/chat/completions»), aun sin mandar `reasoning_effort`. Con herramientas sirven `gpt-5-mini`
+ * (razonamiento, ~2,7 s), `gpt-4.1-mini` (~0,6 s) y `gpt-4o-mini` (~0,7 s). La familia 6 queda
+ * fuera hasta migrar la función a la Responses API (candidato `copilot-responses-api`).
+ */
+export const COPILOT_ALLOWED_MODELS: readonly string[] = [
+  "gpt-5-mini", "gpt-4.1-mini", "gpt-4o-mini",
+]
+export const COPILOT_DEFAULT_MODEL = "gpt-5-mini"
+/**
+ * Cadena de salto cuando OpenAI contesta que el modelo no existe o no sirve con herramientas: el
+ * resuelto primero y después el resto de la allow-list en este orden. `gpt-4o-mini` es el último
+ * recurso: es el que ya usan las demás funciones de IA.
  */
 export const COPILOT_FALLBACK_ORDER: readonly string[] = [
-  "gpt-6.1-terra", "gpt-6-luna", "gpt-5-mini", "gpt-4.1-mini", "gpt-4o-mini",
+  "gpt-5-mini", "gpt-4.1-mini", "gpt-4o-mini",
 ]
 
 export interface ModelResolution {
@@ -112,8 +120,6 @@ export const COPILOT_MODEL_PARAMS: Record<string, ModelParams> = {
   "gpt-4o-mini": CLASSIC,
   "gpt-4.1-mini": CLASSIC,
   "gpt-5-mini": { ...REASONING, extra: { reasoning_effort: "minimal" } },
-  "gpt-6.1-terra": REASONING,
-  "gpt-6-luna": REASONING,
 }
 
 // ─── Tipos de la conversación con el modelo ───────────────────────────────────
@@ -172,10 +178,16 @@ export function buildOpenAiBody(model: string, req: ModelRequest, params: ModelP
   return body
 }
 
-/** ¿OpenAI dice que el modelo no existe (o no hay acceso)? Los demás 400/404 NO cuentan. */
+/**
+ * ¿OpenAI dice que el modelo no existe (o no hay acceso), o que NO sirve con herramientas en este
+ * endpoint («Function tools … are not supported for <modelo> in /v1/chat/completions», task 0)?
+ * En los dos casos el modelo es inutilizable para el Copilot: se salta al siguiente. Los demás
+ * 400/404 (un parámetro rechazado) NO cuentan: los corrige `adaptParamsFromError`.
+ */
 export function isUnknownModelError(status: number, message: string): boolean {
   if (status !== 404 && status !== 400) return false
-  return /model_not_found|invalid model|unknown model|no such model|model[\s\S]{0,80}(does not exist|not found|do not have access|decommissioned|deprecated)/i.test(message)
+  if (/model_not_found|invalid model|unknown model|no such model|model[\s\S]{0,80}(does not exist|not found|do not have access|decommissioned|deprecated)/i.test(message)) return true
+  return /(function )?tools?[\s\S]{0,80}(not supported|unsupported)[\s\S]{0,80}(for|with) (this model|[\w.-]+ in \/v1\/)/i.test(message)
 }
 
 /**
@@ -238,7 +250,7 @@ export function createModelFailover(opts: ModelFailoverOptions): (req: ModelRequ
         if (res.kind === "http_error") {
           if (isUnknownModelError(res.status, res.message)) {
             const next = opts.candidates[idx + 1]
-            opts.log("warn", `[ai-copilot] el modelo ${model} no existe para esta clave (${res.status}); salto a ${next ?? "(ninguno)"}`)
+            opts.log("warn", `[ai-copilot] el modelo ${model} no existe para esta clave o no sirve con herramientas (${res.status}); salto a ${next ?? "(ninguno)"}: ${res.message.slice(0, 120)}`)
             last = res
             idx++
             jumped = true
